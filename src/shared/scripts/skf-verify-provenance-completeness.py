@@ -451,7 +451,10 @@ Subcommands:
     file that does not tokenize never count. A module or package named
     NAME (`NAME.py`, `NAME/__init__.py`, a TS/JS `NAME.<ext>` or
     `NAME/index.<ext>`) declares NAME too: at its line 1 when no line of it
-    declares NAME.
+    declares NAME. `declared_line` gives this answer for one file, the
+    module rule optional, to a script that loads this one
+    (skf-extraction-snapshot.py's baseline gaps, which apply the module
+    rule only to a `module` or `package` entry).
 
     The files: when a file the name's entries cite declares it,
     `defined_at` is that file's first declaration (the files in entry
@@ -886,6 +889,9 @@ _PY_TARGET_LIST_RE = re.compile(
 )
 # `def \` or `class \`: the name is on the next line.
 _PY_SPLIT_DECL_RE = re.compile(r"^\s*(?:async\s+def|def|class)\s*\\$")
+# A line that can matter to a name it does not hold: an import (which may go
+# on over the next lines) or a `def \` / `class \` whose name is on the next.
+_PY_NAMELESS_MATCH_RE = re.compile(r"^\s*(?:from|import|async|def|class)\b")
 # Tokens that never begin a statement.
 _PY_LAYOUT_TOKENS = frozenset(
     {
@@ -937,6 +943,18 @@ _JS_SPLIT_DECL_RE = re.compile(
     rf"^\s*{_JS_MODIFIERS}(?P<kind>function(?:\s*\*)?|class|interface|type"
     r"|enum|namespace|let|var|const(?:\s+enum)?)$"
 )
+# The keywords every line that opens a statement going on below holds (a
+# `const` / `let` / `var` list, a split declaration, `export {`,
+# `module.exports = {`): a line with none of them, and not the name, can
+# match no rule while no statement is open.
+_JS_OPENING_WORDS = ("const", "let", "var", "function", "class", "interface", "type", "enum", "namespace",
+                     "export", "module")
+
+
+def _js_quiet_lines(code_lines: list[str]) -> list[bool]:
+    """For each comment-free line, True when it holds none of
+    `_JS_OPENING_WORDS`."""
+    return [not any(word in code for word in _JS_OPENING_WORDS) for code in code_lines]
 _JS_VAR_KEYWORDS = frozenset({"const", "let", "var"})
 # How a `const` / `let` / `var` list that did not end on its line goes on
 # (`_js_declarators`): the next line begins a declarator (this one ended
@@ -1074,6 +1092,7 @@ class _SourceCache:
         self._lines: dict[Path, list[str] | None] = {}
         self._starts: dict[Path, set[int] | None] = {}
         self._js_code: dict[Path, list[str]] = {}
+        self._js_quiet: dict[Path, list[bool]] = {}
         self._js_decl: dict[tuple[str, str, bool], _DeclSplit] = {}
 
     def lines(self, path: Path) -> list[str] | None:
@@ -1090,6 +1109,11 @@ class _SourceCache:
         if path not in self._js_code:
             self._js_code[path] = _js_code_lines(lines)
         return self._js_code[path]
+
+    def js_quiet_lines(self, path: Path, code_lines: list[str]) -> list[bool]:
+        if path not in self._js_quiet:
+            self._js_quiet[path] = _js_quiet_lines(code_lines)
+        return self._js_quiet[path]
 
     def js_declarators(
         self, text: str, opened: str = "", fresh: bool = True
@@ -1185,6 +1209,8 @@ def _python_definition_lines(
             continue
         if starts is not None and number not in starts:
             continue
+        if name not in code and not _PY_NAMELESS_MATCH_RE.match(code):
+            continue  # no rule below can match it: spares a scan per name
         top = _is_column_0(text)
         if (
             decl.match(code)
@@ -1429,10 +1455,13 @@ def _tsjs_definition_lines(
     dotted: bool,
     declarators: Callable[..., _DeclSplit] = _js_declarators,
     declarations_only: bool = False,
+    quiet: list[bool] | None = None,
 ) -> list[tuple[int, bool]]:
     """(line, at column 0) for every line that defines `name`.
 
-    `code_lines` are `lines` with comments removed (`_js_code_lines`), so a
+    `quiet` is `_js_quiet_lines(code_lines)` when the caller has it (it does
+    not depend on the name): a quiet line without the name is passed over
+    while no statement is open. `code_lines` are `lines` with comments removed (`_js_code_lines`), so a
     JSDoc line or a commented-out declaration never matches. A line inside
     a multi-line `export { ... }` list or `module.exports = { ... }` object
     takes the column of the line the statement starts on, and so do the
@@ -1538,7 +1567,11 @@ def _tsjs_definition_lines(
     # nested in another's initializer included: (column 0, brackets left
     # open, how, as `_js_declarators` gives them).
     decls: list[tuple[bool, str, str]] = []
+    if quiet is None:
+        quiet = _js_quiet_lines(code_lines)
     for number, (text, code) in enumerate(zip(lines, code_lines), start=1):
+        if quiet[number - 1] and not (decls or split or cont) and name not in code:
+            continue  # no rule below can match it: spares a scan per name
         # A line of a list carried from above still goes through the rules
         # below: it may hold a class member or a local of an arrow function.
         if decls and code.strip():
@@ -1583,7 +1616,9 @@ def _tsjs_definition_lines(
                 found.append((number, top))
             continue
         top = _is_column_0(text)
-        if is_statement(code, number):
+        # every rule that matches a line needs the name in it
+        named = name in code
+        if named and is_statement(code, number):
             found.append((number, top))
             continue
         m = _JS_VAR_DECL_RE.match(code)
@@ -1591,7 +1626,7 @@ def _tsjs_definition_lines(
             carry, pieces = declarators(m.group(1))
             if carry is not None:
                 decls.append((top, *carry))
-            if any(declares(p, number) for p in pieces):
+            if named and any(declares(p, number) for p in pieces):
                 # a later declarator: `export const a = 1, NAME = 2;`
                 found.append((number, top))
                 continue
@@ -1709,7 +1744,8 @@ def _line_matches(
     else:
         code_lines = cache.js_code_lines(path, lines)
         found = _tsjs_definition_lines(
-            lines, code_lines, name, dotted, cache.js_declarators, declarations_only
+            lines, code_lines, name, dotted, cache.js_declarators, declarations_only,
+            cache.js_quiet_lines(path, code_lines),
         )
     if declarations_only:
         top = {n for n, at_column_0 in found if at_column_0}
@@ -1917,6 +1953,23 @@ def _lookup_skips_file(filename: str) -> bool:
     )
 
 
+def _symlinked(root: Path, parts: tuple[str, ...]) -> bool:
+    """True when a path below `root` goes through a symlink, itself
+    included."""
+    return any(root.joinpath(*parts[:i]).is_symlink() for i in range(1, len(parts) + 1))
+
+
+def _readable_below(root: Path, parts: tuple[str, ...], real_root: Path | None = None) -> bool:
+    """True when the `defined_at` lookup may read the file at `parts` below
+    `root`: not a file it skips (`_lookup_skips_file`), no symlink on its
+    path, and its real path a file inside the root (`real_root`, the root
+    resolved)."""
+    if _lookup_skips_file(parts[-1]) or _symlinked(root, parts):
+        return False
+    real = root.joinpath(*parts).resolve()
+    return real.is_relative_to(real_root or root.resolve()) and real.is_file()
+
+
 def _cited_parts(source_file: str) -> tuple[str, ...] | None:
     """A recorded `source_file` as path segments below the source root, None
     when it is absolute or climbs out of the root."""
@@ -1974,9 +2027,61 @@ def _module_name(parts: tuple[str, ...]) -> str | None:
     return parts[-2] if len(parts) > 1 else None
 
 
+def declared_line(
+    source_file: str | tuple[str, ...],
+    name: str,
+    source_root: Path | None = None,
+    *,
+    lines: list[str] | None = None,
+    cache: _SourceCache | None = None,
+    module_fallback: bool = True,
+) -> int | None:
+    """The line at which one file declares `name`, by classify-stale's
+    `defined_at` rule (see the module docstring): its first line at column
+    0 that the definition-line rules match with imports left out (a `def`,
+    `class`, assignment, annotation, type alias, TS/JS declaration, or an
+    alias that renames, such as `from X import Y as NAME`; a plain or star
+    import, an `as` that keeps the imported name, a re-export and an
+    import-valued binding never count), else, with `module_fallback`, its
+    line 1 when it is the module or package so named (`_module_name`).
+
+    `source_file` is the file's path below the source root, as recorded
+    (one that is absolute or climbs out of the root gives None) or as its
+    segments. `lines` are its lines when the caller read them already;
+    otherwise the file is read below `source_root` under the lookup's
+    guards (`_readable_below`: no symlink on its path, its real path
+    inside the root, not a file the lookup skips). Pass one `cache` for
+    the names of one source root, and each file is read and parsed once.
+    None when no line declares the name, the name is empty or dotted, the
+    file is not a Python or TS/JS one, or it cannot be read.
+    """
+    parts = _cited_parts(source_file) if isinstance(source_file, str) else tuple(source_file)
+    if not name or "." in name or not parts or _rule_family(parts[-1]) is None:
+        return None
+    cache = cache if cache is not None else _SourceCache()
+    if lines is None:
+        if source_root is None:
+            raise ValueError("declared_line reads the file below source_root when no lines are given")
+        if not _readable_below(source_root, parts):
+            return None
+        lines = cache.lines(source_root.joinpath(*parts))
+        if lines is None:
+            return None
+    path = Path(*parts)
+    top, _ = _line_matches(path.suffix.lower(), path, lines, name, cache, True)
+    if top:
+        return top[0]
+    return 1 if module_fallback and _module_name(parts) == name else None
+
+
+# declared_line's `cache`, public for a script that loads this one.
+SourceCache = _SourceCache
+
+
 class _DeclarationLookup:
     """Where the source declares the stale names (classify-stale's
-    `defined_at`): a column-0 declaration, an import never counting.
+    `defined_at`): a column-0 declaration, an alias that renames
+    included, a plain or star import and a re-export never counting.
 
     A module or package named after the name (`_module_name`) declares it,
     at its line 1 when no line of it does. A file the name's entries cite
@@ -2010,10 +2115,7 @@ class _DeclarationLookup:
     def _symlinked(self, parts: tuple[str, ...]) -> bool:
         """True when a path below the source root goes through a symlink,
         itself included."""
-        return any(
-            self.root.joinpath(*parts[:i]).is_symlink()
-            for i in range(1, len(parts) + 1)
-        )
+        return _symlinked(self.root, parts)
 
     def _real_folder(self, parts: tuple[str, ...]) -> tuple[str, ...]:
         """The deepest folder of a path below the source root that is one,
@@ -2084,10 +2186,7 @@ class _DeclarationLookup:
         below = self._below_walk_root(parts)
         if any(_lookup_skips_folder(s) for s in below[:-1]):
             return False
-        if _lookup_skips_file(parts[-1]) or self._symlinked(parts):
-            return False
-        real = self.root.joinpath(*parts).resolve()
-        return real.is_relative_to(self.real_root) and real.is_file()
+        return _readable_below(self.root, parts, self.real_root)
 
     def _cited_lines(self, parts: tuple[str, ...]) -> list[str] | None:
         if parts not in self._cited:
@@ -2128,13 +2227,10 @@ class _DeclarationLookup:
         parts: tuple[str, ...], lines: list[str], name: str, cache: _SourceCache
     ) -> str | None:
         """`file:line` of the first line of a file that declares `name`, else
-        its line 1 when it is the module or package so named."""
-        path = Path(*parts)
-        suffix = path.suffix.lower()
-        top, _ = _line_matches(suffix, path, lines, name, cache, True)
-        if not top and _module_name(parts) == name:
-            top = [1]
-        return f"{'/'.join(parts)}:{top[0]}" if top else None
+        its line 1 when it is the module or package so named
+        (`declared_line`)."""
+        line = declared_line(parts, name, lines=lines, cache=cache)
+        return f"{'/'.join(parts)}:{line}" if line is not None else None
 
     # -- the answer ---------------------------------------------------------
 

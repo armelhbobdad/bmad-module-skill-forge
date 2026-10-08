@@ -1184,14 +1184,43 @@ def test_init_records_the_fetch_outcome():
 # --------------------------------------------------------------------------
 
 
-def test_a_missing_registry_writes_the_section_before_moving_on():
-    section = _flow(_slice(_read(SEMANTIC), "### 2. Query Original Knowledge Context", "### 3."))
+def test_a_missing_registry_takes_the_direct_content_fallback():
+    """#681: a Deep-tier audit of a skill with no extraction collection
+    registered (one compiled below Deep tier, or whose collection is gone)
+    reads the skill's own files, as for an empty collection, whatever tier
+    the skill was compiled at. The Semantic Drift header says where the
+    claims came from and names the collection or why there is none, and
+    every row carries the run's label. The plain skip is gone: §4 writes
+    the section and §5 moves on."""
+    text = _read(SEMANTIC)
+    section = _flow(_slice(text, "### 2. Query Original Knowledge Context", "### 3."))
     assert "Run item 1 in the main thread, because only the main thread can end this step" in section
     missing = _slice(section, "**Registry entry missing.**", "**Registry entry present but")
-    for step in ("Append a `## Semantic Drift` section", "append `'semantic-diff'` to `stepsCompleted`",
-                 "auto-proceed to {nextStepFile}"):
-        assert step in missing, step
-    assert "| Architectural changes | {count} |" in _read(SEMANTIC)
+    assert "Whatever tier the skill was compiled at, a Deep-tier audit still checks its claims" in missing
+    assert ("bind `{collection_label}` ← `none (no QMD extraction collection is registered for {skill_name})` "
+            "and take the **direct-content fallback** below. Never skip the step for it.") in missing
+    for gone in ("Skipped", "stepsCompleted", "auto-proceed"):
+        assert gone not in missing, gone
+    empty = _slice(section, "**Registry entry present but", "**Registry entry present and populated.**")
+    assert "Bind `{collection_label}` ← `{collection_name} (registered but empty)`" in empty
+    populated = _slice(section, "**Registry entry present and populated.**", "**Direct-content fallback**")
+    assert ("bind `{collection_label}` ← `{collection_name}`, `{claims_source}` ← `from QMD` and "
+            "`{confidence}` ← `T2`") in populated
+    fallback = _slice(section, "**Direct-content fallback**", "2. Query the collection")
+    assert "(used when no extraction collection is registered for the skill, or the one registered is empty)" in (
+        fallback)
+    assert ("Bind `{claims_source}` ← `read from its SKILL.md and references/*.md in direct-content fallback "
+            "mode` and `{confidence}` ← `T1-low-fallback`") in fallback
+    compiled = _slice(text, "### 4. Compile Semantic Drift Section", "### 5.")
+    header = _flow(_slice(compiled, "## Semantic Drift", "### New Patterns"))
+    assert ("**Method:** the skill's claims ({claims_source}) checked against the current source (Deep tier) "
+            "**QMD Collection:** {collection_label}") in header
+    rows = [line for line in compiled.splitlines() if line.startswith("| {")]
+    assert len(rows) == 5 and all(row.endswith("| {confidence} |") for row in rows), rows
+    assert "| T2 |" not in text
+    # The one skip left is §1's, below Deep tier.
+    assert text.count("**Status:** Skipped") == 1
+    assert "| Architectural changes | {count} |" in text
 
 
 # --------------------------------------------------------------------------

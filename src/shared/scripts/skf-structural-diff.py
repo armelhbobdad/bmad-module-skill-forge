@@ -116,11 +116,26 @@ Canonicalization (applied symmetrically to BOTH sides before matching):
   ` = default`), so a runner's export compares with the map's entry.
 
 Change detection:
-  The diffed fields are type, signature, params, return_type and line. A
-  field is only compared when present (non-null) on BOTH sides: a field
-  absent on one side means "insufficient data", never an asserted change.
+  The diffed fields are type (compared through export-type, below),
+  signature, params, return_type and line. A field is only compared when
+  present (non-null) on BOTH sides: a field absent on one side means
+  "insufficient data", never an asserted change.
   This avoids false positives when the two inventories carry different
   metadata. The line of a moved export is not compared: a move changes it.
+
+  export-type: no record is rewritten, but when a matched export's two
+  types differ, a semantic kind a by-eye read records is the base kind
+  the recipe runner records for the same declaration when the base-kind
+  side's canonical signature shows that form: `async_function` is
+  `function` for an `async def`, `async function`, `async fn` or
+  `async unsafe fn`, or a `const`, `let` or `var` bound to an `async`
+  arrow or function (after `export`, `default`, `declare` or `pub`);
+  `decorator` is `function` for a Python `def` or `async def`; `enum` is
+  `class` for a Python class with a stdlib `Enum`, `IntEnum`, `StrEnum`,
+  `ReprEnum`, `Flag` or `IntFlag` base. Either side may hold the by-eye
+  kind; with no signature on the base-kind side the types differ. Each
+  export whose types it takes as one counts once as `export-type` in
+  applied_transforms.
 
   A signature has two parts, the parameters and the return type. A side
   carries the parameters as params or in its signature, and the return
@@ -172,8 +187,10 @@ Output:
                         (a label change or an unverified signature alone
                         leaves an entry unchanged)
     applied_transforms: list of { transform, count }: which canonicalization
-                        transforms actually fired and how many values each
-                        touched (empty when none fired). Surfaced by audit
+                        transforms, and the export-type comparison,
+                        actually fired and how many values each touched
+                        (export-type: how many exports; empty when none
+                        fired). Surfaced by audit
                         step 6's Provenance section so a reviewer can tell
                         which differences the diff collapsed.
 
@@ -274,6 +291,37 @@ _METHOD_ALIASES = {"ast_bridge": "ast-grep", "source_reading": "source-read"}
 _STDLIB_PREFIX_RE = re.compile(
     r"(?<![\w.])(?:typing|dataclasses|collections\.abc|collections|enum)\."
 )
+
+# export-type: a semantic kind a by-eye read records, against the base kind
+# the recipe runner records for the same declaration, names one kind when
+# the base-kind side's canonical signature shows that form. Any other pair
+# of types, or a base-kind side with no signature, is compared as written.
+# An async form: `async def`, `async function`, `async fn` or `async unsafe
+# fn`, or a `const` / `let` / `var` bound to an `async` arrow or function
+# (`export const add = async (x) => x;`), after any `export`, `default`,
+# `declare` or `pub` modifier.
+_ASYNC_FORM_RE = re.compile(
+    r"^\s*(?:(?:export|default|declare|pub(?:\s*\([^()]*\))?)\s+)*"
+    r"(?:async\s+(?:unsafe\s+)?(?:def|function|fn)\b"
+    r"|(?:const|let|var)\s+[\w$]+\s*(?::(?:[^=]|=>)*)?=\s*async\b)"
+)
+_DEF_FORM_RE = re.compile(r"^\s*(?:async\s+)?def\s")
+_CLASS_BASES_RE = re.compile(r"^\s*class\s+\w+\s*\(([^()]*)\)")
+_ENUM_BASES = frozenset({"Enum", "IntEnum", "StrEnum", "ReprEnum", "Flag", "IntFlag"})
+
+
+def _enum_class_form(signature: str) -> bool:
+    """True when a Python class declaration lists a stdlib enum base."""
+    m = _CLASS_BASES_RE.match(signature)
+    return m is not None and any(base.strip() in _ENUM_BASES for base in m.group(1).split(","))
+
+
+# (by-eye kind, base kind) -> the test of the base-kind side's signature.
+EXPORT_TYPE_FORMS = {
+    ("async_function", "function"): lambda signature: _ASYNC_FORM_RE.match(signature) is not None,
+    ("decorator", "function"): lambda signature: _DEF_FORM_RE.match(signature) is not None,
+    ("enum", "class"): _enum_class_form,
+}
 
 
 # --------------------------------------------------------------------------
@@ -616,6 +664,21 @@ def _label_change(base_rec: dict, curr_rec: dict) -> dict | None:
     return None
 
 
+def _export_type_collapses(base_rec: dict, curr_rec: dict) -> bool:
+    """True when two matched records' types name one kind (EXPORT_TYPE_FORMS):
+    one side's by-eye kind against the other's base kind, whose canonical
+    signature shows that form. Either side may hold the by-eye kind."""
+    for by_eye, base in ((base_rec, curr_rec), (curr_rec, base_rec)):
+        kinds = (by_eye.get("type"), base.get("type"))
+        signature = base.get("signature")
+        if not all(isinstance(kind, str) for kind in kinds) or not isinstance(signature, str):
+            continue
+        form = EXPORT_TYPE_FORMS.get(kinds)
+        if form is not None and form(signature):
+            return True
+    return False
+
+
 def _signature_fields(rec: dict) -> list[str]:
     return [field for field in SIGNATURE_FIELDS if rec.get(field) is not None]
 
@@ -656,14 +719,18 @@ def _diff_records(
     baseline: dict[tuple, dict],
     current: dict[tuple, dict],
     unchanged_names: collections.Counter | None = None,
+    transform_counts: collections.Counter | None = None,
 ) -> dict:
     """Diff two (name, file)-keyed record sets: the LISTS, plus the counts
     unchanged_count and changed_exports (exports with a changed field).
 
     unchanged_names counts the names of exports left out of both sets as
     unchanged (--files): each counts on both sides when a move needs a name
-    unique on both sides.
+    unique on both sides. transform_counts gains one export-type for each
+    matched export whose types name one kind (_export_type_collapses).
     """
+    if transform_counts is None:
+        transform_counts = collections.Counter()
     removed_keys = sorted((k for k in baseline if k not in current), key=_key_order)
     added_keys = sorted((k for k in current if k not in baseline), key=_key_order)
 
@@ -736,6 +803,11 @@ def _diff_records(
             if base_val is None or curr_val is None:
                 continue
             if base_val != curr_val:
+                # A by-eye kind and the runner's base kind of one declaration
+                # are one type: compared pairwise, never rewritten.
+                if field == "type" and _export_type_collapses(base_rec, curr_rec):
+                    transform_counts["export-type"] += 1
+                    continue
                 changed.append({
                     "name": curr_rec["name"],
                     "field": field,
@@ -869,6 +941,7 @@ def diff_inventories(
             _normalize_entries(base_part, reexport_map, transform_counts),
             _normalize_entries(curr_part, reexport_map, transform_counts),
             unchanged_names,
+            transform_counts,
         )
         if group_by:
             for name in LISTS:

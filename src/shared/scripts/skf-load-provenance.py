@@ -23,7 +23,9 @@ skf-structural-diff.py derives the re-export map from the provenance map
 itself and applies the quote-style, stdlib-prefix and re-export transforms
 on both sides (structural-diff.md §1), so no step carries `reexport_map`
 from here; the field stays for a caller that passes it to the diff as
-`--reexport-map`.
+`--reexport-map`. The diff also takes a semantic kind a by-eye read
+records as the runner's base kind for the same declaration (its
+export-type comparison).
 
 The transforms here are pure projections — no I/O against the source tree,
 no comparisons. The script reads one JSON, emits one JSON.

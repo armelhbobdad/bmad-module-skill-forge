@@ -1012,6 +1012,148 @@ class TestCurrentExtra:
 
 
 # --------------------------------------------------------------------------
+# export-type: a by-eye kind against the runner's base kind (#680)
+# --------------------------------------------------------------------------
+
+
+def _by_eye(name="add", export_type="async_function", **overrides):
+    """A provenance-map entry read by eye: its kind, its params, no signature."""
+    return _prov_entry(**{"export_name": name, "export_type": export_type, "source_file": f"pkg/{name}.py",
+                          "source_line": 10, "params": ["x: int"], **overrides})
+
+
+def _runner(name="add", export_type="function", signature="async def add(x: int):", **overrides):
+    """The recipe runner's snapshot export of the same declaration."""
+    return _snap_export(**{"name": name, "type": export_type, "file": f"pkg/{name}.py", "line": 10,
+                           "signature": signature, **overrides})
+
+
+class TestExportTypeCanonicalization:
+    """oms-cognee 1.0.0's map records `async_function`, `decorator` and
+    `enum` where the runner records `function` and `class`: the two name one
+    kind when the runner's signature shows that form, and nothing else
+    collapses. `type` is compared pairwise, never rewritten."""
+
+    def test_a_by_eye_async_against_an_async_def_is_unchanged(self):
+        r = diff_inventories([_by_eye()], [_runner()])
+        assert r["changed"] == [] and r["summary"]["changed"] == 0 and r["unchanged_count"] == 1
+        assert _transform_count(r, "export-type") == 1
+
+    @pytest.mark.parametrize("by_eye, base, signature", [
+        ("async_function", "function", "export async function add(x: number): Promise<void> {"),
+        ("async_function", "function", "export default async function add(x) {"),
+        ("async_function", "function", "pub async fn add(x: i32) -> i32 {"),
+        ("async_function", "function", "pub(crate) async fn add(x: i32) {"),
+        ("async_function", "function", "pub async unsafe fn add(x: i32) {"),
+        ("async_function", "function", "export const add = async (x) => x;"),
+        ("async_function", "function", "const add: (x: number) => Promise<number> = async (x) => x;"),
+        ("async_function", "function", "export let add = async function (x) {"),
+        ("decorator", "function", "def add(*, name: str | None = None):"),
+        ("decorator", "function", "async def add(fn):"),
+        ("enum", "class", "class SearchType(str, Enum):"),
+        ("enum", "class", "class Color(enum.IntFlag):"),
+        ("enum", "class", "class Level(StrEnum, metaclass=Meta):"),
+        ("enum", "class", "class Perm(Flag):"),
+        ("enum", "class", "class Mode(ReprEnum):"),
+    ], ids=["ts-async", "ts-default-async", "rust-async", "rust-pub-crate", "rust-async-unsafe", "async-arrow",
+            "typed-async-arrow", "async-function-expression", "decorator-def", "decorator-async-def", "str-enum",
+            "enum-prefix", "str-enum-base", "flag", "repr-enum"])
+    def test_each_form_collapses(self, by_eye, base, signature):
+        r = diff_inventories([_by_eye(export_type=by_eye)], [_runner(export_type=base, signature=signature)])
+        assert r["changed"] == [], signature
+        assert _transform_count(r, "export-type") == 1
+
+    @pytest.mark.parametrize("by_eye, base, signature", [
+        ("async_function", "function", "def add(x: int):"),
+        ("async_function", "function", "export function add(cb = async function () {}) {"),
+        ("async_function", "function", "export const add = (x) => async () => x;"),
+        ("async_function", "function", None),
+        ("decorator", "function", "export function add(target) {"),
+        ("decorator", "class", "class add:"),
+        ("enum", "class", "export class SearchType {"),
+        ("enum", "class", "class SearchType(str, MyEnum):"),
+        ("enum", "class", "class SearchType(aenum.Enum):"),
+        ("enum", "class", None),
+        ("async_function", "class", "class add:"),
+        ("const", "variable", "const add = 1"),
+        ("namespace", "module", "export namespace add {"),
+        ("sentinel", "variable", "add = _Drop()"),
+    ], ids=["plain-def", "async-in-a-default", "arrow-returning-async", "no-signature", "ts-decorator", "decorator-class",
+            "ts-class", "user-enum-base", "third-party-enum", "enum-no-signature", "async-vs-class", "const",
+            "namespace", "sentinel"])
+    def test_anything_else_stays_a_type_change(self, by_eye, base, signature):
+        r = diff_inventories([_by_eye(export_type=by_eye)], [_runner(export_type=base, signature=signature)])
+        assert [(c["field"], c["baseline_value"], c["current_value"]) for c in r["changed"]] == [
+            ("type", by_eye, base)]
+        assert _transform_count(r, "export-type") == 0
+
+    def test_the_signature_must_be_on_the_base_kind_side(self):
+        # an `async def` the by-eye side records proves nothing about the runner's `function`
+        base = [_by_eye(signature="async def add(x: int):")]
+        r = diff_inventories(base, [_runner(signature=None)])
+        assert [c["field"] for c in r["changed"]] == ["type"]
+
+    def test_either_side_may_hold_the_by_eye_kind(self):
+        # update-skill diffs a runner-built map against a by-eye re-read too
+        base = [_runner(name="add", signature="async def add(x: int):")]
+        curr = [_by_eye(export_type="async_function")]
+        r = diff_inventories(base, curr)
+        assert [c["field"] for c in r["changed"] if c["field"] == "type"] == []
+        assert _transform_count(r, "export-type") == 1
+
+    def test_type_is_never_rewritten(self):
+        # a collapsed export with a moved line keeps both kinds as written, and so do unmatched exports
+        base = [_by_eye(), _by_eye(name="gone", export_type="enum")]
+        curr = [_runner(line=39), _runner(name="new", export_type="function", signature="async def new():")]
+        r = diff_inventories(base, curr)
+        assert [(c["name"], c["field"], c["baseline_value"], c["current_value"]) for c in r["changed"]] == [
+            ("add", "line", 10, 39)]
+        assert [(e["name"], e["type"]) for e in r["removed"]] == [("gone", "enum")]
+        assert [(e["name"], e["type"]) for e in r["added"]] == [("new", "function")]
+        assert _transform_count(r, "export-type") == 1
+
+    def test_a_collapse_counts_once_per_export(self):
+        base = [_by_eye(name=n) for n in ("add", "cognify")] + [_by_eye(name="SearchType", export_type="enum")]
+        curr = [_runner(name="add"), _runner(name="cognify", signature="async def cognify():"),
+                _runner(name="SearchType", export_type="class", signature="class SearchType(str, Enum):")]
+        r = diff_inventories(base, curr)
+        assert r["changed"] == [] and _transform_count(r, "export-type") == 3
+        names = [t["transform"] for t in r["applied_transforms"]]
+        assert names == sorted(names) and "export-type" in names
+
+    def test_a_moved_export_collapses_too(self):
+        r = diff_inventories([_by_eye()], [_runner(file="pkg/new.py", line=3)])
+        assert r["summary"]["moved"] == 1 and r["changed"] == []
+        assert _transform_count(r, "export-type") == 1
+
+    def test_files_scope_counts_only_the_exports_in_scope(self):
+        base = [_by_eye(name="add"), _by_eye(name="keep")]
+        curr = [_runner(name="add"), _runner(name="keep", signature="async def keep():")]
+        r = diff_inventories(base, curr, files=["pkg/add.py"])
+        assert r["changed"] == [] and r["unchanged_count"] == 1
+        assert _transform_count(r, "export-type") == 1
+        assert r["file_scope"]["baseline_left_out"] == 1
+
+    def test_group_by_collapses_within_each_library(self):
+        base = [_by_eye(source_library="lib-a"), _by_eye(name="paint", export_type="enum", source_library="lib-b")]
+        curr = [_runner(source_library="lib-a"),
+                _runner(name="paint", export_type="class", signature="class paint(IntEnum):", source_library="lib-b"),
+                _runner(source_library="lib-b", signature="def add(x: int):")]
+        r = diff_inventories(base, curr, group_by="source_library")
+        assert r["changed"] == [] and _transform_count(r, "export-type") == 2
+        assert [(e["source_library"], e["name"]) for e in r["added"]] == [("lib-b", "add")]
+        assert {g["source_library"]: g["summary"]["unchanged"] for g in r["groups"]} == {"lib-a": 1, "lib-b": 1}
+
+    def test_the_cli_exits_0_when_only_kinds_differ(self, tmp_path):
+        base = _write(tmp_path / "provenance-map.json", {"entries": [
+            _by_eye(confidence="T1", extraction_method="ast-grep")]})
+        curr = _write(tmp_path / "extraction-snapshot.json", {"exports": [_runner(confidence="T1")]})
+        res = _run([str(base), str(curr)])
+        assert res.returncode == 0, res.stdout + res.stderr
+        assert {"transform": "export-type", "count": 1} in json.loads(res.stdout)["applied_transforms"]
+
+
+# --------------------------------------------------------------------------
 # CLI exit codes
 # --------------------------------------------------------------------------
 

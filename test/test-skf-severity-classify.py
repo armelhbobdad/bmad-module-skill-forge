@@ -395,6 +395,33 @@ class TestFromDiff:
         (finding,) = mod.project_diff(_diff(base, curr))
         assert finding["detail"] == "signature: grows(a) -> grows(a, b); return_type: int -> str; line: 20 -> 22"
 
+    def test_a_by_eye_kind_with_a_moved_line_is_a_location_change(self):
+        """#680: the map's by-eye `async_function` is the runner's `function`
+        of an `async def`, so only the line is left: changed/location, LOW,
+        never the CRITICAL changed/signature a raw `type` compare gave."""
+        base = [_export("add", "add.py", 22, type="async_function", confidence="T1-low")]
+        curr = [_export("add", "add.py", 39, signature="async def add(data, dataset_name: str = 'main'):")]
+        diff = _diff(base, curr)
+        assert {"transform": "export-type", "count": 1} in diff["applied_transforms"]
+        (finding,) = mod.project_diff(diff)
+        assert (finding["type"], finding["category"], finding["detail"]) == ("changed", "location", "line 22 -> 39")
+        assert classify_all([finding])["findings"][0]["severity"] == "LOW"
+        # a plain `def` is a real kind change, which stays a signature finding
+        curr = [_export("add", "add.py", 39, signature="def add(data):")]
+        (finding,) = mod.project_diff(_diff(base, curr))
+        assert (finding["type"], finding["category"]) == ("changed", "signature")
+        assert finding["detail"].startswith("type: async_function -> function")
+
+    def test_a_collapsed_kind_beside_a_real_signature_change_reports_the_signature_only(self):
+        base = [_export("add", "add.py", 22, type="async_function", signature="async def add(data):")]
+        curr = [_export("add", "add.py", 22, signature="async def add(data, *, mode: str = 'soft'):")]
+        diff = _diff(base, curr)
+        assert [c["field"] for c in diff["changed"]] == ["signature"]
+        assert {"transform": "export-type", "count": 1} in diff["applied_transforms"]
+        (finding,) = mod.project_diff(diff)
+        assert (finding["type"], finding["category"]) == ("changed", "signature")
+        assert finding["detail"].startswith("signature: ") and "type:" not in finding["detail"]
+
     def test_label_changes_are_never_findings(self):
         diff = _diff([_export("a", "a.py", 1, confidence="T1-low")], [_export("a", "a.py", 1)])
         assert diff["summary"]["label_changes"] == 1
@@ -549,6 +576,24 @@ class TestOtherSources:
         assert line["sources"] == {"diff": 1, "file_drift": 3, "semantic": 1}
         written = json.loads(findings.read_text(encoding="utf-8"))
         assert [f["category"] for f in written] == ["export", "file", "file", "file", "pattern"]
+
+    def test_a_direct_content_fallback_row_is_classified_with_its_label(self, tmp_path):
+        """#681: a Deep audit with no collection registered saves its semantic
+        rows as T1-low-fallback; step 5 projects and grades them as it does
+        a T2 row, the label kept."""
+        semantic = _write_json(tmp_path / "semantic-findings.json", [
+            {"type": "semantic", "category": "convention", "name": "errors", "detail": "now raises ValueError",
+             "file": "pkg/api.py", "line": 12, "confidence": "T1-low-fallback"}])
+        diff = _write_json(tmp_path / "structural-diff.json", _diff([], []))
+        findings = tmp_path / "findings.json"
+        res = _run_cli("--from-diff", str(diff), "--semantic", str(semantic), "-o", str(findings))
+        assert res.returncode == 0, res.stdout + res.stderr
+        assert json.loads(res.stdout)["sources"] == {"diff": 0, "semantic": 1}
+        res = _run_cli(str(findings))
+        assert res.returncode == 0, res.stdout + res.stderr
+        (graded,) = json.loads(res.stdout)["findings"]
+        assert (graded["confidence"], graded["file"], graded["line"]) == ("T1-low-fallback", "pkg/api.py", 12)
+        assert graded["severity"] == classify_all([{**graded, "confidence": "T2"}])["findings"][0]["severity"]
 
     def test_an_absent_optional_file_is_skipped(self, tmp_path):
         diff = _write_json(tmp_path / "structural-diff.json", _diff([], []))

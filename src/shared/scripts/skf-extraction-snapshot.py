@@ -87,7 +87,8 @@ build
                           "hash-tracked": N, "missing": N,
                           "parse-failed": N, "unread": N},
       "ast_fallback_files": ["<file>", ...],
-      "extraction_gaps": [{"name", "file", "line", "entry"}, ...],
+      "extraction_gaps": [{"name", "file", "line", "entry",
+                           "export_type"?}, ...],
       "truncated": bool,               # a recipe hit the runner's head cap
       "cap_hits": ["<recipe id>", ...],
       "outside_scope": [{"path": "<file>", "names": [...],
@@ -106,7 +107,23 @@ build
   ["all files (ast-grep unavailable)"], and [] at the Quick tier.
   `extraction_gaps` lists the names a package entry point exports that no
   recipe found (the runner's `entry_point_diff.extraction_gaps`), less the
-  ones an export of the snapshot now holds: read them by eye.
+  ones an export of the snapshot now holds, then, with --provenance-map,
+  the baseline gaps: each entry of the map the snapshot lacks whose file
+  still declares it (the runner leaves out an underscore name such as
+  `__version__`, and a module), which would otherwise read as removed. A
+  baseline gap gives the line that declares the name, `entry` null and,
+  when the entry has one, its `export_type`. It is checked only for an
+  entry whose file is `extracted` or `read-by-eye`, whose name is not
+  dotted, and that the snapshot holds neither under its name nor under
+  its `reexported_as` target at that file. The declaration is the one
+  skf-verify-provenance-completeness.py's `declared_line` finds, loaded
+  from beside this script: a line at column 0 of a Python or TS/JS file
+  that the definition-line rules match with imports left out (an alias
+  that renames counts; a plain or star import and a re-export never do),
+  and for a `module` or `package` entry the module or package so named
+  (at its line 1). An entry whose file is neither Python nor TS/JS cannot
+  be checked: one warning names each such entry. Each name and file is
+  listed once, and each file is read once. Read them by eye.
   `outside_scope` groups the runner's `entry_point_diff.outside_scope` by
   the file that defines each name: public API a package entry point exports
   from a file the skill does not cover, which the drift report lists under
@@ -130,9 +147,9 @@ relocate
   "names": [...]}; added 0 changes nothing.
 
 Exit codes: 0 the file was written (or relocate found nothing to add); 2
-an input that cannot be read or parsed, or an output that cannot be
-written ({"status": "error", "error"} on stdout), or a usage error
-(argparse, on stderr).
+an input that cannot be read or parsed, a helper beside this script that
+cannot be loaded, or an output that cannot be written ({"status":
+"error", "error"} on stdout), or a usage error (argparse, on stderr).
 """
 
 from __future__ import annotations
@@ -147,6 +164,8 @@ from pathlib import Path
 STATUSES = ("extracted", "read-by-eye", "hash-tracked", "missing", "parse-failed", "unread")
 TO_READ = ("parse-failed", "unread")
 RUNNER_READ = frozenset({"ok", "incomplete"})
+# The files whose provenance entries a baseline gap checks: the ones read.
+BASELINE_GAP_STATUSES = ("extracted", "read-by-eye")
 AST_GREP_UNAVAILABLE = "all files (ast-grep unavailable)"
 EXIT_ERROR = 2
 
@@ -155,24 +174,43 @@ class SnapshotError(Exception):
     """An input or output the helper cannot use (exit 2)."""
 
 
-_PROVENANCE = None
+_SIBLINGS: dict[str, object] = {}
+
+
+def _sibling(filename: str, *needs: str):
+    """A script installed beside this one, loaded once. Any failure to load
+    it, or a script without each name `needs` lists, is a SnapshotError
+    (exit 2)."""
+    if filename not in _SIBLINGS:
+        path = Path(__file__).resolve().parent / filename
+        try:
+            spec = importlib.util.spec_from_file_location(filename[:-3].replace("-", "_"), path)
+            if spec is None or spec.loader is None:
+                raise ImportError(f"no loader for {path}")
+            module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(module)
+        except Exception as exc:  # whatever the script raises, the build reports it
+            raise SnapshotError(f"cannot load {filename} beside {Path(__file__).name}: {exc}") from exc
+        missing = [need for need in needs if getattr(module, need, None) is None]
+        if missing:
+            raise SnapshotError(f"cannot load {filename} beside {Path(__file__).name}: "
+                                f"it has no {', '.join(missing)}")
+        _SIBLINGS[filename] = module
+    return _SIBLINGS[filename]
 
 
 def _provenance():
-    """skf-load-provenance.py, installed beside this script, loaded once."""
-    global _PROVENANCE
-    if _PROVENANCE is None:
-        path = Path(__file__).resolve().parent / "skf-load-provenance.py"
-        spec = importlib.util.spec_from_file_location("skf_load_provenance", path)
-        if spec is None or spec.loader is None:
-            raise SnapshotError(f"cannot load skf-load-provenance.py beside {Path(__file__).name}")
-        module = importlib.util.module_from_spec(spec)
-        try:
-            spec.loader.exec_module(module)
-        except (OSError, ImportError, SyntaxError) as exc:
-            raise SnapshotError(f"cannot load skf-load-provenance.py: {exc}") from exc
-        _PROVENANCE = module
-    return _PROVENANCE
+    """skf-load-provenance.py, for the scan list, the libraries and the
+    re-export map."""
+    return _sibling("skf-load-provenance.py", "bounded_scan_files", "source_library_by_file",
+                    "extract_reexport_map")
+
+
+def _verifier():
+    """skf-verify-provenance-completeness.py, for its declaration rule
+    (`declared_line`, over one `SourceCache`)."""
+    return _sibling("skf-verify-provenance-completeness.py", "declared_line", "SourceCache", "PYTHON_EXTENSIONS",
+                    "TSJS_EXTENSIONS")
 
 
 def _posix(path: str) -> str:
@@ -278,20 +316,80 @@ def _outside_scope(runner: dict) -> list[dict]:
 
 
 def _extraction_gaps(runner: dict, exports: list[dict]) -> list[dict]:
-    """The runner's extraction gaps no export of the snapshot holds yet."""
+    """The runner's extraction gaps no export of the snapshot holds yet, one
+    per name and file."""
     held = {(e["name"], e["file"]) for e in exports}
     names = {e["name"] for e in exports}
-    gaps = []
+    gaps: dict[tuple, dict] = {}
     for item in _entry_point_diff(runner).get("extraction_gaps") or []:
         if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"]:
             continue
         file = _posix(item["file"]) if isinstance(item.get("file"), str) else None
         if (item["name"], file) in held or (file is None and item["name"] in names):
             continue
-        gap = {"name": item["name"], "file": file, "line": item.get("line"), "entry": item.get("entry")}
-        if gap not in gaps:
+        gaps.setdefault((item["name"], file),
+                        {"name": item["name"], "file": file, "line": item.get("line"), "entry": item.get("entry")})
+    return list(gaps.values())
+
+
+def _baseline_gaps(provenance: dict, source_root: Path, statuses: dict[str, str], exports: list[dict],
+                   listed: set[tuple]) -> tuple[list[dict], list[str]]:
+    """The provenance entries the snapshot lacks whose cited file still
+    declares them (the recipe runner leaves out an underscore name such as
+    `__version__`, and a module), each as a gap at its declaration with the
+    entry's `export_type` when it has one, and the entries whose
+    declaration no rule can check (a file neither Python nor TS/JS), as
+    `name in file`. `listed` holds the (name, file) of the gaps already
+    listed. An entry is left out when its name is dotted, when the snapshot
+    holds the name or its `reexported_as` target at the entry's file, or
+    when that file is not `extracted` or `read-by-eye`.
+
+    The declaration is the verifier's (`declared_line`): a column-0 line
+    the definition-line rules match with imports left out (an alias that
+    renames counts; a plain or star import and a re-export never do), and
+    only for a `module` or `package` entry the module or package so named.
+    The entries are taken file by file over one cache, so each file is
+    read and parsed once."""
+    verifier = _verifier()
+    checkable = verifier.PYTHON_EXTENSIONS | verifier.TSJS_EXTENSIONS
+    renamed = _provenance().extract_reexport_map(provenance)
+    held = {(e["name"], e["file"]) for e in exports}
+    seen = set(listed)
+    by_file: dict[str, list[dict]] = {}
+    unchecked: list[str] = []
+    for entry in provenance.get("entries") or []:
+        if not isinstance(entry, dict):
+            continue
+        name, cited = entry.get("export_name"), entry.get("source_file")
+        if not isinstance(name, str) or not isinstance(cited, str):
+            continue
+        # the status is the scan list's file's; the gap names it as an export does
+        name, file = name.strip(), _posix(cited)
+        if not name or "." in name or (name, file) in seen:
+            continue
+        if statuses.get(cited.replace("\\", "/")) not in BASELINE_GAP_STATUSES:
+            continue
+        if (name, file) in held or (renamed.get(name), file) in held:
+            continue
+        seen.add((name, file))
+        if Path(file).suffix.lower() not in checkable:
+            unchecked.append(f"{name} in {file}")
+            continue
+        by_file.setdefault(file, []).append(entry)
+    cache = verifier.SourceCache()
+    gaps = []
+    for file, entries in by_file.items():
+        for entry in entries:
+            name, kind = entry["export_name"].strip(), entry.get("export_type")
+            module = isinstance(kind, str) and kind.strip().lower() in ("module", "package")
+            line = verifier.declared_line(file, name, source_root, cache=cache, module_fallback=module)
+            if line is None:
+                continue
+            gap = {"name": name, "file": file, "line": line, "entry": None}
+            if kind is not None:
+                gap["export_type"] = kind
             gaps.append(gap)
-    return gaps
+    return gaps, unchecked
 
 
 def _ordered(exports) -> list[dict]:
@@ -389,6 +487,16 @@ def build(source_root: Path, tier: str, date: str, provenance: dict | None, runn
         fallback_files = [f["file"] for f in files if f["fallback"]]
     else:
         fallback_files = [] if tier.strip().lower() == "quick" else [AST_GREP_UNAVAILABLE]
+    gaps = _extraction_gaps(runner, ordered) if ran else []
+    if provenance is not None:
+        baseline, unchecked = _baseline_gaps(provenance, source_root, {f["file"]: f["status"] for f in files},
+                                             ordered, {(g["name"], g["file"]) for g in gaps})
+        gaps += baseline
+        if unchecked:
+            warnings.append(f"{len(unchecked)} map entr{'y' if len(unchecked) == 1 else 'ies'} the snapshot "
+                            f"lacks in a file neither Python nor TS/JS, so no declaration was checked and step 3 "
+                            f"may report {'it' if len(unchecked) == 1 else 'them'} removed: "
+                            + ", ".join(unchecked))
     return {
         "extraction_date": date,
         "confidence_tier": tier,
@@ -402,7 +510,7 @@ def build(source_root: Path, tier: str, date: str, provenance: dict | None, runn
         "files": files,
         "files_by_status": {status: by_status[status] for status in STATUSES},
         "ast_fallback_files": fallback_files,
-        "extraction_gaps": _extraction_gaps(runner, ordered) if ran else [],
+        "extraction_gaps": gaps,
         "truncated": bool(runner.get("truncated")) or bool(cap_hits),
         "cap_hits": cap_hits,
         "outside_scope": _outside_scope(runner) if ran else [],

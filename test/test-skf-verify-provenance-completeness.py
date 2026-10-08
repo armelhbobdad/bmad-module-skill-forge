@@ -84,6 +84,12 @@ Covers:
     implementation counted once; no package root at the source root
     (a stray `__init__.py`), a walk that never leaves the source root,
     and an untokenizable file that holds the name making it ambiguous
+  - declared_line (#682): the defined_at rule for one file, read below the
+    source root or from lines given (a dunder, a renaming alias, a module
+    or package named after the name, that module rule optional), None for
+    an import, a local, a dotted name, another language, a missing file,
+    a path outside the root, a symlink on the path or a skipped file, one
+    read per file over one SourceCache, and the lookup's own answer
   - kind-at: recipes from markdown fences and each YAML file shape, the
     language forms, and with the pinned ast-grep: every language the
     recipes cover, the name filter, ambiguous, incomplete and skipped
@@ -3165,6 +3171,102 @@ class TestDefinedAt:
         assert mod.find_definition_lines("u.js", "X", src) == [2]
         for rel in ("m.py", "n.py", "o.py", "r.js", "q.js", "p.js", "s.js", "t.ts", "u.js"):
             assert mod._definition_matches(rel, "X", src, declarations_only=True) == ([], set()), rel
+
+
+class TestDeclaredLine:
+    """declared_line: the defined_at rule for one file, public for skf-extraction-snapshot.py's
+    baseline gaps (#682), and the rule the lookup itself runs."""
+
+    @pytest.mark.parametrize("rel, text, name, line", [
+        ("cognee/__init__.py", "from .version import get_cognee_version\n\n__version__ = get_cognee_version()\n",
+         "__version__", 3),
+        ("cognee/api/v1/__init__.py", "from cognee.api.v1.visualize import visualize_graph as visualize\n",
+         "visualize", 1),
+        ("pkg/m.py", "import os\n\n\nasync def add(x):\n    pass\n", "add", 4),
+        ("pkg/m.ts", "export const a = 1;\nexport class X {}\n", "X", 2),
+        # a module or package named after the name declares it at line 1
+        ("cognee/api/v1/session/session.py", "def get_session():\n    pass\n", "session", 1),
+        ("cognee/modules/pipelines/__init__.py", "from .tasks import Task\n", "pipelines", 1),
+        ("pkg/widget/index.ts", "export const a = 1;\n", "widget", 1),
+    ], ids=["dunder", "alias-that-renames", "async-def", "ts-class", "module", "package", "ts-package"])
+    def test_a_declaration_gives_its_line(self, tmp_path: Path, rel: str, text: str, name: str, line: int) -> None:
+        _write_text(tmp_path, rel, text)
+        assert mod.declared_line(rel, name, tmp_path) == line
+        # lines read already are not read again: the same answer for the file's segments
+        lines = (tmp_path / rel).read_text(encoding="utf-8").split("\n")
+        assert mod.declared_line(tuple(rel.split("/")), name, lines=lines) == line
+
+    @pytest.mark.parametrize("rel, text, name", [
+        ("pkg/m.py", "from .version import __version__\n", "__version__"),
+        ("pkg/m.py", "from .models import *\n", "X"),
+        ("pkg/m.py", "def outer():\n    X = 1\n", "X"),
+        ("pkg/m.py", "# X = 1\n", "X"),
+        ("pkg/m.ts", "export { X } from './x';\n", "X"),
+        ("pkg/m.js", "const X = require('./x');\n", "X"),
+        ("pkg/m.py", "class App:\n    def update(self):\n        pass\n", "App.update"),
+        ("pkg/m.go", "func X() {}\n", "X"),
+        ("pkg/m.py", "def run_startup_migrations():\n    pass\n", "run_migrations"),
+    ], ids=["plain-import", "star-import", "indented-local", "comment", "export-list", "require-binding", "dotted",
+            "no-rule-family", "removed"])
+    def test_no_declaration_gives_none(self, tmp_path: Path, rel: str, text: str, name: str) -> None:
+        _write_text(tmp_path, rel, text)
+        assert mod.declared_line(rel, name, tmp_path) is None
+
+    def test_a_file_it_cannot_read_or_outside_the_root_gives_none(self, tmp_path: Path) -> None:
+        _write_text(tmp_path, "outside.py", "X = 1\n")
+        root = tmp_path / "src"
+        root.mkdir()
+        assert mod.declared_line("pkg/gone.py", "X", root) is None
+        assert mod.declared_line("../outside.py", "X", root) is None
+        assert mod.declared_line(str(tmp_path / "outside.py"), "X", root) is None
+        assert mod.declared_line("pkg/m.py", "", root) is None
+        with pytest.raises(ValueError, match="source_root"):
+            mod.declared_line("pkg/m.py", "X")
+
+    def test_the_module_rule_is_optional(self, tmp_path: Path) -> None:
+        # a removed function named after its file is no declaration without the module rule
+        _write_text(tmp_path, "pkg/widget.py", "def other():\n    pass\n")
+        assert mod.declared_line("pkg/widget.py", "widget", tmp_path) == 1
+        assert mod.declared_line("pkg/widget.py", "widget", tmp_path, module_fallback=False) is None
+        _write_text(tmp_path, "pkg/widget.py", "import os\n\n\ndef widget():\n    pass\n")
+        assert mod.declared_line("pkg/widget.py", "widget", tmp_path, module_fallback=False) == 4
+
+    @pytest.mark.skipif(not hasattr(os, "symlink"), reason="no symlinks")
+    def test_a_symlinked_cited_file_is_not_read(self, tmp_path: Path) -> None:
+        """The lookup's guards hold when declared_line reads the file: no
+        symlink on its path (into the root or out of it), its real path
+        inside the root, and no file the lookup skips."""
+        outside = _write_text(tmp_path, "outside/secret.py", "X = 1\n")
+        root = tmp_path / "src"
+        inside = _write_text(root, "pkg/real.py", "X = 1\n")
+        try:
+            (root / "pkg" / "out.py").symlink_to(outside)
+            (root / "pkg" / "in.py").symlink_to(inside)
+            (root / "linked").symlink_to(root / "pkg", target_is_directory=True)
+        except OSError as exc:
+            pytest.skip(f"cannot create a symlink: {exc}")
+        assert mod.declared_line("pkg/real.py", "X", root) == 1
+        for rel in ("pkg/out.py", "pkg/in.py", "linked/real.py"):
+            assert mod.declared_line(rel, "X", root) is None, rel
+        for rel in ("pkg/test_m.py", "pkg/conftest.py"):
+            _write_text(root, rel, "X = 1\n")
+            assert mod.declared_line(rel, "X", root) is None, rel
+
+    def test_one_cache_reads_each_file_once(self, tmp_path: Path, monkeypatch) -> None:
+        _write_text(tmp_path, "pkg/m.py", "A = 1\nB = 2\n")
+        reads: list[Path] = []
+        real = mod._read_lines
+        monkeypatch.setattr(mod, "_read_lines", lambda path: reads.append(path) or real(path))
+        cache = mod.SourceCache()
+        assert [mod.declared_line("pkg/m.py", n, tmp_path, cache=cache) for n in ("A", "B", "C")] == [1, 2, None]
+        assert len(reads) == 1
+
+    def test_the_lookup_runs_it(self, tmp_path: Path, capsys) -> None:
+        # classify-stale's defined_at for a cited file is declared_line's line
+        files = {**PKG, "pkg/m.py": "import os\n\nX = 1\n"}
+        entries = [MAIN_ENTRY, {"export_name": "X", "source_file": "pkg/m.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["X"], entries) == {"X": "pkg/m.py:3"}
+        assert mod.declared_line("pkg/m.py", "X", tmp_path / "src") == 3
 
 
 class TestLookupSkipsPinnedToTheirSources:

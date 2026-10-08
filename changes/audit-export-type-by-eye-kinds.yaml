@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-audit-skill, skf-update-skill
+summary: |
+  Audit Skill no longer grades a kind the provenance map recorded by eye as a changed signature. The structural diff compared `type` as written, so a by-eye `async_function` or `decorator` against the recipe runner's `function`, or an `enum` against its `class`, became a CRITICAL `changed/signature` finding. The diff now takes the two as one kind when the runner's signature shows that form (an `async def`, `async function`, `async fn` or `async unsafe fn`, or a `const`, `let` or `var` bound to an `async` arrow or function; a Python `def` for a decorator; a Python class with a stdlib `Enum`, `IntEnum`, `StrEnum`, `ReprEnum`, `Flag` or `IntFlag` base) and counts each such export under a new `export-type` entry of `applied_transforms`, which the drift report's Applied Transforms row shows. Such an export whose line also moved is a LOW `changed/location` finding. Update Skill's diff of the files that changed compares the same way, so it no longer lists such an export among its modified exports.
+issues: [680]
