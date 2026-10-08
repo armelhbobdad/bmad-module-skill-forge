@@ -252,7 +252,7 @@ Show `n/a` for a value the run does not have (a docs-only skill reads no provena
 - {Quick: text-diff comparison → T1-low for every export (read by eye)}
 - {Forge: AST structural comparison → T1 for each export an ast-grep rule matches, T1-low for each export read by eye}
 - {Forge+: AST structural comparison + CCC-assisted rename detection → the same labels as Forge}
-- {Deep: AST structural + QMD semantic comparison → the same labels as Forge, plus T2}
+- {Deep: AST structural + a semantic comparison → the same labels as Forge, plus `T2` from QMD or `T1-low-fallback` from the skill's files}
 - {Compose-mode stack, at any tier: constituent freshness by metadata hash (step 1c), with no source re-index}
 - {Docs-only skill, at any tier: each tracked document's content hash against the one recorded at compile time (step 5a), each changed document graded by step 5, with no source re-index}"
 

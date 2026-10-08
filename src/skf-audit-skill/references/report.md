@@ -139,7 +139,7 @@ Build the section from the frontmatter of {outputFile}, where step 1 §6, step 2
 **Confidence Legend:**
 - **T1:** an ast-grep match (`extraction_method: ast-grep`) at any tier: high reliability, structural truth
 - **T1-low:** read by eye (`extraction_method: source-read`) at any tier: moderate reliability
-- **T1-low-fallback:** Deep-tier semantic diff read directly from the skill's docs and the current source because the QMD collection was empty: moderate reliability
+- **T1-low-fallback:** Deep-tier semantic diff read directly from the skill's docs and the current source because no QMD extraction collection was registered for the skill, or the one registered was empty: moderate reliability
 - **T2:** Deep-tier semantic diff: a claim the skill's QMD collection holds, checked against the current source line it cites: evidence-backed semantic analysis
 - **T3:** external documentation reference: variable reliability, secondary source
 ```

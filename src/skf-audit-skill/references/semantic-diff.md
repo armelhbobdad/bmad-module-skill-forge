@@ -11,7 +11,7 @@ auditDataFolder: '{forge_version}/.skf-audit/{timestamp}'
 
 ## STEP GOAL:
 
-Compare what the skill documents about each export (retrieved from its QMD extraction collection) against the current source under `{source_root}` to detect meaning-level changes that structural diff cannot catch. This step executes ONLY at Deep tier: at Quick, Forge, and Forge+ tiers, it appends a skip notice and auto-proceeds.
+Compare what the skill documents about each export (retrieved from its QMD extraction collection, or read from its own files when none is registered or the one registered is empty) against the current source under `{source_root}` to detect meaning-level changes that structural diff cannot catch. This step executes ONLY at Deep tier: at Quick, Forge, and Forge+ tiers, it appends a skip notice and auto-proceeds.
 
 ## Rules
 
@@ -48,16 +48,16 @@ Continue to section 2.
 
 ### 2. Query Original Knowledge Context
 
-Run item 1 in the main thread, because only the main thread can end this step, then launch a subprocess (Pattern 3, data operations) for items 2 to 4:
+Run item 1 in the main thread, because only the main thread can end this step or choose its route, then launch a subprocess (Pattern 3, data operations) for items 2 to 4:
 1. Read the `qmd_collections` registry from `{sidecar_path}/forge-tier.yaml`. Find the entry where `skill_name` matches `{skill_name}` AND `type` is `"extraction"`. Three cases must be handled distinctly — collapsing them into "found vs. not found" silently degrades semantic diff when a collection is registered but never indexed.
 
-   - **Registry entry missing.** Log: "No QMD extraction collection found for `{skill_name}`. Semantic diff skipped." Append a `## Semantic Drift` section holding `**Status:** Skipped: no QMD extraction collection is registered for {skill_name}` to {outputFile}, append `'semantic-diff'` to `stepsCompleted`, and auto-proceed to {nextStepFile}.
+   - **Registry entry missing.** Whatever tier the skill was compiled at, a Deep-tier audit still checks its claims: log "No QMD extraction collection is registered for `{skill_name}`: semantic diff reads the skill's files instead.", bind `{collection_label}` ← `none (no QMD extraction collection is registered for {skill_name})` and take the **direct-content fallback** below. Never skip the step for it.
    - **Registry entry present but collection empty.** Run a pre-query probe — `qmd ls {collection_name}` (CLI) or the equivalent MCP call. If it reports zero files (`Files: 0 (updated never)` or an empty listing), the collection is registered but has never been indexed. Do **not** proceed to querying — queries will return nothing and the step would silently degrade.
      - Log: "QMD collection `{collection_name}` is registered but empty. Run `qmd update` to (re-)index `{collection.path}`, then re-audit for full Deep-tier semantic coverage."
-     - Fall through to the **direct-content fallback** below instead of skipping outright.
-   - **Registry entry present and populated.** Use the `name` field from the registry entry as the collection to query. Proceed to bullet 2.
+     - Bind `{collection_label}` ← `{collection_name} (registered but empty)` and fall through to the **direct-content fallback** below instead of skipping outright.
+   - **Registry entry present and populated.** Use the `name` field from the registry entry as the collection to query, bind `{collection_label}` ← `{collection_name}`, `{claims_source}` ← `from QMD` and `{confidence}` ← `T2`, and proceed to bullet 2.
 
-   **Direct-content fallback** (used when the collection is registered but empty): read what the skill documents about each export from `SKILL.md` and `references/*.md` of the audited skill in place of item 2's query, then run items 3 and 4 on those claims, checking the current source under `{source_root}` with the Deep-tier AST tooling this step already requires (ast_bridge; see step 2 §1 "Deep tier"). This fallback is reachable only from Deep tier: §1 short-circuits Quick/Forge/Forge+ before §2 runs, so AST tooling is guaranteed available here. Record findings with confidence label `T1-low-fallback` rather than T2: the claims come from reading the skill's files, not from its QMD collection. The step's output schema is otherwise unchanged; set `qmd_collection = null` in the Semantic Drift header and annotate: "Semantic diff ran in direct-content fallback mode: QMD collection was registered but empty."
+   **Direct-content fallback** (used when no extraction collection is registered for the skill, or the one registered is empty): read what the skill documents about each export from `SKILL.md` and `references/*.md` of the audited skill in place of item 2's query, then run items 3 and 4 on those claims, checking the current source under `{source_root}` with the Deep-tier AST tooling this step already requires (ast_bridge; see step 2 §1 "Deep tier"). This fallback is reachable only from Deep tier: §1 short-circuits Quick/Forge/Forge+ before §2 runs, so AST tooling is guaranteed available here. Record findings with confidence label `T1-low-fallback` rather than T2: the claims come from reading the skill's files, not from its QMD collection. Bind `{claims_source}` ← `read from its SKILL.md and references/*.md in direct-content fallback mode` and `{confidence}` ← `T1-low-fallback`: §4's header then says the claims came from the skill's files and, in `{collection_label}`, why. The step's output schema is otherwise unchanged.
 
 2. Query the collection for what the skill documents about each export (usage, conventions, dependencies, architecture): the original side
 3. For each claim, read the export's current definition and call sites under `{source_root}` at the file and line `{forge_version}/extraction-snapshot.json` records for it: the current side (an export the snapshot no longer holds is a removed export step 3 already reports: skip it)
@@ -78,7 +78,7 @@ For each finding, record:
 - What changed (description)
 - Evidence (the current source file:line; a claim with no source line is not recorded)
 - Affected exports
-- Confidence: T2
+- Confidence: `{confidence}` (`T2`, or `T1-low-fallback` in direct-content fallback mode)
 
 ### 4. Compile Semantic Drift Section
 
@@ -87,38 +87,38 @@ Append to {outputFile}:
 ```markdown
 ## Semantic Drift
 
-**Method:** the skill's claims (from QMD) checked against the current source (Deep tier)
-**QMD Collection:** {collection_name}
+**Method:** the skill's claims ({claims_source}) checked against the current source (Deep tier)
+**QMD Collection:** {collection_label}
 
 ### New Patterns Detected ({count})
 
 | Pattern | Description | Affected Exports | Evidence | Confidence |
 |---------|------------|-----------------|----------|------------|
-| {pattern} | {description} | {exports} | {evidence} | T2 |
+| {pattern} | {description} | {exports} | {evidence} | {confidence} |
 
 ### Changed Conventions ({count})
 
 | Convention | Before | After | Affected Exports | Evidence | Confidence |
 |-----------|--------|-------|-----------------|----------|------------|
-| {convention} | {old} | {new} | {exports} | {evidence} | T2 |
+| {convention} | {old} | {new} | {exports} | {evidence} | {confidence} |
 
 ### Dependency Shifts ({count})
 
 | Export | Original Dependencies | Current Dependencies | Change | Evidence | Confidence |
 |--------|---------------------|---------------------|--------|----------|------------|
-| {export} | {old_deps} | {new_deps} | {description} | {evidence} | T2 |
+| {export} | {old_deps} | {new_deps} | {description} | {evidence} | {confidence} |
 
 ### Architectural Changes ({count})
 
 | Change | Description | Affected Exports | Evidence | Confidence |
 |--------|-------------|------------------|----------|------------|
-| {change} | {description} | {exports} | {evidence} | T2 |
+| {change} | {description} | {exports} | {evidence} | {confidence} |
 
 ### Deprecated Patterns ({count})
 
 | Pattern | Documented In Skill | Current Status | Evidence | Confidence |
 |---------|-------------------|----------------|----------|------------|
-| {pattern} | {skill_reference} | {status} | {evidence} | T2 |
+| {pattern} | {skill_reference} | {status} | {evidence} | {confidence} |
 
 ### Summary
 
@@ -132,7 +132,7 @@ Append to {outputFile}:
 | **Total Semantic Items** | {total} |
 ```
 
-Save the same rows to `{auditDataFolder}/semantic-findings.json`: step 5 classifies this file, not the tables. It is a JSON array with one object per row, `{"type": "semantic", "category", "name", "detail", "file", "line", "confidence"}`. `category` is its table's: New Patterns `pattern`, Changed Conventions `convention`, Dependency Shifts `dependency`, Architectural Changes `architecture` and Deprecated Patterns `deprecated_pattern`. `name` is the row's first cell, `detail` its description or change, `file` and `line` the current source line its evidence cites, and `confidence` the row's (T2, or T1-low-fallback).
+Save the same rows to `{auditDataFolder}/semantic-findings.json`: step 5 classifies this file, not the tables. It is a JSON array with one object per row, `{"type": "semantic", "category", "name", "detail", "file", "line", "confidence"}`. `category` is its table's: New Patterns `pattern`, Changed Conventions `convention`, Dependency Shifts `dependency`, Architectural Changes `architecture` and Deprecated Patterns `deprecated_pattern`. `name` is the row's first cell, `detail` its description or change, `file` and `line` the current source line its evidence cites, and `confidence` the row's `{confidence}` (`T2`, or `T1-low-fallback` in direct-content fallback mode).
 
 ### 5. Update Report and Auto-Proceed
 

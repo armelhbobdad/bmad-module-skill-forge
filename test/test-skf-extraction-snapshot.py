@@ -7,10 +7,13 @@ into extraction-snapshot.json, with a status for every file, a
 completeness verdict, the libraries of a stack and the public API outside
 the skill's scope, and prints what step 2 acts on (the files to read, the
 extraction gaps, the files read after an ast-grep failure) so it never
-opens the runner's JSON; relocate adds step 3's relocated exports. One
-test runs the real runner (with the pinned ast-grep) over a scan list and
-diffs the snapshot with skf-structural-diff.py, as audit-skill's steps 2
-and 3 do.
+opens the runner's JSON; relocate adds step 3's relocated exports. The
+extraction gaps add the map's entries the runner leaves out (an underscore
+name, a module) while their file still declares them (#682), by the
+verifier's declaration rule, which a build cannot go without. Two tests
+run the real runner (with the pinned ast-grep) over a scan list and diff
+the snapshot with skf-structural-diff.py, as audit-skill's steps 2 and 3
+do.
 """
 
 from __future__ import annotations
@@ -300,6 +303,198 @@ def test_the_build_line_lists_what_to_read_and_takes_one_details_file_per_worker
     assert sorted(e["name"] for e in snap["exports"]) == ["G", "a", "b", "c"]
 
 
+# --------------------------------------------------------------------------
+# Baseline gaps: map entries the runner leaves out (#682)
+# --------------------------------------------------------------------------
+
+# oms-cognee 1.0.0's shape against cognee v1.6.2: the runner drops underscore
+# names and module entries, and its own entry-point diff already lists Drop.
+COGNEE = {
+    "cognee/__init__.py": "from .version import get_cognee_version\n\n__version__ = get_cognee_version()\n",
+    "cognee/api/v1/__init__.py": "from cognee.api.v1.visualize import visualize_graph as visualize\n",
+    "cognee/api/v1/session/session.py": "def get_session():\n    pass\n",
+    "cognee/modules/pipelines/__init__.py": "from .tasks import Task\n",
+    "cognee/pipelines/types.py": "class _Drop:\n    pass\n\n\nDrop = _Drop()\n",
+    "cognee/run_migrations.py": "def run_migrations():\n    pass\n",
+}
+
+
+def _entry(name: str, file: str, export_type: str, line: int = 1, **extra) -> dict:
+    return {"export_name": name, "export_type": export_type, "source_file": file, "source_line": line, **extra}
+
+
+COGNEE_MAP = {"entries": [
+    _entry("__version__", "cognee/__init__.py", "variable", 6),
+    _entry("visualize", "cognee/api/v1/__init__.py", "alias", 6),
+    _entry("session", "cognee/api/v1/session/session.py", "module"),
+    _entry("pipelines", "cognee/modules/pipelines/__init__.py", "module"),
+    _entry("Drop", "cognee/pipelines/types.py", "sentinel", 32),
+    _entry("run_startup_migrations", "cognee/run_migrations.py", "async_function", 80),
+    _entry("run_migrations", "cognee/run_migrations.py", "function"),
+]}
+COGNEE_RUNNER = {"status": "ok", "exports": [_export("run_migrations", "cognee/run_migrations.py", 1)],
+                 "entry_point_diff": {"extraction_gaps": [
+                     {"name": "Drop", "language": "python", "entry": "cognee/__init__.py",
+                      "file": "cognee/pipelines/types.py", "line": 5}]}}
+
+
+def test_a_map_entry_the_source_still_declares_is_a_gap(tmp_path):
+    """Each entry the snapshot lacks whose file still declares it is a gap
+    at its declaration, with the map's export_type: a dunder, an alias that
+    renames, a module and a package. A name the source no longer declares
+    is a real removal, and Drop, which the runner lists, is listed once."""
+    root = _tree(tmp_path / "src", COGNEE)
+    snap = mod.build(root, "Deep", "t", COGNEE_MAP, COGNEE_RUNNER, [], [])
+    assert snap["extraction_gaps"] == [
+        {"name": "Drop", "file": "cognee/pipelines/types.py", "line": 5, "entry": "cognee/__init__.py"},
+        {"name": "__version__", "file": "cognee/__init__.py", "line": 3, "entry": None, "export_type": "variable"},
+        {"name": "visualize", "file": "cognee/api/v1/__init__.py", "line": 1, "entry": None,
+         "export_type": "alias"},
+        {"name": "session", "file": "cognee/api/v1/session/session.py", "line": 1, "entry": None,
+         "export_type": "module"},
+        {"name": "pipelines", "file": "cognee/modules/pipelines/__init__.py", "line": 1, "entry": None,
+         "export_type": "module"},
+    ]
+    # read by eye with the gaps' types, they are held and no gap is left
+    details = [{"name": g["name"], "file": g["file"], "line": g["line"], "type": g.get("export_type", "sentinel")}
+               for g in snap["extraction_gaps"]]
+    snap = mod.build(root, "Deep", "t", COGNEE_MAP, COGNEE_RUNNER, [], details)
+    assert snap["extraction_gaps"] == [] and snap["complete"] is True
+
+
+def test_a_gap_needs_a_read_file_that_declares_the_name(tmp_path):
+    """No gap for a missing or parse-failed file, a file outside the Python
+    and TS/JS families, a dotted name, or a name the snapshot holds at that
+    file under its own name or its reexported_as target; one gap per name
+    and file, however the map spells the file. A file read by eye is
+    checked as an extracted one."""
+    root = _tree(tmp_path / "src", {
+        "pkg/__init__.py": "__all__ = []\n",
+        "pkg/broken.py": "__version__ = '1'\n",
+        "pkg/x.go": "package pkg\n\nfunc _hidden() {}\n",
+        "pkg/app.py": "class App:\n    def update(self):\n        pass\n",
+        "pkg/impl.py": "class _Impl:\n    pass\n\n\nclass _Other:\n    pass\n",
+        "pkg/eye.py": "_SECRET = 1\n",
+        "pkg/twice.py": "_TOKEN = 1\n",
+    })
+    provenance = {"reexport_map": {"_Other": "Other"}, "entries": [
+        _entry("__version__", "pkg/gone.py", "variable"),
+        _entry("__version__", "pkg/broken.py", "variable"),
+        _entry("_hidden", "pkg/x.go", "function"),
+        _entry("App.update", "pkg/app.py", "method"),
+        _entry("App", "pkg/app.py", "class"),
+        _entry("_Impl", "pkg/impl.py", "class", reexported_as="Public"),
+        _entry("_Other", "pkg/impl.py", "class"),
+        _entry("_SECRET", "pkg/eye.py", "constant"),
+        _entry("_TOKEN", "pkg/twice.py", "constant"),
+        _entry("_TOKEN", "./pkg/twice.py", "constant"),
+        _entry("_TOKEN", "pkg\\twice.py", "constant"),
+    ]}
+    runner = {"status": "ok",
+              "exports": [_export("App", "pkg/app.py", 1), _export("Public", "pkg/impl.py", 1),
+                          _export("Other", "pkg/impl.py", 5)],
+              "file_issues": [{"file": "pkg/broken.py", "issue": "syntax-errors", "count": 1, "line": 1}]}
+    snap = mod.build(root, "Forge", "t", provenance, runner, ["pkg/eye.py"], [])
+    statuses = {f["file"]: f["status"] for f in snap["files"]}
+    assert (statuses["pkg/gone.py"], statuses["pkg/broken.py"], statuses["pkg/eye.py"]) == (
+        "missing", "parse-failed", "read-by-eye")
+    assert [(g["name"], g["file"], g["line"], g["export_type"]) for g in snap["extraction_gaps"]] == [
+        ("_SECRET", "pkg/eye.py", 1, "constant"), ("_TOKEN", "pkg/twice.py", 1, "constant")]
+    # no rule reads a Go file: the entry is named in one warning, never dropped in silence
+    assert [w for w in snap["warnings"] if "neither Python nor TS/JS" in w] == [
+        "1 map entry the snapshot lacks in a file neither Python nor TS/JS, so no declaration was checked and "
+        "step 3 may report it removed: _hidden in pkg/x.go"]
+
+
+def test_the_module_rule_is_for_a_module_or_package_entry(tmp_path):
+    """A function or class removed from the file named after it is a real
+    removal: only a `module` or `package` entry is declared by its file's
+    name. An entry with no export_type gives a gap without the key."""
+    root = _tree(tmp_path / "src", {
+        "pkg/__init__.py": "",
+        "pkg/widget.py": "def other():\n    pass\n",
+        "pkg/gadget.py": "def other():\n    pass\n",
+        "pkg/tools/__init__.py": "",
+        "pkg/consts.py": "import os\n\n_LIMIT = 10\n",
+    })
+    provenance = {"entries": [
+        _entry("widget", "pkg/widget.py", "function"),
+        _entry("gadget", "pkg/gadget.py", "module"),
+        _entry("tools", "pkg/tools/__init__.py", "Package"),
+        {"export_name": "_LIMIT", "source_file": "pkg/consts.py", "source_line": 3},
+    ]}
+    runner = {"status": "ok", "exports": [_export("other", "pkg/widget.py", 1), _export("other", "pkg/gadget.py", 1)]}
+    snap = mod.build(root, "Forge", "t", provenance, runner, [], [])
+    assert snap["extraction_gaps"] == [
+        {"name": "gadget", "file": "pkg/gadget.py", "line": 1, "entry": None, "export_type": "module"},
+        {"name": "tools", "file": "pkg/tools/__init__.py", "line": 1, "entry": None, "export_type": "Package"},
+        {"name": "_LIMIT", "file": "pkg/consts.py", "line": 3, "entry": None},
+    ]
+
+
+def test_a_file_an_incomplete_run_left_unread_is_not_checked(tmp_path):
+    root = _tree(tmp_path / "src", {"pkg/a.py": "def a():\n    pass\n", "pkg/slow.py": "__version__ = '1'\n"})
+    provenance = {"entries": [_entry("a", "pkg/a.py", "function"), _entry("__version__", "pkg/slow.py", "variable")]}
+    runner = {"status": "incomplete", "exports": [_export("a", "pkg/a.py", 1)],
+              "errors": [{"reason": "time-limit", "files": 1, "first_file": "pkg/slow.py", "detail": "x",
+                          "unread": ["pkg/slow.py"]}]}
+    snap = mod.build(root, "Forge", "t", provenance, runner, [], [])
+    assert [f["status"] for f in snap["files"]] == ["extracted", "unread"]
+    assert snap["extraction_gaps"] == []
+
+
+def test_without_a_runner_a_file_read_by_eye_is_checked(tmp_path):
+    """At Quick tier every file is read by eye: an entry the reader left out
+    while the file declares it is a gap there too."""
+    root = _tree(tmp_path / "src", {"pkg/__init__.py": "__version__ = '1.0'\n\n\ndef run():\n    pass\n"})
+    provenance = {"entries": [_entry("__version__", "pkg/__init__.py", "variable"),
+                              _entry("run", "pkg/__init__.py", "function", 4)]}
+    details = [{"name": "run", "file": "pkg/__init__.py", "line": 4, "type": "function"}]
+    snap = mod.build(root, "Quick", "t", provenance, None, ["pkg/__init__.py"], details)
+    assert snap["extraction_gaps"] == [{"name": "__version__", "file": "pkg/__init__.py", "line": 1, "entry": None,
+                                        "export_type": "variable"}]
+    # an unread file is not checked before it is read
+    snap = mod.build(root, "Quick", "t", provenance, None, [], [])
+    assert snap["extraction_gaps"] == []
+
+
+def test_the_runners_gaps_are_one_per_name_and_file(tmp_path):
+    root = _tree(tmp_path / "src", {"pkg/a.py": ""})
+    runner = {"status": "ok", "exports": [], "entry_point_diff": {"extraction_gaps": [
+        {"name": "G", "language": "python", "entry": "pkg/__init__.py", "file": "pkg/a.py", "line": 3},
+        {"name": "G", "language": "python", "entry": "pkg/sub/__init__.py", "file": "pkg/a.py", "line": 3}]}}
+    snap = mod.build(root, "Forge", "t", {"entries": []}, runner, [], [])
+    assert snap["extraction_gaps"] == [{"name": "G", "file": "pkg/a.py", "line": 3, "entry": "pkg/__init__.py"}]
+
+
+@pytest.mark.parametrize("verifier", [None, "raise RuntimeError('broken install')\n", "def other():\n    pass\n"],
+                         ids=["missing", "raises", "no-declared-line"])
+def test_a_verifier_that_cannot_load_is_a_build_error(tmp_path, verifier):
+    """The declaration rule is the verifier's: a snapshot helper installed
+    without it beside it, with one that fails to load whatever it raises,
+    or with one that has no declared_line stops with exit 2 and the error
+    JSON instead of listing no baseline gap."""
+    alone = tmp_path / "scripts"
+    alone.mkdir()
+    for name in ("skf-extraction-snapshot.py", "skf-load-provenance.py"):
+        shutil.copy2(SCRIPTS / name, alone / name)
+    if verifier is not None:
+        _write(alone / "skf-verify-provenance-completeness.py", verifier)
+    root = _tree(tmp_path / "src", COGNEE)
+    provenance = _write(tmp_path / "provenance-map.json", COGNEE_MAP)
+    runner = _write(tmp_path / "extraction.json", COGNEE_RUNNER)
+    out = tmp_path / "extraction-snapshot.json"
+    result = subprocess.run([sys.executable, str(alone / "skf-extraction-snapshot.py"), "build", "--source-root",
+                             str(root), "--tier", "Forge", "--date", "t", "--provenance-map", str(provenance),
+                             "--extraction", str(runner), "-o", str(out)],
+                            capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
+    line = json.loads(result.stdout)
+    assert (result.returncode, line["status"]) == (2, "error"), result.stdout + result.stderr
+    assert line["error"].startswith("cannot load skf-verify-provenance-completeness.py beside "
+                                    "skf-extraction-snapshot.py: ")
+    assert "Traceback" not in result.stderr and not out.exists()
+
+
 def test_relocate_adds_a_removed_name_found_outside_the_scope(tmp_path):
     """Step 3's relocation check: the runner's exports over the candidate
     files join the snapshot only under a removed name, from a file outside
@@ -377,3 +572,72 @@ def test_the_runner_snapshot_diffs_against_the_map(tmp_path):
     assert [(c["name"], c["field"]) for c in result["changed"]] == [("helper", "signature")]
     assert [r["name"] for r in result["removed"]] == ["old"]
     assert [a["name"] for a in result["added"]] == ["added"]
+
+
+@pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")
+def test_the_runner_leaves_dunders_and_modules_to_the_baseline_gaps(tmp_path):
+    """#680 and #682 end to end: the runner leaves out `__version__`, an
+    alias, a module and an underscore name the map records, which the build
+    lists as gaps with their map types; read by eye at those lines, they
+    are held, and the diff reports no removal and no kind change for the
+    by-eye `async_function` the runner records as a `function`, while the
+    name the map records as a `variable` and the source now declares with
+    a `def` is a real kind change."""
+    root = _tree(tmp_path / "src", {
+        "pkg/__init__.py": ("from .version import get_version\nfrom .api import session\n"
+                            "from .api.visualize import visualize_graph as visualize\n\n__version__ = get_version()\n"),
+        "pkg/version.py": "def get_version():\n    return '1'\n\n\ndef _registry():\n    return {}\n",
+        "pkg/api/__init__.py": "",
+        "pkg/api/session.py": "def get_session():\n    pass\n",
+        "pkg/api/visualize.py": "async def visualize_graph(path: str | None = None):\n    pass\n",
+    })
+    by_eye = {"confidence": "T1-low", "extraction_method": "source-read"}
+    provenance = _write(tmp_path / "forge" / "provenance-map.json", {"entries": [
+        _entry("__version__", "pkg/__init__.py", "variable", 5, **by_eye),
+        _entry("visualize", "pkg/__init__.py", "alias", 3, **by_eye),
+        _entry("session", "pkg/api/session.py", "module", **by_eye),
+        _entry("visualize_graph", "pkg/api/visualize.py", "async_function", params=["path: str | None = None"],
+               **by_eye),
+        _entry("get_version", "pkg/version.py", "function", confidence="T1", extraction_method="ast-grep"),
+        _entry("_registry", "pkg/version.py", "variable", 5, **by_eye),
+    ]})
+    data = tmp_path / "forge" / ".skf-audit" / "20260101-000000"
+    data.mkdir(parents=True)
+    scan, extraction = data / "scan-files.json", data / "extraction.json"
+    assert _run("scan-list", str(provenance), "-o", str(scan))[0] == 0
+    runner = subprocess.run([sys.executable, str(RUNNER), "--mode", "full", "--source-root", str(root),
+                             "--files-from", str(scan), "--head-cap", "0", "-o", str(extraction)],
+                            capture_output=True, text=True, encoding="utf-8", timeout=300, check=False)
+    assert runner.returncode == 0, runner.stderr
+    snapshot = tmp_path / "forge" / "extraction-snapshot.json"
+    build = ["build", "--source-root", str(root), "--tier", "Forge", "--date", "t", "--provenance-map",
+             str(provenance), "--extraction", str(extraction), "-o", str(snapshot)]
+    code, line = _run(*build)
+    assert code == 0 and line["complete"] is True
+    gaps = line["extraction_gaps"]
+    assert [(g["name"], g["file"], g["line"], g["export_type"]) for g in gaps] == [
+        ("__version__", "pkg/__init__.py", 5, "variable"), ("visualize", "pkg/__init__.py", 3, "alias"),
+        ("session", "pkg/api/session.py", 1, "module"), ("_registry", "pkg/version.py", 5, "variable")]
+    # read by eye as re-index.md item 3 says: the map's kind while the declaration keeps it, else the kind it
+    # has now; the import line for a renaming alias; `module` and the dotted path for a module
+    read = {
+        "__version__": ("variable", "__version__ = get_version()"),
+        "visualize": ("alias", "from .api.visualize import visualize_graph as visualize"),
+        "session": ("module", "module pkg.api.session"),
+        "_registry": ("function", "def _registry():"),
+    }
+    details = _write(data / "export-details-1.json", {"files": [], "exports": [
+        {"name": g["name"], "file": g["file"], "line": g["line"], "type": read[g["name"]][0],
+         "signature": read[g["name"]][1], "confidence": "T1-low", "extraction_method": "source-read",
+         "ast_node_type": None} for g in gaps]})
+    code, line = _run(*build, "--details", str(details))
+    assert (code, line["extraction_gaps"]) == (0, [])
+    diff = subprocess.run([sys.executable, str(DIFF), str(provenance), str(snapshot)], capture_output=True,
+                          text=True, encoding="utf-8", timeout=120, check=False)
+    result = json.loads(diff.stdout)
+    # nothing reads as removed, the by-eye async kind is the runner's function, and the real kind change shows
+    assert result["removed"] == []
+    assert [(c["name"], c["field"], c["baseline_value"], c["current_value"]) for c in result["changed"]] == [
+        ("_registry", "type", "variable", "function")]
+    assert [a["name"] for a in result["added"]] == ["get_session"]
+    assert {"transform": "export-type", "count": 1} in result["applied_transforms"]
