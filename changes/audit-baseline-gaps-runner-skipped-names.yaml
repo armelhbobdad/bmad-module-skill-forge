@@ -2,4 +2,5 @@ type: fixed
 scope: skf-audit-skill
 summary: |
   Audit Skill no longer reports a baseline export the recipe runner leaves out as a removed CRITICAL export while the source still declares it. The runner skips underscore names such as `__version__` and module entries, and nothing sent them to be read by eye, so they read as removed. `skf-extraction-snapshot.py build` now adds to `extraction_gaps` each provenance map entry the snapshot lacks whose file, extracted or read by eye, still declares the name (a Python or TS/JS declaration at column 0 or an alias that renames it, and for a `module` or `package` entry the module or package so named), at that line and with the map's `export_type` when it has one, and lists in `warnings` the entries in other languages, which it cannot check. The re-index step reads each gap by eye once, records it with the map's kind while the declaration still has that kind (so a real kind change is still reported), and warns about a gap it cannot place instead of reading it again.
+prs: [691]
 issues: [682]

@@ -2,4 +2,5 @@ type: fixed
 scope: skf-audit-skill
 summary: |
   A Deep-tier audit now runs its semantic diff for a skill that has no QMD extraction collection registered, whatever tier the skill was compiled at. The step used to skip with a `Skipped` status; it now reads what the skill documents from its `SKILL.md` and `references/*.md`, as it already did for a registered collection that is empty, checks those claims against the current source and labels its findings `T1-low-fallback`, and the Semantic Drift header says the claims came from the skill's files and why.
+prs: [691]
 issues: [681]
