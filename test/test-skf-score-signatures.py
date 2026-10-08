@@ -141,6 +141,8 @@ def test_scores_and_gap_records(tmp_path):
     out = json.loads(proc.stdout)
     assert json.loads(out_path.read_text(encoding="utf-8")) == out
     assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (1, 2, 50.0)
+    # the names compared, which the gap ledger reads (#678)
+    assert out["comparedNames"] == ["fetchData", "helper"]
     # Types on the surface: Extra (class), Level (enum), Mode (type), Options (interface).
     assert (out["documentedTypes"], out["totalTypes"], out["typeCoverage"]) == (2, 4, 50.0)
     assert out["missingTypes"] == ["Extra", "Level"]

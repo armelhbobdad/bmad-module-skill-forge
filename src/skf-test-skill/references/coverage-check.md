@@ -255,7 +255,7 @@ Exit 2 printed an `INVALID_INPUT` envelope: correct the input it names and run i
   uv run {verifyProvenanceCompletenessHelper} classify-stale --names "{run_dir}/coverage.json" --provenance "{forge_provenance_map}" --source-root "{source_path}" -o "{run_dir}/stale.json"
   ```
 
-  A name it marks `fabricated: true` (every map entry of the name cites a missing file or one that does not define it) is a Critical `fabricated-signature` gap at its `source`. Any other stale name (no entry, the conditions above not met, a helper that does not resolve or exits non-zero) is a Medium `stale-documentation` gap.
+  A name it marks `fabricated: true` (every map entry of the name cites a missing file or one that does not define it) is a Critical `fabricated-signature` gap at its `source`. A name with a `defined_at` (the source still declares it there, an import never counting, a module so named counting), or whose `declared_in` lists several files of which the skill's `[AST:]`/`[SRC:]` citations on lines naming it cite exactly one, is a documented extra: an Info `observation` gap at that declaration, when `surface.json` has an `extraction` and its `excluded.outsideScope` does not list the name (a brief scoped its file out). Any other stale name (no `defined_at` and no single cited declaring file, one scoped out, no `extraction`, a dotted name, the conditions above not met, a helper that does not resolve or exits non-zero) is a Medium `stale-documentation` gap.
 
 ### 4. Category Scores and the Denominator Record
 
@@ -334,7 +334,7 @@ Write the **Coverage Analysis** section in place of the template's `## Coverage 
 - **Documented:** {`documented`} ({`exportCoverage`}%)
 - **Missing Documentation:** {`missingCount`; docs-only: the incomplete items, each with the fields it lacks}
 - **Signature Mismatches:** {the length of `signatures.json` `mismatches`}
-- **Stale Documentation:** {`staleCount`}
+- **Stale Documentation:** {`staleCount`}, documented extras included (§2c)
 - **Scoring Warnings:** each entry of `signatures.json` `warnings`; omit this row when there is none
 - **Numerator Surplus:** {`numeratorSurplus`}, uncapped coverage {`coverageUncapped`}%; only when `coverageCapped: true` (then `Missing Documentation: 0` is a floored residual)
 

@@ -62,6 +62,28 @@ Covers:
     without the name, an unchecked export type, a file-less entry alone
     and in either place beside a missing file, the first cited entry's
     citation, a repeated name, a bare name list, and exit 2 on bad input
+  - classify-stale's `defined_at` (#678): column-0 declarations that count
+    (Python and TS/JS, an `as` alias that renames included) and the
+    imports, re-exports, same-name aliases, import-valued bindings
+    (`require(...)`, `(await) import(...)`, on the line or the next),
+    locals, comments and untokenizable files that do not; a cited file
+    first, else exactly one declaring file of the walk (a homonym gives
+    null); the walk root, the entries' shared folder widened to its
+    package root (`__init__.py` chain, nearest `package.json`), leaving
+    out an entry outside every package, else the source root; the skipped
+    places (installed and built output, test configuration, `*.min.js`),
+    judged below the walk root, and `lib/` walked; the rule families the
+    map cites; no lookup for a fabricated or dotted name; a cited path
+    outside the root and a symlink anywhere on a path never read; a
+    lookup error gives null with exit 0; one pass, each file read once
+    and no walk after cited hits; the lookup rules opt-in, the default
+    `require` declarator kept; and the skip sets pinned to their sources;
+    a module or package named after the name declaring it (at line 1 when
+    no line of it does), and `declared_in` listing every walked
+    declaration of a name the walk looked for, a stub beside its
+    implementation counted once; no package root at the source root
+    (a stray `__init__.py`), a walk that never leaves the source root,
+    and an untokenizable file that holds the name making it ambiguous
   - kind-at: recipes from markdown fences and each YAML file shape, the
     language forms, and with the pinned ast-grep: every language the
     recipes cover, the name filter, ambiguous, incomplete and skipped
@@ -2533,8 +2555,8 @@ class TestClassifyStale:
             {"export_name": "ghost", "source_file": "lib/gone.py", "source_line": 4},
             {"export_name": "ghost", "source_file": "lib/other.py", "source_line": 9}])
         assert code == 0
-        assert out == [{"name": "ghost", "fabricated": True, "source": "lib/gone.py:4", "reason": "not-defined",
-                        "entries": [
+        assert out == [{"name": "ghost", "fabricated": True, "source": "lib/gone.py:4", "defined_at": None,
+                        "declared_in": None, "reason": "not-defined", "entries": [
                             {"source_file": "lib/gone.py", "source_line": 4, "line_check": "file-missing",
                              "definition_lines": None},
                             {"source_file": "lib/other.py", "source_line": 9, "line_check": "file-missing",
@@ -2556,8 +2578,9 @@ class TestClassifyStale:
     def test_no_entry_is_not_fabricated(self, tmp_path: Path, capsys) -> None:
         _, [out] = self._run(tmp_path, capsys, ["unmapped"], [
             {"export_name": "search", "source_file": "lib/config.py", "source_line": 11}])
-        assert out == {"name": "unmapped", "fabricated": False, "source": None, "reason": "no-entry",
-                       "entries": []}
+        # the walk looked for it and found no declaration
+        assert out == {"name": "unmapped", "fabricated": False, "source": None, "defined_at": None,
+                       "declared_in": [], "reason": "no-entry", "entries": []}
 
     def test_an_unchecked_entry_is_not_fabricated(self, tmp_path: Path, capsys) -> None:
         _write_text(tmp_path / "src", "lib.rs", "pub fn add() {}\n")
@@ -2574,10 +2597,12 @@ class TestClassifyStale:
             {"export_name": "ghost", "export_type": "function"},
             {"export_name": "spectre", "source_file": None, "source_line": None}])
         assert out == [
-            {"name": "ghost", "fabricated": False, "source": None, "reason": "unchecked",
+            {"name": "ghost", "fabricated": False, "source": None, "defined_at": None, "declared_in": [],
+             "reason": "unchecked",
              "entries": [{"source_file": None, "source_line": None, "line_check": "no-file",
                           "definition_lines": None}]},
-            {"name": "spectre", "fabricated": False, "source": None, "reason": "unchecked",
+            {"name": "spectre", "fabricated": False, "source": None, "defined_at": None, "declared_in": [],
+             "reason": "unchecked",
              "entries": [{"source_file": None, "source_line": None, "line_check": "no-file",
                           "definition_lines": None}]}]
 
@@ -2654,6 +2679,536 @@ class TestClassifyStale:
         result = _run_cli("classify-stale", "--names", str(tmp_path / "nope.json"), "--provenance", str(prov),
                           "--source-root", str(tmp_path / "src"))
         assert result.returncode == 2 and "names not found" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# classify-stale: defined_at, the documented-extra lookup (#678)
+# --------------------------------------------------------------------------
+
+# A package whose map's one entry cites `pkg/main.py`: the walk root is `pkg/`.
+PKG = {"pkg/__init__.py": "from .main import main\n", "pkg/main.py": "def main():\n    pass\n"}
+MAIN_ENTRY = {"export_name": "main", "source_file": "pkg/main.py", "source_line": 1}
+# An entry of a TS/JS file outside every package: the map then cites both families.
+TS_ENTRY = {"export_name": "y", "source_file": "pkg/y.ts", "source_line": 1}
+
+
+def _defined_at(tmp_path: Path, capsys, files: dict[str, str], stale: list[str],
+                entries: list[dict] | None = None) -> dict[str, str | None]:
+    """classify-stale over `files` (below src/), as coverage-check §2c runs it: name -> defined_at."""
+    src = tmp_path / "src"
+    src.mkdir(parents=True, exist_ok=True)
+    for rel, text in files.items():
+        _write_text(src, rel, text)
+    names = _write_json(tmp_path / "run" / "coverage.json", {"branch": "enumerated", "stale": stale})
+    prov = _write_json(tmp_path / "provenance-map.json", {"entries": [MAIN_ENTRY] if entries is None else entries})
+    code = mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov), "--source-root", str(src)])
+    assert code == 0
+    return {o["name"]: o["defined_at"] for o in json.loads(capsys.readouterr().out)}
+
+
+def _declares(rel: str) -> str:
+    return "class X:\n    pass\n" if rel.endswith(".py") else "export class X {}\n"
+
+
+class TestDefinedAt:
+    """Where the source declares a stale name that is not fabricated: a documented extra to test-skill."""
+
+    def test_an_extra_with_an_entry_is_at_its_cited_declaration(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/tasks/task.py": "class Task:\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "Task", "source_file": "pkg/tasks/task.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["Task"], entries) == {"Task": "pkg/tasks/task.py:1"}
+
+    def test_an_extra_with_no_entry_is_found_in_the_walk(self, tmp_path: Path, capsys) -> None:
+        # the cognee shape: names the package root re-exports from a nested package, with no entry of their own
+        files = {
+            **PKG,
+            "pkg/__init__.py": "from .main import main\nfrom .modules.pipelines import Task, run_tasks\n",
+            "pkg/modules/pipelines/__init__.py": "from .tasks.task import Task\nfrom .operations import run_tasks\n",
+            "pkg/modules/pipelines/tasks/task.py": "from typing import Any\n\n\nclass Task:\n    pass\n",
+            "pkg/modules/pipelines/operations.py": "import asyncio\n\n\nasync def run_tasks(tasks):\n    pass\n",
+            "pkg/models/data_point.py": "import uuid\n\n\nclass DataPoint:\n    id: uuid.UUID\n",
+        }
+        out = _defined_at(tmp_path, capsys, files, ["Task", "run_tasks", "DataPoint"])
+        assert out == {"Task": "pkg/modules/pipelines/tasks/task.py:4",
+                       "run_tasks": "pkg/modules/pipelines/operations.py:4",
+                       "DataPoint": "pkg/models/data_point.py:4"}
+
+    @pytest.mark.parametrize("rel, text, line", [
+        ("pkg/m.py", "from .base import Base\n\nX = Base()\n", 3),
+        ("pkg/m.py", "X: int = 1\n", 1),
+        ("pkg/m.py", "X: int\n", 1),
+        ("pkg/m.py", "A, X = 1, 2\n", 1),
+        ("pkg/m.py", "type X = int\n", 1),
+        ("pkg/m.py", "async def X():\n    pass\n", 1),
+        ("pkg/m.py", "from .impl import Impl as X\n", 1),
+        ("pkg/m.py", "import json as X\n", 1),
+        ("pkg/m.py", "from .impl import (\n    a,\n    Impl as X,\n)\n", 3),
+        ("pkg/m.py", "from .impl import X\n\n\nclass X(X):\n    pass\n", 4),
+        ("pkg/m.py", "class X:\n    pass\n\n\nX = 1\n", 1),
+        ("pkg/m.ts", "export class X {}\n", 1),
+        ("pkg/m.ts", "export default class X {}\n", 1),
+        ("pkg/m.ts", "export declare const X: number;\n", 1),
+        ("pkg/m.ts", "export const a = 1,\n  X = 2;\n", 2),
+        ("pkg/m.ts", "export { impl as X } from './impl';\n", 1),
+        ("pkg/m.ts", "export { default as X } from './impl';\n", 1),
+        ("pkg/m.ts", "export * as X from './impl';\n", 1),
+        ("pkg/m.js", "exports.X = function () {};\n", 1),
+        ("pkg/m.js", "const X = requireAll('./x');\n", 1),
+        ("pkg/m.js", "module.exports = {\n  X: impl,\n};\n", 2),
+        ("pkg/m.js", "module.exports = {\n  X() {},\n};\n", 2),
+    ], ids=["assignment", "annotated", "annotation-only", "target-list", "type-alias", "async-def", "from-as",
+            "import-as", "parenthesized-as", "after-its-import", "first-of-two", "ts-class", "export-default-class",
+            "declare-const", "later-declarator", "export-list-as", "default-as", "export-star-as", "exports-dot",
+            "a-call-named-like-require", "module-exports-key", "module-exports-method"])
+    def test_a_column_0_declaration_counts(self, tmp_path: Path, capsys, rel: str, text: str, line: int) -> None:
+        files = {**PKG, rel: text}
+        assert _defined_at(tmp_path, capsys, files, ["X"], [MAIN_ENTRY, TS_ENTRY]) == {"X": f"{rel}:{line}"}
+
+    @pytest.mark.parametrize("rel, text", [
+        ("pkg/m.py", "from .models import *\n"),
+        ("pkg/m.py", "from pydantic import X\n"),
+        ("pkg/m.py", "import X\n"),
+        ("pkg/m.py", "from .impl import (\n    a,\n    X,\n)\n"),
+        ("pkg/m.py", "from .impl import X as X\n"),
+        ("pkg/m.py", "import pkg.impl.X as X\n"),
+        ("pkg/m.py", "def build():\n    X = 1\n    return X\n"),
+        ("pkg/m.py", "try:\n    from fast import X\nexcept ImportError:\n    class X:\n        pass\n"),
+        ("pkg/m.py", '"""Docs.\n\nX: the thing.\n"""\n'),
+        ("pkg/m.py", "X = (\n"),  # does not tokenize: every line would be a candidate
+        ("pkg/m.ts", "import { X } from './x';\n"),
+        ("pkg/m.ts", "export { X } from './x';\n"),
+        ("pkg/m.ts", "export { X as X } from './x';\n"),
+        ("pkg/m.ts", "export {\n  X,\n};\n"),
+        ("pkg/m.ts", "export default X;\n"),
+        ("pkg/m.ts", "export import X = Impl.X;\n"),
+        ("pkg/m.ts", "// export class X {}\n"),
+        ("pkg/m.ts", "namespace N {\n  export const X = 1;\n}\n"),
+        ("pkg/m.js", "module.exports = { X };\n"),
+        ("pkg/m.js", "const X = require('./x');\n"),
+        ("pkg/m.ts", "const X: Mod = require('./x');\n"),
+        ("pkg/m.js", "const a = 1, X = require('./x');\n"),
+        ("pkg/m.js", "const X =\n  require('./x');\n"),
+        ("pkg/m.js", "exports.X = require('./x');\n"),
+        ("pkg/m.js", "module.exports.X = require('./x').X;\n"),
+        ("pkg/m.js", "exports.X =\n  require('./x');\n"),
+        ("pkg/m.js", "module.exports = {\n  X: require('./x'),\n};\n"),
+        ("pkg/m.js", "module.exports = { X: require('./x') };\n"),
+        ("pkg/m.mjs", "export const X = await import('./x');\n"),
+        ("pkg/m.mjs", "const X = (await import('./x')).default;\n"),
+        ("pkg/m.mjs", "const X = (\n  await import('./x')\n).default;\n"),
+        ("pkg/m.js", "const X = import('./x');\n"),
+        ("pkg/m.ts", "const X: () => void = require('./x');\n"),
+        ("pkg/m.js", "const X = __importDefault(require('./x'));\n"),
+        ("pkg/m.js", "exports.X = _interopRequireDefault(require('./x'));\n"),
+        ("pkg/m.js", "const X = tslib.__importStar(\n  require('./x'));\n"),
+        ("pkg/m.js", "const a = 1,\n  X = require('./x');\n"),
+        ("pkg/m.js", "export const\n  X = require('./x');\n"),
+        ("pkg/m.js", "class A {\n  X() {}\n}\n"),
+    ], ids=["star-import", "from-import", "import", "parenthesized-import", "from-as-same-name",
+            "import-as-same-name", "indented-local", "try-block", "docstring", "untokenizable", "ts-import",
+            "export-list", "export-list-as-same-name", "export-list-lines", "export-default", "export-import",
+            "comment", "namespace-member", "shorthand-key", "require", "annotated-require",
+            "later-declarator-require", "line-broken-require", "exports-dot-require", "module-exports-dot-require",
+            "line-broken-exports-require", "object-key-require", "inline-object-key-require", "await-import",
+            "parenthesized-await-import", "line-broken-await-import", "dynamic-import", "arrow-typed-require",
+            "import-default-helper", "interop-helper", "line-broken-helper", "continuation-line-require",
+            "split-declaration-require", "class-member"])
+    def test_anything_else_is_no_declaration(self, tmp_path: Path, capsys, rel: str, text: str) -> None:
+        files = {**PKG, rel: text}
+        assert _defined_at(tmp_path, capsys, files, ["X"], [MAIN_ENTRY, TS_ENTRY]) == {"X": None}
+
+    @pytest.mark.parametrize("rel", [
+        "pkg/tests/m.py", "pkg/test/m.py", "pkg/__tests__/m.js", "pkg/spec/m.ts", "pkg/Tests/m.py",
+        "pkg/testing/m.py", "pkg/fixtures/m.py", "pkg/__mocks__/m.js",
+        "pkg/vendor/m.py", "pkg/_vendor/m.py", "pkg/third_party/m.py",
+        "pkg/examples/m.py", "pkg/docs/m.py", "pkg/benchmarks/m.py",
+        "pkg/node_modules/m.js", "pkg/bower_components/m.js", "pkg/site-packages/m.py", "pkg/env/m.py",
+        "pkg/venv/m.py", "pkg/build/m.py", "pkg/dist/m.js", "pkg/esm/m.js", "pkg/cjs/m.js", "pkg/umd/m.js",
+        "pkg/.hidden/m.py",
+        "pkg/test_m.py", "pkg/m_test.py", "pkg/m.test.ts", "pkg/m.spec.js", "pkg/conftest.py",
+        "pkg/jest.config.js", "pkg/vitest.config.ts", "pkg/m.min.js", "pkg/M.MIN.JS",
+        "other/m.py", "m.py",
+    ], ids=lambda rel: rel.replace("/", "-"))
+    def test_a_skipped_place_is_never_walked(self, tmp_path: Path, capsys, rel: str) -> None:
+        # `other/m.py` and `m.py` lie outside `pkg/`, the walk root
+        files = {**PKG, rel: _declares(rel)}
+        assert _defined_at(tmp_path, capsys, files, ["X"], [MAIN_ENTRY, TS_ENTRY]) == {"X": None}
+
+    @pytest.mark.parametrize("rel", ["pkg/lib/m.py", "pkg/src/lib/m.ts", "pkg/library/m.js"])
+    def test_lib_is_walked(self, tmp_path: Path, capsys, rel: str) -> None:
+        files = {**PKG, rel: _declares(rel)}
+        assert _defined_at(tmp_path, capsys, files, ["X"], [MAIN_ENTRY, TS_ENTRY]) == {"X": f"{rel}:1"}
+
+    def test_the_skips_are_judged_below_the_walk_root(self, tmp_path: Path, capsys) -> None:
+        # the source root itself sits in a tests/ folder, and the walk root in an examples/ one
+        files = {"examples/pkg/__init__.py": "", "examples/pkg/main.py": "def main():\n    pass\n",
+                 "examples/pkg/m.py": "class X:\n    pass\n"}
+        entries = [{"export_name": "main", "source_file": "examples/pkg/main.py", "source_line": 1}]
+        assert _defined_at(tmp_path / "tests", capsys, files, ["X"], entries) == {"X": "examples/pkg/m.py:1"}
+
+    def test_a_cited_file_in_a_skipped_place_is_not_read_either(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/tests/m.py": "class X:\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "X", "source_file": "pkg/tests/m.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["X"], entries) == {"X": None}
+
+    def test_clustered_entries_widen_to_the_package_root(self, tmp_path: Path, capsys) -> None:
+        # every entry under cognee/api/v1/: the walk still reads cognee/modules/
+        files = {"cognee/__init__.py": "", "cognee/api/__init__.py": "", "cognee/api/v1/__init__.py": "",
+                 "cognee/api/v1/add/__init__.py": "", "cognee/api/v1/add/add.py": "async def add(data):\n    pass\n",
+                 "cognee/api/v1/search/search.py": "async def search(q):\n    pass\n",
+                 "cognee/modules/pipelines/task.py": "class Task:\n    pass\n"}
+        entries = [{"export_name": "add", "source_file": "cognee/api/v1/add/add.py", "source_line": 1},
+                   {"export_name": "search", "source_file": "cognee/api/v1/search/search.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["Task"], entries) == {"Task": "cognee/modules/pipelines/task.py:1"}
+
+    def test_an_entry_outside_every_package_is_left_out(self, tmp_path: Path, capsys) -> None:
+        # a script and a setup.py beside the package do not widen the walk to the source root
+        files = {**PKG, "scripts/tool.py": "def tool():\n    pass\n", "setup.py": "setup()\n",
+                 "other/__init__.py": "", "other/x.py": "class X:\n    pass\n",
+                 "pkg/sub/y.py": "class Y:\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "tool", "source_file": "scripts/tool.py", "source_line": 1},
+                   {"export_name": "setup", "source_file": "setup.py", "source_line": 1}]
+        # X lives in a sibling package, Y in the package the entries cite
+        assert _defined_at(tmp_path, capsys, files, ["X", "Y"], entries) == {"X": None, "Y": "pkg/sub/y.py:1"}
+
+    def test_a_stray_init_at_the_source_root_makes_no_package_of_the_tree(self, tmp_path: Path, capsys) -> None:
+        # the source root's own __init__.py: the script beside the package stays outside every package
+        files = {**PKG, "__init__.py": "", "scripts/tool.py": "def tool():\n    pass\n",
+                 "other/__init__.py": "", "other/x.py": "class X:\n    pass\n",
+                 "pkg/sub/y.py": "class Y:\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "tool", "source_file": "scripts/tool.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["X", "Y"], entries) == {"X": None, "Y": "pkg/sub/y.py:1"}
+
+    def test_a_cited_file_outside_every_package_is_read(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "scripts/tool.py": "def tool():\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "tool", "source_file": "scripts/tool.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["tool"], entries) == {"tool": "scripts/tool.py:1"}
+
+    def test_with_no_entry_in_a_package_the_walk_reads_the_source_root(self, tmp_path: Path, capsys) -> None:
+        files = {"lib/a/one.py": "", "lib/b/two.py": "", "lib/c/X.py": "class X:\n    pass\n",
+                 "elsewhere/y.py": "class Y:\n    pass\n"}
+        entries = [{"export_name": n, "source_file": f, "source_line": 1}
+                   for n, f in (("one", "lib/a/one.py"), ("two", "lib/b/two.py"))]
+        assert _defined_at(tmp_path, capsys, files, ["X", "Y"], entries) == {"X": "lib/c/X.py:1",
+                                                                             "Y": "elsewhere/y.py:1"}
+
+    def test_entries_in_two_packages_walk_the_folder_they_share(self, tmp_path: Path, capsys) -> None:
+        files = {"src/a/__init__.py": "", "src/a/one.py": "", "src/b/__init__.py": "", "src/b/two.py": "",
+                 "src/b/deep/x.py": "class X:\n    pass\n", "tools/x.py": "class Y:\n    pass\n"}
+        entries = [{"export_name": n, "source_file": f, "source_line": 1}
+                   for n, f in (("one", "src/a/one.py"), ("two", "src/b/two.py"))]
+        assert _defined_at(tmp_path, capsys, files, ["X", "Y"], entries) == {"X": "src/b/deep/x.py:1", "Y": None}
+
+    def test_a_folder_that_is_gone_starts_the_walk_above_it(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/c/x.py": "class X:\n    pass\n"}
+        entries = [{"export_name": "gone", "source_file": "pkg/gone/deeper/g.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["X"], entries) == {"X": "pkg/c/x.py:1"}
+
+    def test_a_typescript_walk_root_is_the_nearest_package_json(self, tmp_path: Path, capsys) -> None:
+        files = {"package.json": "{}", "packages/a/package.json": "{}",
+                 "packages/a/src/index.ts": "export function run() {}\n",
+                 "packages/a/lib/task.ts": "export class Task {}\n",
+                 "packages/b/package.json": "{}", "packages/b/src/other.ts": "export class Other {}\n"}
+        entries = [{"export_name": "run", "source_file": "packages/a/src/index.ts", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["Task", "Other"], entries) == {
+            "Task": "packages/a/lib/task.ts:1", "Other": None}
+
+    def test_a_homonym_needs_a_cited_file(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/a.py": "class Config:\n    pass\n", "pkg/b.py": "\nConfig = dict\n",
+                 "pkg/c.py": "from .a import Config\n"}
+        # two walked files declare it: no single declaration
+        assert _defined_at(tmp_path, capsys, files, ["Config"]) == {"Config": None}
+        # a cited file that declares it settles it
+        cited = [MAIN_ENTRY, {"export_name": "Config", "source_file": "pkg/b.py", "source_line": 2}]
+        assert _defined_at(tmp_path, capsys, files, ["Config"], cited) == {"Config": "pkg/b.py:2"}
+        # a cited file that only imports it does not
+        cited = [MAIN_ENTRY, {"export_name": "Config", "source_file": "pkg/c.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["Config"], cited) == {"Config": None}
+
+    @pytest.mark.parametrize("rel, text, name, line", [
+        ("pkg/low_level.py", "from .models import DataPoint\n", "low_level", 1),
+        ("pkg/tools/__init__.py", "", "tools", 1),
+        ("pkg/web/helpers.ts", "export const a = 1;\n", "helpers", 1),
+        ("pkg/web/widgets/index.js", "module.exports = {};\n", "widgets", 1),
+        ("pkg/ops/run_tasks.py", "import asyncio\n\n\nasync def run_tasks(tasks):\n    pass\n", "run_tasks", 4),
+    ], ids=["module", "package", "ts-module", "js-index", "a-line-of-it-first"])
+    def test_a_module_or_package_declares_its_name(self, tmp_path: Path, capsys, rel: str, text: str, name: str,
+                                                    line: int) -> None:
+        files = {**PKG, rel: text}
+        assert _defined_at(tmp_path, capsys, files, [name], [MAIN_ENTRY, TS_ENTRY]) == {name: f"{rel}:{line}"}
+
+    @pytest.mark.parametrize("rel", ["pkg/low_level.pyi", "pkg/low_level.txt", "pkg/low_level.d.ts",
+                                     "pkg/tests/low_level.py", "pkg/low_level/__main__.py", "low_level.py"])
+    def test_any_other_file_is_no_module(self, tmp_path: Path, capsys, rel: str) -> None:
+        files = {**PKG, rel: ""}
+        assert _defined_at(tmp_path, capsys, files, ["low_level"], [MAIN_ENTRY, TS_ENTRY]) == {"low_level": None}
+
+    def test_declared_in_lists_every_walked_declaration(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/models/Task.py": "from .base import Base\n\n\nclass Task(Base):\n    pass\n",
+                 "pkg/tasks/task.py": "class Task:\n    pass\n", "pkg/tasks/__init__.py": "from .task import Task\n",
+                 "pkg/tools.py": "", "pkg/tools/__init__.py": "", "pkg/one.py": "class One:\n    pass\n",
+                 "pkg/app.py": "def update():\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "One", "source_file": "pkg/one.py", "source_line": 1},
+                   {"export_name": "App.update", "source_file": "pkg/app.py", "source_line": 1},
+                   {"export_name": "Ghost", "source_file": "pkg/gone.py", "source_line": 1}]
+        src = tmp_path / "src"
+        for rel, text in files.items():
+            _write_text(src, rel, text)
+        names = _write_json(tmp_path / "names.json", ["Task", "tools", "Nowhere", "One", "App.update", "Ghost"])
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": entries})
+        assert mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov),
+                         "--source-root", str(src)]) == 0
+        out = {o["name"]: (o["defined_at"], o["declared_in"]) for o in json.loads(capsys.readouterr().out)}
+        assert out == {
+            # a homonym: every walked declaration, sorted, and no defined_at
+            "Task": (None, ["pkg/models/Task.py:4", "pkg/tasks/task.py:1"]),
+            # a module beside a package of the same name
+            "tools": (None, ["pkg/tools.py:1", "pkg/tools/__init__.py:1"]),
+            "Nowhere": (None, []),
+            # a cited hit needs no walk; a dotted or fabricated name is not looked up
+            "One": ("pkg/one.py:1", None), "App.update": (None, None), "Ghost": (None, None),
+        }
+
+    def test_a_stub_and_its_implementation_are_one_declaring_file(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/task.py": "\n\nclass Task:\n    pass\n", "pkg/task.pyi": "class Task: ...\n",
+                 "pkg/web/client.js": "class Client {}\nexports.Client = Client;\n",
+                 "pkg/web/client.d.ts": "export declare class Client {}\n",
+                 "pkg/web/only.d.ts": "export declare class Typed {}\n"}
+        src = tmp_path / "src"
+        for rel, text in files.items():
+            _write_text(src, rel, text)
+        names = _write_json(tmp_path / "names.json", ["Task", "Client", "Typed"])
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": [MAIN_ENTRY, TS_ENTRY]})
+        assert mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov),
+                         "--source-root", str(src)]) == 0
+        out = {o["name"]: (o["defined_at"], o["declared_in"]) for o in json.loads(capsys.readouterr().out)}
+        # the implementation stands for both; a stub with no implementation beside it stays
+        assert out == {"Task": ("pkg/task.py:3", ["pkg/task.py:3"]),
+                       "Client": ("pkg/web/client.js:1", ["pkg/web/client.js:1"]),
+                       "Typed": ("pkg/web/only.d.ts:1", ["pkg/web/only.d.ts:1"])}
+
+    def test_an_untokenizable_file_that_holds_the_name_makes_it_ambiguous(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/a.py": "class Task:\n    pass\n", "pkg/broken.py": "class Task(\n",
+                 "pkg/c.py": "class Other:\n    pass\n", "pkg/d.py": "Other = (\n"}
+        src = tmp_path / "src"
+        for rel, text in files.items():
+            _write_text(src, rel, text)
+        names = _write_json(tmp_path / "names.json", ["Task", "Other", "Plain"])
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": [MAIN_ENTRY]})
+        _write_text(src, "pkg/e.py", "class Plain:\n    pass\n")
+        assert mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov),
+                         "--source-root", str(src)]) == 0
+        out = {o["name"]: (o["defined_at"], o["declared_in"]) for o in json.loads(capsys.readouterr().out)}
+        # broken.py may declare Task and d.py Other; neither holds Plain, which stays unique
+        assert out == {"Task": (None, ["pkg/a.py:1"]), "Other": (None, ["pkg/c.py:1"]),
+                       "Plain": ("pkg/e.py:1", ["pkg/e.py:1"])}
+
+    def test_only_the_families_the_map_cites_are_read(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/ui/task.ts": "export interface Task {}\n", "pkg/lib.rs": "pub struct Task;\n"}
+        # a Python map never reads a TS/JS file
+        assert _defined_at(tmp_path, capsys, files, ["Task"]) == {"Task": None}
+        # a map that cites no Python or TS/JS file reads nothing
+        rust = [{"export_name": "lib", "source_file": "pkg/lib.rs", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, {"pkg/task.py": "class Task:\n    pass\n"}, ["Task"], rust) == \
+            {"Task": None}
+
+    def test_a_fabricated_name_is_not_looked_up(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/other.py": "class Ghost:\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "Ghost", "source_file": "pkg/gone.py", "source_line": 3}]
+        src = tmp_path / "src"
+        for rel, text in files.items():
+            _write_text(src, rel, text)
+        names = _write_json(tmp_path / "names.json", ["Ghost"])
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": entries})
+        mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov), "--source-root", str(src)])
+        [out] = json.loads(capsys.readouterr().out)
+        assert (out["fabricated"], out["defined_at"]) == (True, None)
+
+    def test_a_dotted_name_is_not_looked_up(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/app.py": "def update():\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "App.update", "source_file": "pkg/app.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["App.update"], entries) == {"App.update": None}
+
+    def test_the_answer_is_deterministic(self, tmp_path: Path, capsys) -> None:
+        src = tmp_path / "src"
+        for rel, text in (("pkg/z/x.py", "\n\nclass X:\n    pass\n\n\nX = 2\n"), ("pkg/b/y.py", "class Y:\n    pass\n"),
+                          ("pkg/a/y.py", "Y = 1\n"), *PKG.items()):  # written out of order
+            _write_text(src, rel, text)
+        expected = {"X": "pkg/z/x.py:3", "Y": None}
+        assert _defined_at(tmp_path, capsys, {}, ["X", "Y"]) == expected == _defined_at(tmp_path, capsys, {},
+                                                                                       ["Y", "X"])
+        # a cited file comes before the walk, written however the map writes it
+        cited = [MAIN_ENTRY, {"export_name": "Y", "source_file": "./pkg/b/y.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, {}, ["Y"], cited) == {"Y": "pkg/b/y.py:1"}
+
+    def test_a_cited_path_outside_the_root_is_never_read(self, tmp_path: Path, capsys) -> None:
+        outside = _write_text(tmp_path, "outside/task.py", "class Task:\n    pass\n")
+        for cited in ("../outside/task.py", outside.as_posix(), "pkg/../../outside/task.py"):
+            entries = [MAIN_ENTRY, {"export_name": "Task", "source_file": cited, "source_line": 1}]
+            assert _defined_at(tmp_path, capsys, PKG, ["Task"], entries) == {"Task": None}, cited
+
+    def test_the_walk_never_leaves_the_source_root(self, tmp_path: Path, capsys) -> None:
+        # the map's only in-package entry lies outside the source root: the walk stays inside it
+        _write_text(tmp_path, "outside/pkg/__init__.py", "")
+        _write_text(tmp_path, "outside/pkg/m.py", "def m():\n    pass\n")
+        _write_text(tmp_path, "outside/pkg/secret.py", "class Secret:\n    pass\n")
+        src = tmp_path / "src"
+        _write_text(src, "lib/plain.py", "VALUE = 1\n")
+        names = _write_json(tmp_path / "names.json", ["Secret"])
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": [
+            {"export_name": "m", "source_file": "../outside/pkg/m.py", "source_line": 1}]})
+        assert mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov),
+                         "--source-root", str(src)]) == 0
+        [out] = json.loads(capsys.readouterr().out)
+        assert (out["defined_at"], out["declared_in"]) == (None, [])
+
+    @pytest.mark.skipif(not hasattr(os, "symlink") or os.name == "nt", reason="needs POSIX symlinks")
+    def test_a_symlink_anywhere_on_the_path_is_never_read(self, tmp_path: Path, capsys) -> None:
+        outside = _write_text(tmp_path, "outside/task.py", "class Task:\n    pass\n")
+        src = tmp_path / "src"
+        for rel, text in {**PKG, "elsewhere/job.py": "class Job:\n    pass\n"}.items():
+            _write_text(src, rel, text)
+        (src / "pkg" / "task.py").symlink_to(outside)
+        (src / "pkg" / "linked").symlink_to(outside.parent, target_is_directory=True)
+        # a folder link that stays inside the source root is not followed either
+        (src / "pkg" / "jobs").symlink_to(src / "elsewhere", target_is_directory=True)
+        entries = [MAIN_ENTRY, {"export_name": "Task", "source_file": "pkg/task.py", "source_line": 1},
+                   {"export_name": "Job", "source_file": "pkg/jobs/job.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, {}, ["Task", "Job"], entries) == {"Task": None, "Job": None}
+
+    @pytest.mark.parametrize("error", [PermissionError, OSError, UnicodeDecodeError])
+    def test_a_lookup_error_gives_null(self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch,
+                                       error: type[Exception]) -> None:
+        def fail(path: Path) -> str:
+            if error is UnicodeDecodeError:
+                raise UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+            raise error(13, "denied", str(path))
+
+        monkeypatch.setattr(mod, "_read_source", fail)
+        files = {**PKG, "pkg/task.py": "class Task:\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "Ghost", "source_file": "pkg/gone.py", "source_line": 1}]
+        src = tmp_path / "src"
+        for rel, text in files.items():
+            _write_text(src, rel, text)
+        names = _write_json(tmp_path / "names.json", ["Task", "Ghost"])
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": entries})
+        code = mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov),
+                         "--source-root", str(src)])
+        out = json.loads(capsys.readouterr().out)
+        # the exit code and the fabricated test stand; no name gets a defined_at
+        assert code == 0
+        assert [(o["name"], o["fabricated"], o["defined_at"]) for o in out] == [("Task", False, None),
+                                                                                ("Ghost", True, None)]
+
+    @pytest.mark.skipif(os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0),
+                        reason="needs POSIX permissions that bind the user")
+    def test_a_folder_the_walk_cannot_list_gives_null(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/task.py": "class Task:\n    pass\n", "pkg/locked/m.py": ""}
+        src = tmp_path / "src"
+        for rel, text in files.items():
+            _write_text(src, rel, text)
+        (src / "pkg" / "locked").chmod(0)
+        try:
+            assert _defined_at(tmp_path, capsys, {}, ["Task"]) == {"Task": None}
+        finally:
+            (src / "pkg" / "locked").chmod(0o755)
+
+    def test_one_pass_reads_each_file_once(self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch) -> None:
+        reads: list[str] = []
+        split: list[int] = []
+        real_read, real_split = mod._read_source, mod._text_lines
+        monkeypatch.setattr(mod, "_read_source", lambda path: reads.append(path.name) or real_read(path))
+        monkeypatch.setattr(mod, "_text_lines", lambda text: split.append(1) or real_split(text))
+        files = {**PKG, "pkg/a.py": "class A:\n    pass\n", "pkg/b.py": "from .a import A\n\n\nclass B:\n    pass\n",
+                 "pkg/c.py": "value = 1\n"}
+        # A's cited file only imports it: the walk reuses that file, and reads every other one once for A, B, C
+        entries = [MAIN_ENTRY, {"export_name": "A", "source_file": "pkg/b.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["A", "B", "C"], entries) == {"A": "pkg/a.py:1",
+                                                                                   "B": "pkg/b.py:4", "C": None}
+        assert sorted(reads) == ["__init__.py", "a.py", "b.py", "c.py", "main.py"]
+        # only the cited file and the one walked text that holds a name are split into lines
+        assert len(split) == 2
+
+    def test_a_cited_hit_needs_no_walk(self, tmp_path: Path, capsys, monkeypatch: pytest.MonkeyPatch) -> None:
+        walks: list[int] = []
+        real_tree = mod._DeclarationLookup._tree
+        monkeypatch.setattr(mod._DeclarationLookup, "_tree", lambda self: walks.append(1) or real_tree(self))
+        files = {**PKG, "pkg/a.py": "class A:\n    pass\n", "pkg/b.py": "class B:\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "A", "source_file": "pkg/a.py", "source_line": 1},
+                   {"export_name": "B", "source_file": "pkg/b.py", "source_line": 1}]
+        assert _defined_at(tmp_path, capsys, files, ["A", "B"], entries) == {"A": "pkg/a.py:1", "B": "pkg/b.py:1"}
+        assert walks == []
+        assert _defined_at(tmp_path, capsys, files, ["A", "B", "C"], entries)["C"] is None
+        assert walks == [1]  # one walk for every name a cited file did not settle
+
+    def test_a_map_that_cites_no_file_walks_the_source_root(self, tmp_path: Path, capsys) -> None:
+        files = {"pkg/models/data_point.py": "import uuid\n\n\nclass DataPoint:\n    pass\n",
+                 "web/point.ts": "export interface WebPoint {}\n"}
+        out = _defined_at(tmp_path, capsys, files, ["DataPoint", "WebPoint"], [{"export_name": "DataPoint"}])
+        assert out == {"DataPoint": "pkg/models/data_point.py:4", "WebPoint": "web/point.ts:1"}
+
+    def test_the_lookup_rules_are_opt_in(self, tmp_path: Path) -> None:
+        # verify, fix and definition-lines keep the import, star-import, re-export and indented matches
+        src = tmp_path / "src"
+        _write_text(src, "m.py", "from x import *\n")
+        _write_text(src, "n.py", "from x import X\n\n\ndef f():\n    X = 1\n")
+        _write_text(src, "o.py", "from .x import X as X\n")
+        _write_text(src, "r.js", "const X = require('./x');\n")
+        _write_text(src, "q.js", "const a = 1, X = require('./x');\n")
+        _write_text(src, "p.js", "const X =\n  require('./x');\n")
+        _write_text(src, "s.js", "exports.X = require('./x');\n")
+        _write_text(src, "t.ts", "export { X as X } from './x';\n")
+        _write_text(src, "u.js", "module.exports = {\n  X: require('./x'),\n};\n")
+        # the default-mode `require` declarator, as a statement, a later declarator or a broken line
+        for rel in ("m.py", "n.py", "o.py", "r.js", "q.js", "p.js", "s.js", "t.ts"):
+            assert mod.find_definition_lines(rel, "X", src) == [1], rel
+        assert mod.find_definition_lines("u.js", "X", src) == [2]
+        for rel in ("m.py", "n.py", "o.py", "r.js", "q.js", "p.js", "s.js", "t.ts", "u.js"):
+            assert mod._definition_matches(rel, "X", src, declarations_only=True) == ([], set()), rel
+
+
+class TestLookupSkipsPinnedToTheirSources:
+    """Each skip set the defined_at lookup copies stays identical to the one it names."""
+
+    @staticmethod
+    def _source(script: str):
+        path = REPO_ROOT / "src" / "shared" / "scripts" / script
+        pin = importlib.util.spec_from_file_location("skf_pin_" + script[:-3].replace("-", "_"), path)
+        source = importlib.util.module_from_spec(pin)
+        pin.loader.exec_module(source)
+        return source
+
+    @pytest.mark.parametrize("script, name", [
+        ("skf-resolve-authoritative-files.py", "EXCLUDED_DIR_NAMES"),
+        ("skf-detect-language.py", "_VENDORED_SEGMENTS"),
+        ("skf-disqualify-candidates.py", "TEST_FOLDERS"),
+        ("skf-disqualify-candidates.py", "TEST_CONFIG_NAMES"),
+        ("skf-disqualify-candidates.py", "TEST_CONFIG_PREFIXES"),
+        ("skf-disqualify-candidates.py", "TEST_FILE_RE"),
+        ("skf-extract-public-api.py", "PY_NON_CORE_TOPS"),
+    ])
+    def test_the_copy_matches(self, script: str, name: str) -> None:
+        assert f"# Keep identical to {name} in {script}." in SCRIPT_PATH.read_text(encoding="utf-8")
+        mine, theirs = getattr(mod, name), getattr(self._source(script), name)
+        if isinstance(theirs, re.Pattern):
+            mine, theirs = (mine.pattern, mine.flags), (theirs.pattern, theirs.flags)
+        assert mine == theirs
+
+    @pytest.mark.parametrize("filename", [
+        "conftest.py", "pytest.ini", "jest.config.js", "Vitest.Config.ts", "karma.conf.js", "playwright.config.ts",
+        "cypress.config.mjs", "test_m.py", "m_test.go", "m.test.ts", "m.spec.js", "m_spec.rb", "m.py", "index.ts",
+        "testing.py", "contest.py",
+    ])
+    def test_a_test_file_is_what_disqualify_candidates_calls_one(self, filename: str) -> None:
+        assert mod._lookup_skips_file(filename) is self._source("skf-disqualify-candidates.py")._is_test_file(filename)
+
+    def test_the_walk_skips_each_copy_and_its_own_folders(self) -> None:
+        assert mod.LOOKUP_EXTRA_FOLDERS == {"_vendor", "testing", "fixtures", "__mocks__", "site-packages", "env",
+                                            "bower_components", "esm", "cjs", "umd"}
+        assert mod.LOOKUP_SKIPPED_FOLDERS == (set(mod.EXCLUDED_DIR_NAMES) | mod._VENDORED_SEGMENTS
+                                              | mod.TEST_FOLDERS | mod.PY_NON_CORE_TOPS | mod.LOOKUP_EXTRA_FOLDERS)
+        assert "lib" not in mod.LOOKUP_SKIPPED_FOLDERS
+        assert mod._lookup_skips_file("bundle.min.js") and not mod._lookup_skips_file("admin.js")
 
 
 # --------------------------------------------------------------------------

@@ -205,9 +205,11 @@ Each step rates every gap it records against the Gap Severity table in Test Skil
 |---|---|
 | **Critical** | A wrong signature, or a fabricated one (a documented export that the source does not define at the line the skill cites); a broken reference in a stack skill (a file, skill, type, or `scripts/` or `assets/` file that does not exist) |
 | **High** | An inaccurate reference in a stack skill (the target exists but does not match), or a reference whose real path leads outside the skill and its sources; a split-body mismatch (`SKILL.md` and a `references/` file document one export differently); `metadata.json` stats that count every export as documented while some are missing from the skill; in an individual skill, a missing required section, an unbalanced code fence, or an example that awaits a sync function or skips the `await` of an async one |
-| **Medium** | A missing export or type (a missing export lowers Export Coverage); stale documentation (a documented export the source no longer exports); an incomplete integration pattern in a stack skill; in an individual skill, a code fence with no language tag, a function no example names, or a table row whose column count differs from its header |
+| **Medium** | A missing export or type (a missing export lowers Export Coverage); stale documentation (a documented export outside the coverage surface that the run did not match to one declaration in the source, or that a brief scopes out); an incomplete integration pattern in a stack skill; in an individual skill, a code fence with no language tag, a function no example names, or a table row whose column count differs from its header |
 | **Low** | Gaps in metadata, the description or provenance lines, such as missing optional metadata or a provenance line that is not the definition line |
-| **Info** | Observations such as style suggestions; discovery testing not performed |
+| **Info** | Observations such as style suggestions or a documented extra (a documented name outside the coverage surface that the source still declares); discovery testing not performed |
+
+Only some runs can find a documented extra: the source must be Python or TypeScript/JavaScript, and the run needs the Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `workspaceDrift` not `overridden`, a provenance map and a coverage surface that a complete extraction built. On any other run, every documented export outside the coverage surface is stale documentation.
 
 Discovery testing runs after the hard gate, so a discovery gap (Info, Medium or High) is counted in the Gap Report and blocks nothing.
 

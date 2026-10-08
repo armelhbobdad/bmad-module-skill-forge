@@ -398,6 +398,8 @@ DOC_GAP_EXAMPLES = (
     ("a code fence with no language tag", "structural", "without a language tag"),
     ("a provenance line that is not the definition line", "provenance-line", "not the definition of an export"),
     ("discovery testing not performed", "discovery", "Discovery testing not performed"),
+    # #678: a documented name the source still declares outside the surface is an Info observation
+    ("a documented extra", "observation", "a documented extra"),
 )
 
 
