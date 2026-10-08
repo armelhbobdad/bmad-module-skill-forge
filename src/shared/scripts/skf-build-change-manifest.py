@@ -75,6 +75,14 @@ Subcommands:
       files targeted re-extraction scans; without it, the records are
       written to -o through a temporary file and a rename.
 
+  baseline-gaps --provenance-map <file> --extraction <file> --files <file>
+                --source-root <dir> -o <file>
+      Category B's baseline gaps (see "Baseline gaps" below): each map
+      entry of the files --files lists that the runner did not report and
+      its file still declares, written to -o through a temporary file and
+      a rename. Prints {"status": "written", "output": <-o>, "gaps": N,
+      "unchecked": N}.
+
 Helper files in place of typed slices (update-skill detect-changes §2.1):
 
   --category-a <file>       the output of skf-classify-changed-files.py
@@ -420,12 +428,37 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
   is {resolved_count, files_scanned, exports_matched, tier}, also appended
   to --evidence as one JSON line keyed `targeted_reextraction`.
 
+Baseline gaps (update-skill detect-changes Category B, step 1):
+
+  The recipe runner never reports a module, an alias that renames, a
+  dunder such as `__version__` or another underscore name, so the diff
+  would read each such map entry as a deleted export. baseline-gaps lists,
+  for step 2 to read by eye, each entry of a file --files lists (the
+  modified files, Category A's modified-files.json) whose name and file
+  no export of --extraction (the runner's JSON, or {"exports": []} when
+  it could not run) holds, under its name or its re-export target, and
+  whose file still declares it. The selection and the declaration rule
+  are skf-verify-provenance-completeness.py's `baseline_gaps` (the rule
+  audit-skill's extraction snapshot applies), loaded from this folder: a
+  verifier that cannot be loaded is an error, never an empty list. A
+  name the runner's own `entry_point_diff.extraction_gaps` lists at that
+  file is left to that list. A map whose `entries` is missing or null
+  has none to check. Writes {"gaps": [{name, file, line, entry: null,
+  export_type?}], "unchecked": [{name, file, export_type}]}: a gap's line
+  declares the name (line 1 of the module or package so named for a
+  `module` or `package` entry), and `unchecked` holds each entry no rule
+  can check, to read by eye: its file neither Python nor TS/JS, a file
+  the lookup will not read (outside the source root, a test file or a
+  minified bundle, a symlink on its path), or a dotted `module` or
+  `package` name.
+
 Exit codes:
   0  operation succeeded (for gap-records, whatever its `status`)
   1  user error (malformed JSON, bad path, malformed provenance file, a
      helper file that is not the output it names, a gap-records answer of
-     the wrong type, or targeted re-extraction to match with no
-     --remediation-records)
+     the wrong type, targeted re-extraction to match with no
+     --remediation-records, or, for baseline-gaps, a source root that is
+     no folder or a verifier that cannot be loaded)
   3  apply refused: a blocking gap reached the provenance write with no
      source line (nothing written)
 """
@@ -2464,6 +2497,76 @@ def _cmd_gap_records(args: argparse.Namespace) -> int:
     return 0
 
 
+# --------------------------------------------------------------------------
+# Baseline gaps (update-skill detect-changes Category B)
+# --------------------------------------------------------------------------
+
+
+VERIFIER_FILE = "skf-verify-provenance-completeness.py"
+
+
+def _baseline_verifier():
+    """The verifier beside this script, for its `baseline_gaps`. Unlike `_verifier()`, which lets a gap-driven
+    spot-check go on as unknown, one that cannot be loaded (or has no `baseline_gaps`) is a ValueError: with no
+    verifier no gap is listed, and every name the runner leaves out would read as a deleted export."""
+    path = Path(__file__).resolve().parent / VERIFIER_FILE
+    where = f"cannot load {VERIFIER_FILE} beside {Path(__file__).name}"
+    try:
+        spec = importlib.util.spec_from_file_location("skf_verify_provenance_completeness_baseline", path)
+        if spec is None or spec.loader is None or not path.is_file():
+            raise ImportError(f"no file at {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except Exception as exc:  # whatever the script raises, the call reports it
+        raise ValueError(f"{where}: {exc}; re-install SKF") from exc
+    if not callable(getattr(module, "baseline_gaps", None)):
+        raise ValueError(f"{where}: it has no baseline_gaps; re-install SKF")
+    return module
+
+
+def baseline_gaps(provenance: dict, extraction: dict, files: list, source_root: Path, verifier) -> dict:
+    """{"gaps", "unchecked"}: the map entries of `files` the runner's `extraction` lacks whose file still declares
+    them (see "Baseline gaps" in the module docstring)."""
+    if not isinstance(extraction, dict):
+        raise ValueError("--extraction file has no `exports` array: is it the helper's output?")
+    held = {(name, file) for e in _exports_of(extraction, "--extraction file")
+            if (name := _name_of(e)) is not None and (file := _file_of(e)) is not None}
+    diff = extraction.get("entry_point_diff")
+    listed = {(item["name"], _norm_path(item["file"]))
+              for item in (diff.get("extraction_gaps") or [] if isinstance(diff, dict) else [])
+              if isinstance(item, dict) and isinstance(item.get("name"), str) and _norm_path(item.get("file"))}
+    if provenance.get("entries") is not None and not isinstance(provenance["entries"], list):
+        raise ValueError("provenance `entries` must be an array")  # missing or null: no entry (#684)
+    wanted = {f for f in (_norm_path(p) for p in files) if f is not None}
+    gaps, unchecked = verifier.baseline_gaps(provenance, source_root, held, wanted, listed)
+    return {"gaps": gaps, "unchecked": unchecked}
+
+
+def _cmd_baseline_gaps(args: argparse.Namespace) -> int:
+    try:
+        source_root = Path(args.source_root)
+        if not source_root.is_dir():
+            raise ValueError(f"--source-root {args.source_root} is not a folder")
+        files = _load_json_file(Path(args.files), "--files file")
+        if not (isinstance(files, list) and all(isinstance(f, str) for f in files)):
+            raise ValueError(f"--files file {args.files} must hold a JSON array of paths")
+        provenance = _load_json_file(Path(args.provenance_map), "--provenance-map file")
+        if not isinstance(provenance, dict):
+            raise ValueError(f"--provenance-map file {args.provenance_map} must hold a JSON object")
+        extraction = _load_json_file(Path(args.extraction), "--extraction file")
+        result = baseline_gaps(provenance, extraction, files, source_root, _baseline_verifier())
+        _write_json_atomic(Path(args.output), result)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"error: cannot write {args.output}: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({"status": "written", "output": args.output, "gaps": len(result["gaps"]),
+                      "unchecked": len(result["unchecked"])}))
+    return 0
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="skf-build-change-manifest",
@@ -2568,6 +2671,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p_gap.add_argument("--tier", help="with --evidence: the forge tier the record names")
     p_gap.add_argument("-o", "--output", metavar="FILE", help="where to write the records (without --plan)")
     p_gap.set_defaults(func=_cmd_gap_records)
+
+    p_base = sub.add_parser("baseline-gaps", help="list the map entries the runner left out that their modified "
+                                                  "file still declares, for Category B's step 2 to read")
+    p_base.add_argument("--provenance-map", required=True, metavar="FILE", help="the map the update starts from")
+    p_base.add_argument("--extraction", required=True, metavar="FILE",
+                        help="the recipe runner's output ({\"exports\": []} when it could not run)")
+    p_base.add_argument("--files", required=True, metavar="FILE",
+                        help="the files whose entries are checked: Category A's modified-files.json")
+    p_base.add_argument("--source-root", required=True, metavar="DIR", help="the source tree the files are read in")
+    p_base.add_argument("-o", "--output", required=True, metavar="FILE", help="where to write the gaps")
+    p_base.set_defaults(func=_cmd_baseline_gaps)
 
     for p in (p_build, p_ratio):
         p.add_argument(

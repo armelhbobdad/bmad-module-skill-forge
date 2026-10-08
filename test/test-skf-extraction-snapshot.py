@@ -402,8 +402,22 @@ def test_a_gap_needs_a_read_file_that_declares_the_name(tmp_path):
         ("_SECRET", "pkg/eye.py", 1, "constant"), ("_TOKEN", "pkg/twice.py", 1, "constant")]
     # no rule reads a Go file: the entry is named in one warning, never dropped in silence
     assert [w for w in snap["warnings"] if "neither Python nor TS/JS" in w] == [
-        "1 map entry the snapshot lacks in a file neither Python nor TS/JS, so no declaration was checked and "
-        "step 3 may report it removed: _hidden in pkg/x.go"]
+        "1 map entry the snapshot lacks that no rule can check (in a file neither Python nor TS/JS, a file the "
+        "declaration lookup does not read, or a dotted module name), so step 3 may report it removed: "
+        "_hidden (pkg/x.go)"]
+
+
+def test_an_entry_the_lookup_will_not_read_is_named_in_the_warning(tmp_path):
+    """A test-named file the declaration lookup skips and a dotted module name have no declaring line it can
+    give: each is named in the unchecked warning, never dropped in silence (#687 review)."""
+    root = _tree(tmp_path / "src", {"pkg/test_util.py": "_helper = 1\n", "pkg/api/v1/__init__.py": ""})
+    provenance = {"entries": [_entry("_helper", "pkg/test_util.py", "variable"),
+                              _entry("api.v1", "pkg/api/v1/__init__.py", "module")]}
+    snap = mod.build(root, "Forge", "t", provenance, {"status": "ok", "exports": []}, [], [])
+    assert snap["extraction_gaps"] == []
+    (warning,) = [w for w in snap["warnings"] if "no rule can check" in w]
+    assert warning.startswith("2 map entries the snapshot lacks that no rule can check")
+    assert warning.endswith("may report them removed: _helper (pkg/test_util.py), api.v1 (pkg/api/v1/__init__.py)")
 
 
 def test_the_module_rule_is_for_a_module_or_package_entry(tmp_path):

@@ -6,7 +6,8 @@ Covers:
   - compare: UNCHANGED / MODIFIED_FILE / DELETED_FILE classification
   - provenance shapes: top-level object with file_entries[]; bare array
   - guard against ../.. escapes from source-root
-  - error paths: missing file, malformed JSON, missing file_entries key
+  - error paths: missing file, malformed JSON, a file_entries that is not
+    an array (a map with no file_entries, or a null one, tracks no file: #684)
   - manual-inventory-amend: the user's [R]emove and [E]dit decisions
     applied to the captured inventory, so manual-verify passes the merge
     the user approved and still fails any other change
@@ -20,6 +21,8 @@ import json
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 
 REPO_ROOT = Path(__file__).parent.parent
@@ -128,12 +131,17 @@ class TestLoadFileEntries:
         with pytest.raises(ValueError, match="failed to read"):
             mod.load_file_entries(prov)
 
-    def test_object_missing_file_entries_raises(self, tmp_path: Path) -> None:
-        prov = _write(tmp_path / "prov.json", "{}")
-        import pytest
+    def test_object_missing_file_entries_is_empty(self, tmp_path: Path) -> None:
+        # #684: a map written before file_entries existed (oms-cognee 1.0.0), or one whose skill has no
+        # script, asset or promoted document, tracks no file
+        prov = _write(tmp_path / "prov.json", json.dumps({"entries": [{"export_name": "add",
+                                                                         "source_file": "pkg/api.py"}]}))
+        assert mod.load_file_entries(prov) == []
+        assert mod.load_file_entries(_write(tmp_path / "empty.json", "{}")) == []
 
-        with pytest.raises(ValueError, match="no `file_entries`"):
-            mod.load_file_entries(prov)
+    def test_null_file_entries_is_empty(self, tmp_path: Path) -> None:
+        prov = _write(tmp_path / "prov.json", '{"entries": [], "file_entries": null}')
+        assert mod.load_file_entries(prov) == []
 
     def test_file_entries_not_array_raises(self, tmp_path: Path) -> None:
         prov = _write(tmp_path / "prov.json", '{"file_entries": "not an array"}')
@@ -829,6 +837,26 @@ class TestCli:
         )
         assert result.returncode == 1
         assert "provenance map" in result.stderr
+
+    @pytest.mark.parametrize("prov_json", ['{"entries": [{"export_name": "add", "source_file": "a.py"}]}',
+                                           '{"entries": [], "file_entries": null}'],
+                             ids=["no-file-entries", "null-file-entries"])
+    def test_compare_a_legacy_map_lists_no_row(self, tmp_path: Path, prov_json: str) -> None:
+        source = tmp_path / "src"
+        _write(source / "a.py", "def add(): pass\n")
+        prov = _write(tmp_path / "prov.json", prov_json)
+        result = _run_cli("compare", str(source), "--provenance-map", str(prov))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == {
+            "comparisons": [], "stats": {"total": 0, "unchanged": 0, "modified": 0, "deleted": 0}}
+
+    def test_compare_file_entries_not_an_array_exits_1(self, tmp_path: Path) -> None:
+        source = tmp_path / "src"
+        source.mkdir()
+        prov = _write(tmp_path / "prov.json", '{"file_entries": {"a.sh": "sha256:x"}}')
+        result = _run_cli("compare", str(source), "--provenance-map", str(prov))
+        assert result.returncode == 1
+        assert "not an array" in result.stderr
 
     def test_compare_malformed_provenance_exits_1(self, tmp_path: Path) -> None:
         source = tmp_path / "src"

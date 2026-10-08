@@ -52,18 +52,18 @@ Scripts and assets are file-level artifacts, not code exports. They follow the *
 
 ### Detection Heuristics
 
-**Script directories:** `scripts/`, `bin/`, `tools/`, `cli/`
+**Script directories:** `scripts/`, `bin/`, `tools/`, `cli/`, at any depth. A Python package's folder that has one of these four names (it holds `__init__.py`) is code, not a script folder: a `.py` module in it is a script only with a shebang, a top-level `if __name__ == "__main__":` block (either comparison order, parentheses allowed), or as the package's `__main__.py`.
 **Asset directories:** `assets/`, `templates/`, `schemas/`, `configs/`, `examples/`
 
 **Script file signals:**
 
-| Signal                  | Strength | Pattern                                                                              |
-|-------------------------|----------|--------------------------------------------------------------------------------------|
-| Entry point declaration | Strong   | `package.json` `bin` field, Cargo.toml `[[bin]]`, pyproject.toml `[project.scripts]` |
-| Shebang + executable    | Strong   | `#!/bin/bash`, `#!/usr/bin/env python`, `#!/usr/bin/env node`                        |
-| CLI argument parser     | Moderate | `argparse`, `yargs`, `commander`, `cobra`, `clap` imports in file                    |
-| Directory convention    | Moderate | File in `scripts/`, `bin/`, `tools/` directory                                       |
-| CI/CD reference         | Moderate | Script referenced in `.github/workflows/*.yml`                                       |
+| Signal                  | Strength | Pattern                                                                                                                                       |
+|-------------------------|----------|-----------------------------------------------------------------------------------------------------------------------------------------------|
+| Entry point declaration | Strong   | `package.json` `bin` field, Cargo.toml `[[bin]]`, pyproject.toml `[project.scripts]`                                                          |
+| Shebang + executable    | Strong   | `#!/bin/bash`, `#!/usr/bin/env python`, `#!/usr/bin/env node`                                                                                 |
+| CLI argument parser     | Moderate | `argparse`, `yargs`, `commander`, `cobra`, `clap` imports in file                                                                             |
+| Directory convention    | Moderate | File in `scripts/`, `bin/`, `tools/`, `cli/`; in a Python package's folder, only `__main__.py` or a module with a shebang or `__main__` block |
+| CI/CD reference         | Moderate | Script referenced in `.github/workflows/*.yml`                                                                                                |
 
 **Asset file signals:**
 

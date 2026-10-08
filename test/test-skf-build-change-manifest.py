@@ -13,6 +13,10 @@ Covers its subcommands:
     update writes
   - records: step 3's re-extraction records, seeded from the runner's and
     step 2's files, with the workers' patches merged in
+  - baseline-gaps: the map entries of the modified files the runner left
+    out that their file still declares (#687), read by step 2 so the diff
+    reports no false DELETED_EXPORT, and a verifier that cannot load an
+    error
 and the helper files build and deletion-ratio take in place of typed
 slices: the classify output (Category A and its same-content moves), the
 structural diff mapped onto Category B, and Category C's renames taken out
@@ -1662,3 +1666,199 @@ class TestGapRecordsCli:
                           "--drift-status", "overridden", "-o", str(out))
         assert result.returncode == 0 and json.loads(result.stdout)["status"] == "drift-blocked"
         assert not out.exists()
+
+
+# --------------------------------------------------------------------------
+# baseline-gaps (update-skill detect-changes Category B, #687)
+# --------------------------------------------------------------------------
+
+
+STRUCTURAL_DIFF = REPO_ROOT / "src" / "shared" / "scripts" / "skf-structural-diff.py"
+
+# cognee v1.6.2's shape against oms-cognee 1.0.0's map: the runner reports `add` and none of the four names
+# below, and `run_startup_migrations` is gone from cognee/run_migrations.py
+COGNEE_162 = {
+    "cognee/__init__.py": "from .version import get_cognee_version\nfrom .api.v1 import add\n\n"
+                          "__version__ = get_cognee_version()\n",
+    "cognee/api/v1/__init__.py": "from .add.add import add\nfrom cognee.api.v1.visualize import visualize_graph as "
+                                 "visualize\n",
+    "cognee/api/v1/add/add.py": "async def add(data):\n    pass\n",
+    "cognee/api/v1/session/session.py": "def get_session():\n    pass\n",
+    "cognee/modules/pipelines/__init__.py": "from .tasks import Task\n",
+    "cognee/run_migrations.py": "async def run_migrations():\n    pass\n",
+}
+COGNEE_100_MAP = {"entries": [
+    {"export_name": "__version__", "export_type": "variable", "source_file": "cognee/__init__.py", "source_line": 6,
+     "params": [], "return_type": "str"},
+    {"export_name": "visualize", "export_type": "alias", "source_file": "cognee/api/v1/__init__.py",
+     "source_line": 6, "params": [], "return_type": None},
+    {"export_name": "add", "export_type": "async_function", "source_file": "cognee/api/v1/add/add.py",
+     "source_line": 1, "params": ["data"], "return_type": None},
+    {"export_name": "session", "export_type": "module", "source_file": "cognee/api/v1/session/session.py",
+     "source_line": 1, "params": ["get_session()"], "return_type": None},
+    {"export_name": "pipelines", "export_type": "module", "source_file": "cognee/modules/pipelines/__init__.py",
+     "source_line": 1, "params": ["Task"], "return_type": None},
+    {"export_name": "run_startup_migrations", "export_type": "async_function",
+     "source_file": "cognee/run_migrations.py", "source_line": 80, "params": [], "return_type": None},
+]}  # 1.0.0's map has no file_entries
+COGNEE_RUNNER = {"status": "ok", "exports": [
+    {"export_name": "add", "export_type": "function", "source_file": "cognee/api/v1/add/add.py", "source_line": 1,
+     "signature": "async def add(data):", "params": [{"name": "data", "type": None}], "return_type": None,
+     "confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": "function_definition"},
+    {"export_name": "run_migrations", "export_type": "function", "source_file": "cognee/run_migrations.py",
+     "source_line": 1, "signature": "async def run_migrations():", "params": [], "return_type": None,
+     "confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": "function_definition"},
+], "entry_point_diff": {"extraction_gaps": []}}
+
+
+def _cognee_run(tmp_path: Path, runner: dict | None = None) -> dict:
+    root = tmp_path / "src"
+    for rel, text in COGNEE_162.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode("utf-8"))
+    run = tmp_path / "run"
+    run.mkdir()
+    paths = {"root": root, "run": run, "map": tmp_path / "provenance-map.json",
+             "extraction": run / "extraction.json", "files": run / "modified-files.json",
+             "out": run / "baseline-gaps.json"}
+    paths["map"].write_bytes(json.dumps(COGNEE_100_MAP).encode("utf-8"))
+    paths["extraction"].write_bytes(json.dumps(COGNEE_RUNNER if runner is None else runner).encode("utf-8"))
+    paths["files"].write_bytes(json.dumps(sorted(COGNEE_162)).encode("utf-8"))
+    return paths
+
+
+def _baseline_gaps(paths: dict, script: Path = SCRIPT_PATH) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(script), "baseline-gaps", "--provenance-map", str(paths["map"]),
+         "--extraction", str(paths["extraction"]), "--files", str(paths["files"]),
+         "--source-root", str(paths["root"]), "-o", str(paths["out"])],
+        capture_output=True, text=True, check=False)
+
+
+class TestBaselineGaps:
+    def test_lists_what_the_runner_leaves_out_and_not_a_real_deletion(self, tmp_path: Path) -> None:
+        paths = _cognee_run(tmp_path)
+        result = _baseline_gaps(paths)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == {"status": "written", "output": str(paths["out"]), "gaps": 4,
+                                             "unchecked": 0}
+        gaps = json.loads(paths["out"].read_bytes())
+        assert [(g["name"], g["file"], g["line"], g["export_type"]) for g in gaps["gaps"]] == [
+            ("__version__", "cognee/__init__.py", 4, "variable"),
+            ("visualize", "cognee/api/v1/__init__.py", 2, "alias"),
+            ("session", "cognee/api/v1/session/session.py", 1, "module"),
+            ("pipelines", "cognee/modules/pipelines/__init__.py", 1, "module"),
+        ]
+        assert gaps["unchecked"] == []
+
+    def test_category_b_reads_the_gaps_and_reports_only_the_real_deletion(self, tmp_path: Path) -> None:
+        """The acceptance check: step 2 records each gap by eye at its line, with its export_type while the
+        declaration keeps that kind, and step 3's diff reads none of the four as deleted, while
+        run_startup_migrations, which the file declares no more, stays a DELETED_EXPORT."""
+        paths = _cognee_run(tmp_path)
+        assert _baseline_gaps(paths).returncode == 0
+        details = paths["run"] / "export-details.json"
+
+        def diff(extra: list) -> dict:
+            details.write_bytes(json.dumps({"exports": extra}).encode("utf-8"))
+            out = paths["run"] / "category-b-diff.json"
+            proc = subprocess.run([sys.executable, str(STRUCTURAL_DIFF), str(paths["map"]), str(paths["extraction"]),
+                                   "--current-extra", str(details), "--files", str(paths["files"]), "-o", str(out)],
+                                  capture_output=True, text=True, check=False)
+            assert proc.returncode in (0, 1), proc.stderr
+            return json.loads(out.read_bytes())
+
+        # before #687: step 2 read only the runner's own gaps, so every name it never reports reads as deleted
+        assert sorted(r["name"] for r in diff([])["removed"]) == [
+            "__version__", "pipelines", "run_startup_migrations", "session", "visualize"]
+        read = [{"export_name": g["name"], "source_file": g["file"], "export_type": g["export_type"],
+                 "source_line": g["line"], "params": None, "return_type": None, "confidence": "T1-low",
+                 "extraction_method": "source-read"}
+                for g in json.loads(paths["out"].read_bytes())["gaps"]]
+        result = diff(read)
+        assert [r["name"] for r in result["removed"]] == ["run_startup_migrations"]
+        manifest = mod.build_manifest({"category_a": {"modified": sorted(COGNEE_162)},
+                                       "category_b": mod.category_b_from_diff(result)})
+        deleted = [e["name"] for f in manifest["per_file"] for e in f["exports_affected"]
+                   if e["change_type"] == "DELETED_EXPORT"]
+        assert deleted == ["run_startup_migrations"] and manifest["counts"]["exports_deleted"] == 1
+
+    def test_a_held_or_listed_name_and_another_file_are_left_out(self, tmp_path: Path) -> None:
+        runner = {**COGNEE_RUNNER, "exports": COGNEE_RUNNER["exports"] + [
+            {"export_name": "__version__", "export_type": "variable", "source_file": "./cognee/__init__.py",
+             "source_line": 4}],
+            "entry_point_diff": {"extraction_gaps": [
+                {"name": "visualize", "language": "python", "entry": "cognee/__init__.py",
+                 "file": "cognee/api/v1/__init__.py", "line": 2}]}}
+        paths = _cognee_run(tmp_path, runner)
+        paths["files"].write_bytes(json.dumps(["cognee/__init__.py", "cognee/api/v1/__init__.py",
+                                               "cognee\\api\\v1\\session\\session.py"]).encode("utf-8"))
+        assert _baseline_gaps(paths).returncode == 0
+        assert [g["name"] for g in json.loads(paths["out"].read_bytes())["gaps"]] == ["session"]
+
+    def test_a_runner_that_could_not_run(self, tmp_path: Path) -> None:
+        # Quick tier, or exit 2 or 3: step 1 writes {"exports": []} and the gaps are every entry still declared
+        paths = _cognee_run(tmp_path, {"exports": []})
+        assert _baseline_gaps(paths).returncode == 0
+        assert [g["name"] for g in json.loads(paths["out"].read_bytes())["gaps"]] == [
+            "__version__", "visualize", "add", "session", "pipelines"]
+
+    @pytest.mark.parametrize("verifier", [None, "raise RuntimeError('broken install')\n", "def other():\n    pass\n"],
+                             ids=["missing", "raises", "no-baseline-gaps"])
+    def test_a_verifier_that_cannot_load_is_an_error(self, tmp_path: Path, verifier: str | None) -> None:
+        """Unlike gap-records' spot-checks, baseline-gaps never goes on without the verifier: an empty list would
+        read every runner-skipped name as deleted. The step HALTs on its exit 1 (detect-changes:category-b)."""
+        alone = tmp_path / "scripts"
+        alone.mkdir()
+        (alone / SCRIPT_PATH.name).write_bytes(SCRIPT_PATH.read_bytes())
+        if verifier is not None:
+            (alone / "skf-verify-provenance-completeness.py").write_bytes(verifier.encode("utf-8"))
+        paths = _cognee_run(tmp_path)
+        result = _baseline_gaps(paths, alone / SCRIPT_PATH.name)
+        assert result.returncode == 1 and result.stdout == ""
+        assert result.stderr.startswith("error: cannot load skf-verify-provenance-completeness.py beside "
+                                        "skf-build-change-manifest.py: ")
+        assert "re-install SKF" in result.stderr and "Traceback" not in result.stderr
+        assert not paths["out"].exists()
+
+    @pytest.mark.parametrize("bad, content, message", [
+        ("files", b'{"nope": 1}', "must hold a JSON array of paths"),
+        ("extraction", b'{"nope": 1}', "has no `exports` array"),
+        ("extraction", b"null", "has no `exports` array"),
+        ("map", b"[]", "must hold a JSON object"),
+        ("map", b'{"entries": {"a": 1}}', "provenance `entries` must be an array"),
+        ("root", None, "is not a folder"),
+    ], ids=["files", "extraction", "extraction-null", "map", "map-entries", "root"])
+    def test_an_input_it_cannot_use_exits_1(self, tmp_path: Path, bad: str, content: bytes | None,
+                                            message: str) -> None:
+        paths = _cognee_run(tmp_path)
+        if bad == "root":
+            paths["root"] = tmp_path / "missing"
+        else:
+            paths[bad].write_bytes(content)
+        result = _baseline_gaps(paths)
+        assert result.returncode == 1 and message in result.stderr, result.stderr
+        assert "Traceback" not in result.stderr and not paths["out"].exists()
+
+    @pytest.mark.parametrize("prov", [b'{"entries": null}', b'{"file_entries": []}'], ids=["null", "missing"])
+    def test_a_map_with_no_entries_has_no_gap(self, tmp_path: Path, prov: bytes) -> None:
+        # #684 reads a null field as empty: so does baseline-gaps
+        paths = _cognee_run(tmp_path)
+        paths["map"].write_bytes(prov)
+        result = _baseline_gaps(paths)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(paths["out"].read_bytes()) == {"gaps": [], "unchecked": []}
+
+    def test_unchecked_entries_are_objects(self, tmp_path: Path) -> None:
+        # a path holding " in " stays one field: each unchecked entry is {name, file, export_type}
+        paths = _cognee_run(tmp_path)
+        rust = paths["root"] / "docs in rust" / "lib.rs"
+        rust.parent.mkdir(parents=True)
+        rust.write_bytes(b"pub const _X: u8 = 1;\n")
+        paths["map"].write_bytes(json.dumps({"entries": [
+            {"export_name": "_X", "export_type": "constant", "source_file": "docs in rust/lib.rs"}]}).encode())
+        paths["files"].write_bytes(json.dumps(["docs in rust/lib.rs"]).encode())
+        assert _baseline_gaps(paths).returncode == 0
+        assert json.loads(paths["out"].read_bytes())["unchecked"] == [
+            {"name": "_X", "file": "docs in rust/lib.rs", "export_type": "constant"}]

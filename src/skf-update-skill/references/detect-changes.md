@@ -7,8 +7,8 @@ hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
 # `{buildChangeManifestHelper}`: §3's `build` (and §1's for a docs-only
-# skill), §2.2's `deletion-ratio` and Category C's `rename-candidates`. HALT
-# if neither exists.
+# skill), §2.2's `deletion-ratio`, Category B's `baseline-gaps` and Category
+# C's `rename-candidates`. HALT if neither exists.
 buildChangeManifestProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-build-change-manifest.py'
   - '{project-root}/src/shared/scripts/skf-build-change-manifest.py'
@@ -17,13 +17,13 @@ buildChangeManifestProbeOrder:
 provenanceGapDispatchProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-provenance-gap-dispatch.py'
   - '{project-root}/src/shared/scripts/skf-provenance-gap-dispatch.py'
-# `{detectScriptsAssetsHelper}`: Category D's script and asset walk, as
-# create-skill's. HALT if neither exists.
+# `{detectScriptsAssetsHelper}`: Category D's script and asset walk, the
+# detector create-skill runs, over the whole source. HALT if neither exists.
 detectScriptsAssetsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-scripts-assets.py'
   - '{project-root}/src/shared/scripts/skf-detect-scripts-assets.py'
-# `{newFileDiffHelper}`: Category D's NEW_FILE set difference, bundled with
-# this skill.
+# `{newFileDiffHelper}`: Category D's NEW_FILE set difference, kept to the
+# skill brief's scope, bundled with this skill.
 newFileDiffHelper: 'scripts/skf-new-file-diff.py'
 # `{resolveAuthoritativeFilesHelper}`: §1b's mirror. HALT if neither exists.
 resolveAuthoritativeFilesProbeOrder:
@@ -311,7 +311,20 @@ Pass `--provenance-map` whenever init.md §4 found one; `--brief` (as §1c left 
 
    Pass `--language` and `--scope-type` when metadata.json records them. It takes no `--brief`: Category A applied the scope, and a tracked file the brief's scope leaves out (gap-driven.md §1's rule R1 excludes a rescoped export's file) keeps its exports. `--head-cap 0` keeps every match, since a dropped one would read as a deleted export. Step 3 reads this file and never runs the runner again. **Exit 1** (`incomplete`): run it once more; when still incomplete, step 2 below reads by eye each listed file with no export in `exports[]`. **Exit 2 or 3, no JSON, no candidate resolves, or Quick tier:** write `{"exports": []}` to `{run_dir}/extraction.json`; step 2 reads every listed file by eye (at Quick tier, by text pattern). Tell the user which files were read by eye.
 
-2. **What the recipes do not record.** Workers, in parallel batches (Pattern 4) when the list is long, read the modified and added files and each return ONLY `{"exports": [...]}`, with no prose and no fences. For each function export the runner found whose `params` it left null (it could not read the signature): `export_name` and `source_file` as it wrote them, with `params` (each parameter as the source writes it, `name: type`, the form the provenance map's `params` hold) and `return_type` (null when there is none), read at its `source_line`. For each export it could not find (a name `entry_point_diff.extraction_gaps[]` lists, a form Known Limitation #11 in `{extractionPatternsData}` lists, an export of a file `file_issues[]` names or that was read by eye): the same, plus `export_type`, `source_line`, `confidence: T1-low` and `extraction_method: source-read`. Write the union of their `exports` arrays to `{run_dir}/export-details.json`.
+   Then, at every tier (in degraded mode there is no map: skip it), list the map's entries the runner left out that their file still declares: the runner never reports a module, an alias that renames, a dunder such as `__version__` or another underscore name, and step 3's diff would read each as a deleted export. From `{project-root}`, run:
+
+   ```bash
+   uv run {buildChangeManifestHelper} baseline-gaps \
+       --provenance-map "{provenance_map_path}" \
+       --extraction "{run_dir}/extraction.json" \
+       --files "{run_dir}/modified-files.json" \
+       --source-root "{source_root}" \
+       -o "{run_dir}/baseline-gaps.json"
+   ```
+
+   It writes `{"gaps": [{name, file, line, entry, export_type}], "unchecked": [{name, file, export_type}]}`: in `gaps[]` each entry of a modified file that no export of `{run_dir}/extraction.json` holds and whose file still declares it, at the line that declares it, by the verifier's rule (audit-skill's extraction snapshot applies the same one), and in `unchecked[]` each such entry no rule can check (its file neither Python nor TS/JS, a file the rule will not read, such as a test file or one with a symlink on its path, or a dotted module name), which step 2 reads by eye. Never add a gap or drop one by eye. On exit 1 (an input it cannot read, or a `skf-verify-provenance-completeness.py` beside it that cannot be loaded), no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:category-b"`, its stderr as `reason`): without it, every name the runner leaves out would read as deleted.
+
+2. **What the recipes do not record.** Workers, in parallel batches (Pattern 4) when the list is long, read the modified and added files and each return ONLY `{"exports": [...]}`, with no prose and no fences. For each function export the runner found whose `params` it left null (it could not read the signature): `export_name` and `source_file` as it wrote them, with `params` (each parameter as the source writes it, `name: type`, the form the provenance map's `params` hold) and `return_type` (null when there is none), read at its `source_line`. For each export it could not find (a name `entry_point_diff.extraction_gaps[]` lists, a name `{run_dir}/baseline-gaps.json` lists in `gaps[]`, a form Known Limitation #11 in `{extractionPatternsData}` lists, an export of a file `file_issues[]` names or that was read by eye): the same, plus `export_type`, `source_line`, `confidence: T1-low` and `extraction_method: source-read`. Record a baseline gap at its `file` and `line` (`source_line`), with, as `export_type`, its `export_type` while the declaration there still has that kind, else the kind it has now (a `variable` now declared by a `def` is a `function`, which step 3 reports as a changed kind), and the declaration's kind when the gap gives none; `params` and `return_type` as the declaration writes them, null when it has none (a module, an alias or a variable). For each `unchecked[]` entry, read its file by eye and record it the same way, at the line that declares it, only when the file still declares it. Record each name and file once: when a file read by eye whole (at Quick tier, or after a runner failure) holds a name a gap or an `unchecked[]` entry lists, that read's record stands and the gap adds none. Write the union of their `exports` arrays to `{run_dir}/export-details.json`.
 
 3. **The diff.** Resolve `{structuralDiffHelper}` ← first existing path in `{structuralDiffProbeOrder}` and, from `{project-root}`, run:
 
@@ -368,15 +381,19 @@ The helper emits:
 }
 ```
 
-The compare helper reports only tracked files; NEW_FILE detection (a file present in source but absent from the provenance map) is a set-difference, so it runs through a script rather than the prompt. Pipe the same deterministic detector create-skill step 3 §4c uses (resolved via `detectScriptsAssetsProbeOrder`) into `{newFileDiffHelper}`, which subtracts the provenance map's `file_entries[].source_file` and sets aside user-authored `[MANUAL]` paths:
+A map with no `file_entries` field, or a null one (a skill with no script, asset or promoted document, or a map written before the field existed), tracks no file: the comparison lists no row and the set difference below subtracts nothing.
+
+The compare helper reports only tracked files; NEW_FILE detection (a file present in source but absent from the provenance map) is a set-difference, so it runs through a script rather than the prompt. **When `{brief_path}` does not exist** (a skill built without a brief, such as a quick skill), skip it: with no scope to keep to, the walk would read every script and asset of the repository as new. Add `new-files-not-checked: no skill brief, so no new script or asset was looked for` to `warnings[]`, write no `{run_dir}/new-files.json`, and leave `--new-files` out of §3's `build` and step 5's `apply`. Otherwise pipe the detector create-skill step 3 §4c runs (resolved via `detectScriptsAssetsProbeOrder`), which walks the whole source, into `{newFileDiffHelper}`, which keeps what the brief takes and subtracts what the map tracks:
 
 ```bash
 uv run {detectScriptsAssetsHelper} detect "{source_root}" \
-    | uv run {newFileDiffHelper} "{provenance_map_path}" \
+    | uv run {newFileDiffHelper} "{provenance_map_path}" [--brief "{brief_path}"] \
     > "{run_dir}/new-files.json"
 ```
 
-It writes `{"new_files":[{source_file, kind}], "skipped_manual":[...], "already_tracked":[...], "stats":{...}}`. §3's `build` reads both files, typing each compare row by its `file_entries[]` row's `file_type` and each new file by its `kind`: sort no row by hand. `skipped_manual[]` are user-authored files under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, preserved and not touched; `already_tracked[]` were handled by the compare above.
+Pass `--brief` as Category A does, `{brief_path}` as §1c left it (in a read-only run, its copy in `{run_dir}`). On exit 2 (the detector's JSON, the map or the brief it cannot read, named in its JSON `error` on stderr, which also catches a detector that printed nothing), no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:category-d"`, its `error` as `reason`).
+
+It writes `{"new_files":[{source_file, kind}], "skipped_manual":[...], "already_tracked":[...], "tracked_code":[...], "out_of_scope":[...], "intent_none":[...], "stats":{...}}`. §3's `build` reads both files, typing each compare row by its `file_entries[]` row's `file_type` and each new file by its `kind`: sort no row by hand. `skipped_manual[]` are user-authored files under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, preserved and not touched; `already_tracked[]` were handled by the compare above; `tracked_code[]` are code files the map's `entries[]` cite, which Categories A and B compare; `out_of_scope[]` are paths the brief's scope leaves out, by Category A's in-scope test; `intent_none[]` are paths of a kind whose `scripts_intent` or `assets_intent` is `none` (an absent or free-text intent detects). A path in these lists is no new file and no `stats` count, so step 6's report counts each of the three lists from this file, where it shows Category D: a brief scoped wrongly shows as many paths out of scope. A new file Category A lists too stays a new file: Category A lists every changed in-scope file, a genuine script included.
 
 **Write the category JSON** to `{run_dir}/categories.json`, where §2.2 and §3 read it beside the helper files: the two flags, `degraded_mode` and `update_mode: "normal"`. Category C stays in the files its steps wrote, which §2.2, §3 and step 5's `apply` take as `--category-c` and `--ccc-pairs`:
 

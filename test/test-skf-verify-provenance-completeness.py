@@ -90,6 +90,10 @@ Covers:
     an import, a local, a dotted name, another language, a missing file,
     a path outside the root, a symlink on the path or a skipped file, one
     read per file over one SourceCache, and the lookup's own answer
+  - baseline_gaps (#687): the map entries an extraction left out that their
+    file still declares (a dunder, a renaming alias, a module or package),
+    a real deletion left out, and the held, re-exported, listed, dotted,
+    unchecked-file and other-language entries
   - kind-at: recipes from markdown fences and each YAML file shape, the
     language forms, and with the pinned ast-grep: every language the
     recipes cover, the name filter, ambiguous, incomplete and skipped
@@ -3267,6 +3271,118 @@ class TestDeclaredLine:
         entries = [MAIN_ENTRY, {"export_name": "X", "source_file": "pkg/m.py", "source_line": 1}]
         assert _defined_at(tmp_path, capsys, files, ["X"], entries) == {"X": "pkg/m.py:3"}
         assert mod.declared_line("pkg/m.py", "X", tmp_path / "src") == 3
+
+
+class TestBaselineGaps:
+    """baseline_gaps (#687): the map entries an extraction left out whose cited file still declares them, the one
+    selection skf-extraction-snapshot.py and skf-build-change-manifest.py baseline-gaps both call."""
+
+    # cognee's shape: the runner reports none of these, the diff would read each as deleted
+    COGNEE = {
+        "cognee/__init__.py": ("from .version import get_cognee_version\nfrom .api.v1 import visualize\n\n"
+                               "__version__ = get_cognee_version()\n"),
+        "cognee/api/v1/__init__.py": "from cognee.api.v1.visualize import visualize_graph as visualize\n",
+        "cognee/api/v1/session/session.py": "def get_session():\n    pass\n",
+        "cognee/modules/pipelines/__init__.py": "from .tasks import Task\n",
+        "cognee/run_migrations.py": "async def run_migrations():\n    pass\n",
+    }
+    ENTRIES = [
+        {"export_name": "__version__", "export_type": "variable", "source_file": "cognee/__init__.py"},
+        {"export_name": "visualize", "export_type": "alias", "source_file": "cognee/api/v1/__init__.py"},
+        {"export_name": "session", "export_type": "module", "source_file": "cognee/api/v1/session/session.py"},
+        {"export_name": "pipelines", "export_type": "module", "source_file": "cognee/modules/pipelines/__init__.py"},
+        {"export_name": "run_startup_migrations", "export_type": "async_function",
+         "source_file": "cognee/run_migrations.py"},
+    ]
+
+    def _root(self, tmp_path: Path, files: dict) -> Path:
+        for rel, text in files.items():
+            _write_text(tmp_path, rel, text)
+        return tmp_path
+
+    def test_the_names_the_runner_leaves_out_and_a_real_deletion(self, tmp_path: Path) -> None:
+        root = self._root(tmp_path, self.COGNEE)
+        files = {e["source_file"] for e in self.ENTRIES}
+        gaps, unchecked = mod.baseline_gaps({"entries": self.ENTRIES}, root, set(), files)
+        assert [(g["name"], g["file"], g["line"], g["export_type"]) for g in gaps] == [
+            ("__version__", "cognee/__init__.py", 4, "variable"),
+            ("visualize", "cognee/api/v1/__init__.py", 1, "alias"),
+            ("session", "cognee/api/v1/session/session.py", 1, "module"),
+            ("pipelines", "cognee/modules/pipelines/__init__.py", 1, "module"),
+        ]
+        assert all(g["entry"] is None for g in gaps) and unchecked == []
+        # run_startup_migrations is declared no more: no gap, so the diff reports it deleted
+
+    def test_what_is_left_out(self, tmp_path: Path) -> None:
+        root = self._root(tmp_path, {"pkg/a.py": "_x = 1\n_y = 2\n_z = 3\n_w = 4\nclass C:\n    m = 1\n",
+                                     "pkg/b.py": "_q = 1\n"})
+        entries = [
+            {"export_name": "_x", "source_file": "pkg/a.py"},             # held under its name
+            {"export_name": "_impl", "source_file": "pkg/a.py", "reexported_as": "_y"},  # held under its target
+            {"export_name": "_z", "source_file": "pkg/a.py"},             # listed already
+            {"export_name": "C.m", "source_file": "pkg/a.py"},            # dotted
+            {"export_name": "_q", "source_file": "pkg/b.py"},             # a file not checked
+            {"export_name": "_w", "source_file": ".\\pkg\\a.py"},         # the one gap, its path normalized
+            {"export_name": "_w", "source_file": "pkg/a.py"},             # once per name and file
+            {"export_name": "a", "export_type": "function", "source_file": "pkg/a.py"},  # no module rule
+            "not an entry", {"export_name": 3, "source_file": "pkg/a.py"},
+        ]
+        gaps, unchecked = mod.baseline_gaps({"entries": entries}, root, {("_x", "pkg/a.py"), ("_y", "pkg/a.py")},
+                                            {"pkg/a.py"}, {("_z", "pkg/a.py")})
+        assert gaps == [{"name": "_w", "file": "pkg/a.py", "line": 4, "entry": None}] and unchecked == []
+
+    def test_a_top_level_reexport_map_holds_the_target(self, tmp_path: Path) -> None:
+        root = self._root(tmp_path, {"pkg/a.py": "_impl = 1\n"})
+        prov = {"reexport_map": {"_impl": "Public"}, "entries": [{"export_name": "_impl", "source_file": "pkg/a.py"}]}
+        assert mod.baseline_gaps(prov, root, {("Public", "pkg/a.py")}, {"pkg/a.py"}) == ([], [])
+        assert mod.baseline_gaps(prov, root, set(), {"pkg/a.py"})[0][0]["name"] == "_impl"
+
+    def test_another_language_is_unchecked(self, tmp_path: Path) -> None:
+        root = self._root(tmp_path, {"src/lib.rs": "pub const _X: u8 = 1;\n", "web/a.ts": "export const _y = 1;\n"})
+        entries = [{"export_name": "_X", "source_file": "src/lib.rs"}, {"export_name": "_y", "source_file": "web/a.ts"}]
+        gaps, unchecked = mod.baseline_gaps({"entries": entries}, root, set(), {"src/lib.rs", "web/a.ts"})
+        assert [(g["name"], g["line"]) for g in gaps] == [("_y", 1)] and "export_type" not in gaps[0]
+        assert unchecked == [{"name": "_X", "file": "src/lib.rs", "export_type": None}]
+
+    def test_a_file_the_lookup_will_not_read_and_a_dotted_module_are_unchecked(self, tmp_path: Path) -> None:
+        """declared_line refuses a test file, a symlinked path and one outside the root, and a dotted module name
+        has no declaring line: each is listed to read by eye rather than read as deleted. A file that is gone is
+        neither (its entries are deleted), and a dotted member is left out as before."""
+        root = self._root(tmp_path / "src", {"pkg/test_util.py": "_helper = 1\n", "pkg/real.py": "_x = 1\n",
+                                             "pkg/api/v1/__init__.py": "", "outside.py": ""})
+        (tmp_path / "elsewhere.py").write_text("_out = 1\n", encoding="utf-8")
+        (root / "pkg" / "link.py").symlink_to(root / "pkg" / "real.py")
+        entries = [
+            {"export_name": "_helper", "export_type": "variable", "source_file": "pkg/test_util.py"},
+            {"export_name": "_x", "source_file": "pkg/link.py"},
+            {"export_name": "_out", "source_file": "../elsewhere.py"},
+            {"export_name": "api.v1", "export_type": "module", "source_file": "pkg/api/v1/__init__.py"},
+            {"export_name": "App.run", "export_type": "method", "source_file": "pkg/real.py"},
+            {"export_name": "_gone", "source_file": "pkg/gone.py"},
+        ]
+        files = {"pkg/test_util.py", "pkg/link.py", "../elsewhere.py", "pkg/api/v1/__init__.py", "pkg/real.py",
+                 "pkg/gone.py"}
+        gaps, unchecked = mod.baseline_gaps({"entries": entries}, root, set(), files)
+        assert gaps == []
+        assert unchecked == [
+            {"name": "_helper", "file": "pkg/test_util.py", "export_type": "variable"},
+            {"name": "_x", "file": "pkg/link.py", "export_type": None},
+            {"name": "_out", "file": "../elsewhere.py", "export_type": None},
+            {"name": "api.v1", "file": "pkg/api/v1/__init__.py", "export_type": "module"},
+        ]
+
+    def test_no_entries(self, tmp_path: Path) -> None:
+        assert mod.baseline_gaps({}, tmp_path, set(), {"x.py"}) == ([], [])
+        assert mod.baseline_gaps({"entries": None}, tmp_path, set(), {"x.py"}) == ([], [])
+
+    def test_one_cache_reads_each_file_once(self, tmp_path: Path, monkeypatch) -> None:
+        root = self._root(tmp_path, {"pkg/m.py": "_a = 1\n_b = 2\n"})
+        reads: list[Path] = []
+        real = mod._read_lines
+        monkeypatch.setattr(mod, "_read_lines", lambda path: reads.append(path) or real(path))
+        entries = [{"export_name": n, "source_file": "pkg/m.py"} for n in ("_a", "_b", "_c")]
+        gaps, _ = mod.baseline_gaps({"entries": entries}, root, set(), {"pkg/m.py"})
+        assert [g["name"] for g in gaps] == ["_a", "_b"] and len(reads) == 1
 
 
 class TestLookupSkipsPinnedToTheirSources:

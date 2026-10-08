@@ -115,15 +115,19 @@ build
   when the entry has one, its `export_type`. It is checked only for an
   entry whose file is `extracted` or `read-by-eye`, whose name is not
   dotted, and that the snapshot holds neither under its name nor under
-  its `reexported_as` target at that file. The declaration is the one
-  skf-verify-provenance-completeness.py's `declared_line` finds, loaded
-  from beside this script: a line at column 0 of a Python or TS/JS file
-  that the definition-line rules match with imports left out (an alias
-  that renames counts; a plain or star import and a re-export never do),
+  its `reexported_as` target at that file. The selection and the
+  declaration are skf-verify-provenance-completeness.py's (`baseline_gaps`,
+  by `declared_line`), loaded from beside this script, the rule
+  update-skill's Category B applies through skf-build-change-manifest.py
+  baseline-gaps: a line at column 0 of a Python or TS/JS file that the
+  definition-line rules match with imports left out (an alias that
+  renames counts; a plain or star import and a re-export never do),
   and for a `module` or `package` entry the module or package so named
-  (at its line 1). An entry whose file is neither Python nor TS/JS cannot
-  be checked: one warning names each such entry. Each name and file is
-  listed once, and each file is read once. Read them by eye.
+  (at its line 1). An entry no rule can check (its file neither Python
+  nor TS/JS, a file the lookup does not read, such as a test file or one
+  with a symlink on its path, or a dotted `module` or `package` name) is
+  named in one warning, as `name (file)`. Each name and file is listed
+  once, and each file is read once. Read them by eye.
   `outside_scope` groups the runner's `entry_point_diff.outside_scope` by
   the file that defines each name: public API a package entry point exports
   from a file the skill does not cover, which the drift report lists under
@@ -200,17 +204,15 @@ def _sibling(filename: str, *needs: str):
 
 
 def _provenance():
-    """skf-load-provenance.py, for the scan list, the libraries and the
-    re-export map."""
-    return _sibling("skf-load-provenance.py", "bounded_scan_files", "source_library_by_file",
-                    "extract_reexport_map")
+    """skf-load-provenance.py, for the scan list and the libraries (the
+    verifier's `baseline_gaps` reads the re-export map itself)."""
+    return _sibling("skf-load-provenance.py", "bounded_scan_files", "source_library_by_file")
 
 
 def _verifier():
-    """skf-verify-provenance-completeness.py, for its declaration rule
-    (`declared_line`, over one `SourceCache`)."""
-    return _sibling("skf-verify-provenance-completeness.py", "declared_line", "SourceCache", "PYTHON_EXTENSIONS",
-                    "TSJS_EXTENSIONS")
+    """skf-verify-provenance-completeness.py, for its baseline gaps
+    (`baseline_gaps`, by its declaration rule `declared_line`)."""
+    return _sibling("skf-verify-provenance-completeness.py", "baseline_gaps", "declared_line")
 
 
 def _posix(path: str) -> str:
@@ -335,61 +337,14 @@ def _extraction_gaps(runner: dict, exports: list[dict]) -> list[dict]:
 def _baseline_gaps(provenance: dict, source_root: Path, statuses: dict[str, str], exports: list[dict],
                    listed: set[tuple]) -> tuple[list[dict], list[str]]:
     """The provenance entries the snapshot lacks whose cited file still
-    declares them (the recipe runner leaves out an underscore name such as
-    `__version__`, and a module), each as a gap at its declaration with the
-    entry's `export_type` when it has one, and the entries whose
-    declaration no rule can check (a file neither Python nor TS/JS), as
-    `name in file`. `listed` holds the (name, file) of the gaps already
-    listed. An entry is left out when its name is dotted, when the snapshot
-    holds the name or its `reexported_as` target at the entry's file, or
-    when that file is not `extracted` or `read-by-eye`.
-
-    The declaration is the verifier's (`declared_line`): a column-0 line
-    the definition-line rules match with imports left out (an alias that
-    renames counts; a plain or star import and a re-export never do), and
-    only for a `module` or `package` entry the module or package so named.
-    The entries are taken file by file over one cache, so each file is
-    read and parsed once."""
-    verifier = _verifier()
-    checkable = verifier.PYTHON_EXTENSIONS | verifier.TSJS_EXTENSIONS
-    renamed = _provenance().extract_reexport_map(provenance)
+    declares them, and the entries no rule can check, by the verifier's
+    `baseline_gaps` (the selection and the declaration rule both live
+    there, beside `declared_line`, for update-skill's `baseline-gaps` too):
+    the entries of the files `extracted` or `read-by-eye`, against the
+    snapshot's exports, less the gaps `listed` already holds."""
+    files = {file for file, status in statuses.items() if status in BASELINE_GAP_STATUSES}
     held = {(e["name"], e["file"]) for e in exports}
-    seen = set(listed)
-    by_file: dict[str, list[dict]] = {}
-    unchecked: list[str] = []
-    for entry in provenance.get("entries") or []:
-        if not isinstance(entry, dict):
-            continue
-        name, cited = entry.get("export_name"), entry.get("source_file")
-        if not isinstance(name, str) or not isinstance(cited, str):
-            continue
-        # the status is the scan list's file's; the gap names it as an export does
-        name, file = name.strip(), _posix(cited)
-        if not name or "." in name or (name, file) in seen:
-            continue
-        if statuses.get(cited.replace("\\", "/")) not in BASELINE_GAP_STATUSES:
-            continue
-        if (name, file) in held or (renamed.get(name), file) in held:
-            continue
-        seen.add((name, file))
-        if Path(file).suffix.lower() not in checkable:
-            unchecked.append(f"{name} in {file}")
-            continue
-        by_file.setdefault(file, []).append(entry)
-    cache = verifier.SourceCache()
-    gaps = []
-    for file, entries in by_file.items():
-        for entry in entries:
-            name, kind = entry["export_name"].strip(), entry.get("export_type")
-            module = isinstance(kind, str) and kind.strip().lower() in ("module", "package")
-            line = verifier.declared_line(file, name, source_root, cache=cache, module_fallback=module)
-            if line is None:
-                continue
-            gap = {"name": name, "file": file, "line": line, "entry": None}
-            if kind is not None:
-                gap["export_type"] = kind
-            gaps.append(gap)
-    return gaps, unchecked
+    return _verifier().baseline_gaps(provenance, source_root, held, files, listed)
 
 
 def _ordered(exports) -> list[dict]:
@@ -494,9 +449,10 @@ def build(source_root: Path, tier: str, date: str, provenance: dict | None, runn
         gaps += baseline
         if unchecked:
             warnings.append(f"{len(unchecked)} map entr{'y' if len(unchecked) == 1 else 'ies'} the snapshot "
-                            f"lacks in a file neither Python nor TS/JS, so no declaration was checked and step 3 "
-                            f"may report {'it' if len(unchecked) == 1 else 'them'} removed: "
-                            + ", ".join(unchecked))
+                            f"lacks that no rule can check (in a file neither Python nor TS/JS, a file the "
+                            f"declaration lookup does not read, or a dotted module name), so step 3 may report "
+                            f"{'it' if len(unchecked) == 1 else 'them'} removed: "
+                            + ", ".join(f"{u['name']} ({u['file']})" for u in unchecked))
     return {
         "extraction_date": date,
         "confidence_tier": tier,
