@@ -2,4 +2,5 @@ type: fixed
 scope: skf-update-skill
 summary: |
   Update Skill now moves a provenance map entry to the new file when an export moves from one changed file to another, whether or not it also changed, as `skf-build-change-manifest.py apply` documents. The change manifest now names the file a moved export left (`old_file`), and `apply` finds the entry there; before, it looked for the entry in the new file, found none and left it at its old file and line, adding a second entry for an export that also changed.
+prs: [693]
 issues: [686]
