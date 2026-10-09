@@ -79,7 +79,7 @@ Apply merge in the following priority order:
 - **Gap-driven rescopes** (`DELETED_EXPORT` from gap-driven.md §1 rule R1, verification `rescoped`) are processed here with the same removal. §6b writes the entry's `rescope` (its `scope.amendments[]` entry, `action: "excluded"`, and its `scope.exclude` path) to the skill brief before SKILL.md, and step 5 removes the provenance `entries[]` row and recomputes `stats` from the amended `brief.scope` (write.md §2/§3). gap-driven.md §4 HALTs on a rescope that carries no `rescope`, so no unscoped removal reaches here.
 
 **Priority 2 — Process MOVED exports:**
-- Update file:line citations in generated content
+- Update file:line citations in generated content: a `MOVED_EXPORT`'s citation takes its `new_line`, and when the change manifest gives it an `old_file` (a move across files), a citation `[AST:{old_file}:L{old_line}]` (or `[SRC:...]`) becomes the file its `per_file` item names and its `new_line`, `[AST:{file_path}:L{new_line}]`, keeping its prefix. A `MODIFIED_EXPORT` with an `old_file` (it also changed) is rewritten whole by Priority 4.
 - **Gap-driven:** move citations only for an export whose gap-driven.md §4 spot-check recorded `moved`. A `MOVED_EXPORT` that recorded `unknown` (the drift override among the causes), `verified` or `missing` moves none: write.md §3 leaves its line as it is.
 - Update provenance map file references
 - [MANUAL] blocks unaffected (content unchanged)
@@ -99,6 +99,7 @@ Apply merge in the following priority order:
 - Append new export content to appropriate section
 - Place before any [MANUAL] blocks at section boundary
 - No conflicts expected (new content, no existing [MANUAL])
+- **A `public-api` skill's public surface (normal mode only):** document no new export, and no export of an ADDED or MOVED file, whose record in `{run_dir}/reextract-records.json` is marked `public: false`, unless the provenance map holds the export (by name at its `old_path` for a MOVED file) or the old name it renames, or this update removes an entry of its name (a `DELETED_EXPORT`, a DELETED file's entry): `records` (re-extract.md §4) found it off the public surface, and step 5's `apply` adds no entry for it, so SKILL.md, the provenance map and metadata.json's `exports[]` name the same exports. A record with no `public` mark is documented as before, and an export the map already holds keeps its content (Priority 4) whatever its mark. In gap-driven and degraded mode document every record whatever its mark: `apply` maps them all.
 - **Gap-driven cited `NEW_EXPORT` whose spot-check pinned a line** (gap-driven.md §4 recorded `verified` or `moved` for an export the provenance map does not hold): cite it as `[SRC:{source_file}:L{line}]`, where `{line}` is the citation's line for `verified` and the `new_location` line for `moved`: the line write.md §3 records in its new `source-read` entry. The spot-check found that line by the verifier's text rules, not by an ast-grep recipe, so the prefix is `SRC`, never `AST`.
 
 **Priority 6 — Process script/asset file changes (from Category D in change manifest):**

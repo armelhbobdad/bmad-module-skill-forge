@@ -55,16 +55,19 @@ Subcommands:
   apply --update-type incremental|gap-driven|full --skill-name <name>
         --generation-date <iso> --confidence-tier <tier>
         --manual-sections-preserved <n> -o <file> [inputs...]
+        [--not-public-out <file>]
       The provenance map an update writes (see "Apply" below): the old
       map with this run's changes, written to -o through a temporary file
-      and a rename. Prints a summary with the warnings for a person.
+      and a rename, and the summary's not_public list to --not-public-out
+      when given. Prints a summary with the warnings for a person.
 
   records [--extraction <file>] [--export-details <file>]
           [--files-from <file>] [--patches <dir>] -o <file>
       Step 3's re-extraction records (see "Records" below), written to -o
       through a temporary file and a rename. Prints {"status": "written",
       "output", "files_extracted", "exports_extracted",
-      "confidence_breakdown": {"T1", "T1-low", "T2"}, "warnings"}.
+      "confidence_breakdown": {"T1", "T1-low", "T2"}, "marked_not_public"
+      (the exports marked public: false), "warnings"}.
 
   gap-records --manifest <file> --provenance-map <file> [--source-root <dir>]
               [--drift-status ok|skipped|overridden] [--judgments <file>]
@@ -102,9 +105,13 @@ Helper files in place of typed slices (update-skill detect-changes §2.1):
                                             changed); moved_exports for an
                                             export whose only field is `line`
                               moved[]    -> moved_exports {name, file:
-                                            current_file, old_line:
+                                            current_file, old_file:
+                                            previous_file (only when it
+                                            differs), old_line:
                                             previous_line, new_line: line},
-                                            unless it is a modified export
+                                            unless it is a modified export,
+                                            which then takes old_file and
+                                            old_line: previous_line
                             label_changes[] is not drift, and a name
                             ambiguous_names[] lists stays removed and added
   --category-c <file>       the output of rename-candidates: its category_c
@@ -144,10 +151,10 @@ Input JSON shape (object on stdin or in --input file):
       "deleted":  ["path3", ...]
     },
     "category_b": {
-      "modified_exports": [{name, file, old_line, new_line}, ...],
+      "modified_exports": [{name, file, old_line, new_line, old_file?}, ...],
       "new_exports":      [{name, file, line}, ...],
       "deleted_exports":  [{name, file, old_line}, ...],
-      "moved_exports":    [{name, file, old_line, new_line}, ...]
+      "moved_exports":    [{name, file, old_line, new_line, old_file?}, ...]
     },
     "category_c": {
       "renamed_files":   [{old_path, new_path}, ...],
@@ -171,6 +178,10 @@ Manifest (build's output):
               category_d list},
    "total_export_changes": N, "per_file": [...],
    "category_d": {the eight category_d lists, each path once}}
+
+  Each per_file item's exports_affected holds {name, change_type,
+  old_line, new_line}, and old_file for an export that moved across files
+  (a MOVED_EXPORT, or a MODIFIED_EXPORT that also changed).
 
   A tracked document (a doc row of file_entries[]) has no other detector:
   update-skill's Category A never lists it, so a document-only change still
@@ -241,14 +252,36 @@ Apply (update-skill write.md §3):
   details, then step 3's record (the runner's in the map's typed form).
   Per file of the manifest:
     MODIFIED  NEW_EXPORT adds an entry, MODIFIED_EXPORT rewrites the
-              export's fields from its fresh record, MOVED_EXPORT sets
-              its line (and file), DELETED_EXPORT removes it
+              export's fields (file included) from its fresh record,
+              MOVED_EXPORT moves the entry to the file and the fresh
+              record's line, else new_line, DELETED_EXPORT removes it;
+              a change with an old_file finds its entry in that file
     ADDED     every fresh record of the file becomes an entry
     DELETED   every entry of the file is removed
     MOVED     the old path's entries are replaced by the new path's
               fresh records, each keeping the keys of the entry of its
               name it replaces
-  and each renamed export takes its new name and fresh fields. A docs-only
+  and each renamed export takes its new name and fresh fields. A
+  MOVED_EXPORT whose fresh record is the runner's (ast-grep) also takes
+  its confidence, extraction_method and ast_node_type (the entry's when
+  the record's is null), and its signature_source when the record holds
+  each of params and return_type the entry holds (else the entry's),
+  never its export_type, params or return_type; one read by eye moves
+  the line and file only.
+
+  Public-api skills (incremental only): a NEW_EXPORT or MODIFIED_EXPORT
+  the map does not hold, an ADDED file's record and a MOVED file's record
+  whose name no old entry carries become entries only when on the public
+  surface: the record's `public` mark (see "Records"), else, for a record
+  --reextract-records does not mark, the same rule over --extraction (its
+  scope.type). A name whose entry this run removes (a DELETED_EXPORT, a
+  DELETED file's or a MOVED file's old path's entry) is added whatever
+  its mark. Each one left out is listed in the summary's not_public,
+  {name, file}, with one warning for them all; an entry the map holds is
+  updated whatever its mark, and no entry is removed for it. A public-api
+  --extraction the rule cannot read (no entry_point_diff, an incomplete
+  run or one with errors, an unresolved entry point) adds every name, with
+  one warning. A docs-only
   run's records ({"mode": "docs-only", "changed_urls": [...], "exports":
   [{name, type, params, return_type, url}]}) replace the entries of each
   changed URL (source_file is the URL; confidence and signature_source
@@ -304,8 +337,9 @@ Apply (update-skill write.md §3):
   (update_operations, update_metadata) stays as it is.
 
   Summary on stdout: {"status": "written", "map": <-o>, "entries":
-  {"added", "updated", "removed"}, "file_entries": {"added", "updated",
-  "removed"}, "warnings": [...]}, or {"status": "refused",
+  {"added", "updated", "removed"}, "not_public": [{name, file}],
+  "file_entries": {"added", "updated", "removed"}, "warnings": [...]},
+  or {"status": "refused",
   "blocking_unresolved": [{export_name, severity}]} with exit 3.
 
 Records (update-skill re-extract.md §4, and gap-driven.md §4a for the files
@@ -331,6 +365,21 @@ it scans):
   return_type are set only where the seed has none. A patch for an export
   no seed holds is not added, with a warning. confidence_breakdown counts
   the exports by confidence, and T2 the exports with a qmd_evidence.
+
+  Public surface. When --extraction's scope.type is public-api (in any
+  case) and it has an entry_point_diff, each export of a language family
+  whose entry_points.by_language status is `barrel` is marked `public`:
+  true when its name and file are a pair of the runner's entry_point_diff
+  `public` (its name, or the name `local` gives it in that file) or
+  `extraction_gaps`, when a `public` item of its name and family has no
+  file, or when one with `via` namespace has its file in the export's
+  folder (the names counts.exports_public_api counts); false otherwise.
+  In a normal update merge documents no export marked false that the map
+  does not hold, and apply adds none; gap-records drops the mark, and a
+  full (degraded) apply adds every record. Any other scope type, a family
+  with no barrel, and a run with no entry_point_diff, an incomplete one,
+  one with errors or one whose entry_points.unresolved is not empty mark
+  nothing.
 
 Gap records (update-skill gap-driven.md §3, §4 and §4a):
 
@@ -391,7 +440,8 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
      first export of its name in the blocks of those files, in their
      order: `re-extracted`, new_location its record's location,
      resolution_source remediation-paths, and the record copied into
-     `files` as `records` wrote it, with the answered `docstring` added.
+     `files` as `records` wrote it, less its `public` mark (a normal
+     update's), with the answered `docstring` added.
      An entry with no match, or no path to scan, is unresolved, except a
      missing-export or missing-type one that is not blocking, which is
      unknown. Any unresolved entry: {"status": "unresolved",
@@ -571,11 +621,20 @@ def category_b_from_diff(diff: dict) -> dict:
             lists["modified_exports"].append({"name": key[0], "file": key[1], "old_line": None, "new_line": None})
             modified.add(key)
     for item in _get_list(diff, "moved"):
-        if isinstance(item, dict) and (item.get("name"), item.get("current_file")) not in modified:
-            lists["moved_exports"].append({
-                "name": item.get("name"), "file": item.get("current_file"),
-                "old_line": item.get("previous_line"), "new_line": item.get("line"),
-            })
+        if not isinstance(item, dict):
+            continue
+        key, old_file = (item.get("name"), item.get("current_file")), _norm_path(item.get("previous_file"))
+        across = old_file not in (None, _norm_path(item.get("current_file")))  # apply finds the entry at old_file
+        if key in modified:
+            if across:  # moved across files and changed: a MODIFIED_EXPORT that names the file it left
+                for entry in lists["modified_exports"]:
+                    if (entry["name"], entry["file"]) == key:
+                        entry.update(old_line=item.get("previous_line"), old_file=old_file)
+            continue
+        move = {"name": item.get("name"), "file": item.get("current_file")}
+        if across:
+            move["old_file"] = old_file
+        lists["moved_exports"].append({**move, "old_line": item.get("previous_line"), "new_line": item.get("line")})
     return lists
 
 
@@ -771,12 +830,15 @@ def _build_per_file(
         path = entry.get("file")
         if not path:
             return
-        exports_by_file.setdefault(path, []).append({
+        change = {
             "name": entry.get("name"),
             "change_type": change_type,
             "old_line": entry.get("old_line"),
             "new_line": entry.get("new_line") or entry.get("line"),
-        })
+        }
+        if entry.get("old_file"):
+            change["old_file"] = entry["old_file"]  # a move across files: a MOVED_EXPORT, or a MODIFIED_EXPORT
+        exports_by_file.setdefault(path, []).append(change)
 
     for e in b_modified:
         _record(e, "MODIFIED_EXPORT")
@@ -974,6 +1036,71 @@ def _name_of(record: dict) -> str | None:
 
 def _file_of(record: dict) -> str | None:
     return _norm_path(record.get("source_file", record.get("file", record.get("file_path"))))
+
+
+PUBLIC_API = "public-api"
+# A record's language family, the one whose entry points declare its names: skf-extract-public-api.py's FAMILY_OF,
+# by the record's `language`, else by its file's extension (that script's EXTENSION_LANGUAGES).
+_FAMILY_OF_LANGUAGE = {"python": "python", "typescript": "javascript", "tsx": "javascript",
+                       "javascript": "javascript", "vue": "javascript", "rust": "rust", "go": "go"}
+_FAMILY_OF_EXTENSION = {".py": "python", ".pyi": "python", ".rs": "rust", ".go": "go",
+                        **dict.fromkeys((".ts", ".mts", ".cts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue"),
+                                        "javascript")}
+
+
+class _PublicSurface:
+    """The public surface of a public-api skill's extraction (see "Records" in the module docstring)."""
+
+    def __init__(self, diff: dict, statuses: dict):
+        self.barrels = {family for family, status in statuses.items() if status == "barrel"}
+        self.pairs: set[tuple[str, str]] = set()
+        self.namespaces: set[tuple[object, str, str]] = set()  # (family, name, the folder of its file)
+        self.unfiled: set[tuple[object, str]] = set()  # (family, name) of a public name no file defines
+        for key in ("public", "extraction_gaps"):
+            for item in diff.get(key) or []:
+                if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"]:
+                    continue
+                name, family, file = item["name"], item.get("language"), _norm_path(item.get("file"))
+                if not file:
+                    if key == "public":
+                        self.unfiled.add((family, name))
+                    continue
+                local = item.get("local") if key == "public" else None
+                self.pairs.update((n, file) for n in (name, local) if isinstance(n, str) and n)
+                if key == "public" and item.get("via") == "namespace":
+                    self.namespaces.add((family, name, file.rpartition("/")[0]))
+
+    def public(self, name: str, path: str, language: object = None) -> bool | None:
+        """Whether the export is on the public surface; None (no mark) when its family's entry points are no
+        barrel."""
+        family = _FAMILY_OF_LANGUAGE.get(language) if isinstance(language, str) else None
+        if family is None:
+            family = _FAMILY_OF_EXTENSION.get(os.path.splitext(path)[1].lower())
+        if family not in self.barrels:
+            return None
+        return ((name, path) in self.pairs or (family, name) in self.unfiled
+                or (family, name, path.rpartition("/")[0]) in self.namespaces)
+
+
+def public_surface(extraction: object) -> tuple[_PublicSurface | None, str | None]:
+    """(the public surface, None) of the recipe runner's output when its scope type is public-api; (None, why the
+    surface cannot be read from it) for a public-api run with no entry-point diff, an incomplete one, one with
+    errors or one whose entry points name a module the trace could not follow; (None, None) for any other scope
+    type. With no surface every export is kept, as before."""
+    if not isinstance(extraction, dict):
+        return None, None
+    scope, diff, points = extraction.get("scope"), extraction.get("entry_point_diff"), extraction.get("entry_points")
+    kind = scope.get("type") if isinstance(scope, dict) else None
+    if not (isinstance(kind, str) and kind.strip().lower() == PUBLIC_API):
+        return None, None
+    statuses = points.get("by_language") if isinstance(points, dict) else None
+    if not isinstance(diff, dict) or not isinstance(statuses, dict):
+        return None, "the recipe runner gave no entry-point diff (Quick tier, or a run that could not read the tree)"
+    if extraction.get("status") == "incomplete" or extraction.get("errors"):
+        return None, "the recipe runner's run is incomplete"
+    if points.get("unresolved"):
+        return None, "an entry point names a module the runner could not trace (entry_points.unresolved)"
+    return _PublicSurface(diff, statuses), None
 
 
 # --------------------------------------------------------------------------
@@ -1225,6 +1352,7 @@ class _Fresh:
         self.runner = {}
         self.details = {}
         self.worker = {}
+        self.surface, self.surface_problem = public_surface(extraction)
         for record in _exports_of(extraction, "--extraction file"):
             key = (_name_of(record), _file_of(record))
             if all(key):
@@ -1247,6 +1375,17 @@ class _Fresh:
 
     def all_keys(self) -> list[tuple]:
         return sorted({k for source in (self.runner, self.details, self.worker) for k in source})
+
+    def public(self, name: str, path: str) -> bool | None:
+        """The `public` mark `records` gave the export, else the public-surface rule over --extraction; None when
+        neither marks it."""
+        mark = (self.worker.get((name, path)) or {}).get("public")
+        if isinstance(mark, bool):
+            return mark
+        if self.surface is None:
+            return None
+        record = self.runner.get((name, path)) or self.details.get((name, path)) or {}
+        return self.surface.public(name, path, record.get("language"))
 
     def record(self, name: str, path: str) -> dict | None:
         """The entry fields of an export's fresh record, or None when no source holds it."""
@@ -1375,9 +1514,29 @@ class _Map:
 
 
 def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fresh: _Fresh,
-                  warnings: list[str]) -> tuple[int, int]:
-    """Normal mode: the manifest's file and export changes. Returns (files, exports) for the update block."""
+                  warnings: list[str], not_public: list[dict]) -> tuple[int, int]:
+    """Normal mode: the manifest's file and export changes. Returns (files, exports) for the update block; each
+    name it leaves out as off a public-api skill's public surface goes to `not_public`."""
     per_file = [f for f in _get_list(manifest or {}, "per_file") if isinstance(f, dict)]
+    # the names of the entries this run removes (a DELETED_EXPORT, a DELETED file's, a MOVED file's old path's):
+    # one that comes back in another file is re-added whatever its mark, so no held export is lost
+    removed: set[str] = set()
+    for item in per_file:
+        path = _norm_path(item.get("old_path") if item.get("status") == "MOVED" else item.get("file_path"))
+        if item.get("status") in ("DELETED", "MOVED") and path:
+            removed.update(_name_of(pmap.doc["entries"][i]) for i in pmap.indexes_of(path))
+        removed.update(_name_of(c) for c in item.get("exports_affected") or []
+                       if isinstance(c, dict) and c.get("change_type") == "DELETED_EXPORT")
+    listed: set[tuple[str, str]] = set()
+
+    def off_surface(name: str, path: str) -> bool:
+        """True for a name the run would add that is off the public surface, which it lists."""
+        if name in removed or fresh.public(name, path) is not False:
+            return False
+        if (name, path) not in listed:
+            listed.add((name, path))
+            not_public.append({"name": name, "file": path})
+        return True
 
     def refresh(index: int | None, name: str, path: str, *, add: bool) -> None:
         record = fresh.record(name, path)
@@ -1386,7 +1545,7 @@ def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fr
                             f"{'kept as it was' if index is not None else 'not added'}")
             return
         if index is None:
-            if add:
+            if add and not off_surface(name, path):
                 pmap.add(_new_entry(record, pmap.library))
             return
         pmap.update(index, _without_none(record, keep=("ast_node_type",)))
@@ -1406,6 +1565,8 @@ def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fr
             for name, key_path in fresh.keys_of(path):
                 record = fresh.record(name, key_path)
                 carried = old_entries.get(name)
+                if carried is None and off_surface(name, key_path):
+                    continue
                 entry = _rewrite(carried, _without_none(record, keep=("ast_node_type",))) if carried \
                     else _new_entry(record, pmap.library)
                 pmap.add(entry)
@@ -1419,7 +1580,8 @@ def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fr
             if not isinstance(change, dict) or not _name_of(change):
                 continue
             name, kind = _name_of(change), change.get("change_type")
-            index = pmap.find(name, path, _line_of(change.get("old_line")))
+            # a move across files (a MOVED_EXPORT, or a MODIFIED_EXPORT that also moved) names the file its entry is at
+            index = pmap.find(name, _norm_path(change.get("old_file")) or path, _line_of(change.get("old_line")))
             if kind == "DELETED_EXPORT":
                 if index is not None:
                     pmap.remove([index])
@@ -1428,7 +1590,18 @@ def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fr
                 line = record["source_line"] if record and record.get("source_line") is not None \
                     else _line_of(change.get("new_line"))
                 if index is not None and line is not None:
-                    pmap.update(index, {"source_file": path, "source_line": line})
+                    fields = {"source_file": path, "source_line": line}
+                    if record is not None and record["extraction_method"] == "ast-grep":
+                        # the runner matched it: its labels, never its export_type, params or return_type
+                        fields.update(confidence=record["confidence"], extraction_method=record["extraction_method"])
+                        if record["ast_node_type"] is not None:
+                            fields["ast_node_type"] = record["ast_node_type"]
+                        entry = pmap.doc["entries"][index]
+                        # its signature_source only when the record holds each signature part the entry does
+                        if all(record.get(part) is not None for part in ("params", "return_type")
+                               if entry.get(part) is not None):
+                            fields["signature_source"] = record["signature_source"]
+                    pmap.update(index, fields)
             elif kind in ("NEW_EXPORT", "MODIFIED_EXPORT"):
                 refresh(index, name, path, add=True)
     for rename in _get_list(categories or {}, "category_c", "renamed_exports"):
@@ -1635,6 +1808,7 @@ def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, 
     records = records if isinstance(records, dict) else {}
     pmap = _Map(provenance, skill_name)
     warnings: list[str] = []
+    not_public: list[dict] = []
     mode = records.get("mode")
     if update_type == "gap-driven":
         outcome = _apply_gap_driven(pmap, records, merge_records, drift, warnings)
@@ -1656,7 +1830,12 @@ def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, 
             files = len({path for _name, path in fresh.all_keys()})
             exports = len(fresh.all_keys())
         else:
-            files, exports = _apply_normal(pmap, manifest, categories, fresh, warnings)
+            files, exports = _apply_normal(pmap, manifest, categories, fresh, warnings, not_public)
+            if fresh.surface_problem:
+                warnings.append(f"provenance: the public surface of this public-api skill could not be applied "
+                                f"({fresh.surface_problem}): every new export was added")
+    if not_public:
+        warnings.append(_not_public_warning(not_public))
     file_changes = _apply_files(pmap, compare, new_files, promoted, source_root)
     doc = pmap.doc
     for key, value in (("source_commit", source_commit), ("source_ref", source_ref)):
@@ -1676,10 +1855,23 @@ def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, 
     summary = {
         "status": "written",
         "entries": {"added": pmap.added, "updated": pmap.updated, "removed": pmap.removed},
+        "not_public": not_public,
         "file_entries": file_changes,
         "warnings": warnings,
     }
     return doc, summary
+
+
+NOT_PUBLIC_NAMED = 10  # the names the not_public warning spells out; the summary lists them all
+
+
+def _not_public_warning(not_public: list[dict]) -> str:
+    """The one warning for every name apply left out as off a public-api skill's public surface."""
+    names = [item["name"] for item in not_public]
+    shown = ", ".join(names[:NOT_PUBLIC_NAMED])
+    more = f" and {len(names) - NOT_PUBLIC_NAMED} more" if len(names) > NOT_PUBLIC_NAMED else ""
+    return (f"provenance: {len(names)} new export(s) off the public surface of this public-api skill not added "
+            f"(the summary's not_public lists each with its file): {shown}{more}")
 
 
 def _write_json_atomic(path: Path, value) -> None:
@@ -1817,6 +2009,11 @@ def build_records(extraction: dict | None, details: dict | None, files: list | N
                 if patch.get(field) is not None:
                     seeded[key][field] = patch[field]
             fill_if_null(key, patch)
+    surface, _problem = public_surface(extraction)  # apply warns when a public-api run gives no surface
+    for key in seeded if surface is not None else ():
+        mark = surface.public(key[0], key[1], languages.get(key))
+        if mark is not None:
+            seeded[key]["public"] = mark
     paths = list(dict.fromkeys([p for p in (_norm_path(f) for f in files or []) if p]
                                + sorted({key[1] for key in seeded})))
     blocks = [{"file_path": path, "exports": [seeded[key] for key in sorted(seeded) if key[1] == path]}
@@ -1830,6 +2027,7 @@ def build_records(extraction: dict | None, details: dict | None, files: list | N
             "T1-low": sum(1 for r in exports if r["confidence"] == "T1-low"),
             "T2": sum(1 for r in exports if r.get("qmd_evidence") is not None),
         },
+        "marked_not_public": sum(1 for r in exports if r.get("public") is False),
         "warnings": warnings,
     }
     return {"mode": "normal", "files": blocks}, summary
@@ -2189,6 +2387,7 @@ def gap_records(manifest: dict, provenance: dict | None, *, source_root: Path | 
     for g in routed:
         if g.record is not None and not g.internal:
             record = dict(g.record)
+            record.pop("public", None)  # a repair documents and maps every record: the mark is a normal update's
             if g.answers.get("docstring") is not None:
                 record["docstring"] = g.answers["docstring"]
             if record not in kept.setdefault(g.record_path, []):
@@ -2425,11 +2624,13 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     if summary["status"] == "refused":
         print(json.dumps(summary))
         return EXIT_REFUSED
-    try:
-        _write_json_atomic(Path(args.output), doc)
-    except OSError as exc:
-        print(f"error: cannot write {args.output}: {exc}", file=sys.stderr)
-        return 1
+    for path, value in ((args.not_public_out, summary["not_public"]), (args.output, doc)):
+        try:
+            if path:
+                _write_json_atomic(Path(path), value)
+        except OSError as exc:
+            print(f"error: cannot write {path}: {exc}", file=sys.stderr)
+            return 1
     print(json.dumps({**summary, "map": args.output}))
     return 0
 
@@ -2640,6 +2841,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_apply.add_argument("--source-ref", default=None, help="the map's source_ref (empty: null)")
     p_apply.add_argument("--drift-head", default=None, help="under the drift override: HEAD's short SHA")
     p_apply.add_argument("--drift-pinned", default=None, help="under the drift override: the pinned short SHA")
+    p_apply.add_argument("--not-public-out", metavar="FILE",
+                         help="also write the summary's not_public list here (a JSON array)")
     p_apply.add_argument("-o", "--output", required=True, metavar="FILE", help="where to write the new map")
     p_apply.set_defaults(func=_cmd_apply)
 

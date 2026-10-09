@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Update Skill now gives an export that moved within its file the labels of this run's recipe runner match along with its new line (`extraction_method: ast-grep`, confidence T1, the match's `ast_node_type`, and `signature_source` T1 when the match read each part of the signature the entry records), as a re-extracted export takes them. Before, `apply` moved only the line, so an entry an older SKF version had labelled `source-read` with T1 failed the stats coherence check and was downgraded to T1-low, which rewrote its `[AST:]` citations to `[SRC:]`. An export read by eye still moves its line only, and a move never changes an entry's type, parameters or return type.
+issues: [686]
