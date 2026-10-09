@@ -1588,7 +1588,9 @@ class TestRecipeFile:
         code = mod.main(["--mode", "full", "--source-root", str(root), "--recipes", str(recipes)])
         captured = capsys.readouterr()
         assert (code, captured.out) == (2, "")
-        assert message in captured.err
+        # one line, a YAML error's several lines included (#694): the line a caller quotes
+        (line,) = captured.err.splitlines()
+        assert line.startswith("error: ") and message in line
 
 
 class TestMerge:
@@ -2245,6 +2247,33 @@ class TestFullCli:
         assert mod.main(argv) == 2
         captured = capsys.readouterr()
         assert captured.out == "" and message in captured.err
+        assert len(captured.err.splitlines()) == 1
+
+    @pytest.mark.parametrize(
+        ("files", "flags", "message"),
+        [({"brief.yaml": "language: python\nscope: [\n"}, ["--brief", "brief.yaml"], "is not valid YAML"),
+         ({}, ["--files-from", "missing.json"], "cannot read file list"),
+         # only the line breaks are joined: a path's two spaces stay as written
+         ({}, ["--files-from", "two  spaces.json"], "cannot read file list two  spaces.json: "),
+         ({"list.json": '["a.py"]'}, ["--files-from", "list.json", "-o", "no/such/folder/out.json"],
+          "cannot write")],
+        ids=["brief-yaml", "file-list", "two-spaces", "output"],
+    )
+    def test_an_input_error_is_one_line(self, files, flags, message, tmp_path, capsys, monkeypatch,
+                                        no_ast_grep) -> None:
+        """#694: every exit 2 of full mode after the flags parse names its error in one stderr line, with no
+        JSON: a brief that is not valid YAML printed PyYAML's five lines before. (A flag error is argparse's: it
+        prints its usage first, and callers quote the line that holds `error:`.) Update Skill's halts and
+        warning, and Create and Audit Skill's runner-failed warning, quote that line. (Without ast-grep the run
+        still writes its JSON, which the `-o` case cannot write.)"""
+        root = _tree(tmp_path / "root", {"a.py": "def f(): pass\n"})
+        _tree(tmp_path, files)
+        monkeypatch.chdir(tmp_path)
+        assert mod.main(["--mode", "full", "--source-root", str(root), *flags]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        (line,) = captured.err.splitlines()
+        assert line.startswith("error: ") and message in line, line
 
     def test_no_ast_grep_exits_3_with_the_scope(self, tmp_path, capsys, no_ast_grep) -> None:
         root = _tree(tmp_path, {"a.py": "def f(): pass\n"})

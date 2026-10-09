@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill, skf-audit-skill
+summary: |
+  When the recipe runner (`skf-extract-public-api.py`) leaves no JSON and prints an `error:` line, on an input error such as a recipe file it cannot read or a source root it cannot find, or on a failure it did not foresee, Create Skill and Audit Skill still extract without it and now warn `Recipe runner failed` with that line instead of falling back without a word. Create Skill shows the warning at its extraction gate and in the evidence report; Audit Skill shows it with its AST fallback warnings and records `recipe_runner_failed` in its result envelope. A shell timeout, which prints no such line, still falls back without the warning.
+issues: [694]

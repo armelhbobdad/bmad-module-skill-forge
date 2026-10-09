@@ -2312,7 +2312,8 @@ class TestBaselineGaps:
         assert [g["name"] for g in json.loads(paths["out"].read_bytes())["gaps"]] == ["session"]
 
     def test_a_runner_that_could_not_run(self, tmp_path: Path) -> None:
-        # Quick tier, or exit 2 or 3: step 1 writes {"exports": []} and the gaps are every entry still declared
+        # Quick tier, exit 3, or no JSON on an exit other than 2 (which HALTs): step 1 writes {"exports": []} and
+        # the gaps are every entry still declared
         paths = _cognee_run(tmp_path, {"exports": []})
         assert _baseline_gaps(paths).returncode == 0
         assert [g["name"] for g in json.loads(paths["out"].read_bytes())["gaps"]] == [

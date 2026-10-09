@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-analyze-source, skf-audit-skill, skf-brief-skill, skf-create-skill, skf-test-skill, skf-update-skill
+summary: |
+  The recipe runner (`skf-extract-public-api.py --mode full`) now names every error after its flags parse in one stderr line: a skill brief or a recipe file that is not valid YAML printed the parser's message over several lines, so the line a halt or a warning quotes held only its start. A flag error is argparse's, which prints its usage first; callers quote the line that holds `error:`.
+issues: [694]

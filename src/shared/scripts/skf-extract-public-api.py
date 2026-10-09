@@ -4065,32 +4065,35 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
     return result, 0
 
 
+def _full_exit_2(message: str) -> int:
+    """Exit 2 of full mode (an input error, a failed -o write or a crash):
+    `message` on one stderr line, each line break and the whitespace around
+    it joined into one space (a YAML error spans several lines) and every
+    other space kept, so a path is quoted as written. Callers quote the line
+    as the reason they stop or fall back."""
+    sys.stderr.write("error: " + re.sub(r"\s*[\r\n]\s*", " ", message.strip("\r\n")) + "\n")
+    return 2
+
+
 def _main_full(args: argparse.Namespace) -> int:
     if not args.source_root:
-        sys.stderr.write("error: --mode full needs --source-root\n")
-        return 2
+        return _full_exit_2("--mode full needs --source-root")
     if args.head_cap is not None and args.head_cap < 0:
-        sys.stderr.write("error: --head-cap must be 0 (no cap) or more\n")
-        return 2
+        return _full_exit_2("--head-cap must be 0 (no cap) or more")
     if args.timeout is not None and not args.timeout > 0:
-        sys.stderr.write("error: --timeout must be more than 0 seconds\n")
-        return 2
+        return _full_exit_2("--timeout must be more than 0 seconds")
     try:
         result, code = run_full(args)
     except RunnerError as exc:
-        sys.stderr.write(f"error: {exc}\n")
-        return 2
+        return _full_exit_2(str(exc))
     except Exception as exc:  # noqa: BLE001 - one stderr line and exit 2, never a traceback
-        detail = " ".join(str(exc).split())
-        sys.stderr.write(f"error: the run failed: {type(exc).__name__}: {detail}\n")
-        return 2
+        return _full_exit_2(f"the run failed: {type(exc).__name__}: {exc}")
     text = json.dumps(result, indent=2) + "\n"
     if args.output:
         try:
             Path(args.output).write_text(text, encoding="utf-8")
         except OSError as exc:
-            sys.stderr.write(f"error: cannot write {args.output}: {exc}\n")
-            return 2
+            return _full_exit_2(f"cannot write {args.output}: {exc}")
     else:
         sys.stdout.write(text)
     return code
