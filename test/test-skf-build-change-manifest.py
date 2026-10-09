@@ -13,6 +13,10 @@ Covers its subcommands:
     update writes
   - records: step 3's re-extraction records, seeded from the runner's and
     step 2's files, with the workers' patches merged in
+  - a public-api skill's public surface: records marks each export by the
+    runner's entry-point diff and apply adds only the public ones, listing
+    the rest (#685); a moved export takes the runner's labels, and a move
+    across files its new file (#686), on cognee's shape through the runner
   - baseline-gaps: the map entries of the modified files the runner left
     out that their file still declares (#687), read by step 2 so the diff
     reports no false DELETED_EXPORT, and a verifier that cannot load an
@@ -27,6 +31,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -471,10 +476,10 @@ class TestHelperFiles:
             {"name": "retyped", "file": "pkg/api.py", "old_line": 50, "new_line": 50},
             {"name": "opaque", "file": "pkg/api.py", "old_line": None, "new_line": None},
         ]
-        # a line alone, or a move to another modified file: moved
+        # a line alone, or a move to another modified file: moved, the file it left named for apply to find it
         assert b["moved_exports"] == [
             {"name": "shifted", "file": "pkg/api.py", "old_line": 20, "new_line": 22},
-            {"name": "relocated", "file": "pkg/b.py", "old_line": 1, "new_line": 3},
+            {"name": "relocated", "file": "pkg/b.py", "old_file": "pkg/a.py", "old_line": 1, "new_line": 3},
         ]
 
     def test_a_moved_export_that_also_changed_is_modified_only(self) -> None:
@@ -483,7 +488,10 @@ class TestHelperFiles:
             "changed": [{"name": "f", "field": "params", "baseline_value": [], "current_value": ["x"],
                          "file": "b.py", "line": 2}]}
         b = mod.category_b_from_diff(diff)
-        assert [e["name"] for e in b["modified_exports"]] == ["f"] and b["moved_exports"] == []
+        # it names the file it left, at its line there, for apply to find its entry
+        assert b["modified_exports"] == [{"name": "f", "file": "b.py", "old_line": 1, "new_line": 2,
+                                          "old_file": "a.py"}]
+        assert b["moved_exports"] == []
 
     def test_assemble_takes_category_a_and_its_moves_from_the_classify_output(self) -> None:
         payload = mod.assemble({"category_a": {"modified": ["typed.py"]}, "degraded_mode": False},
@@ -1267,7 +1275,8 @@ class TestRecords:
         assert (by_eye["confidence"], by_eye["extraction_method"], by_eye["ast_node_type"], by_eye["ast_recipe"],
                 by_eye["location"]) == ("T1-low", "source-read", None, None, "pkg/api.py:40")
         assert summary == {"files_extracted": 3, "exports_extracted": 4,
-                           "confidence_breakdown": {"T1": 3, "T1-low": 1, "T2": 0}, "warnings": []}
+                           "confidence_breakdown": {"T1": 3, "T1-low": 1, "T2": 0}, "marked_not_public": 0,
+                           "warnings": []}
 
     def test_patches_add_only_what_no_tool_recorded(self) -> None:
         extraction, details = self._inputs()
@@ -1345,6 +1354,511 @@ class TestRecords:
                           "-o", str(tmp_path / "out.json"))
         assert result.returncode == 1 and result.stderr.startswith("error: ")
         assert not (tmp_path / "out.json").exists()
+
+
+# --------------------------------------------------------------------------
+# a public-api skill's public surface (#685) and a moved export's labels and file (#686)
+# --------------------------------------------------------------------------
+
+
+def _public_api_run(exports: list, public: list, gaps: tuple = (), *, scope_type: str = "public-api",
+                    status: str = "barrel") -> dict:
+    """The recipe runner's output, the parts records and apply read: its scope type, exports, entry-point statuses
+    and entry-point diff, all of one Python package."""
+    return {"scope": {"type": scope_type}, "exports": exports,
+            "entry_points": {"status": status, "by_language": {"python": status}},
+            "entry_point_diff": {"public": [{"language": "python", "local": None, **p} for p in public],
+                                 "internal": [], "extraction_gaps": [{"language": "python", **g} for g in gaps],
+                                 "outside_scope": []}}
+
+
+def _break_surface(extraction: dict, change: str) -> None:
+    """A run whose public surface the rule cannot take, or no public-api run at all."""
+    if change == "no-scope-type":
+        extraction["scope"] = {"type": None}
+    if change == "no-entry-point-diff":
+        extraction["entry_point_diff"] = None  # no ast-grep, or Quick tier: the runner diffed nothing
+    if change == "incomplete":
+        extraction["status"] = "incomplete"
+    if change == "errors":
+        extraction["errors"] = [{"reason": "ast-grep-timeout", "files": 1, "first_file": COGNIFY, "detail": "x"}]
+    if change == "unresolved":
+        extraction["entry_points"]["unresolved"] = [{"entry": "cognee/__init__.py", "name": "x", "from": ".gone",
+                                                     "file": "cognee/__init__.py"}]
+
+
+COGNIFY = "cognee/api/v1/cognify/cognify.py"
+# cognee's shape: `from .api.v1.cognify import cognify` names the submodule, so the runner records `cognify` as a
+# namespace at the file that defines the function; `delete` is defined in its package's __init__.py beside an empty
+# delete.py the runner names instead; `visualize` renames `visualize_graph`
+SURFACE = [
+    {"name": "cognify", "via": "namespace", "file": COGNIFY, "line": None},
+    {"name": "delete", "via": "namespace", "file": "cognee/api/v1/delete/delete.py", "line": None},
+    {"name": "tools", "via": "namespace", "file": "cognee/api/v1/tools/__init__.py", "line": None},
+    {"name": "visualize", "via": "re-export", "local": "visualize_graph",
+     "file": "cognee/api/v1/visualize/visualize.py", "line": 3},
+    {"name": "search", "via": "re-export", "file": "pkg/a.py", "line": 11},
+]
+
+
+class TestPublicSurface:
+    def test_records_marks_each_export_of_a_barrel_family(self) -> None:
+        extraction = _public_api_run([
+            _runner("cognify", COGNIFY, 44), _runner("get_default_tasks", COGNIFY, 20),
+            _runner("delete", "cognee/api/v1/delete/__init__.py", 11),
+            _runner("visualize_graph", "cognee/api/v1/visualize/visualize.py", 3),
+            _runner("list_tools", "cognee/api/v1/tools/tools.py", 1),
+            _runner("fetch", "web/a.ts", 1, language="typescript", node="function_declaration"),
+        ], SURFACE, gaps=({"name": "Drop", "entry": "cognee/__init__.py", "file": "cognee/pipelines/types.py",
+                           "line": 32},))
+        # read by eye: the runner's own gap, and a module whose namespace is its package's __init__.py
+        details = {"exports": [
+            {"export_name": "Drop", "export_type": "sentinel", "source_file": "cognee/pipelines/types.py",
+             "source_line": 32, "confidence": "T1-low", "extraction_method": "source-read"},
+            {"export_name": "tools", "export_type": "module", "source_file": "cognee/api/v1/tools/tools.py",
+             "source_line": 1, "confidence": "T1-low", "extraction_method": "source-read"}]}
+        records, summary = mod.build_records(extraction, details, None, [])
+        assert summary["marked_not_public"] == 2
+        marks = {(r["name"], b["file_path"]): r.get("public") for b in records["files"] for r in b["exports"]}
+        assert marks == {
+            ("cognify", COGNIFY): True, ("get_default_tasks", COGNIFY): False,
+            ("delete", "cognee/api/v1/delete/__init__.py"): True,
+            ("visualize_graph", "cognee/api/v1/visualize/visualize.py"): True,
+            ("list_tools", "cognee/api/v1/tools/tools.py"): False,
+            ("tools", "cognee/api/v1/tools/tools.py"): True, ("Drop", "cognee/pipelines/types.py"): True,
+            ("fetch", "web/a.ts"): None,  # the JavaScript family has no barrel here: no mark
+        }
+
+    @pytest.mark.parametrize("change", ["full-library", "no-scope-type", "no-entry-point-diff", "no-barrel",
+                                        "incomplete", "errors", "unresolved"])
+    def test_records_marks_nothing_outside_a_public_api_barrel(self, change: str) -> None:
+        extraction = _public_api_run([_runner("cognify", COGNIFY, 44), _runner("get_default_tasks", COGNIFY, 20)],
+                                     SURFACE, scope_type="full-library" if change == "full-library" else "public-api",
+                                     status="no-entry-point" if change == "no-barrel" else "barrel")
+        _break_surface(extraction, change)
+        records, summary = mod.build_records(extraction, None, None, [])
+        assert all("public" not in r for b in records["files"] for r in b["exports"])
+        assert summary["marked_not_public"] == 0 and summary["warnings"] == []  # apply gives the one warning
+
+    def _inputs(self, scope_type: str = "public-api") -> tuple[dict, dict]:
+        """A map whose `old_helper` is an internal entry create-skill kept, a modified file with a public and an
+        internal change, an ADDED file with a public and an internal export, and a MOVED file."""
+        old = {"entries": [_entry("search", "pkg/a.py", 10), _entry("old_helper", "pkg/a.py", 20),
+                           _entry("carried", "pkg/old_home.py", 4, notes="kept")]}
+        extraction = _public_api_run([
+            _runner("search", "pkg/a.py", 11), _runner("old_helper", "pkg/a.py", 22), _runner("helper", "pkg/a.py", 50),
+            _runner("cognify", COGNIFY, 44), _runner("get_default_tasks", COGNIFY, 20),
+            _runner("carried", "pkg/new_home.py", 4), _runner("moved_internal", "pkg/new_home.py", 9),
+        ], SURFACE, scope_type=scope_type)
+        manifest = {"total_export_changes": 3, "per_file": [
+            {"file_path": "pkg/a.py", "status": "MODIFIED", "exports_affected": [
+                {"name": "search", "change_type": "MODIFIED_EXPORT", "old_line": 10, "new_line": 11},
+                {"name": "old_helper", "change_type": "MODIFIED_EXPORT", "old_line": 20, "new_line": 22},
+                {"name": "helper", "change_type": "NEW_EXPORT", "old_line": None, "new_line": 50}]},
+            {"file_path": COGNIFY, "status": "ADDED", "exports_affected": []},
+            {"file_path": "pkg/new_home.py", "status": "MOVED", "old_path": "pkg/old_home.py",
+             "exports_affected": []}]}
+        records, _ = mod.build_records(extraction, None, ["pkg/a.py", COGNIFY, "pkg/new_home.py"], [])
+        return old, {"manifest": manifest, "extraction": extraction, "records": records}
+
+    def test_a_public_api_skill_adds_only_its_public_names(self) -> None:
+        old, inputs = self._inputs()
+        doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                        test_report_run_id=None, **inputs, **BLOCK)
+        entries = {(e["export_name"], e["source_file"]): e for e in doc["entries"]}
+        # the public add and the modified public export land; the existing internal entry is still updated, and
+        # the MOVED file's carried entry moves with its keys
+        assert ("cognify", COGNIFY) in entries and entries[("search", "pkg/a.py")]["source_line"] == 11
+        assert entries[("old_helper", "pkg/a.py")]["source_line"] == 22
+        assert entries[("carried", "pkg/new_home.py")]["notes"] == "kept"
+        # the internal NEW_EXPORT, the ADDED file's internal export and the MOVED file's new internal name: in the
+        # summary list only, with one warning for them all
+        assert set(entries) == {("search", "pkg/a.py"), ("old_helper", "pkg/a.py"), ("cognify", COGNIFY),
+                                ("carried", "pkg/new_home.py")}
+        assert summary["entries"]["added"] == ["cognify", "carried"]
+        assert summary["not_public"] == [{"name": "helper", "file": "pkg/a.py"},
+                                         {"name": "get_default_tasks", "file": COGNIFY},
+                                         {"name": "moved_internal", "file": "pkg/new_home.py"}]
+        assert summary["warnings"] == [
+            "provenance: 3 new export(s) off the public surface of this public-api skill not added (the summary's "
+            "not_public lists each with its file): helper, get_default_tasks, moved_internal"]
+        assert stats.check_label_agreement(doc) == []
+
+    def test_another_scope_type_adds_every_name_as_before(self) -> None:
+        old, inputs = self._inputs("full-library")
+        doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                        test_report_run_id=None, **inputs, **BLOCK)
+        assert summary["entries"]["added"] == ["helper", "cognify", "get_default_tasks", "carried", "moved_internal"]
+        assert summary["not_public"] == [] and summary["warnings"] == []
+        assert len(doc["entries"]) == 7
+
+    def test_apply_reads_the_rule_from_the_extraction_when_no_record_marks_the_name(self) -> None:
+        # --reextract-records left out, or written by an older `records`: apply reads extraction.json's scope type
+        old, inputs = self._inputs()
+        inputs["records"] = {"mode": "normal", "files": []}
+        _doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                         test_report_run_id=None, **inputs, **BLOCK)
+        assert [item["name"] for item in summary["not_public"]] == ["helper", "get_default_tasks", "moved_internal"]
+
+    def test_the_mark_records_wrote_is_followed(self) -> None:
+        old, inputs = self._inputs()
+        for block in inputs["records"]["files"]:
+            for record in block["exports"]:
+                if record["name"] == "helper":
+                    record["public"] = True  # whatever the extraction says, apply follows the records
+        _doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                         test_report_run_id=None, **inputs, **BLOCK)
+        assert "helper" in summary["entries"]["added"]
+        assert "helper" not in [item["name"] for item in summary["not_public"]]
+
+    @pytest.mark.parametrize("change", ["no-entry-point-diff", "incomplete", "errors", "unresolved"])
+    def test_a_surface_the_rule_cannot_read_adds_every_name_with_one_warning(self, change: str) -> None:
+        # Quick tier or a failed runner (detect-changes writes the scope type with no exports diff), an incomplete
+        # run, one with errors, or an entry point the trace could not follow: the surface is not the whole one
+        old, inputs = self._inputs()
+        _break_surface(inputs["extraction"], change)
+        inputs["records"], _ = mod.build_records(inputs["extraction"], None, ["pkg/a.py", COGNIFY,
+                                                                             "pkg/new_home.py"], [])
+        _doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                         test_report_run_id=None, **inputs, **BLOCK)
+        assert summary["entries"]["added"] == ["helper", "cognify", "get_default_tasks", "carried", "moved_internal"]
+        assert summary["not_public"] == []
+        [warning] = summary["warnings"]
+        assert warning.startswith("provenance: the public surface of this public-api skill could not be applied (")
+        assert warning.endswith("): every new export was added")
+
+    def test_a_quick_tier_extraction_names_the_scope_type_only(self) -> None:
+        old, inputs = self._inputs()
+        inputs["extraction"] = {"exports": [], "scope": {"type": "public-api"}}  # detect-changes' fallback file
+        for block in inputs["records"]["files"]:  # step 2's by-eye records, which `records` marks nothing in
+            for record in block["exports"]:
+                record.pop("public", None)
+        _doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                         test_report_run_id=None, **inputs, **BLOCK)
+        assert summary["not_public"] == []
+        assert summary["warnings"] == [
+            "provenance: the public surface of this public-api skill could not be applied (the recipe runner gave "
+            "no entry-point diff (Quick tier, or a run that could not read the tree)): every new export was added"]
+
+    @pytest.mark.parametrize("where", ["deleted-export", "deleted-file"])
+    def test_a_name_this_run_removes_comes_back_whatever_its_mark(self, where: str) -> None:
+        """A held export that moves into an ADDED file reads as removed there and new here: it is re-added, though
+        the surface does not name it, so no export the map held is lost."""
+        old_file = "pkg/a.py" if where == "deleted-export" else "pkg/gone.py"
+        old = {"entries": [_entry("relocated", old_file, 7, notes="n")]}
+        removal = ({"file_path": "pkg/a.py", "status": "MODIFIED", "exports_affected": [
+            {"name": "relocated", "change_type": "DELETED_EXPORT", "old_line": 7, "new_line": None}]}
+            if where == "deleted-export" else {"file_path": "pkg/gone.py", "status": "DELETED", "exports_affected": []})
+        # a DELETED file comes after the ADDED one in the manifest's order
+        manifest = {"total_export_changes": 1, "per_file": [
+            {"file_path": "pkg/c.py", "status": "ADDED", "exports_affected": []}, removal]}
+        extraction = _public_api_run([_runner("relocated", "pkg/c.py", 2), _runner("fresh", "pkg/c.py", 9)], SURFACE)
+        records, _ = mod.build_records(extraction, None, ["pkg/c.py"], [])
+        doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                        manifest=manifest, extraction=extraction, records=records,
+                                        test_report_run_id=None, **BLOCK)
+        assert [(e["export_name"], e["source_file"]) for e in doc["entries"]] == [("relocated", "pkg/c.py")]
+        assert summary["not_public"] == [{"name": "fresh", "file": "pkg/c.py"}]
+
+    def test_the_warning_names_ten_and_the_summary_lists_all(self) -> None:
+        names = [f"internal_{i:02d}" for i in range(12)]
+        extraction = _public_api_run([_runner(n, "pkg/c.py", i + 1) for i, n in enumerate(names)], SURFACE)
+        manifest = {"total_export_changes": 0, "per_file": [{"file_path": "pkg/c.py", "status": "ADDED",
+                                                             "exports_affected": []}]}
+        _doc, summary = mod.apply_update(update_type="incremental", provenance={"entries": []}, skill_name="lib",
+                                         manifest=manifest, extraction=extraction, test_report_run_id=None, **BLOCK)
+        assert [item["name"] for item in summary["not_public"]] == names
+        assert summary["warnings"] == [
+            "provenance: 12 new export(s) off the public surface of this public-api skill not added (the summary's "
+            f"not_public lists each with its file): {', '.join(names[:10])} and 2 more"]
+
+    def test_apply_writes_the_not_public_list_to_the_run_folder(self, tmp_path: Path) -> None:
+        old, inputs = self._inputs()
+        paths = {}
+        for key, value in (("map", old), ("manifest", inputs["manifest"]), ("extraction", inputs["extraction"]),
+                           ("records", inputs["records"])):
+            paths[key] = tmp_path / f"{key}.json"
+            paths[key].write_bytes(json.dumps(value).encode("utf-8"))
+        out, listed = tmp_path / "new-map.json", tmp_path / "not-public.json"
+        result = _run_cli("apply", "--update-type", "incremental", "--provenance-map", str(paths["map"]),
+                          "--manifest", str(paths["manifest"]), "--extraction", str(paths["extraction"]),
+                          "--reextract-records", str(paths["records"]), "--skill-name", "lib",
+                          "--generation-date", "2026-10-01T10:00:00Z", "--confidence-tier", "Forge",
+                          "--manual-sections-preserved", "0", "--not-public-out", str(listed), "-o", str(out))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(listed.read_bytes()) == json.loads(result.stdout)["not_public"] == [
+            {"name": "helper", "file": "pkg/a.py"}, {"name": "get_default_tasks", "file": COGNIFY},
+            {"name": "moved_internal", "file": "pkg/new_home.py"}]
+
+    def test_a_degraded_run_adds_every_record_whatever_its_mark(self) -> None:
+        _old, inputs = self._inputs()
+        doc, summary = mod.apply_update(update_type="full", provenance=None, skill_name="lib",
+                                        extraction=inputs["extraction"], records=inputs["records"],
+                                        test_report_run_id=None, **BLOCK)
+        assert len(doc["entries"]) == 7  # every fresh record, the ones records marked public: false included
+        assert summary["not_public"] == [] and summary["warnings"] == []
+
+    def test_a_repair_carries_no_mark(self, tmp_path: Path) -> None:
+        """gap-driven.md §4a runs `records` over the files it scans: gap-records drops the mark, so merge documents
+        and apply maps the re-extracted export, as before."""
+        remediation = _remediation(("pkg/b.py", [("fetch", 4, "ast-grep")]))
+        remediation["files"][0]["exports"][0]["public"] = False
+        entry = _gap_entry("GAP-001", "fetch", "NEW_EXPORT", category="missing-export", resolved=["pkg/b.py"])
+        records, _ = _records([entry], tmp_path, remediation=remediation,
+                              judgments={"GAP-001": {"reachability": "public", "docstring": None}})
+        [record] = records["files"][0]["exports"]
+        assert "public" not in record
+        doc, summary = mod.apply_update(update_type="gap-driven", provenance={"entries": []}, skill_name="lib",
+                                        records=records, test_report_run_id="r1", **BLOCK)
+        assert [e["export_name"] for e in doc["entries"]] == ["fetch"] and summary["not_public"] == []
+
+    def test_a_public_name_no_file_defines_is_public_in_its_family(self) -> None:
+        extraction = _public_api_run([_runner("Drop", "cognee/pipelines/types.py", 32),
+                                      _runner("Drop", "web/drop.ts", 1, language="typescript",
+                                              node="function_declaration")],
+                                     [{"name": "Drop", "via": "re-export", "file": None, "line": None}])
+        extraction["entry_points"]["by_language"]["javascript"] = "barrel"
+        records, _ = mod.build_records(extraction, None, None, [])
+        marks = {b["file_path"]: r["public"] for b in records["files"] for r in b["exports"]}
+        assert marks == {"cognee/pipelines/types.py": True, "web/drop.ts": False}
+
+    def test_a_namespace_of_another_family_marks_nothing_here(self) -> None:
+        extraction = _public_api_run([_runner("tools", "web/tools/tools.py", 1, export_type="module")], [
+            {"name": "tools", "language": "javascript", "via": "namespace", "file": "web/tools/index.ts",
+             "line": None}])
+        extraction["entry_points"]["by_language"]["javascript"] = "barrel"
+        records, _ = mod.build_records(extraction, None, None, [])
+        assert records["files"][0]["exports"][0]["public"] is False
+
+    def test_the_scope_type_is_read_in_any_case(self) -> None:
+        extraction = _public_api_run([_runner("cognify", COGNIFY, 44), _runner("get_default_tasks", COGNIFY, 20)],
+                                     SURFACE, scope_type="Public-API")
+        records, _ = mod.build_records(extraction, None, None, [])
+        assert {r["name"]: r["public"] for r in records["files"][0]["exports"]} == \
+            {"cognify": True, "get_default_tasks": False}
+
+    def test_a_rust_barrel_marks_its_exports(self) -> None:
+        extraction = _public_api_run([_runner("add", "src/lib.rs", 1, language="rust", node="function_item"),
+                                      _runner("helper", "src/util.rs", 3, language="rust", node="function_item")],
+                                     [{"name": "add", "language": "rust", "via": "declaration", "file": "src/lib.rs",
+                                       "line": 1}])
+        extraction["entry_points"]["by_language"] = {"rust": "barrel"}
+        records, _ = mod.build_records(extraction, None, None, [])
+        assert {r["name"]: r["public"] for b in records["files"] for r in b["exports"]} == \
+            {"add": True, "helper": False}
+
+    def test_the_family_tables_match_the_runners(self) -> None:
+        spec = importlib.util.spec_from_file_location("skf_extract_public_api_families", EXTRACT_PUBLIC_API)
+        runner = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(runner)
+        assert mod._FAMILY_OF_LANGUAGE == runner.FAMILY_OF
+        assert mod._FAMILY_OF_EXTENSION == {ext: runner.FAMILY_OF[language]
+                                            for ext, language in runner.EXTENSION_LANGUAGES.items()}
+
+
+TRACE = "cognee/modules/observability/trace_context.py"
+
+
+class TestApplyMovedExport:
+    def _apply(self, old: dict, change: dict, *, extraction: dict | None = None, details: dict | None = None,
+               path: str = TRACE) -> tuple[dict, dict]:
+        manifest = {"total_export_changes": 1, "per_file": [
+            {"file_path": path, "status": "MODIFIED", "exports_affected": [{"change_type": "MOVED_EXPORT", **change}]}]}
+        return mod.apply_update(update_type="incremental", provenance=old, skill_name="lib", manifest=manifest,
+                                extraction=extraction, details=details, test_report_run_id=None, **BLOCK)
+
+    def test_a_runner_record_gives_its_labels_with_the_new_line(self) -> None:
+        """oms-cognee's enable_tracing: a legacy source-read entry with T1 labels the runner now matches."""
+        legacy = _entry("enable_tracing", TRACE, 16, extraction_method="source-read",
+                        params=["console_output: bool = False"], return_type="None", notes="kept")
+        old = {"entries": [legacy]}
+        assert stats.check_label_agreement(old) != []  # the coherence check the update used to fail
+        doc, _ = self._apply(old, {"name": "enable_tracing", "old_line": 16, "new_line": 18},
+                             extraction={"exports": [_runner("enable_tracing", TRACE, 18, params=[])]})
+        [entry] = doc["entries"]
+        assert (entry["source_line"], entry["confidence"], entry["extraction_method"], entry["signature_source"],
+                entry["ast_node_type"]) == (18, "T1", "ast-grep", "T1", "function_definition")
+        # never the record's signature: the export did not change, only its line
+        assert (entry["export_type"], entry["params"], entry["return_type"], entry["notes"]) == \
+            ("function", ["console_output: bool = False"], "None", "kept")
+        assert stats.check_label_agreement(doc) == []
+
+    def test_a_null_node_kind_keeps_the_entrys_kind(self) -> None:
+        old = {"entries": [_entry("clear_traces", TRACE, 85, extraction_method="source-read",
+                                  ast_node_type="function_definition")]}
+        doc, _ = self._apply(old, {"name": "clear_traces", "old_line": 85, "new_line": 121},
+                             extraction={"exports": [_runner("clear_traces", TRACE, 121, node=None)]})
+        [entry] = doc["entries"]
+        assert (entry["extraction_method"], entry["ast_node_type"]) == ("ast-grep", "function_definition")
+
+    def test_a_record_read_by_eye_moves_the_line_only(self) -> None:
+        # an entry the runner labelled before: a by-eye record of its move leaves every label as it was
+        labelled = _entry("visualize", TRACE, 6, notes="kept")
+        details = {"exports": [{"export_name": "visualize", "export_type": "alias", "source_file": TRACE,
+                                "source_line": 8, "params": None, "return_type": None, "confidence": "T1-low",
+                                "extraction_method": "source-read"}]}
+        doc, _ = self._apply({"entries": [labelled]}, {"name": "visualize", "old_line": 6, "new_line": 8},
+                             details=details)
+        assert doc["entries"] == [{**labelled, "source_line": 8}]
+
+    @pytest.mark.parametrize("parts, expected", [
+        ((None, None), "T1-low"), (([{"name": "x", "type": "int", "default": None, "optional": False}], None),
+                                   "T1-low"),
+        (([{"name": "x", "type": "int", "default": None, "optional": False}], "None"), "T1"),
+    ], ids=["no-params", "no-return-type", "both"])
+    def test_its_signature_source_needs_each_part_the_entry_holds(self, parts: tuple, expected: str) -> None:
+        # the diff skips a field the runner left null, so a move says nothing of a signature the runner did not read
+        held = _entry("enable_tracing", TRACE, 16, extraction_method="source-read", signature_source="T1-low",
+                      params=["x: int"], return_type="None")
+        runner = _runner("enable_tracing", TRACE, 18, params=parts[0], return_type=parts[1])
+        doc, _ = self._apply({"entries": [held]}, {"name": "enable_tracing", "old_line": 16, "new_line": 18},
+                             extraction={"exports": [runner]})
+        [entry] = doc["entries"]
+        assert (entry["extraction_method"], entry["confidence"], entry["signature_source"]) == \
+            ("ast-grep", "T1", expected)
+        assert (entry["params"], entry["return_type"]) == (["x: int"], "None")
+
+    @pytest.mark.parametrize("runner", [True, False], ids=["fresh-record", "diff-line"])
+    def test_a_move_across_files_moves_the_entry(self, runner: bool) -> None:
+        diff = {"removed": [], "added": [], "changed": [], "moved": [
+            {"name": "relocated", "previous_file": "pkg/a.py", "current_file": "pkg/b.py", "previous_line": 10,
+             "line": 5}]}
+        manifest = mod.build_manifest(mod.assemble({"category_a": {"modified": ["pkg/a.py", "pkg/b.py"]}}, diff=diff))
+        [change] = [c for f in manifest["per_file"] for c in f["exports_affected"]]
+        assert change == {"name": "relocated", "change_type": "MOVED_EXPORT", "old_line": 10, "new_line": 5,
+                          "old_file": "pkg/a.py"}
+        old = {"entries": [_entry("relocated", "pkg/a.py", 10, notes="kept"), _entry("other", "pkg/a.py", 1)]}
+        extraction = {"exports": [_runner("relocated", "pkg/b.py", 5)] if runner else []}
+        doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                        manifest=manifest, extraction=extraction, test_report_run_id=None, **BLOCK)
+        entries = {(e["export_name"], e["source_file"]): e for e in doc["entries"]}
+        assert set(entries) == {("relocated", "pkg/b.py"), ("other", "pkg/a.py")}
+        assert (entries[("relocated", "pkg/b.py")]["source_line"], entries[("relocated", "pkg/b.py")]["notes"]) == \
+            (5, "kept")
+        assert summary["entries"]["updated"] == ["relocated"] and summary["entries"]["added"] == []
+
+    @pytest.mark.parametrize("scope_type", ["full-library", "public-api"])
+    def test_a_move_across_files_that_also_changed_rewrites_the_entry(self, scope_type: str) -> None:
+        """A MODIFIED_EXPORT that also moved names the file it left: one entry, at the new file, with the fresh
+        fields and its own keys; under public-api too, though the surface does not name it, since the map holds it."""
+        diff = {"removed": [], "added": [], "moved": [
+            {"name": "relocated", "previous_file": "pkg/a.py", "current_file": "pkg/b.py", "previous_line": 10,
+             "line": 5}],
+            "changed": [{"name": "relocated", "field": "params", "baseline_value": [], "current_value": ["x: int"],
+                         "file": "pkg/b.py", "line": 5}]}
+        manifest = mod.build_manifest(mod.assemble({"category_a": {"modified": ["pkg/a.py", "pkg/b.py"]}}, diff=diff))
+        [change] = [c for f in manifest["per_file"] for c in f["exports_affected"]]
+        assert (change["change_type"], change["old_file"], change["old_line"]) == ("MODIFIED_EXPORT", "pkg/a.py", 10)
+        old = {"entries": [_entry("relocated", "pkg/a.py", 10, notes="kept"), _entry("other", "pkg/a.py", 1)]}
+        params = [{"name": "x", "type": "int", "default": None, "optional": False}]
+        extraction = _public_api_run([_runner("relocated", "pkg/b.py", 5, params=params)], SURFACE,
+                                     scope_type=scope_type)
+        records, _ = mod.build_records(extraction, None, ["pkg/a.py", "pkg/b.py"], [])
+        doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                        manifest=manifest, extraction=extraction, records=records,
+                                        test_report_run_id=None, **BLOCK)
+        relocated = [e for e in doc["entries"] if e["export_name"] == "relocated"]
+        assert [(e["source_file"], e["source_line"], e["params"], e["notes"]) for e in relocated] == [
+            ("pkg/b.py", 5, ["x: int"], "kept")]
+        assert summary["entries"]["added"] == [] and summary["not_public"] == []
+
+
+# --------------------------------------------------------------------------
+# the oms-cognee 1.0.0 to v1.6.2 update's shape, through the recipe runner (#685, #686)
+# --------------------------------------------------------------------------
+
+
+EXTRACT_PUBLIC_API = REPO_ROOT / "src" / "shared" / "scripts" / "skf-extract-public-api.py"
+REMEMBER = "cognee/api/v1/remember/remember.py"
+# the new version: cognee/__init__.py's names, an ADDED file with one public and one internal function, a new
+# internal function beside cognify, and trace_context.py's functions two lines down
+COGNEE_TREE = {
+    "cognee/__init__.py": "from .api.v1.cognify import cognify\nfrom .api.v1.delete import delete\n"
+                          "from .api.v1.remember.remember import remember\nfrom .api.v1 import tools\n"
+                          "from .modules.observability.trace_context import (\n    enable_tracing,\n"
+                          "    disable_tracing,\n    get_all_traces,\n    clear_traces,\n)\n",
+    "cognee/api/__init__.py": "", "cognee/api/v1/__init__.py": "",
+    "cognee/api/v1/cognify/__init__.py": "from .cognify import cognify\n",
+    COGNIFY: "def get_default_tasks():\n    return []\n\n\nasync def cognify():\n    return get_default_tasks()\n",
+    "cognee/api/v1/delete/__init__.py": "async def delete():\n    return None\n",
+    "cognee/api/v1/delete/delete.py": "",
+    "cognee/api/v1/remember/__init__.py": "",
+    REMEMBER: "def build_remember_tasks():\n    return []\n\n\nasync def remember():\n    return build_remember_tasks()\n",
+    "cognee/api/v1/tools/__init__.py": "from .tools import list_tools\n",
+    "cognee/api/v1/tools/tools.py": "def list_tools():\n    return []\n",
+    "cognee/modules/__init__.py": "", "cognee/modules/observability/__init__.py": "",
+    TRACE: "import os\n\n\ndef enable_tracing():\n    return None\n\n\ndef disable_tracing():\n    return None\n\n\n"
+           "def get_last_trace():\n    return None\n\n\ndef get_all_traces():\n    return []\n\n\n"
+           "def clear_traces():\n    return None\n",
+}
+TRACED = ("enable_tracing", "disable_tracing", "get_last_trace", "get_all_traces", "clear_traces")
+
+
+def _run_runner(root: Path, out: Path, *extra: str) -> dict:
+    proc = subprocess.run([sys.executable, str(EXTRACT_PUBLIC_API), "--mode", "full", "--source-root", str(root),
+                           "--scope-type", "public-api", "--head-cap", "0", *extra, "-o", str(out)],
+                          capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(out.read_bytes())
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="no ast-grep on PATH")
+def test_the_oms_cognee_update_documents_its_public_surface_and_keeps_its_ast_labels(tmp_path: Path) -> None:
+    """The two acceptance checks on cognee's shape: no added entry is off the public surface, so
+    public_api_coverage stays at most 1 plus the map's internals; and each moved trace_context.py export the runner
+    matched is ast-grep/T1, so the stats helper's coherence check passes."""
+    root = tmp_path / "src"
+    for rel, text in COGNEE_TREE.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode("utf-8"))
+    run = tmp_path / "run"
+    run.mkdir()
+    modified, added = [COGNIFY, TRACE], [REMEMBER]
+    (run / "extract-files.json").write_bytes(json.dumps(modified + added).encode("utf-8"))
+    (run / "modified-files.json").write_bytes(json.dumps(modified).encode("utf-8"))
+    # detect-changes Category B's run: the files to extract, the scope type the brief gives (metadata.json has none)
+    extraction = _run_runner(root, run / "extraction.json", "--files-from", str(run / "extract-files.json"))
+    assert extraction["scope"]["type"] == "public-api"
+    fresh = {e["export_name"]: e for e in extraction["exports"]}
+    # the 1.0.0 map: cognify as the runner records it, and trace_context.py's names two lines up, labelled
+    # source-read with T1 as SKF 1.0.0 wrote them (get_last_trace is an internal name the map kept)
+    old = {"entries": [
+        {"export_name": name, "export_type": "function", "source_library": "cognee", "params": [],
+         "source_file": fresh[name]["source_file"],
+         "source_line": fresh[name]["source_line"] - (2 if name in TRACED else 0), "confidence": "T1",
+         "extraction_method": "source-read" if name in TRACED else "ast-grep",
+         "ast_node_type": "function_definition", "signature_source": "T1"}
+        for name in ("cognify", *TRACED)]}
+    assert {v["export_name"] for v in stats.check_label_agreement(old)} == set(TRACED)
+    (run / "map.json").write_bytes(json.dumps(old).encode("utf-8"))
+    diff = subprocess.run([sys.executable, str(STRUCTURAL_DIFF), str(run / "map.json"), str(run / "extraction.json"),
+                           "--files", str(run / "modified-files.json"), "-o", str(run / "diff.json")],
+                          capture_output=True, text=True, check=False)
+    assert diff.returncode in (0, 1), diff.stderr
+    manifest = mod.build_manifest(mod.assemble({"category_a": {"modified": modified, "added": added}},
+                                               diff=json.loads((run / "diff.json").read_bytes())))
+    assert manifest["counts"]["exports_moved"] == 5 and manifest["counts"]["exports_new"] == 1
+    records, _ = mod.build_records(extraction, None, modified + added, [])
+    doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="cognee",
+                                    manifest=manifest, extraction=extraction, records=records,
+                                    test_report_run_id=None, **BLOCK)
+    # #685: the public add lands; the new internal names are listed, not added
+    assert summary["entries"]["added"] == ["remember"]
+    assert sorted(item["name"] for item in summary["not_public"]) == ["build_remember_tasks", "get_default_tasks"]
+    # #686: every moved export the runner matched carries its labels, and the coherence check passes
+    by_name = {e["export_name"]: e for e in doc["entries"]}
+    for name in TRACED:
+        assert (by_name[name]["source_line"], by_name[name]["extraction_method"], by_name[name]["confidence"]) == \
+            (fresh[name]["source_line"], "ast-grep", "T1"), name
+    # write.md §2's whole-scope count, and the stats helper over the written map
+    counts = _run_runner(root, run / "public-api.json")["counts"]
+    derived = stats.derive_stats(doc, {"exports_public_api": counts["exports_public_api"],
+                                       "exports_internal": counts["exports_internal"]})
+    assert stats.coherence_compute(derived, doc)["ok"]
+    internals_kept = 1  # get_last_trace, an internal name the 1.0.0 map held
+    assert derived["stats"]["exports_documented"] <= counts["exports_public_api"] + internals_kept
+    assert derived["stats"]["public_api_coverage"] <= 1 + internals_kept / counts["exports_public_api"]
 
 
 # --------------------------------------------------------------------------

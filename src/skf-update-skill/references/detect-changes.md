@@ -103,6 +103,8 @@ It writes `{"mode": "docs-only", "no_changes", "changed_urls", "fetch_failed", "
 
 **The brief this run reads.** Bind `{brief_path}` ← `{forge_data_folder}/{skill_name}/skill-brief.yaml`. When `detect_only_mode` or `dry_run_mode` is true and that file exists, copy it to `{run_dir}/skill-brief.yaml` and bind `{brief_path}` to the copy: §1b and §1c write each decision there, Category A reads the scope from there, and the brief itself stays as it was. Each amendment a read-only run writes to the copy is a proposed one: add `proposed-amendment: {action} {path} ({category}); not written: {--dry-run or --detect-only}` to `warnings[]` as you write it, and step 6 lists them with the change manifest.
 
+**The scope type this run reads.** Bind `{scope_type}` ← the `scope_type` metadata.json records (init.md §2), else the `scope.type` of `{brief_path}` when that file exists and names one: a skill whose metadata.json records no scope type updates under its brief's. Category B's runner takes it as `--scope-type` and writes it to `{run_dir}/extraction.json` as `scope.type`, where step 3's `records` and step 5's `apply` read it: under `public-api`, a normal-mode update neither documents nor adds to the provenance map a new export off the runner's public surface (re-extract.md §4, write.md §3).
+
 ### 1b. Discovered Authoritative Files Protocol (Mirror)
 
 **Purpose:** mirror `skf-create-skill` §2a into update-skill. `skf-create-skill` §2a catches authoritative AI documentation files (`llms.txt`, `AGENTS.md`, `.cursorrules`, etc.) during **creation**, but a project may add these files *after* the skill was created. Without this mirror, update-skill would either miss the new file entirely (if it doesn't match the provenance map's file patterns) or classify it as a generic ADDED file in §2 Category A with no authoritative-file treatment. The mirror surfaces the discovery with the same P/S/U prompt create-skill uses, honoring any prior amendments.
@@ -309,7 +311,7 @@ Pass `--provenance-map` whenever init.md §4 found one; `--brief` (as §1c left 
        -o "{run_dir}/extraction.json"
    ```
 
-   Pass `--language` and `--scope-type` when metadata.json records them. It takes no `--brief`: Category A applied the scope, and a tracked file the brief's scope leaves out (gap-driven.md §1's rule R1 excludes a rescoped export's file) keeps its exports. `--head-cap 0` keeps every match, since a dropped one would read as a deleted export. Step 3 reads this file and never runs the runner again. **Exit 1** (`incomplete`): run it once more; when still incomplete, step 2 below reads by eye each listed file with no export in `exports[]`. **Exit 2 or 3, no JSON, no candidate resolves, or Quick tier:** write `{"exports": []}` to `{run_dir}/extraction.json`; step 2 reads every listed file by eye (at Quick tier, by text pattern). Tell the user which files were read by eye.
+   Pass `--language` when metadata.json records it, and `--scope-type` when §1 bound `{scope_type}`. It takes no `--brief`: Category A applied the scope, and a tracked file the brief's scope leaves out (gap-driven.md §1's rule R1 excludes a rescoped export's file) keeps its exports. `--head-cap 0` keeps every match, since a dropped one would read as a deleted export. Step 3 reads this file and never runs the runner again. **Exit 1** (`incomplete`): run it once more; when still incomplete, step 2 below reads by eye each listed file with no export in `exports[]`. **Exit 2 or 3, no JSON, no candidate resolves, or Quick tier:** write `{"exports": []}` to `{run_dir}/extraction.json`, with `"scope": {"type": "{scope_type}"}` when §1 bound `{scope_type}`, so step 5's `apply` can warn that a `public-api` surface was not applied; step 2 reads every listed file by eye (at Quick tier, by text pattern). Tell the user which files were read by eye.
 
    Then, at every tier (in degraded mode there is no map: skip it), list the map's entries the runner left out that their file still declares: the runner never reports a module, an alias that renames, a dunder such as `__version__` or another underscore name, and step 3's diff would read each as a deleted export. From `{project-root}`, run:
 
@@ -505,13 +507,13 @@ The helper emits the unified manifest envelope:
   "total_export_changes": N,
   "per_file": [
     {"file_path": "...", "status": "MODIFIED|ADDED|DELETED|MOVED",
-     "exports_affected": [{name, change_type, old_line, new_line}, ...]}
+     "exports_affected": [{name, change_type, old_line, new_line, old_file?}, ...]}
   ],
   "category_d": {"scripts_modified": [...], ..., "docs_deleted": [...]}
 }
 ```
 
-`per_file` entries are sorted MODIFIED → ADDED → DELETED → MOVED, then alphabetically within each status group, so downstream stages can rely on stable ordering. MOVED entries include an extra `old_path` field. `category_d` lists the paths behind the `scripts_*`, `assets_*` and `docs_*` counts: a `docs_*` path is a tracked document, which only Category D detects, so a change to one alone is a change. `{run_dir}/change-manifest.json` is the change manifest: step 3, step 6 and step 5's `apply` read it there, so it survives a compacted context.
+`per_file` entries are sorted MODIFIED → ADDED → DELETED → MOVED, then alphabetically within each status group, so downstream stages can rely on stable ordering. MOVED entries include an extra `old_path` field, and a `MOVED_EXPORT` across files an `old_file`, the file it left, where `apply` finds its entry. `category_d` lists the paths behind the `scripts_*`, `assets_*` and `docs_*` counts: a `docs_*` path is a tracked document, which only Category D detects, so a change to one alone is a change. `{run_dir}/change-manifest.json` is the change manifest: step 3, step 6 and step 5's `apply` read it there, so it survives a compacted context.
 
 ### 4. Check for No-Change Shortcut
 

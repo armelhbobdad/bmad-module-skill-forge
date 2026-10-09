@@ -113,6 +113,11 @@ And the step 5b round 3 fix: a headless gap-driven run records rule R1's
 document or rescope answer for each gap under the schema's
 `gap-driven.rescope` gate, which the Gates row and the report name.
 
+And the #685 and #686 fixes: detect-changes §1 binds the scope type, the
+brief's when metadata.json records none, for Category B's runner; under
+public-api, merge, write.md's `exports[]` and `apply` keep only the names
+`records` marks public; the manifest names the file a moved export left.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -2473,6 +2478,102 @@ def test_write_keeps_a_documented_defensive_halt(tmp_path):
     assert (forge_version / "provenance-map.json").read_bytes() == b'{"entries": []}\n'
     status = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["status"]["enum"]
     assert "blocked" in status and "halted-for-remediation-path" in status
+
+
+def test_a_public_api_update_maps_and_documents_only_its_public_surface(tmp_path):
+    """#685: detect-changes §1 binds the scope type, metadata.json's else the brief's, which Category B's runner
+    records in extraction.json; re-extract §4's `records` marks each export by the runner's public surface, merge
+    Priority 5 and write §2's `exports[]` follow the mark, and write §3's documented `apply` adds no name off it."""
+    detect = _read(DETECT)
+    bind = _slice(detect, "**The scope type this run reads.**", "\n")
+    for token in ("Bind `{scope_type}` ← the `scope_type` metadata.json records (init.md §2), else the `scope.type` "
+                  "of `{brief_path}` when that file exists and names one",
+                  "Category B's runner takes it as `--scope-type` and writes it to `{run_dir}/extraction.json` as "
+                  "`scope.type`, where step 3's `records` and step 5's `apply` read it"):
+        assert token in bind, token
+    # bound once the brief is, before Category B runs the runner with it
+    assert detect.index("**The brief this run reads.**") < detect.index("**The scope type this run reads.**") \
+        < detect.index("**Category B: export-level changes.**")
+    category_b = _slice(detect, "**Category B: export-level changes.**", "**Category C")
+    assert "`--scope-type` when §1 bound `{scope_type}`" in category_b
+    assert "`--scope-type` when metadata.json records them" not in category_b
+    # Quick tier or a runner failure: the fallback file keeps the scope type, so apply can say the surface was not
+    # applied
+    assert "with `\"scope\": {\"type\": \"{scope_type}\"}` when §1 bound `{scope_type}`" in category_b
+    four = _slice(_read(RE_EXTRACT), "### 4. Compile Extraction Results", "### 5.")
+    for token in ("it marks each export `public: true` or `public: false` by the runner's public surface",
+                  "prints `marked_not_public`, the count of `public: false`", "In degraded mode the mark is not used"):
+        assert token in four, token
+    # merge, exports[] and apply keep and re-add the same names, and only a normal-mode update uses the mark
+    held = ("unless the provenance map holds the export (by name at its `old_path` for a MOVED file) or the old name "
+            "it renames, or this update removes an entry of its name (a `DELETED_EXPORT`, a DELETED file's entry)")
+    priority5 = _slice(_read(MERGE), "**Priority 5", "**Priority 6")
+    for token in ("**A `public-api` skill's public surface (normal mode only):**",
+                  "whose record in `{run_dir}/reextract-records.json` is marked `public: false`", held,
+                  "A record with no `public` mark is documented as before",
+                  "an export the map already holds keeps its content (Priority 4) whatever its mark",
+                  "In gap-driven and degraded mode document every record whatever its mark"):
+        assert token in priority5, token
+    exports = _slice(_read(WRITE), "- Update `exports` array", "\n")
+    for token in ("In normal mode, add no name whose record in `{run_dir}/reextract-records.json` is marked "
+                  "`public: false`", held, "`{run_dir}/not-public.json`",
+                  "In gap-driven and degraded mode every name counts, whatever its mark"):
+        assert token in exports, token
+    zero = _slice(_write_3(), "- **0:**", "\n")
+    for token in ("`not_public` lists, `{name, file}`, each new export of a `public-api` skill it did not add",
+                  "it also wrote that list to `{run_dir}/not-public.json`",
+                  "it adds every name, with one warning that says so"):
+        assert token in zero, token
+    assert '--not-public-out "{run_dir}/not-public.json"' in _apply_call()
+    # the documented records and apply calls over a public-api run: an ADDED file with a public and an internal name
+    run_dir = tmp_path / "run dir"
+    run_dir.mkdir()
+    added = "cognee/api/v1/cognify/cognify.py"
+    runner = {"export_name": "cognify", "export_type": "function", "source_file": added, "source_line": 5,
+              "params": [], "return_type": None, "language": "python", "ast_node_type": "function_definition",
+              "ast_recipe": "python-public-functions", "confidence": "T1", "extraction_method": "ast-grep"}
+    (run_dir / "extraction.json").write_bytes(json.dumps({
+        "scope": {"type": "public-api"},
+        "exports": [runner, {**runner, "export_name": "get_default_tasks", "source_line": 1}],
+        "entry_points": {"status": "barrel", "by_language": {"python": "barrel"}},
+        "entry_point_diff": {"public": [{"name": "cognify", "language": "python", "entry": "cognee/__init__.py",
+                                         "via": "namespace", "local": None, "file": added, "line": None}],
+                             "internal": [], "extraction_gaps": [], "outside_scope": []}}).encode("utf-8"))
+    (run_dir / "extract-files.json").write_bytes(json.dumps([added]).encode("utf-8"))
+    (run_dir / "change-manifest.json").write_bytes(json.dumps({"total_export_changes": 0, "per_file": [
+        {"file_path": added, "status": "ADDED", "exports_affected": []}]}).encode("utf-8"))
+    records = _argv_with(_fence(four, "uv run {buildChangeManifestHelper} records"), "buildChangeManifestHelper",
+                         {"run_dir": str(run_dir)}, keep=("--extraction",))
+    code, out = _run_script(BUILD_MANIFEST, records)
+    assert code == 0 and out["status"] == "written", out
+    marks = {r["name"]: r["public"] for b in json.loads((run_dir / "reextract-records.json").read_bytes())["files"]
+             for r in b["exports"]}
+    assert marks == {"cognify": True, "get_default_tasks": False}
+    forge_version = tmp_path / "forge" / "1.6.2"
+    forge_version.mkdir(parents=True)
+    (forge_version / "provenance-map.json").write_bytes(b'{"entries": []}\n')
+    values = {"update_type": "incremental", "forge_version": str(forge_version), "run_dir": str(run_dir),
+              "skill_name": "lib", "generation_date": "2026-10-01T10:00:00Z", "forge_tier": "Forge",
+              "manual_sections_preserved": "0", "map_source_commit": "", "map_source_ref": ""}
+    code, out = _run_script(BUILD_MANIFEST, _argv_with(_apply_call(), "buildChangeManifestHelper", values, keep=(
+        "--provenance-map", "--manifest", "--extraction", "--reextract-records")))
+    assert code == 0 and out["status"] == "written", out
+    assert out["entries"]["added"] == ["cognify"]
+    assert out["not_public"] == [{"name": "get_default_tasks", "file": added}] and len(out["warnings"]) == 1
+    assert json.loads((run_dir / "not-public.json").read_bytes()) == out["not_public"]
+    written = json.loads((forge_version / "provenance-map.json").read_bytes())
+    assert [e["export_name"] for e in written["entries"]] == ["cognify"]
+
+
+def test_a_moved_export_across_files_names_its_old_file():
+    """#686: the change manifest names the file a MOVED_EXPORT across files left, where `apply` finds its entry."""
+    shape = _slice(_read(DETECT), "The helper emits the unified manifest envelope:", "### 4.")
+    assert "[{name, change_type, old_line, new_line, old_file?}, ...]" in shape
+    assert "a `MOVED_EXPORT` across files an `old_file`, the file it left, where `apply` finds its entry" in shape
+    # merge moves a cross-file citation to the new file
+    priority2 = _slice(_read(MERGE), "**Priority 2", "**Priority 3")
+    assert ("a citation `[AST:{old_file}:L{old_line}]` (or `[SRC:...]`) becomes the file its `per_file` item names "
+            "and its `new_line`, `[AST:{file_path}:L{new_line}]`, keeping its prefix") in priority2
 
 
 def test_split_body_findings_route_to_a_structural_fix(tmp_path, capsys):
