@@ -480,6 +480,32 @@ def test_the_fallback_keeps_every_match() -> None:
     assert "use the filtered count from step 3 section 2" in patterns
 
 
+def test_a_runner_error_line_is_warned_and_recorded() -> None:
+    """#694: with no JSON after item 1's call and an `error:` line on stderr (an input error, such as a source root
+    it cannot find, or a failure it did not foresee), re-index still runs the by-hand recipes, now showing the
+    protocol's runner-failed warning with item 3's AST fallback ones and recording `recipe_runner_failed: {line}`
+    in the envelope through a file write, since the line can hold quotes. The audit keys on the JSON and that
+    line, never on an exit code."""
+    build = _flow(_slice(_read(RE_INDEX), "**2. Build the snapshot.**", "**3. What the runner leaves.**"))
+    fallback = _slice(build, "**`runner_status` is `no-ast-grep`", "- **`to_read`")
+    for token in ("When item 1's call left no JSON and a stderr line that holds `error:` (an input error, such as a "
+                  "source root it cannot find, or a failure it did not foresee), show that section's **Recipe "
+                  "runner failed** warning with item 3's **AST fallback** warnings",
+                  "record `recipe_runner_failed: {that line}` for the envelope: write the text to "
+                  "`{run_dir}/warning.txt` with a file write (the line can hold quotes)",
+                  'run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+                  '"$(cat "{run_dir}/warning.txt")"`'):
+        assert token in fallback, token
+    assert "exit 2" not in fallback
+    # the warning it shows is the protocol's, and item 3's AST fallback warnings are where it is shown
+    assert "warn \"**Recipe runner failed:** {that line}." in _read(PATTERNS)
+    assert "with the warning \"**AST fallback:** ast-grep could not parse" in _flow(
+        _slice(_read(RE_INDEX), "**3. What the runner leaves.**", "**The snapshot.**"))
+    schema = json.loads((SRC / "shared" / "scripts" / "schemas" / "skf-audit-result-envelope.v1.json")
+                        .read_text(encoding="utf-8"))
+    assert "recipe_runner_failed (with the recipe runner's error line)" in schema["properties"]["warnings"]["description"]
+
+
 def test_the_scan_list_and_the_snapshot_come_from_the_helper() -> None:
     text = _read(RE_INDEX)
     scan = _slice(text, "### 2. Build Bounded Scan List", "### 3. Extract Current Exports")

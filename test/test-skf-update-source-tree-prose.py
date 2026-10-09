@@ -1545,8 +1545,8 @@ def test_forge_tier_follows_the_ast_extraction_protocol():
     # Category A applied the scope: with --brief the runner would skip a tracked file the scope now leaves out
     assert "--brief" not in call and "It takes no `--brief`" in category_b
     for token in ("`--head-cap 0` keeps every match", "Step 3 reads this file and never runs the runner again",
-                  "**Exit 1** (`incomplete`): run it once more",
-                  "**Exit 2 or 3, no JSON, no candidate resolves, or Quick tier:**",
+                  "**Exit 1** (`incomplete`, its JSON written): run it once more",
+                  "**Exit 3 (`no-ast-grep`), no JSON on another exit, no candidate resolves, or Quick tier:**",
                   "Tell the user which files were read by eye"):
         assert token in category_b, token
     one_b = _slice(text, "### 1b. Determine Extraction Strategy by Tier", "### 2. Extract Changed Files")
@@ -1586,12 +1586,57 @@ def test_forge_tier_follows_the_ast_extraction_protocol():
         assert token in own, token
     # a test report may name a file the brief's scope leaves out as an export's home
     assert "--brief" not in own and "It takes no `--brief`" in zero_a
-    assert "On exit 1 (`incomplete`) run it once more" in zero_a
+    assert "On exit 1 (`incomplete`, its JSON written) run it once more" in zero_a
     init = _slice(_read(INIT), "**Check metadata.json exists:**", "**Detect skill")
     assert "`scope_type` and `language` (when present)" in init
     assert "Follow the AST Extraction Protocol in" not in zero_a
     # §4a states what is read by eye itself: re-extract.md §1b, which it used to point to, is not loaded (#600)
     assert "as §1b says" not in zero_a and "Known Limitation #11 in `{extractionPatternsData}`" in zero_a
+
+
+RUNNER_EXIT_2 = ("an input error, such as a file list it cannot read, or a failure it did not foresee, named in one "
+                 "stderr line with no JSON; `uv` failing to start it exits 2 too")
+
+
+def test_a_runner_input_error_halts_category_b():
+    """#694: the runner's exit 2 (an input error or a failure it did not foresee, one `error:` line on stderr and
+    no JSON; uv's own failure exits 2 too) HALTs Category B with that line, before the fallback clause, since
+    nothing is written to the skill yet; exit 3 (no ast-grep), no JSON on another exit, no candidate and Quick tier
+    keep the empty extraction and the by-eye read."""
+    category_b = _slice(_read(DETECT), "**Category B: export-level changes.**", "**Category C")
+    halt = _slice(category_b, "**Exit 2** (", "**Exit 3")
+    for token in (RUNNER_EXIT_2,
+                  'HALT with status `blocked` (halt procedure: `phase: "detect-changes:category-b"`, the stderr line '
+                  "that holds `error:` as `reason`)",
+                  "No by-eye read stands in for it: the skill is not written yet"):
+        assert token in halt, token
+    fallback = _slice(category_b, "**Exit 3 (`no-ast-grep`), no JSON on another exit", "\n")
+    assert 'write `{"exports": []}` to `{run_dir}/extraction.json`' in fallback
+    assert "step 2 reads every listed file by eye" in fallback
+    assert category_b.index("**Exit 1** (`incomplete`, its JSON written)") < category_b.index("**Exit 2** (") \
+        < category_b.index("**Exit 3")
+    assert "Exit 2 or 3" not in category_b and "after a runner failure" not in category_b
+    assert "(at Quick tier, or when the runner could not run or left the file unread)" in category_b
+
+
+def test_a_runner_input_error_halts_the_targeted_re_extraction():
+    """#694: §4a HALTs on the runner's exit 2 with its error line (`re-extract:records`, the phase of its other
+    halt), before the by-eye read that stays for exit 3, no JSON on another exit, no candidate and Quick tier."""
+    item_3 = _slice(_read(GAP), "3. **Extract:**", "### 5.")
+    halt = _slice(item_3, "On exit 2 (", "On exit 3")
+    for token in (RUNNER_EXIT_2,
+                  'HALT with status `blocked` (halt procedure: `phase: "re-extract:records"`, the stderr line that '
+                  "holds `error:` as `reason`)",
+                  "no by-eye read stands in for it, since this step has written nothing to the skill"):
+        assert token in halt, token
+    assert ("On exit 3, no JSON on another exit, or no candidate resolves, or at Quick tier, read the files by eye "
+            "(by text pattern).") in item_3
+    assert item_3.index("On exit 1 (`incomplete`, its JSON written) run it once more.") < item_3.index("On exit 2 (") \
+        < item_3.index("On exit 3")
+    assert "exit 2 or 3" not in item_3
+    # the halt names a phase this step's other halt uses, and the step writes nothing it must undo
+    assert item_3.count('phase: "re-extract:records"') == 2
+    assert "This step writes nothing outside `{run_dir}`" in _halt_procedure(GAP)
 
 
 def test_reextract_records_are_built_by_script(tmp_path, capsys):
@@ -1774,6 +1819,57 @@ def test_write_counts_the_public_api_with_the_runner():
     assert bullet.index("At Quick tier") < bullet.index("uv run {extractPublicApiHelper}")
     # the drift override still counts nothing at HEAD
     assert "count nothing at `{source_root}`" in _slice(two, "  **Public API counts under the drift override**", "\n")
+
+
+def test_a_runner_input_error_in_write_counts_by_hand_and_warns():
+    """#694: on the runner's exit 2 write §2 keeps its hand count and adds `public-api-counted-by-hand: {line}`,
+    the runner's `error:` line, to `warnings[]` through the run log (the line can hold quotes), shown to the user
+    and listed where the report and the envelope list the warnings."""
+    bullet = _slice(_slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3."),
+                    "  - `exports_public_api` and `exports_internal`", "\n")
+    hand = ("on exit 2 or 3, no JSON, no candidate, or `entry_points.status` `no-entry-point`, count the entry points "
+            "by hand with `{entryPointsByHandData}`.")
+    warn = ("On exit 2 (an input error, such as a skill brief it cannot read, or a failure it did not foresee), also "
+            "add `public-api-counted-by-hand: {line}` to `warnings[]`, `{line}` being the stderr line that holds "
+            "`error:`, recorded as **Warnings go to the run log** says, and show it to the user")
+    assert hand in bullet and warn in bullet and bullet.index(hand) < bullet.index(warn)
+    assert "**Warnings go to the run log.** Record each warning this step adds to `warnings[]`" in _read(WRITE)
+    assert "`public-api-counted-by-hand:` (write.md §2" in _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
+    warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
+    assert "public-api-counted-by-hand: entries (write.md §2" in warnings
+
+
+def test_the_runner_names_an_input_error_in_one_line(tmp_path):
+    """#694: Category B's and §4a's documented calls on a file list the runner cannot read, and write §2's on a
+    brief that is not valid YAML (five lines from PyYAML before), exit 2 with one `error:` line on stderr and no
+    JSON: the line the update's halts and warning quote."""
+    src = tmp_path / "src tree"
+    (src / "pkg").mkdir(parents=True)
+    (src / "pkg" / "api.py").write_bytes(API_PY)
+    forge = tmp_path / "forge"
+    (forge / "lib").mkdir(parents=True)
+    (forge / "lib" / "skill-brief.yaml").write_bytes(b"language: python\nscope: [\n")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    values = {"source_root": str(src), "forge_data_folder": str(forge), "skill_name": "lib",
+              "run_dir": str(run_dir), "scope_type": "full-library", "language": "python"}
+    calls = {
+        "extraction.json": _fence(_slice(_read(DETECT), "**Category B: export-level changes.**", "**Category C"),
+                                  "uv run {extractPublicApiHelper}"),
+        "remediation-exports.json": _fence(_slice(_read(GAP), "### 4a.", "### 5."),
+                                           "uv run {extractPublicApiHelper}"),
+        "public-api.json": _write_counts_call(),
+    }
+    expected = {"extraction.json": "cannot read file list", "remediation-exports.json": "cannot read file list",
+                "public-api.json": "is not valid YAML"}
+    for output, call in calls.items():
+        proc = subprocess.run([sys.executable, str(EXTRACT_PUBLIC_API),
+                               *_call_args(call, "extractPublicApiHelper", values)],
+                              capture_output=True, encoding="utf-8")
+        assert (proc.returncode, proc.stdout) == (2, ""), (output, proc.stderr)
+        (line,) = proc.stderr.splitlines()
+        assert line.startswith("error: ") and expected[output] in line, (output, line)
+        assert not (run_dir / output).exists(), output
 
 
 @pytest.mark.skipif(shutil.which("ast-grep") is None, reason="no ast-grep on PATH")
@@ -3473,9 +3569,9 @@ def test_category_b_reads_the_baseline_gaps(tmp_path, capsys):
                   "`params` and `return_type` as the declaration writes them, null when it has none",
                   "For each `unchecked[]` entry, read its file by eye and record it the same way, at the line that "
                   "declares it, only when the file still declares it",
-                  "Record each name and file once: when a file read by eye whole (at Quick tier, or after a runner "
-                  "failure) holds a name a gap or an `unchecked[]` entry lists, that read's record stands and the gap "
-                  "adds none"):
+                  "Record each name and file once: when a file read by eye whole (at Quick tier, or when the runner "
+                  "could not run or left the file unread) holds a name a gap or an `unchecked[]` entry lists, that "
+                  "read's record stands and the gap adds none"):
         assert token in workers, token
     assert "a map entry `{run_dir}/baseline-gaps.json` lists" in _read(RE_EXTRACT)
     # run the documented call: __version__ is still declared, gone() is not

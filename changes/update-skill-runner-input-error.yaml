@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  When the recipe runner (`skf-extract-public-api.py`) exits 2 while Update Skill reads the exports of the changed files or of the files a test report names, on an input error such as a file list it cannot read, on a failure it did not foresee, or when `uv` fails to start it, the update now halts with `blocked` and the runner's error line (phase `detect-changes:category-b` or `re-extract:records`) instead of reading every file by eye as if the runner could not be used. When it exits 2 while counting the public API for `metadata.json`, the counts are still made by hand, and the run now warns `public-api-counted-by-hand` with the error line. No ast-grep, no JSON on another exit, a missing runner and Quick tier keep the by-eye read.
+prs: [700]
+issues: [694]

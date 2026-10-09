@@ -539,6 +539,35 @@ def test_protocol_runs_the_recipes_through_the_runner() -> None:
     assert "1. Run the AST Extraction Protocol below: the recipe runner finds every export" in strategy
 
 
+RUNNER_FAILED = ("When no JSON is there and a stderr line holds `error:` (the runner's input error or crash, or `uv` "
+                 "failing; a shell timeout prints none), warn \"**Recipe runner failed:** {that line}. Extraction ran "
+                 "without it.\" and keep the warning with the step's other warnings.")
+RUNNER_FAILED_KEPT = "When {} warns that the runner failed (no JSON, and a stderr line that holds `error:`), send the "
+
+
+def test_a_runner_error_line_is_warned_and_kept() -> None:
+    """#694: no JSON after the call and an `error:` line on stderr (an input error or a crash, which the runner
+    names in one line, or uv's own failure) still sends the run to the by-hand recipes, now with a warning that
+    quotes the line; a shell timeout prints no such line and warns nothing. The protocol keys on the JSON and that
+    line, never on an exit code. Create Skill keeps the warning for Gate 2 and the evidence report, from §4 and
+    from step 3d's Phase 4."""
+    fallback = _cannot_run()
+    first = fallback.index("There is no runner result when")
+    assert RUNNER_FAILED in fallback and fallback.index(RUNNER_FAILED) > first
+    assert "exit 2" not in fallback and "exits 2" not in fallback
+    four = _section(EXTRACT, "4")
+    assert (RUNNER_FAILED_KEPT.format("that section") + "warning with §5's `add --field warnings` for §6 and the evidence "
+            "report.") in four
+    assert "exits 2" not in four and "exit 2" not in four
+    assert "the runner's failure (§4), the detector's failure (§4c)" in _section(EXTRACT, "5")
+    phase_4 = _phase_4()
+    assert (RUNNER_FAILED_KEPT.format("that section") + "warning with step 3 §5's `add --field warnings`, so Gate 2 "
+            "and the evidence report show it.") in phase_4
+    assert "On exit" not in phase_4
+    # Gate 2 and the evidence report show the inventory's warnings, where `add --field warnings` puts them
+    assert "{warnings: the inventory's `warnings`}" in _section(EXTRACT, "6")
+
+
 def test_a_brief_language_no_recipe_reads_goes_to_source_reading() -> None:
     """A brief whose language no recipe reads (java, kotlin, csharp, ruby,
     swift and php are languages skf-detect-language.py emits) leaves the
