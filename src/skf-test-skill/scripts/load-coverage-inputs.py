@@ -59,7 +59,10 @@ subcommands, each reading files and writing one JSON object:
                             line of its outside_scope row, when no include,
                             exclude or declined scope-expansion amendment
                             (latest action skipped or demoted-include, from
-                            --brief) matches its file.
+                            --brief) matches its file. A tier_a_include glob
+                            the runner lists as matching no file
+                            (scope.unmatched_tier_a_include, [] when the key
+                            is absent) counts no name.
               --quick       skf-extract-public-api.py --mode quick output
               --per-file    a subagent's per-file result (exports_found and
                             types_found), schema-checked as
@@ -87,7 +90,9 @@ nested Python top's names);
 record names a file: the names whose file (an extraction's definition file,
 the quick output's source_file, a per-file result's file, a provenance
 entry's source_file) matches a glob of the list and no scope.exclude glob,
-so a name with no file is in `all` only; and, from an extraction only,
+so a name with no file is in `all` only (a tier_a_include glob an
+extraction lists as matching no file is left out of the list, and with every
+glob left out there is no tier_a_include set); and, from an extraction only,
 `subpaths` (the names a non-root `exports` map subpath without `*` reaches)
 and `root` (the names the root entry points reach). reconcile-coverage.py
 and score-signatures.py --surface-set pick one.
@@ -97,18 +102,20 @@ set's count, the metadata `stats.effective_denominator` (--metadata), and
 the extractor's own effective_denominator and its basis. Both guards run
 only on a surface read from the source. The deflation guard compares the
 re-derived scope.include set (the `all` set without one) with
-`stats.effective_denominator` and fires above DEFLATION_PCT when the scope
-has no tier_a_include; the inflation guard compares the scope.include set
-with the provenance entry count (--provenance) and fires above
-INFLATION_PCT when the scope has no tier_a_include; the umbrella ratio (an
+`stats.effective_denominator` and fires above DEFLATION_PCT when no
+tier_a_include glob matches a file (the scope has none, or the extraction
+lists each as matching no file); the inflation guard compares the
+scope.include set with the provenance entry count (--provenance) and fires
+above INFLATION_PCT under the same condition; the umbrella ratio (an
 extraction only) is the share of the root entry points' names that are
 re-exports, and above UMBRELLA_RATIO the barrel is an umbrella; the
-stale-scope guard (an extraction with scope.include only) fires when the
-runner lists an include glob that matches no file, and lists those globs
-(`unmatchedInclude`) and the names restored for them, each with its file
-and line (`restored`). Globs follow skf-extract-public-api.py: `**` spans
-any number of path segments, none included, and `*` and `?` stay inside
-one.
+stale-scope guard (an extraction with scope.include or tier_a_include only)
+fires when the runner lists an include or tier_a_include glob that matches
+no file, and lists those globs (`unmatchedInclude`,
+`unmatchedTierAInclude`) and the names restored for the include globs, each
+with its file and line (`restored`). Globs follow
+skf-extract-public-api.py: `**` spans any number of path segments, none
+included, and `*` and `?` stay inside one.
 
 Fallback verdict: `extraction.fallback.needed` is true when the extractor
 found no ast-grep (`no-ast-grep`), read no file in scope, read files only
@@ -487,6 +494,8 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
                 and not any(glob_match(_norm(o["file"]), g)
                             for g in scope["include"] + scope["exclude"] + declined)]
     restored_at = {(o["name"], o["file"]): o.get("line") for o in restored}
+    # A tier A glob that matches no file: the runner's list, never re-matched here.
+    unmatched_tier_a = _globs(recorded.get("unmatched_tier_a_include"))
     outside = [o for o in outside if (o.get("name"), o.get("file")) not in restored_at]
 
     outside_keys = {(o.get("name"), o.get("file")) for o in outside}
@@ -544,7 +553,7 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
         "sets": sets,
         "outside": [{"name": o.get("name"), "file": o.get("file")} for o in outside],
         "nested": [{"entry": top, "within": nested[top], "names": nested_names[top]} for top in sorted(nested)],
-        "staleScope": {"unmatchedInclude": unmatched,
+        "staleScope": {"unmatchedInclude": unmatched, "unmatchedTierAInclude": unmatched_tier_a,
                        "restored": [{"name": o["name"], "file": o["file"], "line": o.get("line")}
                                     for o in sorted(restored, key=lambda o: (o["name"], o["file"]))]},
         "gaps": [{"name": g.get("name"), "file": g.get("file"), "line": g.get("line")} for g in gaps],
@@ -721,11 +730,15 @@ def surface(args: argparse.Namespace) -> dict:
     scope = extracted["scope"] if extracted is not None and any(extracted["scope"].values()) else None
     if scope is None:
         scope = brief["scope"] if brief is not None else _scope(None, None, None)
+    # A tier A glob the runner lists as matching no file counts no name: the
+    # set comes from the globs that matched, and with none there is no set.
+    stale_tier_a = set(extracted["staleScope"]["unmatchedTierAInclude"]) if extracted is not None else set()
+    tier_a = [g for g in scope["tier_a_include"] if g not in stale_tier_a]
     filed = [r for r in records if r["file"]]
     if filed and scope["include"]:
         sets["scope.include"] = matching(filed, scope["include"], scope["exclude"])
-    if filed and scope["tier_a_include"]:
-        sets["tier_a_include"] = matching(filed, scope["tier_a_include"], scope["exclude"])
+    if filed and tier_a:
+        sets["tier_a_include"] = matching(filed, tier_a, scope["exclude"])
 
     if extracted is not None or brief is not None or meta is not None:
         stats = meta.get("stats") if isinstance(meta, dict) and isinstance(meta.get("stats"), dict) else {}
@@ -741,7 +754,7 @@ def surface(args: argparse.Namespace) -> dict:
             "extractorEffectiveDenominator": extraction.get("effectiveDenominator"),
             "extractorBasis": extraction.get("effectiveDenominatorBasis"),
         }
-        no_tier_a = not scope["tier_a_include"]
+        no_tier_a = not tier_a
         deflation = {"applicable": source_read and bool(stats_eff), "effectiveDenominator": stats_eff,
                      "rederived": include_union if source_read else None, "pct": None, "fires": False}
         if deflation["applicable"]:
@@ -755,11 +768,11 @@ def surface(args: argparse.Namespace) -> dict:
         if inflation["applicable"]:
             inflation["pct"] = round2((include_union - entry_count) / entry_count * 100)
             inflation["fires"] = inflation["pct"] > INFLATION_PCT
-        stale_scope = {"applicable": extracted is not None and bool(scope["include"]), "fires": False,
-                       "unmatchedInclude": [], "restored": []}
+        stale_scope = {"applicable": extracted is not None and bool(scope["include"] or scope["tier_a_include"]),
+                       "fires": False, "unmatchedInclude": [], "unmatchedTierAInclude": [], "restored": []}
         if stale_scope["applicable"]:
             stale_scope.update(extracted["staleScope"])
-            stale_scope["fires"] = bool(stale_scope["unmatchedInclude"])
+            stale_scope["fires"] = bool(stale_scope["unmatchedInclude"] or stale_scope["unmatchedTierAInclude"])
         out["guards"] = {
             "deflation": deflation,
             "inflation": inflation,

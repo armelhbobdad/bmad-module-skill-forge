@@ -1094,6 +1094,9 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
             "compares their signatures") in forge
     assert "When a `scope.include` glob matches no file (`guards.staleScope.fires`" in forge
     assert "are back in it (`guards.staleScope.restored`)" in forge
+    # #695: a stale tier A glob fires the guard too and counts no name
+    assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
+            "and counts no name") in forge
     # the report lists every name the surface leaves out of the barrel or puts back in it
     assert ("List `excluded.outsideScope`, `excluded.nestedEntries` and the restored names in the report"
             in forge)
@@ -1106,6 +1109,12 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
             "still count them and their signatures are still compared") in protocol
     assert ("unless `scope.exclude` or a `scope-expansion` amendment whose latest action is `skipped` or "
             "`demoted-include` matches the file") in protocol
+    # with no tier A glob matching a file there is no tier_a_include set: the ladder and the guards go on
+    assert "2. Otherwise the `tier_a_include` set when `surface.json` has it" in protocol
+    assert ("when no tier A glob matches a file, `surface.json` has no `tier_a_include` set and priority 3 applies"
+            in protocol)
+    assert "the brief carries no `scope.tier_a_include` glob that matches a file" in protocol
+    assert "then the `tier_a_include` set when `surface.json` has it" in protocol
 
     run = tmp_path / "run"
     run.mkdir()
@@ -1113,7 +1122,7 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     (run / "extract-full.json").write_bytes(json.dumps({
         "mode": "full", "status": "ok", "files_in_scope": 2, "exports": [],
         "scope": {"include": ["pkg/__init__.py", "pkg/pipelines.py", "pkg/api/**"], "exclude": [],
-                  "tier_a_include": None, "unmatched_include": ["pkg/pipelines.py"]},
+                  "tier_a_include": None, "unmatched_include": ["pkg/pipelines.py"], "unmatched_tier_a_include": []},
         "entry_points": {"files": [{**entry, "file": "pkg/__init__.py", "package": "pkg"},
                                    {**entry, "file": "pkg/api/routers/__init__.py", "package": "pkg/api/routers"}]},
         "entry_point_diff": {

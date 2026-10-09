@@ -278,7 +278,11 @@ skf-resolve-authoritative-files.py's rules: `**` spans any number of path
 segments, none included, and `*` and `?` stay inside one, so `src/**/*.ts`
 matches `src/index.ts` and `**/test_*` matches a top-level `test_x.py`. An
 include glob that matches no file (a brief written for an older layout,
-say) is named in `warnings` and listed in `scope.unmatched_include`.
+say) is named in `warnings` and listed in `scope.unmatched_include`. A
+scope.tier_a_include glob is matched against the whole tree under
+--source-root, regardless of --files-from and before the excludes: one
+that matches no file is named in `warnings` too and listed in
+`scope.unmatched_tier_a_include`.
 
 --brief supplies scope.include, scope.exclude, scope.tier_a_include,
 scope.type and language; --include, --exclude, --tier-a-include,
@@ -379,7 +383,8 @@ Output JSON (stdout, or -o):
     "scope": {"include": [...], "exclude": [...],
               "tier_a_include": [...] | null, "type": "<type>" | null,
               "languages": [...], "files_from": "<file>" | null,
-              "unmatched_include": [...]},  # include globs no file matches
+              "unmatched_include": [...],         # include globs no file matches
+              "unmatched_tier_a_include": [...]},  # tier A globs no file matches
     "files_in_scope": N,
     "files_by_language": {"<language>": N, ...},
     "files_without_recipes": {".java": N, ...},  # in scope, no recipe reads them
@@ -3900,6 +3905,10 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
     in_scope, without_recipes, unmatched_include = _select_files(
         root, tree if listed is None else listed, listed is not None, includes, excludes, wanted, glob_match,
         issues, warnings)
+    # A tier A glob is matched against the whole tree under --source-root (the
+    # tree effective_denominator reads), regardless of --files-from and before the excludes.
+    unmatched_tier_a = [g for g in dict.fromkeys(tier_a) if not any(glob_match(f, g) for f in tree)]
+    warnings += [f"scope.tier_a_include pattern {g!r} matches no file" for g in unmatched_tier_a]
     readable = []
     for rel in in_scope:
         try:
@@ -3947,7 +3956,8 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
         "ast_grep": {"path": exe, "version": version},
         "scope": {"include": includes, "exclude": excludes, "tier_a_include": tier_a or None,
                   "type": scope_type, "languages": sorted(wanted),
-                  "files_from": args.files_from, "unmatched_include": unmatched_include},
+                  "files_from": args.files_from, "unmatched_include": unmatched_include,
+                  "unmatched_tier_a_include": unmatched_tier_a},
         "files_in_scope": len(in_scope),
         "files_by_language": dict(sorted(Counter(_file_language(f) for f in in_scope).items())),
         "files_without_recipes": without_recipes,
@@ -4332,7 +4342,8 @@ def _build_parser() -> argparse.ArgumentParser:
     full.add_argument("--exclude", action="append", metavar="GLOB",
                       help="an exclude glob, repeatable (replaces the brief's scope.exclude)")
     full.add_argument("--tier-a-include", action="append", metavar="GLOB",
-                      help="a tier-A glob for effective_denominator, repeatable (replaces scope.tier_a_include)")
+                      help="a tier-A glob for effective_denominator, repeatable (replaces scope.tier_a_include); "
+                           "one that matches no file is listed in scope.unmatched_tier_a_include")
     full.add_argument("--scope-type", help="the scope type (replaces the brief's scope.type)")
     full.add_argument("--language", action="append",
                       help="a language family to extract, repeatable (replaces the brief's language); quick "
