@@ -26,7 +26,12 @@ CLI:
       [--max-lines 500]
 
 Detection rules — scripts:
-  Directory convention: scripts/, bin/, tools/, cli/
+  Directory convention: scripts/, bin/, tools/, cli/ (at any depth). A
+    Python package's folder is code, not a script folder: a `.py` file
+    under such a folder that holds `__init__.py` is a script only with a
+    shebang, a top-level `if __name__ == "__main__":` block (either
+    comparison order, parentheses allowed, never a line inside a string)
+    or when it is the package's `__main__.py` (the `python -m` entry)
   Shebang signals: #!/bin/bash, #!/usr/bin/env python|node|bash|sh, etc.
   Entry point declarations: package.json `bin`, pyproject.toml [project.scripts]
   CLI argument-parser imports are detected for the LLM-judgment tier only —
@@ -70,6 +75,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import ast
 import fnmatch
 import hashlib
 import json
@@ -325,11 +331,66 @@ def _parse_pyproject_scripts(source_root: Path) -> Iterable[Path]:
     return ()
 
 
+# The fallback for a file that does not parse: a column-0 `if` comparing
+# __name__ with "__main__", either way round, parentheses allowed.
+_MAIN_BLOCK_RE = re.compile(
+    r"^if\s*\(?\s*(?:__name__\s*==\s*(['\"])__main__\1|(['\"])__main__\2\s*==\s*__name__)\s*\)?\s*:", re.M
+)
+
+
+def in_package_script_dir(path: Path, source_root: Path) -> bool:
+    """True when a script folder (SCRIPT_DIRS) over `path` holds
+    `__init__.py`: a Python package that happens to be named tools/, cli/,
+    bin/ or scripts/, whose modules are code."""
+    segments = relative_segments(path, source_root)
+    return any(
+        seg in SCRIPT_DIRS and source_root.joinpath(*segments[: i + 1], "__init__.py").is_file()
+        for i, seg in enumerate(segments)
+    )
+
+
+def has_shebang(path: Path) -> bool:
+    try:
+        with path.open("rb") as fh:
+            return fh.read(2) == b"#!"
+    except OSError:
+        return False
+
+
+def _is_main_test(test: ast.expr) -> bool:
+    """`__name__ == "__main__"` or `"__main__" == __name__`."""
+    if not (isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], ast.Eq)):
+        return False
+    sides = (test.left, test.comparators[0])
+    return (any(isinstance(s, ast.Name) and s.id == "__name__" for s in sides)
+            and any(isinstance(s, ast.Constant) and s.value == "__main__" for s in sides))
+
+
+def has_main_block(path: Path) -> bool:
+    """True when the file holds a top-level `if __name__ == "__main__":`
+    (either order, parenthesized or not). The file is parsed, so such a
+    line inside a string never counts; a file that does not parse is
+    matched line by line."""
+    text = read_text_safe(path)
+    if not text:
+        return False
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return _MAIN_BLOCK_RE.search(text) is not None
+    return any(isinstance(node, ast.If) and _is_main_test(node.test) for node in tree.body)
+
+
 def is_script(path: Path, source_root: Path, *, entry_points: set[Path]) -> tuple[bool, str | None]:
     """Decide whether `path` is a script. Returns (is_script, shebang_lang)."""
     if path.resolve() in entry_points:
         return True, detect_shebang_language(path)
     if in_directory(path, source_root, SCRIPT_DIRS):
+        # a module of a Python package named like a script folder is code,
+        # unless it runs on its own (`python -m` runs its __main__.py)
+        if (path.suffix.lower() == ".py" and in_package_script_dir(path, source_root)
+                and path.name != "__main__.py" and not (has_shebang(path) or has_main_block(path))):
+            return False, None
         return True, detect_shebang_language(path)
     shebang_lang = detect_shebang_language(path)
     if shebang_lang is not None:

@@ -108,7 +108,7 @@ Glosses (substitute the matching one-liner for `{tier_gloss}`, `{scripts_gloss}`
   - `Deep`: full pipeline — AST + ccc + qmd portfolio search + LLM re-ranking
 
 - **`scripts_intent` / `assets_intent` glosses** —
-  - `detect`: SKF will scan source for the standard `scripts/`/`bin/`/`tools/`/`cli/` (or `assets/`/`templates/`/`schemas/`/`configs/`) directories during create-skill and decide automatically
+  - `detect`: SKF will scan source for the standard `scripts/`/`bin/`/`tools/`/`cli/` (or `assets/`/`templates/`/`schemas/`/`configs/`) directories during create-skill and decide automatically (when one of the four script folders is a Python package, holding `__init__.py`, only its `__main__.py` and the modules with a shebang or a `__main__` block count as scripts)
   - `none`: no script/asset packaging — create-skill will skip the detection pass
   - free-text (anything else): a description of what to package; create-skill treats it as the user's spec
 

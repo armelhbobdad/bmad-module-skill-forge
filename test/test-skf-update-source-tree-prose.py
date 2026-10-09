@@ -3268,6 +3268,7 @@ def test_the_new_helper_calls_quote_every_path():
         (_fence(detect, "uv run {structuralDiffHelper}"), "structuralDiffHelper"),
         (_fence(detect, "uv run {buildChangeManifestHelper} deletion-ratio"), "buildChangeManifestHelper"),
         (_fence(detect, "uv run {buildChangeManifestHelper} build"), "buildChangeManifestHelper"),
+        (_fence(detect, "uv run {buildChangeManifestHelper} baseline-gaps"), "buildChangeManifestHelper"),
         (_fence(_slice(init, "**If `--from-test-report` was provided", "### 1b."), "uv run {findTestReportHelper}"),
          "findTestReportHelper"),
         (_fence(_slice(init, "### 4b.", "### 5."), "uv run {findTestReportHelper}"), "findTestReportHelper"),
@@ -3280,6 +3281,154 @@ def test_the_new_helper_calls_quote_every_path():
     ]
     for call, helper in calls:
         assert _unquoted_placeholders(call, helper) == [], call
+
+
+NEW_FILE_DIFF = UPDATE / "scripts" / "skf-new-file-diff.py"
+DETECT_SCRIPTS_ASSETS = SRC / "shared" / "scripts" / "skf-detect-scripts-assets.py"
+
+
+def test_category_d_keeps_new_files_to_the_brief(tmp_path):
+    """#683 and #684: Category D accepts a map with no file_entries, pipes the whole-source detector into
+    skf-new-file-diff.py with the brief, which keeps only the paths its scope takes, skips the pipe with a
+    warning when the skill has no brief, and halts when the pipe fails."""
+    detect = _read(DETECT)
+    frontmatter = _frontmatter(detect)
+    assert "NEW_FILE set difference, kept to the\n# skill brief's scope" in frontmatter
+    assert "as\n# create-skill's" not in _comment_before(frontmatter, "detectScriptsAssetsProbeOrder")
+    category_d = _slice(detect, "**Category D:", "**Write the category JSON**")
+    assert "Pipe the same deterministic detector create-skill" not in category_d
+    for token in ("A map with no `file_entries` field, or a null one", "tracks no file: the comparison lists no row",
+                  "**When `{brief_path}` does not exist**",
+                  "Add `new-files-not-checked: no skill brief, so no new script or asset was looked for` to "
+                  "`warnings[]`, write no `{run_dir}/new-files.json`, and leave `--new-files` out of §3's `build` "
+                  "and step 5's `apply`",
+                  "Pass `--brief` as Category A does, `{brief_path}` as §1c left it (in a read-only run, its copy "
+                  "in `{run_dir}`)",
+                  'phase: "detect-changes:category-d"', "`tracked_code[]`", "`out_of_scope[]`", "`intent_none[]`",
+                  "A new file Category A lists too stays a new file",
+                  "step 6's report counts each of the three lists from this file, where it shows Category D"):
+        assert token in category_d, token
+    applied = _slice(_read(REPORT), "### Changes Applied", "### Export Changes")
+    assert ("{when step 2 wrote `{run_dir}/new-files.json`: **New scripts and assets:** {the length of its "
+            "`new_files[]`} new; set aside:") in applied and "(counted from the lists, never from `stats`)" in applied
+    after_pipe = _slice(category_d, "Pass `--brief` as Category A does", "\n")
+    assert "On exit 2" in after_pipe and "no JSON, or no candidate resolves: HALT with status `blocked`" in after_pipe
+    pipe = _fence(category_d, "uv run {detectScriptsAssetsHelper} detect")
+    assert '| uv run {newFileDiffHelper} "{provenance_map_path}" [--brief "{brief_path}"]' in pipe
+    # the warning is listed where the report and the envelope list them
+    assert "`new-files-not-checked`" in _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
+    warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
+    assert "new-files-not-checked" in warnings
+    assert "`new-files.json` when step 2 wrote it" in _read(WRITE)
+    # run the documented pipe on a 1.0.0-shaped map (no file_entries) and a scoped brief
+    source = tmp_path / "src"
+    for rel, text in {"pkg/__init__.py": "", "pkg/tools/__init__.py": "", "pkg/tools/t.py": "T = 1\n",
+                      "pkg/scripts/run.sh": "#!/bin/bash\n", "scripts/dev.sh": "echo dev\n",
+                      "examples/demo.json": "{}\n"}.items():
+        (source / rel).parent.mkdir(parents=True, exist_ok=True)
+        (source / rel).write_bytes(text.encode("utf-8"))
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(json.dumps({"entries": [{"export_name": "T", "source_file": "pkg/tools/t.py"}]}).encode())
+    brief = tmp_path / "skill-brief.yaml"
+    brief.write_bytes(b"name: demo\nlanguage: Python\nscope:\n  include:\n  - 'pkg/**'\n")
+    values = {"source_root": str(source), "provenance_map_path": str(provenance), "brief_path": str(brief)}
+    left, right = pipe.split("|", 1)
+    found = subprocess.run([sys.executable, str(DETECT_SCRIPTS_ASSETS),
+                            *_call_args(left, "detectScriptsAssetsHelper", values)],
+                           capture_output=True, text=True, check=True)
+    result = subprocess.run([sys.executable, str(NEW_FILE_DIFF), *_call_args(right, "newFileDiffHelper", values)],
+                            input=found.stdout, capture_output=True, text=True, check=False)
+    assert result.returncode == 0, result.stderr
+    out = json.loads(result.stdout)
+    assert out["new_files"] == [{"source_file": "pkg/scripts/run.sh", "kind": "script"}]
+    assert out["out_of_scope"] == ["examples/demo.json", "scripts/dev.sh"]
+    assert out["already_tracked"] == [] and out["tracked_code"] == []  # pkg/tools/t.py is a module, not detected
+
+
+def test_category_b_reads_the_baseline_gaps(tmp_path, capsys):
+    """#687: Category B step 1 lists, at every tier, the map entries the runner left out that their modified file
+    still declares, through skf-build-change-manifest.py baseline-gaps (a verifier that cannot load halts), and
+    step 2 reads them by eye with update-skill's fields, so step 3's diff reports no false DELETED_EXPORT."""
+    detect = _read(DETECT)
+    assert "Category B's `baseline-gaps`" in _comment_before(_frontmatter(detect), "buildChangeManifestProbeOrder")
+    category_b = _slice(detect, "**Category B: export-level changes.**", "**Category C")
+    step_1 = _slice(category_b, "1. **The recipe runner.**", "2. **What the recipes do not record.**")
+    for token in ("Then, at every tier (in degraded mode there is no map: skip it)",
+                  "a dunder such as `__version__` or another underscore name",
+                  "a `skf-verify-provenance-completeness.py` beside it that cannot be loaded",
+                  'phase: "detect-changes:category-b"', "Never add a gap or drop one by eye",
+                  '"unchecked": [{name, file, export_type}]', "which step 2 reads by eye"):
+        assert token in step_1, token
+    assert "Never pick these names by eye" not in step_1
+    call = _fence(step_1, "uv run {buildChangeManifestHelper} baseline-gaps")
+    for token in ('--provenance-map "{provenance_map_path}"', '--extraction "{run_dir}/extraction.json"',
+                  '--files "{run_dir}/modified-files.json"', '--source-root "{source_root}"',
+                  '-o "{run_dir}/baseline-gaps.json"'):
+        assert token in call, token
+    workers = _slice(detect, "2. **What the recipes do not record.**", "\n")
+    for token in ("a name `{run_dir}/baseline-gaps.json` lists in `gaps[]`, a form Known Limitation #11",
+                  "Record a baseline gap at its `file` and `line` (`source_line`), with, as `export_type`, its "
+                  "`export_type` while the declaration there still has that kind, else the kind it has now",
+                  "`params` and `return_type` as the declaration writes them, null when it has none",
+                  "For each `unchecked[]` entry, read its file by eye and record it the same way, at the line that "
+                  "declares it, only when the file still declares it",
+                  "Record each name and file once: when a file read by eye whole (at Quick tier, or after a runner "
+                  "failure) holds a name a gap or an `unchecked[]` entry lists, that read's record stands and the gap "
+                  "adds none"):
+        assert token in workers, token
+    assert "a map entry `{run_dir}/baseline-gaps.json` lists" in _read(RE_EXTRACT)
+    # run the documented call: __version__ is still declared, gone() is not
+    source = tmp_path / "src"
+    (source / "pkg").mkdir(parents=True)
+    (source / "pkg" / "__init__.py").write_bytes(b"__version__ = '2'\n\n\ndef run():\n    pass\n")
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(json.dumps({"entries": [
+        {"export_name": "__version__", "export_type": "variable", "source_file": "pkg/__init__.py", "source_line": 1},
+        {"export_name": "run", "export_type": "function", "source_file": "pkg/__init__.py", "source_line": 4},
+        {"export_name": "gone", "export_type": "function", "source_file": "pkg/__init__.py",
+         "source_line": 9}]}).encode("utf-8"))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "extraction.json").write_bytes(json.dumps({"exports": [
+        {"export_name": "run", "export_type": "function", "source_file": "pkg/__init__.py",
+         "source_line": 4}]}).encode("utf-8"))
+    (run_dir / "modified-files.json").write_bytes(json.dumps(["pkg/__init__.py"]).encode("utf-8"))
+    manifest = _module(BUILD_MANIFEST, "skf_build_change_manifest_baseline_gaps")
+    values = {"provenance_map_path": str(provenance), "run_dir": str(run_dir), "source_root": str(source)}
+    assert manifest.main(_call_args(call, "buildChangeManifestHelper", values)) == 0
+    assert json.loads(capsys.readouterr().out)["gaps"] == 1
+    gaps = json.loads((run_dir / "baseline-gaps.json").read_text(encoding="utf-8"))
+    assert gaps == {"gaps": [{"name": "__version__", "file": "pkg/__init__.py", "line": 1, "entry": None,
+                              "export_type": "variable"}], "unchecked": []}
+    # Quick tier: the runner wrote {"exports": []}, so the gaps list both names, and the file read by eye whole yields
+    # them too; step 2's rule writes one record per name and file, the read's, and the diff reports only `gone`
+    (run_dir / "extraction.json").write_bytes(b'{"exports": []}')
+    assert manifest.main(_call_args(call, "buildChangeManifestHelper", values)) == 0
+    capsys.readouterr()
+    gaps = json.loads((run_dir / "baseline-gaps.json").read_text(encoding="utf-8"))["gaps"]
+    assert [g["name"] for g in gaps] == ["__version__", "run"]
+    read = [{"export_name": "__version__", "export_type": "variable", "source_file": "pkg/__init__.py",
+             "source_line": 1, "params": None, "return_type": None, "confidence": "T1-low",
+             "extraction_method": "source-read", "signature": "__version__ = '2'"},
+            {"export_name": "run", "export_type": "function", "source_file": "pkg/__init__.py", "source_line": 4,
+             "params": [], "return_type": None, "confidence": "T1-low", "extraction_method": "source-read",
+             "signature": "def run():"}]
+    from_gaps = [{"export_name": g["name"], "export_type": g["export_type"], "source_file": g["file"],
+                  "source_line": g["line"], "params": None, "return_type": None, "confidence": "T1-low",
+                  "extraction_method": "source-read"} for g in gaps]
+    details: dict = {}
+    for record in read + from_gaps:  # the read first: its record stands, and a gap of the same pair adds none
+        details.setdefault((record["export_name"], record["source_file"]), record)
+    written = {"exports": list(details.values())}
+    (run_dir / "export-details.json").write_bytes(json.dumps(written).encode("utf-8"))
+    pairs = [(e["export_name"], e["source_file"]) for e in written["exports"]]
+    assert len(pairs) == len(set(pairs)) == 2 and written["exports"] == read
+    diff_call = _fence(category_b, "uv run {structuralDiffHelper}")
+    diff_module = _module(STRUCTURAL_DIFF, "skf_structural_diff_baseline_gaps")
+    assert diff_module.main(_call_args(diff_call, "structuralDiffHelper", values)) == 1
+    capsys.readouterr()
+    diff = json.loads((run_dir / "category-b-diff.json").read_text(encoding="utf-8"))
+    assert [r["name"] for r in diff["removed"]] == ["gone"] and diff["added"] == []
 
 
 # --------------------------------------------------------------------------

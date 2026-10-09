@@ -452,8 +452,10 @@ Subcommands:
     NAME (`NAME.py`, `NAME/__init__.py`, a TS/JS `NAME.<ext>` or
     `NAME/index.<ext>`) declares NAME too: at its line 1 when no line of it
     declares NAME. `declared_line` gives this answer for one file, the
-    module rule optional, to a script that loads this one
-    (skf-extraction-snapshot.py's baseline gaps, which apply the module
+    module rule optional, to a script that loads this one, and
+    `baseline_gaps` applies it to the map's entries an extraction left
+    out (skf-extraction-snapshot.py's baseline gaps and
+    skf-build-change-manifest.py's `baseline-gaps`, which apply the module
     rule only to a `module` or `package` entry).
 
     The files: when a file the name's entries cite declares it,
@@ -2076,6 +2078,101 @@ def declared_line(
 
 # declared_line's `cache`, public for a script that loads this one.
 SourceCache = _SourceCache
+
+
+def _baseline_path(path: str) -> str:
+    """A cited path as an extraction writes it: forward slashes, no
+    leading `./`."""
+    rel = path.strip().replace("\\", "/")
+    while rel.startswith("./"):
+        rel = rel[2:]
+    return rel
+
+
+def _declaration_refused(source_root: Path, file: str) -> bool:
+    """True when `declared_line` would not read a file that is there: a
+    path outside the source root, a file the lookup skips (a test file, a
+    minified bundle) or one with a symlink on its path. A file that is gone
+    is not refused: its entries are deleted."""
+    parts = _cited_parts(file)
+    if parts is None:
+        return True
+    path = source_root.joinpath(*parts)
+    return os.path.lexists(path) and not _readable_below(source_root, parts)
+
+
+def baseline_gaps(
+    provenance: dict,
+    source_root: Path,
+    held: set[tuple[str, str]],
+    files: set[str],
+    listed: set[tuple] | frozenset = frozenset(),
+    *,
+    cache: _SourceCache | None = None,
+) -> tuple[list[dict], list[dict]]:
+    """The provenance entries an extraction left out whose cited file still
+    declares them: the recipe runner never reports a module, an alias that
+    renames, a dunder such as `__version__` or another underscore name, so
+    a diff would read each as removed.
+
+    `held` holds the (name, file) of every export the extraction found,
+    `files` the files whose entries are checked (the ones read), and
+    `listed` the (name, file) of the gaps already listed elsewhere (the
+    runner's own extraction gaps), each path with forward slashes. An
+    entry is left out when its name is dotted (a member) and it is no
+    `module` or `package` entry, when its file is not in `files`, when the
+    extraction holds the name or its re-export target (`reexport_map`,
+    else the entry's `reexported_as`) at that file, or when it is listed
+    already. Each name and file is taken once.
+
+    Returns (gaps, unchecked). A gap is {"name", "file", "line", "entry":
+    null}, plus the entry's `export_type` when it has one, at the line
+    `declared_line` gives (only a `module` or `package` entry takes the
+    module rule); an entry whose file declares it no more is no gap.
+    `unchecked` holds {"name", "file", "export_type"} for each entry no
+    rule can check, to read by eye: one whose file is neither Python nor
+    TS/JS, one whose file the lookup will not read (outside the source
+    root, a test file or a minified bundle, a symlink on its path), and a
+    dotted `module` or `package` entry (`api.v1`). The entries are read
+    file by file over one cache, so each file is read and parsed once."""
+    checkable = PYTHON_EXTENSIONS | TSJS_EXTENSIONS
+    renamed = extract_reexport_map(provenance)
+    seen = set(listed)
+    by_file: dict[str, list[tuple[str, object]]] = {}
+    unchecked: list[dict] = []
+    entries = provenance.get("entries")
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        name, cited = entry.get("export_name"), entry.get("source_file")
+        if not isinstance(name, str) or not isinstance(cited, str):
+            continue
+        name, file, kind = name.strip(), _baseline_path(cited), entry.get("export_type")
+        module = isinstance(kind, str) and kind.strip().lower() in NO_DEFINITION_EXPORT_TYPES
+        if not name or ("." in name and not module) or (name, file) in seen:
+            continue
+        if cited.replace("\\", "/") not in files and file not in files:
+            continue
+        if (name, file) in held or (renamed.get(name), file) in held:
+            continue
+        seen.add((name, file))
+        if "." in name or Path(file).suffix.lower() not in checkable or _declaration_refused(source_root, file):
+            unchecked.append({"name": name, "file": file, "export_type": kind})
+            continue
+        by_file.setdefault(file, []).append((name, kind))
+    cache = cache if cache is not None else _SourceCache()
+    gaps = []
+    for file, named in by_file.items():
+        for name, kind in named:
+            module = isinstance(kind, str) and kind.strip().lower() in NO_DEFINITION_EXPORT_TYPES
+            line = declared_line(file, name, source_root, cache=cache, module_fallback=module)
+            if line is None:
+                continue
+            gap = {"name": name, "file": file, "line": line, "entry": None}
+            if kind is not None:
+                gap["export_type"] = kind
+            gaps.append(gap)
+    return gaps, unchecked
 
 
 class _DeclarationLookup:

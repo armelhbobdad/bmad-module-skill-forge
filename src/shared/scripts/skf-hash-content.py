@@ -17,7 +17,8 @@ Two patterns recur across the update-skill workflow's stage prose:
      content hash, compare against stored hash" and classify entries as
      MODIFIED_FILE / DELETED_FILE / (UNCHANGED). Same hashing primitive,
      iterated, plus a stat-and-compare. NEW_FILE detection is intentionally
-     out of scope here — that lives in `skf-detect-scripts-assets.py`.
+     out of scope here: that lives in `skf-detect-scripts-assets.py`,
+     piped into update-skill's `skf-new-file-diff.py`.
 
   3. **[MANUAL]-section integrity** — the update-skill workflow's headline
      Workflow Rule is "[MANUAL] sections survive regeneration with zero
@@ -49,7 +50,11 @@ Subcommands:
           "stats": {"total": N, "unchanged": U, "modified": M, "deleted": D}
         }
       The provenance file must contain `file_entries` as a top-level array
-      OR be the array itself (handles both schemas).
+      OR be the array itself (handles both schemas). A map with no
+      `file_entries` field, or a null one, tracks no file (a skill with no
+      script, asset or promoted document, or a map written before the
+      field existed): it compares no row. A `file_entries` that is neither
+      null nor an array is an error.
 
   manual-inventory <skill-md>
       Extract every `<!-- [MANUAL:name] --> … <!-- [/MANUAL:name] -->` block
@@ -238,11 +243,14 @@ def load_file_entries(provenance_path: Path) -> list[dict]:
     """Extract the file_entries list from a provenance file.
 
     Accepts two shapes:
-      - top-level object with a `file_entries` key (canonical)
+      - top-level object with a `file_entries` key (canonical); with no
+        such key, or a null one, the map tracks no file and the list is
+        empty
       - top-level array of entries (already-extracted)
 
-    Returns a copy of the list. Raises ValueError on malformed JSON or
-    missing key.
+    Returns a copy of the list. Raises ValueError on malformed JSON, a
+    `file_entries` that is not an array, or a top level that is neither
+    an object nor an array.
     """
     try:
         data = json.loads(provenance_path.read_text(encoding="utf-8"))
@@ -254,9 +262,7 @@ def load_file_entries(provenance_path: Path) -> list[dict]:
     if isinstance(data, dict):
         entries = data.get("file_entries")
         if entries is None:
-            raise ValueError(
-                f"provenance file {provenance_path} has no `file_entries` field"
-            )
+            return []  # no tracked file: a map without (or with a null) file_entries
         if not isinstance(entries, list):
             raise ValueError(
                 f"`file_entries` in {provenance_path} is not an array"

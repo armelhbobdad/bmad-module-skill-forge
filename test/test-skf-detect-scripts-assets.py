@@ -2,7 +2,8 @@
 """Tests for skf-detect-scripts-assets.py.
 
 Covers detection rules from src/skf-create-skill/references/extraction-patterns-tracing.md:
-  - Script directory convention (scripts/, bin/, tools/, cli/)
+  - Script directory convention (scripts/, bin/, tools/, cli/), and a Python
+    package's folder of that name, whose .py modules are code (#683)
   - Shebang signals (#!/bin/bash, #!/usr/bin/env python|node|...)
   - Entry point declarations (package.json `bin`)
   - Asset directory convention + filename patterns (*.schema.json, *.template.*, ...)
@@ -81,6 +82,77 @@ class TestScriptDirectoryConvention:
         write_file(tmp_path / "pkg" / "scripts" / "build.sh", "")
         result = mod.detect(tmp_path)
         assert any(r["name"] == "build.sh" for r in result["scripts_inventory"])
+
+
+class TestPythonPackageScriptDirs:
+    """#683: a Python package's folder named tools/, cli/, bin/ or scripts/ (it holds __init__.py) is code: a .py
+    module in it is a script only with a shebang or a __main__ block."""
+
+    @pytest.mark.parametrize("folder", ["tools", "cli", "bin", "scripts"])
+    def test_a_package_module_is_not_a_script(self, tmp_path: Path, folder: str) -> None:
+        write_file(tmp_path / "cognee" / "api" / "v1" / folder / "__init__.py", "from .tools import TOOLS\n")
+        write_file(tmp_path / "cognee" / "api" / "v1" / folder / "tools.py", "TOOLS = []\n")
+        assert mod.detect(tmp_path)["scripts_inventory"] == []
+
+    def test_a_package_module_that_runs_on_its_own_is_a_script(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "pkg" / "cli" / "__init__.py", "")
+        write_file(tmp_path / "pkg" / "cli" / "main.py", "def main():\n    pass\n\n\nif __name__ == '__main__':\n"
+                                                        "    main()\n")
+        write_file(tmp_path / "pkg" / "cli" / "run.py", "#!/usr/bin/env python3\nprint('run')\n")
+        write_file(tmp_path / "pkg" / "cli" / "lib.py", "def helper():\n    if __name__ == '__main__':\n"
+                                                       "        pass\n")  # not a top-level block
+        result = mod.detect(tmp_path)
+        assert [r["source_file"] for r in result["scripts_inventory"]] == ["pkg/cli/main.py", "pkg/cli/run.py"]
+        assert result["scripts_inventory"][1]["language"] == "python"
+
+    @pytest.mark.parametrize("text", [
+        'if __name__ == "__main__":\n    main()\n',
+        'if "__main__" == __name__:\n    main()\n',
+        'if (__name__ == "__main__"):\n    main()\n',
+        "if __name__=='__main__':\n    main()\n",
+    ], ids=["plain", "reversed", "parenthesized", "single-quotes"])
+    def test_every_form_of_the_main_block_counts(self, tmp_path: Path, text: str) -> None:
+        write_file(tmp_path / "pkg" / "cli" / "__init__.py", "")
+        write_file(tmp_path / "pkg" / "cli" / "main.py", "def main():\n    pass\n\n\n" + text)
+        assert [r["source_file"] for r in mod.detect(tmp_path)["scripts_inventory"]] == ["pkg/cli/main.py"]
+
+    def test_a_main_block_inside_a_string_does_not_count(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "pkg" / "cli" / "__init__.py", "")
+        write_file(tmp_path / "pkg" / "cli" / "doc.py", '"""Usage:\n\nif __name__ == "__main__":\n    run()\n"""\n'
+                                                        "X = 1\n")
+        assert mod.detect(tmp_path)["scripts_inventory"] == []
+
+    def test_a_file_that_does_not_parse_is_matched_line_by_line(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "pkg" / "cli" / "__init__.py", "")
+        write_file(tmp_path / "pkg" / "cli" / "old.py", 'print "py2"\n\nif __name__ == "__main__":\n    pass\n')
+        assert [r["source_file"] for r in mod.detect(tmp_path)["scripts_inventory"]] == ["pkg/cli/old.py"]
+
+    def test_a_package_s_main_module_is_its_entry_point(self, tmp_path: Path) -> None:
+        # `python -m pkg.cli` runs pkg/cli/__main__.py, which often has no main block
+        write_file(tmp_path / "pkg" / "cli" / "__init__.py", "")
+        write_file(tmp_path / "pkg" / "cli" / "__main__.py", "from .app import run\n\nrun()\n")
+        write_file(tmp_path / "pkg" / "cli" / "app.py", "def run():\n    pass\n")
+        assert [r["source_file"] for r in mod.detect(tmp_path)["scripts_inventory"]] == ["pkg/cli/__main__.py"]
+
+    def test_a_package_folder_s_other_files_still_count(self, tmp_path: Path) -> None:
+        # only a .py module is code: a shell script in the package folder is still a script by directory
+        write_file(tmp_path / "pkg" / "tools" / "__init__.py", "")
+        write_file(tmp_path / "pkg" / "tools" / "setup.sh", "echo setup\n")
+        assert [r["source_file"] for r in mod.detect(tmp_path)["scripts_inventory"]] == ["pkg/tools/setup.sh"]
+
+    def test_a_module_below_a_package_script_folder_is_code(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "pkg" / "tools" / "__init__.py", "")
+        write_file(tmp_path / "pkg" / "tools" / "sub" / "x.py", "X = 1\n")
+        write_file(tmp_path / "scripts" / "tools" / "__init__.py", "")
+        write_file(tmp_path / "scripts" / "tools" / "y.py", "Y = 1\n")
+        assert mod.detect(tmp_path)["scripts_inventory"] == []
+
+    def test_a_folder_without_init_keeps_the_directory_convention(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "tools" / "lint.py", "import sys\n")
+        write_file(tmp_path / "pkg" / "__init__.py", "")  # a package above the script folder changes nothing
+        write_file(tmp_path / "pkg" / "scripts" / "gen.py", "print('gen')\n")
+        assert [r["source_file"] for r in mod.detect(tmp_path)["scripts_inventory"]] == ["pkg/scripts/gen.py",
+                                                                                          "tools/lint.py"]
 
 
 # --------------------------------------------------------------------------
