@@ -2,4 +2,5 @@ type: fixed
 scope: skf-update-skill
 summary: |
   Update Skill no longer reports every script and asset of the source repository as a new file. Its new-file check walked the whole repository with no scope, so an update of a skill scoped to one package listed hundreds of `NEW_FILE` rows from folders the skill brief leaves out. `skf-new-file-diff.py` now takes `--brief` and keeps only the paths the brief's scope takes, by the same in-scope test as the file-level changes (an empty `scope.include` included), drops a kind whose `scripts_intent` or `assets_intent` is `none`, and sets aside code the map's `entries[]` cite; it lists what it set aside in `tracked_code`, `out_of_scope` and `intent_none`, never in `stats`. A skill with no brief skips the check with a `new-files-not-checked` warning instead of walking the repository, and a failed check now halts with `detect-changes:category-d`.
+prs: [692]
 issues: [683]

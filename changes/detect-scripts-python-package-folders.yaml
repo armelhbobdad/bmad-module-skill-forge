@@ -2,4 +2,5 @@ type: changed
 scope: skf-create-skill, skf-update-skill
 summary: |
   The script detector no longer takes a Python package's `tools/`, `cli/`, `bin/` or `scripts/` folder (one that holds `__init__.py`) for a folder of scripts. A `.py` module in such a folder is now a script only when it is the package's `__main__.py` or has a shebang or a top-level `if __name__ == "__main__":` block (either comparison order, never a line inside a string), so Create Skill no longer packages a package's modules as scripts and Update Skill no longer reports them as new scripts. Other files in the folder, and every file in a script folder that is not a Python package, are detected as before.
+prs: [692]
 issues: [683]

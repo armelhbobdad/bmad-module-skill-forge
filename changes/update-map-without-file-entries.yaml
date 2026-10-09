@@ -2,4 +2,5 @@ type: fixed
 scope: skf-update-skill
 summary: |
   Update Skill no longer halts its script and asset check (`detect-changes:category-d`) on a provenance map that has no `file_entries` field, such as one written before the field existed or one whose skill has no script, asset or promoted document. `skf-hash-content.py compare` and `skf-new-file-diff.py` now read a missing or null `file_entries` as no tracked file instead of refusing the map; a `file_entries` that is not an array is still an error.
+prs: [692]
 issues: [684]
