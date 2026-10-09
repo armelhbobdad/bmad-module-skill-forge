@@ -102,6 +102,8 @@ SNAPSHOT = SCRIPTS / "skf-extraction-snapshot.py"
 DETECT_DOCS = SCRIPTS / "skf-detect-docs.py"
 EMITTER = SCRIPTS / "skf-emit-result-envelope.py"
 RENDER = AUDIT / "scripts" / "render-drift-tables.py"
+COMPARE_FILE_HASHES = SCRIPTS / "skf-compare-file-hashes.py"
+AUDIT_SCHEMA = SCRIPTS / "schemas" / "skf-audit-result-envelope.v1.json"
 # The script each prose placeholder names, for running a prose command.
 PROSE_SCRIPTS = {
     "{extractionSnapshotHelper}": SNAPSHOT,
@@ -113,6 +115,7 @@ PROSE_SCRIPTS = {
     "{compareDocHashesHelper}": DETECT_DOCS,
     "{emitEnvelopeHelper}": EMITTER,
     "{renderDriftTablesScript}": RENDER,
+    "{compareFileHashesHelper}": COMPARE_FILE_HASHES,
 }
 
 STAGE_DATA = "{forge_version}/.skf-audit/{timestamp}"
@@ -528,6 +531,66 @@ def test_the_supplementary_checks_skip_and_the_rest_halt():
     assert ('If the command exits non-zero, the map\'s constituents cannot be compared: HALT with **exit 3**, '
             '`halt_reason: "provenance-invalid"`') in compose
     assert "severityRulesFile" not in _frontmatter(SEVERITY)
+
+
+FILE_DRIFT_CMD = ('uv run {compareFileHashesHelper} compare "{provenanceMap}" "{source_root}" '
+                  '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] > "{auditDataFolder}/file-drift.json"')
+BRIEF_GROUP = '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"]'
+
+
+def test_script_asset_drift_keeps_to_the_brief(tmp_path):
+    """#696: §4b passes the skill brief, so the walk reports only the new files its scope takes, never a
+    package's modules or a folder the brief leaves out; a skill without a brief it can read keeps the
+    comparison of its tracked files, a note in the report and a warning in the envelope."""
+    section = _slice(_read(STRUCTURAL), "### 4b. Detect Script/Asset Drift", "### Stack-Specific")
+    block = re.search(r"^```bash\n(.*?)^```", section, re.M | re.S).group(1)
+    assert re.sub(r"\s+", " ", block.replace("\\\n", " ")).strip() == FILE_DRIFT_CMD
+    flow = _flow(section)
+    assert ("Pass `--brief` only when that brief, `{forge_data_folder}/{skill_name}/skill-brief.yaml`, exists (a "
+            "skill built without one, such as a quick skill, has none)") in flow
+    assert '"added_not_checked": null,' in section
+    assert ("**When `added_not_checked` is not null** (`no skill brief` without `--brief`, the error of a brief the "
+            "helper could not read, or `cannot load ... re-install SKF` when a helper beside it could not be "
+            "loaded), no new file was looked for") in flow
+    assert ("write `new_files_not_checked: {added_not_checked}` to `{run_dir}/warning.txt` with a file write "
+            "(the reason can hold quotes), then, from `{project-root}`, run `uv run {emitEnvelopeHelper} record "
+            '--run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`') in flow
+    assert "new_files_not_checked (with the reason)" in _load(AUDIT_SCHEMA)["properties"]["warnings"]["description"]
+    # run the documented command: the oms-cognee shape, a brief scoped to the package's API
+    source = tmp_path / "src"
+    for rel, text in {"pkg/__init__.py": "", "pkg/api/__init__.py": "", "pkg/api/tools/__init__.py": "",
+                      "pkg/api/tools/tools.py": "TOOLS = []\n", "pkg/api/scripts/run.sh": "#!/bin/bash\n",
+                      "pkg/api/scripts/tracked.sh": "same\n", "pkg/cli/main.sh": "#!/bin/sh\n",
+                      "tools/release.sh": "#!/bin/bash\n", "examples/demo.json": "{}\n"}.items():
+        (source / rel).parent.mkdir(parents=True, exist_ok=True)
+        (source / rel).write_bytes(text.encode("utf-8"))
+    audit = Audit(tmp_path, [_entry("a", "pkg/__init__.py", 1)], None, file_entries=[
+        {"source_file": "pkg/api/scripts/tracked.sh",
+         "content_hash": "sha256:" + hashlib.sha256(b"same\n").hexdigest()},
+        {"source_file": "pkg/api/scripts/gone.sh", "content_hash": "sha256:x"}])
+    forge = tmp_path / "forge"
+    brief = forge / "demo" / "skill-brief.yaml"
+    brief.write_bytes(b"name: demo\nlanguage: Python\nscope:\n  include:\n  - 'pkg/**'\n  exclude:\n"
+                      b"  - 'pkg/cli/**'\n")
+    audit.values.update({"{source_root}": str(source), "{forge_data_folder}": str(forge), "{skill_name}": "demo"})
+    result = _run_prose(FILE_DRIFT_CMD.replace(BRIEF_GROUP, BRIEF_GROUP[1:-1]), audit.values)
+    assert result.returncode == 0, result.stderr
+    saved = _load(audit.data / "file-drift.json")
+    assert (saved["added"], saved["added_not_checked"]) == (["pkg/api/scripts/run.sh"], None)
+    assert saved["removed"] == ["pkg/api/scripts/gone.sh"] and saved["changed"] == []
+    # no brief, so no --brief: the tracked files are still compared, no new file is looked for
+    brief.unlink()
+    result = _run_prose(FILE_DRIFT_CMD.replace(" " + BRIEF_GROUP, ""), audit.values)
+    assert result.returncode == 0, result.stderr
+    saved = _load(audit.data / "file-drift.json")
+    assert saved["added"] == [] and saved["added_not_checked"] == "no skill brief"
+    assert saved["removed"] == ["pkg/api/scripts/gone.sh"]
+    rendered = subprocess.run([sys.executable, str(RENDER), "structural", str(_write_json(
+        audit.data / "structural-diff.json", {"added": [], "removed": [], "changed": [], "moved": [],
+                                               "summary": {}})), "--file-drift", str(audit.data / "file-drift.json")],
+                              capture_output=True, text=True, encoding="utf-8", check=True).stdout
+    assert "### Script/Asset Drift (added 0, removed 1, changed 0)" in rendered
+    assert "**New files not checked:** no skill brief." in rendered
 
 
 # --------------------------------------------------------------------------

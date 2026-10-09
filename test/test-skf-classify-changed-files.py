@@ -583,3 +583,54 @@ class TestCli:
 
     def test_no_subcommand_exits_2(self) -> None:
         assert _run_cli().returncode == 2
+
+
+# --------------------------------------------------------------------------
+# Library use: load_scope, the one brief-scope test for script and asset paths (#696, #697)
+# --------------------------------------------------------------------------
+
+
+class TestLoadScope:
+    def _brief(self, tmp_path: Path, brief: dict) -> Path:
+        path = tmp_path / "skill-brief.yaml"
+        path.write_bytes(yaml.safe_dump(brief).encode("utf-8"))
+        return path
+
+    def test_takes_is_the_in_scope_test(self, tmp_path: Path) -> None:
+        brief = {"language": "Python", **_brief(include=("./pkg/**",), exclude=(".\\pkg\\cli\\**",))}
+        scope = mod.load_scope(self._brief(tmp_path, brief))
+        assert (scope.includes, scope.excludes, scope.extensions) == (["pkg/**"], ["pkg/cli/**"], set())
+        for path in ("pkg/a.sh", "./pkg/b/c.json", "pkg\\d.py", "pkg/cli/e.sh", "x.sh"):
+            assert scope.takes(path) == mod._in_scope(path.replace("\\", "/").removeprefix("./"),
+                                                       ["pkg/**"], ["pkg/cli/**"], set()), path
+        assert [scope.takes(p) for p in ("pkg/a.sh", "pkg\\d.py", "pkg/cli/e.sh", "x.sh")] == [True, True, False,
+                                                                                            False]
+
+    def test_an_empty_include_falls_back_to_the_cited_and_language_extensions(self, tmp_path: Path) -> None:
+        scope = mod.load_scope(self._brief(tmp_path, {"language": "Python", **_brief(include=())}), {"lib/m.sh"})
+        assert scope.extensions == {".py", ".pyi", ".sh"}
+        assert mod.load_scope(self._brief(tmp_path, _brief(include=()))).extensions == set()
+
+    @pytest.mark.parametrize("value, wanted", [("none", False), (" None ", False), ("detect", True),
+                                               ("the release helpers", True), (None, True)])
+    def test_wants_reads_the_intents(self, tmp_path: Path, value, wanted: bool) -> None:
+        brief = _brief() | ({} if value is None else {"scripts_intent": value})
+        scope = mod.load_scope(self._brief(tmp_path, brief))
+        assert (scope.wants("script"), scope.wants("asset"), scope.wants("doc")) == (wanted, True, True)
+
+    def test_a_brief_it_cannot_reach_is_a_brief_problem(self, tmp_path: Path, monkeypatch) -> None:
+        # a folder on the way that cannot be searched: Path.is_file raises PermissionError (Python 3.11-3.13)
+        def denied(self):
+            raise PermissionError(13, "Permission denied", str(self))
+
+        monkeypatch.setattr(Path, "is_file", denied)
+        with pytest.raises(ValueError, match="^cannot read the skill brief .*Permission denied"):
+            mod.load_scope(tmp_path / "locked" / "skill-brief.yaml")
+
+    def test_a_brief_it_cannot_read_raises_value_error(self, tmp_path: Path) -> None:
+        with pytest.raises(ValueError, match="^brief not found: "):
+            mod.load_scope(tmp_path / "nope.yaml")
+        bad = tmp_path / "bad.yaml"
+        bad.write_bytes(b"scope: [unclosed\n")
+        with pytest.raises(ValueError, match="not valid YAML"):
+            mod.load_scope(bad)

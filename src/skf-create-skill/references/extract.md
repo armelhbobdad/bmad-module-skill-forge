@@ -249,20 +249,20 @@ After extraction, validate the collected exports against the package's actual pu
 
 ### 4c. Detect and Inventory Scripts/Assets
 
-The brief's `scripts_intent` and `assets_intent` are each `"detect"` (also when absent), `"none"` or free text describing the files wanted. The detector takes only `detect` or `none`: pass `none` for `"none"`, else `detect`. Resolve `{detectScriptsAssetsHelper}` ← first existing path in `{detectScriptsAssetsProbeOrder}`; if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot detect scripts and assets: skf-detect-scripts-assets.py is missing. Re-install SKF, then re-run create-skill." The detector implements the heuristics of `{extractionPatternsTracingData}`. From `{project-root}`, write its JSON to `{detected_json}` (bound in §2b), which §5's `init` reads:
+The brief's `scripts_intent` and `assets_intent` are each `"detect"` (also when absent), `"none"` or free text describing the files wanted. The detector takes only `detect` or `none`: pass `none` for `"none"`, else `detect`. Resolve `{detectScriptsAssetsHelper}` ← first existing path in `{detectScriptsAssetsProbeOrder}`; if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot detect scripts and assets: skf-detect-scripts-assets.py is missing. Re-install SKF, then re-run create-skill." The detector implements the heuristics of `{extractionPatternsTracingData}`, and `--brief` keeps it to the files the brief's `scope.include` and `scope.exclude` take, by the scope test update-skill uses for the same files. From `{project-root}`, write its JSON to `{detected_json}` (bound in §2b), which §5's `init` reads:
 
 ```bash
 mkdir -p "{project-root}/_bmad-output/.skf-stage"
 uv run {detectScriptsAssetsHelper} detect "{source_root}" \
     --scripts-intent {detect|none} \
     --assets-intent {detect|none} \
-    [--scope-include "<glob1>,<glob2>,..."] \
+    --brief "{brief_path}" \
     [--max-lines 500] > "{detected_json}"
 ```
 
 It writes `scripts_inventory[]` and `assets_inventory[]` (each entry with `name`, `source_file`, `purpose`, `content_hash`, `confidence`, `lines` and `size_flag`), `scripts_skipped`, `assets_skipped` and `stats`.
 
-**If it exits non-zero** (a `{source_root}` that is no local folder, as for a remote source read by eye): warn "Scripts and assets were not detected: {the first stderr line}", send the warning with §5's `add --field warnings` for §6 and the evidence report, and run §5's `init` without `--detected`: the inventories stay empty.
+**If it exits non-zero** (a `{source_root}` that is no local folder, as for a remote source read by eye, or a brief it cannot read): warn "Scripts and assets were not detected: {the first stderr line}", send the warning with §5's `add --field warnings` for §6 and the evidence report, and run §5's `init` without `--detected`: the inventories stay empty.
 
 **Otherwise** §5's `init` takes every entry, unchanged and already `T1-low` with its `content_hash`, which is the inventory for a `"detect"` intent. For a free-text intent, choose the entries that match it and, after `init`, send them with §5's `set` as `{"intent_mapping": {"scripts": {"intent": "<the text>", "kept": [source_file, ...]}}}`, `"assets"` the same way: the helper keeps only those entries and records the others as the mapping's `left_out`, which §6 lists and step 5 writes into the evidence report. §6 surfaces each `size_flag: "oversized"` entry before bundling.
 

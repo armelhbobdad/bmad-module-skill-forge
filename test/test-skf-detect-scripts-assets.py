@@ -8,7 +8,8 @@ Covers detection rules from src/skf-create-skill/references/extraction-patterns-
   - Entry point declarations (package.json `bin`)
   - Asset directory convention + filename patterns (*.schema.json, *.template.*, ...)
   - Binary exclusion + generated-path pruning
-  - Size flagging + scope filtering
+  - Size flagging + scope filtering (--brief: the brief's scope, by
+    skf-classify-changed-files.py load_scope, never fnmatch; #697)
   - Intent gates (scripts_intent=none, assets_intent=none)
   - Purpose extraction (header comment, schema title, filename fallback)
 """
@@ -82,6 +83,24 @@ class TestScriptDirectoryConvention:
         write_file(tmp_path / "pkg" / "scripts" / "build.sh", "")
         result = mod.detect(tmp_path)
         assert any(r["name"] == "build.sh" for r in result["scripts_inventory"])
+
+
+class TestIsPackageModule:
+    """The package rule, one function: is_script and skf-compare-file-hashes.py (#696) both call it."""
+
+    def test_the_rule(self, tmp_path: Path) -> None:
+        pkg = tmp_path / "pkg" / "tools"
+        files = {"__init__.py": "", "helper.py": "X = 1\n", "__main__.py": "run()\n",
+                 "runme.py": "if __name__ == '__main__':\n    pass\n", "run2.py": "#!/usr/bin/env python3\n",
+                 "setup.sh": "echo\n"}
+        for name, text in files.items():
+            write_file(pkg / name, text)
+        write_file(tmp_path / "scripts" / "loose.py", "X = 1\n")  # no __init__.py: a script folder
+        modules = {name for name in files if mod.is_package_module(pkg / name, tmp_path)}
+        assert modules == {"__init__.py", "helper.py"}
+        assert not mod.is_package_module(tmp_path / "scripts" / "loose.py", tmp_path)
+        assert _sources(mod.detect(tmp_path)) == ["pkg/tools/__main__.py", "pkg/tools/run2.py", "pkg/tools/runme.py",
+                                                  "pkg/tools/setup.sh", "scripts/loose.py"]
 
 
 class TestPythonPackageScriptDirs:
@@ -356,20 +375,62 @@ class TestSizeFlag:
 # --------------------------------------------------------------------------
 
 
-class TestScope:
-    def test_scope_include_filter(self, tmp_path: Path) -> None:
-        write_file(tmp_path / "scripts" / "include-me.sh", "")
-        write_file(tmp_path / "tools" / "exclude-me.sh", "")
-        result = mod.detect(tmp_path, scope_patterns=["scripts/*"])
-        names = {r["name"] for r in result["scripts_inventory"]}
-        assert names == {"include-me.sh"}
+def write_brief(path: Path, include=None, exclude=None, language: str = "Python") -> Path:
+    lines = ["name: demo", f"language: {language}", "scope:", "  type: public-api"]
+    for key, patterns in (("include", include), ("exclude", exclude)):
+        if patterns is None:
+            continue
+        lines.append(f"  {key}:" + ("" if patterns else " []"))
+        lines += [f"  - {json.dumps(pattern)}" for pattern in patterns]  # a YAML double-quoted string
+    return write_file(path, "\n".join(lines) + "\n")
 
-    def test_empty_scope_includes_everything(self, tmp_path: Path) -> None:
+
+def _sources(result: dict, key: str = "scripts_inventory") -> list[str]:
+    return [r["source_file"] for r in result[key]]
+
+
+class TestScope:
+    """#697: --brief scopes the detector by the brief's glob rules (`**` spans folders, `*` never crosses a `/`,
+    `scope.exclude` honoured), the in-scope test update-skill's Category A and D use, never fnmatch."""
+
+    def _scope(self, tmp_path: Path, **brief):
+        return mod.load_brief_scope(str(write_brief(tmp_path / "brief" / "skill-brief.yaml", **brief)))
+
+    def test_double_star_spans_folders_and_an_exclude_wins(self, tmp_path: Path) -> None:
+        for rel in ("install.sh", "scripts/build.sh", "scripts/dev/release.sh", "tools/sub/x.sh"):
+            write_file(tmp_path / "src" / rel, "#!/bin/sh\n")
+        result = mod.detect(tmp_path / "src", scope=self._scope(tmp_path, include=["**/*.sh"],
+                                                                exclude=["scripts/dev/**"]))
+        # fnmatch read `**/*.sh` as needing a folder (root install.sh lost) and ignored scope.exclude
+        assert _sources(result) == ["install.sh", "scripts/build.sh", "tools/sub/x.sh"]
+
+    def test_star_never_crosses_a_folder(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "src" / "src" / "run.sh", "#!/bin/sh\n")
+        write_file(tmp_path / "src" / "src" / "cli" / "sub" / "run.sh", "#!/bin/sh\n")
+        result = mod.detect(tmp_path / "src", scope=self._scope(tmp_path, include=["src/*"]))
+        assert _sources(result) == ["src/run.sh"]  # fnmatch's `*` took src/cli/sub/run.sh too
+
+    def test_the_scope_test_runs_before_the_asset_rules(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "src" / "pkg" / "schemas" / "a.schema.json", "{}")
+        write_file(tmp_path / "src" / "examples" / "demo.json", "{}")
+        result = mod.detect(tmp_path / "src", scope=self._scope(tmp_path, include=["pkg/**"]))
+        assert _sources(result, "assets_inventory") == ["pkg/schemas/a.schema.json"]
+        assert result["stats"]["files_scanned"] == 2  # every file is walked; the scope drops one
+
+    def test_an_empty_include_takes_the_language_files_no_exclude_matches(self, tmp_path: Path) -> None:
+        for rel in ("scripts/gen.py", "scripts/run.sh", "bin/tool.py"):
+            write_file(tmp_path / "src" / rel, "")
+        result = mod.detect(tmp_path / "src", scope=self._scope(tmp_path, include=[], exclude=["bin/**"]))
+        assert _sources(result) == ["scripts/gen.py"]
+
+    def test_without_a_brief_every_file_is_in_scope(self, tmp_path: Path) -> None:
         write_file(tmp_path / "scripts" / "a.sh", "")
         write_file(tmp_path / "tools" / "b.sh", "")
-        result = mod.detect(tmp_path, scope_patterns=[])
-        names = {r["name"] for r in result["scripts_inventory"]}
-        assert names == {"a.sh", "b.sh"}
+        assert {r["name"] for r in mod.detect(tmp_path)["scripts_inventory"]} == {"a.sh", "b.sh"}
+        assert {r["name"] for r in mod.detect(tmp_path, scope=None)["scripts_inventory"]} == {"a.sh", "b.sh"}
+
+    def test_the_fnmatch_matcher_is_gone(self) -> None:
+        assert not hasattr(mod, "matches_scope")
 
 
 # --------------------------------------------------------------------------
@@ -490,6 +551,44 @@ def _run_cli(*args: str) -> subprocess.CompletedProcess:
     )
 
 
+class TestScriptPEP723:
+    """--brief loads skf-classify-changed-files.py, whose resolver reads the brief with PyYAML: under `uv run`
+    the header must declare it."""
+
+    def test_pyyaml_dependency(self) -> None:
+        text = SCRIPT_PATH.read_text(encoding="utf-8")
+        header = text[: text.index("# ///", text.index("# /// script") + 1)]
+        assert '# requires-python = ">=3.11"' in header and 'dependencies = ["pyyaml"]' in header
+
+    def test_the_scope_test_loads_only_with_brief(self, tmp_path: Path, monkeypatch) -> None:
+        # the import surface stays flat without --brief: the classifier is a lazy sibling
+        monkeypatch.setattr(mod, "_SIBLINGS", {})
+        write_file(tmp_path / "scripts" / "a.sh", "echo\n")
+        assert mod.detect(tmp_path)["stats"]["scripts_found"] == 1
+        assert mod._SIBLINGS == {}
+
+    @pytest.mark.parametrize("siblings", [
+        {},
+        {"skf-classify-changed-files.py": None},
+        {"skf-classify-changed-files.py": "X = 1\n"},
+    ], ids=["no-classifier", "no-resolver", "classifier-without-load-scope"])
+    def test_a_scope_test_it_cannot_load_is_one_error_line(self, tmp_path: Path, siblings: dict) -> None:
+        alone = tmp_path / "alone"
+        alone.mkdir()
+        (alone / SCRIPT_PATH.name).write_bytes(SCRIPT_PATH.read_bytes())
+        for name, text in siblings.items():
+            data = (SCRIPT_PATH.parent / name).read_bytes() if text is None else text.encode("utf-8")
+            (alone / name).write_bytes(data)
+        write_file(tmp_path / "src" / "scripts" / "a.sh", "")
+        brief = write_brief(tmp_path / "skill-brief.yaml", include=["**"])
+        result = subprocess.run([sys.executable, str(alone / SCRIPT_PATH.name), "detect", str(tmp_path / "src"),
+                                 "--brief", str(brief)], capture_output=True, text=True, check=False)
+        assert result.returncode == 1 and result.stdout == ""
+        lines = result.stderr.splitlines()
+        assert len(lines) == 1 and lines[0].startswith("error: cannot load"), result.stderr
+        assert "re-install SKF" in lines[0] and "Traceback" not in result.stderr
+
+
 class TestCli:
     def test_detect_emits_json(self, tmp_path: Path) -> None:
         write_file(tmp_path / "scripts" / "x.sh", "")
@@ -511,16 +610,35 @@ class TestCli:
         )
         assert result.returncode == 1
 
-    def test_scope_include_passes_through(self, tmp_path: Path) -> None:
-        write_file(tmp_path / "scripts" / "a.sh", "")
-        write_file(tmp_path / "tools" / "b.sh", "")
-        result = _run_cli(
-            "detect", str(tmp_path), "--scope-include", "scripts/*"
-        )
-        assert result.returncode == 0
+    def test_brief_passes_through(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "src" / "scripts" / "a.sh", "")
+        write_file(tmp_path / "src" / "tools" / "b.sh", "")
+        brief = write_brief(tmp_path / "skill-brief.yaml", include=["scripts/*"])
+        result = _run_cli("detect", str(tmp_path / "src"), "--brief", str(brief))
+        assert result.returncode == 0, result.stderr
         payload = json.loads(result.stdout)
-        names = {r["name"] for r in payload["scripts_inventory"]}
-        assert names == {"a.sh"}
+        assert {r["name"] for r in payload["scripts_inventory"]} == {"a.sh"}
+
+    def test_scope_include_is_gone(self, tmp_path: Path) -> None:
+        result = _run_cli("detect", str(tmp_path), "--scope-include", "scripts/*")
+        assert result.returncode == 2 and "unrecognized arguments: --scope-include" in result.stderr
+
+    @pytest.mark.parametrize("case", ["missing", "empty", "blank", "not-yaml", "not-a-mapping"])
+    def test_a_brief_it_cannot_use_exits_1_with_one_error_line(self, tmp_path: Path, case: str) -> None:
+        write_file(tmp_path / "src" / "scripts" / "a.sh", "")
+        brief = tmp_path / "skill-brief.yaml"
+        value = {"missing": str(tmp_path / "nope.yaml"), "empty": "", "blank": "  "}.get(case, str(brief))
+        if case == "not-yaml":
+            write_file(brief, "scope: [unclosed\n")
+        elif case == "not-a-mapping":
+            write_file(brief, "- a\n- b\n")
+        result = _run_cli("detect", str(tmp_path / "src"), "--brief", value)
+        assert result.returncode == 1 and result.stdout == ""
+        lines = result.stderr.splitlines()
+        assert len(lines) == 1 and lines[0].startswith("error: "), result.stderr
+        needle = {"missing": "brief not found", "empty": "--brief is empty", "blank": "--brief is empty",
+                  "not-yaml": "not valid YAML", "not-a-mapping": "must be a YAML mapping"}[case]
+        assert needle in lines[0]
 
     def test_max_lines_passes_through(self, tmp_path: Path) -> None:
         write_file(tmp_path / "scripts" / "x.sh", "echo\n" * 50)

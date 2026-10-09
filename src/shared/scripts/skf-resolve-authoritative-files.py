@@ -109,7 +109,10 @@ import yaml
 
 # skf-classify-changed-files.py loads this file for load_brief,
 # extract_scope, glob_match, scope_match, normalize_rel_path and
-# EXCLUDED_DIR_NAMES, skf-detect-registry.py for glob_match, load_brief
+# EXCLUDED_DIR_NAMES (its load_scope, the brief-scope test that
+# skf-new-file-diff.py, skf-detect-scripts-assets.py --brief and
+# skf-compare-file-hashes.py --brief load from it, reads the brief through
+# them), skf-detect-registry.py for glob_match, load_brief
 # and extract_scope, skf-extract-public-api.py for glob_match and
 # parse_brief_yaml, and every other script that reads a skill brief
 # (skf-validate-brief-schema.py, skf-provenance-gap-dispatch.py,

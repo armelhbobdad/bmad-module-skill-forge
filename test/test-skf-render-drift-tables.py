@@ -382,6 +382,27 @@ def test_removed_script_files_roll_up_by_directory_and_added_ones_do_not(tmp_pat
     assert out.index("### Summary") < out.index("### Script/Asset Drift")
 
 
+@pytest.mark.parametrize("reason, note", [
+    ("no skill brief", "**New files not checked:** no skill brief."),
+    ("brief at b.yaml is not valid YAML: `x` | y", "**New files not checked:** brief at b.yaml is not valid YAML: "
+                                                   "\\`x\\` \\| y."),
+    (None, None), ("", None),
+], ids=["no-brief", "unreadable-brief", "checked", "empty"])
+def test_new_files_not_checked_is_noted_under_the_table(tmp_path, reason, note):
+    """#696: a comparison that looked for no new file says why, under its table."""
+    diff = _diff(tmp_path, [_entry("a", "a.py", 1)], [_export("a", "a.py", 1)])
+    file_drift = {"added": [], "added_not_checked": reason, "removed": ["scripts/old.sh"], "changed": [],
+                  "stats": {"added": 0, "removed": 1, "changed": 0, "unchanged": 2}}
+    section = _section(render.render_structural(diff, file_drift),
+                       "### Script/Asset Drift (added 0, removed 1, changed 0)")
+    if note is None:
+        assert "New files not checked" not in section
+    else:
+        assert section.rstrip().endswith(note + " The tracked files were compared, but no new script, asset or "
+                                         "document was looked for, so `added` lists none."), section
+        assert section.index("| `scripts/old.sh` | removed | file removed |") < section.index(note)
+
+
 # --------------------------------------------------------------------------
 # severity: what skf-severity-classify.py saves
 # --------------------------------------------------------------------------

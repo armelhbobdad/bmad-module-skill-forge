@@ -30,10 +30,12 @@ that is neither null nor an array is bad input.
 
 --brief <brief-path> (the skill's skill-brief.yaml) keeps a detected path
 only when the brief takes it, by update-skill Category A's in-scope test
-(skf-classify-changed-files.py classify, with the glob rules of
-skf-resolve-authoritative-files.py, both loaded from the shared scripts
-folder): each `scope.include` and `scope.exclude` pattern normalized
-(forward slashes, no leading `./`), and a path in scope when an include
+(skf-classify-changed-files.py load_scope, loaded from the shared
+scripts folder, the one brief-scope test the script and asset detector's
+and audit-skill's --brief use too, with the glob rules of
+skf-resolve-authoritative-files.py): each `scope.include` and
+`scope.exclude` pattern normalized (forward slashes, no leading `./`),
+and a path in scope when an include
 matches it and no exclude does. With an empty `scope.include`, a path is in
 scope when no exclude matches it and its extension is one a file the map's
 `entries[]` cite has, or one the brief's `language` uses. The brief's
@@ -76,18 +78,15 @@ import importlib.util
 import json
 import re
 import sys
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 
 # scripts/[MANUAL]/... or assets/[MANUAL]/... anywhere in the (posix) path
 _MANUAL_RE = re.compile(r"(?:^|/)(?:scripts|assets)/\[MANUAL\]/")
 
-# The shared helpers the scope test reads: installed beside this skill's folder.
+# The shared helper that holds the scope test, installed beside this skill's
+# folder: it loads skf-resolve-authoritative-files.py beside it.
 SHARED_SCRIPTS = Path(__file__).resolve().parent.parent.parent / "shared" / "scripts"
-RESOLVER = "skf-resolve-authoritative-files.py"
 CLASSIFIER = "skf-classify-changed-files.py"
-
-# kind -> the brief field that holds its intent
-INTENT_FIELDS = {"script": "scripts_intent", "asset": "assets_intent"}
 
 _SHARED: dict[str, object] = {}
 
@@ -168,62 +167,18 @@ def load_tracked_source_files(provenance_path: Path) -> set[str]:
     return load_map_paths(provenance_path)[0]
 
 
-class Scope:
-    """The brief's scope and intents, by update-skill Category A's in-scope test."""
-
-    def __init__(self, includes: list[str], excludes: list[str], extensions: set[str],
-                 intents: dict[str, str]):
-        self.includes = includes
-        self.excludes = excludes
-        self.extensions = extensions
-        self.intents = intents
-
-    def takes(self, rel: str) -> bool:
-        """True when the brief's scope takes `rel` (Category A's `_in_scope`)."""
-        resolver = _shared(RESOLVER)
-        rel = resolver.normalize_rel_path(rel)
-        if self.includes:
-            return resolver.scope_match(rel, self.includes, self.excludes)[0]
-        if any(resolver.glob_match(rel, pattern) for pattern in self.excludes):
-            return False
-        return PurePosixPath(rel).suffix in self.extensions
-
-    def wants(self, kind: str) -> bool:
-        """False when the brief's intent for `kind` is `none`."""
-        return self.intents.get(kind) != "none"
-
-
-def _intent(value: object) -> str:
-    """`none` for a `none` intent; `detect` for an absent or free-text one."""
-    if isinstance(value, str) and value.strip().lower() == "none":
-        return "none"
-    return "detect"
-
-
-def load_scope(brief_path: Path, cited: set[str]) -> Scope:
-    """The brief's scope: its normalized include and exclude patterns (as
-    skf-classify-changed-files.py classify normalizes them), the extensions
-    an empty include falls back to (the cited code files' and the brief
-    language's) and the script and asset intents."""
-    if not brief_path.is_file():
-        _fail(f"brief not found: {brief_path}")
-    resolver = _shared(RESOLVER)
+def load_scope(brief_path: Path, cited: set[str]):
+    """The brief's Scope (skf-classify-changed-files.py load_scope): its
+    takes(path) is Category A's in-scope test and its wants(kind) the
+    brief's intent. A brief it cannot find or read, or a shared helper it
+    cannot load, is bad input (exit 2)."""
+    classifier = _shared(CLASSIFIER)
     try:
-        brief = resolver.load_brief(brief_path)
-    except ValueError as exc:
+        return classifier.load_scope(brief_path, cited)
+    except ValueError as exc:  # a brief it cannot find or read
         _fail(str(exc))
-    includes, excludes, _ = resolver.extract_scope(brief)
-    norm = resolver.normalize_rel_path
-    includes = [norm(p) for p in includes]
-    excludes = [norm(p) for p in excludes]
-    extensions: set[str] = set()
-    if not includes:
-        extensions = {PurePosixPath(p).suffix for p in cited if PurePosixPath(p).suffix}
-        language = brief.get("language")
-        if isinstance(language, str) and language.strip():
-            extensions |= _shared(CLASSIFIER).language_extensions([language])[0]
-    intents = {kind: _intent(brief.get(field)) for kind, field in INTENT_FIELDS.items()}
-    return Scope(includes, excludes, extensions, intents)
+    except Exception as exc:  # an out-of-date classifier, or a resolver beside it that cannot load
+        _fail(f"cannot load the brief's scope test from {SHARED_SCRIPTS}: {exc}; re-install SKF")
 
 
 def collect_inventory(detect: dict) -> list[tuple[str, str]]:
@@ -250,7 +205,9 @@ def collect_inventory(detect: dict) -> list[tuple[str, str]]:
 
 
 def diff(detect: dict, tracked: set[str], cited: set[str] | frozenset = frozenset(),
-         scope: Scope | None = None) -> dict:
+         scope=None) -> dict:
+    """Sort the detected paths into the output lists; `scope` is load_scope's
+    Scope (--brief) or None."""
     new_files: list[dict] = []
     lists: dict[str, list[str]] = {name: [] for name in (
         "skipped_manual", "already_tracked", "tracked_code", "out_of_scope", "intent_none")}

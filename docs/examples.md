@@ -325,7 +325,7 @@ Generated skills automatically follow authoring best practices: third-person des
 
 ### Scripts & Assets
 
-If your source repo includes executable scripts (such as `scripts/`, `bin/`, `tools/` or `cli/`; when one of these folders is a Python package, holding `__init__.py`, only its `__main__.py` and the modules with a shebang or an `if __name__ == "__main__":` block count as scripts) or static assets (such as `assets/`, `templates/` or `schemas/`), SKF detects and packages them automatically with provenance tracking. Scripts and assets you add yourself under `scripts/[MANUAL]/` or `assets/[MANUAL]/` are preserved during updates, just like `<!-- [MANUAL] -->` markers in SKILL.md.
+If your source repo includes executable scripts (such as `scripts/`, `bin/`, `tools/` or `cli/`; when one of these folders is a Python package, holding `__init__.py`, only its `__main__.py` and the modules with a shebang or an `if __name__ == "__main__":` block count as scripts) or static assets (such as `assets/`, `templates/` or `schemas/`), SKF detects and packages them automatically with provenance tracking. Only the files the brief's `scope.include` takes and its `scope.exclude` leaves are packaged, and Audit Skill reports a new one the same way. Scripts and assets you add yourself under `scripts/[MANUAL]/` or `assets/[MANUAL]/` are preserved during updates, just like `<!-- [MANUAL] -->` markers in SKILL.md.
 
 ### Let the Health Check Run
 

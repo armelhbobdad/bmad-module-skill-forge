@@ -77,7 +77,7 @@ Scripts and assets are file-level artifacts, not code exports. They follow the *
 
 ### Inclusion Rules
 
-- Only include files within brief's `scope.include` patterns (or auto-detected directories)
+- Only include files the brief's scope takes: a `scope.include` pattern matches them and no `scope.exclude` pattern does (an empty `scope.include` takes the files of the brief's `language` that no exclude matches)
 - Exclude binary files (check extension: `.so`, `.dll`, `.jar`, `.wasm`, `.exe`)
 - Exclude generated files (`dist/`, `build/`, `.webpack/` output)
 - Exclude vendored/third-party files
