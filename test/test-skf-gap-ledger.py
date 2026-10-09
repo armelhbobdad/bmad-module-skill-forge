@@ -947,6 +947,36 @@ class TestCountAdapters:
         assert mod.from_guards({"inputs": {}, "guards": None}) == []
         assert mod.from_guards({"inputs": {}, "guards": {"deflation": {"fires": False}}}) == []
 
+    def test_the_guards_say_when_no_tier_a_glob_matches_a_file(self):
+        """#695: the guards fire on a brief whose tier A globs all match no file. The titles (the dedupe
+        key) stay; the issue says no glob matches instead of the brief having none, and the fix edits the
+        globs instead of adding them."""
+        surface = {"inputs": {"metadata": "pkg/metadata.json", "brief": "data/skill-brief.yaml"}, "guards": {
+            "deflation": {"fires": True, "rederived": 40, "pct": 60.0, "effectiveDenominator": 25},
+            "inflation": {"fires": True, "scopeIncludeUnion": 50, "pct": 100.0, "provenanceEntries": 25},
+            "staleScope": {"fires": False, "unmatchedTierAInclude": ["src/old/**"]},
+            "umbrella": {"umbrella": False}}}
+        deflation, inflation = mod.from_guards(surface)
+        assert [deflation["title"], inflation["title"]] == [
+            "denominator deflation: effective_denominator below source public surface without tier_a_include",
+            "denominator inflation: coarse scope.include union exceeds authored surface"]
+        assert deflation["issue"] == (
+            "the re-derived surface counts 40 exports, 60.0% above `stats.effective_denominator` (25), and no "
+            "`scope.tier_a_include` glob in the brief matches a file")
+        assert inflation["issue"] == (
+            "the `scope.include` union counts 50 exports, 100.0% above the 25 provenance entries, and no "
+            "`scope.tier_a_include` glob in the brief matches a file")
+        assert deflation["remediation"].endswith(
+            "or edit `scope.tier_a_include` in the brief so its globs match the files of the authored tier the "
+            "smaller count measures.")
+        assert inflation["remediation"] == (
+            "Edit `scope.tier_a_include` in `data/skill-brief.yaml` so its globs match the files of the authored "
+            "surface: the denominator then counts it instead of the coarse `scope.include` union.")
+        # Without the key (a surface from before #695) the text is the one a brief with no tier A glob gets.
+        del surface["guards"]["staleScope"]["unmatchedTierAInclude"]
+        assert [r["issue"].endswith("and the brief has no `scope.tier_a_include`")
+                for r in mod.from_guards(surface)] == [True, True]
+
     def test_a_stale_brief_scope_is_one_gap_at_the_brief(self):
         """#677: a scope.include glob that matches no file, and the root exports the surface restored."""
         stale = {"applicable": True, "fires": True, "unmatchedInclude": ["cognee/pipelines.py"],
@@ -981,6 +1011,51 @@ class TestCountAdapters:
         assert mod.from_guards(surface) == []
         stale.update(fires=True, unmatchedInclude="cognee/pipelines.py")
         with pytest.raises(mod.AdapterError, match="'unmatchedInclude' must be a list"):
+            mod.from_guards(surface)
+
+    def test_a_stale_tier_a_glob_is_named_in_the_same_gap(self):
+        """#695: a scope.tier_a_include glob that matches no file, alone or beside a stale include glob,
+        is one Medium brief-scope-stale gap at the brief."""
+        stale = {"applicable": True, "fires": True, "unmatchedInclude": [],
+                 "unmatchedTierAInclude": ["cognee/modules/observability/trace_context/**"], "restored": []}
+        surface = {"inputs": {"brief": "data/cognee/skill-brief.yaml"}, "guards": {"staleScope": stale}}
+        records = mod.from_guards(surface)
+        assert brief(records) == [("Medium", "brief-scope-stale",
+                                   "stale brief scope: scope.tier_a_include globs match no source file",
+                                   "data/cognee/skill-brief.yaml", None)]
+        assert records[0]["issue"] == (
+            "the `scope.tier_a_include` glob `cognee/modules/observability/trace_context/**` matches no file in "
+            "the source tested, so it counts no name")
+        assert records[0]["remediation"] == (
+            "Edit `scope.tier_a_include` in `data/cognee/skill-brief.yaml` by hand so each glob matches the files "
+            "it meant in this version of the source (update-skill does not rewrite a tier A glob).")
+        # Two tier A globs take the plural.
+        stale["unmatchedTierAInclude"].append("cognee/old/**")
+        assert mod.from_guards(surface)[0]["issue"] == (
+            "the `scope.tier_a_include` globs `cognee/modules/observability/trace_context/**`, `cognee/old/**` "
+            "match no file in the source tested, so they count no name")
+        # Beside a stale include glob: one gap, the include clauses first, as the runner's warnings are.
+        stale.update(unmatchedInclude=["cognee/pipelines.py"], unmatchedTierAInclude=["cognee/old/**"],
+                     restored=[{"name": "Task", "file": "cognee/pipelines/task.py", "line": 2}])
+        records = mod.from_guards(surface)
+        assert brief(records) == [(
+            "Medium", "brief-scope-stale",
+            "stale brief scope: scope.include and scope.tier_a_include globs match no source file",
+            "data/cognee/skill-brief.yaml", None)]
+        assert records[0]["issue"] == (
+            "the `scope.include` glob `cognee/pipelines.py` matches no file in the source tested; the `all` set "
+            "restores 1 root export, defined in a file no include glob covers: `Task` in "
+            "`cognee/pipelines/task.py`; the `scope.tier_a_include` glob `cognee/old/**` matches no file in the "
+            "source tested, so it counts no name")
+        assert records[0]["remediation"] == (
+            "Edit `scope.include` and `scope.tier_a_include` in `data/cognee/skill-brief.yaml` by hand so each "
+            "glob matches the files it meant in this version of the source (update-skill does not rewrite an "
+            "include or tier A glob), and add to `scope.exclude` any restored file the brief meant to leave out.")
+        # An empty tier A list leaves the include-only gap as #677 wrote it.
+        stale["unmatchedTierAInclude"] = []
+        assert mod.from_guards(surface)[0]["title"] == "stale brief scope: scope.include globs match no source file"
+        stale["unmatchedTierAInclude"] = "cognee/old/**"
+        with pytest.raises(mod.AdapterError, match="'unmatchedTierAInclude' must be a list"):
             mod.from_guards(surface)
 
     def test_a_rerun_records_the_stale_scope_gap_once(self, tmp_path):

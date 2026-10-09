@@ -127,8 +127,12 @@ cites (never read; default `metadata.json`):
             remediation recommends `stats.effective_denominator` when
             `guards.umbrella.umbrella` is true, else `scope.tier_a_include`.
             `guards.staleScope.fires` is one Medium `brief-scope-stale` gap
-            at that brief, whose issue names each `unmatchedInclude` glob
-            and each `restored` name with its file.
+            at that brief, whose issue names each `unmatchedInclude` glob,
+            each `restored` name with its file and each
+            `unmatchedTierAInclude` glob. With an `unmatchedTierAInclude`
+            glob, the deflation and inflation gaps say that no
+            `scope.tier_a_include` glob matches a file, not that the brief
+            has none.
   numerator --input verify-declared-numerator.py's result; --metadata.
             `inflated` true is a High `numerator-inflation` gap at `{meta}`
             whose issue lists the `absent` names.
@@ -257,7 +261,8 @@ CATEGORIES: dict[str, tuple[str, str]] = {
     "provenance-unverified": ("Coverage", "a provenance line the line-check rules could not verify"),
     "metadata-drift": ("Coverage", "export counts in the metadata that diverge from each other"),
     "denominator-inflation": ("Coverage", "a scope include union larger than the provenance map"),
-    "brief-scope-stale": ("Coverage", "a scope.include glob in the brief that matches no source file"),
+    "brief-scope-stale": (
+        "Coverage", "a scope.include or scope.tier_a_include glob in the brief that matches no source file"),
     "numerator-inflation": (
         "Coverage",
         "a documented count equal to the denominator while declared exports are absent from the skill",
@@ -1032,22 +1037,37 @@ def from_guards(surface: object, metadata: str | None = None) -> list[dict]:
     meta = metadata or inputs.get("metadata") or _DEFAULT_METADATA
     brief = inputs.get("brief") or _DEFAULT_BRIEF
     records: list[dict] = []
+    stale = guards.get("staleScope") or {}
+    label = "--input (load-coverage-inputs.py surface): guards.staleScope"
+    # A tier A glob that matches no file counts no name: when the guards fire,
+    # the brief has tier A globs and none of them matches a file.
+    tier_a_globs = _names(stale, "unmatchedTierAInclude", label)
+    no_tier_a = ("no `scope.tier_a_include` glob in the brief matches a file" if tier_a_globs
+                 else "the brief has no `scope.tier_a_include`")
     deflation = guards.get("deflation") or {}
     if deflation.get("fires") is True:
+        if tier_a_globs:
+            tier_fix = ("edit `scope.tier_a_include` in the brief so its globs match the files of the authored "
+                        "tier the smaller count measures.")
+        else:
+            tier_fix = "add `scope.tier_a_include` to the brief to name the authored tier the smaller count measures."
         records.append(_gap(
             "Medium", "metadata-drift",
             "denominator deflation: effective_denominator below source public surface without tier_a_include",
             meta,
             f"Set `stats.effective_denominator` in `{meta}` to the public surface the source re-derives, or "
-            "add `scope.tier_a_include` to the brief to name the authored tier the smaller count measures.",
+            + tier_fix,
             issue=f"the re-derived surface counts {deflation.get('rederived')} exports, "
                   f"{deflation.get('pct')}% above `stats.effective_denominator` "
-                  f"({deflation.get('effectiveDenominator')}), and the brief has no `scope.tier_a_include`"))
+                  f"({deflation.get('effectiveDenominator')}), and {no_tier_a}"))
     inflation = guards.get("inflation") or {}
     if inflation.get("fires") is True:
         if (guards.get("umbrella") or {}).get("umbrella") is True:
             fix = (f"Set `stats.effective_denominator` in `{meta}` to the authored surface: the root barrel "
                    "is an umbrella of re-exports, so a `scope.tier_a_include` glob would still count them.")
+        elif tier_a_globs:
+            fix = (f"Edit `scope.tier_a_include` in `{brief}` so its globs match the files of the authored "
+                   "surface: the denominator then counts it instead of the coarse `scope.include` union.")
         else:
             fix = (f"Add `scope.tier_a_include` to `{brief}`, listing the files of the authored surface, so "
                    "the denominator counts it instead of the coarse `scope.include` union.")
@@ -1056,10 +1076,8 @@ def from_guards(surface: object, metadata: str | None = None) -> list[dict]:
             "denominator inflation: coarse scope.include union exceeds authored surface", brief, fix,
             issue=f"the `scope.include` union counts {inflation.get('scopeIncludeUnion')} exports, "
                   f"{inflation.get('pct')}% above the {inflation.get('provenanceEntries')} provenance entries, "
-                  "and the brief has no `scope.tier_a_include`"))
-    stale = guards.get("staleScope") or {}
+                  f"and {no_tier_a}"))
     if stale.get("fires") is True:
-        label = "--input (load-coverage-inputs.py surface): guards.staleScope"
         globs = _names(stale, "unmatchedInclude", label)
         restored = sorted({(r["name"], r["file"] if isinstance(r.get("file"), str) else "")
                            for r in _list(stale, "restored", label)
@@ -1076,12 +1094,27 @@ def from_guards(surface: object, metadata: str | None = None) -> list[dict]:
         else:
             back = (f"the `all` set restores {len(restored)} root exports, defined in files no include glob "
                     f"covers: {names}")
+        if len(tier_a_globs) == 1:
+            tier_a = (f"the `scope.tier_a_include` glob {_code(tier_a_globs)} matches no file in the source "
+                      "tested, so it counts no name")
+        else:
+            tier_a = (f"the `scope.tier_a_include` globs {_code(tier_a_globs)} match no file in the source "
+                      "tested, so they count no name")
+        exclude = ", and add to `scope.exclude` any restored file the brief meant to leave out"
+        if not tier_a_globs:  # the include globs alone, as #677 wrote the gap
+            lists, rewrite, clauses = ["scope.include"], "an include glob", [unmatched, back]
+        elif not globs:  # no include glob is stale, so nothing was restored
+            lists, rewrite, clauses, exclude = ["scope.tier_a_include"], "a tier A glob", [tier_a], ""
+        else:
+            lists = ["scope.include", "scope.tier_a_include"]
+            rewrite, clauses = "an include or tier A glob", [unmatched, back, tier_a]
+        edit = " and ".join(f"`{key}`" for key in lists)
         records.append(_gap(
-            "Medium", "brief-scope-stale", "stale brief scope: scope.include globs match no source file", brief,
-            f"Edit `scope.include` in `{brief}` by hand so each glob matches the files it meant in this version "
-            "of the source (update-skill does not rewrite an include glob), and add to `scope.exclude` any "
-            "restored file the brief meant to leave out.",
-            issue=f"{unmatched}; {back}"))
+            "Medium", "brief-scope-stale", f"stale brief scope: {' and '.join(lists)} globs match no source file",
+            brief,
+            f"Edit {edit} in `{brief}` by hand so each glob matches the files it meant in this version of the "
+            f"source (update-skill does not rewrite {rewrite}){exclude}.",
+            issue="; ".join(clauses)))
     return records
 
 

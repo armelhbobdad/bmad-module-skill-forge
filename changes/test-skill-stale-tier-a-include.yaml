@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  At Forge tier and above, where the recipe runner reads the source, a `scope.tier_a_include` glob in the skill brief that matches no file in the source tested (a brief written for an older layout of the source, say) no longer lowers the stratified Export Coverage denominator without a word, and no longer keeps the denominator deflation and inflation guards off. The recipe runner now names such a glob in its `warnings` and lists it in `scope.unmatched_tier_a_include`. Test Skill builds the `tier_a_include` set from the tier A globs that match a file, and when none does it leaves the set out, so the next denominator applies and the deflation and inflation guards run. The stale tier A globs are named in the same Medium `brief-scope-stale` gap a stale `scope.include` glob raises. When every tier A glob of a brief matches no file, Export Coverage is now counted over the `scope.include` set (or checked against it by the deflation guard) instead of a stored count or an empty set, so Export Coverage can fall and a run that passed can fail.
+migration: |
+  Re-run Test Skill at Forge tier on each skill whose brief was written for an older version of its source. On a `brief-scope-stale` gap that names a `scope.tier_a_include` glob, edit that glob in the skill brief by hand so it matches the files it meant in this version of the source: Update Skill does not rewrite a tier A glob.
+issues: [695]

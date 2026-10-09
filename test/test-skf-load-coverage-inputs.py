@@ -320,6 +320,68 @@ def test_a_tier_a_include_silences_both_guards(tmp_path):
     assert out["sets"]["tier_a_include"] == ["Mode", "Options", "fetchData"]
     assert out["guards"]["deflation"]["fires"] is False
     assert out["guards"]["inflation"]["applicable"] is False
+    # #695: an extraction written before the runner listed unmatched tier A globs reads as listing none
+    assert "unmatched_tier_a_include" not in data["scope"]
+    assert out["guards"]["staleScope"] == {"applicable": True, "fires": False, "unmatchedInclude": [],
+                                           "unmatchedTierAInclude": [], "restored": []}
+
+
+def _stale_tier_a(tmp_path: Path, tier_a: list[str], unmatched: list[str], include: list[str] | None = None) -> dict:
+    data = json.loads(json.dumps(EXTRACTION))
+    data["scope"].update(tier_a_include=tier_a, unmatched_include=[], unmatched_tier_a_include=unmatched)
+    if include is not None:
+        data["scope"]["include"] = include
+    data["warnings"] = [f"scope.tier_a_include pattern {g!r} matches no file" for g in unmatched]
+    extraction = _write(tmp_path / "extract-full.json", data)
+    meta = _write(tmp_path / "metadata.json", METADATA)
+    prov = _write(tmp_path / "provenance.json", {"entries": [{"export_name": "x"}]})
+    return _surface(tmp_path, "--extraction", extraction, "--metadata", meta, "--provenance", prov)
+
+
+def test_a_stale_tier_a_glob_counts_no_name(tmp_path):
+    """#695: the runner lists one of the two tier A globs as matching no file. The stale-scope guard
+    fires and names it, the set comes from the glob that matched, and that glob keeps both guards off."""
+    # The loader never matches a glob itself: it trusts the runner's list, so the listed glob counts no
+    # name even where a record's file would match it.
+    out = _stale_tier_a(tmp_path, ["src/index.ts", "src/extra.ts"], ["src/extra.ts"])
+    assert out["sets"]["tier_a_include"] == ["Mode", "Options", "fetchData"]
+    assert out["candidates"]["tierAIncludeUnion"] == 3
+    assert out["guards"]["staleScope"] == {"applicable": True, "fires": True, "unmatchedInclude": [],
+                                           "unmatchedTierAInclude": ["src/extra.ts"], "restored": []}
+    assert out["guards"]["deflation"]["fires"] is False
+    assert out["guards"]["inflation"]["applicable"] is False
+    assert out["warnings"] == ["extract-full.json: scope.tier_a_include pattern 'src/extra.ts' matches no file"]
+    [record] = gap_ledger.from_guards(out)
+    assert (record["category"], record["title"]) == (
+        "brief-scope-stale", "stale brief scope: scope.tier_a_include globs match no source file")
+
+
+def test_a_brief_with_only_stale_tier_a_globs_still_fires_the_guard(tmp_path):
+    """#695: with no scope.include glob, a stale tier A glob alone makes the stale-scope guard apply and
+    fire, and the ledger records one brief-scope-stale gap."""
+    out = _stale_tier_a(tmp_path, ["src/old/**"], ["src/old/**"], include=[])
+    stale = out["guards"]["staleScope"]
+    assert (stale["applicable"], stale["fires"], stale["unmatchedTierAInclude"]) == (True, True, ["src/old/**"])
+    records = [r for r in gap_ledger.from_guards(out) if r["category"] == "brief-scope-stale"]
+    assert [r["title"] for r in records] == ["stale brief scope: scope.tier_a_include globs match no source file"]
+
+
+def test_with_no_tier_a_glob_matching_both_guards_run(tmp_path):
+    """#695: every tier A glob is stale, so surface.json has no tier_a_include set (the protocol and
+    Type Coverage fall to the next set) and the deflation and inflation guards run and fire."""
+    out = _stale_tier_a(tmp_path, ["src/old/**", "src/gone.ts"], ["src/old/**", "src/gone.ts"])
+    assert "tier_a_include" not in out["sets"]
+    assert out["candidates"]["tierAIncludeUnion"] is None
+    assert out["guards"]["staleScope"]["fires"] is True
+    assert out["guards"]["staleScope"]["unmatchedTierAInclude"] == ["src/old/**", "src/gone.ts"]
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 4, "rederived": 7,
+                                          "pct": 75.0, "fires": True}
+    assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 7, "provenanceEntries": 1,
+                                          "pct": 600.0, "fires": True}
+    records = gap_ledger.from_guards(out)
+    assert [r["category"] for r in records] == ["metadata-drift", "denominator-inflation", "brief-scope-stale"]
+    assert all(r["issue"].endswith("and no `scope.tier_a_include` glob in the brief matches a file")
+               for r in records[:2])
 
 
 def test_an_aliased_reexport_takes_the_kind_of_its_definition(tmp_path):
@@ -429,7 +491,8 @@ COGNEE = {
     "errors": [],
     "scope": {"include": ["cognee/__init__.py", "cognee/pipelines.py", "cognee/api/**"],
               "exclude": ["cognee/tests/**"], "tier_a_include": None, "type": "public-api",
-              "languages": ["python"], "files_from": None, "unmatched_include": ["cognee/pipelines.py"]},
+              "languages": ["python"], "files_from": None, "unmatched_include": ["cognee/pipelines.py"],
+              "unmatched_tier_a_include": []},
     "exports": [
         {"export_name": "add", "export_type": "function", "source_file": "cognee/api/v1/add.py", "source_line": 1,
          "signature_line": "def add(data, dataset_name=\"main\"):"},
@@ -493,7 +556,8 @@ def test_a_stale_glob_restores_the_root_exports_it_dropped(tmp_path):
     assert out["sets"]["root"] == ["Task", "add", "run_pipeline", "test_helper"]
     assert out["excluded"]["outsideScope"] == [{"name": "test_helper", "file": "cognee/tests/helper.py"}]
     assert out["guards"]["staleScope"] == {"applicable": True, "fires": True,
-                                           "unmatchedInclude": ["cognee/pipelines.py"], "restored": RESTORED}
+                                           "unmatchedInclude": ["cognee/pipelines.py"], "unmatchedTierAInclude": [],
+                                           "restored": RESTORED}
     # No recipe reads a file out of scope, so a restored name has no kind: it
     # carries the file and line of its outside_scope row.
     restored = [e for e in out["exports"] if e["origin"] == "restored"]
@@ -515,6 +579,28 @@ def test_a_stale_glob_restores_the_root_exports_it_dropped(tmp_path):
         "the `scope.include` glob `cognee/pipelines.py` matches no file in the source tested; the `all` set "
         "restores 2 root exports, defined in files no include glob covers: `Task` in `cognee/pipelines/task.py`, "
         "`run_pipeline` in `cognee/pipelines/run.py`")
+
+
+def test_a_stale_tier_a_glob_joins_the_stale_scope_gap(tmp_path):
+    """#695 end to end: the oms-cognee brief's old trace_context/** tier A glob beside a stale include
+    glob is one Medium brief-scope-stale gap that names both, and the other tier A glob gives the set."""
+    stale = "cognee/modules/observability/trace_context/**"
+    out = _cognee(tmp_path, {"tier_a_include": ["cognee/api/**", stale], "unmatched_tier_a_include": [stale]})
+    assert out["sets"]["tier_a_include"] == ["add", *ROUTER_NAMES]
+    assert out["guards"]["staleScope"]["unmatchedTierAInclude"] == [stale]
+    assert out["guards"]["staleScope"]["restored"] == RESTORED, "the include glob restores as before"
+    ledger = tmp_path / "test-findings-20261009T000000Z-abcdef12.json"
+    proc = subprocess.run([sys.executable, str(GAP_LEDGER), "append", "--ledger", str(ledger), "--stage",
+                           "coverage-check", "--from", "guards", "--input", str(tmp_path / "surface.json")],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout
+    [record] = json.loads(ledger.read_text(encoding="utf-8"))["records"]
+    assert (record["severity"], record["category"], record["title"]) == (
+        "Medium", "brief-scope-stale",
+        "stale brief scope: scope.include and scope.tier_a_include globs match no source file")
+    assert record["issue"].startswith("the `scope.include` glob `cognee/pipelines.py` matches no file")
+    assert record["issue"].endswith(
+        f"; the `scope.tier_a_include` glob `{stale}` matches no file in the source tested, so it counts no name")
 
 
 def test_a_nested_python_top_is_no_barrel(tmp_path):
@@ -651,7 +737,7 @@ def test_a_fresh_brief_leaves_the_surface_unchanged(tmp_path):
     assert out["sets"]["all"] == ["add"]
     assert [o["name"] for o in out["excluded"]["outsideScope"]] == ["Task", "run_pipeline", "test_helper"]
     assert out["guards"]["staleScope"] == {"applicable": True, "fires": False, "unmatchedInclude": [],
-                                           "restored": []}
+                                           "unmatchedTierAInclude": [], "restored": []}
     assert gap_ledger.from_guards(out) == []
 
 
@@ -665,7 +751,7 @@ def test_without_an_extraction_the_stale_scope_guard_does_not_apply(tmp_path):
     brief = _write(tmp_path / "skill-brief.yaml", COGNEE_BRIEF)
     out = _surface(tmp_path, "--name", "add", "--brief", brief)
     assert out["guards"]["staleScope"] == {"applicable": False, "fires": False, "unmatchedInclude": [],
-                                           "restored": []}
+                                           "unmatchedTierAInclude": [], "restored": []}
     assert out["excluded"] == {"outsideScope": [], "nestedEntries": []}
 
 
@@ -806,6 +892,9 @@ def test_a_quick_tier_surface_takes_its_scope_from_the_brief(tmp_path):
                                  "extractorBasis": None}
     assert out["guards"]["deflation"]["applicable"] is True and out["guards"]["deflation"]["fires"] is False
     assert out["guards"]["umbrella"]["umbrella"] is False
+    # #695: with no runner JSON nothing says a tier A glob is stale: the brief's globs all count
+    assert out["guards"]["staleScope"] == {"applicable": False, "fires": False, "unmatchedInclude": [],
+                                           "unmatchedTierAInclude": [], "restored": []}
 
 
 def test_the_deflation_guard_fires_at_quick_tier(tmp_path):

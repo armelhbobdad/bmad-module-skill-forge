@@ -1450,6 +1450,50 @@ class TestGlobRules:
         _, out = _full(capsys, root, "--include", "cognee/**")
         assert out["scope"]["unmatched_include"] == []
 
+    def test_a_stale_tier_a_glob_is_unmatched_and_warns(self, tmp_path, capsys, no_ast_grep) -> None:
+        # #695: a brief's tier A glob a new layout left behind counts no name, so it is named as an
+        # include glob is (exit 3: the key and the warning need no ast-grep)
+        root = _tree(tmp_path / "root", {"src/core/a.py": "", "src/c.py": ""})
+        brief = _tree(tmp_path, {"skill-brief.yaml": (
+            "name: demo\nlanguage: python\nscope:\n  include: ['src/**']\n"
+            "  tier_a_include: ['src/core/**', './src/old/**', 'src/old/**']\n")}) / "skill-brief.yaml"
+        code, out = _full(capsys, root, "--brief", str(brief))
+        assert (code, out["status"]) == (3, "no-ast-grep")
+        assert out["scope"]["tier_a_include"] == ["src/core/**", "src/old/**", "src/old/**"]
+        assert out["scope"]["unmatched_tier_a_include"] == ["src/old/**"], "each glob once, normalised"
+        assert out["warnings"].count("scope.tier_a_include pattern 'src/old/**' matches no file") == 1
+        assert out["scope"]["unmatched_include"] == []
+        # every tier A glob matches a file: nothing is listed, nothing warns
+        _, out = _full(capsys, root, "--brief", str(brief), "--tier-a-include", "src/core/**")
+        assert out["scope"]["unmatched_tier_a_include"] == []
+        assert not [w for w in out["warnings"] if w.startswith("scope.tier_a_include")]
+        # no tier A glob at all: an empty list, never null
+        _, out = _full(capsys, root, "--include", "src/**")
+        assert (out["scope"]["tier_a_include"], out["scope"]["unmatched_tier_a_include"]) == (None, [])
+
+    def test_a_tier_a_glob_reads_the_whole_tree_before_the_excludes(self, tmp_path, capsys, no_ast_grep) -> None:
+        # #695: as effective_denominator's denominator_files do, the tier A globs read every file under
+        # --source-root, so a --files-from subset or an exclude glob never makes one unmatched
+        root = _tree(tmp_path / "root", {"src/core/a.py": "", "src/gen/b.py": "", "src/c.py": ""})
+        list_file = _tree(tmp_path, {"list.txt": "src/c.py\n"}) / "list.txt"
+        _, out = _full(capsys, root, "--files-from", str(list_file), "--exclude", "src/gen/**",
+                       "--tier-a-include", "src/core/**", "--tier-a-include", "src/gen/**",
+                       "--tier-a-include", "lib/**")
+        assert out["files_in_scope"] == 1
+        assert out["scope"]["unmatched_tier_a_include"] == ["lib/**"]
+
+    def test_the_warnings_name_include_then_tier_a_then_entry_points(self, tmp_path, capsys, no_ast_grep) -> None:
+        root = _tree(tmp_path, TS_PACKAGE)
+        code, out = _full(capsys, root, "--include", "src/**", "--include", "docs/**",
+                          "--tier-a-include", "src/utils/**", "--tier-a-include", "src/old/**")
+        assert code == 3
+        assert out["scope"]["unmatched_include"] == ["docs/**"]
+        assert out["scope"]["unmatched_tier_a_include"] == ["src/old/**"]
+        include, tier_a, entry = out["warnings"][:3]
+        assert include == "scope.include pattern 'docs/**' matches no file"
+        assert tier_a == "scope.tier_a_include pattern 'src/old/**' matches no file"
+        assert entry.startswith("public entry point macro/index.d.mts (subpath './macro' of package .)")
+
 
 class TestFileSelection:
     @pytest.mark.skipif(shutil.which("git") is None, reason="no git")
@@ -1538,7 +1582,7 @@ class TestFileSelection:
         _, out = _full(capsys, root, "--brief", str(brief))
         assert out["scope"] == {"include": ["src/**"], "exclude": ["src/gen/**"], "tier_a_include": ["src/core/**"],
                                 "type": "specific-modules", "languages": ["python"], "files_from": None,
-                                "unmatched_include": []}
+                                "unmatched_include": [], "unmatched_tier_a_include": []}
         assert out["files_in_scope"] == 2
         _, out = _full(capsys, root, "--brief", str(brief), "--include", "src/core/**", "--language", "ts")
         assert out["files_in_scope"] == 0 and out["scope"]["include"] == ["src/core/**"]
@@ -1993,6 +2037,12 @@ class TestFullRuns:
         # H2, format and parseValue are defined under src/utils/
         assert narrowed["counts"]["effective_denominator"] == 3
         assert narrowed["counts"]["effective_denominator_basis"] == "tier_a_include"
+        # #695: a tier A glob that matches no file is listed, and the counts stay as they are
+        _, stale = _full(capsys, root, "--include", "src/**", "--include", "macro/**",
+                         "--tier-a-include", "src/utils/**", "--tier-a-include", "src/gone/**")
+        assert stale["scope"]["unmatched_tier_a_include"] == ["src/gone/**"]
+        assert stale["counts"] == narrowed["counts"]
+        assert "scope.tier_a_include pattern 'src/gone/**' matches no file" in stale["warnings"]
 
     def test_a_split_signature_is_joined(self, tmp_path, capsys) -> None:
         """ast-grep's `lines` hold the whole declaration, so `signature` gives
