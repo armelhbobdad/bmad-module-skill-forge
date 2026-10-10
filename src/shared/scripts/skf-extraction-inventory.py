@@ -32,6 +32,25 @@ Subcommands:
            file_issues[] file, each files_without_recipes extension, each
            warnings[] entry). From --detected (skf-detect-scripts-assets.py
            detect): scripts_inventory and assets_inventory.
+           Public surface. When the runner's scope.type is public-api (in
+           any case) and its entry-point diff can be read, each export of a
+           language family whose entry_points.by_language status is
+           `barrel` is marked `public: true` when its name and file are a
+           pair of the diff's `public` (its name, or the name `local` gives
+           it in that file) or `extraction_gaps`, when a `public` item of
+           its name and family has no file, or when one with `via`
+           namespace has its file in the export's folder; `public: false`
+           otherwise. It is the rule skf-build-change-manifest.py's
+           `records` marks an update's exports by (that script loads it
+           from here). The rule's inputs are kept as `public_surface`, so
+           `add` marks an export read by eye the same way. Any other scope
+           type, and a family with no barrel, mark nothing. A public-api
+           run with no entry-point diff, an incomplete one, one with errors
+           or one whose entry_points.unresolved is not empty marks nothing
+           either (`public_surface` null), with one warning that says why:
+           every export is then documented. One warning names the exports
+           marked `public: false`, each as `name (file)` (the first ten,
+           then how many more).
 
   add      --inventory <file> --field exports|t2_annotations|t3_items|warnings
            Read a JSON list on stdin (objects; strings for warnings) and
@@ -40,7 +59,11 @@ Subcommands:
            added twice and counts in `duplicates`. An exports entry needs an
            export_name; a missing confidence, extraction_method,
            ast_node_type or ast_recipe defaults to T1-low, source-read,
-           null and null (an export read by eye). A t3_items entry whose
+           null and null (an export read by eye). An exports entry is
+           marked `public` by the inventory's `public_surface`, as `init`
+           marks the runner's (a `public` key the payload sends is not
+           kept), and the warning naming the exports marked `public: false`
+           is written again, in its place. A t3_items entry whose
            export_name names an export the inventory already holds is
            dropped, not added: T3 content never overrides a T1, T1-low or
            T2 entry for the same export.
@@ -64,7 +87,9 @@ Subcommands:
            and intent_mapping. intent_mapping maps `scripts` and `assets`
            to {"intent": "<free text>", "kept": [source_file, ...]}: the
            inventory keeps only the kept entries of that list and records
-           the others in the mapping's `left_out`.
+           the others in the mapping's `left_out`. A top_exports name every
+           export of which is marked `public: false` is not kept and is
+           listed in `dropped`.
 
   provenance --inventory <file> --target <provenance-map.json> [--add-entries]
            Write the provenance map to --target, so compile never types an
@@ -74,7 +99,9 @@ Subcommands:
            "2.0"), skill_name (default the inventory's), skill_type
            (default "single") and generated_at (default now, ISO-8601
            UTC); any other key is refused. entries[] holds the entry of
-           every export of the inventory, in its order: export_name,
+           every export of the inventory, in its order, but one marked
+           `public: false` (off a public-api skill's public surface, which
+           neither entries[] nor `unsigned` lists): export_name,
            export_type, params, return_type, source_file, source_line,
            confidence, extraction_method, ast_node_type and
            signature_source, labeled by the tool that found it. An export
@@ -97,7 +124,10 @@ Subcommands:
            T3) and the file entries. An entry whose export_name and
            source_file the map already holds, or a file entry whose
            file_name it holds, is not added and counts in `duplicates`, so
-           an inventory export's entry is never replaced.
+           an inventory export's entry is never replaced. An entry whose
+           export_name and source_file are an inventory export's marked
+           `public: false` is not added either and is listed in
+           `not_public`, so the map never holds an export off the surface.
 
   rules    --inventory <file> --language <language> --target <file>
            Write extraction-rules.yaml (the skill, its language, tier and
@@ -105,7 +135,9 @@ Subcommands:
            --target. The inventory is not changed.
 
   summary  --inventory <file>
-           Print the inventory's counts without changing it.
+           Print the inventory's counts without changing it, and in
+           `not_public` each export marked `public: false` ({name, file}),
+           which the evidence report lists.
 
 Inventory shape (the keys this helper reads or writes):
 
@@ -120,8 +152,13 @@ Inventory shape (the keys this helper reads or writes):
     "co_imports": [...], "promoted_docs": [...],
     "authoritative_files_scan": {...} | null,
     "extraction_rules": {"recipe_set", "recipes", "scope", "ast_grep_version"},
+    "public_surface": {"by_language": {...}, "public": [...],
+                       "extraction_gaps": [...]} | null,
     "t2_annotations": [...], "t3_items": [...], "warnings": ["..."]
   }
+
+An export may carry `internal: true` (the runner's entry_point_diff.internal
+lists it) and `public: true` or `public: false` (see init's Public surface).
 
 Output (stdout, exit 0), for every subcommand but rules and provenance:
 
@@ -129,26 +166,34 @@ Output (stdout, exit 0), for every subcommand but rules and provenance:
     "status": "ok",
     "inventory": "<path, / separators>",
     "extraction_mode": "...",
-    "counts": {"files_scanned": N | null, "exports": N, "t1": N,
-               "t1_low": N, "by_type": {"<export_type>": N, ...},
+    "counts": {"files_scanned": N | null, "exports": N, "not_public": N,
+               "t1": N, "t1_low": N, "by_type": {"<export_type>": N, ...},
                "top_exports": N, "co_imports": N, "scripts": N,
                "assets": N, "t2_annotations": N, "t2_past": N,
                "t2_future": N, "functions_enriched": N, "t3_items": N,
                "items": N},
     "added": N, "duplicates": N, "dropped": ["name"],   # add
     "patched": N, "unmatched": [...], "ambiguous": [...],  # patch
-    "set": ["key", ...]                                 # set
+    "set": ["key", ...], "dropped": ["name"],           # set
+    "not_public": [{"name", "file"}, ...]               # summary
   }
 
-`items` is exports plus t3_items: what compile can document. t1 and t1_low
-count the exports by their `confidence`, by_type by their `export_type`.
+not_public counts the exports marked `public: false`, which the provenance
+map leaves out: when it equals `exports`, the map holds no export. `items`
+is exports plus t3_items, less not_public: what compile can document. t1
+and t1_low count the exports by their `confidence`, by_type by their
+`export_type`.
 t2_past and t2_future count the T2 annotations by their `temporal`, and
-functions_enriched the distinct export_name values among them. rules
+functions_enriched the distinct export_name values among them; an
+annotation of a name every export of which is marked `public: false`
+counts in none of t2_annotations, t2_past, t2_future and
+functions_enriched. rules
 prints {"status": "ok", "target": "<path>", "bytes": N}, provenance
 {"status": "ok", "target": "<path>", "entries": N, "unsigned": ["name
 (file)", ...]}, and provenance --add-entries {"status": "ok", "target":
-"<path>", "entries": N, "file_entries": N, "added": N, "duplicates": N},
-the counts of the map after the merge.
+"<path>", "entries": N, "file_entries": N, "added": N, "duplicates": N,
+"not_public": [{"name", "file"}, ...]}, the counts of the map after the
+merge.
 
 Exit codes:
   0  success
@@ -219,9 +264,27 @@ def _read_json(path: Path, label: str):
         raise InventoryError(f"cannot read the {label} {path.as_posix()}: {exc}") from exc
 
 
+def _off_surface_names(data: dict) -> set[str]:
+    """The export names every inventory export of which is marked `public: false`."""
+    marks: dict[str, bool] = {}
+    for export in data.get("exports") or []:
+        if isinstance(export, dict) and isinstance(export.get("export_name"), str):
+            name = export["export_name"]
+            marks[name] = marks.get(name, True) and export.get("public") is False
+    return {name for name, off in marks.items() if off}
+
+
+def _not_public(data: dict) -> list[dict]:
+    """{name, file} of each export marked `public: false`, in the inventory's order."""
+    return [{"name": e.get("export_name"), "file": e.get("source_file")} for e in data.get("exports") or []
+            if isinstance(e, dict) and e.get("public") is False]
+
+
 def counts(data: dict) -> dict:
     exports = [e for e in data["exports"] if isinstance(e, dict)]
-    notes = [n for n in data.get("t2_annotations") or [] if isinstance(n, dict)]
+    off = _off_surface_names(data)
+    raw_notes = [n for n in data.get("t2_annotations") or [] if isinstance(n, dict)]
+    notes = [n for n in raw_notes if not (isinstance(n.get("export_name"), str) and n["export_name"] in off)]
 
     def _length(key: str) -> int:
         value = data.get(key)
@@ -233,9 +296,11 @@ def counts(data: dict) -> dict:
         if isinstance(kind, str) and kind:
             by_type[kind] = by_type.get(kind, 0) + 1
     files = data.get("files_scanned")
+    not_public = sum(1 for e in exports if e.get("public") is False)
     return {
         "files_scanned": files if isinstance(files, int) else None,
         "exports": len(data["exports"]),
+        "not_public": not_public,
         "t1": sum(1 for e in exports if e.get("confidence") == "T1"),
         "t1_low": sum(1 for e in exports if e.get("confidence") == "T1-low"),
         "by_type": dict(sorted(by_type.items())),
@@ -243,12 +308,12 @@ def counts(data: dict) -> dict:
         "co_imports": _length("co_imports"),
         "scripts": _length("scripts_inventory"),
         "assets": _length("assets_inventory"),
-        "t2_annotations": _length("t2_annotations"),
+        "t2_annotations": _length("t2_annotations") - (len(raw_notes) - len(notes)),
         "t2_past": sum(1 for n in notes if n.get("temporal") == "T2-past"),
         "t2_future": sum(1 for n in notes if n.get("temporal") == "T2-future"),
         "functions_enriched": len({n["export_name"] for n in notes if isinstance(n.get("export_name"), str)}),
         "t3_items": _length("t3_items"),
-        "items": len(data["exports"]) + _length("t3_items"),
+        "items": len(data["exports"]) - not_public + _length("t3_items"),
     }
 
 
@@ -276,13 +341,153 @@ def runner_warnings(extraction: dict) -> list[str]:
     return lines
 
 
+# --------------------------------------------------------------------------
+# The public surface of a public-api skill (see init's "Public surface"):
+# one rule, which skf-build-change-manifest.py loads from here for update-skill
+# --------------------------------------------------------------------------
+
+
+def _norm_path(path: object) -> str | None:
+    """A file path compared as structural-diff compares it: `/` separators, no leading `./`."""
+    if not isinstance(path, str) or not path.strip():
+        return None
+    text = path.strip().replace("\\", "/")
+    while text.startswith("./"):
+        text = text[2:]
+    return text
+
+
+PUBLIC_API = "public-api"
+# A record's language family, the one whose entry points declare its names: skf-extract-public-api.py's FAMILY_OF,
+# by the record's `language`, else by its file's extension (that script's EXTENSION_LANGUAGES).
+_FAMILY_OF_LANGUAGE = {"python": "python", "typescript": "javascript", "tsx": "javascript",
+                       "javascript": "javascript", "vue": "javascript", "rust": "rust", "go": "go"}
+_FAMILY_OF_EXTENSION = {".py": "python", ".pyi": "python", ".rs": "rust", ".go": "go",
+                        **dict.fromkeys((".ts", ".mts", ".cts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue"),
+                                        "javascript")}
+
+
+class _PublicSurface:
+    """The public surface of a public-api skill's extraction (see init's "Public surface" in the module
+    docstring)."""
+
+    def __init__(self, diff: dict, statuses: dict):
+        self.barrels = {family for family, status in statuses.items() if status == "barrel"}
+        self.pairs: set[tuple[str, str]] = set()
+        self.namespaces: set[tuple[object, str, str]] = set()  # (family, name, the folder of its file)
+        self.unfiled: set[tuple[object, str]] = set()  # (family, name) of a public name no file defines
+        for key in ("public", "extraction_gaps"):
+            for item in diff.get(key) or []:
+                if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"]:
+                    continue
+                name, family, file = item["name"], item.get("language"), _norm_path(item.get("file"))
+                if not file:
+                    if key == "public":
+                        self.unfiled.add((family, name))
+                    continue
+                local = item.get("local") if key == "public" else None
+                self.pairs.update((n, file) for n in (name, local) if isinstance(n, str) and n)
+                if key == "public" and item.get("via") == "namespace":
+                    self.namespaces.add((family, name, file.rpartition("/")[0]))
+
+    def public(self, name: str, path: str, language: object = None) -> bool | None:
+        """Whether the export is on the public surface; None (no mark) when its family's entry points are no
+        barrel."""
+        family = _FAMILY_OF_LANGUAGE.get(language) if isinstance(language, str) else None
+        if family is None:
+            family = _FAMILY_OF_EXTENSION.get(os.path.splitext(path)[1].lower())
+        if family not in self.barrels:
+            return None
+        return ((name, path) in self.pairs or (family, name) in self.unfiled
+                or (family, name, path.rpartition("/")[0]) in self.namespaces)
+
+
+def public_surface(extraction: object) -> tuple[_PublicSurface | None, str | None]:
+    """(the public surface, None) of the recipe runner's output when its scope type is public-api; (None, why the
+    surface cannot be read from it) for a public-api run with no entry-point diff, an incomplete one, one with
+    errors or one whose entry points name a module the trace could not follow; (None, None) for any other scope
+    type. With no surface every export is kept, as before."""
+    if not isinstance(extraction, dict):
+        return None, None
+    scope, diff, points = extraction.get("scope"), extraction.get("entry_point_diff"), extraction.get("entry_points")
+    kind = scope.get("type") if isinstance(scope, dict) else None
+    if not (isinstance(kind, str) and kind.strip().lower() == PUBLIC_API):
+        return None, None
+    statuses = points.get("by_language") if isinstance(points, dict) else None
+    if not isinstance(diff, dict) or not isinstance(statuses, dict):
+        return None, "the recipe runner gave no entry-point diff (Quick tier, or a run that could not read the tree)"
+    if extraction.get("status") == "incomplete" or extraction.get("errors"):
+        return None, "the recipe runner's run is incomplete"
+    if points.get("unresolved"):
+        return None, "an entry point names a module the runner could not trace (entry_points.unresolved)"
+    return _PublicSurface(diff, statuses), None
+
+
+# The fields of an entry_point_diff item the rule reads, which the inventory's public_surface keeps for `add`.
+SURFACE_FIELDS = {"public": ("name", "language", "file", "local", "via"),
+                  "extraction_gaps": ("name", "language", "file")}
+NOT_PUBLIC_NAMED = 10  # the names the not-public warning spells out, as update-skill's apply does
+NOT_PUBLIC_LEAD = "Off the public surface: "
+
+
+def _surface_state(extraction: dict) -> dict:
+    """The parts of the runner's JSON the rule reads (public_surface found a surface in it)."""
+    diff = extraction["entry_point_diff"]
+    state: dict = {"by_language": dict(extraction["entry_points"]["by_language"])}
+    for key, fields in SURFACE_FIELDS.items():
+        state[key] = [{field: item[field] for field in fields if field in item}
+                      for item in diff.get(key) or [] if isinstance(item, dict)]
+    return state
+
+
+def _stored_surface(data: dict) -> _PublicSurface | None:
+    """The public surface the inventory's public_surface keeps, or None when init kept none."""
+    state = data.get("public_surface")
+    if not isinstance(state, dict) or not isinstance(state.get("by_language"), dict):
+        return None
+    return _PublicSurface(state, state["by_language"])
+
+
+def _mark(surface: _PublicSurface | None, export: dict) -> None:
+    """Set the export's `public` mark by the rule; no other `public` value is kept."""
+    export.pop("public", None)
+    name, path = export.get("export_name"), _norm_path(export.get("source_file"))
+    if surface is None or not isinstance(name, str) or not name or path is None:
+        return
+    mark = surface.public(name, path, export.get("language"))
+    if mark is not None:
+        export["public"] = mark
+
+
+def _not_public_warning(names: list[str]) -> str:
+    """The one warning naming the exports marked `public: false` (`name (file)`), for Gate 2 and the evidence
+    report."""
+    shown = ", ".join(names[:NOT_PUBLIC_NAMED])
+    more = f" and {len(names) - NOT_PUBLIC_NAMED} more" if len(names) > NOT_PUBLIC_NAMED else ""
+    return (f"{NOT_PUBLIC_LEAD}{len(names)} export(s) of this public-api skill are left out of the provenance map, "
+            f"SKILL.md, references/, the context snippet and metadata.json's exports[] (each is marked "
+            f"`public: false` in the inventory, and `summary` lists them all): {shown}{more}")
+
+
+def _write_not_public_warning(data: dict) -> None:
+    """Write the not-public warning in place of the one an earlier call wrote (else at the end), or drop it when
+    no export is marked `public: false`."""
+    names = [f"{item['name']} ({item['file']})" for item in _not_public(data)]
+    warnings = data.setdefault("warnings", [])
+    at = next((i for i, w in enumerate(warnings) if isinstance(w, str) and w.startswith(NOT_PUBLIC_LEAD)), None)
+    if at is not None:
+        del warnings[at]
+    if names:
+        warnings.insert(len(warnings) if at is None else at, _not_public_warning(names))
+
+
 def init(skill: str, mode: str, tier: str, extraction: dict | None = None, detected: dict | None = None) -> dict:
     """A new inventory, seeded from the runner's JSON and the detector's JSON."""
     data: dict = {
         "skill_name": skill, "extraction_mode": mode, "tier": tier, "files_scanned": None,
         "exports": [], "top_exports": [], "aggregates": {}, "counts": {}, "arms": {},
         "scripts_inventory": [], "assets_inventory": [], "intent_mapping": {}, "co_imports": [],
-        "promoted_docs": [], "authoritative_files_scan": None, "extraction_rules": {},
+        "promoted_docs": [], "authoritative_files_scan": None, "extraction_rules": {}, "public_surface": None,
         "t2_annotations": [], "t3_items": [], "warnings": [],
     }
     if extraction is not None:
@@ -291,6 +496,7 @@ def init(skill: str, mode: str, tier: str, extraction: dict | None = None, detec
         diff = extraction.get("entry_point_diff")
         internal = {(i.get("name"), i.get("source_file"))
                     for i in (diff.get("internal") or [] if isinstance(diff, dict) else []) if isinstance(i, dict)}
+        surface, problem = public_surface(extraction)
         for record in extraction.get("exports") or []:
             if not isinstance(record, dict):
                 continue
@@ -299,6 +505,7 @@ def init(skill: str, mode: str, tier: str, extraction: dict | None = None, detec
             export.setdefault("extraction_method", "ast-grep")
             if (export.get("export_name"), export.get("source_file")) in internal:
                 export["internal"] = True
+            _mark(surface, export)
             data["exports"].append(export)
         files = extraction.get("files_in_scope")
         data["files_scanned"] = files if isinstance(files, int) else None
@@ -313,6 +520,12 @@ def init(skill: str, mode: str, tier: str, extraction: dict | None = None, detec
             "ast_grep_version": ast_grep.get("version") if isinstance(ast_grep, dict) else None,
         }
         data["warnings"] = runner_warnings(extraction)
+        if problem:
+            data["warnings"].append(f"The public surface of this public-api skill could not be applied ({problem}): "
+                                    "no export is marked `public: false`, so every export found is documented")
+        if surface is not None:
+            data["public_surface"] = _surface_state(extraction)
+            _write_not_public_warning(data)
     if detected is not None:
         if not isinstance(detected, dict):
             raise InventoryError("the --detected file is not a JSON object")
@@ -335,10 +548,13 @@ def add(data: dict, field: str, entries: list) -> tuple[int, int, list[str]]:
     kind = str if field == "warnings" else dict
     if not isinstance(entries, list) or not all(isinstance(e, kind) for e in entries):
         raise InventoryError(f"stdin must hold a JSON list of {'strings' if kind is str else 'objects'}")
+    surface = _stored_surface(data) if field == "exports" else None
     if field == "exports":
         if not all(isinstance(e.get("export_name"), str) and e["export_name"] for e in entries):
             raise InventoryError("every exports entry needs an export_name")
         entries = [{**BY_EYE_DEFAULTS, **e} for e in entries]
+        for entry in entries:
+            _mark(surface, entry)
     target = data.setdefault(field, [])
     known = {e.get("export_name") for e in data["exports"] if isinstance(e, dict)} - {None}
     added = duplicates = 0
@@ -358,6 +574,8 @@ def add(data: dict, field: str, entries: list) -> tuple[int, int, list[str]]:
             continue
         target.append(entry)
         added += 1
+    if surface is not None:
+        _write_not_public_warning(data)
     return added, duplicates, dropped
 
 
@@ -390,8 +608,9 @@ def patch(data: dict, entries: list) -> tuple[int, list[str], list[str]]:
     return patched, unmatched, ambiguous
 
 
-def set_fields(data: dict, values: dict) -> list[str]:
-    """Set the keys of `values` on the inventory (see the module docstring); return the keys set."""
+def set_fields(data: dict, values: dict) -> tuple[list[str], list[str]]:
+    """Set the keys of `values` on the inventory (see the module docstring); return (the keys set, the top_exports
+    names dropped as off the public surface)."""
     if not isinstance(values, dict):
         raise InventoryError("stdin must hold a JSON object")
     unknown = sorted(set(values) - set(SETTABLE))
@@ -403,6 +622,11 @@ def set_fields(data: dict, values: dict) -> list[str]:
             names = " or ".join("null" if t is type(None) else t.__name__ for t in types)
             raise InventoryError(f"{key} must be {names}")
     mapping = _intent_mapping(data, values["intent_mapping"]) if "intent_mapping" in values else {}
+    dropped: list[str] = []
+    if "top_exports" in values:
+        off = _off_surface_names(data)
+        dropped = [n for n in values["top_exports"] if isinstance(n, str) and n in off]
+        values = {**values, "top_exports": [n for n in values["top_exports"] if not (isinstance(n, str) and n in off)]}
     for key, value in values.items():
         if key == "intent_mapping":
             data["intent_mapping"] = {**(data.get("intent_mapping") or {}), **mapping}
@@ -410,7 +634,7 @@ def set_fields(data: dict, values: dict) -> list[str]:
             data[key] = {**(data.get(key) if isinstance(data.get(key), dict) else {}), **value}
         else:
             data[key] = value
-    return list(values)
+    return list(values), dropped
 
 
 def _intent_mapping(data: dict, mapping: dict) -> dict:
@@ -488,11 +712,12 @@ def _labels(export: dict) -> dict:
 
 
 def provenance_entries(data: dict) -> tuple[list[dict], list[str]]:
-    """(the provenance map entry of every export, the functions among them with no params)."""
+    """(the provenance map entry of every export but one marked `public: false`, the functions among them with no
+    params)."""
     entries: list[dict] = []
     unsigned: list[str] = []
     for export in data.get("exports") or []:
-        if not isinstance(export, dict):
+        if not isinstance(export, dict) or export.get("public") is False:
             continue
         raw = export.get("params")
         params = None
@@ -533,12 +758,15 @@ def provenance_map(data: dict, header) -> tuple[dict, list[str]]:
     return {**map_header(data, header), "entries": entries}, unsigned
 
 
-def add_map_entries(provenance: dict, payload) -> tuple[int, int]:
-    """Append stdin's `entries` and `file_entries` to the map; return (added, duplicates)."""
+def add_map_entries(provenance: dict, payload, off: frozenset = frozenset()) -> tuple[int, int, list[dict]]:
+    """Append stdin's `entries` and `file_entries` to the map; return (added, duplicates, {name, file} of each entry
+    not added because `off`, the (export_name, source_file) of the inventory's exports marked `public: false`,
+    holds it)."""
     if not isinstance(payload, dict) or not payload or set(payload) - {"entries", "file_entries"}:
         raise InventoryError('stdin must hold {"entries": [...], "file_entries": [...]} (either list, or both)')
     keys = {"entries": ("export_name", "source_file"), "file_entries": ("file_name",)}
     added = duplicates = 0
+    not_public: list[dict] = []
     for field, items in payload.items():
         if not isinstance(items, list) or not all(isinstance(e, dict) for e in items):
             raise InventoryError(f"{field} must be a list of objects")
@@ -551,13 +779,16 @@ def add_map_entries(provenance: dict, payload) -> tuple[int, int]:
         held = {tuple(e.get(k) for k in keys[field]) for e in target if isinstance(e, dict)}
         for item in items:
             key = tuple(item.get(k) for k in keys[field])
+            if field == "entries" and (item.get("export_name"), _norm_path(item.get("source_file"))) in off:
+                not_public.append({"name": item.get("export_name"), "file": item.get("source_file")})
+                continue
             if key in held:
                 duplicates += 1
                 continue
             held.add(key)
             target.append(item)
             added += 1
-    return added, duplicates
+    return added, duplicates, not_public
 
 
 def rules_yaml(data: dict, language: str) -> str:
@@ -685,16 +916,17 @@ def main(argv: list[str] | None = None) -> int:
             write(path, data)
             result = _result(path, data)
         elif args.command == "provenance" and args.add_entries:
-            load(path)
+            data = load(path)
             provenance = _read_json(args.target, "provenance map")
             if not isinstance(provenance, dict) or not isinstance(provenance.get("entries"), list):
                 raise InventoryError(f"the provenance map {args.target.as_posix()} has no entries list: "
                                      "run provenance without --add-entries first")
-            added, duplicates = add_map_entries(provenance, _stdin_json())
+            off = frozenset((item["name"], _norm_path(item["file"])) for item in _not_public(data))
+            added, duplicates, not_public = add_map_entries(provenance, _stdin_json(), off)
             write(args.target, provenance)
             result = {"status": "ok", "target": args.target.as_posix(), "entries": len(provenance["entries"]),
                       "file_entries": len(provenance.get("file_entries") or []), "added": added,
-                      "duplicates": duplicates}
+                      "duplicates": duplicates, "not_public": not_public}
         elif args.command == "provenance":
             provenance, unsigned = provenance_map(load(path), _stdin_json())
             write(args.target, provenance)
@@ -707,7 +939,7 @@ def main(argv: list[str] | None = None) -> int:
         else:
             data = load(path)
             if args.command == "summary":
-                result = _result(path, data)
+                result = _result(path, data, not_public=_not_public(data))
             elif args.command == "add":
                 payload = _stdin_json()
                 added, duplicates, dropped = add(data, args.field, [] if payload is None else payload)
@@ -720,9 +952,9 @@ def main(argv: list[str] | None = None) -> int:
                 result = _result(path, data, patched=patched, unmatched=unmatched, ambiguous=ambiguous)
             else:
                 payload = _stdin_json()
-                keys = set_fields(data, {} if payload is None else payload)
+                keys, dropped = set_fields(data, {} if payload is None else payload)
                 write(path, data)
-                result = _result(path, data, set=keys)
+                result = _result(path, data, set=keys, dropped=dropped)
     except InventoryError as exc:
         print(json.dumps({"status": "error", "message": str(exc)}), file=sys.stderr)
         return 1

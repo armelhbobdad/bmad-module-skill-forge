@@ -374,6 +374,8 @@ it scans):
   `extraction_gaps`, when a `public` item of its name and family has no
   file, or when one with `via` namespace has its file in the export's
   folder (the names counts.exports_public_api counts); false otherwise.
+  The rule is skf-extraction-inventory.py's public_surface, loaded from
+  this folder, by which create-skill marks its extraction inventory too.
   In a normal update merge documents no export marked false that the map
   does not hold, and apply adds none; gap-records drops the mark, and a
   full (degraded) apply adds every record. Any other scope type, a family
@@ -1038,69 +1040,32 @@ def _file_of(record: dict) -> str | None:
     return _norm_path(record.get("source_file", record.get("file", record.get("file_path"))))
 
 
-PUBLIC_API = "public-api"
-# A record's language family, the one whose entry points declare its names: skf-extract-public-api.py's FAMILY_OF,
-# by the record's `language`, else by its file's extension (that script's EXTENSION_LANGUAGES).
-_FAMILY_OF_LANGUAGE = {"python": "python", "typescript": "javascript", "tsx": "javascript",
-                       "javascript": "javascript", "vue": "javascript", "rust": "rust", "go": "go"}
-_FAMILY_OF_EXTENSION = {".py": "python", ".pyi": "python", ".rs": "rust", ".go": "go",
-                        **dict.fromkeys((".ts", ".mts", ".cts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue"),
-                                        "javascript")}
+_INVENTORY = None
 
 
-class _PublicSurface:
-    """The public surface of a public-api skill's extraction (see "Records" in the module docstring)."""
-
-    def __init__(self, diff: dict, statuses: dict):
-        self.barrels = {family for family, status in statuses.items() if status == "barrel"}
-        self.pairs: set[tuple[str, str]] = set()
-        self.namespaces: set[tuple[object, str, str]] = set()  # (family, name, the folder of its file)
-        self.unfiled: set[tuple[object, str]] = set()  # (family, name) of a public name no file defines
-        for key in ("public", "extraction_gaps"):
-            for item in diff.get(key) or []:
-                if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"]:
-                    continue
-                name, family, file = item["name"], item.get("language"), _norm_path(item.get("file"))
-                if not file:
-                    if key == "public":
-                        self.unfiled.add((family, name))
-                    continue
-                local = item.get("local") if key == "public" else None
-                self.pairs.update((n, file) for n in (name, local) if isinstance(n, str) and n)
-                if key == "public" and item.get("via") == "namespace":
-                    self.namespaces.add((family, name, file.rpartition("/")[0]))
-
-    def public(self, name: str, path: str, language: object = None) -> bool | None:
-        """Whether the export is on the public surface; None (no mark) when its family's entry points are no
-        barrel."""
-        family = _FAMILY_OF_LANGUAGE.get(language) if isinstance(language, str) else None
-        if family is None:
-            family = _FAMILY_OF_EXTENSION.get(os.path.splitext(path)[1].lower())
-        if family not in self.barrels:
-            return None
-        return ((name, path) in self.pairs or (family, name) in self.unfiled
-                or (family, name, path.rpartition("/")[0]) in self.namespaces)
+def _inventory():
+    """skf-extraction-inventory.py, loaded once from this folder: its typed_param and its public-surface rule, so
+    create-skill and update-skill write one parameter form and keep one public surface."""
+    global _INVENTORY
+    if _INVENTORY is None:
+        path = Path(__file__).resolve().parent / "skf-extraction-inventory.py"
+        spec = importlib.util.spec_from_file_location("skf_extraction_inventory", path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot load {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _INVENTORY = module
+    return _INVENTORY
 
 
-def public_surface(extraction: object) -> tuple[_PublicSurface | None, str | None]:
-    """(the public surface, None) of the recipe runner's output when its scope type is public-api; (None, why the
-    surface cannot be read from it) for a public-api run with no entry-point diff, an incomplete one, one with
-    errors or one whose entry points name a module the trace could not follow; (None, None) for any other scope
-    type. With no surface every export is kept, as before."""
+def public_surface(extraction: object) -> tuple[object | None, str | None]:
+    """skf-extraction-inventory.py's public_surface over the recipe runner's output (see "Records" in the module
+    docstring): (the public surface, None) for a public-api run, (None, why) when its surface cannot be read, and
+    (None, None) for any other scope type. An input that is no object (a gap-driven or docs-only run gives none)
+    is (None, None) without loading the inventory helper."""
     if not isinstance(extraction, dict):
         return None, None
-    scope, diff, points = extraction.get("scope"), extraction.get("entry_point_diff"), extraction.get("entry_points")
-    kind = scope.get("type") if isinstance(scope, dict) else None
-    if not (isinstance(kind, str) and kind.strip().lower() == PUBLIC_API):
-        return None, None
-    statuses = points.get("by_language") if isinstance(points, dict) else None
-    if not isinstance(diff, dict) or not isinstance(statuses, dict):
-        return None, "the recipe runner gave no entry-point diff (Quick tier, or a run that could not read the tree)"
-    if extraction.get("status") == "incomplete" or extraction.get("errors"):
-        return None, "the recipe runner's run is incomplete"
-    if points.get("unresolved"):
-        return None, "an entry point names a module the runner could not trace (entry_points.unresolved)"
-    return _PublicSurface(diff, statuses), None
+    return _inventory().public_surface(extraction)
 
 
 # --------------------------------------------------------------------------
@@ -1906,22 +1871,12 @@ def _write_json_atomic(path: Path, value) -> None:
 # a patch sets only where the seed has none.
 PATCH_FIELDS = ("signature", "members", "docstring", "qmd_evidence")
 PATCH_IF_NULL = ("params", "return_type")
-_INVENTORY = None
 
 
 def _typed_param(param, language: object) -> str | None:
-    """One parameter as the provenance map writes it: skf-extraction-inventory.py's typed_param, loaded once from
-    this folder, so create-skill and update-skill write one form."""
-    global _INVENTORY
-    if _INVENTORY is None:
-        path = Path(__file__).resolve().parent / "skf-extraction-inventory.py"
-        spec = importlib.util.spec_from_file_location("skf_extraction_inventory", path)
-        if spec is None or spec.loader is None:
-            raise ImportError(f"cannot load {path}")
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        _INVENTORY = module
-    return _INVENTORY.typed_param(param, language if isinstance(language, str) else None)
+    """One parameter as the provenance map writes it: skf-extraction-inventory.py's typed_param, so create-skill
+    and update-skill write one form."""
+    return _inventory().typed_param(param, language if isinstance(language, str) else None)
 
 
 def _typed_params(value, language: object) -> list | None:
