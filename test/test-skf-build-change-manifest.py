@@ -16,7 +16,9 @@ Covers its subcommands:
   - a public-api skill's public surface: records marks each export by the
     runner's entry-point diff and apply adds only the public ones, listing
     the rest (#685); a moved export takes the runner's labels, and a move
-    across files its new file (#686), on cognee's shape through the runner
+    across files its new file (#686), on cognee's shape through the runner;
+    the rule is skf-extraction-inventory.py's, and create-skill's map keeps
+    the names update keeps on that shape (#699)
   - baseline-gaps: the map entries of the modified files the runner left
     out that their file still declares (#687), read by step 2 so the diff
     reports no false DELETED_EXPORT, and a verifier that cannot load an
@@ -30,7 +32,9 @@ of both.
 from __future__ import annotations
 
 import importlib.util
+import inspect
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -1648,12 +1652,30 @@ class TestPublicSurface:
             {"add": True, "helper": False}
 
     def test_the_family_tables_match_the_runners(self) -> None:
+        """The rule lives in skf-extraction-inventory.py, which create-skill marks its inventory by (#699)."""
         spec = importlib.util.spec_from_file_location("skf_extract_public_api_families", EXTRACT_PUBLIC_API)
         runner = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(runner)
-        assert mod._FAMILY_OF_LANGUAGE == runner.FAMILY_OF
-        assert mod._FAMILY_OF_EXTENSION == {ext: runner.FAMILY_OF[language]
-                                            for ext, language in runner.EXTENSION_LANGUAGES.items()}
+        inventory = mod._inventory()
+        assert inventory._FAMILY_OF_LANGUAGE == runner.FAMILY_OF
+        assert inventory._FAMILY_OF_EXTENSION == {ext: runner.FAMILY_OF[language]
+                                                  for ext, language in runner.EXTENSION_LANGUAGES.items()}
+
+    def test_the_path_form_matches_the_inventory_helpers(self) -> None:
+        """The rule's pairs go through the inventory helper's _norm_path and the records through this script's: the
+        two copies stay one form."""
+        assert inspect.getsource(mod._norm_path) == inspect.getsource(mod._inventory()._norm_path)
+
+    def test_the_rule_is_the_inventory_helpers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One rule for create and update: the surface is skf-extraction-inventory.py's, and a run with no
+        extraction object (gap-driven, docs-only) loads no helper for it."""
+        monkeypatch.setattr(mod, "_INVENTORY", None)
+        for nothing in (None, [], "extraction.json"):
+            assert mod.public_surface(nothing) == (None, None)
+        assert mod._INVENTORY is None
+        surface, problem = mod.public_surface(_public_api_run([_runner("cognify", COGNIFY, 44)], SURFACE))
+        assert isinstance(surface, mod._inventory()._PublicSurface) and problem is None
+        assert not hasattr(mod, "_PublicSurface") and not hasattr(mod, "_FAMILY_OF_LANGUAGE")
 
 
 TRACE = "cognee/modules/observability/trace_context.py"
@@ -1859,6 +1881,53 @@ def test_the_oms_cognee_update_documents_its_public_surface_and_keeps_its_ast_la
     internals_kept = 1  # get_last_trace, an internal name the 1.0.0 map held
     assert derived["stats"]["exports_documented"] <= counts["exports_public_api"] + internals_kept
     assert derived["stats"]["public_api_coverage"] <= 1 + internals_kept / counts["exports_public_api"]
+
+
+def _pinned_ast_grep() -> bool:
+    """An ast-grep of the version package.json pins, the gate test-skf-extraction-inventory.py's runner tests use."""
+    scripts = json.loads((REPO_ROOT / "package.json").read_text(encoding="utf-8"))["scripts"]
+    pin = re.search(r"--with ast-grep-cli==([\w.]+)", scripts["test:python"])
+    exe = shutil.which("ast-grep")
+    if pin is None or exe is None:
+        return False
+    try:
+        out = subprocess.run([exe, "--version"], capture_output=True, text=True, timeout=30, check=False)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0 and out.stdout.split()[-1:] == [pin.group(1)]
+
+
+@pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")
+def test_a_public_api_create_maps_the_names_update_keeps_on_cognees_shape(tmp_path: Path) -> None:
+    """The create twin of the oms-cognee update (#699): create-skill's inventory, marked by the rule `records` marks
+    an update by, writes a map of exactly the names update keeps from the same runner records, and the stats
+    helper's public_api_coverage stays at most 1."""
+    root = tmp_path / "src"
+    for rel, text in COGNEE_TREE.items():
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode("utf-8"))
+    extraction = _run_runner(root, tmp_path / "extraction.json")
+    inventory = mod._inventory()
+    data = inventory.init("cognee", "source", "Deep", extraction)
+    entries, _unsigned = inventory.provenance_entries(data)
+    mapped = {(e["export_name"], e["source_file"]) for e in entries}
+    records, summary = mod.build_records(extraction, None, None, [])
+    kept = {(r["name"], b["file_path"]) for b in records["files"] for r in b["exports"] if r.get("public") is True}
+    assert mapped == kept
+    assert {name for name, _file in mapped} == {"cognify", "delete", "remember", "enable_tracing", "disable_tracing",
+                                                "get_all_traces", "clear_traces"}
+    left_out = sorted(e["export_name"] for e in data["exports"] if e.get("public") is False)
+    assert left_out == ["build_remember_tasks", "get_default_tasks", "get_last_trace", "list_tools"]
+    assert summary["marked_not_public"] == len(left_out) == inventory.counts(data)["not_public"]
+    assert data["warnings"][-1].endswith(": " + ", ".join(f"{e['export_name']} ({e['source_file']})"
+                                                           for e in data["exports"] if e.get("public") is False))
+    doc = {"entries": entries}
+    derived = stats.derive_stats(doc, {"exports_public_api": extraction["counts"]["exports_public_api"],
+                                       "exports_internal": extraction["counts"]["exports_internal"]})
+    assert stats.coherence_compute(derived, doc)["ok"]
+    assert derived["stats"]["exports_documented"] == len(kept)
+    assert derived["stats"]["public_api_coverage"] <= 1
 
 
 # --------------------------------------------------------------------------

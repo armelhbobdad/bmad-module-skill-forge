@@ -131,7 +131,7 @@ def _load(path: Path) -> dict:
 def test_summary_counts_the_inventory(tmp_path):
     out = _ok(_run("summary", "--inventory", str(_write(tmp_path))))
     assert out["extraction_mode"] == "source"
-    assert out["counts"] == {"files_scanned": 4, "exports": 2, "t1": 1, "t1_low": 1,
+    assert out["counts"] == {"files_scanned": 4, "exports": 2, "not_public": 0, "t1": 1, "t1_low": 1,
                              "by_type": {"class": 1, "function": 1}, "top_exports": 2, "co_imports": 0,
                              "scripts": 1, "assets": 0, "t2_annotations": 0, "t2_past": 0, "t2_future": 0,
                              "functions_enriched": 0, "t3_items": 0, "items": 2}
@@ -276,6 +276,7 @@ def test_init_seeds_the_inventory_from_the_runner_and_the_detector(tmp_path):
     for key in ("top_exports", "co_imports", "promoted_docs", "t2_annotations", "t3_items"):
         assert data[key] == [], key
     assert data["intent_mapping"] == {} and data["authoritative_files_scan"] is None
+    assert data["public_surface"] is None  # a full-library run: no public surface, no export marked
 
 
 @pytest.mark.parametrize("flag", ["--extraction", "--detected"])
@@ -472,6 +473,23 @@ def test_provenance_adds_the_entries_compile_writes(tmp_path):
     assert (again["added"], again["duplicates"]) == (0, 3)
 
 
+def test_provenance_adds_no_entry_for_an_export_off_the_surface(tmp_path):
+    """The map left out an export marked `public: false`, so no duplicate check catches a T2 or T3 entry of it: the
+    helper skips the entry and lists it in `not_public`."""
+    path = _init_from(tmp_path, _fixture_run())
+    target = tmp_path / "provenance-map.json"
+    _provenance(path, target)
+    off = {"export_name": "bar", "export_type": "function", "params": None, "return_type": None,
+           "source_file": "pkg/a.py", "source_line": 5, "confidence": "T2", "extraction_method": "qmd_bridge",
+           "ast_node_type": None, "signature_source": "T2"}
+    other = {**off, "export_name": "configure", "source_file": None, "source_line": None, "confidence": "T3",
+             "extraction_method": "doc-fetch", "signature_source": "T3"}
+    out = _ok(_run("provenance", "--inventory", str(path), "--target", str(target), "--add-entries",
+                   stdin=json.dumps({"entries": [off, other]})))
+    assert (out["added"], out["duplicates"], out["not_public"]) == (1, 0, [{"name": "bar", "file": "pkg/a.py"}])
+    assert [e["export_name"] for e in _load(target)["entries"]] == ["foo", "configure"]
+
+
 @pytest.mark.parametrize(
     "payload",
     ["", "[]", json.dumps({"entries": [{"source_file": "x"}]}), json.dumps({"rows": []}),
@@ -545,6 +563,307 @@ def test_provenance_reads_what_the_runner_writes(tmp_path):
     entries = {e["export_name"]: (e["params"], e["return_type"]) for e in _load(target)["entries"]}
     assert entries == {"fetch": (["url: str", "retries: int = 3"], "bytes"),
                        "connect": (["host: string", "port?: number"], "Client")}
+
+
+# --------------------------------------------------------------------------
+# a public-api skill: the map, exports[] and SKILL.md keep to the public surface (#699)
+# --------------------------------------------------------------------------
+
+STATS = REPO / "src" / "shared" / "scripts" / "skf-render-metadata-stats.py"
+MANIFEST = REPO / "src" / "shared" / "scripts" / "skf-build-change-manifest.py"
+EXTRACT = REPO / "src" / "skf-create-skill" / "references" / "extract.md"
+_stats_spec = importlib.util.spec_from_file_location("skf_render_metadata_stats_for_inventory", STATS)
+stats = importlib.util.module_from_spec(_stats_spec)
+_stats_spec.loader.exec_module(stats)
+_manifest_spec = importlib.util.spec_from_file_location("skf_build_change_manifest_for_inventory", MANIFEST)
+manifest = importlib.util.module_from_spec(_manifest_spec)
+_manifest_spec.loader.exec_module(manifest)
+
+
+def _fixture_export(name: str, path: str, line: int) -> dict:
+    return {"export_name": name, "source_file": path, "source_line": line, "signature_line": f"def {name}():",
+            "signature": f"def {name}():", "params": [], "return_type": None, "citation": f"[AST:{path}:L{line}]",
+            "ast_recipe": "python-public-functions", "ast_node_type": "function_definition", "export_type": "function",
+            "language": "python", "from": None, "from_file": None, "confidence": "T1", "extraction_method": "ast-grep"}
+
+
+def _fixture_run(scope_type: str = "public-api") -> dict:
+    """The issue's fixture as the runner records it: pkg/__init__.py re-exports foo from a.py and imports the
+    submodule sub (a namespace, which the runner counts as public with no export record); a.py also defines bar,
+    helpers.py helper and sub.py baz."""
+    return {
+        "mode": "full", "status": "ok", "recipe_set": "standard", "ast_grep": {"version": "0.45.3"},
+        "scope": {"include": [], "exclude": [], "tier_a_include": None, "type": scope_type, "languages": ["python"]},
+        "files_in_scope": 4, "files_without_recipes": {}, "file_issues": [], "head_cap": 200, "truncated": False,
+        "recipes": [{"id": "python-public-functions", "languages": ["python"], "matches": 4, "truncated": False}],
+        "exports": [_fixture_export("foo", "pkg/a.py", 1), _fixture_export("bar", "pkg/a.py", 5),
+                    _fixture_export("helper", "pkg/helpers.py", 1), _fixture_export("baz", "pkg/sub.py", 1)],
+        "aggregates": {"exports": 4, "by_type": {"function": 4}, "t1": 4, "t1_low": 0},
+        "entry_points": {"status": "barrel", "by_language": {"python": "barrel"}, "files": [], "unresolved": []},
+        "entry_point_diff": {
+            "public": [{"name": "foo", "entry": "pkg/__init__.py", "via": "re-export", "from": ".a", "local": None,
+                        "file": "pkg/a.py", "line": 1, "language": "python"},
+                       {"name": "sub", "entry": "pkg/__init__.py", "via": "namespace", "from": ".", "local": None,
+                        "file": "pkg/sub.py", "line": None, "language": "python"}],
+            "internal": [{"name": "bar", "language": "python", "source_file": "pkg/a.py", "source_line": 5},
+                         {"name": "helper", "language": "python", "source_file": "pkg/helpers.py", "source_line": 1}],
+            "extraction_gaps": [], "outside_scope": []},
+        "counts": {"exports_public_api": 2, "exports_internal": 2, "effective_denominator": 2,
+                   "effective_denominator_basis": "all-files", "denominator_files": 4},
+        "arms": {"monorepo": False, "monorepo_kind": None, "specific_modules": False, "multi_subpath_exports": False},
+        "errors": [], "warnings": [],
+    }
+
+
+def _init_from(tmp_path: Path, extraction: dict) -> Path:
+    runner_json = _write(tmp_path, extraction, "demo.extraction.json")
+    path = tmp_path / "demo.inventory.json"
+    _ok(_run("init", "--inventory", str(path), "--skill", "demo", "--mode", "source", "--tier", "Forge",
+             "--extraction", str(runner_json)))
+    return path
+
+
+def _stats_of(target: Path, extraction: dict) -> dict:
+    """The stats helper over the written map, with step 5 §4's payload from the runner's counts."""
+    doc = _load(target)
+    counts = extraction["counts"]
+    derived = stats.derive_stats(doc, {"exports_public_api": counts["exports_public_api"],
+                                       "exports_internal": counts["exports_internal"]})
+    assert stats.coherence_compute(derived, doc)["ok"]
+    return derived
+
+
+def _update_marks_public(extraction: dict) -> set[tuple[str, str]]:
+    """The exports update-skill's `records` keeps on a public-api skill's surface (marked true, or not marked)."""
+    records, _summary = manifest.build_records(extraction, None, None, [])
+    return {(r["name"], b["file_path"]) for b in records["files"] for r in b["exports"] if r.get("public") is not False}
+
+
+NOT_PUBLIC_WARNING = ("Off the public surface: {n} export(s) of this public-api skill are left out of the provenance "
+                      "map, SKILL.md, references/, the context snippet and metadata.json's exports[] (each is marked "
+                      "`public: false` in the inventory, and `summary` lists them all): {names}")
+
+
+def test_a_public_api_map_holds_only_the_public_surface(tmp_path):
+    """The matrix's fixture: map and exports[] `foo`; exports_documented 1, public_api_coverage 0.5, t1 1, the
+    names update's records keeps. Before, the map held all 4 entries and public_api_coverage was 2.0."""
+    extraction = _fixture_run()
+    path = _init_from(tmp_path, extraction)
+    data = _load(path)
+    assert {e["export_name"]: e.get("public") for e in data["exports"]} == \
+        {"foo": True, "bar": False, "helper": False, "baz": False}
+    assert [e.get("internal", False) for e in data["exports"]] == [False, True, True, False]  # the mark stays
+    assert data["public_surface"] == {
+        "by_language": {"python": "barrel"},
+        "public": [{"name": "foo", "language": "python", "file": "pkg/a.py", "local": None, "via": "re-export"},
+                   {"name": "sub", "language": "python", "file": "pkg/sub.py", "local": None, "via": "namespace"}],
+        "extraction_gaps": []}
+    assert data["warnings"] == [NOT_PUBLIC_WARNING.format(
+        n=3, names="bar (pkg/a.py), helper (pkg/helpers.py), baz (pkg/sub.py)")]
+    summary = _ok(_run("summary", "--inventory", str(path)))
+    counts = summary["counts"]
+    assert (counts["exports"], counts["not_public"], counts["items"]) == (4, 3, 1)
+    # the evidence report lists each one with its file, from the summary
+    assert summary["not_public"] == [{"name": "bar", "file": "pkg/a.py"}, {"name": "helper", "file": "pkg/helpers.py"},
+                                     {"name": "baz", "file": "pkg/sub.py"}]
+    target = tmp_path / "provenance-map.json"
+    assert _provenance(path, target)["entries"] == 1
+    entries = _load(target)["entries"]
+    assert [(e["export_name"], e["source_file"]) for e in entries] == [("foo", "pkg/a.py")]
+    assert {(e["export_name"], e["source_file"]) for e in entries} == _update_marks_public(extraction)
+    derived = _stats_of(target, extraction)
+    assert (derived["stats"]["exports_documented"], derived["stats"]["public_api_coverage"]) == (1, 0.5)
+    assert derived["confidence_distribution"] == {"t1": 1, "t1_low": 0, "t2": 0, "t3": 0}
+
+
+def test_another_scope_type_maps_every_export_as_before(tmp_path):
+    extraction = _fixture_run("full-library")
+    path = _init_from(tmp_path, extraction)
+    data = _load(path)
+    assert all("public" not in e for e in data["exports"])
+    assert data["public_surface"] is None and data["warnings"] == []
+    target = tmp_path / "provenance-map.json"
+    assert _provenance(path, target)["entries"] == 4
+    assert _stats_of(target, extraction)["stats"]["public_api_coverage"] == 2.0
+
+
+def _break(extraction: dict, change: str) -> None:
+    if change == "no-entry-point-diff":
+        extraction["entry_point_diff"] = None  # a no-ast-grep run: the runner diffed nothing
+    if change == "incomplete":
+        extraction["status"] = "incomplete"
+    if change == "errors":
+        extraction["errors"] = [{"reason": "ast-grep-timeout", "files": 1, "first_file": "pkg/a.py", "detail": "x"}]
+    if change == "unresolved":
+        extraction["entry_points"]["unresolved"] = [{"entry": "pkg/__init__.py", "name": "x", "from": ".gone",
+                                                     "file": "pkg/__init__.py"}]
+
+
+@pytest.mark.parametrize("change, why", [
+    ("no-entry-point-diff", "the recipe runner gave no entry-point diff (Quick tier, or a run that could not read "
+                            "the tree)"),
+    ("incomplete", "the recipe runner's run is incomplete"),
+    ("errors", "the recipe runner's run is incomplete"),
+    ("unresolved", "an entry point names a module the runner could not trace (entry_points.unresolved)"),
+])
+def test_a_surface_the_rule_cannot_read_keeps_every_export_with_one_warning(tmp_path, change, why):
+    extraction = _fixture_run()
+    _break(extraction, change)
+    path = _init_from(tmp_path, extraction)
+    data = _load(path)
+    assert all("public" not in e for e in data["exports"]) and data["public_surface"] is None
+    expected = (f"The public surface of this public-api skill could not be applied ({why}): no export is marked "
+                "`public: false`, so every export found is documented")
+    assert [w for w in data["warnings"] if w.startswith("The public surface")] == [expected]
+    assert not any(w.startswith("Off the public surface") for w in data["warnings"])
+    assert _provenance(path, tmp_path / "provenance-map.json")["entries"] == 4
+    # an export read by eye later is not marked either
+    out = _ok(_run("add", "--inventory", str(path), "--field", "exports",
+                   stdin=json.dumps([{"export_name": "qux", "export_type": "function", "source_file": "pkg/q.py"}])))
+    assert out["counts"]["not_public"] == 0 and "public" not in _load(path)["exports"][-1]
+
+
+def test_an_export_read_by_eye_is_marked_by_the_same_rule(tmp_path):
+    """Update marks every record it seeds; create marks each export add sends after init the same way: a runner gap
+    read by eye is public, a name the surface does not hold is not, whatever the payload says."""
+    extraction = _fixture_run()
+    extraction["entry_point_diff"]["extraction_gaps"] = [
+        {"name": "Drop", "language": "python", "entry": "pkg/__init__.py", "file": "pkg/types.py", "line": 3}]
+    path = _init_from(tmp_path, extraction)
+    by_eye = [{"export_name": "Drop", "export_type": "sentinel", "source_file": "pkg/types.py", "source_line": 3},
+              {"export_name": "__version__", "export_type": "const", "source_file": "pkg/__init__.py",
+               "source_line": 2, "public": True},
+              {"export_name": "notes", "export_type": "const", "source_file": "README.md", "public": False}]
+    out = _ok(_run("add", "--inventory", str(path), "--field", "exports", stdin=json.dumps(by_eye)))
+    assert (out["added"], out["counts"]["exports"], out["counts"]["not_public"]) == (3, 7, 4)
+    data = _load(path)
+    # a file of no barrel family gets no mark, and the payload's own `public` is never kept
+    assert {e["export_name"]: e.get("public") for e in data["exports"][4:]} == \
+        {"Drop": True, "__version__": False, "notes": None}
+    # the one warning is written again, in its place, after the warnings that came before it
+    _ok(_run("add", "--inventory", str(path), "--field", "warnings", stdin='["a file could not be read"]'))
+    _ok(_run("add", "--inventory", str(path), "--field", "exports",
+             stdin=json.dumps([{"export_name": "late", "export_type": "function", "source_file": "pkg/a.py"}])))
+    assert _load(path)["warnings"] == [
+        NOT_PUBLIC_WARNING.format(n=5, names="bar (pkg/a.py), helper (pkg/helpers.py), baz (pkg/sub.py), "
+                                             "__version__ (pkg/__init__.py), late (pkg/a.py)"),
+        "a file could not be read"]
+    target = tmp_path / "provenance-map.json"
+    _provenance(path, target)
+    assert [e["export_name"] for e in _load(target)["entries"]] == ["foo", "Drop", "notes"]
+    # update's records marks the same two by-eye records, from step 2's export details
+    details = {"exports": [dict(e, source_line=1) for e in by_eye[:2]]}
+    records, _ = manifest.build_records(extraction, details, None, [])
+    assert {r["name"]: r.get("public") for b in records["files"] for r in b["exports"]
+            if r["name"] in ("Drop", "__version__")} == {"Drop": True, "__version__": False}
+
+
+def test_an_export_read_by_eye_keeps_no_mark_outside_a_public_api_run(tmp_path):
+    path = _write(tmp_path)  # an inventory with no public_surface: every scope type but public-api
+    out = _ok(_run("add", "--inventory", str(path), "--field", "exports",
+                   stdin=json.dumps([{"export_name": "gap", "export_type": "function", "source_file": "src/c.py",
+                                      "public": False}])))
+    assert out["counts"]["not_public"] == 0 and "public" not in _load(path)["exports"][-1]
+    assert "warnings" not in _load(path)
+    target = tmp_path / "provenance-map.json"
+    assert _provenance(path, target)["entries"] == 3
+
+
+def test_a_function_off_the_surface_is_not_listed_unsigned(tmp_path):
+    extraction = _fixture_run()
+    for record in extraction["exports"]:
+        record["params"] = None  # nobody read a signature
+    path = _init_from(tmp_path, extraction)
+    out = _provenance(path, tmp_path / "provenance-map.json")
+    assert (out["entries"], out["unsigned"]) == (1, ["foo (pkg/a.py)"])
+
+
+def test_a_t2_annotation_of_an_export_off_the_surface_is_not_counted(tmp_path):
+    """The evidence report's t2_future_count and the migration section read these counts: an annotation of a name
+    every export of which is off the surface counts in none of them; one of a name also on the surface counts."""
+    extraction = _fixture_run()
+    extraction["exports"].append(_fixture_export("foo", "pkg/helpers.py", 9))  # a second foo, off the surface
+    path = _init_from(tmp_path, extraction)
+    notes = [{"export_name": "bar", "temporal": "T2-future", "citation": "[QMD:demo-temporal:CHANGELOG.md]"},
+             {"export_name": "foo", "temporal": "T2-past", "citation": "[QMD:demo-temporal:issue-4.md]"},
+             {"export_name": "foo", "temporal": "T2-future", "citation": "[QMD:demo-temporal:issue-9.md]"},
+             {"temporal": "T2-past", "citation": "[QMD:demo-temporal:issue-12.md]"}]
+    out = _ok(_run("add", "--inventory", str(path), "--field", "t2_annotations", stdin=json.dumps(notes)))
+    assert out["added"] == 4 and len(_load(path)["t2_annotations"]) == 4
+    assert {k: out["counts"][k] for k in ("t2_annotations", "t2_past", "t2_future", "functions_enriched")} == \
+        {"t2_annotations": 3, "t2_past": 2, "t2_future": 1, "functions_enriched": 1}
+
+
+def test_top_exports_keep_no_name_off_the_surface(tmp_path):
+    """Step 3b's temporal fetch and the Key API Summary read top_exports: a name every export of which is off the
+    surface is dropped, as add drops a T3 item named after a held export."""
+    path = _init_from(tmp_path, _fixture_run())
+    out = _ok(_run("set", "--inventory", str(path), stdin=json.dumps({"top_exports": ["foo", "bar", "baz", "other"]})))
+    assert (out["set"], out["dropped"]) == (["top_exports"], ["bar", "baz"])
+    assert _load(path)["top_exports"] == ["foo", "other"]
+    plain = _ok(_run("set", "--inventory", str(_write(tmp_path)), stdin='{"top_exports": ["parse", "Client"]}'))
+    assert plain["dropped"] == [] and plain["counts"]["top_exports"] == 2
+
+
+def test_the_not_public_warning_names_ten_and_counts_the_rest(tmp_path):
+    extraction = _fixture_run()
+    names = [f"internal_{i:02d}" for i in range(12)]
+    extraction["exports"] = [_fixture_export("foo", "pkg/a.py", 1)] + [
+        _fixture_export(name, "pkg/helpers.py", i + 1) for i, name in enumerate(names)]
+    data = _load(_init_from(tmp_path, extraction))
+    shown = ", ".join(f"{name} (pkg/helpers.py)" for name in names[:10])
+    assert data["warnings"] == [NOT_PUBLIC_WARNING.format(n=12, names=shown) + " and 2 more"]
+
+
+def test_gate_2_sees_an_empty_map_when_every_export_is_off_the_surface(tmp_path):
+    """extract.md §6's zero-export check reads `not_public` beside `exports`."""
+    extraction = _fixture_run()
+    extraction["exports"] = extraction["exports"][1:]  # foo is not found: only the internals
+    counts = _ok(_run("summary", "--inventory", str(_init_from(tmp_path, extraction))))["counts"]
+    assert (counts["exports"], counts["not_public"], counts["items"]) == (3, 3, 0)
+    six = EXTRACT.read_text(encoding="utf-8")
+    six = six[six.index("### 6. Present Extraction Summary"):six.index("### 7. ")]
+    assert "the §5 summary counts no export the provenance map will hold (its `exports` is 0, or equals its " \
+           "`not_public`)" in six
+    zero = next(line for line in (REPO / "src" / "skf-create-skill" / "references" / "sub" / "fetch-docs.md")
+                .read_text(encoding="utf-8").splitlines() if line.startswith('- **`source_type: "source"`, `counts.exports`'))
+    assert "`counts.exports` is 0 (or equals `counts.not_public`)" in zero
+
+
+@pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")
+@pytest.mark.parametrize("scope_type, mapped, coverage", [
+    ("public-api", [("foo", "pkg/a.py")], 0.5),
+    ("full-library", [("foo", "pkg/a.py"), ("bar", "pkg/a.py"), ("helper", "pkg/helpers.py"), ("baz", "pkg/sub.py")],
+     2.0),
+])
+def test_the_fixture_through_the_runner(tmp_path, scope_type, mapped, coverage):
+    """The issue's fixture from the runner's real JSON: init, provenance and the stats helper, and for public-api
+    the names update's records keeps from the same records."""
+    pkg = tmp_path / "src" / "pkg"
+    pkg.mkdir(parents=True)
+    for name, text in (("__init__.py", "from .a import foo\nfrom . import sub\n"),
+                       ("a.py", "def foo():\n    return 1\n\n\ndef bar():\n    return 2\n"),
+                       ("helpers.py", "def helper():\n    return 3\n"), ("sub.py", "def baz():\n    return 4\n")):
+        (pkg / name).write_bytes(text.encode("utf-8"))
+    runner_json = tmp_path / "demo.extraction.json"
+    ran = subprocess.run([sys.executable, str(RUNNER), "--mode", "full", "--source-root", str(tmp_path / "src"),
+                          "--scope-type", scope_type, "--tier", "Forge", "-o", str(runner_json)],
+                         capture_output=True, text=True, encoding="utf-8", timeout=300, check=False)
+    assert ran.returncode == 0, ran.stderr
+    extraction = _load(runner_json)
+    assert extraction["counts"]["exports_public_api"] == 2  # foo and the namespace sub
+    path = tmp_path / "demo.inventory.json"
+    _ok(_run("init", "--inventory", str(path), "--skill", "demo", "--mode", "source", "--tier", "Forge",
+             "--extraction", str(runner_json)))
+    target = tmp_path / "provenance-map.json"
+    _provenance(path, target)
+    entries = sorted((e["export_name"], e["source_file"]) for e in _load(target)["entries"])
+    assert entries == sorted(mapped)
+    if scope_type == "public-api":
+        assert set(entries) == _update_marks_public(extraction)
+    derived = _stats_of(target, extraction)
+    assert (derived["stats"]["exports_documented"], derived["stats"]["public_api_coverage"]) == (len(mapped), coverage)
+    assert derived["confidence_distribution"]["t1"] == len(mapped)
 
 
 # --------------------------------------------------------------------------

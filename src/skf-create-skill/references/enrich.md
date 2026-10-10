@@ -61,11 +61,11 @@ Then immediately load, read entire file, then execute `{nextStepFile}`.
 
 ### 3. QMD Enrichment Searches (Deep Tier Only)
 
-For each major exported function (the **top-level public API surface**, typically the 10-20 functions that will appear in the context-snippet, not all extracted exports), search `{enrichment_collections}` for context. Every query below passes them as its collections, so no other skill's issues or docs can annotate this one:
+For each major exported function (the **top-level public API surface**, typically the 10-20 functions that will appear in the context-snippet, not all extracted exports, and never one the inventory marks `public: false`, off a `public-api` skill's public surface), search `{enrichment_collections}` for context. Every query below passes them as its collections, so no other skill's issues or docs can annotate this one:
 
 **Search query construction:**
 
-Read the functions and their source files from `{extraction_inventory}`, the extraction inventory step 3 §5 wrote. For each function, derive the **module context** from its source file path (e.g., `src/graph/neo4j/index.ts` → module context `graph neo4j`). This context improves search relevance by scoping results to the function's subsystem without adding extra queries.
+Read the functions and their source files from `{extraction_inventory}`, the extraction inventory step 3 §5 wrote, leaving out each export marked `public: false`. For each function, derive the **module context** from its source file path (e.g., `src/graph/neo4j/index.ts` → module context `graph neo4j`). This context improves search relevance by scoping results to the function's subsystem without adding extra queries.
 
 **Primary searches (BM25 — always runs, no GPU/VRAM dependency):**
 
