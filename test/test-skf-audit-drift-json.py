@@ -58,6 +58,12 @@ code-mode stack is re-indexed from the project root and diffed by library
 (#589). No stage keeps a by-hand fallback for a helper: On Activation checks
 them, and the supplementary checks skip with a note.
 
+#702: step 1 binds the skill's scope type as update-skill does (metadata.json,
+else its brief), and a public-api skill's snapshot marks its exports by the
+public surface, so the exports off it that the map lacks leave added[] for
+not_public[]: they grade nothing, count in no Total Drift Items and read as
+one note in step 3's tables.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -390,8 +396,17 @@ def test_the_diff_section_keeps_what_steers_judgment():
     """§2 keeps the facts later steps judge by: a move is no removal, an
     ambiguous name goes to step 5, and two fields are not drift."""
     section = _flow(_slice(_read(STRUCTURAL), "### 2. What the Diff Decides", "### 4b."))
-    assert "never from set arithmetic of your own" in section
+    assert "never from set arithmetic of your own. Four of its facts steer what later steps judge:" in section
     assert "A move is **not** a removal." in section
+    # #702: an unpaired export off a public-api skill's surface is listed apart and is no drift
+    for token in ("**Off the public surface** (`not_public[]`): for a public-api skill, step 2 marked each export "
+                  "by the public surface create-skill and update-skill keep its map to, and an export marked "
+                  "`public: false` that pairs with no map entry is listed here, not in `added[]`",
+                  "it is not counted in Total Drift Items or the exit code, and step 5 never classifies it "
+                  "(`--from-diff` reads only `added[]`, `removed[]`, `changed[]` and `moved[]`)",
+                  "A name in `ambiguous_names[]` stays in `added[]` for step 5 to pair, and a map entry is matched "
+                  "whatever its mark, so none reads as removed."):
+        assert token in section, token
     assert ("**Not drift:** `summary.signature_unverified` counts matched exports whose signature sits in "
             "different fields on the two sides") in section
     assert "`label_changes[]` lists matched exports whose `confidence` or `extraction_method` differs" in section
@@ -633,13 +648,55 @@ def test_fifteen_added_exports_grade_high_however_they_render(tmp_path):
     assert "| **Total** | 15 |" in tables
 
 
+def test_exports_off_the_public_surface_grade_nothing(tmp_path):
+    """#702: a public-api snapshot marks its internal exports `public: false`. The fifteen the map lacks leave
+    added[] for not_public[], so step 5 has no finding for them and step 3's tables note them; the one new public
+    name is still a finding, and a map-held internal is still compared. Unmarked, all sixteen grade HIGH."""
+    exports = [_export("keep", "pkg/a.py", 1, public=False), _export("fresh", "pkg/__init__.py", 3, public=True)]
+    exports += [_export(f"g{i}", "api/routes.py", i + 1, public=False) for i in range(15)]
+    audit = Audit(tmp_path, [_entry("keep", "pkg/a.py", 1)], exports)
+    saved = audit.diff()
+    assert (saved["summary"]["added"], saved["summary"]["not_public"], saved["summary"]["unchanged"]) == (1, 15, 1)
+    tables = audit.render(STRUCTURAL)
+    assert "### Added Exports (1)" in tables and "| **Total Drift Items** | 1 |" in tables
+    assert "**Off the public surface:** 15 exports the provenance map does not hold" in tables
+    # named in the note only: the first ten, then how many more
+    assert tables.count("`api/routes.py`") == 10 and "and 5 more." in tables
+    findings = audit.project()
+    assert [(f["type"], f["name"]) for f in findings] == [("added", "fresh")]
+    result = audit.classify()
+    assert result["by_severity"] == {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 1, "LOW": 0}
+    assert result["total_items"] == 1
+    unmarked = Audit(tmp_path / "unmarked", [_entry("keep", "pkg/a.py", 1)],
+                     [{k: v for k, v in e.items() if k != "public"} for e in exports])
+    unmarked.diff()
+    assert unmarked.classify(unmarked.project())["by_severity"]["HIGH"] == 16
+
+
+def test_init_binds_the_scope_type_as_update_skill_does():
+    """#702: a skill whose metadata.json records no scope type (oms-cognee) is audited under its brief's, the
+    brief at the path §4b passes, so a public-api skill's re-index takes `--scope-type public-api`."""
+    artifacts = _flow(_slice(_read(INIT), "### 3. Load Skill Artifacts", "### 4."))
+    assert ("- `scope_type`: bind `{scope_type}` ← the `scope_type` metadata.json records, else the `scope.type` of "
+            "`{forge_data_folder}/{skill_name}/skill-brief.yaml` when that file exists and names one (a skill whose "
+            "metadata.json records no scope type is audited under its brief's), else null. When it is "
+            "`public-api`, step 2 passes `--scope-type public-api` to the recipe runner and the snapshot build "
+            "(`re-index.md` §3)") in artifacts
+    assert '"{forge_data_folder}/{skill_name}/skill-brief.yaml"' in BRIEF_GROUP
+    update = _flow(_read(SRC / "skf-update-skill" / "references" / "detect-changes.md"))
+    assert ("Bind `{scope_type}` ← the `scope_type` metadata.json records (init.md §2), else the `scope.type` of "
+            "`{brief_path}` when that file exists and names one") in update
+    assert "`{scope_type}` (step 1 §3) is `public-api`" in _flow(_read(RE_INDEX))
+
+
 def test_a_relocated_export_becomes_a_move(tmp_path):
     """§1b: the runner's find over the candidates, added to the snapshot by
     the prose's relocate command, then the same diff again."""
     audit = Audit(tmp_path, [_entry("keep", "pkg/a.py", 1), _entry("parse", "pkg/a.py", 9)],
-                  [_export("keep", "pkg/a.py", 1)])
+                  [_export("keep", "pkg/a.py", 1), _export("inner", "pkg/a.py", 20, public=False)])
     first = audit.diff()
     assert [r["name"] for r in first["removed"]] == ["parse"]
+    assert [n["name"] for n in first["not_public"]] == ["inner"]
     assert audit.classify(audit.project())["drift_score"] == "CRITICAL"
     _write_json(audit.data / "relocations.json", {"status": "ok", "exports": [
         {"export_name": "parse", "source_file": "pkg/util/parsing.py", "source_line": 3, "export_type": "function",
@@ -652,6 +709,8 @@ def test_a_relocated_export_becomes_a_move(tmp_path):
     assert (result.returncode, json.loads(result.stdout)["added"]) == (0, 1), result.stdout + result.stderr
     second = audit.diff()
     assert second["removed"] == [] and [m["name"] for m in second["moved"]] == ["parse"]
+    # #702: relocate rewrites the snapshot and keeps its marks, so an export off the surface stays off added[]
+    assert [n["name"] for n in second["not_public"]] == ["inner"] and second["added"] == []
     result = audit.classify(audit.project())
     (finding,) = result["findings"]
     assert (finding["type"], finding["category"], finding["severity"]) == ("moved", "export", "MEDIUM")

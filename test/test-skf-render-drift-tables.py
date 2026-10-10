@@ -251,8 +251,8 @@ def test_the_structural_tables_follow_the_saved_diff(tmp_path):
     assert summary == ["| Added | 1 |", "| Removed | 1 |", "| Moved | 1 |", "| Changed | 2 |",
                        "| **Total Drift Items** | 5 |"]
     # Nothing optional is printed when the diff has none of it.
-    for absent in ("Ambiguous Names", "Signatures not compared", "By Library", "Script/Asset Drift",
-                   "Provenance label differences"):
+    for absent in ("Ambiguous Names", "Signatures not compared", "Off the public surface", "By Library",
+                   "Script/Asset Drift", "Provenance label differences"):
         assert absent not in out, absent
 
 
@@ -304,6 +304,38 @@ def test_ambiguous_names_unverified_signatures_and_labels(tmp_path):
     assert "they are excluded from Total Drift Items and are not findings" in labels
     # Ten rows with one baseline and one current label read as one row.
     assert _rows(labels) == ["| 10 exports (rep: `f0`, `f1`, `f2`, …) | T1 / ast-grep | T1-low / source-read |"]
+
+
+def test_exports_off_the_public_surface_are_a_note_not_added_rows(tmp_path):
+    """#702: a public-api snapshot marks its internal exports `public: false`, and the diff lists the ones the map
+    lacks under not_public[]: no Added row, no Total Drift Items, one note whose count is the summary's and which
+    names the first ten as `name` (`file`), then how many more, as update-skill's not_public warning does."""
+    exports = [_export("keep", "pkg/a.py", 1), _export("fresh", "pkg/__init__.py", 4, public=True)]
+    exports += [_export(f"inner{i:02}", "pkg/ui.py", i + 1, public=False) for i in range(12)]
+    diff = _diff(tmp_path, [_entry("keep", "pkg/a.py", 1)], exports)
+    assert (diff["summary"]["added"], diff["summary"]["not_public"]) == (1, 12)
+    out = render.render_structural(diff)
+    assert _rows(_section(out, "### Added Exports (1)")) == [
+        "| `fresh` | function | `def fresh()` | `pkg/__init__.py:4` | T1 |"]
+    assert "| **Total Drift Items** | 1 |" in out
+    named = ", ".join(f"`inner{i:02}` (`pkg/ui.py`)" for i in range(10))
+    assert ("**Off the public surface:** 12 exports the provenance map does not hold are off this public-api "
+            "skill's public surface (`not_public[]` in the saved diff), so they are not reported as added and are "
+            f"excluded from Total Drift Items: {named} and 2 more.") in _section(out, "### Summary")
+    assert "inner10" not in out and "inner11" not in out
+    diff["summary"]["not_public"] = 17
+    assert "**Off the public surface:** 17 exports" in render.render_structural(diff)
+    assert f"{named} and 7 more." in render.render_structural(diff)
+
+
+def test_one_export_off_the_public_surface_reads_in_the_singular(tmp_path):
+    exports = [_export("keep", "pkg/a.py", 1), _export("inner", "pkg/ui.py", 3, public=False)]
+    diff = _diff(tmp_path, [_entry("keep", "pkg/a.py", 1)], exports)
+    out = render.render_structural(diff)
+    assert ("**Off the public surface:** 1 export the provenance map does not hold is off this public-api skill's "
+            "public surface (`not_public[]` in the saved diff), so it is not reported as added and is excluded "
+            "from Total Drift Items: `inner` (`pkg/ui.py`).") in out
+    assert "| **Total Drift Items** | 0 |" in out
 
 
 def test_a_removed_file_reads_as_one_row(tmp_path):

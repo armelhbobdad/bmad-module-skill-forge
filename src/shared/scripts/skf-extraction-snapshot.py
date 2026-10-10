@@ -18,7 +18,8 @@ CLI:
   uv run skf-extraction-snapshot.py build --source-root <dir> --tier <tier> \\
       --date <timestamp> [--source-path <recorded root>] \\
       [--provenance-map <map>] [--extraction <runner.json>] \\
-      [--details <by-eye.json>]... -o <extraction-snapshot.json>
+      [--details <by-eye.json>]... [--scope-type <type>] \\
+      -o <extraction-snapshot.json>
   uv run skf-extraction-snapshot.py relocate <extraction-snapshot.json> \\
       --diff <structural-diff.json> --extraction <runner.json>
 
@@ -66,6 +67,24 @@ build
   map gives a library (`source_library_by_file`) carries it as
   `source_library`, which step 3's `--group-by source_library` diff reads.
 
+  Public surface (--scope-type public-api, in any case). Each export of a
+  language family whose entry points are a barrel is marked `public`, true
+  or false, by skf-extraction-inventory.py's public-surface rule
+  (`public_surface` over the runner's JSON, with the scope type this flag
+  gives, and `public(name, file, language)`, the language of the runner's
+  export of that name and file, else the file's extension): the rule
+  create-skill keeps a public-api skill's provenance map to, and
+  update-skill's change manifest too. Every export stays in the snapshot,
+  so a map entry off the surface is never reported removed; step 3's diff
+  lists an export marked false that pairs with no map entry under
+  `not_public[]`, not `added[]`. With no surface the rule can read (no
+  runner JSON, as at Quick tier, a runner that could not run, an
+  incomplete run, one with errors, or an entry point the runner could not
+  trace) nothing is marked, and `public_surface.problem` says why. Any
+  other scope type, and no flag, mark nothing and give `public_surface`
+  null; only --scope-type public-api loads skf-extraction-inventory.py,
+  from beside this script.
+
   Details file: {"files": [paths read by eye], "exports": [export objects]}
   (either key may be absent). Give --details once per file: one per worker.
 
@@ -97,7 +116,9 @@ build
                  "t1": N, "t1_low": N},
       "exports": [{"name", "type", "signature", "file", "line",
                    "confidence", "extraction_method", "ast_node_type",
-                   "source_library"?}, ...],
+                   "source_library"?, "public"?}, ...],
+      "public_surface": {"problem": "<why no surface was read>" | null,
+                         "marked_not_public": N} | null,
       "relocations": [{"name", "file", "line"}, ...],   # relocate's
       "warnings": ["..."]
     }
@@ -136,8 +157,8 @@ build
   Prints {"status": "ok", "output", "runner_status", "complete",
   "to_read": [{"file", "status", "issue"}, ...] (the `parse-failed` and
   `unread` files), "extraction_gaps", "ast_fallback_files",
-  "files_by_status", "counts"} on stdout: what step 2 acts on, so it never
-  opens the runner's JSON.
+  "files_by_status", "counts", "public_surface"} on stdout: what step 2
+  acts on, so it never opens the runner's JSON.
 
 relocate
 
@@ -171,6 +192,8 @@ RUNNER_READ = frozenset({"ok", "incomplete"})
 # The files whose provenance entries a baseline gap checks: the ones read.
 BASELINE_GAP_STATUSES = ("extracted", "read-by-eye")
 AST_GREP_UNAVAILABLE = "all files (ast-grep unavailable)"
+# The scope type whose exports are marked by the public-surface rule.
+PUBLIC_API = "public-api"
 EXIT_ERROR = 2
 
 
@@ -213,6 +236,37 @@ def _verifier():
     """skf-verify-provenance-completeness.py, for its baseline gaps
     (`baseline_gaps`, by its declaration rule `declared_line`)."""
     return _sibling("skf-verify-provenance-completeness.py", "baseline_gaps", "declared_line")
+
+
+def _public_api(scope_type: str | None) -> bool:
+    return isinstance(scope_type, str) and scope_type.strip().lower() == PUBLIC_API
+
+
+def _public_surface(runner: dict, scope_type: str):
+    """(surface, problem) by skf-extraction-inventory.py's `public_surface` over the runner's JSON with the scope
+    type --scope-type gives (an empty one when no runner ran, so the rule names its own problem)."""
+    scope = runner.get("scope") if isinstance(runner.get("scope"), dict) else {}
+    extraction = {**runner, "scope": {**scope, "type": scope_type}}
+    return _sibling("skf-extraction-inventory.py", "public_surface").public_surface(extraction)
+
+
+def _mark_public(exports: list[dict], runner: dict, scope_type: str | None) -> dict | None:
+    """Mark each export `public` by the public-surface rule for a public-api scope type; the snapshot's
+    `public_surface` (None for any other scope type)."""
+    if not _public_api(scope_type):
+        return None
+    surface, problem = _public_surface(runner, scope_type)
+    marked_not_public = 0
+    if surface is not None:
+        languages = {(e.get("export_name"), _posix(str(e.get("source_file") or ""))): e.get("language")
+                     for e in runner.get("exports") or [] if isinstance(e, dict)}
+        for record in exports:
+            mark = surface.public(record["name"], record["file"], languages.get((record["name"], record["file"])))
+            if mark is not None:
+                record["public"] = mark
+                if mark is False:
+                    marked_not_public += 1
+    return {"problem": problem, "marked_not_public": marked_not_public}
 
 
 def _posix(path: str) -> str:
@@ -359,7 +413,8 @@ def _counts(exports: list[dict]) -> dict:
 
 
 def build(source_root: Path, tier: str, date: str, provenance: dict | None, runner: dict | None,
-          details_files: list[str], details_exports: list[dict], root_text: str | None = None) -> dict:
+          details_files: list[str], details_exports: list[dict], root_text: str | None = None,
+          scope_type: str | None = None) -> dict:
     """The snapshot (see the module docstring)."""
     warnings: list[str] = []
     runner = runner or {}
@@ -431,6 +486,7 @@ def build(source_root: Path, tier: str, date: str, provenance: dict | None, runn
                       "fallback": ran and runner_said in TO_READ, "exports": per_file[rel]})
 
     ordered = _ordered(exports.values())
+    surface_state = _mark_public(ordered, runner, scope_type)
     for record in ordered:
         library = libraries.get(record["file"])
         if library is not None:
@@ -472,6 +528,7 @@ def build(source_root: Path, tier: str, date: str, provenance: dict | None, runn
         "outside_scope": _outside_scope(runner) if ran else [],
         "counts": _counts(ordered),
         "exports": ordered,
+        "public_surface": surface_state,
         "relocations": [],
         "warnings": warnings,
     }
@@ -535,14 +592,15 @@ def _cmd_build(args: argparse.Namespace) -> dict:
         details_files += files
         details_exports += exports
     snapshot = build(root, args.tier, args.date, provenance, runner, details_files, details_exports,
-                     root_text=args.source_path or args.source_root)
+                     root_text=args.source_path or args.source_root, scope_type=args.scope_type)
     _write(Path(args.output), snapshot)
     return {"status": "ok", "output": args.output, "runner_status": snapshot["runner_status"],
             "complete": snapshot["complete"],
             "to_read": [{"file": f["file"], "status": f["status"], "issue": f["issue"]}
                         for f in snapshot["files"] if f["status"] in TO_READ],
             "extraction_gaps": snapshot["extraction_gaps"], "ast_fallback_files": snapshot["ast_fallback_files"],
-            "files_by_status": snapshot["files_by_status"], "counts": snapshot["counts"]}
+            "files_by_status": snapshot["files_by_status"], "counts": snapshot["counts"],
+            "public_surface": snapshot["public_surface"]}
 
 
 def _cmd_relocate(args: argparse.Namespace) -> dict:
@@ -578,6 +636,9 @@ def _build_parser() -> argparse.ArgumentParser:
     snap.add_argument("--extraction", help="the JSON skf-extract-public-api.py --mode full wrote")
     snap.add_argument("--details", action="append",
                       help="the exports read by eye: {\"files\": [...], \"exports\": [...]}; repeat per file")
+    snap.add_argument("--scope-type",
+                      help="the skill's scope type: public-api marks each export `public` by the public-surface "
+                           "rule; any other marks nothing")
     snap.add_argument("-o", "--output", required=True, help="the snapshot to write")
     snap.set_defaults(func=_cmd_build)
     move = sub.add_parser("relocate", help="add the exports the runner found under removed names elsewhere")

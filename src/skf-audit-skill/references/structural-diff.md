@@ -95,10 +95,11 @@ When `added` is above 0, run §1's command again with the same arguments and the
 
 ### 2. What the Diff Decides
 
-Every set comes straight from the saved diff, never from set arithmetic of your own. Three of its facts steer what later steps judge:
+Every set comes straight from the saved diff, never from set arithmetic of your own. Four of its facts steer what later steps judge:
 
 - **Moved** (`moved[]`): a matched export whose file changed. A move is **not** a removal.
 - **Ambiguous names** (`ambiguous_names[]`): a name left on both sides that occurs more than once on a side (a `GET` handler in several route files, for example), so the helper paired none of its entries. They stay in `removed[]` and `added[]`, and step 5 judges whether a removed and an added entry of one name are one export that moved.
+- **Off the public surface** (`not_public[]`): for a public-api skill, step 2 marked each export by the public surface create-skill and update-skill keep its map to, and an export marked `public: false` that pairs with no map entry is listed here, not in `added[]`, since neither workflow documents it. It is not drift: it is not counted in Total Drift Items or the exit code, and step 5 never classifies it (`--from-diff` reads only `added[]`, `removed[]`, `changed[]` and `moved[]`). §5's renderer counts it in an **Off the public surface:** note. A name in `ambiguous_names[]` stays in `added[]` for step 5 to pair, and a map entry is matched whatever its mark, so none reads as removed.
 - **Not drift:** `summary.signature_unverified` counts matched exports whose signature sits in different fields on the two sides, so a change there cannot be seen, and `label_changes[]` lists matched exports whose `confidence` or `extraction_method` differs, which names the tool that read the export, not what the source says. Neither is counted in Total Drift Items, and step 5 classifies neither.
 
 ### 4b. Detect Script/Asset Drift

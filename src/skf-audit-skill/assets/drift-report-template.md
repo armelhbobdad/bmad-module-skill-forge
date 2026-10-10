@@ -60,6 +60,7 @@ previousWorkflow: 'create-skill'
 <!-- Appended by structural-diff, or for a compose-mode stack by constituent-freshness -->
 <!-- Constituent Freshness (compose-mode stacks): drifted, missing and not-compared constituents; each drifted (HIGH) or missing (MEDIUM) one is a finding -->
 <!-- Provenance label differences (not drift): informational table, rendered only when label_changes[] is non-empty and excluded from Total Drift Items -->
+<!-- Off the public surface (not drift): a note under the Summary naming a public-api skill's new exports off its public surface (not_public[]), rendered only when summary.not_public is above 0 and excluded from Total Drift Items -->
 
 ---
 
