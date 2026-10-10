@@ -2,4 +2,5 @@ type: fixed
 scope: skf-audit-skill
 summary: |
   Audit Skill no longer reports the internal exports of a `public-api` skill as added drift. When the skill's `metadata.json`, or else its brief, gives the scope type `public-api`, the re-index passes `--scope-type public-api` to the recipe runner and to the snapshot build, which marks each export as on or off the public surface by the rule Create Skill and Update Skill keep the provenance map to. The structural diff then lists each new export off the surface under `not_public`, with its count in the summary and an "Off the public surface" note in the drift report, instead of under the added exports, where each one graded HIGH. These exports are not drift: they count in neither Total Drift Items, the drift score nor the diff's exit code, and a map entry off the surface is still compared, never reported removed. When the public surface cannot be read, as at Quick tier or after an incomplete runner run, every new export is reported as added as before, and the result envelope warns `public_surface_not_applied`.
+prs: [714]
 issues: [702]
