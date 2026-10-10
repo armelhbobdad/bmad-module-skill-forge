@@ -343,11 +343,27 @@ JS/TS one that is not). Chains are followed to the end, a cycle cut: an
 `export *`, a star import or a glob passes on what its module exports,
 that module's own chains included; a re-exported name is traced through
 each re-export, import and glob between to the file that defines it (a
-default export to the name it declares). A namespace (`export * as ns`, a
-Python submodule, a Rust `pub mod`) counts once, and what it makes
-reachable is not internal: the names its module passes on, the modules
-among them in turn, and for Rust every recipe match in the crate root and
-in each module file a `pub mod` or `pub use` of a reachable module names.
+default export to the name it declares). A Python package's explicit
+binding of a name (an import, or a def or class in its __init__.py)
+comes before its submodule: `from .x import y` imports the y
+x/__init__.py binds, and the submodule x/y.py only when x/__init__.py
+binds no y or binds the submodule itself (`from . import y`, `from
+pkg.x import y`); a y x/__init__.py binds only through a star import
+(`from .impl import *`) is still read as the submodule x/y.py. A
+namespace (`export * as ns`, a Python submodule, a Rust `pub mod`)
+lists in `members` the names its module passes on, which users reach as
+`pkg.ns.name`, each traced to the file that defines it as a public name
+is, and in place of a namespace among them its members (each module once,
+so a cycle is cut); `members` is null when the trace cannot read the
+module (a JavaScript target no file here holds, a Rust inline or
+`#[path]` module), and a nested one the trace cannot read is a member
+itself. A member re-exported from another package has no file, is no
+gap when a recipe found its name, marks its name public, and, unlike the
+same form in an entry point, adds no `unresolved` item. What a namespace
+makes reachable is not internal: the names its module passes on, the
+modules among them in turn, and for Rust every recipe match in the crate
+root and in each module file a `pub mod` or `pub use` of a reachable
+module names.
 A chain the trace cannot follow (a module no file here holds, a `#[path]`
 module) is listed in `unresolved`. The diff against the recipe inventory,
 one language family at a time (JavaScript/TypeScript, Python, Rust, Go):
@@ -356,15 +372,24 @@ that no entry point exports or makes reachable), `extraction_gaps` (names
 an entry point exports that no recipe found, defined in a file in scope or
 in none the trace reached: read them by eye) and `outside_scope` (such
 names defined in a file out of scope: widen scope.include to document
-them). In a family with no entry point, or only empty ones, every name the
+them). A namespace with `members` is diffed as its members: each is found
+when a recipe found its name, or its `local` one, in its file (one with
+no file by its name alone, as a public name is), and has no row of its
+own when a public name (or another namespace's member) has its name and
+file; one with null `members`, and a member that is such a module, is no
+gap. In a family with no entry point, or only empty ones, every name the
 recipes found is public.
 
 Counts. `exports_public_api` counts the public names (the package's whole
-public API, `outside_scope` names included) and `exports_internal` the
-internal ones. `effective_denominator` counts the public names whose
-definition file matches scope.tier_a_include (else scope.include) and no
-scope.exclude glob: each name once, so a type counts once whatever its
-methods, and a barrel that only re-exports adds nothing of its own. `arms` gives compile's effective_denominator arms:
+public API, `outside_scope` names included), each distinct name and file
+once: a namespace with `members` counts as its members (none for an empty
+list, and a member that is also a public name, or another namespace's
+member, once), one with null `members` as one. `exports_internal` counts
+the internal names. `effective_denominator` counts those public names
+whose definition file matches scope.tier_a_include (else scope.include)
+and no scope.exclude glob: each name once, so a type counts once whatever
+its methods, and a barrel that only re-exports adds nothing of its own.
+`arms` gives compile's effective_denominator arms:
 (a) `monorepo` from skf-detect-workspaces.py, (b) `specific_modules`
 (scope type specific-modules on a repository that is not a monorepo) and
 (c) `multi_subpath_exports` (an in-scope package.json whose `exports` map
@@ -417,7 +442,9 @@ Output JSON (stdout, or -o):
                                     | {"entry", "name", "from", "file"}, ...]},
     "entry_point_diff": {
         "public": [{"name", "language", "entry", "via", "from", "local",
-                    "file", "line"}, ...],
+                    "file", "line",
+                    "members": [{"name", "local", "file", "line"}, ...]
+                               | null}, ...],  # members: via namespace only
         "internal": [{"name", "language", "source_file", "source_line"}, ...],
         "extraction_gaps": [{"name", "language", "entry", "file", "line"}, ...],
         "outside_scope": [{"name", "language", "entry", "file", "line"}, ...]},
@@ -440,10 +467,12 @@ Output JSON (stdout, or -o):
 entry point), `re-export` (from another file, which `file` names, `local`
 giving the name it has there when it differs), `star` (through `export *`,
 `from .x import *` or `pub use x::*`) or `namespace` (a module: `export *
-as ns`, a Python submodule, a Rust module). `line` is null where no line
-defines the name (a module, a name from another package). An `unresolved`
-item names a subpath whose targets name no file, or a chain met tracing
-`entry` that stops at `file`, the module `from` naming no file here.
+as ns`, a Python submodule, a Rust module, its names in `members`). `line`
+is null where no line defines the name (a module, a name from another
+package), and a member's `file` is null for a name from another package.
+An `unresolved` item names a subpath whose targets name no file, or a
+chain met tracing `entry` that stops at `file`, the module `from` naming
+no file here.
 Without ast-grep the JSON still has the entry points' `files`, the
 `exports_maps`, the unresolved subpaths and the `arms`.
 `file_issues` lists the files to read by eye: a file ast-grep skips (not
@@ -2871,26 +2900,66 @@ def _specifier_local(text: str) -> str:
     return re.split(r"\s+as\s+", item, maxsplit=1)[0].strip().strip("'\"")
 
 
+def _member(name: str, local: str | None, file: str | None, line: int | None) -> dict:
+    """One name a namespace's module passes on, traced to the file that
+    defines it (`local` the name it has there when it differs)."""
+    return {"name": name, "local": local if local and local != name else None, "file": file, "line": line}
+
+
+def _flatten(start, direct: Callable[[object], list[tuple[str, str, object]]]) -> list[dict]:
+    """The members of the namespace module `start`: what `direct` says it
+    passes on, (name, "member", member) or (name, "module", the module),
+    each nested namespace module's members spliced in its place (each
+    module once, so a cycle is cut), each (name, file) once, and no name
+    that starts with `_`, which is never public."""
+    out: list[dict] = []
+    seen: set[tuple[str, str | None]] = set()
+    visited: set = set()
+
+    def walk(module) -> None:
+        visited.add(module)
+        for name, kind, value in direct(module):
+            if not name or name.startswith("_"):
+                continue
+            if kind == "module":
+                if value not in visited:
+                    walk(value)
+            elif (value["name"], value["file"]) not in seen:
+                seen.add((value["name"], value["file"]))
+                out.append(value)
+
+    walk(start)
+    return out
+
+
 class _Surface:
     """The public names one language family's entry points declare:
     {name: info}, the first entry point naming it wins; the names, and the
     files, a namespace export (a module) makes reachable, which are not
-    internal; and the re-exports the trace could not follow."""
+    internal; and the re-exports the trace could not follow. A namespace
+    item also carries its `members`, the names its module passes on (None
+    when the trace cannot read that module); `opaque` holds the (name,
+    file) of each member that is itself a module the trace cannot read,
+    which, as such a namespace, is no recipe's target."""
 
     def __init__(self) -> None:
         self.names: dict[str, dict] = {}
         self.reachable: set[str] = set()
         self.reachable_files: set[str] = set()
         self.unresolved: list[dict] = []
+        self.opaque: set[tuple[str, str | None]] = set()
 
     def add(self, name: str, entry: str, via: str, file: str | None, line: int | None,
-            source: str | None = None, local: str | None = None) -> dict | None:
+            source: str | None = None, local: str | None = None,
+            members: list[dict] | None = None) -> dict | None:
         if not name or name.startswith("_"):
             return None
         if name not in self.names:
             self.names[name] = {"name": name, "entry": entry, "via": via, "from": source,
                                 "local": local if local and local != name else None,
                                 "file": file, "line": line}
+            if via == "namespace":
+                self.names[name]["members"] = [dict(m) for m in members] if members is not None else None
         return self.names[name]
 
     def unresolve(self, entry: str, name: str, source: str | None, file: str) -> None:
@@ -3063,6 +3132,40 @@ def _js_surface(root: Path, entries: list[dict], tree_set: set[str], forms: dict
             if fact is not None and fact["how"] == "namespace":
                 reach(target(fact["source"], where))
 
+    passes: dict[str, list[tuple[str, str, object]]] = {}
+
+    def direct(file: str) -> list[tuple[str, str, object]]:
+        """What the namespace module `file` passes on, in order: (name,
+        "member", a member traced as publish traces a name) or (name,
+        "module", the file of a namespace among them); a namespace whose
+        module no file here holds is a member itself, with no file, and so
+        is a re-export from another package, which (unlike the same form in
+        an entry point) is not unresolved."""
+        if file not in passes:
+            out: list[tuple[str, str, object]] = []
+            for name, owner in passed_on(file).items():
+                where, local, line, fact = resolve(owner, name, set())
+                how = fact["how"] if fact is not None else None
+                namespace = target(fact["source"], where) if how == "namespace" else None
+                if namespace is not None:
+                    out.append((name, "module", namespace))
+                elif how == "namespace":
+                    surface.opaque.add((name, None))
+                    out.append((name, "member", _member(name, None, None, None)))
+                elif how == "re-export":
+                    out.append((name, "member", _member(name, local, None, None)))
+                else:
+                    out.append((name, "member", _member(name, local, where, line)))
+            passes[file] = out
+        return passes[file]
+
+    member_lists: dict[str, list[dict]] = {}
+
+    def members(file: str) -> list[dict]:
+        if file not in member_lists:
+            member_lists[file] = _flatten(file, direct)
+        return member_lists[file]
+
     def publish(entry: str, name: str, via: str, module: str, source: str | None) -> None:
         """Add public `name`, which `module` exports, traced to what it is."""
         chain: set[str] = set()
@@ -3071,7 +3174,8 @@ def _js_surface(root: Path, entries: list[dict], tree_set: set[str], forms: dict
         how = fact["how"] if fact is not None else None
         if how == "namespace":
             namespace = target(fact["source"], where)
-            surface.add(name, entry, "namespace", namespace, None, source)
+            surface.add(name, entry, "namespace", namespace, None, source,
+                        members=members(namespace) if namespace is not None else None)
             if namespace is None:
                 surface.unresolve(entry, name, fact["source"], where)
             reach(namespace)
@@ -3381,9 +3485,16 @@ def _py_surface(root: Path, entries: list[dict], tree_set: set[str], surface: _S
             if found is None:
                 return None, binding["imported"], None, "import"
             if found.endswith("__init__.py"):
-                sub = _py_submodule(posixpath.dirname(found), binding["imported"], tree_set)
-                if sub and sub != rel:
-                    return sub, binding["imported"], None, "submodule"
+                # Python's own precedence: the package's explicit binding of
+                # the name first, the submodule only when it binds none (or
+                # binds the submodule itself, `from . import name` or
+                # `from pkg.x import name`); a star import is not read here
+                inner = bindings(found)[1].get(binding["imported"])
+                if inner is None or (inner["kind"] == "import" and inner["imported"] == binding["imported"]
+                                     and module_file(found, inner["level"], inner["module"], top) == found):
+                    sub = _py_submodule(posixpath.dirname(found), binding["imported"], tree_set)
+                    if sub and sub != rel:
+                        return sub, binding["imported"], None, "submodule"
             rel, name = found, binding["imported"]
         return rel, name, None, "missing"
 
@@ -3400,6 +3511,31 @@ def _py_surface(root: Path, entries: list[dict], tree_set: set[str], surface: _S
             surface.reachable.update(chain | {local})
             if what == "submodule" and where is not None:
                 reach(where, top)
+
+    passes: dict[tuple[str, str], list[tuple[str, str, object]]] = {}
+
+    def direct(rel: str, top: str) -> list[tuple[str, str, object]]:
+        """What the submodule `rel` passes on (its star_names), in order:
+        (name, "member", a member traced by resolve) or (name, "module",
+        the file of a submodule among them); a name from another package
+        has no file."""
+        if (rel, top) not in passes:
+            out: list[tuple[str, str, object]] = []
+            for name, owner in star_names(rel, top).items():
+                where, local, line, what = resolve(owner, name, top, set())
+                if what == "submodule" and where is not None:
+                    out.append((name, "module", where))
+                else:
+                    out.append((name, "member", _member(name, local, where, line)))
+            passes[(rel, top)] = out
+        return passes[(rel, top)]
+
+    member_lists: dict[tuple[str, str], list[dict]] = {}
+
+    def members(rel: str, top: str) -> list[dict]:
+        if (rel, top) not in member_lists:
+            member_lists[(rel, top)] = _flatten(rel, lambda module: direct(module, top))
+        return member_lists[(rel, top)]
 
     for entry in [e["file"] for e in entries]:
         top = posixpath.dirname(entry)
@@ -3430,7 +3566,7 @@ def _py_surface(root: Path, entries: list[dict], tree_set: set[str], surface: _S
             where, local, line, what = resolve(entry, name, top, chain)
             surface.reachable.update(chain)
             if what == "submodule":
-                surface.add(name, entry, "namespace", where, None, source, local)
+                surface.add(name, entry, "namespace", where, None, source, local, members=members(where, top))
                 reach(where, top)
             elif what == "import":
                 surface.add(name, entry, "re-export", None, None, source, local)
@@ -3684,6 +3820,41 @@ def _rust_surface(root: Path, entries: list[dict], tree_set: set[str], surface: 
             if sub is not None:
                 reach(lib, sub, reached)
 
+    passes: dict[tuple[str, tuple[str, ...]], list[tuple[str, str, object]]] = {}
+
+    def direct(lib: str, here: tuple[str, ...]) -> list[tuple[str, str, object]]:
+        """What the module at `here` passes on (exported), in order: (name,
+        "member", a member traced as publish traces a name) or (name,
+        "module", the path of a module among them that a file of its own
+        holds); an inline or `#[path]` module is a member itself, at its
+        `pub mod`, and a `pub use` of another crate's item one with no file,
+        which (unlike the same form in the crate root) is not unresolved."""
+        if (lib, here) not in passes:
+            out: list[tuple[str, str, object]] = []
+            for name in exported(lib, list(here)):
+                file, local, line, sub, stop = resolve(lib, list(here), name, set())
+                if stop is not None:
+                    out.append((name, "member", _member(name, local, None, None)))
+                elif sub is not None and _rust_file(lib, sub, tree_set) is not None:
+                    out.append((name, "module", tuple(sub)))
+                else:
+                    if sub is not None:
+                        surface.opaque.add((name, file))
+                    out.append((name, "member", _member(name, local, file, line)))
+            passes[(lib, here)] = out
+        return passes[(lib, here)]
+
+    member_lists: dict[tuple[str, tuple[str, ...]], list[dict]] = {}
+
+    def members(lib: str, here: list[str]) -> list[dict] | None:
+        """The members of the module at `here`; None when no file of its own holds it."""
+        if _rust_file(lib, here, tree_set) is None:
+            return None
+        key = (lib, tuple(here))
+        if key not in member_lists:
+            member_lists[key] = _flatten(tuple(here), lambda path: direct(lib, path))
+        return member_lists[key]
+
     def publish(lib: str, here: list[str], name: str, via: str, source: str | None,
                 reached: set[tuple[str, ...]]) -> None:
         """Add public `name`, which the module at `here` exports, traced to
@@ -3695,7 +3866,7 @@ def _rust_surface(root: Path, entries: list[dict], tree_set: set[str], surface: 
             surface.add(name, lib, via, None, None, source, local)
             surface.unresolve(lib, name, *stop)
         elif sub is not None:
-            surface.add(name, lib, "namespace", file, line, "::".join(sub))
+            surface.add(name, lib, "namespace", file, line, "::".join(sub), members=members(lib, sub))
             reach(lib, sub, reached)
         else:
             surface.add(name, lib, via, file, line, source, local)
@@ -3710,7 +3881,8 @@ def _rust_surface(root: Path, entries: list[dict], tree_set: set[str], surface: 
                 continue
             sub = [name.removeprefix("r#")]
             sub_file = _rust_file(lib, sub, tree_set)
-            surface.add(name, lib, "namespace", sub_file or lib, None if sub_file else line)
+            surface.add(name, lib, "namespace", sub_file or lib, None if sub_file else line,
+                        members=members(lib, sub))
             reach(lib, sub, reached)
         for path, alias, glob, _ in info["uses"]:
             if not glob:
@@ -3789,8 +3961,13 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
     reachable (a name, or any export of a reachable file), is internal. A
     declared name no recipe found is a gap when a file in scope defines it
     (or the trace found no file), and is outside scope when a file out of
-    scope does; a module is no recipe's target, so neither. In a family
-    with no entry point, or only empty ones, every export is public."""
+    scope does; a module is no recipe's target, so neither: a namespace
+    with `members` has each member diffed in its place, found when a
+    recipe found its name, or its `local` one, in its file, and given no
+    row of its own when a declared name has its name and file (or another
+    namespace gave it one); one whose members are unknown (None), or a
+    member that is such a module (`opaque`), is no gap. In a family with
+    no entry point, or only empty ones, every export is public."""
     statuses: dict[str, str] = {}
     public: dict[tuple[str, str], dict] = {}
     internal: list[dict] = []
@@ -3824,7 +4001,41 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
             if name in names or (info["local"] or name) in names or info["via"] == "namespace":
                 continue
             (gaps if info["file"] is None or info["file"] in in_scope else outside).append((family, info))
+        # A namespace's members, each by its name (or `local`) and file, or
+        # by name alone when it has no file, as a declared name is: a name
+        # at a file a declared name already gives counts once.
+        found = {(e["export_name"], e["source_file"]) for e in records}
+        given = {(info["name"], info["file"]) for info in declared.values() if not _has_members(info)}
+        for info in declared.values():
+            for member in info["members"] if _has_members(info) else []:
+                key = (member["name"], member["file"])
+                if (key in given or key in found or key in surface.opaque
+                        or (member["local"] and (member["local"], member["file"]) in found)
+                        or (member["file"] is None and {member["name"], member["local"]} & names)):
+                    continue
+                given.add(key)
+                row = {"name": member["name"], "entry": info["entry"], "file": member["file"],
+                       "line": member["line"]}
+                (gaps if member["file"] is None or member["file"] in in_scope else outside).append((family, row))
     return statuses, public, internal, gaps, outside
+
+
+def _has_members(info: dict) -> bool:
+    """A namespace item whose module's members the trace read (a list, maybe empty)."""
+    return info.get("via") == "namespace" and isinstance(info.get("members"), list)
+
+
+def _public_keys(public: dict[tuple[str, str], dict]) -> set[tuple[str, str, str | None]]:
+    """The (family, name, file) the counts count: each public name but a
+    namespace with members, in its place each member, and so a member that
+    is also a declared name (or another namespace's member) once."""
+    keys: set[tuple[str, str, str | None]] = set()
+    for (family, _), info in public.items():
+        if _has_members(info):
+            keys.update((family, m["name"], m["file"]) for m in info["members"])
+        else:
+            keys.add((family, info["name"], info["file"]))
+    return keys
 
 
 def _head_cap(value: int | None, tier: str | None, scope_type: str | None) -> int | None:
@@ -4037,6 +4248,7 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
 
     by_type: Counter = Counter(e["export_type"] for e in exports)
     ordered = sorted(public.items(), key=lambda item: (item[0][1], item[0][0]))
+    counted = _public_keys(public)
     result.update({
         "truncated": any(s["truncated"] for s in stats),
         "recipes": stats,
@@ -4061,9 +4273,9 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
              "entry": info["entry"], "file": info["file"], "line": info["line"], "via": info["via"]}
             for (family, _), info in ordered if info["via"] in ("re-export", "star", "namespace")],
         "counts": {
-            "exports_public_api": len(public),
+            "exports_public_api": len(counted),
             "exports_internal": len(internal),
-            "effective_denominator": sum(1 for info in public.values() if info["file"] in denominator_files),
+            "effective_denominator": sum(1 for _, _, file in counted if file in denominator_files),
             "effective_denominator_basis": basis,
             "denominator_files": len(denominator_files),
         },

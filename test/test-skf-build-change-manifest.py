@@ -1392,13 +1392,15 @@ def _break_surface(extraction: dict, change: str) -> None:
 
 
 COGNIFY = "cognee/api/v1/cognify/cognify.py"
-# cognee's shape: `from .api.v1.cognify import cognify` names the submodule, so the runner records `cognify` as a
-# namespace at the file that defines the function; `delete` is defined in its package's __init__.py beside an empty
-# delete.py the runner names instead; `visualize` renames `visualize_graph`
+# cognee's shape as the runner records it (#703): `from .api.v1.cognify import cognify` is the function
+# cognify/__init__.py binds, at the file that defines it; `delete` is defined in its package's __init__.py beside an
+# empty delete.py; `tools` is a submodule, a namespace whose member is the function its package re-exports from
+# tools.py; `visualize` renames `visualize_graph`
 SURFACE = [
-    {"name": "cognify", "via": "namespace", "file": COGNIFY, "line": None},
-    {"name": "delete", "via": "namespace", "file": "cognee/api/v1/delete/delete.py", "line": None},
-    {"name": "tools", "via": "namespace", "file": "cognee/api/v1/tools/__init__.py", "line": None},
+    {"name": "cognify", "via": "re-export", "file": COGNIFY, "line": 44},
+    {"name": "delete", "via": "re-export", "file": "cognee/api/v1/delete/__init__.py", "line": 11},
+    {"name": "tools", "via": "namespace", "file": "cognee/api/v1/tools/__init__.py", "line": None,
+     "members": [{"name": "list_tools", "local": None, "file": "cognee/api/v1/tools/tools.py", "line": 1}]},
     {"name": "visualize", "via": "re-export", "local": "visualize_graph",
      "file": "cognee/api/v1/visualize/visualize.py", "line": 3},
     {"name": "search", "via": "re-export", "file": "pkg/a.py", "line": 11},
@@ -1415,7 +1417,7 @@ class TestPublicSurface:
             _runner("fetch", "web/a.ts", 1, language="typescript", node="function_declaration"),
         ], SURFACE, gaps=({"name": "Drop", "entry": "cognee/__init__.py", "file": "cognee/pipelines/types.py",
                            "line": 32},))
-        # read by eye: the runner's own gap, and a module whose namespace is its package's __init__.py
+        # read by eye: the runner's own gap, and the tools module itself, which its members stand for
         details = {"exports": [
             {"export_name": "Drop", "export_type": "sentinel", "source_file": "cognee/pipelines/types.py",
              "source_line": 32, "confidence": "T1-low", "extraction_method": "source-read"},
@@ -1428,8 +1430,8 @@ class TestPublicSurface:
             ("cognify", COGNIFY): True, ("get_default_tasks", COGNIFY): False,
             ("delete", "cognee/api/v1/delete/__init__.py"): True,
             ("visualize_graph", "cognee/api/v1/visualize/visualize.py"): True,
-            ("list_tools", "cognee/api/v1/tools/tools.py"): False,
-            ("tools", "cognee/api/v1/tools/tools.py"): True, ("Drop", "cognee/pipelines/types.py"): True,
+            ("list_tools", "cognee/api/v1/tools/tools.py"): True,  # `cognee.tools.list_tools`
+            ("tools", "cognee/api/v1/tools/tools.py"): False, ("Drop", "cognee/pipelines/types.py"): True,
             ("fetch", "web/a.ts"): None,  # the JavaScript family has no barrel here: no mark
         }
 
@@ -1915,10 +1917,12 @@ def test_a_public_api_create_maps_the_names_update_keeps_on_cognees_shape(tmp_pa
     records, summary = mod.build_records(extraction, None, None, [])
     kept = {(r["name"], b["file_path"]) for b in records["files"] for r in b["exports"] if r.get("public") is True}
     assert mapped == kept
+    # #703: `from .api.v1 import tools` is the submodule, whose list_tools users call as `cognee.tools.list_tools`
     assert {name for name, _file in mapped} == {"cognify", "delete", "remember", "enable_tracing", "disable_tracing",
-                                                "get_all_traces", "clear_traces"}
+                                                "get_all_traces", "clear_traces", "list_tools"}
     left_out = sorted(e["export_name"] for e in data["exports"] if e.get("public") is False)
-    assert left_out == ["build_remember_tasks", "get_default_tasks", "get_last_trace", "list_tools"]
+    assert left_out == ["build_remember_tasks", "get_default_tasks", "get_last_trace"]
+    assert extraction["counts"]["exports_public_api"] == 8 == len(mapped)
     assert summary["marked_not_public"] == len(left_out) == inventory.counts(data)["not_public"]
     assert data["warnings"][-1].endswith(": " + ", ".join(f"{e['export_name']} ({e['source_file']})"
                                                            for e in data["exports"] if e.get("public") is False))

@@ -382,8 +382,14 @@ def test_the_public_api_default_is_the_files_that_define_the_public_names(tmp_pa
         {"name": "foo", "via": "re-export", "file": "src/lib/foo.ts"},
         {"name": "Bar", "via": "re-export", "file": "src/lib/bar.ts"},
         {"name": "Bar2", "via": "re-export", "file": "src/lib/bar.ts"},
-        {"name": "ns", "via": "namespace", "file": None}]}}).encode("utf-8"))
-    assert _public_api_files(result) == ["src/index.ts", "src/lib/bar.ts", "src/lib/foo.ts"]
+        {"name": "ns", "via": "namespace", "file": None},
+        # #703: a submodule's members are defined in files of their own, which the scope keeps too
+        {"name": "sub", "via": "namespace", "file": "src/sub/index.ts", "members": [
+            {"name": "deep", "local": None, "file": "src/sub/deep.ts", "line": 1},
+            {"name": "ext", "local": None, "file": None, "line": None}]},
+        {"name": "remote", "via": "namespace", "file": None, "members": None}]}}).encode("utf-8"))
+    assert _public_api_files(result) == ["src/index.ts", "src/lib/bar.ts", "src/lib/foo.ts", "src/sub/deep.ts",
+                                         "src/sub/index.ts"]
 
 
 @pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")

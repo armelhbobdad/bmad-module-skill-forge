@@ -37,20 +37,26 @@ Subcommands:
            language family whose entry_points.by_language status is
            `barrel` is marked `public: true` when its name and file are a
            pair of the diff's `public` (its name, or the name `local` gives
-           it in that file) or `extraction_gaps`, when a `public` item of
-           its name and family has no file, or when one with `via`
-           namespace has its file in the export's folder; `public: false`
-           otherwise. It is the rule skf-build-change-manifest.py's
-           `records` marks an update's exports by (that script loads it
-           from here). The rule's inputs are kept as `public_surface`, so
-           `add` marks an export read by eye the same way. Any other scope
-           type, and a family with no barrel, mark nothing. A public-api
-           run with no entry-point diff, an incomplete one, one with errors
-           or one whose entry_points.unresolved is not empty marks nothing
-           either (`public_surface` null), with one warning that says why:
-           every export is then documented. One warning names the exports
-           marked `public: false`, each as `name (file)` (the first ten,
-           then how many more).
+           it in that file) or `extraction_gaps`, or when a `public` item of
+           its name and family has no file; `public: false` otherwise. A
+           `public` item with `via` namespace and a `members` list (what
+           the submodule passes on, which users reach as `pkg.sub.name`)
+           gives its members' pairs (each member's name, or its `local`
+           one, and its file; a member with no file its name) in place of
+           its own; one whose `members` is null (a module the runner could
+           not read), or that has no `members` key (an older runner's),
+           gives its own pair, as any item does. It is the rule
+           skf-build-change-manifest.py's `records` marks an update's
+           exports by (that script loads it from here). The rule's inputs
+           are kept as `public_surface`, so `add` marks an export read by
+           eye the same way. Any other scope type, and a family with no
+           barrel, mark nothing. A public-api run with no entry-point diff,
+           an incomplete one, one with errors or one whose
+           entry_points.unresolved is not empty marks nothing either
+           (`public_surface` null), with one warning that says why: every
+           export is then documented. One warning names the exports marked
+           `public: false`, each as `name (file)` (the first ten, then how
+           many more).
 
   add      --inventory <file> --field exports|t2_annotations|t3_items|warnings
            Read a JSON list on stdin (objects; strings for warnings) and
@@ -374,21 +380,31 @@ class _PublicSurface:
     def __init__(self, diff: dict, statuses: dict):
         self.barrels = {family for family, status in statuses.items() if status == "barrel"}
         self.pairs: set[tuple[str, str]] = set()
-        self.namespaces: set[tuple[object, str, str]] = set()  # (family, name, the folder of its file)
         self.unfiled: set[tuple[object, str]] = set()  # (family, name) of a public name no file defines
         for key in ("public", "extraction_gaps"):
             for item in diff.get(key) or []:
                 if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"]:
                     continue
-                name, family, file = item["name"], item.get("language"), _norm_path(item.get("file"))
-                if not file:
-                    if key == "public":
-                        self.unfiled.add((family, name))
+                family = item.get("language")
+                members = item.get("members") if key == "public" and item.get("via") == "namespace" else None
+                if isinstance(members, list):
+                    # a namespace whose module the runner read: its members, in place of the module itself
+                    for member in members:
+                        if isinstance(member, dict) and isinstance(member.get("name"), str) and member["name"]:
+                            self._add(family, member["name"], member.get("local"), member.get("file"), True)
                     continue
-                local = item.get("local") if key == "public" else None
-                self.pairs.update((n, file) for n in (name, local) if isinstance(n, str) and n)
-                if key == "public" and item.get("via") == "namespace":
-                    self.namespaces.add((family, name, file.rpartition("/")[0]))
+                self._add(family, item["name"], item.get("local") if key == "public" else None, item.get("file"),
+                          key == "public")
+
+    def _add(self, family: object, name: str, local: object, path: object, listed_public: bool) -> None:
+        """The pairs one public name (or gap) gives: (name, file) and (local, file), or, with no file, its
+        (family, name) when `public` lists it."""
+        file = _norm_path(path)
+        if not file:
+            if listed_public:
+                self.unfiled.add((family, name))
+            return
+        self.pairs.update((n, file) for n in (name, local) if isinstance(n, str) and n)
 
     def public(self, name: str, path: str, language: object = None) -> bool | None:
         """Whether the export is on the public surface; None (no mark) when its family's entry points are no
@@ -398,8 +414,7 @@ class _PublicSurface:
             family = _FAMILY_OF_EXTENSION.get(os.path.splitext(path)[1].lower())
         if family not in self.barrels:
             return None
-        return ((name, path) in self.pairs or (family, name) in self.unfiled
-                or (family, name, path.rpartition("/")[0]) in self.namespaces)
+        return (name, path) in self.pairs or (family, name) in self.unfiled
 
 
 def public_surface(extraction: object) -> tuple[_PublicSurface | None, str | None]:
@@ -423,9 +438,11 @@ def public_surface(extraction: object) -> tuple[_PublicSurface | None, str | Non
     return _PublicSurface(diff, statuses), None
 
 
-# The fields of an entry_point_diff item the rule reads, which the inventory's public_surface keeps for `add`.
-SURFACE_FIELDS = {"public": ("name", "language", "file", "local", "via"),
+# The fields of an entry_point_diff item the rule reads, which the inventory's public_surface keeps for `add`, and
+# those of each member of a namespace item.
+SURFACE_FIELDS = {"public": ("name", "language", "file", "local", "via", "members"),
                   "extraction_gaps": ("name", "language", "file")}
+MEMBER_FIELDS = ("name", "local", "file")
 NOT_PUBLIC_NAMED = 10  # the names the not-public warning spells out, as update-skill's apply does
 NOT_PUBLIC_LEAD = "Off the public surface: "
 
@@ -437,6 +454,10 @@ def _surface_state(extraction: dict) -> dict:
     for key, fields in SURFACE_FIELDS.items():
         state[key] = [{field: item[field] for field in fields if field in item}
                       for item in diff.get(key) or [] if isinstance(item, dict)]
+    for item in state["public"]:
+        if isinstance(item.get("members"), list):
+            item["members"] = [{field: m[field] for field in MEMBER_FIELDS if field in m}
+                               for m in item["members"] if isinstance(m, dict)]
     return state
 
 

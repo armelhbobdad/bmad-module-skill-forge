@@ -2632,8 +2632,9 @@ def test_a_public_api_update_maps_and_documents_only_its_public_surface(tmp_path
         "scope": {"type": "public-api"},
         "exports": [runner, {**runner, "export_name": "get_default_tasks", "source_line": 1}],
         "entry_points": {"status": "barrel", "by_language": {"python": "barrel"}},
+        # the runner's record of `from .api.v1.cognify import cognify` (#703: the function its package binds)
         "entry_point_diff": {"public": [{"name": "cognify", "language": "python", "entry": "cognee/__init__.py",
-                                         "via": "namespace", "local": None, "file": added, "line": None}],
+                                         "via": "re-export", "local": None, "file": added, "line": 5}],
                              "internal": [], "extraction_gaps": [], "outside_scope": []}}).encode("utf-8"))
     (run_dir / "extract-files.json").write_bytes(json.dumps([added]).encode("utf-8"))
     (run_dir / "change-manifest.json").write_bytes(json.dumps({"total_export_changes": 0, "per_file": [
