@@ -44,8 +44,10 @@ Exit codes:
   2 on a refused or failed operation, with {"status": "error", "message":
     ...} on stderr: write failed, stage-dir could not clear a stale entry,
     commit-dir found a non-directory target or could not swap, flip-link
-    found a non-link at <link> or another process holding its lock; and
-    on bad arguments (argparse usage on stderr, no JSON)
+    found a non-link at <link>, another process holding its lock, or a
+    lock file Windows kept refusing to open for its short wait while the
+    file was being removed; and on bad arguments (argparse usage on
+    stderr, no JSON)
 
 CLI examples:
   cat metadata.json | python3 skf-atomic-write.py write --target /path/to/metadata.json
@@ -63,12 +65,21 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 if os.name == "nt":
     import msvcrt
 else:
     import fcntl
+
+# While the flip that held <link>.skf-lock is removing it, Windows refuses a
+# new open of the file with PermissionError. flip-link takes that for a held
+# lock and tries again for up to this long (a flip fails fast on contention
+# by design, so the wait is short), then exits 2 as it does for a held lock.
+_IS_WINDOWS = os.name == "nt"
+_LOCK_OPEN_WAIT_SECONDS = 1.0
+_LOCK_OPEN_POLL_SECONDS = 0.02
 
 
 def _create_symlink_or_junction(target: str, link_path: Path) -> str:
@@ -292,6 +303,15 @@ def cmd_flip_link(link: Path, target: str) -> None:
     with PRIVILEGE_NOT_HELD/ACCESS_DENIED the helper falls back to a directory
     junction (no elevation needed); junctions resolve identically for
     skf-skill-inventory's resolve_active_version().
+
+    The lock file is removed after each flip. On Windows, while that removal
+    is under way (the remover's own delete handle is open, or a virus
+    scanner's or the search indexer's), opening the file raises
+    PermissionError: the flip retries for up to _LOCK_OPEN_WAIT_SECONDS,
+    then exits 2 with the "another process holds flip lock" message a held
+    lock gives, naming the last refusal. A refusal with a folder at the
+    path, or with nothing there on an immediate second try, is a lasting
+    denial and is raised as before.
     """
     lock_path = link.with_name(link.name + ".skf-lock")
     link.parent.mkdir(parents=True, exist_ok=True)
@@ -301,7 +321,27 @@ def cmd_flip_link(link: Path, target: str) -> None:
     if link.exists() and not _is_link_or_junction(link):
         _die(2, f"refusing to replace non-link: {link}")
 
-    lock_fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
+    deadline = time.monotonic() + _LOCK_OPEN_WAIT_SECONDS
+    vanished = False
+    while True:
+        try:
+            lock_fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
+            break
+        except PermissionError as exc:
+            # Windows refuses to open a file whose removal is pending. A folder
+            # at the path, or nothing there twice running (once can be the
+            # removal ending just now), is a lasting denial: raise it.
+            if not _IS_WINDOWS or os.path.isdir(lock_path):
+                raise
+            if not os.path.lexists(lock_path):
+                if vanished:
+                    raise
+                vanished = True
+                continue
+            vanished = False
+            if time.monotonic() >= deadline:
+                _die(2, f"another process holds flip lock on {link} (last open refused: {exc})")
+            time.sleep(_LOCK_OPEN_POLL_SECONDS)
     lock_held = False
     try:
         try:

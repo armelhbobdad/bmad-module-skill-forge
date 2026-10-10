@@ -10,7 +10,10 @@ counts and the Gap Report is rendered from:
     untouched
   - overlapping appends: parallel appends keep every record they report,
     a held lock makes an append wait and then fail with LEDGER_LOCKED, a
-    failed write leaves no temp file
+    failed write leaves no temp file, a lock file Windows refuses to open
+    while it is being removed is retried until the lock deadline and then
+    LEDGER_LOCKED naming the refusal, and a refusal off Windows, with
+    nothing at the lock path or with a folder there is WRITE_FAILED
   - render: severity order, counts, the Remediation Summary, the Gap Entry
     lines, --heading, the clean pass, errors on stderr only, the group
     taken from the category
@@ -42,11 +45,13 @@ from __future__ import annotations
 import doctest
 import importlib.util
 import json
+import os
 import re
 import shlex
 import subprocess
 import sys
 import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -127,6 +132,36 @@ def record(**overrides) -> dict:
 
 def append(ledger: Path, stage: str, records) -> subprocess.CompletedProcess:
     return run("append", "--ledger", str(ledger), "--stage", stage, stdin=json.dumps(records))
+
+
+def refuse_lock_open(monkeypatch: pytest.MonkeyPatch, times: int | None = None) -> list[str]:
+    """Make opening a `.skf-lock` file raise PermissionError, as Windows does
+    while the append that held it is removing it: the first `times` opens, or
+    every open when `times` is None. Other opens go through. Returns the lock
+    paths opened, refused or not. A retry that outlives its deadline fails the
+    test after a few hundred opens instead of hanging it."""
+    real_open = mod.os.open
+    calls: list[str] = []
+
+    def flaky_open(path, flags, *args, **kwargs):
+        if os.fspath(path).endswith(".skf-lock"):
+            calls.append(os.fspath(path))
+            if len(calls) > 300:
+                raise AssertionError(f"{len(calls)} opens of {os.fspath(path)}: the retry ignores its deadline")
+            if times is None or len(calls) <= times:
+                raise PermissionError(13, "Permission denied", os.fspath(path))
+        return real_open(path, flags, *args, **kwargs)
+
+    monkeypatch.setattr(mod.os, "open", flaky_open)
+    return calls
+
+
+def pending_lock_file(ledger: Path) -> Path:
+    """The ledger's lock file, left in place as a file whose removal is pending."""
+    lock = ledger.with_name(ledger.name + ".skf-lock")
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_bytes(b"")
+    return lock
 
 
 @pytest.fixture
@@ -380,6 +415,92 @@ class TestOverlappingAppends:
         with pytest.raises(PermissionError):
             mod.save_ledger(ledger, data)
         assert not ledger.exists() and list(ledger.parent.glob("*.skf-tmp")) == []
+
+    def test_a_lock_file_windows_refuses_for_a_moment_is_retried(
+        self, ledger: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ):
+        # Windows refuses to open the lock file while the append that held it
+        # is removing it; the append retries.
+        source = tmp_path / "records.json"
+        source.write_text(json.dumps([record(title="retried")]), encoding="utf-8")
+        pending_lock_file(ledger)
+        monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+        calls = refuse_lock_open(monkeypatch, times=2)
+        args = ["append", "--ledger", str(ledger), "--stage", "coverage-check", "--input", str(source)]
+        assert mod.main(args) == 0
+        assert json.loads(capsys.readouterr().out)["appended"] == ["GAP-001"]
+        assert len(calls) == 3
+        assert [r["title"] for r in json.loads(ledger.read_text(encoding="utf-8"))["records"]] == ["retried"]
+        assert sorted(p.name for p in ledger.parent.iterdir()) == [ledger.name]
+
+    def test_a_lock_file_windows_keeps_refusing_is_ledger_locked(
+        self, ledger: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ):
+        append(ledger, "coverage-check", [record(title="before")])
+        before = ledger.read_bytes()
+        source = tmp_path / "records.json"
+        source.write_text(json.dumps([record(title="after")]), encoding="utf-8")
+        lock = pending_lock_file(ledger)
+        monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+        monkeypatch.setattr(mod, "LOCK_TIMEOUT_SECONDS", 0.2)
+        calls = refuse_lock_open(monkeypatch)
+        args = ["append", "--ledger", str(ledger), "--stage", "coherence-check", "--input", str(source)]
+        started = time.monotonic()
+        assert mod.main(args) == 1
+        assert time.monotonic() - started >= 0.2
+        out = json.loads(capsys.readouterr().out)
+        assert out["code"] == "LEDGER_LOCKED"
+        assert out["error"].startswith(f"another append held {lock} for more than 0.2 s (last open refused: ")
+        assert "Permission denied" in out["error"]
+        assert len(calls) > 1
+        assert ledger.read_bytes() == before
+        assert sorted(p.name for p in ledger.parent.iterdir()) == sorted([ledger.name, lock.name])
+
+    def test_a_refused_lock_file_off_windows_is_a_write_failure(
+        self, ledger: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ):
+        source = tmp_path / "records.json"
+        source.write_text(json.dumps([record()]), encoding="utf-8")
+        pending_lock_file(ledger)
+        monkeypatch.setattr(mod, "_IS_WINDOWS", False)
+        calls = refuse_lock_open(monkeypatch)
+        args = ["append", "--ledger", str(ledger), "--stage", "coverage-check", "--input", str(source)]
+        assert mod.main(args) == 1
+        assert json.loads(capsys.readouterr().out)["code"] == "WRITE_FAILED"
+        assert len(calls) == 1
+        assert not ledger.exists()
+
+    def test_a_refusal_with_no_lock_file_is_a_write_failure(
+        self, ledger: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ):
+        # Nothing at the lock path: the folder refuses the new file (an ACL, a
+        # read-only folder), which no wait cures. One more open at once tells
+        # it from a removal that ended just now.
+        source = tmp_path / "records.json"
+        source.write_text(json.dumps([record()]), encoding="utf-8")
+        monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+        calls = refuse_lock_open(monkeypatch)
+        args = ["append", "--ledger", str(ledger), "--stage", "coverage-check", "--input", str(source)]
+        assert mod.main(args) == 1
+        out = json.loads(capsys.readouterr().out)
+        assert out["code"] == "WRITE_FAILED" and "Permission denied" in out["error"]
+        assert len(calls) == 2
+        assert not ledger.exists()
+
+    def test_a_refusal_with_a_folder_at_the_lock_path_is_a_write_failure(
+        self, ledger: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+    ):
+        source = tmp_path / "records.json"
+        source.write_text(json.dumps([record()]), encoding="utf-8")
+        ledger.with_name(ledger.name + ".skf-lock").mkdir(parents=True)
+        monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+        calls = refuse_lock_open(monkeypatch)
+        args = ["append", "--ledger", str(ledger), "--stage", "coverage-check", "--input", str(source)]
+        assert mod.main(args) == 1
+        out = json.loads(capsys.readouterr().out)
+        assert out["code"] == "WRITE_FAILED" and "Permission denied" in out["error"]
+        assert len(calls) == 1
+        assert not ledger.exists()
 
     def test_a_held_lock_makes_an_append_wait_then_fail(
         self, ledger: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
