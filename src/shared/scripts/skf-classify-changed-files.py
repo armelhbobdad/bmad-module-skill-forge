@@ -103,6 +103,21 @@ Modes, from the statuses:
 
 An unknown --language value adds an `unknown-language` warning.
 
+Library use: the one brief-scope test for script and asset paths.
+skf-new-file-diff.py (update-skill Category D, --brief),
+skf-detect-scripts-assets.py detect --brief (create-skill) and
+skf-compare-file-hashes.py compare --brief (audit-skill) load this file by
+its path and call load_scope(brief_path, cited). It returns a Scope:
+takes(path) is the in-scope test above (`_in_scope`), with the brief's
+`scope.include` and `scope.exclude` normalized as classify normalizes them
+and, for an empty `scope.include`, the extensions of the `cited` paths
+(the provenance map's `entries[].source_file`) and of the brief's
+`language`; wants(kind) is False for a `script` or `asset` whose
+`scripts_intent` or `assets_intent` is `none` (an absent or free-text
+intent detects). load_scope raises ValueError, `brief not found: <path>`
+for a path that names no file and load_brief's message for a brief it
+cannot read; each caller keeps its own exit code.
+
 Output JSON (stdout):
 
   {
@@ -352,6 +367,69 @@ def _in_scope(rel: str, includes: list[str], excludes: list[str], extensions: se
     if any(resolver.glob_match(rel, pattern) for pattern in excludes):
         return False
     return PurePosixPath(rel).suffix in extensions
+
+
+# --------------------------------------------------------------------------
+# The brief's scope for script and asset paths (Library use)
+# --------------------------------------------------------------------------
+
+
+# kind -> the brief field that holds its intent
+INTENT_FIELDS = {"script": "scripts_intent", "asset": "assets_intent"}
+
+
+class Scope:
+    """A skill brief's scope and script and asset intents, by this helper's in-scope test."""
+
+    def __init__(self, includes: list[str], excludes: list[str], extensions: set[str],
+                 intents: dict[str, str]):
+        self.includes = includes
+        self.excludes = excludes
+        self.extensions = extensions
+        self.intents = intents
+
+    def takes(self, rel: str) -> bool:
+        """True when the brief's scope takes `rel`, a path relative to the source root."""
+        return _in_scope(_resolver().normalize_rel_path(rel), self.includes, self.excludes, self.extensions)
+
+    def wants(self, kind: str) -> bool:
+        """False when the brief's intent for `kind` (`script` or `asset`) is `none`."""
+        return self.intents.get(kind) != "none"
+
+
+def _intent(value: object) -> str:
+    """`none` for a `none` intent; `detect` for an absent or free-text one."""
+    if isinstance(value, str) and value.strip().lower() == "none":
+        return "none"
+    return "detect"
+
+
+def load_scope(brief_path: Path, cited: set[str] | frozenset = frozenset()) -> Scope:
+    """The brief's Scope: its include and exclude patterns, normalized as
+    classify normalizes them, the extensions an empty include falls back to
+    (the cited paths' and the brief language's) and the script and asset
+    intents. Raises ValueError for a brief path that names no file or a
+    brief it cannot read."""
+    try:
+        found = brief_path.is_file()
+    except OSError as exc:  # a folder on the way that cannot be searched
+        raise ValueError(f"cannot read the skill brief {brief_path}: {exc}") from exc
+    if not found:
+        raise ValueError(f"brief not found: {brief_path}")
+    resolver = _resolver()
+    brief = resolver.load_brief(brief_path)
+    includes, excludes, _ = resolver.extract_scope(brief)
+    norm = resolver.normalize_rel_path
+    includes = [norm(p) for p in includes]
+    excludes = [norm(p) for p in excludes]
+    extensions: set[str] = set()
+    if not includes:
+        extensions = {PurePosixPath(p).suffix for p in cited if PurePosixPath(p).suffix}
+        language = brief.get("language")
+        if isinstance(language, str) and language.strip():
+            extensions |= language_extensions([language])[0]
+    intents = {kind: _intent(brief.get(field)) for kind, field in INTENT_FIELDS.items()}
+    return Scope(includes, excludes, extensions, intents)
 
 
 # --------------------------------------------------------------------------

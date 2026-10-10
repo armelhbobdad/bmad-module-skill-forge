@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  Create Skill now keeps its script and asset detection to the brief's scope by the brief's own glob rules, the ones the recipe runner and Update Skill use: `**` also matches at the top of the source, `*` never crosses a folder, and `scope.exclude` is honoured. The detector used to match `scope.include` with Python's `fnmatch`, so Create Skill could package a file the brief excludes or miss one it takes. `skf-detect-scripts-assets.py detect` takes the brief with `--brief` in place of `--scope-include`, and exits 1 with one `error:` line for a brief it cannot find or read.
+prs: [701]
+issues: [697]

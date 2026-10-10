@@ -40,7 +40,11 @@ structural DIFF [--file-drift FILE]
                                 given and exists; when FILE cannot be read
                                 or is not such a result, the heading reads
                                 `### Script/Asset Drift: skipped (<reason>)`
-                                and the other tables still print)
+                                and the other tables still print). When
+                                FILE's `added_not_checked` names a reason
+                                (no brief, or one the comparison could not
+                                read), a **New files not checked:** line
+                                follows the table
     ### Provenance label differences (not drift) (N)
                                 Export | Baseline label | Current label
                                 (only when label_changes[] is non-empty)
@@ -400,7 +404,12 @@ def _file_drift_section(data) -> str:
                      text(details[0]) if len(details) == 1 else NA])
     heading = (f"### Script/Asset Drift (added {_count(stats, 'added')}, removed {_count(stats, 'removed')}, "
                f"changed {_count(stats, 'changed')})")
-    return heading + "\n\n" + _table(("File", "Change", "Detail"), rows)
+    section = heading + "\n\n" + _table(("File", "Change", "Detail"), rows)
+    reason = data.get("added_not_checked")
+    if isinstance(reason, str) and reason.strip():
+        section += (f"\n\n**New files not checked:** {text(reason.strip())}. The tracked files were compared, but "
+                    "no new script, asset or document was looked for, so `added` lists none.")
+    return section
 
 
 def render_structural(diff, file_drift=None, file_drift_skipped=None) -> str:

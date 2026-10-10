@@ -5,7 +5,9 @@ Covers the NEW_FILE set-difference: inventory source_files minus provenance
 file_entries, with [MANUAL] paths set aside and kind carried through; a map
 with no (or a null) file_entries tracks nothing (#684); with --brief, only
 the paths the brief's scope takes (Category A's in-scope test) and its
-intents want, and code the map's entries[] cite set aside (#683).
+intents want, and code the map's entries[] cite set aside (#683). The
+scope test is the shared one of skf-classify-changed-files.py (load_scope),
+which the detector's --brief uses too, so both return the same paths (#697).
 """
 
 from __future__ import annotations
@@ -361,6 +363,14 @@ class TestScope:
         assert [r["source_file"] for r in result["new_files"]] == ["scripts/gen.py", "scripts/run.sh"]
         assert result["out_of_scope"] == ["a/b.schema.json", "bin/tool.rb"]
 
+    def test_one_scope_implementation(self, tmp_path: Path) -> None:
+        """#697: the scope test lives in skf-classify-changed-files.py; this helper keeps only a wrapper."""
+        assert not hasattr(mod, "Scope") and not hasattr(mod, "INTENT_FIELDS")
+        scope = mod.load_scope(_brief(tmp_path, include=["pkg/**"]), set())
+        classifier = mod._shared(mod.CLASSIFIER)
+        assert type(scope) is classifier.Scope
+        assert classifier.INTENT_FIELDS == {"script": "scripts_intent", "asset": "assets_intent"}
+
     def test_the_scope_test_is_category_as(self, tmp_path: Path) -> None:
         """The same verdict as skf-classify-changed-files.py's in-scope test, for the same patterns."""
         spec_ = importlib.util.spec_from_file_location("skf_classify_for_new_file_diff", CLASSIFY_PATH)
@@ -443,6 +453,61 @@ class TestPipe:
         # without the brief the same walk reads the whole repository's scripts and assets as new
         out = json.loads(self._pipe(source, prov, None).stdout)
         assert len(out["new_files"]) == 6
+
+    def test_the_detector_s_brief_returns_the_same_paths(self, tmp_path: Path) -> None:
+        """#697: create-skill's detector with --brief and Category D's unscoped detector piped through this
+        helper's --brief (an empty map) keep the same paths: one scope test."""
+        source = _tree(tmp_path / "src", {
+            "scripts/build.sh": "#!/bin/bash\n",
+            "scripts/dev/release.sh": "#!/bin/bash\n",  # `scripts/*` never crosses a `/`
+            "install.sh": "#!/bin/sh\n",                # a shebang, outside every include
+            "api.schema.json": "{}\n",                  # `**/*.schema.json` matches at the root
+            "deep/er/b.schema.json": "{}\n",
+            "pkg/__init__.py": "",
+            "pkg/scripts/run.sh": "echo run\n",
+            "pkg/templates/page.html": "<p></p>\n",
+            "pkg/tools/__init__.py": "",
+            "pkg/tools/helper.py": "X = 1\n",             # a package module: code
+            "pkg/tools/__main__.py": "run()\n",
+            "pkg/cli/main.sh": "#!/bin/sh\n",             # excluded
+            "pkg/cli/schemas/c.schema.json": "{}\n",      # excluded, though an include matches it
+            "examples/demo.json": "{}\n",
+            "tools/release.sh": "#!/bin/bash\n",
+        })
+        brief = _brief(tmp_path, include=["scripts/*", "**/*.schema.json", "pkg/**"], exclude=["pkg/cli/**"])
+        scoped = subprocess.run([sys.executable, str(DETECT_PATH), "detect", str(source), "--scripts-intent",
+                                 "detect", "--assets-intent", "detect", "--brief", str(brief)],
+                                capture_output=True, text=True, check=True)
+        detected = json.loads(scoped.stdout)
+        kept = sorted([(r["source_file"], "script") for r in detected["scripts_inventory"]]
+                      + [(r["source_file"], "asset") for r in detected["assets_inventory"]])
+        prov = tmp_path / "empty-map.json"
+        prov.write_text("{}", encoding="utf-8")
+        piped = self._pipe(source, prov, brief)
+        assert piped.returncode == 0, piped.stderr
+        new = sorted((r["source_file"], r["kind"]) for r in json.loads(piped.stdout)["new_files"])
+        assert kept == new
+        assert [path for path, _ in kept] == [
+            "api.schema.json", "deep/er/b.schema.json", "pkg/scripts/run.sh", "pkg/templates/page.html",
+            "pkg/tools/__main__.py", "scripts/build.sh"]
+
+    @pytest.mark.parametrize("classifier", [None, "X = 1\n", "raise RuntimeError('broken install')\n"],
+                             ids=["missing", "without-load-scope", "raises"])
+    def test_a_scope_test_it_cannot_load_exit_2(self, tmp_path: Path, classifier: str | None) -> None:
+        # this script beside a shared folder whose classifier is missing, out of date or failing
+        script = tmp_path / "skf-update-skill" / "scripts" / SCRIPT_PATH.name
+        script.parent.mkdir(parents=True)
+        script.write_bytes(SCRIPT_PATH.read_bytes())
+        shared = tmp_path / "shared" / "scripts"
+        shared.mkdir(parents=True)
+        if classifier is not None:
+            (shared / CLASSIFY_PATH.name).write_bytes(classifier.encode("utf-8"))
+        brief = _brief(tmp_path, include=["**"])
+        proc = subprocess.run([sys.executable, str(script), str(_map(tmp_path)), "--brief", str(brief)],
+                              input=json.dumps(detect(scripts=["scripts/a.sh"])), capture_output=True, text=True)
+        assert proc.returncode == 2 and proc.stdout == "" and "Traceback" not in proc.stderr
+        error = json.loads(proc.stderr)["error"]
+        assert error.startswith("cannot load ") and error.endswith("re-install SKF"), error
 
     def test_a_missing_or_broken_brief_exit_2(self, tmp_path: Path) -> None:
         prov = _map(tmp_path)

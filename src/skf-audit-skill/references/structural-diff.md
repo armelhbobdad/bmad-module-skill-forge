@@ -105,22 +105,26 @@ Every set comes straight from the saved diff, never from set arithmetic of your 
 
 **Only execute if provenance-map.json contains `file_entries`.**
 
-**Resolve `{compareFileHashesHelper}`** from `{compareFileHashesProbeOrder}`; first existing path wins. Run one comparison: it hashes the tracked `file_entries[]` and, the other way round, the files of the standard script, asset and doc folders of the source tree:
+**Resolve `{compareFileHashesHelper}`** from `{compareFileHashesProbeOrder}`; first existing path wins. Run one comparison: it hashes the tracked `file_entries[]` and, the other way round, walks the standard script, asset and doc folders of the source tree for the files the map does not track, keeping only those the skill brief's scope takes, by the scope test update-skill and create-skill use. A module of a Python package named like a script folder, a file the map's `entries[]` cite, and a script or an asset whose `scripts_intent` or `assets_intent` is `none` are never new files. Pass `--brief` only when that brief, `{forge_data_folder}/{skill_name}/skill-brief.yaml`, exists (a skill built without one, such as a quick skill, has none):
 
 ```bash
-uv run {compareFileHashesHelper} compare "{provenanceMap}" "{source_root}" > "{auditDataFolder}/file-drift.json"
+uv run {compareFileHashesHelper} compare "{provenanceMap}" "{source_root}" \
+    [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] > "{auditDataFolder}/file-drift.json"
 ```
 
 The saved JSON, which step 5 builds its Script/Asset findings from:
 
 ```
 {
-  "added":   ["<rel-path>", ...],   // present on disk in tracked dirs, NOT in file_entries
+  "added":   ["<rel-path>", ...],   // on disk in tracked dirs, in the brief's scope, NOT in file_entries
+  "added_not_checked": null,        // or why no new file was looked for: "no skill brief", the brief's error, or a helper it cannot load
   "removed": ["<rel-path>", ...],   // in file_entries, missing on disk
   "changed": [{"path": "...", "stored_hash": "sha256:...", "current_hash": "sha256:..."}],
   "stats":   {"added": N, "removed": N, "changed": N, "unchanged": N}
 }
 ```
+
+**When `added_not_checked` is not null** (`no skill brief` without `--brief`, the error of a brief the helper could not read, or `cannot load ... re-install SKF` when a helper beside it could not be loaded), no new file was looked for, so `added` is empty, while the tracked files were still compared: §5's renderer prints the reason under the Script/Asset Drift table. Record it for the envelope too: write `new_files_not_checked: {added_not_checked}` to `{run_dir}/warning.txt` with a file write (the reason can hold quotes), then, from `{project-root}`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
 
 **When no candidate resolves, or the command exits non-zero** (delete the file then), skip the check with a `### Script/Asset Drift: skipped ({the reason})` note: it is supplementary to the export diff, so it never halts the audit.
 

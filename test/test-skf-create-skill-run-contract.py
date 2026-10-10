@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -600,6 +601,77 @@ def test_free_text_intent_never_reaches_the_detector():
     gate = _section(_read(REFS / "extract.md"), "### 6.", "### 7.")
     assert "each kept entry as `{name}` (`{source_file}`): {purpose}" in gate
     assert "the files its `intent_mapping` left out" in gate
+
+
+def _fenced_call(text: str, needle: str) -> str:
+    """The one fenced command that holds `needle`, its continued lines joined."""
+    blocks = [block.replace("\\\n", " ") for block in re.findall(r"^```[a-z]*\n(.*?)^```", text, re.M | re.S)]
+    lines = [line.strip() for block in blocks for line in block.splitlines() if needle in line]
+    assert len(lines) == 1, (needle, lines)
+    return re.sub(r"\s+", " ", lines[0])
+
+
+def _argv(call: str, helper: str, values: dict) -> list[str]:
+    """The arguments of a documented `uv run {helper} ...` call, each `{name}` bound, optional groups kept."""
+    words = shlex.split(call.split(">")[0].replace("[", "").replace("]", ""))
+    assert words[:3] == ["uv", "run", "{" + helper + "}"], words
+    out = []
+    for word in words[3:]:
+        for name, value in values.items():
+            word = word.replace("{" + name + "}", value)
+        out.append(word)
+    return out
+
+
+def test_the_detector_keeps_to_the_brief():
+    """#697: §4c scopes the detector with the brief, by the scope test update-skill uses, and no longer with
+    `--scope-include` (fnmatch: `*` crossed `/`, `**/` needed a folder, `scope.exclude` was ignored)."""
+    four_c = _section(_read(REFS / "extract.md"), "### 4c.", "### 5.")
+    call = _fenced_call(four_c, "{detectScriptsAssetsHelper} detect")
+    assert '--brief "{brief_path}" [--max-lines 500]' in call
+    assert "--scope-include" not in four_c and "<glob1>" not in four_c
+    assert "`--brief` keeps it to the files the brief's `scope.include` and `scope.exclude` take" in four_c
+    assert "or a brief it cannot read): warn" in four_c
+    rules = _section(_read(REFS / "extraction-patterns-tracing.md"), "### Inclusion Rules", "### Provenance")
+    assert "a `scope.include` pattern matches them and no `scope.exclude` pattern does" in rules
+
+
+def test_create_and_update_detect_the_same_paths(tmp_path):
+    """#697: §4c's documented detector call and update-skill Category D's documented pipe (the unscoped
+    detector into skf-new-file-diff.py --brief), run on one tree and brief with an empty map, keep the same
+    paths."""
+    scripts = REPO / "src" / "shared" / "scripts"
+    detector = scripts / "skf-detect-scripts-assets.py"
+    new_file_diff = REPO / "src" / "skf-update-skill" / "scripts" / "skf-new-file-diff.py"
+    source = tmp_path / "src"
+    for rel, text in {"scripts/build.sh": "#!/bin/bash\n", "scripts/dev/release.sh": "#!/bin/bash\n",
+                      "api.schema.json": "{}\n", "pkg/__init__.py": "", "pkg/scripts/run.sh": "echo\n",
+                      "pkg/tools/__init__.py": "", "pkg/tools/t.py": "T = 1\n", "pkg/cli/main.sh": "#!/bin/sh\n",
+                      "examples/demo.json": "{}\n", "tools/release.sh": "#!/bin/bash\n"}.items():
+        (source / rel).parent.mkdir(parents=True, exist_ok=True)
+        (source / rel).write_bytes(text.encode("utf-8"))
+    brief = tmp_path / "skill-brief.yaml"
+    brief.write_bytes(b"name: demo\nlanguage: Python\nscope:\n  include:\n  - 'scripts/*'\n  - '**/*.schema.json'\n"
+                      b"  - 'pkg/**'\n  exclude:\n  - 'pkg/cli/**'\n")
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(b"{}")
+    values = {"source_root": str(source), "brief_path": str(brief), "provenance_map_path": str(provenance)}
+    four_c = _section(_read(REFS / "extract.md"), "### 4c.", "### 5.")
+    call = _fenced_call(four_c, "{detectScriptsAssetsHelper} detect").replace("{detect|none}", "detect")
+    created = subprocess.run([sys.executable, str(detector), *_argv(call, "detectScriptsAssetsHelper", values)],
+                             capture_output=True, text=True, check=True)
+    inventory = json.loads(created.stdout)
+    create_paths = sorted(r["source_file"] for key in ("scripts_inventory", "assets_inventory")
+                          for r in inventory[key])
+    category_d = _section(_read(REPO / "src" / "skf-update-skill" / "references" / "detect-changes.md"),
+                          "**Category D:", "**Write the category JSON**")
+    left, right = _fenced_call(category_d, "{detectScriptsAssetsHelper} detect").split("|", 1)
+    found = subprocess.run([sys.executable, str(detector), *_argv(left, "detectScriptsAssetsHelper", values)],
+                           capture_output=True, text=True, check=True)
+    diffed = subprocess.run([sys.executable, str(new_file_diff), *_argv(right.strip(), "newFileDiffHelper", values)],
+                            input=found.stdout, capture_output=True, text=True, check=True)
+    update_paths = sorted(r["source_file"] for r in json.loads(diffed.stdout)["new_files"])
+    assert create_paths == update_paths == ["api.schema.json", "pkg/scripts/run.sh", "scripts/build.sh"]
 
 
 @pytest.mark.parametrize("flag", ["--scripts-intent", "--assets-intent"])

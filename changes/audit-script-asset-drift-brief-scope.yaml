@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-audit-skill
+summary: |
+  Audit Skill's Script/Asset Drift check no longer reports every untracked file under a `scripts/`, `bin/`, `tools/` or `cli/` folder as a new MEDIUM file. `skf-compare-file-hashes.py compare` now takes the skill brief (`--brief`) and lists as `added` only the files the brief's scope takes, by the scope test Update Skill uses: the modules of a Python package named like a script folder, files the provenance map's `entries[]` cite, and scripts or assets whose `scripts_intent` or `assets_intent` is `none` are never new files. Without a brief it can read, the audit still compares the tracked files but looks for no new one, and says why in the saved comparison's `added_not_checked`, in a note under the Script/Asset Drift table and in a `new_files_not_checked` warning of the result envelope.
+prs: [701]
+issues: [696]

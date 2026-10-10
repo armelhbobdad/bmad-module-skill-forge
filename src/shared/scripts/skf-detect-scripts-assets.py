@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["pyyaml"]
 # ///
 """SKF Detect Scripts & Assets — file-level artifact detection for skill compilation.
 
@@ -22,8 +22,23 @@ CLI:
   uv run skf-detect-scripts-assets.py detect <source-root> \\
       [--scripts-intent detect|none] \\
       [--assets-intent detect|none] \\
-      [--scope-include "pattern1,pattern2,..."] \\
+      [--brief <skill-brief.yaml>] \\
       [--max-lines 500]
+
+--brief keeps a file only when the skill brief's scope takes it, by the
+one brief-scope test of skf-classify-changed-files.py (load_scope, loaded
+from this folder only when --brief is given), which update-skill's
+Category A and Category D and audit-skill's Script/Asset Drift use too:
+the glob rules of skf-resolve-authoritative-files.py (`**` spans any
+number of folders, `*` and `?` never cross a `/`), each `scope.include`
+and `scope.exclude` pattern normalized (forward slashes, no leading `./`),
+and a path in scope when an include matches it and no exclude does. With
+an empty `scope.include`, a path is in scope when no exclude matches it
+and its extension is one the brief's `language` uses. The test runs before
+the script and asset rules. The brief's intents are not read here:
+--scripts-intent and --assets-intent set them. A --brief that names no
+file, one that cannot be read and an empty one (an unbound brief path)
+exit 1, never an unscoped run. Without --brief every file is in scope.
 
 Detection rules — scripts:
   Directory convention: scripts/, bin/, tools/, cli/ (at any depth). A
@@ -31,7 +46,9 @@ Detection rules — scripts:
     under such a folder that holds `__init__.py` is a script only with a
     shebang, a top-level `if __name__ == "__main__":` block (either
     comparison order, parentheses allowed, never a line inside a string)
-    or when it is the package's `__main__.py` (the `python -m` entry)
+    or when it is the package's `__main__.py` (the `python -m` entry).
+    is_package_module() is that rule, which skf-compare-file-hashes.py
+    loads from this file for audit-skill's walk
   Shebang signals: #!/bin/bash, #!/usr/bin/env python|node|bash|sh, etc.
   Entry point declarations: package.json `bin`, pyproject.toml [project.scripts]
   CLI argument-parser imports are detected for the LLM-judgment tier only —
@@ -68,16 +85,18 @@ Confidence is always "T1-low" — file existence verified, content not
 AST-analyzed. Matches the spec at extraction-patterns-tracing.md §Provenance.
 
 Exit codes:
-  0  — detection succeeded (including --scripts-intent=none --assets-intent=none)
-  1  — user error (bad source root, malformed args)
+  0  detection succeeded (including --scripts-intent=none --assets-intent=none)
+  1  user error (bad source root, malformed args, a --brief that names no
+     file, cannot be read or is empty, or a scope test that cannot be
+     loaded): one `error:` line on stderr
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
-import fnmatch
 import hashlib
+import importlib.util
 import json
 import re
 import sys
@@ -186,18 +205,6 @@ def relative_segments(path: Path, root: Path) -> tuple[str, ...]:
 def in_directory(path: Path, root: Path, dir_names: set[str]) -> bool:
     """True if any segment of path's relative dir is in dir_names."""
     return any(seg in dir_names for seg in relative_segments(path, root))
-
-
-def matches_scope(path: Path, root: Path, scope_patterns: list[str]) -> bool:
-    """Match `path` against scope-include glob patterns relative to root.
-
-    Forward-slash form so scope patterns like "scripts/*" match on Windows
-    too — fnmatch is byte-exact and won't normalize separators for us.
-    """
-    if not scope_patterns:
-        return True
-    rel = path.relative_to(root).as_posix()
-    return any(fnmatch.fnmatch(rel, pattern) for pattern in scope_patterns)
 
 
 # --------------------------------------------------------------------------
@@ -381,15 +388,21 @@ def has_main_block(path: Path) -> bool:
     return any(isinstance(node, ast.If) and _is_main_test(node.test) for node in tree.body)
 
 
+def is_package_module(path: Path, source_root: Path) -> bool:
+    """True when `path` is a module of a Python package named like a script
+    folder (in_package_script_dir): code, not a script, unless it runs on
+    its own (a shebang, a top-level `__main__` block, or the package's
+    `__main__.py`, which `python -m` runs)."""
+    return (path.suffix.lower() == ".py" and in_package_script_dir(path, source_root)
+            and path.name != "__main__.py" and not (has_shebang(path) or has_main_block(path)))
+
+
 def is_script(path: Path, source_root: Path, *, entry_points: set[Path]) -> tuple[bool, str | None]:
     """Decide whether `path` is a script. Returns (is_script, shebang_lang)."""
     if path.resolve() in entry_points:
         return True, detect_shebang_language(path)
     if in_directory(path, source_root, SCRIPT_DIRS):
-        # a module of a Python package named like a script folder is code,
-        # unless it runs on its own (`python -m` runs its __main__.py)
-        if (path.suffix.lower() == ".py" and in_package_script_dir(path, source_root)
-                and path.name != "__main__.py" and not (has_shebang(path) or has_main_block(path))):
+        if is_package_module(path, source_root):
             return False, None
         return True, detect_shebang_language(path)
     shebang_lang = detect_shebang_language(path)
@@ -535,10 +548,12 @@ def detect(
     *,
     scripts_intent: str = "detect",
     assets_intent: str = "detect",
-    scope_patterns: list[str] | None = None,
+    scope=None,
     max_lines: int = 500,
 ) -> dict:
-    scope_patterns = scope_patterns or []
+    """The inventories of `source_root`. `scope` is the brief's Scope
+    (skf-classify-changed-files.py load_scope, --brief): a file it does not
+    take is neither a script nor an asset. None takes every file."""
     scripts_skipped = scripts_intent == "none"
     assets_skipped = assets_intent == "none"
 
@@ -555,7 +570,7 @@ def detect(
             files_scanned += 1
             if is_binary_path(path):
                 continue
-            if not matches_scope(path, source_root, scope_patterns):
+            if scope is not None and not scope.takes(path.relative_to(source_root).as_posix()):
                 continue
 
             if not scripts_skipped:
@@ -602,28 +617,69 @@ def detect(
 # --------------------------------------------------------------------------
 
 
+_SIBLINGS: dict[str, object] = {}
+
+
+def _sibling(filename: str):
+    """A helper installed beside this script, loaded once as a module:
+    skf-classify-changed-files.py, whose load_scope is --brief's scope
+    test (it loads skf-resolve-authoritative-files.py beside it). Raises
+    whatever loading it raises."""
+    module = _SIBLINGS.get(filename)
+    if module is None:
+        path = Path(__file__).resolve().parent / filename
+        name = "skf_" + filename.removeprefix("skf-").removesuffix(".py").replace("-", "_")
+        spec = importlib.util.spec_from_file_location(name, path)
+        if spec is None or spec.loader is None or not path.is_file():
+            raise ImportError(f"{filename} not found beside {Path(__file__).name}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _SIBLINGS[filename] = module
+    return module
+
+
+def _error(message: str) -> int:
+    """`message` as one `error:` line on stderr (a YAML error spans several
+    lines: each line break and the space around it becomes one space); exit 1."""
+    print("error: " + re.sub(r"\s*[\r\n]\s*", " ", message.strip("\r\n")), file=sys.stderr)
+    return 1
+
+
+def load_brief_scope(brief: str):
+    """--brief's Scope. Raises ValueError for an empty value, a brief that
+    names no file or cannot be read, and a scope test that cannot be loaded
+    (a classifier or resolver missing, out of date or failing)."""
+    if not brief.strip():
+        raise ValueError("--brief is empty (an unbound brief path?): pass the brief, or leave --brief out")
+    try:
+        return _sibling("skf-classify-changed-files.py").load_scope(Path(brief))
+    except ValueError:  # a brief it cannot find or read
+        raise
+    except Exception as exc:  # whatever the scope test raises, the run reports it on one line
+        raise ValueError(f"cannot load the brief's scope test beside {Path(__file__).name}: {exc}; "
+                         "re-install SKF") from exc
+
+
 def _cmd_detect(args: argparse.Namespace) -> int:
     source_root = Path(args.source_root).resolve()
     if not source_root.is_dir():
-        print(f"error: source root not a directory: {source_root}", file=sys.stderr)
-        return 1
-    scope_patterns = (
-        [s.strip() for s in args.scope_include.split(",") if s.strip()]
-        if args.scope_include
-        else []
-    )
+        return _error(f"source root not a directory: {source_root}")
     if args.scripts_intent not in ("detect", "none"):
-        print(f"error: --scripts-intent must be detect|none", file=sys.stderr)
-        return 1
+        return _error("--scripts-intent must be detect|none")
     if args.assets_intent not in ("detect", "none"):
-        print(f"error: --assets-intent must be detect|none", file=sys.stderr)
-        return 1
+        return _error("--assets-intent must be detect|none")
+    scope = None
+    if args.brief is not None:
+        try:
+            scope = load_brief_scope(args.brief)
+        except ValueError as exc:
+            return _error(str(exc))
 
     result = detect(
         source_root,
         scripts_intent=args.scripts_intent,
         assets_intent=args.assets_intent,
-        scope_patterns=scope_patterns,
+        scope=scope,
         max_lines=args.max_lines,
     )
     json.dump(result, sys.stdout, indent=2)
@@ -650,9 +706,10 @@ def _build_parser() -> argparse.ArgumentParser:
         help="detect|none (default: detect)",
     )
     p.add_argument(
-        "--scope-include",
+        "--brief",
         default=None,
-        help="comma-separated glob patterns to limit detection (relative to source-root)",
+        metavar="BRIEF",
+        help="the skill brief (skill-brief.yaml): detect only in the files its scope takes",
     )
     p.add_argument(
         "--max-lines",
