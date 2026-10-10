@@ -211,6 +211,8 @@ Each step rates every gap it records against the Gap Severity table in Test Skil
 
 Only some runs can find a documented extra: the source must be Python or TypeScript/JavaScript, and the run needs the Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `workspaceDrift` not `overridden`, a provenance map and a coverage surface that a complete extraction built. On any other run, every documented export outside the coverage surface is stale documentation.
 
+A declaration the run finds only in an `example`, `demo`, `demos`, `sample`, `samples`, `scripts`, `playground`, `bench`, `benchmark` or `migrations` folder right below a package's root, or in an `e2e` or `__fixtures__` folder anywhere, does not count, so a name declared only in `scripts/foo.py` stays stale documentation unless the provenance map cites a file in that folder. Nor does a module named after the name count (such as `client.py` for a documented `client()`) when the skill documents the name as a function, hook, class, interface, enum or type, unless the provenance map records the name as a module or package, or the module is a TypeScript or JavaScript file that is itself the export (`export default`, `module.exports =`).
+
 Discovery testing runs after the hard gate, so a discovery gap (Info, Medium or High) is counted in the Gap Report and blocks nothing.
 
 ### Score report output

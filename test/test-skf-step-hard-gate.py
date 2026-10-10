@@ -776,10 +776,15 @@ class TestStaleNameLineCheck:
     column 0 (classify-stale's `defined_at`: a cited file, else the one file of the
     package that declares it) is a documented extra, an Info `observation` at that
     line, when the surface came from an extraction and does not list it in
-    `excluded.outsideScope`; everything short of that stays a Medium gap."""
+    `excluded.outsideScope`; everything short of that stays a Medium gap.
+    #698: the call passes the documented inventory, so that a module named
+    after a name the skill documents as a function, hook, class, interface,
+    enum or type does not declare it, and an example, script or migration
+    folder right below the package root is never walked."""
 
     CALL = ('uv run {verifyProvenanceCompletenessHelper} classify-stale --names "{run_dir}/coverage.json" '
-            '--provenance "{forge_provenance_map}" --source-root "{source_path}" -o "{run_dir}/stale.json"')
+            '--provenance "{forge_provenance_map}" --source-root "{source_path}" '
+            '--inventory "{run_dir}/inventory.json" -o "{run_dir}/stale.json"')
     SOURCE = '"""Core."""\nimport os\n\n\ndef helper(x):\n    return os.fspath(x)\n'
 
     @pytest.fixture
@@ -801,7 +806,8 @@ class TestStaleNameLineCheck:
             "is a Medium `stale-documentation` gap",
             "a helper that does not resolve or exits non-zero",
             "A name with a `defined_at` (the source still declares it there, an import never counting, a module "
-            "so named counting), or whose `declared_in` lists several files of which the skill's `[AST:]`/`[SRC:]` "
+            "so named counting unless the name's inventory kind rules it out), or whose `declared_in` lists several "
+            "files of which the skill's `[AST:]`/`[SRC:]` "
             "citations on lines naming it cite exactly one, is a documented extra: an Info `observation` gap at "
             "that declaration, when `surface.json` has an `extraction` and its `excluded.outsideScope` does not "
             "list the name",
@@ -810,13 +816,16 @@ class TestStaleNameLineCheck:
             assert needle in flow, needle
 
     def _classify(self, tmp_path: pathlib.Path, files: dict[str, str], stale: list[str],
-                  entries: list[dict]) -> list[dict]:
-        """The classify-stale call as §2c writes it, over `files` below the source root."""
+                  entries: list[dict], kinds: dict[str, str] | None = None) -> list[dict]:
+        """The classify-stale call as §2c writes it, over `files` below the source root, with §1a's
+        `inventory.json` giving each name of `kinds` its kind."""
         for rel, text in files.items():
             (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
             (tmp_path / rel).write_bytes(text.encode("utf-8"))
         run = tmp_path / "run"
         _write_json(run / "coverage.json", {"branch": "enumerated", "missing": [], "stale": stale})
+        _write_json(run / "inventory.json", {"exports": [{"name": n, "kind": k} for n, k in (kinds or {}).items()],
+                                             "references": [], "cross_check_mismatches": []})
         provenance = _write_json(tmp_path / "provenance-map.json", {"entries": entries})
         call = self.CALL.replace("uv run {verifyProvenanceCompletenessHelper} ", "")
         for key, value in {"{run_dir}": run.as_posix(), "{forge_provenance_map}": provenance.as_posix(),
@@ -859,9 +868,11 @@ class TestStaleNameLineCheck:
     def test_each_row_of_the_documented_extra_matrix(self, tmp_path: pathlib.Path) -> None:
         """#678's matrix, through the classify-stale call and §5b's coverage call, over a map whose entries
         are the skill's own (no entry made up for the package root): a name the package declares once, in
-        Python or TS/JS, a module so named and a homonym the skill cites once are an Info `observation` at
-        the declaration; an import, a star import, an indented local, a skipped place, a sibling package, a
-        homonym the skill cites neither of, a re-export, a rescope and a dotted name stay Medium; a
+        Python or TS/JS, a module so named that the inventory gives no function, hook, class, interface,
+        enum or type kind and a homonym the skill cites once are an Info `observation` at the declaration;
+        an import, a star import, an indented local, a skipped place (#698: an example folder right below
+        the package root included), a sibling package, a homonym the skill cites neither of, a re-export, a
+        rescope, a dotted name and a removed function behind a module so named (#698) stay Medium; a
         fabricated name stays Critical."""
         files = {
             "pkg/__init__.py": "from .tasks.task import Task\n",
@@ -875,6 +886,9 @@ class TestStaleNameLineCheck:
             "pkg/vendor/v.py": "class Vendored:\n    pass\n",
             "pkg/_vendor/v.py": "class UnderscoreVendored:\n    pass\n",
             "pkg/examples/e.py": "class InExamples:\n    pass\n",
+            "pkg/example/old.py": "class InExample:\n    pass\n",
+            "pkg/modules/migrations/runner.py": "class MigrationRunner:\n    pass\n",
+            "pkg/client.py": "def other():\n    pass\n",
             "pkg/web/esm/thing.js": "export class InEsm {}\n",
             "pkg/site-packages/dep.py": "class InSitePackages:\n    pass\n",
             "other/__init__.py": "",
@@ -902,16 +916,22 @@ class TestStaleNameLineCheck:
             "Starred": medium, "BaseModel": medium, "Local": medium,             # not a declaration
             "InTests": medium, "Vendored": medium, "UnderscoreVendored": medium,  # a skipped place
             "InExamples": medium, "InEsm": medium, "InSitePackages": medium,
+            "InExample": medium,                                                 # right below the package root
+            "MigrationRunner": ("Info", "observation", "pkg/modules/migrations/runner.py:1"),  # deeper down
+            "client": medium,                                                    # a removed function
             "Outside": medium,                                                   # a sibling package
             "Config": ("Medium", "stale-documentation", "SKILL.md:3"),           # a homonym, cited neither
             "Job": ("Info", "observation", "pkg/jobs/job.py:4"),                 # a cited homonym
-            "low_level": ("Info", "observation", "pkg/low_level.py:1"),          # a module
+            "low_level": ("Info", "observation", "pkg/low_level.py:1"),          # a module, of no callable kind
             "ReExported": medium, "Required": medium,                            # a re-export
             "Rescoped": medium,                                                  # rescoped
             "Task.run": medium,                                                  # dotted
             "Ghost": ("Critical", "fabricated-signature", "pkg/tasks/task.py:1"),  # fabricated
         }
-        out = self._classify(tmp_path, files, list(expected), entries)
+        # the documented inventory: the kinds the skill gives the names (it has no `module` kind)
+        kinds = {"Task": "class", "DataPoint": "class", "WebThing": "class", "Job": "class", "Config": "class",
+                 "MigrationRunner": "class", "client": "function", "low_level": "constant"}
+        out = self._classify(tmp_path, files, list(expected), entries, kinds)
         cov = json.loads((tmp_path / "run" / "coverage.json").read_bytes())
         # the skill package: its own citations decide a homonym, on the lines that name it
         skill = tmp_path / "skill"
@@ -922,10 +942,11 @@ class TestStaleNameLineCheck:
         assert {r["export"]: (r["severity"], r["category"], r["source"]) for r in records} == expected
         assert [r["title"] for r in records if r["category"] == "observation"] == [
             "Documented extra: Task", "Documented extra: DataPoint", "Documented extra: WebThing",
-            "Documented extra: Job", "Documented extra: low_level"]
+            "Documented extra: MigrationRunner", "Documented extra: Job", "Documented extra: low_level"]
         declared_in = {o["name"]: o["declared_in"] for o in out}
         assert (declared_in["Config"], declared_in["Job"]) == (["pkg/a/config.py:1", "pkg/b/config.py:1"],
                                                                ["pkg/jobs/job.py:4", "pkg/models/job.py:4"])
+        assert (declared_in["InExample"], declared_in["client"]) == ([], [])
         defined_at = {o["name"]: o["defined_at"] for o in out}
         # the rescope is declared, and still Medium; the fabricated name is never looked up
         assert (defined_at["Rescoped"], defined_at["Ghost"]) == ("pkg/old/rescoped.py:1", None)
@@ -934,7 +955,8 @@ class TestStaleNameLineCheck:
         """#678's acceptance: `Task`, `run_tasks` and `low_level`, documented with no entry, are each one
         Info `observation` at its declaration, while every entry of the map lies under cognee/api/v1/ (the
         walk widens to the cognee/ package): `Task` is declared twice in cognee/modules/pipelines/ and the
-        skill cites one of the two, and `low_level` is the one module so named."""
+        skill cites one of the two, and `low_level` is the one module so named, which the inventory gives no
+        function, hook, class, interface, enum or type kind (#698)."""
         files = {
             "cognee/__init__.py": ("from .api.v1.add import add\nfrom .api.v1.search import search\n"
                                    "from .modules.pipelines import Task, run_tasks\n"),
@@ -957,7 +979,8 @@ class TestStaleNameLineCheck:
         }
         entries = [{"export_name": "add", "source_file": "cognee/api/v1/add/add.py", "source_line": 1},
                    {"export_name": "search", "source_file": "cognee/api/v1/search/search.py", "source_line": 1}]
-        out = self._classify(tmp_path, files, ["Task", "run_tasks", "low_level"], entries)
+        out = self._classify(tmp_path, files, ["Task", "run_tasks", "low_level"], entries,
+                             {"Task": "class", "run_tasks": "function", "low_level": "constant"})
         cov = json.loads((tmp_path / "run" / "coverage.json").read_bytes())
         skill = tmp_path / "skill"
         (skill / "references").mkdir(parents=True)
