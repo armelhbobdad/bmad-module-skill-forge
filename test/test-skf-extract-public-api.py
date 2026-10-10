@@ -1341,10 +1341,11 @@ PY_CHAINS = {
 
 # A `pub mod` chain two modules deep, with a `pub use` of a private module's
 # item, an inline `pub mod`, and a `#[path]` module the trace cannot follow;
-# a glob whose module globs another.
+# a glob whose module globs another; and the crate root's `pub use` of two
+# of client's modules, one it reaches through client too and the inline one.
 RUST_CHAINS = {
     "Cargo.toml": '[package]\nname = "demo"\nversion = "0.1.0"\n',
-    "src/lib.rs": "pub mod client;\nmod util;\npub use util::*;\n",
+    "src/lib.rs": "pub mod client;\nmod util;\npub use util::*;\npub use client::{builder, inline};\n",
     "src/client/mod.rs": (
         "pub mod builder;\n"
         "mod private;\n"
@@ -2024,6 +2025,10 @@ class TestFullRuns:
         assert (public["H2"]["file"], public["H2"]["line"], public["H2"]["local"]) == ("src/utils/helper.ts", 1, "Helper")
         assert (public["default"]["file"], public["default"]["line"], public["default"]["local"]) == ("src/def.ts", 1, "def")
         assert (public["Kind"]["via"], public["internals"]["via"]) == ("star", "namespace")
+        # #703: what `export * as internals` passes on, which counts in its place
+        assert public["internals"]["members"] == [
+            {"name": "secret", "local": None, "file": "src/internal/impl.ts", "line": 1}]
+        assert "members" not in public["Kind"]
         # `unused` is exported by no entry point; `secret` is reachable through
         # `internals`; `def` is the traced default export
         assert _names(diff["internal"]) == ["unused"]
@@ -2106,13 +2111,19 @@ class TestFullRuns:
         assert public[("rust", "Client")]["file"] == "crate/src/client/mod.rs"
         # Hint's import sits under `if TYPE_CHECKING:`, so the package never exports it
         assert sorted(_names(diff["internal"])) == ["Hidden", "Hint", "TestX", "helper_b", "internal_helper"]
+        # #703: the members no recipe reads are gaps too, beta's `x` and client's Builder (client's Client is
+        # the `pub use` item's twin: one row)
         assert sorted(_names(diff["extraction_gaps"])) == [
-            "A", "C", "Client", "D", "Default", "DemoResult", "Error", "LIMIT", "Serialize", "T", "VERSION",
-            "missing_name"]
+            "A", "Builder", "C", "Client", "D", "Default", "DemoResult", "Error", "LIMIT", "Serialize", "T",
+            "VERSION", "missing_name", "x"]
+        assert public[("python", "sub")]["members"] == [
+            {"name": "sub_fn", "local": None, "file": "src/mypkg/sub/__init__.py", "line": 1}]
+        assert [m["name"] for m in public[("rust", "client")]["members"]] == ["Client", "Builder"]
         assert out["entry_points"]["unresolved"] == [
             {"entry": "crate/src/lib.rs", "name": "Serialize", "from": "serde::Serialize", "file": "crate/src/lib.rs"}]
-        # the names defined under src/mypkg/: Engine, start, sub, helper_a, VERSION, configure
+        # the names defined under src/mypkg/: Engine, start, sub's sub_fn, helper_a, VERSION, configure
         assert out["counts"]["effective_denominator"] == 6
+        # sub, beta and client give way to sub_fn, x, and Client (counted once with its twin) and Builder
         assert out["counts"]["exports_public_api"] == 24
 
     def test_an_entry_point_outside_scope(self, tmp_path, capsys) -> None:
@@ -2223,6 +2234,8 @@ class TestTracing:
         assert (public["Tile"]["file"], public["Tile"]["line"], public["Tile"]["local"]) == (
             "src/components/inner.ts", 1, "Inner")
         assert (public["icons"]["via"], public["icons"]["file"]) == ("namespace", "src/icons/index.ts")
+        # #703: what the namespace's module passes on through `export *`, at the file that declares it
+        assert public["icons"]["members"] == [{"name": "Star", "local": None, "file": "src/icons/set.ts", "line": 1}]
         # Card on Tile's way, and Star, which the namespace's module passes on, are not internal
         assert {"Card", "Inner", "Star"} <= {e["export_name"] for e in out["exports"]}
         assert (diff["internal"], diff["extraction_gaps"]) == ([], [])
@@ -2253,6 +2266,8 @@ class TestTracing:
         assert (public["run"]["via"], public["run"]["file"], public["run"]["line"]) == (
             "star", "mypkg/core/engine.py", 4)
         assert (public["tools"]["via"], public["tools"]["file"]) == ("namespace", "mypkg/core/tools.py")
+        assert public["tools"]["members"] == [{"name": "tool", "local": None, "file": "mypkg/core/tools.py", "line": 1}]
+        assert out["counts"]["exports_public_api"] == 3  # configure, run and tools' tool
         # tool is reachable through the tools submodule
         assert "tool" in {e["export_name"] for e in out["exports"]} and diff["internal"] == []
         assert out["entry_points"]["unresolved"] == [
@@ -2262,9 +2277,24 @@ class TestTracing:
         _, out = _full(capsys, _tree(tmp_path, RUST_CHAINS))
         diff = out["entry_point_diff"]
         public = {p["name"]: p for p in diff["public"]}
-        assert sorted(public) == ["client", "deep"]
+        assert sorted(public) == ["builder", "client", "deep", "inline"]
         # a glob of a module that globs another
         assert (public["deep"]["via"], public["deep"]["file"]) == ("star", "src/util/more.rs")
+        # #703: client's members, builder's spliced in; the inline and the #[path] module are members themselves
+        assert public["client"]["members"] == [
+            {"name": "build", "local": None, "file": "src/client/builder.rs", "line": 1},
+            {"name": "odd", "local": None, "file": "src/client/mod.rs", "line": 5},
+            {"name": "inline", "local": None, "file": "src/client/mod.rs", "line": 6},
+            {"name": "helper", "local": None, "file": "src/client/private.rs", "line": 1}]
+        # two items, one module: builder, which client reached first, carries its members too
+        assert public["builder"]["members"] == [{"name": "build", "local": None, "file": "src/client/builder.rs",
+                                                 "line": 1}]
+        # an inline module the trace cannot read: no members, counted once, no gap
+        assert (public["inline"]["file"], public["inline"]["line"], public["inline"]["members"]) == (
+            "src/client/mod.rs", 6, None)
+        # build, odd, inline, helper and deep
+        assert out["counts"]["exports_public_api"] == 5
+        assert diff["extraction_gaps"] == [] and diff["outside_scope"] == []
         # build (two `pub mod` hops), helper (a `pub use` of a reachable module)
         # and nested (an inline `pub mod`) are reachable; the trace cannot find
         # the #[path] file of odd
@@ -2272,6 +2302,241 @@ class TestTracing:
         assert sorted(_names(diff["internal"])) == ["odd_fn", "unexported"]
         assert out["entry_points"]["unresolved"] == [
             {"entry": "src/lib.rs", "name": "odd", "from": "crate::client::odd", "file": "src/client/mod.rs"}]
+
+
+# cognee's shapes (#703): a function its package's __init__.py binds under the
+# name of a submodule beside it (cognify), one its __init__.py defines beside
+# a module of that name (delete), and submodules the package imports by name:
+# tools (its package re-exports from tools.py, a variable among them) and the
+# same module again as toolbox; pipelines, which passes on a submodule that
+# imports pipelines back; migration, with a variable the root re-exports too
+# and a function defined in a file out of scope; and one that passes nothing on.
+COGNEE_SHAPES = {
+    "cog/__init__.py": (
+        "from .api.cognify import cognify\n"
+        "from .api.delete import delete\n"
+        "from .api import tools\n"
+        "from .api import tools as toolbox\n"
+        "from . import pipelines, migration, empty\n"
+        "from .pipelines.task import Task\n"
+        "from .migration.export import EXPORT_FORMATS\n"
+    ),
+    "cog/api/__init__.py": "",
+    "cog/api/cognify/__init__.py": "from .cognify import cognify\n",
+    "cog/api/cognify/cognify.py": "def get_default_tasks():\n    return []\n\n\nasync def cognify():\n    return []\n",
+    "cog/api/delete/__init__.py": "".join(f"# {n}\n" for n in range(11)) + "async def delete():\n    return None\n",
+    "cog/api/delete/delete.py": "",
+    "cog/api/tools/__init__.py": "from .tools import list_tools, run_tool, TOOL_LIMIT\n",
+    "cog/api/tools/tools.py": "TOOL_LIMIT = 3\n\n\ndef list_tools():\n    return []\n\n\ndef run_tool(name):\n    return name\n",
+    "cog/pipelines/__init__.py": "from .task import Task\nfrom .operations import run_tasks\nfrom . import operations\n",
+    "cog/pipelines/task.py": "# A pipeline step.\nclass Task:\n    pass\n",
+    "cog/pipelines/operations/__init__.py": "from .run import run_tasks, run_tasks_parallel\nfrom ... import pipelines\n",
+    "cog/pipelines/operations/run.py": "def run_tasks():\n    pass\n\n\ndef run_tasks_parallel():\n    pass\n",
+    "cog/migration/__init__.py": "from .export import export_dataset, EXPORT_FORMATS\nfrom .legacy import import_legacy\n",
+    "cog/migration/export.py": "EXPORT_FORMATS = ('json',)\n\n\ndef export_dataset():\n    pass\n",
+    "cog/migration/legacy.py": "def import_legacy():\n    pass\n",
+    "cog/empty.py": "import os\n\n_cache = {}\n",
+}
+
+# A namespace whose module the trace cannot read: a JavaScript target no
+# file here holds (at the root, and inside a namespace's module) and an
+# inline `pub mod` at a crate root.
+UNKNOWN_MEMBERS = {
+    "package.json": json.dumps({"name": "u"}),
+    "src/index.ts": "export * as zod from 'zod';\nexport * as local from './local';\n",
+    "src/local.ts": "export * as nested from 'other-pkg';\nexport const one = 1;\n",
+    "Cargo.toml": '[package]\nname = "u"\nversion = "0.1.0"\n',
+    "src/lib.rs": "pub mod inline {\n    pub fn nested() {}\n}\n",
+}
+
+
+# A package whose x/__init__.py binds its own submodule y with an absolute
+# import, so `from .x import y` is that submodule, and one whose z/__init__.py
+# binds w only through a star import, which the runner still reads as z/w.py.
+PY_SUBMODULE_FORMS = {
+    "pkg/__init__.py": "from .x import y\nfrom .z import w\n",
+    "pkg/x/__init__.py": "from pkg.x import y\n",
+    "pkg/x/y.py": "def f():\n    pass\n",
+    "pkg/z/__init__.py": "from .impl import *\n",
+    "pkg/z/impl.py": "def w():\n    pass\n",
+    "pkg/z/w.py": "def v():\n    pass\n",
+}
+
+# Namespace modules: one that passes on a namespace of its own, one that
+# re-exports a name from another package, and one with a private name.
+JS_MEMBER_FORMS = {
+    "package.json": json.dumps({"name": "m"}),
+    "src/index.ts": "export * as ns from './ns';\nexport * as remote from './remote';\nexport * as priv from './priv';\n",
+    "src/ns.ts": "export * as inner from './inner';\nexport const a = 1;\n",
+    "src/inner.ts": "export const deep = 1;\n",
+    "src/remote.ts": "export { x } from 'pkg';\n",
+    "src/priv.ts": "export const _hidden = 1;\nexport const shown = 2;\n",
+}
+
+# A `pub mod` whose module re-exports two items of another crate, one a name
+# a recipe found elsewhere in the crate.
+RUST_REMOTE_MEMBERS = {
+    "Cargo.toml": '[package]\nname = "r"\nversion = "0.1.0"\n',
+    "src/lib.rs": "pub mod m;\nmod util;\n",
+    "src/m.rs": "pub use other_crate::helper;\npub use other_crate::Thing;\n",
+    "src/util.rs": "pub fn helper() {}\n",
+}
+
+
+def _member(name: str, file: str | None, line: int | None, local: str | None = None) -> dict:
+    return {"name": name, "local": local, "file": file, "line": line}
+
+
+@needs_ast_grep
+class TestNamespaceMembers:
+    """#703: a namespace (a submodule the package exports) lists the names
+    its module passes on, which users call as `pkg.sub.name`, and the diff
+    and the counts take them in its place."""
+
+    def test_the_fixture(self, tmp_path, capsys) -> None:
+        root = _tree(tmp_path, {
+            "pkg/__init__.py": "from .a import foo\nfrom . import sub\n",
+            "pkg/a.py": "def foo():\n    return 1\n\n\ndef bar():\n    return 2\n",
+            "pkg/helpers.py": "def helper():\n    return 3\n", "pkg/sub.py": "def baz():\n    return 4\n"})
+        _, out = _full(capsys, root, "--scope-type", "public-api")
+        public = {p["name"]: p for p in out["entry_point_diff"]["public"]}
+        assert (public["sub"]["via"], public["sub"]["file"]) == ("namespace", "pkg/sub.py")
+        assert public["sub"]["members"] == [_member("baz", "pkg/sub.py", 1)]
+        assert "members" not in public["foo"]
+        assert _names(out["entry_point_diff"]["internal"]) == ["bar", "helper"]
+        assert (out["counts"]["exports_public_api"], out["counts"]["effective_denominator"]) == (2, 2)
+        (root / "pkg" / "sub.py").write_bytes(b"def baz():\n    return 4\n\n\ndef qux():\n    return 5\n")
+        _, out = _full(capsys, root, "--scope-type", "public-api")
+        assert out["counts"]["exports_public_api"] == 3
+
+    def test_cognees_shapes(self, tmp_path, capsys) -> None:
+        _, out = _full(capsys, _tree(tmp_path, COGNEE_SHAPES), "--exclude", "cog/migration/legacy.py")
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert sorted(public) == ["EXPORT_FORMATS", "Task", "cognify", "delete", "empty", "migration", "pipelines",
+                                  "toolbox", "tools"]
+        # the package binds the name: a function, never the submodule beside it
+        assert (public["cognify"]["via"], public["cognify"]["file"], public["cognify"]["line"]) == (
+            "re-export", "cog/api/cognify/cognify.py", 5)
+        assert (public["delete"]["via"], public["delete"]["file"], public["delete"]["line"]) == (
+            "re-export", "cog/api/delete/__init__.py", 12)
+        assert _names(diff["internal"]) == ["get_default_tasks"]
+        tools = [_member("list_tools", "cog/api/tools/tools.py", 4), _member("run_tool", "cog/api/tools/tools.py", 8),
+                 _member("TOOL_LIMIT", "cog/api/tools/tools.py", 1)]
+        assert (public["tools"]["file"], public["tools"]["members"]) == ("cog/api/tools/__init__.py", tools)
+        # two items, one module: the second reaches a module the first reached, and carries its members too
+        assert (public["toolbox"]["local"], public["toolbox"]["members"]) == ("tools", tools)
+        # a submodule among the members is spliced in, and the import back of pipelines cut
+        assert public["pipelines"]["members"] == [
+            _member("Task", "cog/pipelines/task.py", 2), _member("run_tasks", "cog/pipelines/operations/run.py", 1),
+            _member("run_tasks_parallel", "cog/pipelines/operations/run.py", 5)]
+        assert public["migration"]["members"] == [
+            _member("export_dataset", "cog/migration/export.py", 4), _member("EXPORT_FORMATS", "cog/migration/export.py", 1),
+            _member("import_legacy", "cog/migration/legacy.py", 1)]
+        assert public["empty"]["members"] == []
+        # members are diffed by name and file: TOOL_LIMIT is a gap (once for tools and toolbox), import_legacy is
+        # out of scope, each with its namespace's entry; EXPORT_FORMATS and Task, twins of root names, give no row
+        assert diff["extraction_gaps"] == [
+            {"name": "EXPORT_FORMATS", "language": "python", "entry": "cog/__init__.py",
+             "file": "cog/migration/export.py", "line": 1},
+            {"name": "TOOL_LIMIT", "language": "python", "entry": "cog/__init__.py", "file": "cog/api/tools/tools.py",
+             "line": 1}]
+        assert diff["outside_scope"] == [
+            {"name": "import_legacy", "language": "python", "entry": "cog/__init__.py",
+             "file": "cog/migration/legacy.py", "line": 1}]
+        # Task and EXPORT_FORMATS once, cognify, delete, the 3 tools members (toolbox's are the same), 2 more of
+        # pipelines, export_dataset and import_legacy; the empty module none
+        assert out["counts"]["exports_public_api"] == 11
+        assert out["counts"]["effective_denominator"] == 10  # import_legacy's file is excluded
+        # reexport_targets keeps its shape: no members
+        assert all("members" not in t for t in out["reexport_targets"])
+
+    def test_a_package_that_binds_its_own_submodule(self, tmp_path, capsys) -> None:
+        """`from pkg.x import y` in x/__init__.py binds the submodule y, as `from . import y` does; a name
+        x/__init__.py binds only through a star import is still read as the submodule beside it."""
+        _, out = _full(capsys, _tree(tmp_path, PY_SUBMODULE_FORMS))
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert (public["y"]["via"], public["y"]["file"], public["y"]["members"]) == (
+            "namespace", "pkg/x/y.py", [_member("f", "pkg/x/y.py", 1)])
+        assert (public["w"]["via"], public["w"]["file"], public["w"]["members"]) == (
+            "namespace", "pkg/z/w.py", [_member("v", "pkg/z/w.py", 1)])
+        # (impl.py's w, which Python imports, is the public name w, so it is not internal either)
+        assert diff["extraction_gaps"] == [] and diff["internal"] == []
+
+    def test_javascript_member_forms(self, tmp_path, capsys) -> None:
+        _, out = _full(capsys, _tree(tmp_path, JS_MEMBER_FORMS))
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        # a namespace in a namespace's module is spliced in, in its place
+        assert public["ns"]["members"] == [_member("deep", "src/inner.ts", 1), _member("a", "src/ns.ts", 2)]
+        # a re-export from another package: no file, no gap (a recipe found its name), and, unlike the same form
+        # in an entry point, no unresolved item, which would turn a public-api run's surface off
+        assert public["remote"]["members"] == [_member("x", None, None)]
+        assert out["entry_points"]["unresolved"] == []
+        # a private name is no member
+        assert public["priv"]["members"] == [_member("shown", "src/priv.ts", 2)]
+        assert diff["extraction_gaps"] == [] and diff["outside_scope"] == []
+        assert out["counts"]["exports_public_api"] == 4  # deep, a, x and shown
+        # a public-api run still reads a surface, and marks the external member public by its name
+        _, out = _full(capsys, _tree(tmp_path, JS_MEMBER_FORMS), "--scope-type", "public-api")
+        inventory_spec = importlib.util.spec_from_file_location("skf_extraction_inventory_for_members",
+                                                                SCRIPTS / "skf-extraction-inventory.py")
+        inventory = importlib.util.module_from_spec(inventory_spec)
+        inventory_spec.loader.exec_module(inventory)
+        surface, problem = inventory.public_surface(out)
+        assert surface is not None and problem is None
+        assert ("x", "src/remote.ts") in {(e["export_name"], e["source_file"]) for e in out["exports"]}
+        assert surface.public("x", "src/remote.ts", "typescript") is True
+        assert surface.public("inner", "src/ns.ts", "typescript") is False  # the module itself, not a member
+
+    def test_a_rust_member_from_another_crate(self, tmp_path, capsys) -> None:
+        _, out = _full(capsys, _tree(tmp_path, RUST_REMOTE_MEMBERS))
+        diff = out["entry_point_diff"]
+        (m,) = [p for p in diff["public"] if p["name"] == "m"]
+        assert m["members"] == [_member("helper", None, None), _member("Thing", None, None)]
+        assert out["entry_points"]["unresolved"] == []  # the crate root's own items give none either
+        # helper is a name a recipe found, Thing one none did: only Thing, with no file, is a gap
+        assert [(g["name"], g["file"], g["entry"]) for g in diff["extraction_gaps"]] == [("Thing", None, "src/lib.rs")]
+
+    def test_a_module_the_trace_cannot_read(self, tmp_path, capsys) -> None:
+        _, out = _full(capsys, _tree(tmp_path, UNKNOWN_MEMBERS))
+        diff = out["entry_point_diff"]
+        public = {(p["language"], p["name"]): p for p in diff["public"]}
+        assert (public[("javascript", "zod")]["file"], public[("javascript", "zod")]["members"]) == (None, None)
+        assert public[("javascript", "local")]["members"] == [_member("nested", None, None),
+                                                               _member("one", "src/local.ts", 2)]
+        assert (public[("rust", "inline")]["file"], public[("rust", "inline")]["members"]) == ("src/lib.rs", None)
+        # zod and inline count once each, as before; local as nested and one; no module is a gap
+        assert out["counts"]["exports_public_api"] == 4
+        assert diff["extraction_gaps"] == [] and diff["outside_scope"] == []
+
+
+class TestMemberDiff:
+    def test_members_are_diffed_by_name_or_local_and_file(self) -> None:
+        surfaces = {family: mod._Surface() for family in mod.FAMILIES}
+        python = surfaces["python"]
+        python.add("top", "p/__init__.py", "re-export", "p/a.py", 1, ".a")
+        python.add("ns", "p/__init__.py", "namespace", "p/ns.py", None, ".", members=[
+            {"name": "top", "local": None, "file": "p/a.py", "line": 1},           # a twin: no row
+            {"name": "alias", "local": "real", "file": "p/b.py", "line": 2},       # found by its local name
+            {"name": "same", "local": None, "file": "p/c.py", "line": 3},          # a record of its name elsewhere
+            {"name": "far", "local": None, "file": "vendor/d.py", "line": 4},      # out of scope
+            {"name": "ext", "local": None, "file": None, "line": None}])           # another package's name
+        python.add("old", "p/__init__.py", "namespace", "p/old.py", None)  # no members known: as before
+        exports = [{"export_name": name, "language": "python", "source_file": file, "source_line": 1}
+                   for name, file in (("real", "p/b.py"), ("same", "p/x.py"), ("top", "p/a.py"))]
+        entries = [{"language": "python", "file": "p/__init__.py", "package": "p", "subpath": None,
+                    "resolution": "file"}]
+        _, public, _, gaps, outside = mod.entry_point_diff(exports, surfaces, entries,
+                                                           {"p/__init__.py", "p/a.py", "p/b.py", "p/c.py", "p/x.py"})
+        assert [(info["name"], info["file"], info["entry"]) for _, info in gaps] == [
+            ("same", "p/c.py", "p/__init__.py"), ("ext", None, "p/__init__.py")]
+        assert [(info["name"], info["file"]) for _, info in outside] == [("far", "vendor/d.py")]
+        assert public[("python", "old")]["members"] is None
+        assert mod._public_keys(public) == {("python", "top", "p/a.py"), ("python", "alias", "p/b.py"),
+                                            ("python", "same", "p/c.py"), ("python", "far", "vendor/d.py"),
+                                            ("python", "ext", None), ("python", "old", "p/old.py")}
 
 
 # --------------------------------------------------------------------------

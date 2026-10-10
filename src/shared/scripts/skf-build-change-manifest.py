@@ -371,9 +371,15 @@ it scans):
   whose entry_points.by_language status is `barrel` is marked `public`:
   true when its name and file are a pair of the runner's entry_point_diff
   `public` (its name, or the name `local` gives it in that file) or
-  `extraction_gaps`, when a `public` item of its name and family has no
-  file, or when one with `via` namespace has its file in the export's
-  folder (the names counts.exports_public_api counts); false otherwise.
+  `extraction_gaps`, or when a `public` item of its name and family has
+  no file; false otherwise. A `public` item with `via` namespace and a
+  `members` list (what the submodule passes on, which users reach as
+  `pkg.sub.name`, and which counts.exports_public_api counts in its place)
+  gives its members' pairs (each member's name, or its `local` one, and
+  its file; a member with no file its name) in place of its own; one
+  whose `members` is null (a module the runner could not read), or that
+  has no `members` key (an older runner's), gives its own pair, as any
+  item does.
   The rule is skf-extraction-inventory.py's public_surface, loaded from
   this folder, by which create-skill marks its extraction inventory too.
   In a normal update merge documents no export marked false that the map

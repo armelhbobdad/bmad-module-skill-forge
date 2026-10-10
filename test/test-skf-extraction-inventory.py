@@ -487,7 +487,7 @@ def test_provenance_adds_no_entry_for_an_export_off_the_surface(tmp_path):
     out = _ok(_run("provenance", "--inventory", str(path), "--target", str(target), "--add-entries",
                    stdin=json.dumps({"entries": [off, other]})))
     assert (out["added"], out["duplicates"], out["not_public"]) == (1, 0, [{"name": "bar", "file": "pkg/a.py"}])
-    assert [e["export_name"] for e in _load(target)["entries"]] == ["foo", "configure"]
+    assert [e["export_name"] for e in _load(target)["entries"]] == ["foo", "baz", "configure"]
 
 
 @pytest.mark.parametrize(
@@ -578,6 +578,10 @@ _stats_spec.loader.exec_module(stats)
 _manifest_spec = importlib.util.spec_from_file_location("skf_build_change_manifest_for_inventory", MANIFEST)
 manifest = importlib.util.module_from_spec(_manifest_spec)
 _manifest_spec.loader.exec_module(manifest)
+COHERENCE = REPO / "src" / "skf-test-skill" / "scripts" / "check-metadata-coherence.py"
+_coherence_spec = importlib.util.spec_from_file_location("check_metadata_coherence_for_inventory", COHERENCE)
+coherence = importlib.util.module_from_spec(_coherence_spec)
+_coherence_spec.loader.exec_module(coherence)
 
 
 def _fixture_export(name: str, path: str, line: int) -> dict:
@@ -589,8 +593,8 @@ def _fixture_export(name: str, path: str, line: int) -> dict:
 
 def _fixture_run(scope_type: str = "public-api") -> dict:
     """The issue's fixture as the runner records it: pkg/__init__.py re-exports foo from a.py and imports the
-    submodule sub (a namespace, which the runner counts as public with no export record); a.py also defines bar,
-    helpers.py helper and sub.py baz."""
+    submodule sub (a namespace, whose member baz, users' `pkg.sub.baz`, the runner counts in its place, #703);
+    a.py also defines bar, helpers.py helper and sub.py baz."""
     return {
         "mode": "full", "status": "ok", "recipe_set": "standard", "ast_grep": {"version": "0.45.3"},
         "scope": {"include": [], "exclude": [], "tier_a_include": None, "type": scope_type, "languages": ["python"]},
@@ -604,7 +608,8 @@ def _fixture_run(scope_type: str = "public-api") -> dict:
             "public": [{"name": "foo", "entry": "pkg/__init__.py", "via": "re-export", "from": ".a", "local": None,
                         "file": "pkg/a.py", "line": 1, "language": "python"},
                        {"name": "sub", "entry": "pkg/__init__.py", "via": "namespace", "from": ".", "local": None,
-                        "file": "pkg/sub.py", "line": None, "language": "python"}],
+                        "file": "pkg/sub.py", "line": None, "language": "python",
+                        "members": [{"name": "baz", "local": None, "file": "pkg/sub.py", "line": 1}]}],
             "internal": [{"name": "bar", "language": "python", "source_file": "pkg/a.py", "source_line": 5},
                          {"name": "helper", "language": "python", "source_file": "pkg/helpers.py", "source_line": 1}],
             "extraction_gaps": [], "outside_scope": []},
@@ -633,6 +638,15 @@ def _stats_of(target: Path, extraction: dict) -> dict:
     return derived
 
 
+def _barrel_findings(extraction: dict, entries: list[dict]) -> list[str]:
+    """Test Skill's count check over the skill create writes: stats.exports_public_api (the runner's count)
+    against an exports[] of the map's names; the titles of the findings it gives."""
+    names = sorted({e["export_name"] for e in entries})
+    result = coherence.check({"clusterA": {"exports_public_api": extraction["counts"]["exports_public_api"],
+                                           "exports_length": len(names)}})
+    return [f["title"] for f in result["findings"]]
+
+
 def _update_marks_public(extraction: dict) -> set[tuple[str, str]]:
     """The exports update-skill's `records` keeps on a public-api skill's surface (marked true, or not marked)."""
     records, _summary = manifest.build_records(extraction, None, None, [])
@@ -645,35 +659,36 @@ NOT_PUBLIC_WARNING = ("Off the public surface: {n} export(s) of this public-api 
 
 
 def test_a_public_api_map_holds_only_the_public_surface(tmp_path):
-    """The matrix's fixture: map and exports[] `foo`; exports_documented 1, public_api_coverage 0.5, t1 1, the
-    names update's records keeps. Before, the map held all 4 entries and public_api_coverage was 2.0."""
+    """The matrix's fixture: map and exports[] `foo` and `baz` (the member of sub, #703); exports_documented 2,
+    public_api_coverage 1.0, t1 2, the names update's records keeps, and no barrel finding. Before #703 the map
+    held `foo` alone (coverage 0.5, a barrel finding at 50%), and before #699 all 4 entries (2.0)."""
     extraction = _fixture_run()
     path = _init_from(tmp_path, extraction)
     data = _load(path)
     assert {e["export_name"]: e.get("public") for e in data["exports"]} == \
-        {"foo": True, "bar": False, "helper": False, "baz": False}
+        {"foo": True, "bar": False, "helper": False, "baz": True}
     assert [e.get("internal", False) for e in data["exports"]] == [False, True, True, False]  # the mark stays
     assert data["public_surface"] == {
         "by_language": {"python": "barrel"},
         "public": [{"name": "foo", "language": "python", "file": "pkg/a.py", "local": None, "via": "re-export"},
-                   {"name": "sub", "language": "python", "file": "pkg/sub.py", "local": None, "via": "namespace"}],
+                   {"name": "sub", "language": "python", "file": "pkg/sub.py", "local": None, "via": "namespace",
+                    "members": [{"name": "baz", "local": None, "file": "pkg/sub.py"}]}],
         "extraction_gaps": []}
-    assert data["warnings"] == [NOT_PUBLIC_WARNING.format(
-        n=3, names="bar (pkg/a.py), helper (pkg/helpers.py), baz (pkg/sub.py)")]
+    assert data["warnings"] == [NOT_PUBLIC_WARNING.format(n=2, names="bar (pkg/a.py), helper (pkg/helpers.py)")]
     summary = _ok(_run("summary", "--inventory", str(path)))
     counts = summary["counts"]
-    assert (counts["exports"], counts["not_public"], counts["items"]) == (4, 3, 1)
+    assert (counts["exports"], counts["not_public"], counts["items"]) == (4, 2, 2)
     # the evidence report lists each one with its file, from the summary
-    assert summary["not_public"] == [{"name": "bar", "file": "pkg/a.py"}, {"name": "helper", "file": "pkg/helpers.py"},
-                                     {"name": "baz", "file": "pkg/sub.py"}]
+    assert summary["not_public"] == [{"name": "bar", "file": "pkg/a.py"}, {"name": "helper", "file": "pkg/helpers.py"}]
     target = tmp_path / "provenance-map.json"
-    assert _provenance(path, target)["entries"] == 1
+    assert _provenance(path, target)["entries"] == 2
     entries = _load(target)["entries"]
-    assert [(e["export_name"], e["source_file"]) for e in entries] == [("foo", "pkg/a.py")]
+    assert [(e["export_name"], e["source_file"]) for e in entries] == [("foo", "pkg/a.py"), ("baz", "pkg/sub.py")]
     assert {(e["export_name"], e["source_file"]) for e in entries} == _update_marks_public(extraction)
     derived = _stats_of(target, extraction)
-    assert (derived["stats"]["exports_documented"], derived["stats"]["public_api_coverage"]) == (1, 0.5)
-    assert derived["confidence_distribution"] == {"t1": 1, "t1_low": 0, "t2": 0, "t3": 0}
+    assert (derived["stats"]["exports_documented"], derived["stats"]["public_api_coverage"]) == (2, 1.0)
+    assert derived["confidence_distribution"] == {"t1": 2, "t1_low": 0, "t2": 0, "t3": 0}
+    assert _barrel_findings(extraction, entries) == []
 
 
 def test_another_scope_type_maps_every_export_as_before(tmp_path):
@@ -735,7 +750,7 @@ def test_an_export_read_by_eye_is_marked_by_the_same_rule(tmp_path):
                "source_line": 2, "public": True},
               {"export_name": "notes", "export_type": "const", "source_file": "README.md", "public": False}]
     out = _ok(_run("add", "--inventory", str(path), "--field", "exports", stdin=json.dumps(by_eye)))
-    assert (out["added"], out["counts"]["exports"], out["counts"]["not_public"]) == (3, 7, 4)
+    assert (out["added"], out["counts"]["exports"], out["counts"]["not_public"]) == (3, 7, 3)
     data = _load(path)
     # a file of no barrel family gets no mark, and the payload's own `public` is never kept
     assert {e["export_name"]: e.get("public") for e in data["exports"][4:]} == \
@@ -745,12 +760,12 @@ def test_an_export_read_by_eye_is_marked_by_the_same_rule(tmp_path):
     _ok(_run("add", "--inventory", str(path), "--field", "exports",
              stdin=json.dumps([{"export_name": "late", "export_type": "function", "source_file": "pkg/a.py"}])))
     assert _load(path)["warnings"] == [
-        NOT_PUBLIC_WARNING.format(n=5, names="bar (pkg/a.py), helper (pkg/helpers.py), baz (pkg/sub.py), "
-                                             "__version__ (pkg/__init__.py), late (pkg/a.py)"),
+        NOT_PUBLIC_WARNING.format(n=4, names="bar (pkg/a.py), helper (pkg/helpers.py), __version__ (pkg/__init__.py), "
+                                             "late (pkg/a.py)"),
         "a file could not be read"]
     target = tmp_path / "provenance-map.json"
     _provenance(path, target)
-    assert [e["export_name"] for e in _load(target)["entries"]] == ["foo", "Drop", "notes"]
+    assert [e["export_name"] for e in _load(target)["entries"]] == ["foo", "baz", "Drop", "notes"]
     # update's records marks the same two by-eye records, from step 2's export details
     details = {"exports": [dict(e, source_line=1) for e in by_eye[:2]]}
     records, _ = manifest.build_records(extraction, details, None, [])
@@ -775,7 +790,7 @@ def test_a_function_off_the_surface_is_not_listed_unsigned(tmp_path):
         record["params"] = None  # nobody read a signature
     path = _init_from(tmp_path, extraction)
     out = _provenance(path, tmp_path / "provenance-map.json")
-    assert (out["entries"], out["unsigned"]) == (1, ["foo (pkg/a.py)"])
+    assert (out["entries"], out["unsigned"]) == (2, ["foo (pkg/a.py)", "baz (pkg/sub.py)"])
 
 
 def test_a_t2_annotation_of_an_export_off_the_surface_is_not_counted(tmp_path):
@@ -798,8 +813,8 @@ def test_top_exports_keep_no_name_off_the_surface(tmp_path):
     """Step 3b's temporal fetch and the Key API Summary read top_exports: a name every export of which is off the
     surface is dropped, as add drops a T3 item named after a held export."""
     path = _init_from(tmp_path, _fixture_run())
-    out = _ok(_run("set", "--inventory", str(path), stdin=json.dumps({"top_exports": ["foo", "bar", "baz", "other"]})))
-    assert (out["set"], out["dropped"]) == (["top_exports"], ["bar", "baz"])
+    out = _ok(_run("set", "--inventory", str(path), stdin=json.dumps({"top_exports": ["foo", "bar", "helper", "other"]})))
+    assert (out["set"], out["dropped"]) == (["top_exports"], ["bar", "helper"])
     assert _load(path)["top_exports"] == ["foo", "other"]
     plain = _ok(_run("set", "--inventory", str(_write(tmp_path)), stdin='{"top_exports": ["parse", "Client"]}'))
     assert plain["dropped"] == [] and plain["counts"]["top_exports"] == 2
@@ -818,9 +833,9 @@ def test_the_not_public_warning_names_ten_and_counts_the_rest(tmp_path):
 def test_gate_2_sees_an_empty_map_when_every_export_is_off_the_surface(tmp_path):
     """extract.md §6's zero-export check reads `not_public` beside `exports`."""
     extraction = _fixture_run()
-    extraction["exports"] = extraction["exports"][1:]  # foo is not found: only the internals
+    extraction["exports"] = extraction["exports"][1:3]  # foo and baz are not found: only the internals
     counts = _ok(_run("summary", "--inventory", str(_init_from(tmp_path, extraction))))["counts"]
-    assert (counts["exports"], counts["not_public"], counts["items"]) == (3, 3, 0)
+    assert (counts["exports"], counts["not_public"], counts["items"]) == (2, 2, 0)
     six = EXTRACT.read_text(encoding="utf-8")
     six = six[six.index("### 6. Present Extraction Summary"):six.index("### 7. ")]
     assert "the §5 summary counts no export the provenance map will hold (its `exports` is 0, or equals its " \
@@ -831,19 +846,22 @@ def test_gate_2_sees_an_empty_map_when_every_export_is_off_the_surface(tmp_path)
 
 
 @pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")
-@pytest.mark.parametrize("scope_type, mapped, coverage", [
-    ("public-api", [("foo", "pkg/a.py")], 0.5),
-    ("full-library", [("foo", "pkg/a.py"), ("bar", "pkg/a.py"), ("helper", "pkg/helpers.py"), ("baz", "pkg/sub.py")],
-     2.0),
-])
-def test_the_fixture_through_the_runner(tmp_path, scope_type, mapped, coverage):
+@pytest.mark.parametrize("scope_type, sub, mapped, coverage", [
+    ("public-api", "def baz():\n    return 4\n", [("foo", "pkg/a.py"), ("baz", "pkg/sub.py")], 1.0),
+    ("public-api", "def baz():\n    return 4\n\n\ndef qux():\n    return 5\n",
+     [("foo", "pkg/a.py"), ("baz", "pkg/sub.py"), ("qux", "pkg/sub.py")], 1.0),
+    ("full-library", "def baz():\n    return 4\n",
+     [("foo", "pkg/a.py"), ("bar", "pkg/a.py"), ("helper", "pkg/helpers.py"), ("baz", "pkg/sub.py")], 2.0),
+], ids=["public-api", "public-api-qux", "full-library"])
+def test_the_fixture_through_the_runner(tmp_path, scope_type, sub, mapped, coverage):
     """The issue's fixture from the runner's real JSON: init, provenance and the stats helper, and for public-api
-    the names update's records keeps from the same records."""
+    the names update's records keeps from the same records, through the same public_surface (#703: create and
+    update both mark sub's baz, and qux, public, and the runner counts them in place of sub)."""
     pkg = tmp_path / "src" / "pkg"
     pkg.mkdir(parents=True)
     for name, text in (("__init__.py", "from .a import foo\nfrom . import sub\n"),
                        ("a.py", "def foo():\n    return 1\n\n\ndef bar():\n    return 2\n"),
-                       ("helpers.py", "def helper():\n    return 3\n"), ("sub.py", "def baz():\n    return 4\n")):
+                       ("helpers.py", "def helper():\n    return 3\n"), ("sub.py", sub)):
         (pkg / name).write_bytes(text.encode("utf-8"))
     runner_json = tmp_path / "demo.extraction.json"
     ran = subprocess.run([sys.executable, str(RUNNER), "--mode", "full", "--source-root", str(tmp_path / "src"),
@@ -851,7 +869,8 @@ def test_the_fixture_through_the_runner(tmp_path, scope_type, mapped, coverage):
                          capture_output=True, text=True, encoding="utf-8", timeout=300, check=False)
     assert ran.returncode == 0, ran.stderr
     extraction = _load(runner_json)
-    assert extraction["counts"]["exports_public_api"] == 2  # foo and the namespace sub
+    members = len(mapped) - 1 if scope_type == "public-api" else 1
+    assert extraction["counts"]["exports_public_api"] == 1 + members  # foo and sub's members
     path = tmp_path / "demo.inventory.json"
     _ok(_run("init", "--inventory", str(path), "--skill", "demo", "--mode", "source", "--tier", "Forge",
              "--extraction", str(runner_json)))
@@ -864,6 +883,77 @@ def test_the_fixture_through_the_runner(tmp_path, scope_type, mapped, coverage):
     derived = _stats_of(target, extraction)
     assert (derived["stats"]["exports_documented"], derived["stats"]["public_api_coverage"]) == (len(mapped), coverage)
     assert derived["confidence_distribution"]["t1"] == len(mapped)
+    if scope_type == "public-api":
+        assert _barrel_findings(extraction, _load(target)["entries"]) == []
+
+
+def _namespace_run(namespace: dict, exports: list[tuple[str, str]], language: str = "python") -> dict:
+    """The fixture run with `sub` replaced by `namespace` and the given (name, file) exports."""
+    extraction = _fixture_run()
+    extraction["exports"] = [dict(_fixture_export(name, path, 1), language=language) for name, path in exports]
+    extraction["entry_point_diff"]["public"] = [extraction["entry_point_diff"]["public"][0],
+                                                {"entry": "pkg/__init__.py", "from": ".", "local": None, "line": None,
+                                                 "language": language, "via": "namespace", **namespace}]
+    extraction["entry_points"]["by_language"] = {language: "barrel"}
+    return extraction
+
+
+@pytest.mark.parametrize("namespace, marked", [
+    # members: each one's name (or local) at its file, never the module itself nor its folder; a member with no
+    # file (a name of another package) its name, as a public name with no file is
+    ({"name": "sub", "file": "pkg/sub.py", "members": [
+        {"name": "baz", "local": None, "file": "pkg/sub.py", "line": 1},
+        {"name": "alias", "local": "real", "file": "pkg/deep/impl.py", "line": 4},
+        {"name": "ext", "local": None, "file": None}]},
+     {("sub", "pkg/sub.py"): False, ("sub", "pkg/other.py"): False, ("baz", "pkg/sub.py"): True,
+      ("real", "pkg/deep/impl.py"): True, ("baz", "pkg/other.py"): False, ("ext", "pkg/x.py"): True}),
+    # an empty module: nothing of its own
+    ({"name": "sub", "file": "pkg/sub.py", "members": []},
+     {("sub", "pkg/sub.py"): False, ("baz", "pkg/sub.py"): False}),
+    # members the runner could not read, and a runner from before members: the item's own pair, no folder
+    ({"name": "sub", "file": "pkg/sub.py", "members": None},
+     {("sub", "pkg/sub.py"): True, ("sub", "pkg/other.py"): False, ("baz", "pkg/sub.py"): False}),
+    ({"name": "sub", "file": "pkg/sub.py"},
+     {("sub", "pkg/sub.py"): True, ("sub", "pkg/other.py"): False, ("baz", "pkg/sub.py"): False}),
+], ids=["members", "empty", "null-members", "stale-json"])
+def test_a_namespace_marks_its_members_in_its_place(tmp_path, namespace, marked):
+    """#703: create's init and update's records mark a namespace item's members by the one rule, and the rule
+    keeps no folder clause: a name of the item's in its folder is not public for that."""
+    extraction = _namespace_run(namespace, [("foo", "pkg/a.py"), *marked])
+    data = _load(_init_from(tmp_path, extraction))
+    assert {(e["export_name"], e["source_file"]): e["public"] for e in data["exports"]} == \
+        {("foo", "pkg/a.py"): True, **marked}
+    records, _ = manifest.build_records(extraction, None, None, [])
+    assert {(r["name"], b["file_path"]): r["public"] for b in records["files"] for r in b["exports"]} == \
+        {("foo", "pkg/a.py"): True, **marked}
+
+
+def test_an_export_namespace_record_gives_way_to_its_members(tmp_path):
+    """A JavaScript `export * as utils from './utils'`: the recipe's record of `utils` at the entry point, which
+    the folder clause marked public when the module sat in the entry's folder, is not; the module's members are."""
+    extraction = _namespace_run({"name": "utils", "file": "src/utils.ts", "members": [
+        {"name": "fmt", "local": None, "file": "src/utils.ts", "line": 1}]},
+        [("foo", "pkg/a.py"), ("utils", "src/index.ts"), ("fmt", "src/utils.ts"), ("hidden", "src/utils2.ts")],
+        language="javascript")
+    extraction["exports"][0]["language"] = "python"
+    extraction["entry_points"]["by_language"]["python"] = "barrel"
+    data = _load(_init_from(tmp_path, extraction))
+    assert {e["export_name"]: e["public"] for e in data["exports"]} == \
+        {"foo": True, "utils": False, "fmt": True, "hidden": False}
+
+
+def test_an_export_read_by_eye_is_marked_by_a_stored_member(tmp_path):
+    """`add` reads the members init kept in public_surface: a member read by eye, under the name its file gives
+    it, is public."""
+    extraction = _namespace_run({"name": "sub", "file": "pkg/sub.py", "members": [
+        {"name": "alias", "local": "real", "file": "pkg/sub.py", "line": 7}]}, [("foo", "pkg/a.py")])
+    path = _init_from(tmp_path, extraction)
+    assert _load(path)["public_surface"]["public"][1]["members"] == [
+        {"name": "alias", "local": "real", "file": "pkg/sub.py"}]
+    _ok(_run("add", "--inventory", str(path), "--field", "exports", stdin=json.dumps([
+        {"export_name": "real", "export_type": "variable", "source_file": "pkg/sub.py", "source_line": 7},
+        {"export_name": "sub", "export_type": "module", "source_file": "pkg/sub.py", "source_line": 1}])))
+    assert {e["export_name"]: e["public"] for e in _load(path)["exports"]} == {"foo": True, "real": True, "sub": False}
 
 
 # --------------------------------------------------------------------------

@@ -9,6 +9,7 @@ Step 3 §4b loads this file only when the recipe runner did not diff the entry p
   - In entry point but not AST → flag as extraction gap (trace via re-export protocol)
 - **TypeScript/JS:** Read `index.ts`/`index.js`: same comparison logic.
 - **Rust:** Read `lib.rs`: extract `pub use` items. Same logic. **Go:** Scan for exported (capitalized) identifiers.
+- **A submodule the entry point exports by name** (`from . import sub`, `export * as ns`, a Rust `pub mod`) counts as the names its module passes on, each name and file once, as the recipe runner counts it.
 
 **Multi-entry packages (`exports` map / declaration-file entry points).** A single per-language entry-point read misses public surface that a package ships through its `package.json` `exports` map, especially committed `.d.ts` / `.d.mts` declaration files that resolve **outside** the conventional source dir (e.g. a monorepo package whose `./macro` subpath maps to `macro/index.d.mts`, listed in `files[]` but not under `src/`). When the in-scope package declares an `exports` map:
 
