@@ -559,18 +559,45 @@ def ledger_lock(path: Path, timeout: float | None = None):
     that the file it locked is still the one at the path: otherwise a waiter
     on the removed file and a newcomer on a new one would both get a lock.
     Windows removes no file that is open, so there the file goes after the
-    release, unless a waiter has it open.
+    release, unless a waiter has it open. While the removal is under way (the
+    remover's own delete handle is open, or a virus scanner's or the search
+    indexer's), Windows refuses a new open of the file with PermissionError:
+    an append takes that for a held lock and tries again until the same
+    deadline, then raises LEDGER_LOCKED naming the last refusal. A refusal
+    with a folder at the path, or with nothing there on an immediate second
+    try, is a lasting denial and is raised as is.
     """
     timeout = LOCK_TIMEOUT_SECONDS if timeout is None else timeout
     lock_path = path.with_name(path.name + ".skf-lock")
     path.parent.mkdir(parents=True, exist_ok=True)
     deadline = time.monotonic() + timeout
 
-    def refuse() -> LedgerError:
-        return LedgerError("LEDGER_LOCKED", f"another append held {lock_path} for more than {timeout:g} s")
+    def refuse(cause: OSError | None = None) -> LedgerError:
+        message = f"another append held {lock_path} for more than {timeout:g} s"
+        if cause is not None:
+            message += f" (last open refused: {cause})"
+        return LedgerError("LEDGER_LOCKED", message)
 
+    vanished = False
     while True:
-        fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
+        try:
+            fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
+        except PermissionError as exc:
+            # Windows refuses to open a file whose removal is pending. A folder
+            # at the path, or nothing there twice running (once can be the
+            # removal ending just now), is a lasting denial: raise it.
+            if not _IS_WINDOWS or os.path.isdir(lock_path):
+                raise
+            if not os.path.lexists(lock_path):
+                if vanished:
+                    raise
+                vanished = True
+                continue
+            vanished = False
+            if time.monotonic() >= deadline:
+                raise refuse(exc) from exc
+            time.sleep(_LOCK_POLL_SECONDS)
+            continue
         try:
             while not _try_lock(fd):
                 if time.monotonic() >= deadline:

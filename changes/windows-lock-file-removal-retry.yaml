@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill, skf-create-skill, skf-quick-skill, skf-create-stack-skill, skf-rename-skill
+summary: |
+  On Windows, a Test Skill gap-ledger append (`gap-ledger.py append`) that finds the ledger's `.skf-lock` file still being removed by the append before it now waits and goes through instead of failing with `WRITE_FAILED`, and gives `LEDGER_LOCKED`, naming the refusal, only when the file stays refused for the whole 30-second lock wait. In the same case the `active` link flip (`skf-atomic-write.py flip-link`) now waits up to about a second and goes through, where it used to fail with a Python traceback that stopped Create Skill and Quick Skill, rolled Rename Skill back and left Create Stack Skill a `flip-link-failed` warning. A lock file still refused after that wait ends the flip with exit 2 and the `another process holds flip lock` message, naming the refusal, which Create Skill's `active-link-blocked` halt now shows instead of saying the `active` path is not a symlink.
+issues: [706]
