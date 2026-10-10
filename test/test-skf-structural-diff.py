@@ -965,6 +965,70 @@ class TestGroupBySourceLibrary:
         assert all("source_library" not in e for e in r["added"] + r["removed"])
 
 
+# --------------------------------------------------------------------------
+# Public surface: a public-api snapshot's exports off the surface are no addition (#702)
+# --------------------------------------------------------------------------
+
+
+class TestPublicSurface:
+    """skf-extraction-snapshot.py build --scope-type public-api marks each export `public`; after the pairing, an
+    export marked false that pairs with no map entry goes to not_public[], never added[]. Fixtures hold no
+    namespace re-export."""
+
+    def test_an_unpaired_export_marked_false_is_not_public_not_added(self):
+        r = diff_inventories([_prov_entry()], [
+            _snap_export(), _snap_export(name="helper", file="cognee/api/v1/ui/ui.py", line=3, public=False),
+            _snap_export(name="logger", file="cognee/__init__.py", line=34, public=True)])
+        assert [(a["name"], a["public"]) for a in r["added"]] == [("logger", True)]
+        assert [(n["name"], n["file"], n["public"]) for n in r["not_public"]] == [
+            ("helper", "cognee/api/v1/ui/ui.py", False)]
+        assert (r["summary"]["added"], r["summary"]["not_public"], r["summary"]["unchanged"]) == (1, 1, 1)
+        # the item is the normalized record added[] holds
+        assert set(r["not_public"][0]) == set(r["added"][0])
+
+    @pytest.mark.parametrize("line", [27, 31], ids=["unchanged", "changed"])
+    def test_a_map_entry_off_the_surface_is_compared_never_removed(self, line):
+        """A map written before create-skill kept a public-api map to the surface holds internals: matched, they are
+        unchanged or changed, whatever their mark."""
+        r = diff_inventories([_prov_entry()], [_snap_export(line=line, public=False)])
+        assert r["removed"] == [] and r["added"] == [] and r["not_public"] == []
+        assert (r["summary"]["unchanged"], r["summary"]["changed"]) == ((1, 0) if line == 27 else (0, 1))
+
+    def test_a_move_off_the_surface_is_a_move(self):
+        r = diff_inventories([_prov_entry()], [_snap_export(file="cognee/modules/search/impl.py", public=False)])
+        assert [(m["name"], m["current_file"]) for m in r["moved"]] == [("search", "cognee/modules/search/impl.py")]
+        assert r["removed"] == r["added"] == r["not_public"] == []
+
+    def test_an_ambiguous_name_stays_in_added(self):
+        """A reviewer judges whether a removed and an added entry of one name are one export that moved, so a
+        leftover of an ambiguous name stays in added[] whatever its mark."""
+        base = [_route("GET", "routes/a.ts", 1), _route("GET", "routes/b.ts", 1)]
+        curr = [_route("GET", "routes/c.ts", 1, public=False)]
+        r = diff_inventories(base, curr)
+        assert [a["name"] for a in r["ambiguous_names"]] == ["GET"]
+        assert [(a["name"], a["file"], a["public"]) for a in r["added"]] == [("GET", "routes/c.ts", False)]
+        assert r["not_public"] == [] and r["summary"]["not_public"] == 0
+
+    @pytest.mark.parametrize("mark", [{}, {"public": None}, {"public": "false"}, {"public": 0}],
+                             ids=["absent", "null", "a-string", "a-number"])
+    def test_an_unmarked_inventory_diffs_as_before(self, mark):
+        """An older snapshot, or any other scope type, marks nothing: the export is added, its record carries no
+        `public`, and not_public[] is empty. Only true or false is a mark."""
+        r = diff_inventories([], [_snap_export(name="helper", file="x.py", **mark)])
+        assert [a["name"] for a in r["added"]] == ["helper"] and "public" not in r["added"][0]
+        assert (r["not_public"], r["summary"]["not_public"]) == ([], 0)
+
+    def test_not_public_is_tagged_and_summed_by_library(self):
+        base = [_prov_entry(source_library="lib-a")]
+        curr = [_snap_export(source_library="lib-a"),
+                _snap_export(name="inner", file="a/inner.py", source_library="lib-a", public=False),
+                _snap_export(name="inner", file="b/inner.py", source_library="lib-b", public=False)]
+        r = diff_inventories(base, curr, group_by="source_library")
+        assert [(n["source_library"], n["name"]) for n in r["not_public"]] == [("lib-a", "inner"), ("lib-b", "inner")]
+        assert {g["source_library"]: g["summary"]["not_public"] for g in r["groups"]} == {"lib-a": 1, "lib-b": 1}
+        assert r["summary"]["not_public"] == 2 and r["added"] == []
+
+
 class TestCurrentExtra:
     """--current-extra adds to a recipe runner's records what the recipes do not record (update-skill Category B)."""
 
@@ -1263,6 +1327,16 @@ class TestCLIExitCodes:
         assert out["removed"] == [] and [c["field"] for c in out["changed"]] == ["line"]
         assert out["file_scope"] == {"files": 1, "baseline_left_out": 1, "current_left_out": 0}
 
+    def test_exports_off_the_public_surface_alone_exit_0(self, tmp_path):
+        base = _write(tmp_path / "provenance-map.json", {"entries": [_prov_entry()]})
+        curr = _write(tmp_path / "extraction-snapshot.json", {"exports": [
+            _snap_export(public=True), _snap_export(name="helper", file="x.py", public=False)]})
+        res = _run([str(base), str(curr)])
+        assert res.returncode == 0, res.stdout + res.stderr
+        out = json.loads(res.stdout)
+        assert out["summary"]["not_public"] == 1 and out["summary"]["added"] == 0
+        assert [n["name"] for n in out["not_public"]] == ["helper"]
+
     def test_an_unverified_signature_alone_exits_0(self, tmp_path):
         base = _write(tmp_path / "provenance-map.json", {"entries": [_prov_entry(params=["a"])]})
         curr = _write(tmp_path / "extraction-snapshot.json", {"exports": [_snap_export(signature="search(a, b)")]})
@@ -1273,8 +1347,8 @@ class TestCLIExitCodes:
     def test_help_prints_the_contract(self):
         res = _run(["--help"])
         assert res.returncode == 0, res.stderr
-        for section in ("Matching:", "File scope (--files FILE):", "ambiguous_names:",
-                        "signature_unverified:", "Exit codes:"):
+        for section in ("Matching:", "Public surface:", "File scope (--files FILE):", "ambiguous_names:",
+                        "signature_unverified:", "not_public:", "Exit codes:"):
             assert section in res.stdout, section
 
     def test_output_file_prints_a_summary_line(self, tmp_path):

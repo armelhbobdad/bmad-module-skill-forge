@@ -10,10 +10,16 @@ extraction gaps, the files read after an ast-grep failure) so it never
 opens the runner's JSON; relocate adds step 3's relocated exports. The
 extraction gaps add the map's entries the runner leaves out (an underscore
 name, a module) while their file still declares them (#682), by the
-verifier's declaration rule, which a build cannot go without. Two tests
-run the real runner (with the pinned ast-grep) over a scan list and diff
-the snapshot with skf-structural-diff.py, as audit-skill's steps 2 and 3
-do.
+verifier's declaration rule, which a build cannot go without. With
+--scope-type public-api the build marks each export `public` by the
+public-surface rule skf-extraction-inventory.py keeps for create-skill and
+update-skill (#702): every export stays, the one problem the rule gives
+when it reads no surface is kept, and any other scope type marks nothing
+and never loads that helper. Three tests run the real runner (with the
+pinned ast-grep) over a scan list and diff the snapshot with
+skf-structural-diff.py, as audit-skill's steps 2 and 3 do. No fixture
+holds a namespace re-export (`via: namespace`), so a change to how the
+rule reads one cannot flip them.
 """
 
 from __future__ import annotations
@@ -37,6 +43,9 @@ DIFF = SCRIPTS / "skf-structural-diff.py"
 spec = importlib.util.spec_from_file_location("skf_extraction_snapshot", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
+_diff_spec = importlib.util.spec_from_file_location("skf_structural_diff_for_snapshot", DIFF)
+diff_mod = importlib.util.module_from_spec(_diff_spec)
+_diff_spec.loader.exec_module(diff_mod)
 
 
 def _write(path: Path, data) -> Path:
@@ -509,6 +518,165 @@ def test_a_verifier_that_cannot_load_is_a_build_error(tmp_path, verifier):
     assert "Traceback" not in result.stderr and not out.exists()
 
 
+# --------------------------------------------------------------------------
+# Public surface: a public-api skill's exports marked by the shared rule (#702)
+# --------------------------------------------------------------------------
+
+INVENTORY = SCRIPTS / "skf-extraction-inventory.py"
+_inv_spec = importlib.util.spec_from_file_location("skf_extraction_inventory_for_snapshot", INVENTORY)
+inventory = importlib.util.module_from_spec(_inv_spec)
+_inv_spec.loader.exec_module(inventory)
+
+# A public-api package: its entry point re-exports `connect` and exports `logger`, a name no recipe finds (read by
+# eye at the gap); `helper`, `legacy` and `main` are internal, and the map, written before create-skill kept a
+# public-api map to the surface, holds `legacy`. The runner names `main`'s file with a backslash and gives its
+# language, the only way to know an extension-less file's family.
+SURFACE_TREE = {"pkg/__init__.py": "", "pkg/client.py": "", "pkg/util.py": "", "pkg/cli": ""}
+SURFACE_MAP = {"entries": [
+    _entry("connect", "pkg/client.py", "function"), _entry("legacy", "pkg/util.py", "function", 9),
+    _entry("run", "pkg/cli", "function"), _entry("version", "pkg/__init__.py", "function")]}
+SURFACE_RUNNER = {
+    "status": "ok", "scope": {"type": None, "include": []},
+    "exports": [_export("connect", "pkg/client.py", 1, language="python"),
+                _export("helper", "pkg/util.py", 5, language="python"),
+                _export("legacy", "pkg/util.py", 9, language="python"),
+                _export("main", "pkg\\cli", 2, language="python")],
+    "entry_points": {"status": "barrel", "by_language": {"python": "barrel"}, "unresolved": []},
+    "entry_point_diff": {
+        "public": [{"name": "connect", "language": "python", "entry": "pkg/__init__.py", "via": "re-export",
+                    "from": ".client", "local": None, "file": "pkg/client.py", "line": 1}],
+        "internal": [{"name": n, "language": "python", "source_file": f, "source_line": 1}
+                     for n, f in (("helper", "pkg/util.py"), ("legacy", "pkg/util.py"), ("main", "pkg/cli"))],
+        "extraction_gaps": [{"name": "logger", "language": "python", "entry": "pkg/__init__.py",
+                             "file": "pkg/__init__.py", "line": 3}],
+        "outside_scope": []},
+}
+LOGGER = {"name": "logger", "file": "pkg/__init__.py", "line": 3, "type": "variable", "signature": "logger = log()"}
+
+
+def _surface_build(tmp_path, runner=SURFACE_RUNNER, scope_type="public-api", tier="Forge", details=(LOGGER,)):
+    root = _tree(tmp_path / "src", SURFACE_TREE)
+    return mod.build(root, tier, "t", SURFACE_MAP, runner, [], list(details), scope_type=scope_type)
+
+
+def test_public_api_marks_each_export_by_the_public_surface_rule(tmp_path):
+    """The marks are the rule's: a re-exported name and a gap read by eye (no language: the family of its file's
+    extension) are public, the rest of a barrel family is not, an extension-less file is marked by the language
+    the runner gave its export, and every export stays, a map-held one off the surface (`legacy`) too."""
+    snap = _surface_build(tmp_path)
+    assert {e["name"]: e["public"] for e in snap["exports"]} == {
+        "connect": True, "helper": False, "legacy": False, "logger": True, "main": False}
+    assert snap["public_surface"] == {"problem": None, "marked_not_public": 3}
+    # the marks change nothing else: the same exports, counts and statuses as a build with no scope type
+    plain = _surface_build(tmp_path, scope_type=None)
+    assert plain["public_surface"] is None
+    for export in snap["exports"]:
+        export.pop("public")
+    snap["public_surface"] = None
+    assert snap == plain
+    assert plain["counts"] == {"exports": 5, "by_type": {"function": 4, "variable": 1}, "t1": 4, "t1_low": 1}
+
+
+def test_a_family_with_no_barrel_is_left_unmarked_and_reads_as_added(tmp_path):
+    """The rule marks only a family whose entry points are a barrel: a Go export beside the Python barrel carries
+    no `public` key, so the not-public count is the barrel family's and the diff still reports it added."""
+    tree = {**SURFACE_TREE, "pkg/ext.go": ""}
+    provenance = {"entries": [*SURFACE_MAP["entries"], _entry("Old", "pkg/ext.go", "function")]}
+    runner = {**SURFACE_RUNNER, "exports": [*SURFACE_RUNNER["exports"], _export("Old", "pkg/ext.go", 1, language="go"),
+                                            _export("Fresh", "pkg/ext.go", 5, language="go")]}
+    snap = mod.build(_tree(tmp_path / "src", tree), "Forge", "t", provenance, runner, [], [LOGGER],
+                     scope_type="public-api")
+    by_name = {e["name"]: e for e in snap["exports"]}
+    assert "public" not in by_name["Fresh"] and "public" not in by_name["Old"]
+    assert snap["public_surface"] == {"problem": None, "marked_not_public": 3}
+    result = diff_mod.diff_inventories(provenance["entries"], snap["exports"])
+    assert [a["name"] for a in result["added"]] == ["Fresh", "logger"]
+    assert [n["name"] for n in result["not_public"]] == ["helper", "main"]
+
+
+@pytest.mark.parametrize("scope_type", [None, "full-library", "component-library", "specific-modules"])
+def test_any_other_scope_type_marks_nothing(tmp_path, scope_type):
+    snap = _surface_build(tmp_path, scope_type=scope_type)
+    assert snap["public_surface"] is None
+    assert not any("public" in e for e in snap["exports"])
+
+
+def _no_surface(case: str) -> dict | None:
+    if case == "quick":
+        return None
+    if case == "no-ast-grep":
+        return {"status": "no-ast-grep", "exports": [], "scope": {"type": None},
+                "entry_points": {"status": None, "by_language": {}, "unresolved": []}, "entry_point_diff": None}
+    runner = json.loads(json.dumps(SURFACE_RUNNER))
+    error = {"reason": "time-limit", "files": 1, "first_file": "pkg/util.py", "detail": "x", "unread": []}
+    if case == "incomplete":
+        runner.update(status="incomplete", errors=[error])
+    elif case == "errors":
+        runner["errors"] = [error]
+    else:
+        runner["entry_points"]["unresolved"] = [{"entry": "pkg/__init__.py", "name": "gone", "from": ".gone",
+                                                 "file": None}]
+    return runner
+
+
+@pytest.mark.parametrize("case", ["quick", "no-ast-grep", "incomplete", "errors", "unresolved"])
+def test_with_no_surface_nothing_is_marked_and_the_rule_says_why(tmp_path, case):
+    """No runner JSON (Quick tier), a runner that could not run, an incomplete run, one with errors, or an entry
+    point the runner could not trace: the rule reads no surface, so every export is kept unmarked (step 3 then
+    reports each one the map lacks as added), and `public_surface.problem` is the rule's own reason."""
+    runner = _no_surface(case)
+    snap = _surface_build(tmp_path, runner=runner, tier="Quick" if case == "quick" else "Forge")
+    assert not any("public" in e for e in snap["exports"])
+    _surface, problem = inventory.public_surface({**(runner or {}), "scope": {"type": "public-api"}})
+    assert problem and snap["public_surface"] == {"problem": problem, "marked_not_public": 0}
+    if case in ("quick", "no-ast-grep"):
+        assert problem.startswith("the recipe runner gave no entry-point diff")
+
+
+def test_the_build_line_carries_the_public_surface(tmp_path):
+    """Step 2 reads the surface state from the line it prints; the scope type compares in any case."""
+    root = _tree(tmp_path / "src", SURFACE_TREE)
+    provenance = _write(tmp_path / "provenance-map.json", SURFACE_MAP)
+    runner = _write(tmp_path / "extraction.json", SURFACE_RUNNER)
+    details = _write(tmp_path / "export-details-1.json", {"files": [], "exports": [LOGGER]})
+    out = tmp_path / "extraction-snapshot.json"
+    base = ["build", "--source-root", str(root), "--tier", "Forge", "--date", "t", "--provenance-map", str(provenance),
+            "--details", str(details), "-o", str(out)]
+    code, line = _run(*base, "--extraction", str(runner), "--scope-type", "Public-API")
+    assert (code, line["public_surface"]) == (0, {"problem": None, "marked_not_public": 3})
+    assert json.loads(out.read_text(encoding="utf-8"))["public_surface"] == line["public_surface"]
+    # Quick tier: no runner JSON, so the rule's own problem, and no mark
+    code, line = _run(*base, "--scope-type", "public-api")
+    assert code == 0 and line["public_surface"]["problem"].startswith("the recipe runner gave no entry-point diff")
+    assert not any("public" in e for e in json.loads(out.read_text(encoding="utf-8"))["exports"])
+    code, line = _run(*base, "--extraction", str(runner))
+    assert (code, line["public_surface"]) == (0, None)
+
+
+def test_only_public_api_loads_the_inventory_helper(tmp_path):
+    """A snapshot helper installed without skf-extraction-inventory.py beside it builds any other scope type as
+    before; a public-api build cannot mark without the rule, so it stops with exit 2 and the error JSON."""
+    alone = tmp_path / "scripts"
+    alone.mkdir()
+    for name in ("skf-extraction-snapshot.py", "skf-load-provenance.py", "skf-verify-provenance-completeness.py"):
+        shutil.copy2(SCRIPTS / name, alone / name)
+    root = _tree(tmp_path / "src", SURFACE_TREE)
+    provenance = _write(tmp_path / "provenance-map.json", SURFACE_MAP)
+    runner = _write(tmp_path / "extraction.json", SURFACE_RUNNER)
+    out = tmp_path / "extraction-snapshot.json"
+    for scope_type, code in (("component-library", 0), ("public-api", 2)):
+        result = subprocess.run([sys.executable, str(alone / "skf-extraction-snapshot.py"), "build", "--source-root",
+                                 str(root), "--tier", "Forge", "--date", "t", "--provenance-map", str(provenance),
+                                 "--extraction", str(runner), "--scope-type", scope_type, "-o", str(out)],
+                                capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
+        line = json.loads(result.stdout)
+        assert result.returncode == code, result.stdout + result.stderr
+        if code:
+            assert line["error"].startswith("cannot load skf-extraction-inventory.py beside skf-extraction-snapshot.py")
+        else:
+            assert line["public_surface"] is None
+
+
 def test_relocate_adds_a_removed_name_found_outside_the_scope(tmp_path):
     """Step 3's relocation check: the runner's exports over the candidate
     files join the snapshot only under a removed name, from a file outside
@@ -655,3 +823,86 @@ def test_the_runner_leaves_dunders_and_modules_to_the_baseline_gaps(tmp_path):
         ("_registry", "type", "variable", "function")]
     assert [a["name"] for a in result["added"]] == ["get_session"]
     assert {"transform": "export-type", "count": 1} in result["applied_transforms"]
+
+
+@pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")
+def test_a_public_api_audit_reports_no_internal_export_as_added(tmp_path):
+    """#702 end to end: the runner and the build with --scope-type public-api, then the diff. An internal export
+    the map lacks is listed off the surface, not added; one the map holds stays unchanged; a mapped export moved
+    into an internal file is a move. Without the flag the same internal export reads as added, as before."""
+    root = _tree(tmp_path / "src", {
+        "pkg/__init__.py": "from .client import connect\n",
+        "pkg/client.py": "def connect(url: str) -> None:\n    pass\n",
+        "pkg/util.py": ("def helper(x: int) -> int:\n    return x\n\n\ndef legacy() -> None:\n    pass\n\n\n"
+                        "def relocated() -> None:\n    pass\n"),
+    })
+    provenance = _write(tmp_path / "forge" / "provenance-map.json", {"entries": [
+        {"export_name": name, "export_type": "function", "source_file": file, "source_line": line,
+         "signature": signature, "confidence": "T1", "extraction_method": "ast-grep"}
+        for name, file, line, signature in (
+            ("connect", "pkg/client.py", 1, "def connect(url: str) -> None:"),
+            ("legacy", "pkg/util.py", 5, "def legacy() -> None:"),
+            ("relocated", "pkg/old.py", 1, "def relocated() -> None:"))]})
+    data = tmp_path / "forge" / ".skf-audit" / "20260101-000000"
+    data.mkdir(parents=True)
+    scan = data / "scan-files.json"
+    assert _run("scan-list", str(provenance), "-o", str(scan))[0] == 0
+    results = {}
+    for flag in (["--scope-type", "public-api"], []):
+        extraction, snapshot = data / f"extraction{len(flag)}.json", tmp_path / "forge" / f"snapshot{len(flag)}.json"
+        runner = subprocess.run([sys.executable, str(RUNNER), "--mode", "full", "--source-root", str(root),
+                                 "--files-from", str(scan), "--head-cap", "0", *flag, "-o", str(extraction)],
+                                capture_output=True, text=True, encoding="utf-8", timeout=300, check=False)
+        assert runner.returncode == 0, runner.stderr
+        code, line = _run("build", "--source-root", str(root), "--tier", "Forge", "--date", "t", "--provenance-map",
+                          str(provenance), "--extraction", str(extraction), *flag, "-o", str(snapshot))
+        assert code == 0 and line["complete"] is True
+        diff = subprocess.run([sys.executable, str(DIFF), str(provenance), str(snapshot)], capture_output=True,
+                              text=True, encoding="utf-8", timeout=120, check=False)
+        results[bool(flag)] = (line, json.loads(diff.stdout))
+    line, result = results[True]
+    assert line["public_surface"] == {"problem": None, "marked_not_public": 3}
+    assert (result["added"], [e["name"] for e in result["not_public"]], result["removed"]) == ([], ["helper"], [])
+    assert [(m["name"], m["previous_file"], m["current_file"]) for m in result["moved"]] == [
+        ("relocated", "pkg/old.py", "pkg/util.py")]
+    assert result["summary"]["unchanged"] == 3 and result["changed"] == []
+    line, result = results[False]
+    assert line["public_surface"] is None
+    assert ([e["name"] for e in result["added"]], result["not_public"]) == (["helper"], [])
+
+
+@pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")
+def test_a_typescript_barrel_off_the_scan_list_still_marks_the_surface(tmp_path):
+    """#702: the map cites only the file that defines the exports; the package's barrel (package.json `main` ->
+    src/index.ts) is not on the scan list, yet the runner's entry-point trace marks the re-exported `connect`
+    public and `helper` not, so the diff lists `helper` off the surface."""
+    root = _tree(tmp_path / "src", {
+        "pkg/package.json": '{"name": "pkg", "version": "1.0.0", "main": "src/index.ts"}\n',
+        "pkg/src/index.ts": 'export { connect } from "./client";\n',
+        "pkg/src/client.ts": ("export function connect(url: string): void {}\n\n"
+                              "export function helper(x: number): number {\n  return x;\n}\n"),
+    })
+    provenance = _write(tmp_path / "forge" / "provenance-map.json", {"entries": [
+        {"export_name": "connect", "export_type": "function", "source_file": "pkg/src/client.ts", "source_line": 1,
+         "confidence": "T1", "extraction_method": "ast-grep"}]})
+    data = tmp_path / "forge" / ".skf-audit" / "20260101-000000"
+    data.mkdir(parents=True)
+    scan, extraction = data / "scan-files.json", data / "extraction.json"
+    assert _run("scan-list", str(provenance), "-o", str(scan))[0] == 0
+    assert json.loads(scan.read_text(encoding="utf-8")) == ["pkg/src/client.ts"]
+    runner = subprocess.run([sys.executable, str(RUNNER), "--mode", "full", "--source-root", str(root),
+                             "--files-from", str(scan), "--head-cap", "0", "--scope-type", "public-api",
+                             "-o", str(extraction)],
+                            capture_output=True, text=True, encoding="utf-8", timeout=300, check=False)
+    assert runner.returncode == 0, runner.stderr
+    snapshot = tmp_path / "forge" / "extraction-snapshot.json"
+    code, line = _run("build", "--source-root", str(root), "--tier", "Forge", "--date", "t", "--provenance-map",
+                      str(provenance), "--extraction", str(extraction), "--scope-type", "public-api",
+                      "-o", str(snapshot))
+    assert (code, line["complete"], line["public_surface"]) == (0, True, {"problem": None, "marked_not_public": 1})
+    snap = json.loads(snapshot.read_text(encoding="utf-8"))
+    assert {e["name"]: e["public"] for e in snap["exports"]} == {"connect": True, "helper": False}
+    diff = subprocess.run([sys.executable, str(DIFF), str(provenance), str(snapshot)], capture_output=True,
+                          text=True, encoding="utf-8", timeout=120, check=False)
+    result = json.loads(diff.stdout)
+    assert (diff.returncode, result["added"], [n["name"] for n in result["not_public"]]) == (0, [], ["helper"])

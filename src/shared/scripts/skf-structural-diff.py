@@ -63,6 +63,20 @@ Matching:
   listed in ambiguous_names[] with the files on each side, for a reviewer
   to judge.
 
+Public surface:
+  A current entry may carry `public`, true or false: the mark
+  skf-extraction-snapshot.py build --scope-type public-api gives each
+  export by the public-surface rule a public-api skill's provenance map is
+  kept to. After the pairing above, a current entry marked false that
+  pairs with none (no baseline entry of its name and file, and no move)
+  goes to not_public[], not added[]: create-skill and update-skill never
+  document an export off the surface, so it is no drift. One whose name is
+  in ambiguous_names[] stays in added[], where a reviewer pairs it. A
+  matched or moved entry is compared whatever its mark, so a baseline
+  entry off the surface is never reported removed. An entry with no mark
+  (any other scope type, a family with no barrel, an older snapshot) is
+  added as before. not_public[] never counts toward the exit code.
+
 File scope (--files FILE):
   For a caller that re-extracted only the files that changed (update-skill's
   Category B), --files limits the diff to the exports of the files FILE
@@ -160,7 +174,7 @@ Output:
   JSON object:
     summary:            { added, removed, changed, moved, unchanged,
                           label_changes, ambiguous_names,
-                          signature_unverified }
+                          signature_unverified, not_public }
     added:              list of entries present in current but not baseline
     removed:            list of entries present in baseline but not current
     changed:            list of { name, field, baseline_value, current_value,
@@ -183,6 +197,11 @@ Output:
                         params and return_type each side carries.
                         Informational: never a change, never in the exit
                         code
+    not_public:         list of current entries marked `public: false`
+                        that pair with no baseline entry and whose name is
+                        not ambiguous (see Public surface): exports off a
+                        public-api skill's public surface, left out of
+                        added[]. Not drift, never in the exit code
     unchanged_count:    number of entries that matched with no field change
                         (a label change or an unverified signature alone
                         leaves an entry unchanged)
@@ -194,8 +213,10 @@ Output:
                         step 6's Provenance section so a reviewer can tell
                         which differences the diff collapsed.
 
-  added[] and removed[] hold normalized records: name, type, signature,
-  params, return_type, file, line, confidence and extraction_method.
+  added[], removed[] and not_public[] hold normalized records: name, type,
+  signature, params, return_type, file, line, confidence and
+  extraction_method, and `public` when the entry carries a true or false
+  mark (see Public surface).
 
   With --group-by source_library, each side is split by its entries'
   source_library (a stack's libraries; an entry without one falls in a
@@ -225,8 +246,9 @@ Exit codes:
      inventory whose entries all lack the field while the other's have it,
      an output that cannot be written, or a usage error ({status: "error",
      error} on stdout, or argparse's usage on stderr)
-  Label differences (label_changes) and unverified signatures
-  (signature_unverified) do not count toward the exit code.
+  Label differences (label_changes), unverified signatures
+  (signature_unverified) and exports off the public surface (not_public) do
+  not count toward the exit code.
 """
 
 from __future__ import annotations
@@ -609,6 +631,10 @@ def _normalize_entries(
             "confidence": entry.get("confidence"),
             "extraction_method": entry.get("extraction_method"),
         }
+        # The snapshot's public-surface mark, kept only when it is one, so an
+        # unmarked inventory's records are as before.
+        if isinstance(entry.get("public"), bool):
+            record["public"] = entry["public"]
         key = (name, _file_key(record["file"]))
         kept = result.get(key)
         if kept is not None and not (
@@ -704,7 +730,8 @@ def _unverified_signature(base_rec: dict, curr_rec: dict) -> dict | None:
 # --------------------------------------------------------------------------
 
 
-LISTS = ["added", "removed", "changed", "moved", "ambiguous_names", "label_changes", "signature_unverified"]
+LISTS = ["added", "removed", "changed", "moved", "ambiguous_names", "label_changes", "signature_unverified",
+         "not_public"]
 
 
 def _key_order(key: tuple) -> tuple:
@@ -764,8 +791,20 @@ def _diff_records(
 
     # Emit normalized entries (uniform shape) so added[] and removed[] render
     # into the same report table even though they originate from the
-    # snapshot and provenance-map shapes.
-    added = [current[k] for k in added_keys if k not in paired_curr]
+    # snapshot and provenance-map shapes. After the pairing, a leftover
+    # current entry marked off the public surface is no addition, unless its
+    # name is ambiguous: a reviewer may pair it as a move.
+    ambiguous = {item["name"] for item in ambiguous_names}
+    added: list[dict] = []
+    not_public: list[dict] = []
+    for key in added_keys:
+        if key in paired_curr:
+            continue
+        rec = current[key]
+        if rec.get("public") is False and rec["name"] not in ambiguous:
+            not_public.append(rec)
+        else:
+            added.append(rec)
     removed = [baseline[k] for k in removed_keys if k not in paired_base]
 
     changed: list[dict] = []
@@ -843,6 +882,7 @@ def _diff_records(
         "ambiguous_names": ambiguous_names,
         "label_changes": label_changes,
         "signature_unverified": signature_unverified,
+        "not_public": not_public,
         "unchanged_count": unchanged_count,
         "changed_exports": changed_exports,
     }
@@ -858,6 +898,7 @@ def _summary(part: dict) -> dict:
         "label_changes": len(part["label_changes"]),
         "ambiguous_names": len(part["ambiguous_names"]),
         "signature_unverified": len(part["signature_unverified"]),
+        "not_public": len(part["not_public"]),
     }
 
 
@@ -885,10 +926,11 @@ def diff_inventories(
     """Compute the structural diff between two export inventories.
 
     Returns a dict with keys: summary, added, removed, changed, moved,
-    ambiguous_names, label_changes, signature_unverified, unchanged_count,
-    applied_transforms; with group_by, group_by and groups; and with files,
-    file_scope (see the module docstring). files limits the diff to the
-    exports of those files, and every other export is taken as unchanged.
+    ambiguous_names, label_changes, signature_unverified, not_public,
+    unchanged_count, applied_transforms; with group_by, group_by and
+    groups; and with files, file_scope (see the module docstring). files
+    limits the diff to the exports of those files, and every other export
+    is taken as unchanged.
 
     Raises ValueError when group_by is set and one side has entries but
     none with a group_by value while the other side has some; the message

@@ -43,7 +43,12 @@ fallback. These tests keep audit and the knowledge base on it:
 - tool-resolution.md's ast_bridge rows name `find_code_by_rule` with the
   recipes and `ast-grep scan -r ... --json=stream`, never `sg run`,
   `ast-grep -p` or `ast-grep run -p`;
-- audit-skill's SKILL.md names both create-skill files re-index.md loads.
+- audit-skill's SKILL.md names both create-skill files re-index.md loads;
+- a public-api skill's runner and build take `--scope-type public-api`
+  (never the brief, whose globs would drop files of the scan list), the
+  snapshot marks each export by the public-surface rule and keeps them all,
+  and a surface the rule cannot read is warned and recorded once as
+  `public_surface_not_applied` (#702).
 With the pinned ast-grep on PATH, the protocol's CLI streaming template run
 over a batch of listed files prints only their exports, at `$NAME`'s line.
 
@@ -444,9 +449,14 @@ def test_the_runner_call_starts_from_a_removed_json() -> None:
     assert call.startswith("uv run {extractPublicApiHelper} --mode full --source-root \"{source_root}\"")
     assert "--head-cap 0" in call and call.endswith('-o "{auditDataFolder}/extraction.json"')
     assert '--files-from "{auditDataFolder}/scan-files.json"' in call
+    # #702: the scope type only, for a public-api skill; never the brief, whose globs would drop scan-list files
+    assert " [--scope-type public-api] " in call and "--brief" not in call
     flow = _flow(section)
     assert ("Never open the JSON: item 2's helper reads it and prints what this step acts on, its `status` "
             "included (never the exit code)") in flow
+    assert ("Pass `--scope-type public-api` only when `{scope_type}` (step 1 §3) is `public-api`, and never pass "
+            "the brief (`--brief`): its globs would leave out files on the scan list, which step 3 would then "
+            "report removed.") in flow
     build = _flow(_slice(_read(RE_INDEX), "**2. Build the snapshot.**", "**3. What the runner leaves.**"))
     for status in ("**`runner_status` is `incomplete`**", "**`runner_status` is `no-ast-grep`, or null at Forge "
                    "tier and above** (no JSON at `-o` after the call"):
@@ -521,8 +531,11 @@ def test_the_scan_list_and_the_snapshot_come_from_the_helper() -> None:
     # Every skill that reaches re-index has a provenance map (degraded mode is gone).
     assert ' --provenance-map "{provenanceMap}" ' in call and "[--provenance-map" not in call
     assert '[--details "{auditDataFolder}/export-details-{n}.json"]...' in call
+    assert ' [--scope-type public-api] ' in call
     assert call.endswith('-o "{forge_version}/extraction-snapshot.json"')
     flow = _flow(build)
+    assert ("`--scope-type public-api` when `{scope_type}` is `public-api` (at Quick tier too, where no runner "
+            "runs)") in flow
     assert "Step 3 never reads an incomplete snapshot" in flow
     # The step acts on the printed line, and a file it can read neither way halts.
     for field in ("`runner_status`", "`to_read`", "`extraction_gaps`", "`complete`"):
@@ -538,6 +551,45 @@ def test_the_scan_list_and_the_snapshot_come_from_the_helper() -> None:
     assert "the snapshot helper gives each one its file's `source_library`" in leaves
     assert "looked up once per file in the provenance map's `entries[]`" not in text
     assert "`{auditDataFolder}/export-details.json`" not in text
+
+
+def test_a_public_api_build_marks_the_surface_and_warns_once_without_one() -> None:
+    """#702: the snapshot marks each export by the rule create-skill and update-skill keep a public-api map to,
+    keeps every export (a map an older SKF wrote can hold internals), and step 3 lists an unpaired one marked
+    false off the surface; a build that reads no surface is warned and recorded once, on the build that goes on
+    to §4, through a file write, as the recipe-runner warning is."""
+    text = _read(RE_INDEX)
+    build = _flow(_slice(text, "**2. Build the snapshot.**", "**3. What the runner leaves.**"))
+    warning = _slice(build, "- **`public_surface.problem` is not null**", "- **`complete` is true**")
+    for token in ("on the build that goes on to §4 (with `--scope-type public-api`, the public-surface rule could "
+                  "read no surface: no runner JSON, as at Quick tier, a runner that could not run, an incomplete "
+                  "run, one with errors, or an entry point the runner could not trace)",
+                  'warn "**Public surface not applied:** {problem}; step 3 reports every export the provenance '
+                  'map does not hold as added."',
+                  "record `public_surface_not_applied: {problem}` for the envelope, once: write the text to "
+                  "`{run_dir}/warning.txt` with a file write (the problem can hold quotes)",
+                  'run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+                  '"$(cat "{run_dir}/warning.txt")"`'):
+        assert token in warning, token
+    # a public-api build that cannot load skf-extraction-inventory.py beside it halts as a missing helper
+    error = _slice(build, '- **`status: "error"`:**', "- **The command fails otherwise")
+    assert ("An `error` that starts `cannot load` (a helper this build loads beside it is missing) HALTs with "
+            '**exit 3**, `halt_reason: "helper-missing"`, phase `re-index:snapshot`, showing the `error`.') in error
+    assert "for a public-api skill, each with its `public` mark when the surface marks it" in _flow(text)
+    surface = _flow(_slice(text, "**The public surface.**", SNAPSHOT_WRITE))
+    for token in ("With `--scope-type public-api` the helper marks each export of a language family whose entry "
+                  "points are a barrel `public: true` or `public: false`, by the rule create-skill and update-skill "
+                  "keep a public-api skill's provenance map to (`public_surface` in `skf-extraction-inventory.py`)",
+                  "the line's `public_surface` gives the rule's `problem` (null when it applied) and "
+                  "`marked_not_public`",
+                  "Every export stays in the snapshot, whatever its mark",
+                  "Step 3's diff lists an export marked `public: false` that pairs with no map entry under "
+                  "`not_public[]`, never under `added[]`",
+                  "Without the flag, or with any other scope type, nothing is marked and `public_surface` is null"):
+        assert token in surface, token
+    schema = json.loads((SRC / "shared" / "scripts" / "schemas" / "skf-audit-result-envelope.v1.json")
+                        .read_text(encoding="utf-8"))
+    assert "public_surface_not_applied (with the rule's problem)" in schema["properties"]["warnings"]["description"]
 
 
 def test_a_baseline_gap_is_read_with_the_kind_its_declaration_has() -> None:
@@ -653,3 +705,50 @@ def test_the_prose_commands_build_a_complete_snapshot(tmp_path: Path) -> None:
     by_name = {e["name"]: e for e in snapshot["exports"]}
     assert by_name["fetch"]["signature"] == "def fetch(url: str) -> bytes:"
     assert by_name["fetch"]["confidence"] == "T1" and snapshot["counts"]["t1"] == 2
+
+
+@needs_ast_grep
+def test_the_prose_commands_mark_a_public_api_snapshot(tmp_path: Path) -> None:
+    """#702: steps 2 §2 and §3 as written for a public-api skill, the optional `--scope-type` kept in the runner
+    and the build: the snapshot marks the re-exported name public and the internal ones not, keeps them all, and
+    its line says the rule applied. At Quick tier (no runner) the same build marks nothing and gives the rule's
+    own problem, which the step warns and records."""
+    root = tmp_path / "source"
+    for name, body in {"pkg/__init__.py": "from .api import fetch\n",
+                       "pkg/api.py": "def fetch(url: str) -> bytes:\n    return b''\n",
+                       "pkg/util.py": "def helper(x: int) -> int:\n    return x\n\n\ndef legacy() -> None:\n"
+                                      "    pass\n"}.items():
+        (root / name).parent.mkdir(parents=True, exist_ok=True)
+        (root / name).write_bytes(body.encode("utf-8"))
+    forge = tmp_path / "forge" / "demo" / "1.0.0"
+    data = forge / ".skf-audit" / "20260101-000000"
+    provenance = forge / "provenance-map.json"
+    provenance.parent.mkdir(parents=True)
+    provenance.write_bytes(json.dumps({"entries": [
+        {"export_name": n, "source_file": f, "source_line": line} for n, f, line in
+        [("fetch", "pkg/api.py", 1), ("legacy", "pkg/util.py", 5)]]}).encode("utf-8"))
+    values = {"{auditDataFolder}": str(data), "{provenanceMap}": str(provenance), "{source_root}": str(root),
+              "{source_path}": str(root), "{forge_version}": str(forge), "{tier}": "Forge",
+              "{timestamp}": "20260101-000000",
+              **{name: str(path) for name, path in HELPERS.items()}}
+    text = _read(RE_INDEX)
+    scan_list = _blocks(_slice(text, "### 2. Build Bounded Scan List", "### 3."))[0][1]
+    data.mkdir(parents=True)
+    assert _run_line(scan_list, values, set()).returncode == 0
+    runner = _blocks(_slice(text, "### 3. Extract Current Exports", "**2. Build the snapshot.**"))[0][1]
+    result = _run_line(runner, values, {"--scope-type"})
+    extraction = json.loads((data / "extraction.json").read_text(encoding="utf-8"))
+    assert (extraction["status"], extraction["scope"]["type"]) == ("ok", "public-api"), result.stderr
+    build = _blocks(_slice(text, "**2. Build the snapshot.**", "**3. What the runner leaves."))[0][0]
+    result = _run_line(build, values, {"--extraction", "--scope-type"})
+    line = json.loads(result.stdout)
+    assert (result.returncode, line["complete"], line["public_surface"]) == (
+        0, True, {"problem": None, "marked_not_public": 2}), result.stdout + result.stderr
+    snapshot = json.loads((forge / "extraction-snapshot.json").read_text(encoding="utf-8"))
+    assert {e["name"]: e["public"] for e in snapshot["exports"]} == {"fetch": True, "helper": False, "legacy": False}
+    # Quick tier: no runner runs, the build still takes the flag, and the rule names why it read no surface
+    values["{tier}"] = "Quick"
+    result = _run_line(build, values, {"--scope-type"})
+    line = json.loads(result.stdout)
+    assert result.returncode == 0 and line["public_surface"]["marked_not_public"] == 0, result.stdout
+    assert line["public_surface"]["problem"].startswith("the recipe runner gave no entry-point diff")

@@ -519,9 +519,10 @@ FLAG_ONLY_MUST_FIND = [
      ("--shape", "stack")),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-names-present.py",
      ("--provenance", "--skill-dir")),
-    # audit-skill's re-index runs the recipe runner over its scan list (#589).
+    # audit-skill's re-index runs the recipe runner over its scan list (#589), with the scope type of a
+    # public-api skill (#702). A flag written with its `[` is one the call passes in an optional group.
     ("src/skf-audit-skill/references/re-index.md", "skf-extract-public-api.py",
-     ("--files-from", "--head-cap")),
+     ("--files-from", "--head-cap", "[--scope-type")),
     # brief-skill's step 1 checks a typed or pre-filled version with the field-only mode.
     ("src/skf-brief-skill/references/gather-intent.md", "skf-validate-brief-inputs.py", ("--only",)),
 ]
