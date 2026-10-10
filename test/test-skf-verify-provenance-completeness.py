@@ -84,6 +84,23 @@ Covers:
     implementation counted once; no package root at the source root
     (a stray `__init__.py`), a walk that never leaves the source root,
     and an untokenizable file that holds the name making it ambiguous
+  - classify-stale's walk and module rule (#698): `e2e` and
+    `__fixtures__` skipped anywhere; `example`, `demo(s)`, `sample(s)`,
+    `scripts`, `playground`, `bench`, `benchmark` and `migrations` skipped
+    as the first folder below the walk root (a TS/JS package at the source
+    root, a Python package) and below each package root it passes through
+    (a monorepo's workspace packages, two top-level Python packages),
+    walked deeper down (cognee's live `modules/migrations/`) and when it
+    holds a cited file, and a file the map cites in one still read; with
+    `--inventory`, a name it gives a function, hook, class, interface, enum
+    or type kind (any of several, a method kind not read) taking no line 1
+    from a module so named, in a cited file or in the walk, its text
+    holding the name or not, while any other kind, no inventory entry, no
+    flag, a `module` or `package` entry of the name's own or a TS/JS file
+    that is itself the export (`export default`, `module.exports =`)
+    keeps it, the homonym that then settles, validate-inventory.py's whole
+    result read, the kinds pinned to its enum, and exit 2 on an inventory
+    that is missing or holds no `exports` list
   - declared_line (#682): the defined_at rule for one file, read below the
     source root or from lines given (a dunder, a renaming alias, a module
     or package named after the name, that module rule optional), None for
@@ -2690,6 +2707,30 @@ class TestClassifyStale:
                           "--source-root", str(tmp_path / "src"))
         assert result.returncode == 2 and "names not found" in result.stderr
 
+    @pytest.mark.parametrize("inventory, message", [
+        (None, "error: inventory not found: "),
+        ({"references": []}, "holds no `exports` list"),
+        ({"exports": {"client": "function"}}, "holds no `exports` list"),
+        ({"valid": False, "inventory": None}, "holds no `exports` list"),
+        ([{"name": "client", "kind": "function"}], "must be a JSON object"),
+        ("{not json", "malformed JSON in inventory"),
+    ], ids=["missing", "no-exports", "exports-not-a-list", "no-inventory-in-the-result", "a-list", "malformed"])
+    def test_a_bad_inventory_exit_2(self, tmp_path: Path, inventory, message: str) -> None:
+        (tmp_path / "src").mkdir()
+        names = _write_json(tmp_path / "names.json", ["client"])
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": []})
+        path = tmp_path / "run" / "inventory.json"
+        if isinstance(inventory, str):
+            path.parent.mkdir(parents=True)
+            path.write_bytes(inventory.encode("utf-8"))
+        elif inventory is not None:
+            _write_json(path, inventory)
+        result = _run_cli("classify-stale", "--names", str(names), "--provenance", str(prov),
+                          "--source-root", str(tmp_path / "src"), "--inventory", str(path))
+        assert result.returncode == 2
+        assert result.stdout == "" and len(result.stderr.splitlines()) == 1 and message in result.stderr, \
+            result.stderr
+
 
 # --------------------------------------------------------------------------
 # classify-stale: defined_at, the documented-extra lookup (#678)
@@ -2700,20 +2741,45 @@ PKG = {"pkg/__init__.py": "from .main import main\n", "pkg/main.py": "def main()
 MAIN_ENTRY = {"export_name": "main", "source_file": "pkg/main.py", "source_line": 1}
 # An entry of a TS/JS file outside every package: the map then cites both families.
 TS_ENTRY = {"export_name": "y", "source_file": "pkg/y.ts", "source_line": 1}
+# validate-inventory.py's `kind` enum, which the module rule reads (#698).
+_validate_inventory_spec = importlib.util.spec_from_file_location(
+    "skf_validate_inventory_kinds", REPO_ROOT / "src" / "skf-test-skill" / "scripts" / "validate-inventory.py")
+_validate_inventory = importlib.util.module_from_spec(_validate_inventory_spec)
+_validate_inventory_spec.loader.exec_module(_validate_inventory)
+VALID_INVENTORY_KINDS = tuple(_validate_inventory.VALID_KINDS)
 
 
-def _defined_at(tmp_path: Path, capsys, files: dict[str, str], stale: list[str],
-                entries: list[dict] | None = None) -> dict[str, str | None]:
-    """classify-stale over `files` (below src/), as coverage-check §2c runs it: name -> defined_at."""
+def _classified(tmp_path: Path, capsys, files: dict[str, str], stale: list[str], entries: list[dict] | None = None,
+                inventory: dict[str, str | tuple[str, ...]] | None = None) -> dict[str, dict]:
+    """classify-stale over `files` (below src/), as coverage-check §2c runs it: name -> its result. With
+    `inventory` (name -> its kind or kinds), `--inventory` reads it as validate-inventory.py writes it."""
     src = tmp_path / "src"
     src.mkdir(parents=True, exist_ok=True)
     for rel, text in files.items():
         _write_text(src, rel, text)
     names = _write_json(tmp_path / "run" / "coverage.json", {"branch": "enumerated", "stale": stale})
     prov = _write_json(tmp_path / "provenance-map.json", {"entries": [MAIN_ENTRY] if entries is None else entries})
-    code = mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov), "--source-root", str(src)])
-    assert code == 0
-    return {o["name"]: o["defined_at"] for o in json.loads(capsys.readouterr().out)}
+    argv = ["classify-stale", "--names", str(names), "--provenance", str(prov), "--source-root", str(src)]
+    if inventory is not None:
+        exports = [{"name": name, "kind": kind} for name, kinds in inventory.items()
+                   for kind in ((kinds,) if isinstance(kinds, str) else kinds)]
+        argv += ["--inventory", str(_write_json(tmp_path / "run" / "inventory.json", {"exports": exports}))]
+    assert mod.main(argv) == 0
+    return {o["name"]: o for o in json.loads(capsys.readouterr().out)}
+
+
+def _defined_at(tmp_path: Path, capsys, files: dict[str, str], stale: list[str], entries: list[dict] | None = None,
+                inventory: dict[str, str | tuple[str, ...]] | None = None) -> dict[str, str | None]:
+    """name -> defined_at (`_classified`)."""
+    out = _classified(tmp_path, capsys, files, stale, entries, inventory)
+    return {name: o["defined_at"] for name, o in out.items()}
+
+
+def _found(tmp_path: Path, capsys, files: dict[str, str], stale: list[str], entries: list[dict] | None = None,
+           inventory: dict[str, str | tuple[str, ...]] | None = None) -> dict[str, tuple]:
+    """name -> (defined_at, declared_in) (`_classified`)."""
+    out = _classified(tmp_path, capsys, files, stale, entries, inventory)
+    return {name: (o["defined_at"], o["declared_in"]) for name, o in out.items()}
 
 
 def _declares(rel: str) -> str:
@@ -2835,6 +2901,10 @@ class TestDefinedAt:
         "pkg/node_modules/m.js", "pkg/bower_components/m.js", "pkg/site-packages/m.py", "pkg/env/m.py",
         "pkg/venv/m.py", "pkg/build/m.py", "pkg/dist/m.js", "pkg/esm/m.js", "pkg/cjs/m.js", "pkg/umd/m.js",
         "pkg/.hidden/m.py",
+        "pkg/example/m.py", "pkg/demo/m.py", "pkg/demos/m.js", "pkg/sample/m.py", "pkg/samples/m.py",
+        "pkg/scripts/m.py", "pkg/playground/m.ts", "pkg/e2e/m.ts", "pkg/__fixtures__/m.js", "pkg/bench/m.py",
+        "pkg/benchmark/m.py", "pkg/migrations/m.py", "pkg/Migrations/m.py", "pkg/E2E/m.ts",
+        "pkg/web/e2e/m.ts", "pkg/web/__fixtures__/m.js",
         "pkg/test_m.py", "pkg/m_test.py", "pkg/m.test.ts", "pkg/m.spec.js", "pkg/conftest.py",
         "pkg/jest.config.js", "pkg/vitest.config.ts", "pkg/m.min.js", "pkg/M.MIN.JS",
         "other/m.py", "m.py",
@@ -2848,6 +2918,84 @@ class TestDefinedAt:
     def test_lib_is_walked(self, tmp_path: Path, capsys, rel: str) -> None:
         files = {**PKG, rel: _declares(rel)}
         assert _defined_at(tmp_path, capsys, files, ["X"], [MAIN_ENTRY, TS_ENTRY]) == {"X": f"{rel}:1"}
+
+    @pytest.mark.parametrize("rel", [
+        "pkg/modules/migrations/m.py", "pkg/cli/samples/m.py", "pkg/sub/scripts/m.py", "pkg/a/example/m.js",
+        "pkg/a/bench/m.py",
+    ], ids=lambda rel: rel.replace("/", "-"))
+    def test_a_first_folder_skip_is_walked_deeper_down(self, tmp_path: Path, capsys, rel: str) -> None:
+        # example, scripts, migrations and the like are skipped only as the first folder below the walk root
+        files = {**PKG, rel: _declares(rel)}
+        assert _defined_at(tmp_path, capsys, files, ["X"], [MAIN_ENTRY, TS_ENTRY]) == {"X": f"{rel}:1"}
+
+    def test_a_removed_api_in_an_example_folder_is_no_declaration(self, tmp_path: Path, capsys) -> None:
+        """#698: a TS/JS package at the source root (the walk root) and a Python package: an example, an
+        end-to-end test, a build script or a migration still declaring a removed name declares nothing."""
+        files = {"package.json": "{}", "src/index.ts": "export function run() {}\n",
+                 "example/old.ts": "export function oldApi() {}\n", "e2e/h.ts": "export function helper() {}\n",
+                 "scripts/build.ts": "export function build() {}\n"}
+        entries = [{"export_name": "run", "source_file": "src/index.ts", "source_line": 1}]
+        assert _found(tmp_path / "ts", capsys, files, ["oldApi", "helper", "build"], entries) == {
+            "oldApi": (None, []), "helper": (None, []), "build": (None, [])}
+        files = {**PKG, "pkg/migrations/__init__.py": "", "pkg/migrations/0001.py": "def upgrade():\n    pass\n"}
+        assert _found(tmp_path / "py", capsys, files, ["upgrade"]) == {"upgrade": (None, [])}
+
+    def test_a_live_migrations_package_deeper_down_is_walked(self, tmp_path: Path, capsys) -> None:
+        # cognee v1.6.2: cognee/modules/migrations/ is the migration framework, and documents MigrationError
+        files = {"cognee/__init__.py": "", "cognee/api/__init__.py": "", "cognee/api/v1/__init__.py": "",
+                 "cognee/api/v1/add/__init__.py": "", "cognee/api/v1/add/add.py": "async def add(data):\n    pass\n",
+                 "cognee/modules/__init__.py": "", "cognee/modules/migrations/__init__.py": "",
+                 "cognee/modules/migrations/startup.py": "\n" * 67 + "class MigrationError(Exception):\n    pass\n"}
+        entries = [{"export_name": "add", "source_file": "cognee/api/v1/add/add.py", "source_line": 1}]
+        assert _found(tmp_path, capsys, files, ["MigrationError"], entries) == {
+            "MigrationError": ("cognee/modules/migrations/startup.py:68", ["cognee/modules/migrations/startup.py:68"])}
+
+    def test_the_first_folder_skip_holds_below_each_package_root(self, tmp_path: Path, capsys) -> None:
+        """A walk root wider than one package: a monorepo whose map cites two workspace packages, and a map
+        citing two top-level Python packages. Each package's own example, script or migration folder is
+        skipped (and an e2e folder anywhere), while such a folder deeper in a package is walked."""
+        files = {"package.json": "{}", "packages/a/package.json": "{}", "packages/b/package.json": "{}",
+                 "packages/a/src/index.ts": "export function run() {}\n",
+                 "packages/b/src/index.ts": "export function stop() {}\n",
+                 "packages/a/example/old.ts": "export function oldApi() {}\n",
+                 "packages/a/e2e/h.ts": "export function helper() {}\n",
+                 "packages/b/scripts/build.ts": "export function build() {}\n",
+                 "packages/a/src/scripts/live.ts": "export function live() {}\n"}
+        entries = [{"export_name": "run", "source_file": "packages/a/src/index.ts", "source_line": 1},
+                   {"export_name": "stop", "source_file": "packages/b/src/index.ts", "source_line": 1}]
+        assert _found(tmp_path / "ts", capsys, files, ["oldApi", "helper", "build", "live"], entries) == {
+            "oldApi": (None, []), "helper": (None, []), "build": (None, []),
+            "live": ("packages/a/src/scripts/live.ts:1", ["packages/a/src/scripts/live.ts:1"])}
+        files = {"a/__init__.py": "", "a/main.py": "def run():\n    pass\n", "b/__init__.py": "",
+                 "b/main.py": "def stop():\n    pass\n", "a/migrations/__init__.py": "",
+                 "a/migrations/0001.py": "def upgrade():\n    pass\n", "a/modules/__init__.py": "",
+                 "a/modules/migrations/__init__.py": "",
+                 "a/modules/migrations/startup.py": "class MigrationError(Exception):\n    pass\n"}
+        entries = [{"export_name": "run", "source_file": "a/main.py", "source_line": 1},
+                   {"export_name": "stop", "source_file": "b/main.py", "source_line": 1}]
+        assert _found(tmp_path / "py", capsys, files, ["upgrade", "MigrationError"], entries) == {
+            "upgrade": (None, []),
+            "MigrationError": ("a/modules/migrations/startup.py:1", ["a/modules/migrations/startup.py:1"])}
+
+    def test_a_first_folder_that_holds_a_cited_file_is_walked(self, tmp_path: Path, capsys) -> None:
+        # every cited file under scripts/, package.json at the walk root: scripts/ is the package's code
+        files = {"package.json": "{}", "scripts/cli.ts": "export function run() {}\n",
+                 "scripts/util.ts": "export function helper() {}\n",
+                 "example/old.ts": "export function oldApi() {}\n"}
+        entries = [{"export_name": "run", "source_file": "scripts/cli.ts", "source_line": 1}]
+        assert _found(tmp_path, capsys, files, ["helper", "oldApi"], entries) == {
+            "helper": ("scripts/util.ts:1", ["scripts/util.ts:1"]), "oldApi": (None, [])}
+
+    def test_a_cited_file_in_a_first_folder_skip_is_read(self, tmp_path: Path, capsys) -> None:
+        # the skip is the walk's alone: a file the map cites under scripts/ is read, below the walk root or not
+        files = {"package.json": "{}", "src/index.ts": "export function run() {}\n",
+                 "scripts/build.ts": "export function build() {}\n"}
+        entries = [{"export_name": "run", "source_file": "src/index.ts", "source_line": 1},
+                   {"export_name": "build", "source_file": "scripts/build.ts", "source_line": 1}]
+        assert _defined_at(tmp_path / "ts", capsys, files, ["build"], entries) == {"build": "scripts/build.ts:1"}
+        files = {**PKG, "pkg/scripts/tool.py": "def tool():\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "tool", "source_file": "pkg/scripts/tool.py", "source_line": 1}]
+        assert _defined_at(tmp_path / "py", capsys, files, ["tool"], entries) == {"tool": "pkg/scripts/tool.py:1"}
 
     def test_the_skips_are_judged_below_the_walk_root(self, tmp_path: Path, capsys) -> None:
         # the source root itself sits in a tests/ folder, and the walk root in an examples/ one
@@ -2952,6 +3100,138 @@ class TestDefinedAt:
     def test_any_other_file_is_no_module(self, tmp_path: Path, capsys, rel: str) -> None:
         files = {**PKG, rel: ""}
         assert _defined_at(tmp_path, capsys, files, ["low_level"], [MAIN_ENTRY, TS_ENTRY]) == {"low_level": None}
+
+    @pytest.mark.parametrize("kind", VALID_INVENTORY_KINDS)
+    def test_a_documented_callable_or_class_takes_no_module_so_named(self, tmp_path: Path, capsys,
+                                                                      kind: str) -> None:
+        """#698: a removed `client()` does not hide behind `pkg/client.py`. A name the inventory gives a
+        function, hook, class, interface, enum or type kind takes no line 1 from a module so named, in
+        `defined_at` or in `declared_in`; any other kind keeps it (the inventory has no `module` kind, and a
+        `method` is never stale)."""
+        files = {**PKG, "pkg/client.py": "def other():\n    pass\n"}
+        out = _found(tmp_path, capsys, files, ["client"], inventory={"client": kind})
+        if kind in {"function", "hook", "class", "interface", "enum", "type"}:
+            assert out == {"client": (None, [])}
+        else:
+            assert out == {"client": ("pkg/client.py:1", ["pkg/client.py:1"])}
+
+    @pytest.mark.parametrize("rel, name, text", [
+        ("pkg/widgets/__init__.py", "widgets", ""),
+        ("pkg/web/useThing.ts", "useThing", "export const other = 1;\n"),
+        ("pkg/web/Store/index.js", "Store", "exports.other = 1;\n// export default Store\n"),
+    ], ids=["package", "ts-module", "js-index"])
+    def test_a_package_or_ts_module_follows_the_same_rule(self, tmp_path: Path, capsys, rel: str, name: str,
+                                                          text: str) -> None:
+        files = {**PKG, rel: text}
+        assert _found(tmp_path / "a", capsys, files, [name], [MAIN_ENTRY, TS_ENTRY], {name: "hook"}) == {
+            name: (None, [])}
+        assert _found(tmp_path / "b", capsys, files, [name], [MAIN_ENTRY, TS_ENTRY], {name: "constant"}) == {
+            name: (f"{rel}:1", [f"{rel}:1"])}
+
+    @pytest.mark.parametrize("rel, text, kind", [
+        ("pkg/web/useThing.ts", "import { x } from './x';\n\nexport default function () {}\n", "hook"),
+        ("pkg/web/Store.ts", "export default class {}\n", "class"),
+        ("pkg/web/answer.ts", "export default () => 1;\n", "function"),
+        ("pkg/web/legacy.js", "module.exports = function () {};\n", "function"),
+        ("pkg/web/Thing/index.js", "module.exports = class {};\n", "class"),
+    ], ids=["export-default-function", "export-default-class", "export-default-arrow", "module-exports-function",
+            "module-exports-class"])
+    def test_a_ts_js_file_that_is_the_export_keeps_its_module(self, tmp_path: Path, capsys, rel: str, text: str,
+                                                              kind: str) -> None:
+        # the file itself is the documented function or class, whatever kind the inventory gives it
+        name = mod._module_name(tuple(rel.split("/")))
+        files = {**PKG, rel: text}
+        assert _found(tmp_path / "walk", capsys, files, [name], [MAIN_ENTRY, TS_ENTRY], {name: kind}) == {
+            name: (f"{rel}:1", [f"{rel}:1"])}
+        # a cited file: an entry that cites it and a file-less one leave the name unchecked, and looked up
+        entries = [MAIN_ENTRY, TS_ENTRY, {"export_name": name, "source_file": rel, "source_line": 1},
+                   {"export_name": name}]
+        assert _found(tmp_path / "cited", capsys, files, [name], entries, {name: kind}) == {name: (f"{rel}:1", None)}
+
+    def test_a_removed_interface_behind_its_module_is_no_declaration(self, tmp_path: Path, capsys) -> None:
+        files = {"package.json": "{}", "src/index.ts": "export function run() {}\n",
+                 "src/UserProfile.ts": "export interface Other {}\n"}
+        entries = [{"export_name": "run", "source_file": "src/index.ts", "source_line": 1}]
+        assert _found(tmp_path, capsys, files, ["UserProfile"], entries, {"UserProfile": "interface"}) == {
+            "UserProfile": (None, [])}
+
+    def test_a_method_kind_is_not_read(self, tmp_path: Path, capsys) -> None:
+        # a documented module that shares a method's name keeps its module
+        files = {**PKG, "pkg/tasks/__init__.py": "from .queue import Queue\n"}
+        hit = {"tasks": ("pkg/tasks/__init__.py:1", ["pkg/tasks/__init__.py:1"])}
+        assert _found(tmp_path / "a", capsys, files, ["tasks"], inventory={"tasks": ("constant", "method")}) == hit
+        assert _found(tmp_path / "b", capsys, files, ["tasks"], inventory={"tasks": "method"}) == hit
+
+    def test_a_module_whose_text_holds_the_name_is_no_declaration(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/client.py": '"""The client module."""\nclient_id = 1\n\n\ndef other():\n    pass\n'}
+        assert _found(tmp_path, capsys, files, ["client"], inventory={"client": "function"}) == {"client": (None, [])}
+
+    def test_without_the_flag_or_an_entry_the_module_still_counts(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/client.py": "def other():\n    pass\n", "pkg/widgets/__init__.py": ""}
+        hit = {"client": ("pkg/client.py:1", ["pkg/client.py:1"]),
+               "widgets": ("pkg/widgets/__init__.py:1", ["pkg/widgets/__init__.py:1"])}
+        # no --inventory: as before #698
+        assert _found(tmp_path / "a", capsys, files, ["client", "widgets"]) == hit
+        # an inventory with no entry for the names, or another kind
+        assert _found(tmp_path / "b", capsys, files, ["client", "widgets"], inventory={"other": "function"}) == hit
+        assert _found(tmp_path / "c", capsys, files, ["client", "widgets"], inventory={"widgets": "constant"}) == hit
+
+    def test_any_callable_kind_of_several_drops_the_module(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/client.py": "def other():\n    pass\n"}
+        for kinds in (("constant", "function"), ("class", "type")):
+            assert _found(tmp_path / kinds[0], capsys, files, ["client"], inventory={"client": kinds}) == {
+                "client": (None, [])}, kinds
+
+    def test_a_module_entry_keeps_the_module(self, tmp_path: Path, capsys) -> None:
+        # the map types it a module or package: the inventory's kind, which has no `module`, does not overrule it
+        files = {**PKG, "pkg/pipelines/__init__.py": "from .tasks import Task\n",
+                 "pkg/pipelines/tasks.py": "class Task:\n    pass\n", "pkg/tools.py": "import os\n",
+                 "pkg/client.py": "def other():\n    pass\n"}
+        entries = [MAIN_ENTRY,
+                   {"export_name": "pipelines", "export_type": "module", "source_file": "pkg/pipelines/__init__.py",
+                    "source_line": 1},
+                   {"export_name": "tools", "export_type": " Package "}, {"export_name": "tools"}]
+        out = _found(tmp_path, capsys, files, ["pipelines", "tools", "client"], entries,
+                     {"pipelines": "class", "tools": "function", "client": "function"})
+        # a cited file settles pipelines; the walk finds tools; only a name's own entries keep its module
+        assert out == {"pipelines": ("pkg/pipelines/__init__.py:1", None),
+                       "tools": ("pkg/tools.py:1", ["pkg/tools.py:1"]), "client": (None, [])}
+
+    def test_a_cited_module_so_named_is_no_declaration_either(self, tmp_path: Path, capsys) -> None:
+        # an entry that cites the module and a file-less one: the name is unchecked, and looked up
+        files = {**PKG, "pkg/client.py": "def other():\n    pass\n"}
+        entries = [MAIN_ENTRY, {"export_name": "client", "export_type": "function", "source_file": "pkg/client.py",
+                                "source_line": 1}, {"export_name": "client"}]
+        assert _found(tmp_path / "a", capsys, files, ["client"], entries) == {"client": ("pkg/client.py:1", None)}
+        assert _found(tmp_path / "b", capsys, files, ["client"], entries, {"client": "function"}) == {
+            "client": (None, [])}
+
+    def test_a_homonym_with_its_module_settles_on_the_declaration(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/client.py": "def other():\n    pass\n", "pkg/api.py": "def client():\n    pass\n"}
+        assert _found(tmp_path / "a", capsys, files, ["client"]) == {
+            "client": (None, ["pkg/api.py:1", "pkg/client.py:1"])}
+        assert _found(tmp_path / "b", capsys, files, ["client"], inventory={"client": "function"}) == {
+            "client": ("pkg/api.py:1", ["pkg/api.py:1"])}
+
+    def test_a_declaration_in_the_module_still_counts(self, tmp_path: Path, capsys) -> None:
+        files = {**PKG, "pkg/ops/run_tasks.py": "import asyncio\n\n\nasync def run_tasks(tasks):\n    pass\n"}
+        assert _defined_at(tmp_path, capsys, files, ["run_tasks"], inventory={"run_tasks": "function"}) == {
+            "run_tasks": "pkg/ops/run_tasks.py:4"}
+
+    def test_the_whole_validator_result_is_an_inventory(self, tmp_path: Path, capsys) -> None:
+        # validate-inventory.py's stdout result: the inventory under `inventory`
+        src = tmp_path / "src"
+        for rel, text in {**PKG, "pkg/client.py": "def other():\n    pass\n"}.items():
+            _write_text(src, rel, text)
+        names = _write_json(tmp_path / "names.json", ["client"])
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": [MAIN_ENTRY]})
+        inventory = _write_json(tmp_path / "result.json", {"valid": True, "violations": [], "inventory": {
+            "exports": ["not an item", {"name": "client"}, {"name": 3, "kind": "function"},
+                        {"name": "client", "kind": "Function"}], "references": []}})
+        assert mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov), "--source-root", str(src),
+                         "--inventory", str(inventory)]) == 0
+        [out] = json.loads(capsys.readouterr().out)
+        assert (out["defined_at"], out["declared_in"]) == (None, [])
 
     def test_declared_in_lists_every_walked_declaration(self, tmp_path: Path, capsys) -> None:
         files = {**PKG, "pkg/models/Task.py": "from .base import Base\n\n\nclass Task(Base):\n    pass\n",
@@ -3427,6 +3707,19 @@ class TestLookupSkipsPinnedToTheirSources:
                                               | mod.TEST_FOLDERS | mod.PY_NON_CORE_TOPS | mod.LOOKUP_EXTRA_FOLDERS)
         assert "lib" not in mod.LOOKUP_SKIPPED_FOLDERS
         assert mod._lookup_skips_file("bundle.min.js") and not mod._lookup_skips_file("admin.js")
+
+    def test_the_first_folder_skips_are_the_walks_alone(self) -> None:
+        # #698: skipped only right below the walk root, and never by the cited-file check (LOOKUP_SKIPPED_FOLDERS)
+        assert mod.LOOKUP_TOP_FOLDERS == {"example", "demo", "demos", "sample", "samples", "scripts", "playground",
+                                          "bench", "benchmark", "migrations"}
+        assert mod.LOOKUP_WALK_FOLDERS == {"e2e", "__fixtures__"}
+        walk_only = mod.LOOKUP_TOP_FOLDERS | mod.LOOKUP_WALK_FOLDERS
+        assert not walk_only & mod.LOOKUP_SKIPPED_FOLDERS
+        assert not any(map(mod._lookup_skips_folder, walk_only))
+
+    def test_the_kinds_that_drop_the_module_are_inventory_kinds(self) -> None:
+        assert mod.NO_MODULE_KINDS == {"function", "hook", "class", "interface", "enum", "type"}
+        assert mod.NO_MODULE_KINDS <= set(VALID_INVENTORY_KINDS) and "module" not in VALID_INVENTORY_KINDS
 
 
 # --------------------------------------------------------------------------
