@@ -25,6 +25,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -986,6 +987,96 @@ class TestAtomicWriteBinary:
             mod._atomic_write(target, content)
             assert target.read_bytes() == content.encode("utf-8")
             assert b"\r\n" not in target.read_bytes()
+
+
+class TestAtomicWriteWindowsRename:
+    """#715: Windows refuses os.replace over forge-tier.yaml while another
+    process has it open (a call about to take the lock stats it, a `read`
+    call opens it, a scanner); _atomic_write retries a PermissionError
+    there, and only there, before it fails."""
+
+    @staticmethod
+    def _refuse(times: int | None, calls: list):
+        real_replace = os.replace
+
+        def replace(src, dst):
+            calls.append(dst)
+            if times is None or len(calls) <= times:
+                raise PermissionError(13, "Access is denied", str(dst))
+            return real_replace(src, dst)
+
+        return replace
+
+    def test_a_rename_refused_for_a_moment_is_retried(self, tmp_target, monkeypatch):
+        tmp_target.write_bytes(b"old: true\n")
+        calls: list = []
+        monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+        monkeypatch.setattr(mod.os, "replace", self._refuse(2, calls))
+        mod._atomic_write(tmp_target, "new: true\n")
+        assert len(calls) == 3
+        assert tmp_target.read_bytes() == b"new: true\n"
+        assert sorted(p.name for p in tmp_target.parent.iterdir()) == ["forge-tier.yaml"]
+
+    def test_a_rename_refused_past_the_wait_exits_2_and_keeps_the_file(self, tmp_target, monkeypatch, capsys):
+        tmp_target.write_bytes(b"old: true\n")
+        calls: list = []
+        monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+        monkeypatch.setattr(mod, "_REPLACE_WAIT_SECONDS", 0.05)
+        monkeypatch.setattr(mod.os, "replace", self._refuse(None, calls))
+        started = time.monotonic()
+        with pytest.raises(SystemExit) as exit_info:
+            mod._atomic_write(tmp_target, "new: true\n")
+        elapsed = time.monotonic() - started
+        assert exit_info.value.code == 2 and len(calls) > 1
+        assert 0.05 <= elapsed < 2.0
+        assert json.loads(capsys.readouterr().err)["message"].startswith(f"atomic write failed for {tmp_target}")
+        assert tmp_target.read_bytes() == b"old: true\n"
+        assert sorted(p.name for p in tmp_target.parent.iterdir()) == ["forge-tier.yaml"]
+
+    def test_off_windows_a_refused_rename_fails_at_once(self, tmp_target, monkeypatch, capsys):
+        calls: list = []
+        monkeypatch.setattr(mod, "_IS_WINDOWS", False)
+        monkeypatch.setattr(mod.os, "replace", self._refuse(None, calls))
+        with pytest.raises(SystemExit) as exit_info:
+            mod._atomic_write(tmp_target, "new: true\n")
+        assert exit_info.value.code == 2 and len(calls) == 1
+        assert "atomic write failed" in capsys.readouterr().err
+        assert list(tmp_target.parent.iterdir()) == []
+
+    def test_only_a_refused_rename_is_retried(self, tmp_target, monkeypatch, capsys):
+        calls: list = []
+
+        def missing(src, dst):
+            calls.append(dst)
+            raise FileNotFoundError(2, "No such file or directory", str(src))
+
+        monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+        monkeypatch.setattr(mod.os, "replace", missing)
+        with pytest.raises(SystemExit) as exit_info:
+            mod._atomic_write(tmp_target, "new: true\n")
+        assert exit_info.value.code == 2 and len(calls) == 1
+        assert "atomic write failed" in capsys.readouterr().err
+
+    def test_the_wait_stays_well_under_the_lock_stale_window(self):
+        # acquired_at keeps whole seconds, so a held lock reads as stale after
+        # about REGISTRY_LOCK_STALE_SEC - 1; the retry must end well before.
+        assert mod._REPLACE_WAIT_SECONDS * 2 <= mod.REGISTRY_LOCK_STALE_SEC - 1
+
+    @pytest.mark.skipif(os.name != "nt", reason="only Windows refuses a rename over an open file")
+    def test_a_real_open_handle_is_waited_out(self, tmp_target):
+        """CPython's open() never passes FILE_SHARE_DELETE, so the rename is
+        refused while this handle is open; the write waits it out."""
+        tmp_target.write_bytes(b"old: true\n")
+        held = open(tmp_target, "rb")
+        timer = threading.Timer(0.3, held.close)
+        timer.start()
+        try:
+            mod._atomic_write(tmp_target, "new: true\n")
+        finally:
+            timer.cancel()
+            held.close()
+        assert tmp_target.read_bytes() == b"new: true\n"
+        assert sorted(p.name for p in tmp_target.parent.iterdir()) == ["forge-tier.yaml"]
 
 
 # ─── remove-qmd-collection subcommand ───────────────────────────────────────

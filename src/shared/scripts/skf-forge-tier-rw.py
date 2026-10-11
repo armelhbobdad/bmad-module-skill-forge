@@ -106,7 +106,9 @@ that cannot be taken, 3 when another call held the registry lock for the
 whole --lock-timeout; nothing was written).
 
 Cross-platform: pure stdlib + PyYAML. Atomic writes via temp + rename
-mirror skf-atomic-write.py's pattern.
+mirror skf-atomic-write.py's pattern. On Windows, which refuses to rename
+over a file another process has open, a refused rename is retried for up
+to 5 seconds before the write fails.
 
 Registry lock: every subcommand that rewrites forge-tier.yaml
 (write-tools, register-qmd-collection, remove-qmd-collection,
@@ -148,6 +150,7 @@ import json
 import math
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -160,6 +163,16 @@ REGISTRY_LOCK_WAIT_SEC = 30.0
 # A call holds the registry lock for milliseconds; one this old was killed.
 REGISTRY_LOCK_STALE_SEC = 15.0
 EXIT_LOCK_BUSY = 3
+# Windows refuses to replace a file another process has open, even one that
+# only reads its attributes: a call about to take the lock checks the file
+# exists, a `read` call opens it with no lock, and a virus scanner may open a
+# just-written file for a moment. _atomic_write retries the rename there for
+# up to this long before failing.
+# The retry runs while the registry lock is held, so it stays well under
+# REGISTRY_LOCK_STALE_SEC, after which a waiting call takes the lock as stale.
+_IS_WINDOWS = os.name == "nt"
+_REPLACE_WAIT_SECONDS = 5.0
+_REPLACE_POLL_SECONDS = 0.02
 # The tool keys write-tools records, in forge-tier.yaml order.
 TOOL_KEYS = ("ast_grep", "gh_cli", "qmd", "ccc")
 
@@ -192,7 +205,9 @@ def _read_yaml(path: Path) -> dict | None:
 
 
 def _atomic_write(target: Path, content: str) -> None:
-    """Crash-safe write via temp + fsync + rename. Mirrors skf-atomic-write.py."""
+    """Crash-safe write via temp + fsync + rename, as skf-atomic-write.py does.
+    On Windows, a rename refused while another process has the file open is
+    retried for up to _REPLACE_WAIT_SECONDS."""
     target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_name(target.name + ".skf-tmp")
     # O_BINARY (Windows only; 0 elsewhere) suppresses the text-mode \n -> \r\n
@@ -205,7 +220,15 @@ def _atomic_write(target: Path, content: str) -> None:
             os.fsync(fd)
         finally:
             os.close(fd)
-        os.replace(tmp, target)
+        deadline = time.monotonic() + _REPLACE_WAIT_SECONDS
+        while True:
+            try:
+                os.replace(tmp, target)
+                break
+            except PermissionError:
+                if not _IS_WINDOWS or time.monotonic() >= deadline:
+                    raise
+                time.sleep(_REPLACE_POLL_SECONDS)
     except OSError as e:
         if tmp.exists():
             try:

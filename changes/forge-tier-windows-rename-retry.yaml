@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-setup, skf-brief-skill, skf-create-skill
+summary: |
+  On Windows, a write to `forge-tier.yaml` through `skf-forge-tier-rw.py` no longer fails with `atomic write failed ... [WinError 5] Access is denied` when another process has the file open at the moment the helper renames its new copy over it, such as a call about to take the registry lock checking that the file exists, a `read` call, or a virus scanner. Windows refuses that rename while any process holds the file open, so the write now retries it for up to 5 seconds before it fails. Before, the write exited 2: Setup halted at `step 2:write-tools`, or skipped its registry cleanup; Brief Skill and Create Skill went on without the `qmd_collections` entry of a collection they had just made, or the `ccc_index_registry` entry of Create Skill's index; and when Create Skill's rollback could not remove an entry, the registry kept one for a collection QMD no longer has.
+prs: [717]
+issues: [715]
