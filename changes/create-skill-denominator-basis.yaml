@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  Create Skill now decides whether to store `stats.effective_denominator` in `metadata.json` by the globs its coverage count used (`counts.effective_denominator_basis`; for a count it made by hand, `scope.tier_a_include` only when that list counts a public name, else `scope.include`), not by `scope.tier_a_include` whenever the brief has one. A count over every file, or over a `scope.include` that covers the full workspace (in a single-package repo, the whole package, which v3.0.0 could store), is left out, and Test Skill then measures coverage as for a skill with no stored count. A skill that already stores such a count keeps it until Create Skill runs again.
+issues: [724]

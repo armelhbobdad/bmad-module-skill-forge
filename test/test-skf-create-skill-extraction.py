@@ -630,6 +630,36 @@ def test_compile_counts_come_from_the_runner() -> None:
             "`aggregates.exports`)") in four
 
 
+def _condition_2() -> str:
+    return _slice(_section(COMPILE, "4"), "    2. `scope.type` is not", "    3. `scope.notes`")
+
+
+def test_condition_2_judges_the_globs_the_count_used() -> None:
+    """#724: since #712 a tier A list that counts no public name leaves the
+    count on `scope.include` (or every file), and the runner names the globs
+    in `counts.effective_denominator_basis`. Condition 2 judges those globs,
+    so a whole-package `scope.include` or an `all-files` count is not stored
+    as a curated denominator."""
+    two = _condition_2()
+    for token in ("the globs `counts.effective_denominator_basis` names",
+                  "(`scope.tier_a_include` for `tier_a_include`, `scope.include` for `scope.include`)",
+                  "rather than the full workspace (in a single-package repo, the whole package)",
+                  "A basis of `all-files` names no list and fails this.",
+                  "When step 3 counted the entry points itself, judge the list its count used: "
+                  "`scope.tier_a_include` when that list counts a public name, else `scope.include`; "
+                  "with no `scope.include` either, the count is every file's and this fails."):
+        assert token in two, token
+    assert "\u2014" not in two and "\u2013" not in two
+
+
+def test_condition_2_no_longer_judges_tier_a_when_present() -> None:
+    """#724: the old condition judged `tier_a_include` whenever the brief had
+    it, even when the count was `scope.include`'s."""
+    four = _section(COMPILE, "4")
+    assert "(`tier_a_include` if present, else `scope.include`)" not in four
+    assert "the resolved include list" not in four
+
+
 # --------------------------------------------------------------------------
 # The relabel rule: one home, looked up through kind-at
 # --------------------------------------------------------------------------
