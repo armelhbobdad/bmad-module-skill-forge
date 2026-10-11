@@ -574,6 +574,16 @@ def test_an_incomplete_run_names_the_files_to_read_by_eye(tmp_path):
     assert out["extraction"]["fallback"]["needed"] is False
 
 
+def test_an_incomplete_run_reads_by_eye_every_file_a_failed_call_lists_unread(tmp_path):
+    """#722: a failed ast-grep call lists every file of its batch in `unread`, since a call cut while it prints can
+    keep some of a file's exports and lose the rest: each of them is read by eye, not only the call's first file."""
+    patch = {"status": "incomplete",
+             "errors": [{"reason": "ast-grep-error", "files": 3, "first_file": "a.py", "detail": "exit 1: killed",
+                         "unread": ["a.py", "b.py", "c.py"]}]}
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "e.json", {**EXTRACTION, **patch}))
+    assert out["extraction"]["readByEye"] == ["a.py", "b.py", "c.py"]
+
+
 def test_quick_mode_output_is_not_an_extraction(tmp_path):
     proc = _run("surface", "--extraction", _write(tmp_path / "q.json", {"exports": []}))
     assert proc.returncode == 1 and "--mode full" in proc.stderr

@@ -509,10 +509,11 @@ def _extraction_summary(data: dict, language: str | None) -> dict:
     elif without and language and language.strip().lower() not in RECIPE_LANGUAGES:
         reason = (f"no recipe reads the skill's language, {language} "
                   f"({', '.join(sorted(without))} in scope)")
+    errors = [e for e in data.get("errors") or [] if isinstance(e, dict)]
     read_by_eye = sorted({str(i["file"]) for i in data.get("file_issues") or []
                           if isinstance(i, dict) and i.get("file") and i.get("issue") != "no-recipes"}
-                         | {str(e["first_file"]) for e in data.get("errors") or []
-                            if isinstance(e, dict) and e.get("first_file")})
+                         | {str(e["first_file"]) for e in errors if e.get("first_file")}
+                         | {str(f) for e in errors if isinstance(e.get("unread"), list) for f in e["unread"] if f})
     return {
         "status": status,
         "filesInScope": data.get("files_in_scope"),
