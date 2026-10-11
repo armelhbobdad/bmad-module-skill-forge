@@ -10,11 +10,17 @@ flip-link: it creates a missing link, refuses a real folder, and, when
 Windows refuses to open the lock file while the flip that held it is
 removing it, retries for a short wait and then exits 2 with the held-lock
 message naming the refusal. A refusal off Windows, with nothing at the
-lock path or with a folder there is raised as before.
+lock path or with a folder there is raised as before. On POSIX, a flip
+refused by a held lock leaves the lock file to its holder; a flip whose
+locked file is no longer at the path opens the path again, and exits 2
+when a newer flip holds the file there or the wait runs out; the holder
+removes the file before it releases the lock. The copy of
+_names_open_file stays identical to the one in gap-ledger.py.
 """
 
 from __future__ import annotations
 
+import ast
 import importlib.util
 import json
 import os
@@ -29,6 +35,7 @@ import pytest
 SCRIPT_PATH = (
     Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-atomic-write.py"
 )
+GAP_LEDGER_PATH = Path(__file__).parent.parent / "src" / "skf-test-skill" / "scripts" / "gap-ledger.py"
 
 spec = importlib.util.spec_from_file_location("skf_atomic_write", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(spec)
@@ -120,9 +127,10 @@ def _pending_lock_file(group: Path) -> Path:
 class TestFlipLink:
     """flip-link leaves `active` naming the version folder beside it, or refuses without touching it.
 
-    No test flips over an existing link: CI's Windows runner holds
-    symlink privilege, and replacing an existing directory link is the one
-    step whose Windows behaviour is unverified.
+    On Windows no test flips over an existing link: CI's Windows runner
+    holds symlink privilege, and replacing an existing directory link is the
+    one step whose Windows behaviour is unverified. TestFlipLockOnPosix,
+    which skips Windows, flips over one.
     """
 
     def test_flip_creates_a_missing_link(self, tmp_path):
@@ -143,6 +151,20 @@ class TestFlipLink:
         assert proc.returncode == 2
         assert json.loads(proc.stderr)["message"].startswith("refusing to replace non-link")
         assert (group / "active" / "cognee" / "SKILL.md").read_bytes() == b"x\n"
+
+    def test_a_flip_refused_by_a_held_lock_leaves_the_holders_file(self, tmp_path):
+        # No link exists yet, so this runs on Windows without flipping over one.
+        group = _group(tmp_path)
+        link, lock = group / "active", group / "active.skf-lock"
+        fd = _hold_lock(lock)
+        try:
+            proc = _run_flip(link, "0.6.0")
+            assert proc.returncode == 2, proc.stderr
+            assert json.loads(proc.stderr)["message"] == f"another process holds flip lock on {link}"
+            assert _still_at_path(fd, lock), "the holder's lock file is still at the path"
+            assert not os.path.lexists(link), "no link created"
+        finally:
+            os.close(fd)
 
     def test_a_lock_file_windows_refuses_for_a_moment_is_retried(self, tmp_path, monkeypatch, capsys):
         # Windows refuses to open the lock file while the flip that held it
@@ -211,3 +233,177 @@ class TestFlipLink:
             mod.cmd_flip_link(group / "active", "0.6.0")
         assert len(calls) == 1
         assert sorted(p.name for p in group.iterdir()) == ["0.6.0", "active.skf-lock"]
+
+
+THREE_VERSIONS = ["0.5.8", "1.0.0", "1.6.2"]
+
+
+def _three_versions(root: Path) -> Path:
+    """skills/oms-cognee with 0.5.8, 1.0.0 and 1.6.2, and `active -> 1.6.2`."""
+    group = root / "skills" / "oms-cognee"
+    for version in THREE_VERSIONS:
+        (group / version / "oms-cognee").mkdir(parents=True)
+    os.symlink("1.6.2", group / "active")
+    return group
+
+
+def _hold_lock(path: Path, acquire=None) -> int:
+    """Open `path` and lock it as a flip does; the caller closes the fd.
+
+    Pass the real _acquire_lock as `acquire` once a test has patched the
+    module's, or the lock would go through the patch."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT, 0o644)
+    try:
+        (acquire or mod._acquire_lock)(fd)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _still_at_path(fd: int, path: Path) -> bool:
+    return os.path.lexists(path) and os.path.samestat(os.fstat(fd), os.stat(path))
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX removes the lock file while it is held, Windows after the release")
+class TestFlipLockOnPosix:
+    """One flip at a time holds the lock on `active.skf-lock` (#713).
+
+    The holder removes the lock file before it releases the lock, so a flip
+    that locked the removed file must find that the path no longer names it,
+    and a flip refused by the holder must leave the file where it is.
+    """
+
+    def test_a_refused_flip_leaves_the_holders_lock_file(self, tmp_path):
+        group = _three_versions(tmp_path)
+        link, lock = group / "active", group / "active.skf-lock"
+        fd = _hold_lock(lock)
+        try:
+            for target in ("1.0.0", "0.5.8"):
+                proc = _run_flip(link, target)
+                assert proc.returncode == 2, proc.stderr
+                assert json.loads(proc.stderr)["message"] == f"another process holds flip lock on {link}"
+                assert _still_at_path(fd, lock), "the holder's lock file is still at the path"
+                assert os.readlink(link) == "1.6.2"
+        finally:
+            os.close(fd)
+        # The holder is gone, its file is left: the next flip locks it and removes it.
+        proc = _run_flip(link, "1.0.0")
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["points_to"] == "1.0.0"
+        assert os.readlink(link) == "1.0.0"
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no lock or temp link left"
+
+    def test_a_flip_whose_file_a_newer_flip_replaced_exits_2(self, tmp_path, monkeypatch, capsys):
+        # Between this flip's open and its lock, the holder removed the file
+        # and a newer flip put its own file at the path and locked it.
+        group = _three_versions(tmp_path)
+        link, lock = group / "active", group / "active.skf-lock"
+        real_acquire = mod._acquire_lock
+        newer: list[int] = []
+
+        def newer_flip_takes_the_path(fd):
+            if not newer:
+                lock.unlink()
+                newer.append(_hold_lock(lock, real_acquire))
+            return real_acquire(fd)
+
+        monkeypatch.setattr(mod, "_acquire_lock", newer_flip_takes_the_path)
+        try:
+            with pytest.raises(SystemExit) as exc:
+                mod.cmd_flip_link(link, "1.0.0")
+            assert exc.value.code == 2
+            captured = capsys.readouterr()
+            assert captured.out == ""
+            assert json.loads(captured.err)["message"] == f"another process holds flip lock on {link}"
+            assert os.readlink(link) == "1.6.2"
+            assert _still_at_path(newer[0], lock), "the newer flip's lock file is still at the path"
+        finally:
+            for fd in newer:
+                os.close(fd)
+
+    def test_a_flip_whose_file_was_removed_locks_the_path_again(self, tmp_path, monkeypatch, capsys):
+        # Between this flip's open and its lock, the holder removed the file
+        # and nothing took its place.
+        group = _three_versions(tmp_path)
+        link, lock = group / "active", group / "active.skf-lock"
+        real_acquire = mod._acquire_lock
+        calls: list[int] = []
+
+        def holder_removes_the_file_first(fd):
+            if not calls:
+                lock.unlink()
+            calls.append(fd)
+            return real_acquire(fd)
+
+        monkeypatch.setattr(mod, "_acquire_lock", holder_removes_the_file_first)
+        mod.cmd_flip_link(link, "1.0.0")
+        assert len(calls) == 2, "the flip opened and locked the path again"
+        assert json.loads(capsys.readouterr().out)["points_to"] == "1.0.0"
+        assert os.readlink(link) == "1.0.0"
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no lock or temp link left"
+
+    def test_a_file_that_keeps_leaving_the_path_exits_2_after_the_wait(self, tmp_path, monkeypatch, capsys):
+        group = _three_versions(tmp_path)
+        link, lock = group / "active", group / "active.skf-lock"
+        real_acquire = mod._acquire_lock
+        calls: list[int] = []
+
+        def holder_removes_the_file_each_time(fd):
+            calls.append(fd)
+            if len(calls) > 300:
+                raise AssertionError(f"{len(calls)} locks of {lock}: the retry ignores its wait")
+            lock.unlink()
+            time.sleep(0.01)
+            return real_acquire(fd)
+
+        monkeypatch.setattr(mod, "_acquire_lock", holder_removes_the_file_each_time)
+        monkeypatch.setattr(mod, "_LOCK_OPEN_WAIT_SECONDS", 0.2)
+        started = time.monotonic()
+        with pytest.raises(SystemExit) as exc:
+            mod.cmd_flip_link(link, "1.0.0")
+        assert time.monotonic() - started >= 0.2
+        assert exc.value.code == 2
+        assert len(calls) > 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert json.loads(captured.err)["message"] == f"another process holds flip lock on {link}"
+        assert os.readlink(link) == "1.6.2"
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"]
+
+    def test_the_holder_removes_the_lock_file_before_it_releases_the_lock(self, tmp_path, monkeypatch, capsys):
+        group = _three_versions(tmp_path)
+        link, lock = group / "active", group / "active.skf-lock"
+        real_release = mod._release_lock
+        at_release: list[bool] = []
+
+        def release(fd):
+            at_release.append(os.path.lexists(lock))
+            return real_release(fd)
+
+        monkeypatch.setattr(mod, "_release_lock", release)
+        mod.cmd_flip_link(link, "1.0.0")
+        assert at_release == [False], "the lock file was still at the path when the lock was released"
+        assert json.loads(capsys.readouterr().out)["points_to"] == "1.0.0"
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"]
+
+
+def _top_level_def(path: Path, name: str) -> str:
+    """ast.dump of the top-level def named `name` (comments ignored)."""
+    for node in ast.parse(path.read_text(encoding="utf-8"), filename=str(path)).body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return ast.dump(node)
+    raise AssertionError(f"{name} not found at the top level of {path.name}")
+
+
+class TestPinnedCopy:
+    """skf-atomic-write.py carries a copy of _names_open_file from gap-ledger.py."""
+
+    def test_names_open_file_copy_is_identical(self):
+        assert _top_level_def(SCRIPT_PATH, "_names_open_file") == _top_level_def(GAP_LEDGER_PATH, "_names_open_file"), (
+            "_names_open_file in skf-atomic-write.py differs from gap-ledger.py; keep the copies identical")
+
+    def test_the_copy_carries_its_keep_identical_note(self):
+        text = SCRIPT_PATH.read_text(encoding="utf-8")
+        assert "Keep identical to _names_open_file in gap-ledger.py" in text
+        assert "test/test-skf-atomic-write.py pins the copy" in text

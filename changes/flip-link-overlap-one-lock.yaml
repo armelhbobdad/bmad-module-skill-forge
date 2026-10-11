@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill, skf-quick-skill, skf-create-stack-skill, skf-rename-skill
+summary: |
+  On Linux and macOS, two overlapping `active` link flips (`skf-atomic-write.py flip-link`) of one skill no longer both hold `active.skf-lock`. A flip refused by a held lock used to remove the holder's lock file, and a flip that had locked a file already removed went on anyway, so a later flip could lock a new file while an earlier one still held the old one. One of them then failed with a Python traceback (exit 1) where exit 2 is documented, or exited 0 naming a version `active` did not point at, which Create Skill and Quick Skill reported as active. Now only the flip holding the lock removes the file, a flip whose locked file is no longer at the path opens the path again, and the flip that finds the lock taken exits 2 with the `another process holds flip lock` message, as documented.
+issues: [713]
