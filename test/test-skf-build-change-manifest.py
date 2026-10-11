@@ -2230,6 +2230,72 @@ class TestGapRecordsCli:
         assert json.loads(evidence.read_bytes()) == {"targeted_reextraction": {
             "resolved_count": 1, "files_scanned": 1, "exports_matched": 1, "tier": "Forge+"}}
 
+    @pytest.mark.parametrize("severity", ["High", "Medium"])
+    def test_a_file_a_still_incomplete_run_left_unread_resolves_once_read_by_eye(self, tmp_path: Path,
+                                                                                severity) -> None:
+        """#710: a second runner run that stops at the time limit leaves the routed file unread. Without by-eye
+        records a High gap halts `unresolved` and a Medium `missing-export` ends `unknown`; once gap-driven §4a
+        reads the file by eye, in Category B step 2's record shape, the gap is `re-extracted` T1-low."""
+        paths = self._files(tmp_path, [_gap_entry("GAP-001", "search", "NEW_EXPORT", category="missing-export",
+                                                  severity=severity, resolved=["pkg/api.py"])])
+        run = paths["run"]
+        files = run / "remediation-files.json"
+        files.write_bytes(json.dumps(["pkg/api.py"]).encode("utf-8"))
+        # the runner's JSON at the time limit (skf-extract-public-api.py's `errors[]`: `unread` for time-limit)
+        (run / "remediation-exports.json").write_bytes(json.dumps({
+            "status": "incomplete", "exports": [], "file_issues": [], "entry_point_diff": {"extraction_gaps": []},
+            "errors": [{"reason": "time-limit", "files": 1, "first_file": "pkg/api.py",
+                        "detail": "stopped at the time limit", "unread": ["pkg/api.py"]}]}).encode("utf-8"))
+        records = run / "remediation-records.json"
+        build = ("records", "--extraction", str(run / "remediation-exports.json"), "--files-from", str(files),
+                 "-o", str(records))
+        result = _run_cli(*build)
+        assert result.returncode == 0, result.stderr
+        summary = json.loads(result.stdout)
+        assert (summary["files_extracted"], summary["exports_extracted"], summary["warnings"]) == (1, 0, [])
+        out = run / "reextract-records.json"
+        match = ("gap-records", "--manifest", paths["manifest"], "--provenance-map", paths["map"],
+                 "--source-root", paths["root"], "--remediation-records", str(records))
+        result = _run_cli(*match, "-o", str(out))
+        assert result.returncode == 0, result.stderr
+        summary = json.loads(result.stdout)
+        if severity == "High":
+            assert summary["status"] == "unresolved" and not out.exists()
+            assert [(u["name"], u["files_scanned"], u["exports_found_in_scan"]) for u in summary["unresolved"]] \
+                == [("search", 1, 0)]
+        else:
+            assert (summary["status"], summary["counts"]["unknown"], summary["counts"]["re-extracted"]) \
+                == ("written", 1, 0)
+            assert summary["targeted_reextraction"]["exports_matched"] == 0 and summary["warnings"] == []
+        # the by-eye read of the unread file, as an export the runner did not find
+        (run / "remediation-details.json").write_bytes(json.dumps({"exports": [{
+            "export_name": "search", "source_file": "pkg/api.py", "source_line": 5, "export_type": "function",
+            "params": ["q"], "return_type": None, "confidence": "T1-low",
+            "extraction_method": "source-read"}]}).encode("utf-8"))
+        result = _run_cli(*build[:3], "--export-details", str(run / "remediation-details.json"), *build[3:])
+        assert result.returncode == 0, result.stderr
+        summary = json.loads(result.stdout)
+        assert (summary["exports_extracted"], summary["confidence_breakdown"]["T1-low"], summary["warnings"]) \
+            == (1, 1, [])
+        result = _run_cli(*match, "-o", str(out))
+        assert result.returncode == 0, result.stderr
+        summary = json.loads(result.stdout)
+        assert summary["status"] == "needs-judgment"
+        assert [(n["file"], n["line"]) for n in summary["needs_judgment"]] == [("pkg/api.py", 5)]
+        (run / "gap-judgments.json").write_bytes(
+            json.dumps({"GAP-001": {"reachability": "public", "docstring": None}}).encode("utf-8"))
+        result = _run_cli(*match, "--judgments", str(run / "gap-judgments.json"), "-o", str(out))
+        assert result.returncode == 0, result.stderr
+        summary = json.loads(result.stdout)
+        assert (summary["status"], summary["counts"]["re-extracted"], summary["counts"]["unknown"]) \
+            == ("written", 1, 0)
+        assert summary["confidence_breakdown"]["T1-low"] == 1
+        written = json.loads(out.read_bytes())
+        assert written["verification"][0]["verification"] == "re-extracted"
+        record = written["files"][0]["exports"][0]
+        assert (record["location"], record["confidence"], record["extraction_method"], record["ast_node_type"],
+                record["ast_recipe"]) == ("pkg/api.py:5", "T1-low", "source-read", None, None)
+
     @pytest.mark.parametrize("args, message", [
         (("--plan", "-o", "x.json"), "drop -o"),
         ((), "-o is required without --plan"),

@@ -1639,6 +1639,30 @@ def test_a_runner_input_error_halts_the_targeted_re_extraction():
     assert "This step writes nothing outside `{run_dir}`" in _halt_procedure(GAP)
 
 
+def test_a_still_incomplete_run_is_read_by_eye_in_the_targeted_re_extraction():
+    """#710: when §4a's second runner run is still `incomplete`, each file of the file set with no export in
+    `exports[]` or listed in an `errors[]` item's `unread` is read by eye, as Category B reads such a file, and the
+    user is told which; the exit 1 sentence stays whole and exit 2 still HALTs with no by-eye read."""
+    item_3 = _slice(_read(GAP), "3. **Extract:**", "### 5.")
+    rerun = "On exit 1 (`incomplete`, its JSON written) run it once more."
+    # both conditions bind to the file set: a barrel scan's time limit can list an entry file outside it
+    rule = ("When it is still incomplete, read by eye each file of the file set that has no export in `exports[]` or "
+            "that an `errors[]` item lists in `unread`, and tell the user which files were read by eye.")
+    assert rule in item_3
+    # the rule follows the rerun and comes before exit 2's halt, which keeps no by-eye read
+    assert item_3.index(rerun) < item_3.index(rule) < item_3.index("On exit 2 (")
+    assert "still incomplete" not in _slice(item_3, "On exit 2 (", "On exit 3")
+    # the "only" list points back at the rule rather than naming one of its two conditions
+    by_eye = _slice(item_3, "Read by eye only what the recipes leave out:", "Write each export read by eye")
+    assert ("a name `entry_point_diff.extraction_gaps[]` lists and a file the rule above reads after a "
+            "still-incomplete run." in by_eye)
+    assert "left unread" not in by_eye
+    # its exports reach the details file the records call takes, in Category B step 2's shape
+    assert ("in the shape detect-changes.md §2.1 Category B step 2 gives them, to `{run_dir}/remediation-details.json`"
+            in item_3)
+    assert item_3.count('phase: "re-extract:records"') == 2 and "exit 2 or 3" not in item_3
+
+
 def test_reextract_records_are_built_by_script(tmp_path, capsys):
     """Step 5b determinism-3: re-extract §4 runs `records`, which seeds every runner-owned field and merges the
     workers' patches; the workers return only what no tool records, and step 2's workers read params and return
