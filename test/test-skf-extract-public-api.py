@@ -1464,6 +1464,9 @@ class TestGlobRules:
         assert out["scope"]["unmatched_tier_a_include"] == ["src/old/**"], "each glob once, normalised"
         assert out["warnings"].count("scope.tier_a_include pattern 'src/old/**' matches no file") == 1
         assert out["scope"]["unmatched_include"] == []
+        # #712: no counts at exit 3, so no word on what the count falls back to
+        assert out["counts"] is None
+        assert not [w for w in out["warnings"] if "counts no public name" in w]
         # every tier A glob matches a file: nothing is listed, nothing warns
         _, out = _full(capsys, root, "--brief", str(brief), "--tier-a-include", "src/core/**")
         assert out["scope"]["unmatched_tier_a_include"] == []
@@ -2042,12 +2045,53 @@ class TestFullRuns:
         # H2, format and parseValue are defined under src/utils/
         assert narrowed["counts"]["effective_denominator"] == 3
         assert narrowed["counts"]["effective_denominator_basis"] == "tier_a_include"
-        # #695: a tier A glob that matches no file is listed, and the counts stay as they are
+        # #695: a tier A glob that matches no file is listed, and beside a live glob the count is that glob's
         _, stale = _full(capsys, root, "--include", "src/**", "--include", "macro/**",
                          "--tier-a-include", "src/utils/**", "--tier-a-include", "src/gone/**")
         assert stale["scope"]["unmatched_tier_a_include"] == ["src/gone/**"]
         assert stale["counts"] == narrowed["counts"]
         assert "scope.tier_a_include pattern 'src/gone/**' matches no file" in stale["warnings"]
+        assert not [w for w in stale["warnings"] if "counts no public name" in w]
+        # #712: a tier A list that counts no public name narrows nothing: the count is scope.include's, once
+        # warned, whether its glob matches no file, only files an exclude drops, or a barrel that defines none
+        fallback = "scope.tier_a_include counts no public name: effective_denominator counts scope.include"
+        _, gone = _full(capsys, root, "--include", "src/**", "--include", "macro/**", "--tier-a-include", "src/gone/**")
+        assert gone["counts"] == out["counts"]
+        assert gone["scope"]["unmatched_tier_a_include"] == ["src/gone/**"]
+        assert gone["warnings"][-2:] == ["scope.tier_a_include pattern 'src/gone/**' matches no file", fallback]
+        _, excluded = _full(capsys, root, "--include", "src/**", "--include", "macro/**", "--exclude", "src/internal/**",
+                            "--tier-a-include", "src/internal/**")
+        assert excluded["counts"] == {"exports_public_api": 13, "exports_internal": 1, "effective_denominator": 12,
+                                      "effective_denominator_basis": "scope.include", "denominator_files": 7}
+        assert excluded["scope"]["unmatched_tier_a_include"] == []
+        assert excluded["warnings"].count(fallback) == 1
+        _, nameless = _full(capsys, root, "--include", "src/**", "--include", "macro/**",
+                            "--tier-a-include", "src/utils/index.ts")
+        assert nameless["counts"] == out["counts"]
+        assert nameless["warnings"].count(fallback) == 1
+        # with no scope.include the count is every file's
+        _, everything = _full(capsys, root, "--tier-a-include", "src/gone/**")
+        assert (everything["counts"]["effective_denominator"], everything["counts"]["effective_denominator_basis"]) == (
+            13, "all-files")
+        assert everything["warnings"][-1] == (
+            "scope.tier_a_include counts no public name: effective_denominator counts every file")
+        # a stale glob beside a nameless one counts no name either: each warns once
+        _, mixed = _full(capsys, root, "--include", "src/**", "--include", "macro/**",
+                         "--tier-a-include", "src/gone/**", "--tier-a-include", "src/utils/index.ts")
+        assert mixed["counts"] == out["counts"]
+        assert mixed["warnings"].count(fallback) == 1
+        assert mixed["warnings"].count("scope.tier_a_include pattern 'src/gone/**' matches no file") == 1
+
+    @pytest.mark.parametrize("files", [{"lib/a.rb": "def run; end\n"}, {"src/a.ts": "const x = 1;\n"}],
+                             ids=["no-recipe-for-the-language", "nothing-exported"])
+    def test_a_run_that_counts_no_name_keeps_the_tier_a_basis(self, tmp_path, capsys, files) -> None:
+        # #712: with no public name counted the runner read nothing to blame the tier A globs for
+        root = _tree(tmp_path, files)
+        code, out = _full(capsys, root, "--include", "**", "--tier-a-include", "src/**")
+        assert code == 0
+        assert (out["counts"]["exports_public_api"], out["counts"]["effective_denominator"],
+                out["counts"]["effective_denominator_basis"]) == (0, 0, "tier_a_include")
+        assert not [w for w in out["warnings"] if "counts no public name" in w]
 
     def test_a_split_signature_is_joined(self, tmp_path, capsys) -> None:
         """ast-grep's `lines` hold the whole declaration, so `signature` gives

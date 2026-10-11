@@ -66,7 +66,11 @@ subcommands, each reading files and writing one JSON object:
                             --brief) matches its file. A tier_a_include glob
                             the runner lists as matching no file
                             (scope.unmatched_tier_a_include, [] when the key
-                            is absent) counts no name.
+                            is absent) counts no name. An extraction the
+                            per-file scan replaces (extraction.fallback.needed)
+                            gives no name and no set: only its scope, its
+                            stale globs and its `extraction` object, so the
+                            fallback scan passes it beside its results.
               --quick       skf-extract-public-api.py --mode quick output
               --per-file    a subagent's per-file result (exports_found and
                             types_found), schema-checked as
@@ -95,22 +99,28 @@ record names a file: the names whose file (an extraction's definition file,
 the quick output's source_file, a per-file result's file, a provenance
 entry's source_file) matches a glob of the list and no scope.exclude glob,
 so a name with no file is in `all` only (a tier_a_include glob an
-extraction lists as matching no file is left out of the list, and with every
-glob left out there is no tier_a_include set); and, from an extraction only,
-`subpaths` (the names a non-root `exports` map subpath without `*` reaches)
-and `root` (the names the root entry points reach). reconcile-coverage.py
-and score-signatures.py --surface-set pick one.
+extraction lists as matching no file is left out of the list, and a list
+that counts no name, each glob left out or matching only excluded files or
+files no record names, gives no tier_a_include set); and, from an
+extraction only, `subpaths` (the names a non-root `exports` map subpath
+without `*` reaches) and `root` (the names the root entry points reach).
+reconcile-coverage.py and score-signatures.py --surface-set pick one.
 
 Candidates and guards (with an extraction, --brief or --metadata): each
 set's count, the metadata `stats.effective_denominator` (--metadata), and
 the extractor's own effective_denominator and its basis. Both guards run
 only on a surface read from the source. The deflation guard compares the
 re-derived scope.include set (the `all` set without one) with
-`stats.effective_denominator` and fires above DEFLATION_PCT when no
-tier_a_include glob matches a file (the scope has none, or the extraction
-lists each as matching no file); the inflation guard compares the
-scope.include set with the provenance entry count (--provenance) and fires
-above INFLATION_PCT under the same condition; the umbrella ratio (an
+`stats.effective_denominator` and fires above DEFLATION_PCT when there is
+no tier A list (with an extraction, no tier_a_include set; without one, no
+tier_a_include glob, since a quick result's name carries its entry file,
+not the file that defines it); a stored 0 is deflation, not a
+denominator (`pct` null), and fires under that condition when any name is
+re-derived. The inflation guard compares the scope.include set with the
+provenance entry count (--provenance) and fires above INFLATION_PCT under
+the same condition; `guards.tierAInclude` lists the scope's
+tier_a_include globs ([] when it has none) for gap-ledger.py's wording;
+the umbrella ratio (an
 extraction only) is the share of the root entry points' names that are
 re-exports (a namespace with `members` counting as its members there
 too, each a re-export), and above UMBRELLA_RATIO the barrel is an
@@ -482,24 +492,73 @@ def _members_in_place(public: list[dict]) -> list[dict]:
     return expanded
 
 
+def _extraction_summary(data: dict, language: str | None) -> dict:
+    """The surface's `extraction` object: the runner's status and counts,
+    the files to read by eye and the fallback verdict."""
+    counts = data.get("counts") if isinstance(data.get("counts"), dict) else {}
+    arms = data.get("arms") if isinstance(data.get("arms"), dict) else {}
+    without = data.get("files_without_recipes") if isinstance(data.get("files_without_recipes"), dict) else {}
+    status = data.get("status")
+    reason = None
+    if status == "no-ast-grep":
+        reason = "no ast-grep the runner can run"
+    elif not data.get("files_in_scope"):
+        reason = "no file in scope"
+    elif without and not data.get("exports"):
+        reason = f"no recipe reads the files in scope ({', '.join(sorted(without))})"
+    elif without and language and language.strip().lower() not in RECIPE_LANGUAGES:
+        reason = (f"no recipe reads the skill's language, {language} "
+                  f"({', '.join(sorted(without))} in scope)")
+    read_by_eye = sorted({str(i["file"]) for i in data.get("file_issues") or []
+                          if isinstance(i, dict) and i.get("file") and i.get("issue") != "no-recipes"}
+                         | {str(e["first_file"]) for e in data.get("errors") or []
+                            if isinstance(e, dict) and e.get("first_file")})
+    return {
+        "status": status,
+        "filesInScope": data.get("files_in_scope"),
+        "truncated": data.get("truncated"),
+        "effectiveDenominator": _count(counts.get("effective_denominator")),
+        "effectiveDenominatorBasis": counts.get("effective_denominator_basis"),
+        "exportsPublicApi": _count(counts.get("exports_public_api")),
+        "arms": arms,
+        "readByEye": read_by_eye,
+        "fallback": {"needed": reason is not None, "reason": reason},
+    }
+
+
+NO_UMBRELLA = {"entries": [], "names": 0, "reexported": 0, "ratio": None, "umbrella": False}
+
+
 def from_extraction(data: dict, language: str | None = None, brief: dict | None = None) -> dict:
     """The public surface of an extraction, less what lies outside scope,
     plus the root exports a stale scope.include glob left out. A nested
     Python top's records come apart (`nestedRecords`): they count in the
-    scope sets, not in `all`."""
+    scope sets, not in `all`. An extraction the per-file scan replaces
+    (`extraction.fallback.needed`) gives only its scope, its stale globs and
+    its `extraction` object: no name and no set."""
     if data.get("mode") != "full":
         raise InputError("--extraction is not skf-extract-public-api.py --mode full output")
-    diff = data.get("entry_point_diff") if isinstance(data.get("entry_point_diff"), dict) else {}
-    public = _members_in_place([p for p in diff.get("public") or []
-                                if isinstance(p, dict) and isinstance(p.get("name"), str)])
-    outside = [o for o in diff.get("outside_scope") or [] if isinstance(o, dict)]
-    gaps = [g for g in diff.get("extraction_gaps") or [] if isinstance(g, dict)]
 
     # The scope: the one the extractor recorded, else the brief's.
     recorded = data.get("scope") if isinstance(data.get("scope"), dict) else {}
     scope = _scope(recorded.get("include"), recorded.get("exclude"), recorded.get("tier_a_include"))
     if not any(scope.values()) and brief is not None:
         scope = brief["scope"]
+    unmatched = _globs(recorded.get("unmatched_include"))
+    # A tier A glob that matches no file: the runner's list, never re-matched here.
+    unmatched_tier_a = _globs(recorded.get("unmatched_tier_a_include"))
+    extraction = _extraction_summary(data, language)
+    if extraction["fallback"]["needed"]:
+        return {"records": [], "nestedRecords": [], "sets": {}, "outside": [], "nested": [],
+                "staleScope": {"unmatchedInclude": unmatched, "unmatchedTierAInclude": unmatched_tier_a,
+                               "restored": []},
+                "gaps": [], "scope": scope, "umbrella": dict(NO_UMBRELLA), "extraction": extraction}
+
+    diff = data.get("entry_point_diff") if isinstance(data.get("entry_point_diff"), dict) else {}
+    public = _members_in_place([p for p in diff.get("public") or []
+                                if isinstance(p, dict) and isinstance(p.get("name"), str)])
+    outside = [o for o in diff.get("outside_scope") or [] if isinstance(o, dict)]
+    gaps = [g for g in diff.get("extraction_gaps") or [] if isinstance(g, dict)]
 
     entry_points = data.get("entry_points") if isinstance(data.get("entry_points"), dict) else {}
     entry_files = [e for e in entry_points.get("files") or [] if isinstance(e, dict)]
@@ -518,7 +577,6 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
     # A scope.include glob that matches no file: the brief predates the
     # source, so a root export defined in a file no glob covers comes back,
     # unless the brief excludes or declined that file.
-    unmatched = _globs(recorded.get("unmatched_include"))
     declined = [path for path, action in ((brief or {}).get("amendments") or {}).items()
                 if action in DECLINED_ACTIONS]
     restored = [o for o in outside if unmatched and o.get("entry") in root_files
@@ -526,8 +584,6 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
                 and not any(glob_match(_norm(o["file"]), g)
                             for g in scope["include"] + scope["exclude"] + declined)]
     restored_at = {(o["name"], o["file"]): o.get("line") for o in restored}
-    # A tier A glob that matches no file: the runner's list, never re-matched here.
-    unmatched_tier_a = _globs(recorded.get("unmatched_tier_a_include"))
     outside = [o for o in outside if (o.get("name"), o.get("file")) not in restored_at]
 
     outside_keys = {(o.get("name"), o.get("file")) for o in outside}
@@ -561,24 +617,6 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
     if root_files:
         sets["root"] = sorted({p["name"] for p in root_names})
 
-    counts = data.get("counts") if isinstance(data.get("counts"), dict) else {}
-    arms = data.get("arms") if isinstance(data.get("arms"), dict) else {}
-    without = data.get("files_without_recipes") if isinstance(data.get("files_without_recipes"), dict) else {}
-    status = data.get("status")
-    reason = None
-    if status == "no-ast-grep":
-        reason = "no ast-grep the runner can run"
-    elif not data.get("files_in_scope"):
-        reason = "no file in scope"
-    elif without and not data.get("exports"):
-        reason = f"no recipe reads the files in scope ({', '.join(sorted(without))})"
-    elif without and language and language.strip().lower() not in RECIPE_LANGUAGES:
-        reason = (f"no recipe reads the skill's language, {language} "
-                  f"({', '.join(sorted(without))} in scope)")
-    read_by_eye = sorted({str(i["file"]) for i in data.get("file_issues") or []
-                          if isinstance(i, dict) and i.get("file") and i.get("issue") != "no-recipes"}
-                         | {str(e["first_file"]) for e in data.get("errors") or []
-                            if isinstance(e, dict) and e.get("first_file")})
     return {
         "records": records,
         "nestedRecords": nested_records,
@@ -597,17 +635,7 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
             "ratio": round2(len(reexported) / len(root_names)) if root_names else None,
             "umbrella": bool(root_names) and len(reexported) / len(root_names) > UMBRELLA_RATIO,
         },
-        "extraction": {
-            "status": status,
-            "filesInScope": data.get("files_in_scope"),
-            "truncated": data.get("truncated"),
-            "effectiveDenominator": _count(counts.get("effective_denominator")),
-            "effectiveDenominatorBasis": counts.get("effective_denominator_basis"),
-            "exportsPublicApi": _count(counts.get("exports_public_api")),
-            "arms": arms,
-            "readByEye": read_by_eye,
-            "fallback": {"needed": reason is not None, "reason": reason},
-        },
+        "extraction": extraction,
     }
 
 
@@ -665,9 +693,6 @@ def fold_names(names: list[str], prefixes: list[str], keep: set[str],
             if tallied is None or name in tallied:
                 tally[rule] += 1
     return variants, tally
-
-
-NO_UMBRELLA = {"entries": [], "names": 0, "reexported": 0, "ratio": None, "umbrella": False}
 
 
 def surface(args: argparse.Namespace) -> dict:
@@ -763,14 +788,17 @@ def surface(args: argparse.Namespace) -> dict:
     if scope is None:
         scope = brief["scope"] if brief is not None else _scope(None, None, None)
     # A tier A glob the runner lists as matching no file counts no name: the
-    # set comes from the globs that matched, and with none there is no set.
+    # set comes from the globs that matched. A tier A list that counts no
+    # name (every glob stale, or matching only excluded files or files that
+    # define no name) narrows nothing: there is no set.
     stale_tier_a = set(extracted["staleScope"]["unmatchedTierAInclude"]) if extracted is not None else set()
     tier_a = [g for g in scope["tier_a_include"] if g not in stale_tier_a]
     filed = [r for r in records if r["file"]]
     if filed and scope["include"]:
         sets["scope.include"] = matching(filed, scope["include"], scope["exclude"])
-    if filed and tier_a:
-        sets["tier_a_include"] = matching(filed, tier_a, scope["exclude"])
+    tier_a_names = matching(filed, tier_a, scope["exclude"]) if tier_a else []
+    if tier_a_names:
+        sets["tier_a_include"] = tier_a_names
 
     if extracted is not None or brief is not None or meta is not None:
         stats = meta.get("stats") if isinstance(meta, dict) and isinstance(meta.get("stats"), dict) else {}
@@ -786,12 +814,18 @@ def surface(args: argparse.Namespace) -> dict:
             "extractorEffectiveDenominator": extraction.get("effectiveDenominator"),
             "extractorBasis": extraction.get("effectiveDenominatorBasis"),
         }
-        no_tier_a = not tier_a
-        deflation = {"applicable": source_read and bool(stats_eff), "effectiveDenominator": stats_eff,
+        # With an extraction, no tier A set is no tier A list; without one the
+        # globs decide (a Quick-tier name carries its entry file, not the file
+        # that defines it).
+        no_tier_a = "tier_a_include" not in sets if extracted is not None else not tier_a
+        deflation = {"applicable": source_read and stats_eff is not None, "effectiveDenominator": stats_eff,
                      "rederived": include_union if source_read else None, "pct": None, "fires": False}
-        if deflation["applicable"]:
+        if deflation["applicable"] and stats_eff:
             deflation["pct"] = round2((include_union - stats_eff) / stats_eff * 100)
             deflation["fires"] = no_tier_a and deflation["pct"] > DEFLATION_PCT
+        elif deflation["applicable"]:
+            # A stored 0 is deflation, not a denominator, once a name is re-derived.
+            deflation["fires"] = no_tier_a and include_union > 0
         entry_count = len(_entries(provenance)) if provenance is not None else 0
         inflation = {"applicable": source_read and no_tier_a and bool(scope["include"]) and entry_count > 0,
                      "scopeIncludeUnion": include_union if scope["include"] else None,
@@ -809,6 +843,7 @@ def surface(args: argparse.Namespace) -> dict:
             "deflation": deflation,
             "inflation": inflation,
             "staleScope": stale_scope,
+            "tierAInclude": list(scope["tier_a_include"]),
             "umbrella": extracted["umbrella"] if extracted is not None else dict(NO_UMBRELLA),
             "thresholds": {"deflationPct": DEFLATION_PCT, "inflationPct": INFLATION_PCT,
                            "umbrellaRatio": UMBRELLA_RATIO},

@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-create-skill, skf-test-skill
+summary: |
+  When no `scope.tier_a_include` glob in a skill brief counts a public name (each matches no file, or only files `scope.exclude` drops or that define no public name, such as a barrel that only re-exports), the tier A list no longer narrows the coverage denominator to zero. Create Skill stores the count over `scope.include` instead and warns that the tier A globs count no public name. Test Skill falls back to the `scope.include` set, checks a stored count against it and raises a Medium `metadata-drift` or `denominator-inflation` gap that says the globs count no public name. A stored `stats.effective_denominator` of 0 is now such a `metadata-drift` gap once the source defines a public name, not a halt on 0 exports discovered in source. The per-file scan Test Skill runs when ast-grep cannot be used makes the same checks and reports a stale tier A glob as a `brief-scope-stale` gap. Export Coverage and Type Coverage can fall, so a run that passed can fail.
+migration: |
+  Re-run Test Skill at Forge tier on each skill whose `metadata.json` stores `stats.effective_denominator`. On a deflation or inflation gap that says no `scope.tier_a_include` glob in the brief matches a file or counts a public name, edit or remove those globs in the skill brief by hand, then re-run Create Skill.
+prs: [720]
+issues: [712]
