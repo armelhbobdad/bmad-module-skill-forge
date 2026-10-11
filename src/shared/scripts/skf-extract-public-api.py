@@ -389,6 +389,11 @@ the internal names. `effective_denominator` counts those public names
 whose definition file matches scope.tier_a_include (else scope.include)
 and no scope.exclude glob: each name once, so a type counts once whatever
 its methods, and a barrel that only re-exports adds nothing of its own.
+A tier A list that counts no public name (each glob matches no file, or
+only files scope.exclude drops or that define no public name) narrows
+nothing on a run that counted a public name and read every file (no
+`errors` item): the count falls back to scope.include (else every file),
+with a warning.
 `arms` gives compile's effective_denominator arms:
 (a) `monorepo` from skf-detect-workspaces.py, (b) `specific_modules`
 (scope type specific-modules on a repository that is not a monorepo) and
@@ -453,7 +458,7 @@ Output JSON (stdout, or -o):
     "counts": {"exports_public_api": N, "exports_internal": N,
                "effective_denominator": N,
                "effective_denominator_basis": "tier_a_include" | "scope.include"
-                                              | "all-files",
+                                              | "all-files",  # not tier_a_include when it counts no name
                "denominator_files": N},
     "arms": {"monorepo": bool, "monorepo_kind": "<kind>" | null,
              "specific_modules": bool, "multi_subpath_exports": bool},
@@ -4241,14 +4246,25 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
     else:
         status = "empty-barrel" if "empty-barrel" in statuses.values() else "no-entry-point"
 
-    basis_globs = tier_a or includes
+    counted = _public_keys(public)
+
+    def files_matching(globs: list[str]) -> set[str]:
+        return {f for f in tree if (not globs or any(glob_match(f, g) for g in globs))
+                and not any(glob_match(f, g) for g in excludes)}
+
+    # A tier A list that counts no public name (each glob matches no file, or
+    # only files an exclude drops or that define no public name) narrows
+    # nothing, once the run counted a name and read every file (no error).
+    denominator_files = files_matching(tier_a or includes)
     basis = "tier_a_include" if tier_a else ("scope.include" if includes else "all-files")
-    denominator_files = {f for f in tree if (not basis_globs or any(glob_match(f, g) for g in basis_globs))
-                         and not any(glob_match(f, g) for g in excludes)}
+    if tier_a and counted and not errors and not any(file in denominator_files for _, _, file in counted):
+        basis = "scope.include" if includes else "all-files"
+        denominator_files = files_matching(includes)
+        counts_what = "scope.include" if includes else "every file"
+        warnings.append(f"scope.tier_a_include counts no public name: effective_denominator counts {counts_what}")
 
     by_type: Counter = Counter(e["export_type"] for e in exports)
     ordered = sorted(public.items(), key=lambda item: (item[0][1], item[0][0]))
-    counted = _public_keys(public)
     result.update({
         "truncated": any(s["truncated"] for s in stats),
         "recipes": stats,
@@ -4555,7 +4571,8 @@ def _build_parser() -> argparse.ArgumentParser:
                       help="an exclude glob, repeatable (replaces the brief's scope.exclude)")
     full.add_argument("--tier-a-include", action="append", metavar="GLOB",
                       help="a tier-A glob for effective_denominator, repeatable (replaces scope.tier_a_include); "
-                           "one that matches no file is listed in scope.unmatched_tier_a_include")
+                           "one that matches no file is listed in scope.unmatched_tier_a_include, and a list "
+                           "that counts no public name gives way to scope.include (else every file)")
     full.add_argument("--scope-type", help="the scope type (replaces the brief's scope.type)")
     full.add_argument("--language", action="append",
                       help="a language family to extract, repeatable (replaces the brief's language); quick "

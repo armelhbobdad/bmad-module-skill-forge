@@ -612,11 +612,13 @@ class TestGapSeverityTable:
         # and the protocol cites the guard's threshold field instead of a copy.
         criterion = "the re-derived source barrel exceeds `effective_denominator` by"
         drift = next(text for s, c, text in _severity_rows() if c == "metadata-drift")
-        # #695: a tier A glob that matches no file narrows nothing, so the guard counts only the ones that match
-        assert (f"{criterion} more than 25% and the brief has no `scope.tier_a_include` glob that matches a file"
-                in drift)
+        # #695, #712: a tier A glob that matches no file, or only files that define no public name, narrows
+        # nothing, so the guard counts only the ones that count a name
+        assert (f"{criterion} more than 25% and the brief has no `scope.tier_a_include` glob that counts a public "
+                "name" in drift)
         rows = {c: text for _, c, text in _severity_rows()}
-        assert "the brief has no `scope.tier_a_include` glob that matches a file" in rows["denominator-inflation"]
+        assert ("the brief has no `scope.tier_a_include` glob that counts a public name"
+                in rows["denominator-inflation"])
         assert ("or a `scope.tier_a_include` glob matches no file in the source tested, so it counts no name"
                 in rows["brief-scope-stale"])
         loader = _load("skf_load_coverage_inputs_for_step_test", TS_DIR / "scripts" / "load-coverage-inputs.py")

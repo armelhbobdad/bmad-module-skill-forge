@@ -1098,6 +1098,60 @@ class TestCountAdapters:
         assert [r["issue"].endswith("and the brief has no `scope.tier_a_include`")
                 for r in mod.from_guards(surface)] == [True, True]
 
+    @pytest.mark.parametrize("tier_a, unmatched, clause, verb", [
+        ([], [], "the brief has no `scope.tier_a_include`", "Add"),
+        (["src/old/**"], ["src/old/**"], "no `scope.tier_a_include` glob in the brief matches a file", "Edit"),
+        (["src/old/**", "src/util/index.ts"], ["src/old/**"],
+         "no `scope.tier_a_include` glob in the brief counts a public name", "Edit"),
+        (["src/vendor/**"], [], "no `scope.tier_a_include` glob in the brief counts a public name", "Edit"),
+    ], ids=["no-glob", "every-glob-stale", "stale-and-nameless", "excluded-only"])
+    def test_the_guards_say_which_tier_a_globs_count_no_name(self, tier_a, unmatched, clause, verb):
+        """#712: `guards.tierAInclude` (the brief's tier A globs) tells a brief with none from one whose globs
+        all match no file and from one whose globs match files that define no public name. Titles stay."""
+        surface = {"inputs": {"metadata": "pkg/metadata.json", "brief": "data/skill-brief.yaml"}, "guards": {
+            "deflation": {"fires": True, "rederived": 40, "pct": 60.0, "effectiveDenominator": 25},
+            "inflation": {"fires": True, "scopeIncludeUnion": 50, "pct": 100.0, "provenanceEntries": 25},
+            "staleScope": {"fires": bool(unmatched), "unmatchedInclude": [], "unmatchedTierAInclude": unmatched,
+                           "restored": []},
+            "tierAInclude": tier_a, "umbrella": {"umbrella": False}}}
+        deflation, inflation, *stale = mod.from_guards(surface)
+        assert [deflation["title"], inflation["title"]] == [
+            "denominator deflation: effective_denominator below source public surface without tier_a_include",
+            "denominator inflation: coarse scope.include union exceeds authored surface"]
+        assert deflation["issue"] == (
+            f"the re-derived surface counts 40 exports, 60.0% above `stats.effective_denominator` (25), and {clause}")
+        assert inflation["issue"].endswith(f", and {clause}")
+        assert inflation["remediation"].startswith(f"{verb} `scope.tier_a_include`")
+        assert deflation["remediation"].endswith(
+            "or add `scope.tier_a_include` to the brief to name the authored tier the smaller count measures."
+            if verb == "Add" else
+            "or edit `scope.tier_a_include` in the brief so its globs match the files of the authored tier the "
+            "smaller count measures.")
+        assert len(stale) == (1 if unmatched else 0)
+
+    def test_a_stored_zero_reads_as_a_count_against_zero(self):
+        """#712: the deflation guard fires on a stored `stats.effective_denominator` of 0 with no percentage
+        (`pct` null), so the issue gives the count against 0, never `None%`."""
+        surface = {"inputs": {"metadata": "pkg/metadata.json"}, "guards": {
+            "deflation": {"applicable": True, "fires": True, "rederived": 62, "pct": None, "effectiveDenominator": 0},
+            "staleScope": {"fires": False, "unmatchedTierAInclude": ["cognee/modules/observability/trace_context/**"]},
+            "tierAInclude": ["cognee/modules/observability/trace_context/**"]}}
+        [record] = mod.from_guards(surface)
+        assert (record["severity"], record["category"]) == ("Medium", "metadata-drift")
+        assert record["issue"] == (
+            "the re-derived surface counts 62 exports against a `stats.effective_denominator` of 0, and no "
+            "`scope.tier_a_include` glob in the brief matches a file")
+        assert "None" not in record["issue"]
+        # a 0 measures no tier, so the fix counts it again instead of setting it to the re-derived surface
+        assert record["remediation"] == (
+            "Edit `scope.tier_a_include` in the brief so its globs match the files that define the authored tier, "
+            "then re-run Create Skill so `stats.effective_denominator` in `pkg/metadata.json` is counted again.")
+        del surface["guards"]["staleScope"], surface["guards"]["tierAInclude"]
+        [record] = mod.from_guards(surface)
+        assert record["remediation"] == (
+            "Check `scope.include` in the brief, then re-run Create Skill so `stats.effective_denominator` in "
+            "`pkg/metadata.json` is counted again.")
+
     def test_a_stale_brief_scope_is_one_gap_at_the_brief(self):
         """#677: a scope.include glob that matches no file, and the root exports the surface restored."""
         stale = {"applicable": True, "fires": True, "unmatchedInclude": ["cognee/pipelines.py"],

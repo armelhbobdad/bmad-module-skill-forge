@@ -1111,9 +1111,15 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
             "`demoted-include` matches the file") in protocol
     # with no tier A glob matching a file there is no tier_a_include set: the ladder and the guards go on
     assert "2. Otherwise the `tier_a_include` set when `surface.json` has it" in protocol
-    assert ("when no tier A glob matches a file, `surface.json` has no `tier_a_include` set and priority 3 applies"
-            in protocol)
-    assert "the brief carries no `scope.tier_a_include` glob that matches a file" in protocol
+    # #712: nor when the globs match only files that define no name, at a pattern-reference app too
+    assert ("when the tier A globs count no name (none matches a file, or each matches only files `scope.exclude` "
+            "drops or that define no public name), `surface.json` has no `tier_a_include` set and priority 3 "
+            "applies") in protocol
+    assert ("The denominator is the `tier_a_include` set when `surface.json` has it, else the canonicalized "
+            "provenance map") in protocol
+    assert "the brief carries no `scope.tier_a_include` glob that counts a public name" in protocol
+    assert ("or a stored `effective_denominator` of 0 is below a barrel that re-derives any name "
+            "(`guards.deflation.pct` null), `guards.deflation.fires` is true") in protocol
     assert "then the `tier_a_include` set when `surface.json` has it" in protocol
 
     run = tmp_path / "run"
@@ -1377,6 +1383,34 @@ def test_the_prose_fallback_scan_runs(tmp_path):
     assert surface["sets"]["all"] == ["Options", "fetchData"]
     assert "the fallback scan's `per-file-<n>.txt`" in _flow(_slice(_read(COVERAGE), "**Score the signatures**",
                                                                    "### 2c."))
+    # #712: the runner's exit-3 JSON rides along as --extraction: its stale tier A glob counts no name, so the
+    # deflation guard runs on the per-file names and the stale-scope guard fires, and it adds no name or set
+    forge = tmp_path / "forge-data"
+    _write_tree(forge / "demo", {"skill-brief.yaml": (
+        "name: demo\nlanguage: typescript\nscope:\n  type: specific-modules\n  include: ['src/**']\n"
+        "  tier_a_include: ['src/old/**']\n")})
+    (run / "extract-full.json").write_bytes(json.dumps({
+        "mode": "full", "status": "no-ast-grep", "files_in_scope": 1, "exports": [], "entry_point_diff": None,
+        "counts": None, "files_without_recipes": {}, "file_issues": [], "errors": [],
+        "scope": {"include": ["src/**"], "exclude": [], "tier_a_include": ["src/old/**"], "type": "specific-modules",
+                  "unmatched_include": [], "unmatched_tier_a_include": ["src/old/**"]},
+        "entry_points": {"status": None, "files": [{"language": "typescript", "file": "src/index.ts", "package": ".",
+                                                    "subpath": ".", "resolution": "file", "in_scope": True}]},
+        "warnings": ["scope.tier_a_include pattern 'src/old/**' matches no file"],
+    }).encode("utf-8"))
+    (skill / "metadata.json").write_bytes(json.dumps({"skill_type": "single", "exports": ["fetchData", "Options"],
+                                                      "stats": {"effective_denominator": 1}}).encode("utf-8"))
+    values.update({"{forge_data_folder}": forge.as_posix(), "{skill_name}": "demo"})
+    command = _command(COVERAGE_TIERS, "surface --per-file")
+    alone = _exec(_choose(command, keep=("--brief",)), values, tmp_path)["guards"]
+    assert (alone["deflation"]["fires"], alone["staleScope"]["applicable"]) == (False, False), "no runner word"
+    surface = _exec(_choose(command, keep=("--extraction", "--brief")), values, tmp_path)
+    assert surface["sets"] == {"all": ["Options", "fetchData"], "scope.include": ["Options", "fetchData"]}
+    assert surface["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 2,
+                                              "pct": 100.0, "fires": True}
+    assert (surface["guards"]["staleScope"]["fires"], surface["guards"]["staleScope"]["unmatchedTierAInclude"]) == (
+        True, ["src/old/**"])
+    assert "only its scope and the globs it lists as matching no file" in _flow(_read(COVERAGE_TIERS))
     command = _command(COVERAGE, "uv run {scoreSignaturesScript} score").replace(
         '"{run_dir}/signatures-<n>.txt"', '"{run_dir}/per-file-<n>.txt"').replace("<set>", "all")
     scores = _exec(command, values, tmp_path)
