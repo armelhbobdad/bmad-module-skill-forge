@@ -2,4 +2,5 @@ type: fixed
 scope: skf-update-skill
 summary: |
   When Update Skill repairs the gaps a test report names and the recipe runner (`skf-extract-public-api.py`) is still `incomplete` on its second run over the files those gaps name, for example after it stopped at its time limit, the update now reads by eye each of those files the runner left unread or found no export in, and tells you which files it read by eye. A blocking gap (Critical, High, or one with no recognized severity) whose export sits in such a file now goes on to its judgments and resolves as `re-extracted` (T1-low, `source-read`) instead of halting with `halted-for-remediation-path` and a report blaming the remediation text, and a Medium, Low or Info missing export or type now gets its source line instead of ending `unknown`. An exit 2 from the runner still halts with `blocked`.
+prs: [718]
 issues: [710]
