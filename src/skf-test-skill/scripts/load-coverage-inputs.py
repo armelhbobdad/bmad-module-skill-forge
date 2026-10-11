@@ -34,9 +34,13 @@ subcommands, each reading files and writing one JSON object:
   surface   the enumerated source surface, from every input given (their
             union):
               --extraction  skf-extract-public-api.py --mode full output:
-                            the names in entry_point_diff.public, less the
-                            outside_scope names (defined in a file the brief
-                            scopes out); exports[] only gives each name's
+                            the names in entry_point_diff.public, a
+                            namespace with a `members` list given as its
+                            members (the names its module passes on, each
+                            at its file, once with a public name of the
+                            same name and file), less the outside_scope
+                            names (defined in a file the brief scopes
+                            out); exports[] only gives each name's
                             kind, line and signature line, looked up by the
                             name its defining file gives it (an aliased
                             re-export's `local`) and that file.
@@ -108,7 +112,9 @@ lists each as matching no file); the inflation guard compares the
 scope.include set with the provenance entry count (--provenance) and fires
 above INFLATION_PCT under the same condition; the umbrella ratio (an
 extraction only) is the share of the root entry points' names that are
-re-exports, and above UMBRELLA_RATIO the barrel is an umbrella; the
+re-exports (a namespace with `members` counting as its members there
+too, each a re-export), and above UMBRELLA_RATIO the barrel is an
+umbrella; the
 stale-scope guard (an extraction with scope.include or tier_a_include only)
 fires when the runner lists an include or tier_a_include glob that matches
 no file, and lists those globs (`unmatchedInclude`,
@@ -451,6 +457,31 @@ def _nested_tops(entry_files: list[dict], named: set[str], exporting: set[str]) 
     return nested
 
 
+def _members_in_place(public: list[dict]) -> list[dict]:
+    """The public names, a namespace item with a `members` list (the names
+    its module passes on, `pkg.sub.name`) given as its members, each with
+    the namespace's entry and language and `via: namespace`. A member whose
+    name and file another public name, or an earlier member, has is left
+    out; a namespace whose members the runner could not read (null), or one
+    from a runner that lists none, stays itself."""
+    expanded = [p for p in public if not (p.get("via") == "namespace" and isinstance(p.get("members"), list))]
+    seen = {(p["name"], p.get("file")) for p in expanded}
+    for item in public:
+        if item.get("via") != "namespace" or not isinstance(item.get("members"), list):
+            continue
+        for member in item["members"]:
+            if not isinstance(member, dict) or not isinstance(member.get("name"), str) or not member["name"]:
+                continue
+            key = (member["name"], member.get("file"))
+            if key in seen:
+                continue
+            seen.add(key)
+            expanded.append({"name": member["name"], "language": item.get("language"), "entry": item.get("entry"),
+                             "via": "namespace", "local": member.get("local"), "file": member.get("file"),
+                             "line": member.get("line")})
+    return expanded
+
+
 def from_extraction(data: dict, language: str | None = None, brief: dict | None = None) -> dict:
     """The public surface of an extraction, less what lies outside scope,
     plus the root exports a stale scope.include glob left out. A nested
@@ -459,7 +490,8 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
     if data.get("mode") != "full":
         raise InputError("--extraction is not skf-extract-public-api.py --mode full output")
     diff = data.get("entry_point_diff") if isinstance(data.get("entry_point_diff"), dict) else {}
-    public = [p for p in diff.get("public") or [] if isinstance(p, dict) and isinstance(p.get("name"), str)]
+    public = _members_in_place([p for p in diff.get("public") or []
+                                if isinstance(p, dict) and isinstance(p.get("name"), str)])
     outside = [o for o in diff.get("outside_scope") or [] if isinstance(o, dict)]
     gaps = [g for g in diff.get("extraction_gaps") or [] if isinstance(g, dict)]
 

@@ -384,6 +384,58 @@ def test_with_no_tier_a_glob_matching_both_guards_run(tmp_path):
                for r in records[:2])
 
 
+def test_a_namespace_gives_its_members_in_its_place(tmp_path):
+    """#703: a namespace item (`export * as ns`, a Python submodule) stands for the names its module passes on,
+    users' `pkg.ns.name`: each member joins the surface at the file that defines it, looked up by its `local` name
+    there, with the namespace's entry; a member another public name has (same name and file) is listed once, one
+    defined out of scope stays out with its outside_scope row, and a namespace the runner could not read stays."""
+    extraction = json.loads(json.dumps(EXTRACTION))
+    extraction["exports"].append({"export_name": "realFmt", "export_type": "function", "source_file": "src/ns/fmt.ts",
+                                  "source_line": 2, "signature_line": "export function realFmt(): string {"})
+    extraction["entry_point_diff"]["public"] += [
+        {"name": "ns", "entry": "src/index.ts", "via": "namespace", "file": "src/ns/index.ts", "line": None,
+         "members": [{"name": "fmt", "local": "realFmt", "file": "src/ns/fmt.ts", "line": 2},
+                     {"name": "helper", "local": None, "file": "src/helper.ts", "line": 1},
+                     {"name": "old", "local": None, "file": "lib/old.ts", "line": 9}]},
+        {"name": "remote", "entry": "src/index.ts", "via": "namespace", "file": None, "line": None, "members": None}]
+    extraction["entry_point_diff"]["outside_scope"].append(
+        {"name": "old", "language": "javascript", "entry": "src/index.ts", "file": "lib/old.ts", "line": 9})
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", extraction))
+    assert out["sets"]["all"] == ["Extra", "Level", "Mode", "Options", "fetchData", "fmt", "gapFn", "helper", "remote"]
+    assert out["sets"]["root"] == ["Mode", "Options", "fetchData", "fmt", "gapFn", "helper", "legacy", "old", "remote"]
+    fmt = [e for e in out["exports"] if e["name"] == "fmt"]
+    assert [(e["kind"], e["file"], e["line"], e["signatureLine"]) for e in fmt] == [
+        ("function", "src/ns/fmt.ts", 2, "export function realFmt(): string {")]
+    assert [e["file"] for e in out["exports"] if e["name"] == "helper"] == ["src/helper.ts"]
+    assert {"name": "old", "file": "lib/old.ts"} in out["excluded"]["outsideScope"]
+    # the umbrella ratio counts the members too, each a re-export: the root's six names (gapFn, helper and legacy
+    # re-exported) plus fmt and old, and remote, a namespace the runner could not read
+    umbrella = out["guards"]["umbrella"]
+    assert (umbrella["names"], umbrella["reexported"]) == (9, 6)
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+def test_a_real_namespace_feeds_its_members(tmp_path):
+    """The #703 fixture through the runner: the surface is foo and sub's baz, never the module sub."""
+    source = tmp_path / "src"
+    for rel, text in (("pkg/__init__.py", "from .a import foo\nfrom . import sub\n"),
+                      ("pkg/a.py", "def foo():\n    return 1\n\n\ndef bar():\n    return 2\n"),
+                      ("pkg/sub.py", "def baz():\n    return 4\n")):
+        _write(source / rel, text)
+    extraction = tmp_path / "run" / "extract-full.json"
+    extraction.parent.mkdir()
+    proc = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source),
+                           "--scope-type", "public-api", "--head-cap", "0", "--output", str(extraction)],
+                          capture_output=True, text=True)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    out = _surface(tmp_path, "--extraction", str(extraction))
+    assert out["sets"]["all"] == ["baz", "foo"]
+    assert {e["name"]: (e["kind"], e["file"], e["line"]) for e in out["exports"]} == {
+        "baz": ("function", "pkg/sub.py", 1), "foo": ("function", "pkg/a.py", 1)}
+
+
 def test_an_aliased_reexport_takes_the_kind_of_its_definition(tmp_path):
     """`export { Settings as Config } from './impl'`: the extractor records the
     export under the name impl.ts gives it, `local`."""

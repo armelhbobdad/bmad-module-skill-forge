@@ -173,10 +173,10 @@ Using the boundary definitions from `{scopeTemplatesPath}`, present the appropri
 
 - **A module include** is `<path>/**`, where `<path>` is the module's `path` in `{run_dir}/snapshot.json` (its `workspaces` or `module_candidates` entry, or the entry of `{run_dir}/package-snapshot.json` when §4.3 picked from it): repo-relative, with any workspace prefix already in it. For Maven and Gradle it is the §4.1 `modules` entry, prefixed with `{monorepo_workspace}/` when step 2 picked a workspace. A `named_module_subset` name maps to the §4.3 module it names. With no module picked, the include is `{monorepo_workspace}/**` when step 2 picked a workspace (§3b), else `**`.
 - **The default exclusions** are the Full Library template's test globs (`**/*.test.*`, `**/*.spec.*`, `**/test/**`, `**/tests/**`) and build globs (`**/dist/**`, `**/build/**`, `**/target/**`). The template's configuration and documentation exclusions name no glob, and the module includes already leave the root configuration files and the docs folders out.
-- **The public API files** are the files that define the names the package's entry points export. Run §3c's recipe runner (its helper, source folder, clone and clone removal) with the `full-library` default as its globs and `-o "{run_dir}/public-api.json"`, then print the file of each public name, an entry point's own definitions and the files its re-exports lead to:
+- **The public API files** are the files that define the names the package's entry points export. Run §3c's recipe runner (its helper, source folder, clone and clone removal) with the `full-library` default as its globs and `-o "{run_dir}/public-api.json"`, then print the file of each public name, an entry point's own definitions, the files its re-exports lead to and the files that define a namespace's `members` (the names a submodule the package exports passes on):
 
   ```bash
-  uv run python -c 'import json, sys; d = json.load(open(sys.argv[1], encoding="utf-8")); print("\n".join(sorted({p["file"] for p in d["entry_point_diff"]["public"] if p.get("file")})))' "{run_dir}/public-api.json"
+  uv run python -c 'import json, sys; d = json.load(open(sys.argv[1], encoding="utf-8")); print("\n".join(sorted({f for p in d["entry_point_diff"]["public"] for f in [p.get("file")] + [m.get("file") for m in p.get("members") or []] if f})))' "{run_dir}/public-api.json"
   ```
 
   At Quick tier, when the runner exits 1 to 3 or the clone fails, or when it prints no file, take the `full-library` default instead and give the reason in the warn line: `warn: headless boundary default public-api: full-library boundaries ({the reason})`.
@@ -215,10 +215,10 @@ Head this off by capturing the authoring surface as **`scope.tier_a_include`**: 
   uv run {extractPublicApiHelper} --mode full --source-root "<source folder>" --include "<include glob>" --exclude "<exclude glob>" --language "{language}" -o "{run_dir}/tier-a.json"
   ```
 
-  The candidates are the files that define a name an entry point passes on (`reexport_targets`), less the entry points themselves (`entry_points.files[].file`). Print them, one per line:
+  The candidates are the files that define a name an entry point passes on (`reexport_targets`, and the `members` of a namespace in `entry_point_diff.public`), less the entry points themselves (`entry_points.files[].file`). Print them, one per line:
 
   ```bash
-  uv run python -c 'import json, sys; d = json.load(open(sys.argv[1], encoding="utf-8")); entries = {f["file"] for f in d["entry_points"]["files"]}; print("\n".join(sorted({t["file"] for t in d["reexport_targets"] if t["file"]} - entries)))' "{run_dir}/tier-a.json"
+  uv run python -c 'import json, sys; d = json.load(open(sys.argv[1], encoding="utf-8")); entries = {f["file"] for f in d["entry_points"]["files"]}; members = {m.get("file") for p in (d.get("entry_point_diff") or {}).get("public") or [] for m in p.get("members") or []}; print("\n".join(sorted(({t["file"] for t in d["reexport_targets"]} | members) - {None} - entries)))' "{run_dir}/tier-a.json"
   ```
 
   Once the runner has run, whatever its exit, remove a clone this section made (`rm -rf "{run_dir}/clone"`).

@@ -1077,6 +1077,24 @@ def test_the_tier_a_candidates_are_printed_by_one_command(tmp_path):
     assert _tier_a_candidates(section, result) == ["packages/foo/src/a.ts", "packages/foo/src/z-it's.ts"]
 
 
+def test_the_tier_a_candidates_take_a_namespaces_member_files(tmp_path):
+    """#703: a submodule the entry point exports passes its members on from files reexport_targets never names
+    (it gives the module's own file); those files are candidates too."""
+    section = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
+    result = tmp_path / "tier-a.json"
+    result.write_bytes(json.dumps({
+        "entry_points": {"files": [{"file": "pkg/__init__.py"}]},
+        "reexport_targets": [{"name": "sub", "file": "pkg/sub/__init__.py"}, {"name": "foo", "file": "pkg/a.py"}],
+        "entry_point_diff": {"public": [
+            {"name": "foo", "via": "re-export", "file": "pkg/a.py"},
+            {"name": "sub", "via": "namespace", "file": "pkg/sub/__init__.py", "members": [
+                {"name": "baz", "local": None, "file": "pkg/sub/impl.py", "line": 1},
+                {"name": "ext", "local": None, "file": None, "line": None}]},
+            {"name": "old", "via": "namespace", "file": "pkg/old.py"}]},
+    }).encode("utf-8"))
+    assert _tier_a_candidates(section, result) == ["pkg/a.py", "pkg/sub/__init__.py", "pkg/sub/impl.py"]
+
+
 @pytest.mark.skipif(not POSIX_BASH or not _pinned_ast_grep(), reason="needs bash and the pinned ast-grep")
 def test_the_documented_runner_call_lists_the_files_the_barrel_re_exports(tmp_path):
     section = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
