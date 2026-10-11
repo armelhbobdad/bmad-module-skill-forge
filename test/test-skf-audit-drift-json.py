@@ -556,11 +556,21 @@ BRIEF_GROUP = '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"]'
 def test_script_asset_drift_keeps_to_the_brief(tmp_path):
     """#696: §4b passes the skill brief, so the walk reports only the new files its scope takes, never a
     package's modules or a folder the brief leaves out; a skill without a brief it can read keeps the
-    comparison of its tracked files, a note in the report and a warning in the envelope."""
+    comparison of its tracked files, a note in the report and a warning in the envelope. #711: the walk is
+    the detector create-skill and update-skill use, so a shebang file outside the script folders is new and a
+    [MANUAL] file never is."""
     section = _slice(_read(STRUCTURAL), "### 4b. Detect Script/Asset Drift", "### Stack-Specific")
     block = re.search(r"^```bash\n(.*?)^```", section, re.M | re.S).group(1)
     assert re.sub(r"\s+", " ", block.replace("\\\n", " ")).strip() == FILE_DRIFT_CMD
     flow = _flow(section)
+    assert ("the other way round, walks the source tree for the files the map does not track, with the script "
+            "and asset detector create-skill and update-skill use, plus the documents under `docs/authoritative/`, "
+            "keeping only those the skill brief's scope takes") in flow
+    assert ("a file under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, and a script or an asset whose "
+            "`scripts_intent` or `assets_intent` is `none` are never new files") in flow
+    assert "standard script, asset and doc folders" not in flow
+    assert ('"added":   ["<rel-path>", ...],   // a script or an asset to the detector, or a docs/authoritative/ '
+            "file, on disk, in the brief's scope, NOT in file_entries") in section
     assert ("Pass `--brief` only when that brief, `{forge_data_folder}/{skill_name}/skill-brief.yaml`, exists (a "
             "skill built without one, such as a quick skill, has none)") in flow
     assert '"added_not_checked": null,' in section
@@ -576,6 +586,7 @@ def test_script_asset_drift_keeps_to_the_brief(tmp_path):
     for rel, text in {"pkg/__init__.py": "", "pkg/api/__init__.py": "", "pkg/api/tools/__init__.py": "",
                       "pkg/api/tools/tools.py": "TOOLS = []\n", "pkg/api/scripts/run.sh": "#!/bin/bash\n",
                       "pkg/api/scripts/tracked.sh": "same\n", "pkg/cli/main.sh": "#!/bin/sh\n",
+                      "pkg/install.sh": "#!/bin/bash\n", "pkg/api/scripts/[MANUAL]/mine.sh": "#!/bin/bash\n",
                       "tools/release.sh": "#!/bin/bash\n", "examples/demo.json": "{}\n"}.items():
         (source / rel).parent.mkdir(parents=True, exist_ok=True)
         (source / rel).write_bytes(text.encode("utf-8"))
@@ -591,7 +602,7 @@ def test_script_asset_drift_keeps_to_the_brief(tmp_path):
     result = _run_prose(FILE_DRIFT_CMD.replace(BRIEF_GROUP, BRIEF_GROUP[1:-1]), audit.values)
     assert result.returncode == 0, result.stderr
     saved = _load(audit.data / "file-drift.json")
-    assert (saved["added"], saved["added_not_checked"]) == (["pkg/api/scripts/run.sh"], None)
+    assert (saved["added"], saved["added_not_checked"]) == (["pkg/api/scripts/run.sh", "pkg/install.sh"], None)
     assert saved["removed"] == ["pkg/api/scripts/gone.sh"] and saved["changed"] == []
     # no brief, so no --brief: the tracked files are still compared, no new file is looked for
     brief.unlink()

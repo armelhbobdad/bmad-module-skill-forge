@@ -8,15 +8,20 @@ Covers:
              unchanged (hash match, counted only)
   - hash-prefix normalization: bare-hex stored vs sha256: stored both
     correctly equal a freshly computed prefixed hash
-  - inverse walk: respects SCRIPT_DIRS / ASSET_DIRS / DOC_DIR_PREFIXES;
-    prunes EXCLUDED_DIR_NAMES; skips binary extensions; ignores files
-    outside the tracked directory taxonomy; leaves a Python package's
-    modules out (the detector's is_package_module, #696)
+  - inverse walk: the detector's walk and per-file rule (iter_files,
+    is_binary_path, entry_point_script_paths and file_kind of
+    skf-detect-scripts-assets.py, #711), so a shebang file or a
+    package.json `bin` entry point in any folder and a pattern asset
+    anywhere are walked, a shebang file under an asset folder is a script,
+    generated trees are pruned, binary extensions skipped and a Python
+    package's modules left out (#696); plus DOC_DIR_PREFIXES, a document
+    whatever the detector says
   - added with --brief only (#696): the brief's scope (the shared
     load_scope), its intents and the map's entries[] keep `added` to new
-    scripts, assets and docs; without a brief it can read, `added` is
-    empty and `added_not_checked` says why, while removed and changed are
-    compared as before
+    scripts, assets and docs, and a [MANUAL] path is never added (#711);
+    without a brief it can read, or with a detector it cannot load or that
+    is out of date, `added` is empty and `added_not_checked` says why,
+    while removed and changed are compared as before
   - load_file_entries: accepts both top-level object and bare-array shapes;
     missing `file_entries` key returns []; malformed JSON raises
   - CLI smoke: shape conformance + exit codes
@@ -36,6 +41,7 @@ import pytest
 
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPT_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-compare-file-hashes.py"
+DETECTOR_PATH = SCRIPT_PATH.parent / "skf-detect-scripts-assets.py"
 
 spec = importlib.util.spec_from_file_location("skf_compare_file_hashes", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(spec)
@@ -81,6 +87,27 @@ def _brief(path: Path, include=None, exclude=None, language: str = "Python", **i
 
 
 EVERYTHING = ["**"]  # a brief that takes every path
+
+
+def _helper_text(name: str, old: str, new: str) -> str:
+    """The repository's helper `name` (beside this script) with `old` replaced by `new` once."""
+    text = (SCRIPT_PATH.parent / name).read_text(encoding="utf-8")
+    assert text.count(old) == 1, old
+    return text.replace(old, new)
+
+
+# A detector from before file_kind (#711), one whose file_kind fails on a file, one whose
+# entry_point_script_paths fails, and a resolver whose scope_match is gone (Scope.takes fails in the walk).
+DETECTOR_WITHOUT_FILE_KIND = _helper_text(DETECTOR_PATH.name, "def file_kind(", "def _no_file_kind(")
+DETECTOR_FAILING_ON_A_FILE = _helper_text(
+    DETECTOR_PATH.name, "def file_kind(",
+    "def file_kind(*args, **kwargs):\n    raise OSError('cannot read it')\n\n\ndef _file_kind(")
+DETECTOR_FAILING_IN_ENTRY_POINTS = _helper_text(
+    DETECTOR_PATH.name, "def entry_point_script_paths(",
+    "def entry_point_script_paths(*args, **kwargs):\n    raise OSError('cannot read package.json')\n\n\n"
+    "def _entry_point_script_paths(")
+RESOLVER_WITHOUT_SCOPE_MATCH = _helper_text(
+    "skf-resolve-authoritative-files.py", "def scope_match(", "def _no_scope_match(")
 
 
 # --------------------------------------------------------------------------
@@ -178,10 +205,10 @@ class TestCandidateSourceFiles:
             "docs/authoritative/llms.txt"
         ]
 
-    def test_skips_non_tracked_directories(self, tmp_path: Path) -> None:
+    def test_skips_a_file_with_no_script_or_asset_signal(self, tmp_path: Path) -> None:
         source = tmp_path / "src"
-        _write(source / "src" / "main.ts", "...")  # not tracked
-        _write(source / "lib" / "util.py", "...")  # not tracked
+        _write(source / "src" / "main.ts", "...")  # no script or asset folder, shebang, entry point or pattern
+        _write(source / "lib" / "util.py", "...")  # nor here
         _write(source / "scripts" / "ok.sh", "...")
         assert list(mod.candidate_source_files(source)) == ["scripts/ok.sh"]
 
@@ -232,6 +259,62 @@ class TestCandidateSourceFiles:
         assert sorted(mod._walk(source)) == [
             ("assets/c.json", "asset"), ("docs/authoritative/llms.txt", "doc"),
             ("scripts/a.sh", "script"), ("scripts/templates/b.sh", "script")]
+
+    def test_the_detector_s_rules_outside_the_folders(self, tmp_path: Path) -> None:
+        # #711: a shebang file and a package.json `bin` entry point in any folder, a pattern asset anywhere
+        source = tmp_path / "src"
+        _write(source / "install.sh", "#!/bin/bash\necho install\n")
+        _write(source / "package.json", '{"name": "x", "bin": {"x": "pkg/cli.js"}}')
+        _write(source / "pkg" / "cli.js", "console.log('x')\n")
+        _write(source / "pkg" / "index.js", "module.exports = {}\n")
+        for rel in ("api.schema.json", ".env.example", "openapi.yaml"):
+            _write(source / rel, "{}\n")
+        assert sorted(mod._walk(source)) == [
+            (".env.example", "asset"), ("api.schema.json", "asset"), ("install.sh", "script"),
+            ("openapi.yaml", "asset"), ("pkg/cli.js", "script")]
+
+    def test_a_shebang_file_under_an_asset_folder_is_a_script(self, tmp_path: Path) -> None:
+        source = tmp_path / "src"
+        _write(source / "examples" / "demo.sh", "#!/bin/sh\necho demo\n")
+        _write(source / "examples" / "demo.json", "{}\n")
+        assert sorted(mod._walk(source)) == [("examples/demo.json", "asset"), ("examples/demo.sh", "script")]
+
+    def test_a_docs_authoritative_file_is_a_doc_whatever_the_detector_says(self, tmp_path: Path) -> None:
+        source = tmp_path / "src"
+        _write(source / "docs" / "authoritative" / "run.sh", "#!/bin/bash\n")
+        _write(source / "docs" / "authoritative" / "x.example", "x\n")
+        assert sorted(mod._walk(source)) == [("docs/authoritative/run.sh", "doc"),
+                                             ("docs/authoritative/x.example", "doc")]
+
+    def test_keep_runs_before_the_detector_reads_a_file(self, tmp_path: Path, monkeypatch) -> None:
+        source = tmp_path / "src"
+        for rel in ("scripts/a.sh", "scripts/b.sh", "assets/c.json", "docs/authoritative/d.md"):
+            _write(source / rel, "x\n")
+        detector = mod._sibling(mod.DETECTOR)
+        real, asked = detector.file_kind, []
+
+        def file_kind(path, *args, **kwargs):
+            asked.append(path.relative_to(source).as_posix())
+            return real(path, *args, **kwargs)
+
+        monkeypatch.setattr(detector, "file_kind", file_kind)
+        kept = sorted(mod._walk(source, keep=lambda rel: rel != "scripts/b.sh" and not rel.startswith("docs/")))
+        assert kept == [("assets/c.json", "asset"), ("scripts/a.sh", "script")]
+        assert sorted(asked) == ["assets/c.json", "scripts/a.sh"]
+
+    def test_a_relative_source_root(self, tmp_path: Path, monkeypatch) -> None:
+        # the CLI passes the source root as given; the `bin` entry point still matches
+        _write(tmp_path / "src" / "package.json", '{"name": "x", "bin": "pkg/cli.js"}')
+        _write(tmp_path / "src" / "pkg" / "cli.js", "console.log('x')\n")
+        _write(tmp_path / "src" / "install.sh", "#!/bin/sh\n")
+        monkeypatch.chdir(tmp_path)
+        assert sorted(mod._walk(Path("src"))) == [("install.sh", "script"), ("pkg/cli.js", "script")]
+        prov = _write_json(tmp_path / "p.json", {"file_entries": []})
+        _brief(tmp_path / "skill-brief.yaml", include=EVERYTHING)
+        result = subprocess.run([sys.executable, str(SCRIPT_PATH), "compare", "p.json", "src", "--brief",
+                                 "skill-brief.yaml"], capture_output=True, text=True, check=False, cwd=tmp_path)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["added"] == ["install.sh", "pkg/cli.js"]
 
 
 # --------------------------------------------------------------------------
@@ -404,6 +487,42 @@ class TestBriefScope:
         assert self._compare(tmp_path, files, include=[], language="Python", entries=["lib/m.sh"])["added"] == [
             "scripts/gen.py", "scripts/run.sh"]
 
+    def test_the_detector_s_new_files_in_any_folder(self, tmp_path: Path) -> None:
+        # #711, the issue's tree: Category D's new files, the cited module set aside
+        source = tmp_path / "src"
+        _write(source / "install.sh", "#!/bin/bash\n")
+        _write(source / "package.json", '{"name": "x", "bin": {"x": "pkg/cli.js"}}')
+        _write(source / "pkg" / "cli.js", "#!/usr/bin/env node\n")
+        _write(source / "pkg" / "index.js", "module.exports = {}\n")
+        result = self._compare(tmp_path, ["api.schema.json", "scripts/run.sh"], include=EVERYTHING,
+                               entries=["pkg/index.js"])
+        assert result["added"] == ["api.schema.json", "install.sh", "pkg/cli.js", "scripts/run.sh"]
+        assert result["stats"]["added"] == 4 and result["added_not_checked"] is None
+
+    def test_a_shebang_file_under_an_asset_folder_keeps_to_scripts_intent(self, tmp_path: Path) -> None:
+        source = tmp_path / "src"
+        _write(source / "examples" / "demo.sh", "#!/bin/bash\n")
+        assert self._compare(tmp_path, [], include=EVERYTHING, assets_intent="none")["added"] == ["examples/demo.sh"]
+        assert self._compare(tmp_path, [], include=EVERYTHING, scripts_intent="none")["added"] == []
+
+    def test_a_package_json_that_is_no_object_keeps_the_walk(self, tmp_path: Path) -> None:
+        # a root package.json of `[]` holds no `bin`: no entry point, and the detector does not fail
+        _write(tmp_path / "src" / "package.json", "[]")
+        result = self._compare(tmp_path, ["scripts/run.sh"], include=EVERYTHING)
+        assert (result["added"], result["added_not_checked"]) == (["scripts/run.sh"], None)
+
+    def test_a_manual_path_is_never_added(self, tmp_path: Path) -> None:
+        # update-skill's Category D sets them aside (skipped_manual): user-authored, preserved
+        files = ["scripts/[MANUAL]/m.sh", "assets/[MANUAL]/a.txt", "pkg/scripts/[MANUAL]/n.sh", "scripts/ok.sh"]
+        assert self._compare(tmp_path, files, include=EVERYTHING)["added"] == ["scripts/ok.sh"]
+
+    def test_a_docs_authoritative_file_is_added_whatever_the_intents(self, tmp_path: Path) -> None:
+        source = tmp_path / "src"
+        _write(source / "docs" / "authoritative" / "run.sh", "#!/bin/bash\n")  # a script to the detector
+        result = self._compare(tmp_path, ["docs/authoritative/x.md", "scripts/a.sh", "assets/b.json"],
+                               include=EVERYTHING, scripts_intent="none", assets_intent="none")
+        assert result["added"] == ["docs/authoritative/run.sh", "docs/authoritative/x.md"]
+
     def test_package_modules_are_not_added(self, tmp_path: Path) -> None:
         source = tmp_path / "src"
         for name, text in {"__init__.py": "", "helper.py": "X = 1\n", "__main__.py": "run()\n",
@@ -503,7 +622,17 @@ class TestNotChecked:
         ({"skf-classify-changed-files.py": "X = 1\n"}, "skf-classify-changed-files.py"),
         ({"skf-classify-changed-files.py": None, "skf-resolve-authoritative-files.py": None},
          "skf-detect-scripts-assets.py"),
-    ], ids=["no-classifier", "classifier-without-load-scope", "no-detector"])
+        ({"skf-classify-changed-files.py": None, "skf-resolve-authoritative-files.py": None,
+          "skf-detect-scripts-assets.py": DETECTOR_WITHOUT_FILE_KIND}, "skf-detect-scripts-assets.py"),
+        ({"skf-classify-changed-files.py": None, "skf-resolve-authoritative-files.py": None,
+          "skf-detect-scripts-assets.py": DETECTOR_FAILING_ON_A_FILE}, "skf-detect-scripts-assets.py"),
+        ({"skf-classify-changed-files.py": None, "skf-resolve-authoritative-files.py": None,
+          "skf-detect-scripts-assets.py": DETECTOR_FAILING_IN_ENTRY_POINTS}, "skf-detect-scripts-assets.py"),
+        # load_scope succeeds, then Scope.takes fails during the walk: the classifier's error, not the detector's
+        ({"skf-classify-changed-files.py": None, "skf-resolve-authoritative-files.py": RESOLVER_WITHOUT_SCOPE_MATCH,
+          "skf-detect-scripts-assets.py": None}, "skf-classify-changed-files.py"),
+    ], ids=["no-classifier", "classifier-without-load-scope", "no-detector", "detector-without-file-kind",
+            "detector-failing-on-a-file", "detector-failing-in-entry-points", "scope-test-failing-in-the-walk"])
     def test_a_helper_it_cannot_load_keeps_the_comparison(self, tmp_path: Path, siblings: dict,
                                                           missing: str) -> None:
         source, prov = self._tracked(tmp_path)
@@ -517,7 +646,7 @@ class TestNotChecked:
         reason = payload["added_not_checked"]
         assert payload["added"] == [] and payload["stats"]["added"] == 0
         assert reason.startswith(f"cannot load {missing} beside skf-compare-file-hashes.py: ") and "\n" not in reason
-        assert reason.endswith("re-install SKF"), reason
+        assert reason.endswith("re-install SKF") and reason.count("re-install SKF") == 1, reason
         assert payload["removed"] == ["scripts/gone.sh"] and [c["path"] for c in payload["changed"]] == ["scripts/b.sh"]
 
     @pytest.mark.parametrize("value", ["", "  "], ids=["empty", "blank"])

@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-audit-skill, skf-create-skill, skf-update-skill
+summary: |
+  Audit Skill's Script/Asset Drift check now finds new files with the script and asset detector Create Skill and Update Skill use, so `skf-compare-file-hashes.py compare --brief` lists the same new scripts and assets as Update Skill. Before, it looked only under the script and asset folders and `docs/authoritative/`. Now a shebang script or a `package.json` `bin` entry point in any folder, and a `*.schema.json`, `openapi.*`, `*.example` or similar asset anywhere, is a new file when the brief takes it. A shebang script under an asset folder such as `examples/` counts as a script for `scripts_intent` and `assets_intent`, and files under `scripts/[MANUAL]/` or `assets/[MANUAL]/` are never new files. If `skf-detect-scripts-assets.py` beside it cannot be loaded or is out of date, the audit still compares the tracked files and says why in `added_not_checked`. The detector itself no longer fails on a root `package.json` that is valid JSON but not an object, such as `[]`, so Create Skill and Update Skill read the tree's scripts and assets as usual there.
+issues: [711]

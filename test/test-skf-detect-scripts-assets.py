@@ -10,7 +10,9 @@ Covers detection rules from src/skf-create-skill/references/extraction-patterns-
   - Binary exclusion + generated-path pruning
   - Size flagging + scope filtering (--brief: the brief's scope, by
     skf-classify-changed-files.py load_scope, never fnmatch; #697)
-  - Intent gates (scripts_intent=none, assets_intent=none)
+  - Intent gates (scripts_intent=none, assets_intent=none), through
+    file_kind, the per-file rule detect() and skf-compare-file-hashes.py
+    share (#711)
   - Purpose extraction (header comment, schema title, filename fallback)
 """
 
@@ -86,7 +88,8 @@ class TestScriptDirectoryConvention:
 
 
 class TestIsPackageModule:
-    """The package rule, one function: is_script and skf-compare-file-hashes.py (#696) both call it."""
+    """The package rule, one function: is_script calls it, and skf-compare-file-hashes.py reaches it through
+    file_kind (#696, #711)."""
 
     def test_the_rule(self, tmp_path: Path) -> None:
         pkg = tmp_path / "pkg" / "tools"
@@ -245,6 +248,13 @@ class TestPackageJsonBin:
         result = mod.detect(tmp_path)
         # malformed package.json doesn't kill scanning
         assert any(r["name"] == "ok.sh" for r in result["scripts_inventory"])
+
+    @pytest.mark.parametrize("text", ["[]", "null", "42", '"bin"'], ids=["array", "null", "number", "string"])
+    def test_a_package_json_that_is_no_object_no_crash(self, tmp_path: Path, text: str) -> None:
+        write_file(tmp_path / "package.json", text)
+        write_file(tmp_path / "scripts" / "ok.sh", "")
+        assert mod.entry_point_script_paths(tmp_path) == set()
+        assert _sources(mod.detect(tmp_path)) == ["scripts/ok.sh"]
 
 
 # --------------------------------------------------------------------------
@@ -462,6 +472,61 @@ class TestIntentGates:
         assert result["stats"]["files_scanned"] == 0
         assert result["scripts_skipped"] is True
         assert result["assets_skipped"] is True
+
+    def test_a_shebang_file_under_an_asset_folder(self, tmp_path: Path) -> None:
+        # #711: a script first, so an `example` asset only when scripts are off
+        write_file(tmp_path / "examples" / "demo.sh", "#!/bin/bash\necho demo\n")
+        default = mod.detect(tmp_path)
+        assert [(r["source_file"], r["language"]) for r in default["scripts_inventory"]] == [("examples/demo.sh", "bash")]
+        assert default["assets_inventory"] == []
+        assert _sources(mod.detect(tmp_path, assets_intent="none")) == ["examples/demo.sh"]
+        no_scripts = mod.detect(tmp_path, scripts_intent="none")
+        assert no_scripts["scripts_inventory"] == []
+        assert [(r["source_file"], r["type"]) for r in no_scripts["assets_inventory"]] == [("examples/demo.sh", "example")]
+
+
+class TestFileKind:
+    """#711: the per-file rule, one function: detect() calls it with its intents, skf-compare-file-hashes.py with
+    both kinds on."""
+
+    def _kind(self, root: Path, rel: str, **kinds):
+        return mod.file_kind(root / rel, root, mod.entry_point_script_paths(root), **kinds)
+
+    def test_a_script_with_its_shebang_language(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "install.sh", "#!/usr/bin/env bash\n")
+        write_file(tmp_path / "scripts" / "run.sh", "echo run\n")
+        assert self._kind(tmp_path, "install.sh") == ("script", "bash")
+        assert self._kind(tmp_path, "scripts/run.sh") == ("script", None)
+
+    def test_a_package_json_bin_entry_point(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "package.json", '{"name": "x", "bin": {"x": "pkg/cli.js"}}')
+        write_file(tmp_path / "pkg" / "cli.js", "console.log('x')\n")
+        assert self._kind(tmp_path, "pkg/cli.js") == ("script", None)
+        assert mod.file_kind(tmp_path / "pkg" / "cli.js", tmp_path, set()) is None  # no entry points given
+
+    def test_an_asset_with_its_type(self, tmp_path: Path) -> None:
+        for rel in ("api.schema.json", "openapi.yaml", ".env.example", "configs/app.yaml", "templates/page.html"):
+            write_file(tmp_path / rel, "{}\n")
+        assert [self._kind(tmp_path, rel) for rel in ("api.schema.json", "openapi.yaml", ".env.example",
+                                                     "configs/app.yaml", "templates/page.html")] == [
+            ("asset", "schema"), ("asset", "schema"), ("asset", "example"), ("asset", "config"),
+            ("asset", "template")]
+
+    def test_neither(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "src" / "main.py", "X = 1\n")
+        write_file(tmp_path / "pkg" / "tools" / "__init__.py", "")
+        write_file(tmp_path / "pkg" / "tools" / "helper.py", "X = 1\n")  # a package module: code
+        assert self._kind(tmp_path, "src/main.py") is None
+        assert self._kind(tmp_path, "pkg/tools/helper.py") is None
+
+    def test_each_kind_asked_only_when_on(self, tmp_path: Path) -> None:
+        write_file(tmp_path / "examples" / "demo.sh", "#!/bin/sh\n")
+        write_file(tmp_path / "assets" / "a.json", "{}\n")
+        assert self._kind(tmp_path, "examples/demo.sh") == ("script", "shell")
+        assert self._kind(tmp_path, "examples/demo.sh", scripts=False) == ("asset", "example")  # falls through
+        assert self._kind(tmp_path, "examples/demo.sh", assets=False) == ("script", "shell")
+        assert self._kind(tmp_path, "assets/a.json", assets=False) is None
+        assert self._kind(tmp_path, "examples/demo.sh", scripts=False, assets=False) is None
 
 
 # --------------------------------------------------------------------------

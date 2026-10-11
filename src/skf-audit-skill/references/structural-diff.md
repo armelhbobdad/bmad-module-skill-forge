@@ -106,7 +106,7 @@ Every set comes straight from the saved diff, never from set arithmetic of your 
 
 **Only execute if provenance-map.json contains `file_entries`.**
 
-**Resolve `{compareFileHashesHelper}`** from `{compareFileHashesProbeOrder}`; first existing path wins. Run one comparison: it hashes the tracked `file_entries[]` and, the other way round, walks the standard script, asset and doc folders of the source tree for the files the map does not track, keeping only those the skill brief's scope takes, by the scope test update-skill and create-skill use. A module of a Python package named like a script folder, a file the map's `entries[]` cite, and a script or an asset whose `scripts_intent` or `assets_intent` is `none` are never new files. Pass `--brief` only when that brief, `{forge_data_folder}/{skill_name}/skill-brief.yaml`, exists (a skill built without one, such as a quick skill, has none):
+**Resolve `{compareFileHashesHelper}`** from `{compareFileHashesProbeOrder}`; first existing path wins. Run one comparison: it hashes the tracked `file_entries[]` and, the other way round, walks the source tree for the files the map does not track, with the script and asset detector create-skill and update-skill use, plus the documents under `docs/authoritative/`, keeping only those the skill brief's scope takes, by the scope test update-skill and create-skill use. A module of a Python package named like a script folder, a file the map's `entries[]` cite, a file under `scripts/[MANUAL]/` or `assets/[MANUAL]/`, and a script or an asset whose `scripts_intent` or `assets_intent` is `none` are never new files. Pass `--brief` only when that brief, `{forge_data_folder}/{skill_name}/skill-brief.yaml`, exists (a skill built without one, such as a quick skill, has none):
 
 ```bash
 uv run {compareFileHashesHelper} compare "{provenanceMap}" "{source_root}" \
@@ -117,7 +117,7 @@ The saved JSON, which step 5 builds its Script/Asset findings from:
 
 ```
 {
-  "added":   ["<rel-path>", ...],   // on disk in tracked dirs, in the brief's scope, NOT in file_entries
+  "added":   ["<rel-path>", ...],   // a script or an asset to the detector, or a docs/authoritative/ file, on disk, in the brief's scope, NOT in file_entries
   "added_not_checked": null,        // or why no new file was looked for: "no skill brief", the brief's error, or a helper it cannot load
   "removed": ["<rel-path>", ...],   // in file_entries, missing on disk
   "changed": [{"path": "...", "stored_hash": "sha256:...", "current_hash": "sha256:..."}],
