@@ -8,6 +8,9 @@ the paths the brief's scope takes (Category A's in-scope test) and its
 intents want, and code the map's entries[] cite set aside (#683). The
 scope test is the shared one of skf-classify-changed-files.py (load_scope),
 which the detector's --brief uses too, so both return the same paths (#697).
+audit-skill's skf-compare-file-hashes.py compare --brief walks with the
+detector's rules and this script's [MANUAL] rule, so its `added` is this
+pipe's new files (#711).
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ REPO_ROOT = Path(__file__).parent.parent
 SCRIPT_PATH = REPO_ROOT / "src" / "skf-update-skill" / "scripts" / "skf-new-file-diff.py"
 DETECT_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-detect-scripts-assets.py"
 CLASSIFY_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-classify-changed-files.py"
+COMPARE_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-compare-file-hashes.py"
 
 spec = importlib.util.spec_from_file_location("skf_new_file_diff", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(spec)
@@ -490,6 +494,63 @@ class TestPipe:
         assert [path for path, _ in kept] == [
             "api.schema.json", "deep/er/b.schema.json", "pkg/scripts/run.sh", "pkg/templates/page.html",
             "pkg/tools/__main__.py", "scripts/build.sh"]
+
+    # #711: one tree, every rule, through this pipe and audit-skill's compare --brief
+    PARITY_TREE = {
+        "install.sh": "#!/bin/bash\n",                           # a shebang outside every folder
+        "package.json": '{"name": "x", "bin": {"x": "pkg/cli.js"}}',
+        "pkg/cli.js": "console.log('x')\n",                      # a `bin` entry point
+        "pkg/index.js": "module.exports = {}\n",                 # cited: code
+        "api.schema.json": "{}\n",                               # pattern assets, anywhere
+        ".env.example": "A=1\n",
+        "deploy/openapi.yaml": "openapi: 3.0.0\n",
+        "scripts/run.sh": "echo run\n",
+        "scripts/tracked.sh": "echo tracked\n",                  # in file_entries
+        "examples/demo.sh": "#!/bin/sh\n",                       # a shebang under an asset folder: a script
+        "examples/demo.json": "{}\n",
+        "scripts/[MANUAL]/m.sh": "#!/bin/bash\n",                # user-authored
+        "assets/[MANUAL]/a.txt": "mine\n",
+        "tools/__init__.py": "",                                 # a package's modules: code
+        "tools/helper.py": "X = 1\n",
+        "vendor/x.sh": "#!/bin/bash\n",                          # out of scope
+        "assets/logo.png": "",                                   # binary
+        "docs/authoritative/guide.md": "# Guide\n",              # a document: compare's alone
+    }
+    PARITY_NEW = {
+        "default": [".env.example", "api.schema.json", "deploy/openapi.yaml", "examples/demo.json",
+                    "examples/demo.sh", "install.sh", "pkg/cli.js", "scripts/run.sh"],
+        "assets-none": ["examples/demo.sh", "install.sh", "pkg/cli.js", "scripts/run.sh"],
+        "scripts-none": [".env.example", "api.schema.json", "deploy/openapi.yaml", "examples/demo.json"],
+    }
+
+    @pytest.mark.parametrize("case, intents", [
+        ("default", {}), ("assets-none", {"assets_intent": "none"}), ("scripts-none", {"scripts_intent": "none"}),
+    ], ids=["default", "assets-none", "scripts-none"])
+    def test_audit_skill_s_compare_finds_the_same_new_files(self, tmp_path: Path, case: str, intents: dict) -> None:
+        source = _tree(tmp_path / "src", self.PARITY_TREE)
+        prov = _map(tmp_path, entries=["pkg/index.js"], file_entries=["scripts/tracked.sh"])
+        brief = _brief(tmp_path, include=["**"], exclude=["vendor/**"], **intents)
+        piped = self._pipe(source, prov, brief)
+        assert piped.returncode == 0, piped.stderr
+        out = json.loads(piped.stdout)
+        new = sorted(row["source_file"] for row in out["new_files"])
+        assert out["skipped_manual"] == ["assets/[MANUAL]/a.txt", "scripts/[MANUAL]/m.sh"]
+        compared = subprocess.run([sys.executable, str(COMPARE_PATH), "compare", str(prov), str(source), "--brief",
+                                   str(brief)], capture_output=True, text=True, check=False)
+        assert compared.returncode == 0, compared.stderr
+        drift = json.loads(compared.stdout)
+        assert drift["added_not_checked"] is None
+        # a docs/authoritative/ file is a document only audit-skill tracks; every other added file is a new file
+        assert drift["added"] == sorted(new + ["docs/authoritative/guide.md"])
+        assert new == self.PARITY_NEW[case]
+
+    def test_audit_skill_s_compare_has_this_script_s_manual_rule(self) -> None:
+        spec = importlib.util.spec_from_file_location("skf_compare_file_hashes", COMPARE_PATH)
+        compare = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(compare)
+        assert compare._MANUAL_RE.pattern == mod._MANUAL_RE.pattern
+        assert compare._MANUAL_RE.flags == mod._MANUAL_RE.flags
 
     @pytest.mark.parametrize("classifier", [None, "X = 1\n", "raise RuntimeError('broken install')\n"],
                              ids=["missing", "without-load-scope", "raises"])

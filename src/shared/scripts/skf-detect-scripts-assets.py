@@ -47,8 +47,7 @@ Detection rules — scripts:
     shebang, a top-level `if __name__ == "__main__":` block (either
     comparison order, parentheses allowed, never a line inside a string)
     or when it is the package's `__main__.py` (the `python -m` entry).
-    is_package_module() is that rule, which skf-compare-file-hashes.py
-    loads from this file for audit-skill's walk
+    is_package_module() is that rule.
   Shebang signals: #!/bin/bash, #!/usr/bin/env python|node|bash|sh, etc.
   Entry point declarations: package.json `bin`, pyproject.toml [project.scripts]
   CLI argument-parser imports are detected for the LLM-judgment tier only —
@@ -65,6 +64,13 @@ Exclusions:
     .class, .png, .jpg, .jpeg, .gif, .ico, .pdf, .zip, .tar, .gz, .tgz
   Generated paths: dist/, build/, .webpack/, node_modules/, __pycache__/,
     target/ (Rust), .next/, .nuxt/, out/, coverage/
+
+file_kind() is the per-file rule: a script (is_script) before an asset
+(asset_type), each asked only when its kind is on. detect() calls it with
+its intents; skf-compare-file-hashes.py (audit-skill's Script/Asset Drift)
+loads this file and walks with iter_files, is_binary_path,
+entry_point_script_paths and file_kind, both kinds on, so audit-skill finds
+the same new files update-skill's Category D finds through detect.
 
 Size flag:
   Files >max-lines (default 500) get size_flag="oversized" but are still
@@ -307,6 +313,8 @@ def _parse_package_json_bin(source_root: Path) -> Iterable[Path]:
         data = json.loads(text)
     except json.JSONDecodeError:
         return ()
+    if not isinstance(data, dict):  # valid JSON but no object (`[]`, `null`, a number): no `bin`
+        return ()
     bin_field = data.get("bin")
     if isinstance(bin_field, str):
         candidates = [bin_field]
@@ -453,6 +461,25 @@ def asset_type(path: Path, source_root: Path) -> str | None:
     return None
 
 
+def file_kind(path: Path, source_root: Path, entry_points: set[Path], *,
+              scripts: bool = True, assets: bool = True) -> tuple[str, str | None] | None:
+    """What `path` is: ("script", its shebang language or None), ("asset",
+    its asset type) or None. A script is never also an asset: is_script is
+    asked first, when `scripts` is on, then asset_type, when `assets` is on.
+    `entry_points` is entry_point_script_paths(source_root) (an empty set
+    when scripts are off). The kind strings are the ones
+    skf-classify-changed-files.py's Scope.wants takes."""
+    if scripts:
+        is_scr, shebang_lang = is_script(path, source_root, entry_points=entry_points)
+        if is_scr:
+            return "script", shebang_lang
+    if assets:
+        atype = asset_type(path, source_root)
+        if atype is not None:
+            return "asset", atype
+    return None
+
+
 # --------------------------------------------------------------------------
 # Purpose extraction
 # --------------------------------------------------------------------------
@@ -573,27 +600,24 @@ def detect(
             if scope is not None and not scope.takes(path.relative_to(source_root).as_posix()):
                 continue
 
-            if not scripts_skipped:
-                is_scr, shebang_lang = is_script(
-                    path, source_root, entry_points=entry_points
+            found = file_kind(path, source_root, entry_points,
+                              scripts=not scripts_skipped, assets=not assets_skipped)
+            if found is None:
+                continue
+            kind, detail = found
+            if kind == "script":
+                scripts_inventory.append(
+                    build_script_record(
+                        path, source_root,
+                        shebang_lang=detail, max_lines=max_lines,
+                    )
                 )
-                if is_scr:
-                    scripts_inventory.append(
-                        build_script_record(
-                            path, source_root,
-                            shebang_lang=shebang_lang, max_lines=max_lines,
-                        )
+            else:
+                assets_inventory.append(
+                    build_asset_record(
+                        path, source_root, atype=detail, max_lines=max_lines,
                     )
-                    continue  # a script can't also be an asset
-
-            if not assets_skipped:
-                atype = asset_type(path, source_root)
-                if atype is not None:
-                    assets_inventory.append(
-                        build_asset_record(
-                            path, source_root, atype=atype, max_lines=max_lines,
-                        )
-                    )
+                )
 
     # Deterministic ordering for stable diffs / cacheability
     scripts_inventory.sort(key=lambda r: r["source_file"])
