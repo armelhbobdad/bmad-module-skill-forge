@@ -475,8 +475,8 @@ def test_step_3d_writes_the_runner_json_step_3_seeds_from() -> None:
             "`{extraction_json}`") in five
     assert "with the labels step 3d gave them" not in five
     assert ("A component library (§2c) sends here only the exports step 3d read by eye (Quick tier, a `file_issues` "
-            "file, or the runner's fallback); it sends each Props interface's fields with `patch` as `params`, and "
-            "`component_catalog` with `set`.") in five
+            "file, a file an `errors[]` item lists in `unread`, or the runner's fallback); it sends each Props "
+            "interface's fields with `patch` as `params`, and `component_catalog` with `set`.") in five
     assert ("for each function export whose `params` the runner left null (and each Props interface of a component "
             "library)") in five
     six = _slice(text, "### Phase 6:", "## RETURN PROTOCOL")
@@ -490,7 +490,8 @@ def test_step_3d_acts_on_the_runner_status() -> None:
     seeds) and no recipe runs again by hand; and the runner's warnings reach
     Gate 2 once, through `init`, so Phase 6 composes no head-cap message."""
     phase_4 = _phase_4()
-    assert "Act on the JSON's `status`, never on the exit code. **On `ok` or `incomplete`**" in phase_4
+    assert "Act on the JSON's `status`, never on the exit code. **On `incomplete`**" in phase_4
+    assert "**On `ok` or `incomplete`**, each of the `exports[]`" in phase_4
     assert "On exit" not in phase_4
     assert ("**On `no-ast-grep`, or with no JSON at `{extraction_json}`** (an input error, or no candidate "
             "resolves): load `{extractionPatternsData}`") in phase_4
@@ -501,6 +502,44 @@ def test_step_3d_acts_on_the_runner_status() -> None:
     assert "head cap" not in _slice(text, "### Phase 6:", "## RETURN PROTOCOL")
     # the protocol's own status rule, which step 3d follows
     assert "Act on its `status`, not its exit code" in _read(PATTERNS)
+
+
+def test_an_incomplete_run_runs_again_and_reads_its_unread_files_by_eye() -> None:
+    """#731: an ast-grep call killed while it prints can keep some of a
+    file's exports and lose the rest, so the runner lists every file of a
+    failed call in `unread`. Create Skill runs the runner once more on
+    `incomplete`, as Update Skill and Audit Skill do, and when the run is
+    still incomplete reads those files by eye (T1-low): the protocol's
+    status rule and by-eye list, §4's failure list, step 3d's Phase 4 in
+    its own words (the second run first, so what follows acts on the JSON
+    it keeps), and both by-eye lists of §5 and Phase 6, so §5's `add` sends
+    what the read found."""
+    patterns = _read(PATTERNS)
+    assert ("`incomplete`, an ast-grep run failed or timed out: run the step's command once more, and when it is "
+            "still incomplete keep its exports and read by eye each file an `errors[]` item lists in `unread`; "
+            "`no-ast-grep`") in patterns
+    assert "(how many, and the first) may be unread" not in patterns
+    assert ("the forms Known Limitation #11 below lists, the `unread` files of a rerun, and the `extraction_gaps` "
+            "names.") in patterns
+    failures = _slice(_section(EXTRACT, "4"), "**For each file, handle failures gracefully:**", "**Re-export tracing")
+    assert ("- If an ast-grep call fails or times out: when the protocol's second run is still incomplete, read by "
+            "eye each file an `errors[]` item lists in `unread`, continue") in failures
+    phase_4 = _phase_4()
+    assert ("Act on the JSON's `status`, never on the exit code. **On `incomplete`**, remove the JSON and run the "
+            "command once more, then act on the second run's JSON. **On `ok` or `incomplete`**, each of the "
+            "`exports[]`") in phase_4
+    assert ("where a recipe can miss an export, and, when the run is still incomplete, each file an `errors[]` item "
+            "lists in `unread` (a failed call can keep some of a file's exports and lose the rest). A `no-recipes` "
+            "issue") in phase_4
+    assert ("each `errors[]` item of an `incomplete` run (an ast-grep run failed or timed out, so its files were "
+            "read by eye)") in phase_4
+    assert "so its files may be unread" not in phase_4
+    unread = "a file an `errors[]` item lists in `unread`"
+    assert _section(EXTRACT, "5").count(unread) == 2
+    assert ("(an extraction gap, a `file_issues` file, a file an `errors[]` item lists in `unread`, a language no "
+            "recipe reads, or every export when the runner did not run)") in _section(EXTRACT, "5")
+    six = _slice(_read(COMPONENT), "### Phase 6:", "## RETURN PROTOCOL")
+    assert f"(Quick tier, a `file_issues` file, {unread}, or the runner's fallback)" in six
 
 
 # --------------------------------------------------------------------------
