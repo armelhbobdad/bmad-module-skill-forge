@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  For the shapes Create Skill stores `stats.effective_denominator` for (a monorepo, a `specific-modules` scope or a multi-subpath `exports` map, with the tiers described in `scope.notes`), a `scope.tier_a_include` list wider than a curated `scope.include`, for example `src/**` over `src/utils/**` and `src/index.ts`, no longer keeps that field out of `metadata.json`. With this release's breaking change to tier A counting, such a list counts the curated subset, and Create Skill now judges the files the count read instead of the tier A list alone. Test Skill measures the same number with or without the stored count: without it, it takes the `tier_a_include` or `scope.include` set instead.
+issues: [730]
