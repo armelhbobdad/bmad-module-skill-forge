@@ -1253,6 +1253,11 @@ class TestCountAdapters:
              "numerator inflation: 3 of 10 declared exports absent from SKILL.md/references",
              "pkg/metadata.json", None)]
         assert records[0]["issue"].endswith("`a`, `b`, `c`")
+        # #734: either arm of the signature may have fired, so the gap names both and sets no count by hand
+        assert records[0]["issue"].startswith("a declared count (`stats.exports_documented`, or the provenance "
+                                              "map's distinct entry names) equals `stats.effective_denominator`")
+        assert records[0]["remediation"] == ("Document the absent exports in SKILL.md or references/: the skill "
+                                             "documents 7 of its 10 declared exports.")
         assert mod.from_numerator({"inflated": False, "skipped": True}) == []
         with pytest.raises(mod.AdapterError):
             mod.from_numerator({"declared": 3})

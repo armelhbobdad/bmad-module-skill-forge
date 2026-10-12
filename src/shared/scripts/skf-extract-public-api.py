@@ -390,13 +390,17 @@ member, once), one with null `members` as one. `exports_internal` counts
 the internal names. `effective_denominator` counts those public names
 whose definition file matches scope.include (any file when it has no
 glob), scope.tier_a_include when given, and no scope.exclude glob: each
-name once, so a type counts once whatever its methods, and a barrel that
-only re-exports adds nothing of its own. A tier A list that counts no
-public name (each glob matches no file, or only files scope.exclude
-drops, that scope.include leaves out or that define no public name)
-narrows nothing on a run that counted a public name and read every file
-(no `errors` item): the count falls back to scope.include (else every
-file), with a warning.
+name once, so a type counts once whatever its methods, a barrel that
+only re-exports adds nothing of its own, and a name the entry points
+pass on from two files (a namespace member named like another public
+name, or like another namespace's member, at another file) or in two
+languages counts once, when any one of its files matches, as Test
+Skill's sets count it. A tier A list that counts no public name (each
+glob matches no file, or only files scope.exclude drops, that
+scope.include leaves out or that define no public name) narrows nothing
+on a run that counted a public name and read every file (no `errors`
+item): the count falls back to scope.include (else every file), with a
+warning.
 `arms` gives compile's effective_denominator arms:
 (a) `monorepo` from skf-detect-workspaces.py, (b) `specific_modules`
 (scope type specific-modules on a repository that is not a monorepo) and
@@ -458,8 +462,9 @@ Output JSON (stdout, or -o):
         "outside_scope": [{"name", "language", "entry", "file", "line"}, ...]},
     "reexport_targets": [{"name", "language", "local", "from", "entry",
                           "file", "line", "via"}, ...],
-    "counts": {"exports_public_api": N, "exports_internal": N,
-               "effective_denominator": N,
+    "counts": {"exports_public_api": N,  # (family, name, file) keys
+               "exports_internal": N,
+               "effective_denominator": N,  # names, each once
                "effective_denominator_basis": "tier_a_include" | "scope.include"
                                               | "all-files",  # not tier_a_include when it counts no scope.include name
                "denominator_files": N},
@@ -4307,7 +4312,9 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
         "counts": {
             "exports_public_api": len(counted),
             "exports_internal": len(internal),
-            "effective_denominator": sum(1 for _, _, file in counted if file in denominator_files),
+            # Each name once, as Test Skill's sets of names count it: a name the entry points pass on
+            # from two files, or in two languages, is two keys but one name.
+            "effective_denominator": len({name for _, name, file in counted if file in denominator_files}),
             "effective_denominator_basis": basis,
             "denominator_files": len(denominator_files),
         },

@@ -22,7 +22,10 @@ subcommands, each reading files and writing one JSON object:
             `confidence_distribution`) under the keys
             check-metadata-coherence.py reads; the provenance named exports
             (`::` impl-block methods left out); the inflation signature
-            (`stats.exports_documented` equals `stats.effective_denominator`)
+            (`stats.exports_documented` equals `stats.effective_denominator`,
+            or, for a map with a named entry and no `::` entry, its distinct
+            entry names do: the stored count counts each name once, the map
+            holds a name passed on from two files twice)
             with the declared names verify-declared-numerator.py looks up
             (the `exports[]` names, else the provenance named exports); and,
             for a stack, its composition surface: the distinct provenance
@@ -362,7 +365,13 @@ def metadata_inputs(meta: dict, provenance: dict | None) -> dict:
         "confidenceDistribution": dist or None,
         "namedExports": {"count": len(named), "names": named} if entry_names is not None else None,
         "effectiveDenominator": effective,
-        "inflationSignature": documented is not None and effective is not None and documented == effective,
+        # The stored count counts each name once, while the map (so stats.exports_documented) holds an entry for
+        # each name and file: a name the entry points pass on from two files is two entries, one name. Only a map
+        # with no `::` entry takes that arm: the stored count holds no method, so a map with methods could match it
+        # only by chance, and its methods would stand in for an undocumented name.
+        "inflationSignature": effective is not None and (
+            documented == effective or (bool(entry_names) and not any(METHOD_SEPARATOR in n for n in entry_names)
+                                        and len(set(entry_names)) == effective)),
         "declaredNames": sorted(set(names)) if names else named,
         "stack": stack,
     }

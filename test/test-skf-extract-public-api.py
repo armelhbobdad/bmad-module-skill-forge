@@ -2082,6 +2082,72 @@ class TestFullRuns:
         assert mixed["warnings"].count(fallback) == 1
         assert mixed["warnings"].count("scope.tier_a_include pattern 'src/gone/**' matches no file") == 1
 
+    @pytest.mark.parametrize(("tier_a", "basis", "count", "files"), [
+        (["--tier-a-include", "src/**"], "tier_a_include", 2, 3), ([], "scope.include", 2, 3),
+        (["--tier-a-include", "src/a.ts"], "tier_a_include", 1, 1)], ids=["tier-a", "scope-include", "tier-a-a-only"])
+    def test_a_name_passed_on_from_two_files_counts_once(self, tmp_path, capsys, tier_a, basis, count,
+                                                         files) -> None:
+        # #734: `foo` at src/a.ts and the member `foo` of `export * as ns` at src/b.ts are two (name, file)
+        # keys of exports_public_api but one name of effective_denominator, as Test Skill's sets count it;
+        # a tier A list of src/a.ts alone counts `foo` by its key there
+        root = _tree(tmp_path, {"package.json": '{"name": "demo", "exports": {".": "./src/index.ts"}}\n',
+                                "src/index.ts": "export { foo } from './a';\nexport * as ns from './b';\n",
+                                "src/a.ts": "export function foo(): number { return 1; }\n",
+                                "src/b.ts": "export function foo(): string { return ''; }\n"
+                                            "export function bar(): void {}\n"})
+        code, out = _full(capsys, root, "--include", "src/**", *tier_a)
+        assert code == 0
+        public = {p["name"]: p for p in out["entry_point_diff"]["public"]}
+        assert sorted(public) == ["foo", "ns"]
+        assert (public["foo"]["file"], public["ns"]["via"]) == ("src/a.ts", "namespace")
+        assert [(m["name"], m["file"]) for m in public["ns"]["members"]] == [("foo", "src/b.ts"), ("bar", "src/b.ts")]
+        assert out["counts"] == {"exports_public_api": 3, "exports_internal": 0, "effective_denominator": count,
+                                 "effective_denominator_basis": basis, "denominator_files": files}
+        assert out["warnings"] == []
+
+    @pytest.mark.parametrize(("files", "public_api", "public"), [
+        ({"pyproject.toml": '[project]\nname = "pkg"\nversion = "0.1.0"\n',
+          "pkg/__init__.py": "from .a import foo\nfrom . import b\n",
+          "pkg/a.py": "def foo() -> int:\n    return 1\n",
+          "pkg/b.py": "def foo() -> str:\n    return ''\n\n\ndef bar() -> None:\n    pass\n"}, 3,
+         [("b", "python", "pkg/b.py", [("foo", "pkg/b.py"), ("bar", "pkg/b.py")]),
+          ("foo", "python", "pkg/a.py", [])]),
+        ({"package.json": '{"name": "demo", "exports": {".": "./src/index.ts"}}\n',
+          "src/index.ts": "export const config = 1;\n",
+          "pyproject.toml": '[project]\nname = "pkg"\nversion = "0.1.0"\n',
+          "pkg/__init__.py": "config = 1\n"}, 2,
+         [("config", "javascript", "src/index.ts", []), ("config", "python", "pkg/__init__.py", [])])],
+        ids=["python-module-member", "two-languages"])
+    def test_a_python_module_member_or_a_name_in_two_languages_counts_once(self, tmp_path, capsys, files,
+                                                                           public_api, public) -> None:
+        # #734: `from . import b` passes `foo` on from pkg/b.py beside pkg/a.py's; `config` is exported by
+        # the TS and the Python entry point: each is one name of effective_denominator
+        root = _tree(tmp_path, files)
+        code, out = _full(capsys, root, "--include", "**")
+        assert code == 0
+        assert [(p["name"], p["language"], p["file"], [(m["name"], m["file"]) for m in p.get("members") or []])
+                for p in out["entry_point_diff"]["public"]] == public
+        assert (out["counts"]["exports_public_api"], out["counts"]["effective_denominator"],
+                out["counts"]["effective_denominator_basis"]) == (public_api, public_api - 1, "scope.include")
+
+    def test_two_namespaces_sharing_a_member_name_count_it_once(self, tmp_path, capsys) -> None:
+        # #734: `parse` is a member of n1 at src/a.ts and of n2 at src/b.ts: two (name, file) keys of
+        # exports_public_api, one name of effective_denominator
+        root = _tree(tmp_path, {"package.json": '{"name": "demo", "exports": {".": "./src/index.ts"}}\n',
+                                "src/index.ts": "export * as n1 from './a';\nexport * as n2 from './b';\n",
+                                "src/a.ts": "export function parse(): number { return 1; }\n"
+                                            "export function load(): void {}\n",
+                                "src/b.ts": "export function parse(): string { return ''; }\n"
+                                            "export function dump(): void {}\n"})
+        code, out = _full(capsys, root, "--include", "src/**")
+        assert code == 0
+        members = [(p["name"], [(m["name"], m["file"]) for m in p["members"]])
+                   for p in out["entry_point_diff"]["public"]]
+        assert members == [("n1", [("parse", "src/a.ts"), ("load", "src/a.ts")]),
+                           ("n2", [("parse", "src/b.ts"), ("dump", "src/b.ts")])]
+        assert (out["counts"]["exports_public_api"], out["counts"]["effective_denominator"]) == (4, 3)
+        assert out["warnings"] == []
+
     def test_a_tier_a_glob_outside_scope_include_counts_no_name(self, tmp_path, capsys) -> None:
         # #725: a tier A name counts only in a file scope.include matches too. macro/** matches only
         # macro/index.d.mts, which --include src/** leaves out (its names are entry_point_diff.outside_scope).

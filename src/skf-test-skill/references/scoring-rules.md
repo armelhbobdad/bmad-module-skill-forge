@@ -24,7 +24,7 @@ This table is the single source of truth for classifying a gap. Every stage reco
 | High     | `inaccurate-reference`      | Inaccurate reference (contextual mode): the target exists but does not match, such as a type the cited module does not export, a signature that differs, or an integration pattern that does not match the implementation (coherence-check §4) |
 | High     | `reference-escape`          | A reference whose real path leaves the skill, its source and, for a stack, the skills output folder (coherence-check §4) |
 | High     | `split-body-mismatch`       | The SKILL.md body and a `references/` file document one export differently (coverage-check §1b) |
-| High     | `numerator-inflation`       | `stats.exports_documented` equals the denominator while declared exports are absent from SKILL.md and `references/` (coverage-check §4b) |
+| High     | `numerator-inflation`       | A declared count (`stats.exports_documented`, or the provenance map's distinct entry names) equals the denominator while declared exports are absent from SKILL.md and `references/` (coverage-check §4b) |
 | High     | `structural`                | Naive mode: a missing required section, an unbalanced code fence, or a documented async or sync behaviour its example contradicts (coherence-check §2.1, §2.2, §2.5) |
 | High     | `discovery`                 | Discovery test: at most 1 of 3 realistic prompts routed to the skill (report §4b.3) |
 | Medium   | `missing-export`            | Missing export: an exported function or class the skill does not document. It lowers Export Coverage, and the threshold decides the verdict |
