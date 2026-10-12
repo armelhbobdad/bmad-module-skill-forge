@@ -464,7 +464,7 @@ Output JSON (stdout, or -o):
              "specific_modules": bool, "multi_subpath_exports": bool},
     "errors": [{"reason": "ast-grep-error" | "ast-grep-timeout" | "time-limit",
                 "files": N, "first_file", "detail",
-                "unread": [...]}, ...],      # unread: time-limit only
+                "unread": [...]}, ...],      # unread: the files its call(s) may have left unread
     "warnings": ["..."]
   }
 
@@ -491,14 +491,18 @@ under the 10-minute limit an agent's shell call often has) have passed
 since the run started: the run going on is stopped, no other starts, and
 an `errors[]` item with the reason `time-limit` lists in `unread` the
 files left unread (each ast-grep call also stops after 600 seconds,
-`ast-grep-timeout`). The JSON is still written, status "incomplete".
+`ast-grep-timeout`). A call that times out keeps no match; one that exited
+keeps the matches it printed before any line that is not JSON, but a kill
+can cut a file's matches anywhere, so the item of every failed call lists
+all its files in `unread`. The JSON is still written, status "incomplete".
 
 Exit codes (full):
 
   0    the recipes ran on every file in scope ("ok")
-  1    an ast-grep run failed (exited non-zero) or timed out, or the
-       --timeout ran out: its files may be unread and the result is
-       incomplete ("incomplete"); `errors` lists them
+  1    an ast-grep call could not start, exited non-zero, printed other
+       than JSON lines or timed out, or the --timeout ran out: the result
+       is incomplete ("incomplete"), and each `errors` item lists in
+       `unread` the files it may have left unread
   2    input error (no source root, an unreadable brief, file list or
        recipe file, a recipe without its metadata, no PyYAML, an -o file
        that cannot be written, a --timeout not above 0), or a failure the
@@ -2047,12 +2051,17 @@ def _scan(exe: str, root: Path, folder: Path, rules: list[dict], files: list[str
           errors: list[dict], clock: _Clock | None = None) -> list[dict]:
     """ast-grep's matches of `rules` in `files` (relative to `root`), in
     batches. The rules go in a file as JSON documents (YAML reads JSON),
-    never on the command line. A call that times out, exits non-zero (its
-    rules carry no severity, so a scan that read every file exits 0, matches
-    or not) or prints other than JSON lines adds to `errors`: its batch's
-    files may be unread. The matches it printed are kept. When `clock` (the
-    run's --timeout) runs out, the call running is stopped and no other
-    starts: one `time-limit` item names every file left unread."""
+    never on the command line. A call that cannot start, times out, exits
+    non-zero (its rules carry no severity, so a scan that read every file
+    exits 0, matches or not) or prints other than JSON lines adds to
+    `errors` an item whose `unread` lists every file of its batch: ast-grep
+    prints a file's matches as one block per rule, with other files' blocks
+    between them, and a kill can stop it anywhere, so the output cannot show
+    which files it printed in full. A call that exited keeps the matches it
+    printed before any line that is not JSON; a call that timed out keeps
+    none. When `clock` (the run's --timeout) runs out, a call running is
+    stopped (its `time-limit` item lists its batch) and no other starts: a
+    `time-limit` item lists the files no call read, if any."""
     if not rules or not files:
         return []
     rule_file = folder / "rules.yml"
@@ -2099,10 +2108,8 @@ def _scan(exe: str, root: Path, folder: Path, rules: list[dict], files: list[str
                 if match is not None:
                     found.append(match)
         if failure is not None:
-            error = {"reason": failure[0], "files": len(batch), "first_file": batch[0], "detail": failure[1]}
-            if failure[0] == "time-limit":
-                error["unread"] = list(batch)
-            errors.append(error)
+            errors.append({"reason": failure[0], "files": len(batch), "first_file": batch[0], "detail": failure[1],
+                           "unread": list(batch)})
     return found
 
 

@@ -2669,13 +2669,14 @@ class TestFullCli:
         root = _tree(tmp_path, {"a.py": "def f(): pass\n"})
         code, out = _full(capsys, root)
         assert (code, out["status"]) == (1, "incomplete")
-        assert [(e["reason"], e["files"], e["first_file"]) for e in out["errors"]] == [("ast-grep-timeout", 1, "a.py")]
+        assert [(e["reason"], e["files"], e["first_file"], e["unread"]) for e in out["errors"]] == [
+            ("ast-grep-timeout", 1, "a.py", ["a.py"])]
 
     def test_a_scan_that_exits_non_zero_is_incomplete(self, tmp_path, capsys, monkeypatch) -> None:
         """ast-grep exits non-zero only when a scan fails (the rules carry no
-        severity): a batch that printed some matches before a panic may have
-        left files unread, so its matches are kept and the run is
-        incomplete."""
+        severity): a call that printed some matches before it died may have
+        cut a file's matches anywhere, so its matches are kept, the run is
+        incomplete and `unread` lists every file of the call (#722)."""
         monkeypatch.setattr(mod, "_ast_grep", lambda: ("ast-grep", "0.45.3", None))
         line = json.dumps({"text": "def a(): pass", "lines": "def a(): pass", "file": "a.py", "language": "Python",
                            "ruleId": "python-public-functions", "range": {"start": {"line": 0}},
@@ -2689,8 +2690,36 @@ class TestFullCli:
         code, out = _full(capsys, root)
         assert (code, out["status"]) == (1, "incomplete")
         assert [e["export_name"] for e in out["exports"]] == ["a"]
-        assert [(e["reason"], e["files"], e["detail"]) for e in out["errors"]] == [
-            ("ast-grep-error", 2, "exit 101: thread 'main' panicked")]
+        assert [(e["reason"], e["files"], e["detail"], e["unread"]) for e in out["errors"]] == [
+            ("ast-grep-error", 2, "exit 101: thread 'main' panicked", ["a.py", "b.py"])]
+
+    @pytest.mark.parametrize(
+        ("result", "exports", "detail"),
+        [(OSError("cannot start"), [], "OSError: cannot start"),
+         ((0, b"not json\n"), ["a"], "output is not JSON lines")],
+        ids=["cannot-start", "not-json-lines"],
+    )
+    def test_a_call_that_cannot_start_or_prints_other_than_json_lines_lists_its_files(
+            self, result, exports, detail, tmp_path, capsys, monkeypatch) -> None:
+        """#722: the other `ast-grep-error` items list the call's files in `unread` too: a call that cannot
+        start reads none, and one whose output stops being JSON lines keeps the matches before the bad line."""
+        monkeypatch.setattr(mod, "_ast_grep", lambda: ("ast-grep", "0.45.3", None))
+        line = json.dumps({"text": "def a(): pass", "lines": "def a(): pass", "file": "a.py", "language": "Python",
+                           "ruleId": "python-public-functions", "range": {"start": {"line": 0}},
+                           "metaVariables": {"single": {"NAME": {"text": "a", "range": {"start": {"line": 0}}}}}})
+
+        def scan(cmd, **kwargs):
+            if isinstance(result, OSError):
+                raise result
+            return subprocess.CompletedProcess(cmd, result[0], (line + "\n").encode() + result[1], b"")
+
+        monkeypatch.setattr(mod.subprocess, "run", scan)
+        root = _tree(tmp_path, {"a.py": "def a(): pass\n", "b.py": "def b(): pass\n"})
+        code, out = _full(capsys, root)
+        assert (code, out["status"]) == (1, "incomplete")
+        assert [e["export_name"] for e in out["exports"]] == exports
+        assert [(e["reason"], e["detail"], e["unread"]) for e in out["errors"]] == [
+            ("ast-grep-error", detail, ["a.py", "b.py"])]
 
     def test_the_time_limit_still_writes_the_json(self, tmp_path, capsys, monkeypatch) -> None:
         """--timeout stops the ast-grep runs, not the run: the JSON is
@@ -2717,6 +2746,30 @@ class TestFullCli:
         assert (item["reason"], item["files"], item["first_file"]) == ("time-limit", 2, "b.py")
         assert "--timeout of 20s" in item["detail"]
 
+    def test_a_failed_call_lists_only_its_own_batch_unread(self, tmp_path, capsys, monkeypatch) -> None:
+        """#722: `unread` lists the files of the call that failed, not the run's: with one file per call, the call
+        over `b.py` exits 1 and the calls over `a.py` and `c.py` keep their exports."""
+        monkeypatch.setattr(mod, "_ast_grep", lambda: ("ast-grep", "0.45.3", None))
+        monkeypatch.setattr(mod, "ARGV_BUDGET", 10)  # one file per ast-grep call
+
+        def scan(cmd, **kwargs):
+            if "b.py" in cmd:
+                return subprocess.CompletedProcess(cmd, 1, b"", b"killed\n")
+            name = Path(cmd[-1]).stem
+            line = json.dumps({"text": f"def {name}(): pass", "lines": f"def {name}(): pass", "file": cmd[-1],
+                               "language": "Python", "ruleId": "python-public-functions",
+                               "range": {"start": {"line": 0}},
+                               "metaVariables": {"single": {"NAME": {"text": name, "range": {"start": {"line": 0}}}}}})
+            return subprocess.CompletedProcess(cmd, 0, (line + "\n").encode(), b"")
+
+        monkeypatch.setattr(mod.subprocess, "run", scan)
+        root = _tree(tmp_path, {"a.py": "def a(): pass\n", "b.py": "def b(): pass\n", "c.py": "def c(): pass\n"})
+        code, out = _full(capsys, root)
+        assert (code, out["status"]) == (1, "incomplete")
+        assert sorted((e["export_name"], e["source_file"]) for e in out["exports"]) == [("a", "a.py"), ("c", "c.py")]
+        assert [(e["reason"], e["files"], e["first_file"], e["detail"], e["unread"]) for e in out["errors"]] == [
+            ("ast-grep-error", 1, "b.py", "exit 1: killed", ["b.py"])]
+
     def test_a_call_the_time_limit_stops_is_time_limit(self, tmp_path, capsys, monkeypatch) -> None:
         monkeypatch.setattr(mod, "_ast_grep", lambda: ("ast-grep", "0.45.3", None))
         ticks = iter([0.0, 5.0])  # the clock starts, the call starts with 25s left; it then runs out
@@ -2730,6 +2783,52 @@ class TestFullCli:
         code, out = _full(capsys, root, "--timeout", "30")
         assert (code, out["status"]) == (1, "incomplete")
         assert [(e["reason"], e["unread"]) for e in out["errors"]] == [("time-limit", ["a.py"])]
+
+    @needs_ast_grep
+    @pytest.mark.skipif(os.name == "nt", reason="the shim is a POSIX script")
+    def test_a_call_cut_while_it_prints_lists_its_files_unread(self, tmp_path, monkeypatch) -> None:
+        """#722: an ast-grep killed while it prints can stop between two of
+        a file's match blocks. A shim first on PATH runs the real ast-grep,
+        prints every match but `pkg/api.py`'s class and exits 1: the runner
+        keeps `ping` and lists both files of the call in `unread`, so the
+        snapshot marks `pkg/api.py` unread and the run not complete."""
+        cut = tmp_path / "cut.py"
+        cut.write_text(f"""import json, os, subprocess, sys
+real = {shutil.which("ast-grep")!r}
+if sys.argv[1:2] != ["scan"]:
+    os.execv(real, [real, *sys.argv[1:]])
+res = subprocess.run([real, *sys.argv[1:]], capture_output=True, text=True)
+for line in res.stdout.splitlines():
+    match = json.loads(line)
+    if (match["file"], match["ruleId"]) != ("pkg/api.py", "python-public-classes"):
+        print(line)
+sys.stderr.write("killed\\n")
+sys.exit(1)
+""", encoding="utf-8")
+        shim = tmp_path / "bin" / "ast-grep"
+        shim.parent.mkdir()
+        shim.write_bytes(f"#!/bin/sh\nexec '{sys.executable}' '{cut}' \"$@\"\n".encode("utf-8"))
+        shim.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{shim.parent}{os.pathsep}{os.environ['PATH']}")
+        root = _tree(tmp_path / "src", {"pkg/api.py": "def ping():\n    return 1\n\n\nclass Search:\n    pass\n",
+                                        "pkg/other.py": "def helper():\n    return 2\n"})
+        extraction = tmp_path / "extraction.json"
+        assert mod.main(["--mode", "full", "--source-root", str(root), "--head-cap", "0", "-o", str(extraction)]) == 1
+        out = json.loads(extraction.read_text(encoding="utf-8"))
+        assert sorted((e["export_name"], e["source_file"]) for e in out["exports"]) == [
+            ("helper", "pkg/other.py"), ("ping", "pkg/api.py")]
+        assert [(e["reason"], e["detail"], e["unread"]) for e in out["errors"]] == [
+            ("ast-grep-error", "exit 1: killed", ["pkg/api.py", "pkg/other.py"])]
+        snapshot = tmp_path / "snapshot.json"
+        build = subprocess.run([sys.executable, str(SCRIPTS / "skf-extraction-snapshot.py"), "build", "--source-root",
+                                str(root), "--tier", "Forge", "--date", "t", "--extraction", str(extraction),
+                                "-o", str(snapshot)], capture_output=True, text=True, encoding="utf-8", timeout=120,
+                               check=False)
+        assert build.returncode == 0, build.stderr
+        snap = json.loads(snapshot.read_text(encoding="utf-8"))
+        assert (snap["runner_status"], snap["complete"]) == ("incomplete", False)
+        assert {f["file"]: (f["status"], f["exports"]) for f in snap["files"]} == {
+            "pkg/api.py": ("unread", 1), "pkg/other.py": ("unread", 1)}
 
     @pytest.mark.parametrize("value", ["0", "-5"])
     def test_a_timeout_not_above_zero_is_an_input_error(self, value, tmp_path, capsys) -> None:

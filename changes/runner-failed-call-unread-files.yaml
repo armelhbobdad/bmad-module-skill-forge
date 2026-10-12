@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-update-skill, skf-audit-skill, skf-test-skill
+summary: |
+  When an ast-grep call of the recipe runner (`skf-extract-public-api.py`) is killed or crashes after it printed some of its matches, the runner still keeps those matches and now also lists every file of that call in the `unread` of its `errors[]` item, as it already did when the time limit stopped a call. A file whose matches were cut in part used to keep some of its exports and lose the rest with no warning. Now, after a second run that is still `incomplete`, Update Skill (when it re-extracts changed files and when it repairs the gaps a test report names) and Audit Skill's extraction snapshot read that file by eye, and the snapshot no longer reports `complete: true` for such a run. Test Skill's coverage check now reads by eye every file a failed call lists in `unread`, not only the first. One failed call over a large batch of files can send all of them to the by-eye read.
+prs: [727]
+issues: [722]

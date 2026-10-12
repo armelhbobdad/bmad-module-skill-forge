@@ -1663,6 +1663,19 @@ def test_a_still_incomplete_run_is_read_by_eye_in_the_targeted_re_extraction():
     assert item_3.count('phase: "re-extract:records"') == 2 and "exit 2 or 3" not in item_3
 
 
+def test_a_still_incomplete_run_is_read_by_eye_in_category_b():
+    """#722: when Category B's second runner run is still `incomplete`, step 2 reads by eye each listed file with
+    no export in `exports[]` or listed in an `errors[]` item's `unread` (a failed ast-grep call can keep only some
+    of a file's exports), and tells the user which files were read by eye, as gap-driven.md §4a's rule does; exit 2
+    still HALTs with no by-eye read."""
+    category_b = _slice(_read(DETECT), "**Category B: export-level changes.**", "**Category C")
+    exit_1 = _slice(category_b, "**Exit 1** (`incomplete`, its JSON written)", "**Exit 2** (")
+    assert (": run it once more; when still incomplete, step 2 below reads by eye each listed file with no export in "
+            "`exports[]` or that an `errors[]` item lists in `unread`, and tells the user which files were read by "
+            "eye.") in exit_1
+    assert "still incomplete" not in _slice(category_b, "**Exit 2** (", "**Exit 3")
+
+
 def test_reextract_records_are_built_by_script(tmp_path, capsys):
     """Step 5b determinism-3: re-extract §4 runs `records`, which seeds every runner-owned field and merges the
     workers' patches; the workers return only what no tool records, and step 2's workers read params and return
