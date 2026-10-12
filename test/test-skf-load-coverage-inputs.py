@@ -1141,6 +1141,79 @@ def test_a_quick_tier_tier_a_glob_that_counts_no_name_gives_no_set(tmp_path):
     assert out["guards"]["tierAInclude"] == ["packages/core/src/util/**"]
 
 
+# #733: the issue's fixture, `src/**` in scope. At Quick tier every name
+# carries the entry file that exports it, so only a tier A glob whose
+# folder or file differs from every scope.include glob's before any
+# wildcard is known to count no name.
+FX_BRIEF = "name: fx\nlanguage: typescript\nscope:\n  type: specific-modules\n  include: ['src/**']\n"
+FX_PROVENANCE = {"entries": [{"export_name": n} for n in ("alpha", "beta", "gamma")]}
+
+
+def _fx(tmp_path: Path, tier_a: str, stored: int, head: str = FX_BRIEF) -> list[str]:
+    brief = _write(tmp_path / "skill-brief.yaml", head + f"  tier_a_include: ['{tier_a}']\n")
+    meta = _write(tmp_path / "metadata.json", {**METADATA, "stats": {"effective_denominator": stored}})
+    prov = _write(tmp_path / "provenance.json", FX_PROVENANCE)
+    return ["--brief", brief, "--metadata", meta, "--provenance", prov]
+
+
+def _fx_quick(tmp_path: Path) -> list[str]:
+    return ["--quick", _write(tmp_path / "quick-1.json", {"exports": [
+        {"name": n, "type": "function", "source_file": "src/index.ts"} for n in ("alpha", "beta", "gamma")]})]
+
+
+@pytest.mark.parametrize(("tier_a", "include", "apart"), [
+    ("gen/**", "src/**", True),
+    ("packages/core/src/util/**", "packages/api/**", True),
+    ("src/a.ts", "src/b.ts", True),
+    ("src/*.ts", "lib/**", True),
+    ("packages/core/src/util/**", "packages/core/**", False),
+    ("src/b.ts", "src/**", False),
+    ("**/gen/**", "src/**", False),
+    ("s?c/gen/**", "src/**", False),
+    ("src", "src/index.ts", False),
+])
+def test_two_globs_are_apart_when_a_literal_segment_differs_before_any_wildcard(tier_a, include, apart):
+    """#733: two globs are apart when a literal segment differs before either has a `*` or `?`; any other
+    pair counts as overlapping, even one no file can match both of (`src` beside `src/index.ts`), so the
+    rule never drops a tier A glob that can count a name."""
+    assert mod._apart(tier_a, include) is apart
+    assert mod._apart(include, tier_a) is apart
+
+
+def test_a_quick_tier_tier_a_glob_outside_scope_include_runs_the_guards(tmp_path):
+    """#733: `gen/**` beside `src/**` counts no name whatever the tree holds, so at Quick tier too it leaves
+    the tier A list and both guards run; a glob inside `src/**` still keeps them off (#712)."""
+    out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx(tmp_path, "gen/**", 1))
+    assert "tier_a_include" not in out["sets"]
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
+                                          "pct": 200.0, "fires": True}
+    assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 3, "provenanceEntries": 3,
+                                          "pct": 0.0, "fires": False}
+    assert out["guards"]["tierAInclude"] == ["gen/**"], "the gap still names the brief's glob"
+    [drift] = gap_ledger.from_guards(out)
+    assert (drift["severity"], drift["category"]) == ("Medium", "metadata-drift")
+    assert drift["issue"].endswith("and no `scope.tier_a_include` glob in the brief counts a public name")
+    out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx(tmp_path, "src/b.ts", 2))
+    assert "tier_a_include" not in out["sets"], "no quick name carries src/b.ts"
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
+                                          "pct": 50.0, "fires": False}
+    assert out["guards"]["inflation"]["applicable"] is False
+
+
+@pytest.mark.parametrize("head", [
+    "name: fx\nlanguage: typescript\nscope:\n  type: specific-modules\n  include: ['src/**', 'gen/**']\n",
+    "name: fx\nlanguage: typescript\nscope:\n  type: specific-modules\n",
+], ids=["an-include-glob-over-gen", "no-scope-include"])
+def test_a_quick_tier_tier_a_glob_not_apart_from_every_include_glob_keeps_the_guards_off(tmp_path, head):
+    """#733: `gen/**` leaves the list only when it is apart from every scope.include glob: beside a `gen/**`
+    include, or with no scope.include at all, it stays, so at Quick tier the guards stay off (#712)."""
+    out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx(tmp_path, "gen/**", 1, head))
+    assert "tier_a_include" not in out["sets"]
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
+                                          "pct": 200.0, "fires": False}
+    assert out["guards"]["inflation"]["applicable"] is False
+
+
 def test_a_provenance_surface_with_a_tier_a_glob_that_counts_no_name_gives_no_set(tmp_path):
     """#712: State 2 (and a pattern-reference app's map-only surface) has no empty tier_a_include set, so
     the canonicalized provenance map is the denominator."""
@@ -1186,6 +1259,66 @@ def test_per_file_results_carry_their_file_into_the_scope_sets(tmp_path):
     out = _surface(tmp_path, "--per-file", per_file, "--name", "unplaced", "--brief", brief)
     assert out["sets"]["all"] == ["connect", "unplaced"]
     assert out["sets"]["scope.include"] == ["connect"], "a name with no file is in `all` only"
+
+
+def _fx_fallback(tmp_path: Path) -> list[str]:
+    """The fallback scan's results for the #733 fixture: each at the file that defines its names."""
+    a = _write(tmp_path / "per-file-1.txt", {"file": "src/a.ts", "exports_found": ["alpha"], "types_found": [],
+                                              "signature_mismatches": []})
+    b = _write(tmp_path / "per-file-2.txt", {"file": "src/b.ts", "exports_found": ["beta", "gamma"],
+                                              "types_found": [], "signature_mismatches": []})
+    return ["--per-file", a, "--per-file", b]
+
+
+@pytest.mark.parametrize("tier_a", ["src/gone/**", "src/types.ts", "gen/**"])
+def test_a_fallback_scan_tier_a_list_that_counts_no_name_runs_the_guards(tmp_path, tier_a):
+    """#733: with no runner JSON, --fallback-scan reads the per-file results as an extraction's records: a
+    tier A list that gives no set (stale, over a file that defines no public name, or outside
+    scope.include) narrows nothing, and the stale-scope guard still needs the runner's word."""
+    out = _surface(tmp_path, *_fx_fallback(tmp_path), "--fallback-scan", *_fx(tmp_path, tier_a, 1))
+    assert out["sets"] == {"all": ["alpha", "beta", "gamma"], "scope.include": ["alpha", "beta", "gamma"]}
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
+                                          "pct": 200.0, "fires": True}
+    assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 3, "provenanceEntries": 3,
+                                          "pct": 0.0, "fires": False}
+    assert out["guards"]["staleScope"]["applicable"] is False
+    [drift] = gap_ledger.from_guards(out)
+    assert (drift["severity"], drift["category"]) == ("Medium", "metadata-drift"), "no brief-scope-stale gap"
+    assert drift["issue"].endswith("and no `scope.tier_a_include` glob in the brief counts a public name")
+
+
+def test_a_fallback_scan_live_tier_a_glob_keeps_its_set_and_the_guards_off(tmp_path):
+    """#733: a tier A glob over the file that defines two of the names gives a set, so the guards stay off."""
+    out = _surface(tmp_path, *_fx_fallback(tmp_path), "--fallback-scan", *_fx(tmp_path, "src/b.ts", 2))
+    assert out["sets"]["tier_a_include"] == ["beta", "gamma"]
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
+                                          "pct": 50.0, "fires": False}
+    assert out["guards"]["inflation"]["applicable"] is False
+
+
+@pytest.mark.parametrize("tier_a", ["src/gone/**", "src/types.ts", "src/b.ts"], ids=["stale", "nameless", "live"])
+def test_per_file_results_without_fallback_scan_keep_the_glob_rule(tmp_path, tier_a):
+    """#733: Quick tier's by-eye results and State 4's carry the entry file, not the defining one, so with no
+    --fallback-scan a tier A glob inside scope.include that gives no set, stale or not, still keeps the
+    guards off (#712)."""
+    entry = _write(tmp_path / "per-file-1.json", {"file": "src/index.ts", "exports_found": ["alpha", "beta", "gamma"],
+                                                  "signature_mismatches": []})
+    out = _surface(tmp_path, "--per-file", entry, *_fx(tmp_path, tier_a, 2))
+    assert "tier_a_include" not in out["sets"]
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
+                                          "pct": 50.0, "fires": False}
+
+
+def test_per_file_results_without_fallback_scan_drop_a_tier_a_glob_apart_from_scope_include(tmp_path):
+    """#733: the glob rule leaves `gen/**` beside `src/**` out of the list for State 4's results too, so with
+    no --fallback-scan the guards still run."""
+    entry = _write(tmp_path / "per-file-1.json", {"file": "src/index.ts", "exports_found": ["alpha", "beta", "gamma"],
+                                                  "signature_mismatches": []})
+    out = _surface(tmp_path, "--per-file", entry, *_fx(tmp_path, "gen/**", 2))
+    assert "tier_a_include" not in out["sets"]
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
+                                          "pct": 50.0, "fires": True}
+    assert out["guards"]["inflation"]["applicable"] is True
 
 
 def test_without_a_source_read_the_guards_do_not_run(tmp_path):

@@ -78,6 +78,12 @@ subcommands, each reading files and writing one JSON object:
               --per-file    a subagent's per-file result (exports_found and
                             types_found), schema-checked as
                             score-signatures.py checks it
+              --fallback-scan
+                            the --per-file results are the fallback
+                            per-file scan's, each at the file that defines
+                            its names (a Quick-tier or State 4 result is at
+                            its entry file): as with an extraction, no
+                            tier_a_include set is no tier A list
               --name        a name read by eye whose file is not known
               --provenance  the provenance entries' named exports (State 2)
               --metadata    the metadata.json exports[] names (States 2, 3)
@@ -104,9 +110,11 @@ entry's source_file) matches a glob of the list and no scope.exclude glob,
 and for `tier_a_include` a scope.include glob too when the scope has one,
 so a name with no file is in `all` only and a restored name is in no
 tier_a_include set (a tier_a_include glob an extraction lists as matching
-no file is left out of the list, and a list that counts no name, each glob
-left out or matching only excluded files, files scope.include leaves out
-or files no record names, gives no tier_a_include set); and, from an
+no file is left out of the list, and so is one whose folder or file
+differs from every scope.include glob's before any `*` or `?`, such as
+`gen/**` beside `src/**`; a list that counts no name, each glob left out
+or matching only excluded files, files scope.include leaves out or files
+no record names, gives no tier_a_include set); and, from an
 extraction only, `subpaths` (the names a non-root `exports` map subpath
 without `*` reaches) and `root` (the names the root entry points reach).
 reconcile-coverage.py and score-signatures.py --surface-set pick one.
@@ -117,9 +125,10 @@ the extractor's own effective_denominator and its basis. Both guards run
 only on a surface read from the source. The deflation guard compares the
 re-derived scope.include set (the `all` set without one) with
 `stats.effective_denominator` and fires above DEFLATION_PCT when there is
-no tier A list (with an extraction, no tier_a_include set; without one, no
-tier_a_include glob, since a quick result's name carries its entry file,
-not the file that defines it); a stored 0 is deflation, not a
+no tier A list (with an extraction or --fallback-scan, no tier_a_include
+set; otherwise no tier_a_include glob left in the list, since a quick or
+State 4 result's name carries its entry file, not the file that defines
+it); a stored 0 is deflation, not a
 denominator (`pct` null), and fires under that condition when any name is
 re-derived. The inflation guard compares the scope.include set with the
 provenance entry count (--provenance) and fires above INFLATION_PCT under
@@ -152,9 +161,9 @@ Usage:
   uv run load-coverage-inputs.py metadata --metadata <metadata.json> \\
       [--provenance <provenance-map.json>] [--output <file>]
   uv run load-coverage-inputs.py surface [--extraction <file>] [--quick <file>]... \\
-      [--per-file <file>]... [--name <name>]... [--provenance <file>] [--metadata <file>] \\
-      [--brief <skill-brief.yaml>] [--fold] [--fold-prefix <prefix>]... [--keep <name>]... \\
-      [--output <file>]
+      [--per-file <file>]... [--fallback-scan] [--name <name>]... [--provenance <file>] \\
+      [--metadata <file>] [--brief <skill-brief.yaml>] [--fold] [--fold-prefix <prefix>]... \\
+      [--keep <name>]... [--output <file>]
 
 Exit codes:
   0  the result was printed (and written to --output)
@@ -458,6 +467,18 @@ def matching(records: list[dict], globs: list[str], excludes: list[str]) -> list
     return sorted({r["name"] for r in records if r.get("file")
                    and any(glob_match(_norm(r["file"]), g) for g in globs)
                    and not any(glob_match(_norm(r["file"]), g) for g in excludes)})
+
+
+def _apart(a: str, b: str) -> bool:
+    """True when, before either has a `*` or `?`, the two globs spell a different segment at the same
+    place, so no file can match both. Any other pair counts as overlapping, even one no file can match
+    both of (`src` beside `src/index.ts`), so this never parts two that can share a file."""
+    for x, y in zip(a.split("/"), b.split("/")):
+        if any(c in x or c in y for c in "*?"):
+            return False
+        if x != y:
+            return True
+    return False
 
 
 def _nested_tops(entry_files: list[dict], named: set[str], exporting: set[str]) -> dict[str, str]:
@@ -799,14 +820,17 @@ def surface(args: argparse.Namespace) -> dict:
     scope = extracted["scope"] if extracted is not None and any(extracted["scope"].values()) else None
     if scope is None:
         scope = brief["scope"] if brief is not None else _scope(None, None, None)
-    # A tier A glob the runner lists as matching no file counts no name: the
-    # set comes from the globs that matched, over the names whose file a
-    # scope.include glob matches too (any file with none), so a restored
-    # name is in no set. A tier A list that counts no name (every glob
-    # stale, or matching only excluded files, files scope.include leaves out
-    # or files that define no name) narrows nothing: there is no set.
+    # A tier A glob the runner lists as matching no file counts no name, and
+    # so does one whose folder or file differs from every scope.include
+    # glob's before any `*` or `?` (`gen/**` beside `src/**`), whatever the
+    # tree holds: the set comes from the other globs, over the names whose
+    # file a scope.include glob matches too (any file with none), so a
+    # restored name is in no set. A tier A list that counts no name (every
+    # glob stale, or matching only excluded files, files scope.include leaves
+    # out or files that define no name) narrows nothing: there is no set.
     stale_tier_a = set(extracted["staleScope"]["unmatchedTierAInclude"]) if extracted is not None else set()
-    tier_a = [g for g in scope["tier_a_include"] if g not in stale_tier_a]
+    tier_a = [g for g in scope["tier_a_include"] if g not in stale_tier_a
+              and not (scope["include"] and all(_apart(g, i) for i in scope["include"]))]
     filed = [r for r in records if r["file"]]
     if filed and scope["include"]:
         sets["scope.include"] = matching(filed, scope["include"], scope["exclude"])
@@ -830,10 +854,12 @@ def surface(args: argparse.Namespace) -> dict:
             "extractorEffectiveDenominator": extraction.get("effectiveDenominator"),
             "extractorBasis": extraction.get("effectiveDenominatorBasis"),
         }
-        # With an extraction, no tier A set is no tier A list; without one the
-        # globs decide (a Quick-tier name carries its entry file, not the file
-        # that defines it).
-        no_tier_a = "tier_a_include" not in sets if extracted is not None else not tier_a
+        # With an extraction or the fallback scan's results (each at the file
+        # that defines its names), no tier A set is no tier A list; otherwise
+        # the globs left in the list decide (a Quick-tier or State 4 name
+        # carries its entry file, not the file that defines it).
+        no_tier_a = ("tier_a_include" not in sets if extracted is not None or args.fallback_scan
+                     else not tier_a)
         deflation = {"applicable": source_read and stats_eff is not None, "effectiveDenominator": stats_eff,
                      "rederived": include_union if source_read else None, "pct": None, "fires": False}
         if deflation["applicable"] and stats_eff:
@@ -915,6 +941,12 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--extraction", help="skf-extract-public-api.py --mode full output")
     p.add_argument("--quick", action="append", help="skf-extract-public-api.py --mode quick output (repeatable)")
     p.add_argument("--per-file", action="append", help="a subagent per-file result (repeatable)")
+    p.add_argument("--fallback-scan", action="store_true",
+                   help="the --per-file results are the fallback scan's, each at the file that defines its "
+                        "names: as with --extraction, no tier_a_include set is no tier A list, so the deflation "
+                        "and inflation guards run; without either, a tier_a_include glob keeps them off unless "
+                        "its folder or file differs from every scope.include glob's before any wildcard "
+                        "(gen/** beside src/**)")
     p.add_argument("--name", action="append", help="a name read by eye whose file is not known (repeatable)")
     p.add_argument("--provenance", help="the provenance map: its named exports")
     p.add_argument("--metadata", help="metadata.json: its exports[] names, stats and language")

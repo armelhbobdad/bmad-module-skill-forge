@@ -1405,8 +1405,11 @@ def test_the_prose_fallback_scan_runs(tmp_path):
                                                       "stats": {"effective_denominator": 1}}).encode("utf-8"))
     values.update({"{forge_data_folder}": forge.as_posix(), "{skill_name}": "demo"})
     command = _command(COVERAGE_TIERS, "surface --per-file")
+    # #733: with no runner JSON, --fallback-scan lets the per-file names decide: no tier A set, so the
+    # deflation guard fires, while only the runner can say the glob is stale
+    assert "--fallback-scan" in command.split() and "--fallback-scan" not in _read(COVERAGE)
     alone = _exec(_choose(command, keep=("--brief",)), values, tmp_path)["guards"]
-    assert (alone["deflation"]["fires"], alone["staleScope"]["applicable"]) == (False, False), "no runner word"
+    assert (alone["deflation"]["fires"], alone["staleScope"]["applicable"]) == (True, False), "no runner word"
     surface = _exec(_choose(command, keep=("--extraction", "--brief")), values, tmp_path)
     assert surface["sets"] == {"all": ["Options", "fetchData"], "scope.include": ["Options", "fetchData"]}
     assert surface["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 2,
