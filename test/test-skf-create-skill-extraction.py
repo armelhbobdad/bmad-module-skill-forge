@@ -24,7 +24,8 @@ These tests keep the steps on the scripts:
   recipes by hand, or source reading;
 - §2 builds the filtered file list by hand only where a step reads it, and
   §4b and §5 read the runner's entry-point diff, aggregates and truncation
-  flag, and compile §4 its counts and arms, never a hand count;
+  flag, and compile §4 its counts and arms, never a hand count, and its
+  condition 2 passes a tier A count over a curated `scope.include`;
 - step 3d's component-library runner writes to the same {extraction_json},
   which §2b binds and removes for every brief, outside the scratch folder
   step 3d removes, so §5's `init` seeds a component library's inventory and
@@ -49,8 +50,9 @@ a small tree (a top-level `test_x.py` falls to `**/test_*`), reads no file
 of a `language: java` brief, every runner field the prose reads is in its
 JSON, a public name past the head cap comes back as an extraction gap, the
 documented step 3d call's JSON seeds a component library's inventory and
-extraction rules, and the relabel rule's `kind-at` call finds the recipe's
-kind.
+extraction rules, a tier A list over the whole package or tree counts what
+`scope.include` counts, under the basis `tier_a_include`, with no warning,
+and the relabel rule's `kind-at` call finds the recipe's kind.
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -660,6 +662,20 @@ def test_condition_2_no_longer_judges_tier_a_when_present() -> None:
     assert "the resolved include list" not in four
 
 
+def test_condition_2_passes_a_tier_a_count_over_a_curated_include() -> None:
+    """#730: since #729 a tier A count reads only the files a `scope.include`
+    glob also matches, so a tier A list wider than a curated `scope.include`
+    (`src/**` over `src/utils/**` and `src/index.ts`) counts the curated
+    subset, the count the same brief stores with no tier A list. Condition 2
+    judged the tier A list alone, saw the whole package and left it out."""
+    two = _condition_2()
+    assert ("A tier A count, the runner's or a hand count, reads only the files a `scope.include` glob also "
+            "matches, so its files are a curated subset when `scope.include` lists one, even when "
+            "`scope.tier_a_include` covers the full workspace: the globs part of this condition holds, and its "
+            "`scope.type` part still applies.") in two
+    assert "\u2014" not in two and "\u2013" not in two
+
+
 # --------------------------------------------------------------------------
 # The relabel rule: one home, looked up through kind-at
 # --------------------------------------------------------------------------
@@ -940,6 +956,14 @@ JAVA_TREE = {
 }
 
 
+WIDE_TIER_A_TREE = {
+    "package.json": '{"name": "demo", "version": "1.0.0", "main": "src/index.ts"}\n',
+    "src/index.ts": 'export * from "./utils/a";\nexport * from "./core/b";\n',
+    "src/utils/a.ts": "export function ua() {}\nexport function ub() {}\n",
+    "src/core/b.ts": "export function ca() {}\nexport function cb() {}\nexport function cc() {}\n",
+}
+
+
 def _runner_output(tmp_path: Path, tree: dict[str, str] = SOURCE_TREE, extra: tuple[str, ...] = ()) -> dict:
     """The documented runner block over `tree`, run as extract §4 gives it
     (with `extra` arguments after the runner call)."""
@@ -1118,6 +1142,30 @@ def test_the_component_runner_json_seeds_the_inventory(tmp_path: Path) -> None:
     rules = yaml.safe_load(rules_target.read_text(encoding="utf-8"))
     assert (rules["extraction_mode"], rules["recipe_set"]) == ("component-library", "component-library")
     assert "react-props-interfaces" in rules["recipes"] and rules["ast_grep_version"]
+
+
+@needs_ast_grep
+def test_a_wide_tier_a_list_counts_what_scope_include_counts(tmp_path: Path) -> None:
+    """#730: the premise of condition 2's last sentence, on the documented
+    runner call. A tier A list over the whole package (`src/**`) or the whole
+    tree (`**`) counts the names `scope.include` counts, over its files, under
+    the basis `tier_a_include`, and warns nothing; a narrow one
+    (`src/utils/**`) counts the same names over its one file."""
+    brief = ("name: demo\nlanguage: typescript\nscope:\n  type: specific-modules\n"
+             "  include: ['src/utils/**', 'src/index.ts']\n")
+    counts = {}
+    for label, tier_a in (("none", ""), ("package", "  tier_a_include: ['src/**']\n"),
+                          ("tree", "  tier_a_include: ['**']\n"),
+                          ("narrow", "  tier_a_include: ['src/utils/**']\n")):
+        out = _runner_output(tmp_path / label, {**WIDE_TIER_A_TREE, "brief/skill-brief.yaml": brief + tier_a})
+        assert (out["status"], out["warnings"], out["arms"]["specific_modules"]) == ("ok", [], True), label
+        counts[label] = out["counts"]
+    assert counts["none"] == {"exports_public_api": 5, "exports_internal": 0, "effective_denominator": 2,
+                              "effective_denominator_basis": "scope.include", "denominator_files": 2}
+    for label in ("package", "tree"):
+        assert counts[label] == {**counts["none"], "effective_denominator_basis": "tier_a_include"}, label
+    assert counts["narrow"] == {**counts["none"], "effective_denominator_basis": "tier_a_include",
+                                "denominator_files": 1}
 
 
 @needs_ast_grep
