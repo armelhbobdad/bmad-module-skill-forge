@@ -16,10 +16,12 @@ Covers update + verify subcommands:
     between its flip and its re-read is refused, it waits while another
     flip holds the lock and returns busy when the lock stays held, a
     second update waits for the first, and a no-op leaves no lock file
+  - exit 1 after a flip that worked leaves the link moved (#732)
 """
 
 from __future__ import annotations
 
+import errno
 import importlib.util
 import json
 import os
@@ -407,3 +409,29 @@ class TestCli:
     def test_missing_subcommand_exits_2(self, tmp_path: Path) -> None:
         result = _run_cli()
         assert result.returncode == 2  # argparse missing required subparser
+
+    def test_a_lock_close_that_fails_after_the_flip_exits_1_with_the_link_moved(
+            self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+        """#732: the one exit 1 that comes after a flip that worked: closing the lock fails (EIO). Update
+        Skill's "any other exit" rule then halts, and its rollback keeps the version the link already names."""
+        group = _make_group(tmp_path, "1.0.0", "1.6.2")
+        os.symlink("1.0.0", group / "active")
+        load = mod._load_atomic_write
+
+        def failing_load():
+            atomic = load()
+            release = atomic.release_flip_lock
+
+            def release_then_fail(link, fd):
+                release(link, fd)
+                raise OSError(errno.EIO, os.strerror(errno.EIO))
+
+            monkeypatch.setattr(atomic, "release_flip_lock", release_then_fail)
+            return atomic
+
+        monkeypatch.setattr(mod, "_load_atomic_write", failing_load)
+        assert mod.main(["update", "--skill-group", str(group), "--version", "1.6.2"]) == 1
+        out, err = capsys.readouterr()
+        assert out == ""
+        assert err.splitlines()[-1] == f"error: [Errno {errno.EIO}] {os.strerror(errno.EIO)}"
+        assert os.readlink(group / "active") == "1.6.2"

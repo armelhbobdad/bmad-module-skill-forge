@@ -4448,6 +4448,12 @@ def test_write_makes_the_version_live_after_the_last_check():
     assert ("- **`busy`** (exit 2): another flip of the link held its lock for the helper's whole wait, so the link "
             "is unchanged. HALT with status `halted-for-concurrent-run` and display `halt_message` verbatim.") in eight
     assert "For each exit-2 halt, the halt procedure takes `phase: \"write:active-symlink\"`" in eight
+    # #732: the helper exits 1 with no JSON when it cannot run or cannot move the link
+    assert ("- **Any other exit, or no JSON on stdout** (exit 1, or an exit 2 that prints no JSON: the helper could not "
+            "run, could not move the link, or failed after moving it, and the last line it prints on stderr says why): "
+            "HALT with status `halted-for-write-failure` and display that line, which is `exit <code>` when the helper "
+            "prints nothing on stderr. The halt procedure takes `phase: \"write:active-symlink\"`, "
+            "`path: \"{skill_group}/active\"`, `reason: \"<that line>\"`.") in eight
     rules = _slice(write, "## Rules", "## Steps")
     assert ("§8 points the `active` link at the new version only after §6 and §7, the last checks that can halt, so "
             "every halt in this step rolls back a version no reader sees yet") in rules

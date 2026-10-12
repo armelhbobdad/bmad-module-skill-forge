@@ -38,10 +38,13 @@ drop steps document, filled in as an agent fills them, against fixtures:
 - skf-manifest-ops.py runs the skill-level manifest calls execute.md documents:
   a whole-skill deprecate marks every version deprecated and keeps the entry,
   and only a purge removes it.
+- A repoint the helper cannot make (#732) is recorded as `active_link_dangling`
+  with the `ln -sfn` fix and the helper's line.
 """
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
@@ -1081,6 +1084,61 @@ def test_a_busy_repoint_is_recorded_with_a_fix_for_after_the_other_run():
     assert ("Record a `busy` exit (code 2, another run was moving the link) the same way, with the manual fix "
             "\"once the other run has finished, if `active` still names the dropped version, run "
             "`ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`\".") in delete
+
+
+def test_a_repoint_that_exits_1_is_recorded():
+    """#732: the helper exits 1 with no JSON when it cannot run or cannot move the link (native Windows, a missing
+    skf-atomic-write.py, a skill folder that refuses the change), and the link still names the dropped version."""
+    delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
+    assert ("Record any other non-zero exit, or no JSON on stdout (exit 1, or an exit 2 that prints no JSON: the helper "
+            "could not run, could not move the link, or failed after moving it, and the last line it prints on stderr "
+            "says why), the same way, with the manual fix \"if `active` still names the dropped version, run "
+            "`ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`\" followed by that line in "
+            "parentheses, or by `(exit <code>)` when the helper prints nothing on stderr.") in delete
+
+
+def _repoint_command(delete: str) -> str:
+    """§4's fenced `update` call, its continuation lines joined."""
+    [block] = [block for block in _fenced(delete, "bash") if "{updateActiveSymlinkHelper} update" in block]
+    return " ".join(block.replace("\\\n", " ").split())
+
+
+@pytest.mark.skipif(os.name == "nt", reason="the helper exits 1 on native Windows before it reads its arguments")
+@pytest.mark.parametrize("broken, said", [
+    ("no-lock-helper", "error: cannot load the flip-lock helper "),
+    ("lock-path-is-a-folder", f"error: [Errno {errno.EISDIR}]"),
+], ids=["no-lock-helper", "lock-path-is-a-folder"])
+def test_a_helper_that_cannot_load_its_lock_leaves_the_link_on_the_dropped_version(tmp_path, broken, said):
+    """#732: the state the exit-1 rule assumes. §4's documented call, with a copy of the helper that has no
+    skf-atomic-write.py beside it (a partial install) or a folder at the lock path, exits 1 with nothing on stdout
+    and leaves `active` on the version the purge deleted; the manual fix the rule records repairs it."""
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    helper = scripts / "skf-update-active-symlink.py"
+    shutil.copyfile(SCRIPTS / helper.name, helper)
+    if broken == "lock-path-is-a-folder":
+        shutil.copyfile(SCRIPTS / "skf-atomic-write.py", scripts / "skf-atomic-write.py")
+    skills = tmp_path / "skills"
+    for version in ("0.6.0", "0.5.0"):
+        _write_skill(skills, "cognee", version)
+    group = skills / "cognee"
+    _link_active(group, "0.5.0")
+    if broken == "lock-path-is-a-folder":
+        (group / "active.skf-lock").mkdir()
+    shutil.rmtree(group / "0.5.0")  # the guarded delete removed the version `active` names
+    delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
+    values = {"updateActiveSymlinkHelper": str(helper), "skills_output_folder": str(skills),
+              "target_skill": "cognee", "new_active_version": "0.6.0"}
+    proc = _run(_repoint_command(delete), values)
+    assert (proc.returncode, proc.stdout) == (1, b""), proc.stderr
+    assert proc.stderr.decode("utf-8").splitlines()[-1].startswith(said), proc.stderr
+    assert os.readlink(group / "active") == "0.5.0" and not (group / "active").exists(), "the link still dangles"
+    # The `ln -sfn` fix the exit-1 rule records, each value quoted as a shell fills it.
+    rule = re.search(r"Record any other non-zero exit[^\n]*", delete).group(0)
+    fix = re.search(r"run `(ln -sfn [^`]+)`", rule).group(1)
+    filled = re.sub(r"\{(\w+)\}", lambda m: shlex.quote(values[m.group(1)]), fix)
+    subprocess.run(shlex.split(filled), check=True, timeout=30)
+    assert os.readlink(group / "active") == "0.6.0" and (group / "active").is_dir()
 
 
 @pytest.mark.parametrize("active, statuses, dropped, expected", [
