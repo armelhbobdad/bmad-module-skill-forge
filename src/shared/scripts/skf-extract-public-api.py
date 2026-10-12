@@ -282,7 +282,9 @@ say) is named in `warnings` and listed in `scope.unmatched_include`. A
 scope.tier_a_include glob is matched against the whole tree under
 --source-root, regardless of --files-from and before the excludes: one
 that matches no file is named in `warnings` too and listed in
-`scope.unmatched_tier_a_include`.
+`scope.unmatched_tier_a_include`, and, when scope.include has a glob, one
+that matches only files no scope.include glob matches is named in
+`warnings`.
 
 --brief supplies scope.include, scope.exclude, scope.tier_a_include,
 scope.type and language; --include, --exclude, --tier-a-include,
@@ -386,14 +388,15 @@ once: a namespace with `members` counts as its members (none for an empty
 list, and a member that is also a public name, or another namespace's
 member, once), one with null `members` as one. `exports_internal` counts
 the internal names. `effective_denominator` counts those public names
-whose definition file matches scope.tier_a_include (else scope.include)
-and no scope.exclude glob: each name once, so a type counts once whatever
-its methods, and a barrel that only re-exports adds nothing of its own.
-A tier A list that counts no public name (each glob matches no file, or
-only files scope.exclude drops or that define no public name) narrows
-nothing on a run that counted a public name and read every file (no
-`errors` item): the count falls back to scope.include (else every file),
-with a warning.
+whose definition file matches scope.include (any file when it has no
+glob), scope.tier_a_include when given, and no scope.exclude glob: each
+name once, so a type counts once whatever its methods, and a barrel that
+only re-exports adds nothing of its own. A tier A list that counts no
+public name (each glob matches no file, or only files scope.exclude
+drops, that scope.include leaves out or that define no public name)
+narrows nothing on a run that counted a public name and read every file
+(no `errors` item): the count falls back to scope.include (else every
+file), with a warning.
 `arms` gives compile's effective_denominator arms:
 (a) `monorepo` from skf-detect-workspaces.py, (b) `specific_modules`
 (scope type specific-modules on a repository that is not a monorepo) and
@@ -458,7 +461,7 @@ Output JSON (stdout, or -o):
     "counts": {"exports_public_api": N, "exports_internal": N,
                "effective_denominator": N,
                "effective_denominator_basis": "tier_a_include" | "scope.include"
-                                              | "all-files",  # not tier_a_include when it counts no name
+                                              | "all-files",  # not tier_a_include when it counts no scope.include name
                "denominator_files": N},
     "arms": {"monorepo": bool, "monorepo_kind": "<kind>" | null,
              "specific_modules": bool, "multi_subpath_exports": bool},
@@ -4132,6 +4135,9 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
     # tree effective_denominator reads), regardless of --files-from and before the excludes.
     unmatched_tier_a = [g for g in dict.fromkeys(tier_a) if not any(glob_match(f, g) for f in tree)]
     warnings += [f"scope.tier_a_include pattern {g!r} matches no file" for g in unmatched_tier_a]
+    warnings += [f"scope.tier_a_include pattern {g!r} matches only files outside scope.include"
+                 for g in dict.fromkeys(tier_a) if includes and g not in unmatched_tier_a
+                 and not any(glob_match(f, g) and any(glob_match(f, i) for i in includes) for f in tree)]
     readable = []
     for rel in in_scope:
         try:
@@ -4260,9 +4266,12 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
                 and not any(glob_match(f, g) for g in excludes)}
 
     # A tier A list that counts no public name (each glob matches no file, or
-    # only files an exclude drops or that define no public name) narrows
-    # nothing, once the run counted a name and read every file (no error).
-    denominator_files = files_matching(tier_a or includes)
+    # only files an exclude drops, that scope.include leaves out or that
+    # define no public name) narrows nothing, once the run counted a name
+    # and read every file (no error).
+    # A tier A name counts only when its file is also in scope.include: the list narrows that set.
+    in_include = files_matching(includes)
+    denominator_files = (files_matching(tier_a) & in_include) if tier_a else in_include
     basis = "tier_a_include" if tier_a else ("scope.include" if includes else "all-files")
     if tier_a and counted and not errors and not any(file in denominator_files for _, _, file in counted):
         basis = "scope.include" if includes else "all-files"
@@ -4577,9 +4586,11 @@ def _build_parser() -> argparse.ArgumentParser:
     full.add_argument("--exclude", action="append", metavar="GLOB",
                       help="an exclude glob, repeatable (replaces the brief's scope.exclude)")
     full.add_argument("--tier-a-include", action="append", metavar="GLOB",
-                      help="a tier-A glob for effective_denominator, repeatable (replaces scope.tier_a_include); "
-                           "one that matches no file is listed in scope.unmatched_tier_a_include, and a list "
-                           "that counts no public name gives way to scope.include (else every file)")
+                      help="a tier-A glob for effective_denominator, repeatable (replaces scope.tier_a_include), "
+                           "that counts a name only in a file scope.include matches too; one that matches no "
+                           "file is listed in scope.unmatched_tier_a_include, one that matches only files "
+                           "scope.include leaves out is named in warnings, and a list that counts no public name "
+                           "gives way to scope.include (else every file)")
     full.add_argument("--scope-type", help="the scope type (replaces the brief's scope.type)")
     full.add_argument("--language", action="append",
                       help="a language family to extract, repeatable (replaces the brief's language); quick "

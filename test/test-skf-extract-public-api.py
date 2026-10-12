@@ -2082,6 +2082,47 @@ class TestFullRuns:
         assert mixed["warnings"].count(fallback) == 1
         assert mixed["warnings"].count("scope.tier_a_include pattern 'src/gone/**' matches no file") == 1
 
+    def test_a_tier_a_glob_outside_scope_include_counts_no_name(self, tmp_path, capsys) -> None:
+        # #725: a tier A name counts only in a file scope.include matches too. macro/** matches only
+        # macro/index.d.mts, which --include src/** leaves out (its names are entry_point_diff.outside_scope).
+        root = _tree(tmp_path, TS_PACKAGE)
+        outside = "scope.tier_a_include pattern 'macro/**' matches only files outside scope.include"
+        fallback = "scope.tier_a_include counts no public name: effective_denominator counts scope.include"
+        _, only = _full(capsys, root, "--include", "src/**", "--tier-a-include", "macro/**")
+        assert only["counts"] == {"exports_public_api": 13, "exports_internal": 1, "effective_denominator": 11,
+                                  "effective_denominator_basis": "scope.include", "denominator_files": 7}
+        assert only["warnings"].count(outside) == 1 and only["warnings"][-1] == fallback
+        _, mixed = _full(capsys, root, "--include", "src/**", "--tier-a-include", "src/utils/**",
+                         "--tier-a-include", "macro/**")
+        assert (mixed["counts"]["effective_denominator"], mixed["counts"]["effective_denominator_basis"]) == (
+            3, "tier_a_include")
+        assert mixed["warnings"].count(outside) == 1 and fallback not in mixed["warnings"]
+        _, inside = _full(capsys, root, "--include", "src/**", "--tier-a-include", "src/utils/**")
+        assert (inside["counts"]["effective_denominator"], inside["counts"]["effective_denominator_basis"]) == (
+            3, "tier_a_include")
+        assert not [w for w in inside["warnings"] if "outside scope.include" in w]
+        # with no scope.include no file is outside it
+        _, every = _full(capsys, root, "--tier-a-include", "macro/**")
+        assert (every["counts"]["effective_denominator"], every["counts"]["effective_denominator_basis"]) == (
+            2, "tier_a_include")
+        assert not [w for w in every["warnings"] if "outside scope.include" in w]
+
+    @pytest.mark.parametrize("line", ["export { gen } from '../generated/gen';\n",
+                                      "export * from '../generated/gen';\n"], ids=["named", "star"])
+    def test_a_tier_a_glob_over_a_file_re_exported_from_outside_scope(self, tmp_path, capsys, line) -> None:
+        # #725: a named re-export reaches gen without an outside_scope row; either way it counts no tier A name
+        root = _tree(tmp_path, {"pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n",
+                                "package.json": '{"name": "root", "private": true}\n',
+                                "packages/a/package.json": '{"name": "a", "exports": {".": "./src/index.ts"}}\n',
+                                "packages/a/src/index.ts": "export const local = 1;\n" + line,
+                                "packages/a/generated/gen.ts": "export function gen(): void {}\n"})
+        _, out = _full(capsys, root, "--include", "packages/a/src/**", "--tier-a-include", "packages/a/generated/**")
+        assert out["counts"] == {"exports_public_api": 2, "exports_internal": 0, "effective_denominator": 1,
+                                 "effective_denominator_basis": "scope.include", "denominator_files": 1}
+        assert out["warnings"] == [
+            "scope.tier_a_include pattern 'packages/a/generated/**' matches only files outside scope.include",
+            "scope.tier_a_include counts no public name: effective_denominator counts scope.include"]
+
     @pytest.mark.parametrize("files", [{"lib/a.rb": "def run; end\n"}, {"src/a.ts": "const x = 1;\n"}],
                              ids=["no-recipe-for-the-language", "nothing-exported"])
     def test_a_run_that_counts_no_name_keeps_the_tier_a_basis(self, tmp_path, capsys, files) -> None:

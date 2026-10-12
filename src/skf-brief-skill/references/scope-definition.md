@@ -215,10 +215,10 @@ Head this off by capturing the authoring surface as **`scope.tier_a_include`**: 
   uv run {extractPublicApiHelper} --mode full --source-root "<source folder>" --include "<include glob>" --exclude "<exclude glob>" --language "{language}" -o "{run_dir}/tier-a.json"
   ```
 
-  The candidates are the files that define a name an entry point passes on (`reexport_targets`, and the `members` of a namespace in `entry_point_diff.public`), less the entry points themselves (`entry_points.files[].file`). Print them, one per line:
+  The candidates are the files that define a name an entry point passes on (`reexport_targets`, and the `members` of a namespace in `entry_point_diff.public`), less the entry points themselves (`entry_points.files[].file`) and the files of the names the runner lists outside the scope (`entry_point_diff.outside_scope`), since a tier A name counts only in a file `scope.include` matches. A file outside `scope.include` that a named re-export (`export { x } from`) or a barrel reaches has no `outside_scope` row and stays a candidate, which Create Skill's runner then warns about. Print them, one per line:
 
   ```bash
-  uv run python -c 'import json, sys; d = json.load(open(sys.argv[1], encoding="utf-8")); entries = {f["file"] for f in d["entry_points"]["files"]}; members = {m.get("file") for p in (d.get("entry_point_diff") or {}).get("public") or [] for m in p.get("members") or []}; print("\n".join(sorted(({t["file"] for t in d["reexport_targets"]} | members) - {None} - entries)))' "{run_dir}/tier-a.json"
+  uv run python -c 'import json, sys; d = json.load(open(sys.argv[1], encoding="utf-8")); entries = {f["file"] for f in d["entry_points"]["files"]}; diff = d.get("entry_point_diff") or {}; members = {m.get("file") for p in diff.get("public") or [] for m in p.get("members") or []}; outside = {o.get("file") for o in diff.get("outside_scope") or []}; print("\n".join(sorted(({t["file"] for t in d["reexport_targets"]} | members) - {None} - entries - outside)))' "{run_dir}/tier-a.json"
   ```
 
   Once the runner has run, whatever its exit, remove a clone this section made (`rm -rf "{run_dir}/clone"`).

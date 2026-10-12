@@ -1095,6 +1095,20 @@ def test_the_tier_a_candidates_take_a_namespaces_member_files(tmp_path):
     assert _tier_a_candidates(section, result) == ["pkg/a.py", "pkg/sub/__init__.py", "pkg/sub/impl.py"]
 
 
+def test_the_tier_a_candidates_leave_out_the_files_scope_include_leaves_out(tmp_path):
+    """#725: a tier A name counts only in a file scope.include matches, so the file of a name an entry point
+    passes on from outside the scope (`entry_point_diff.outside_scope`) is no candidate."""
+    section = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
+    result = tmp_path / "tier-a.json"
+    result.write_bytes(json.dumps({
+        "entry_points": {"files": [{"file": "packages/foo/src/index.ts"}]},
+        "reexport_targets": [{"name": "a", "file": "packages/foo/src/a.ts"},
+                             {"name": "gen", "file": "packages/foo/generated/gen.ts"}],
+        "entry_point_diff": {"public": [], "outside_scope": [{"name": "gen", "file": "packages/foo/generated/gen.ts"}]},
+    }).encode("utf-8"))
+    assert _tier_a_candidates(section, result) == ["packages/foo/src/a.ts"]
+
+
 @pytest.mark.skipif(not POSIX_BASH or not _pinned_ast_grep(), reason="needs bash and the pinned ast-grep")
 def test_the_documented_runner_call_lists_the_files_the_barrel_re_exports(tmp_path):
     section = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
