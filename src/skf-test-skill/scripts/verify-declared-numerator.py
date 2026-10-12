@@ -8,11 +8,13 @@
 Lookup-and-count helper for the SKF test-skill workflow (coverage-check.md
 §2b, its "Numerator ground truth" paragraph; §4b records the gap). It fires
 only on the inflation signature
-(`stats.exports_documented == effective_denominator` exactly): the numerator
-equals the denominator, the tell of a documented count padded to force 100%
-coverage. On that signature the declared count is not trusted: every declared
-export name is looked up in the skill's documentation surface and only the
-names that actually appear count toward coverage.
+(`stats.exports_documented == effective_denominator` exactly, or, for a
+provenance map with no `::` entry, its distinct entry names number
+`effective_denominator`): the numerator equals the denominator, the tell of a
+documented count padded to force 100% coverage. On that signature the declared
+count is not trusted: every declared export name is looked up in the skill's
+documentation surface and only the names that actually appear count toward
+coverage.
 
 Distinct from reconcile-coverage.py (whose scalar/stack branches look up the §1
 inventory names and return only a residual missing *count*): this script looks

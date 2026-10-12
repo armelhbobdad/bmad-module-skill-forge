@@ -1182,10 +1182,11 @@ def from_numerator(numerator: object, metadata: str | None = None) -> list[dict]
         f"numerator inflation: {declared - verified} of {declared} declared exports absent from "
         "SKILL.md/references",
         meta,
-        f"Document the absent exports in SKILL.md, or set `stats.exports_documented` in `{meta}` to the "
-        f"{verified} exports the skill documents.",
-        issue=f"`stats.exports_documented` equals the denominator, and these declared exports are absent "
-              f"from SKILL.md and references/: {_code(absent)}")]
+        f"Document the absent exports in SKILL.md or references/: the skill documents {verified} of its "
+        f"{declared} declared exports.",
+        issue=f"a declared count (`stats.exports_documented`, or the provenance map's distinct entry names) "
+              f"equals `stats.effective_denominator`, and these declared exports are absent from SKILL.md and "
+              f"references/: {_code(absent)}")]
 
 
 def from_metadata_coherence(result: object, metadata: str | None = None) -> list[dict]:

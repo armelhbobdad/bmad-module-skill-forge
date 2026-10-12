@@ -41,6 +41,7 @@ COHERENCE = SCRIPTS / "check-metadata-coherence.py"
 COMPUTE_SCORE = SCRIPTS / "compute-score.py"
 EXTRACTOR = REPO_ROOT / "src" / "shared" / "scripts" / "skf-extract-public-api.py"
 GAP_LEDGER = SCRIPTS / "gap-ledger.py"
+NUMERATOR = SCRIPTS / "verify-declared-numerator.py"
 SCORE_SIGNATURES = SCRIPTS / "score-signatures.py"
 RESOLVER = REPO_ROOT / "src" / "shared" / "scripts" / "skf-resolve-authoritative-files.py"
 
@@ -231,6 +232,85 @@ def test_metadata_flags_the_inflation_signature():
     out = mod.metadata_inputs(meta, None)
     assert out["inflationSignature"] is True
     assert out["provenanceExportNames"] is None and out["namedExports"] is None
+
+
+# #734: the map holds `foo` at src/a.ts and at src/b.ts (a name the entry points pass on from two files)
+TWO_FILE_PROVENANCE = {"entries": [
+    {"export_name": "foo", "export_type": "function", "source_file": "src/a.ts", "source_line": 1},
+    {"export_name": "foo", "export_type": "function", "source_file": "src/b.ts", "source_line": 1},
+    {"export_name": "bar", "export_type": "function", "source_file": "src/b.ts", "source_line": 2},
+]}
+
+
+# #734: a map whose `Foo` carries two `::` methods: two named exports, four distinct entry names
+METHOD_PROVENANCE = {"entries": [{"export_name": name, "export_type": "function", "source_file": "src/foo.rs",
+                                  "source_line": line}
+                                 for line, name in enumerate(["Foo", "Foo::new", "Foo::run", "bar"], 1)]}
+# `Foo` at two files beside `Foo::new` and `bar`: three distinct entry names, one of them a method
+COINCIDENT_METHOD_PROVENANCE = {"entries": [
+    {"export_name": "Foo", "export_type": "struct", "source_file": "src/a.rs", "source_line": 1},
+    {"export_name": "Foo", "export_type": "struct", "source_file": "src/b.rs", "source_line": 1},
+    {"export_name": "Foo::new", "export_type": "function", "source_file": "src/a.rs", "source_line": 2},
+    {"export_name": "bar", "export_type": "function", "source_file": "src/a.rs", "source_line": 5},
+]}
+METHODS_ONLY_PROVENANCE = {"entries": [{"export_name": name, "export_type": "function"}
+                                       for name in ("Foo::new", "Foo::run")]}
+
+
+@pytest.mark.parametrize(("exports", "stats", "provenance", "signature", "named"), [
+    (["foo", "bar"], {"exports_documented": 3, "effective_denominator": 2}, TWO_FILE_PROVENANCE, True, 2),
+    (["foo", "bar"], {"exports_documented": 3, "effective_denominator": 3}, TWO_FILE_PROVENANCE, True, 2),
+    (["foo", "bar"], {"exports_documented": 3, "effective_denominator": 4}, TWO_FILE_PROVENANCE, False, 2),
+    (["foo", "bar"], {"effective_denominator": 2}, TWO_FILE_PROVENANCE, True, 2),
+    (["Foo", "Foo::new", "Foo::run", "bar"], {"exports_documented": 4, "effective_denominator": 2},
+     METHOD_PROVENANCE, False, 2),
+    ([], {"effective_denominator": 0}, {"entries": []}, False, 0),
+    (["foo", "bar"], {"exports_documented": 5}, PROVENANCE, False, 8),
+    (["Foo", "bar", "baz"], {"exports_documented": 4, "effective_denominator": 3}, COINCIDENT_METHOD_PROVENANCE,
+     False, 2),
+    ([], {"effective_denominator": 2}, METHODS_ONLY_PROVENANCE, False, 0),
+], ids=["two-entries-one-name", "documented-equals-the-count", "neither-equals", "no-documented-count",
+        "method-entries", "empty-map", "no-stored-count", "method-entries-matching-by-chance", "methods-only"])
+def test_the_inflation_signature_compares_the_stored_count_with_the_map_names_too(exports, stats, provenance,
+                                                                                  signature, named):
+    """#734: the stored count counts each name once and the map holds a name passed on from two files twice,
+    so the signature fires when `stats.exports_documented` or the map's distinct entry names equal it. A map
+    with a `::` entry never takes the map arm, even when its names match the stored count by chance, so a
+    skill with methods behaves as before; an empty map fires nothing."""
+    out = mod.metadata_inputs({"skill_type": "single", "exports": exports, "stats": stats}, provenance)
+    assert out["inflationSignature"] is signature
+    assert out["namedExports"]["count"] == named
+    assert out["clusterB"] == {"exports_documented": stats.get("exports_documented")}
+
+
+def test_the_map_arm_of_the_signature_runs_the_numerator_check_and_records_its_gap(tmp_path):
+    """#734: a skill whose map holds `foo` at two files (3 entries, 2 names) stores 3 documented exports against
+    a count of 2. The map's arm fires the signature, so verify-declared-numerator.py checks the declared names
+    instead of reporting `skipped`, and the gap it raises claims neither that `stats.exports_documented` equals
+    the denominator nor that it should be set by hand."""
+    meta = _write(tmp_path / "skill" / "metadata.json", {"skill_type": "single", "exports": ["foo", "bar"],
+                                                         "stats": {"exports_documented": 3,
+                                                                   "effective_denominator": 2}})
+    _write(tmp_path / "skill" / "SKILL.md", "# demo\n\n- `bar()`: returns nothing.\n")
+    provenance = _write(tmp_path / "provenance-map.json", TWO_FILE_PROVENANCE)
+    inputs = tmp_path / "run" / "coverage-inputs.json"
+    proc = _run("metadata", "--metadata", meta, "--provenance", provenance, "--output", str(inputs))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["inflationSignature"] is True
+    proc = subprocess.run([sys.executable, str(NUMERATOR), "--inputs", str(inputs), "--skill-dir",
+                           str(tmp_path / "skill")], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    numerator = json.loads(proc.stdout)
+    assert (numerator["skipped"], numerator["declared"], numerator["verified"], numerator["absent"],
+            numerator["inflated"]) == (False, 2, 1, ["foo"], True)
+    [gap] = gap_ledger.from_numerator(numerator, "skill/metadata.json")
+    assert (gap["severity"], gap["category"], gap["source"]) == ("High", "numerator-inflation", "skill/metadata.json")
+    assert gap["title"] == "numerator inflation: 1 of 2 declared exports absent from SKILL.md/references"
+    assert gap["issue"] == ("a declared count (`stats.exports_documented`, or the provenance map's distinct entry "
+                            "names) equals `stats.effective_denominator`, and these declared exports are absent "
+                            "from SKILL.md and references/: `foo`")
+    assert gap["remediation"] == ("Document the absent exports in SKILL.md or references/: the skill documents 1 "
+                                  "of its 2 declared exports.")
 
 
 def test_metadata_declared_names_fall_back_to_the_provenance_map():
@@ -1322,3 +1402,46 @@ def test_the_runner_and_the_surface_count_one_tier_a_set(tmp_path, include, tier
     else:
         assert "tier_a_include" not in out["sets"]
         assert counts["effective_denominator"] == out["candidates"]["scopeIncludeUnion"] == count
+
+
+# #734: `foo` at src/a.ts and, through `export * as ns`, at src/b.ts beside `bar`: two records, one name
+TWO_FILE_TREE = {
+    "package.json": '{"name": "demo", "exports": {".": "./src/index.ts"}}\n',
+    "src/index.ts": "export { foo } from './a';\nexport * as ns from './b';\n",
+    "src/a.ts": "export function foo(): number { return 1; }\n",
+    "src/b.ts": "export function foo(): string { return ''; }\nexport function bar(): void {}\n",
+}
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+@pytest.mark.parametrize(("flags", "basis", "union", "records", "count"), [
+    (["--tier-a-include", "src/**"], "tier_a_include", "tierAIncludeUnion",
+     [("bar", "src/b.ts"), ("foo", "src/a.ts"), ("foo", "src/b.ts")], 2),
+    ([], "scope.include", "scopeIncludeUnion", [("bar", "src/b.ts"), ("foo", "src/a.ts"), ("foo", "src/b.ts")], 2),
+    (["--exclude", "src/b.ts"], "scope.include", "scopeIncludeUnion", [("foo", "src/a.ts")], 1),
+    (["--tier-a-include", "src/a.ts"], "tier_a_include", "tierAIncludeUnion",
+     [("bar", "src/b.ts"), ("foo", "src/a.ts"), ("foo", "src/b.ts")], 1),
+], ids=["tier-a", "scope-include", "one-key-excluded", "tier-a-a-only"])
+def test_the_runner_counts_a_name_passed_on_from_two_files_once_as_the_surface_does(tmp_path, flags, basis, union,
+                                                                                    records, count):
+    """#734: the count Create Skill stores is the set Test Skill re-derives when the entry points pass one
+    name on from two files: the runner counts it once, while the surface keeps a record (a signature) for each.
+    With src/b.ts excluded, or a tier A list of src/a.ts alone, `foo` still counts once, by its key at src/a.ts."""
+    source = tmp_path / "src"
+    for rel, text in TWO_FILE_TREE.items():
+        _write(source / rel, text)
+    extraction = tmp_path / "run" / "extract-full.json"
+    extraction.parent.mkdir()
+    argv = [sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source), "--include", "src/**",
+            *flags, "--tier", "Forge", "--head-cap", "0", "--output", str(extraction)]
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    counts = json.loads(extraction.read_text(encoding="utf-8"))["counts"]
+    out = _surface(tmp_path, "--extraction", str(extraction))
+    assert [(r["name"], r["file"]) for r in out["exports"]] == records
+    assert (counts["exports_public_api"], counts["effective_denominator_basis"]) == (3, basis)
+    candidates = out["candidates"]
+    assert counts["effective_denominator"] == candidates[union] == candidates["extractorEffectiveDenominator"] == count
+    assert len(out["sets"][basis]) == count
