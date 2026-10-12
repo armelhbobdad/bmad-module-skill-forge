@@ -468,6 +468,7 @@ The helper emits a result envelope with `status` ∈ `{ok, flipped, mismatch, mi
 - **`missing-target`** (exit 2): `{skill_group}/{version}/` does not exist on disk, so step 4 §6b did not create it. HALT with status `halted-for-write-failure` and display `halt_message` verbatim.
 - **`mismatch`** (exit 2): the link still points elsewhere after the flip. HALT with status `halted-for-write-failure` and display `halt_message` verbatim.
 - **`busy`** (exit 2): another flip of the link held its lock for the helper's whole wait, so the link is unchanged. HALT with status `halted-for-concurrent-run` and display `halt_message` verbatim.
+- **Any other exit, or no JSON on stdout** (exit 1, or an exit 2 that prints no JSON: the helper could not run, could not move the link, or failed after moving it, and the last line it prints on stderr says why): HALT with status `halted-for-write-failure` and display that line, which is `exit <code>` when the helper prints nothing on stderr. The halt procedure takes `phase: "write:active-symlink"`, `path: "{skill_group}/active"`, `reason: "<that line>"`.
 
 For each exit-2 halt, the halt procedure takes `phase: "write:active-symlink"`, `path: "{skill_group}/active"`, `reason: "<status>: <halt_message>"`. Its rollback removes the new version (the `active` link does not name it) or, in gap-driven mode, restores the package from the snapshot.
 
