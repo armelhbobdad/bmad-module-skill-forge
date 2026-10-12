@@ -335,7 +335,7 @@ def runner_warnings(extraction: dict) -> list[str]:
     for error in extraction.get("errors") or []:
         if isinstance(error, dict):
             lines.append(f"ast-grep did not finish on {error.get('files')} files from `{error.get('first_file')}` "
-                         f"({error.get('detail')}): exports in them may be missing")
+                         f"({error.get('detail')}): their exports are read by eye")
     for issue in extraction.get("file_issues") or []:
         if isinstance(issue, dict):
             lines.append(f"`{issue.get('file')}` ({issue.get('issue')}): its exports are read by eye")

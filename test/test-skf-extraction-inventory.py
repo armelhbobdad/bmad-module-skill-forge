@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -266,7 +267,7 @@ def test_init_seeds_the_inventory_from_the_runner_and_the_detector(tmp_path):
     assert data["warnings"] == [
         "Extraction hit the head cap: `py-function-defs` matched more than 200 exports, so some exports were read "
         "by eye or left out. Narrow `scope.include` in the brief until no recipe reaches the cap.",
-        "ast-grep did not finish on 5 files from `src/big.py` (timed out): exports in them may be missing",
+        "ast-grep did not finish on 5 files from `src/big.py` (timed out): their exports are read by eye",
         "`src/broken.py` (syntax-errors): its exports are read by eye",
         "2 `.java` files in scope are in a language no recipe reads",
         "no recipe reads java files",
@@ -324,6 +325,59 @@ def test_init_reads_what_the_runner_writes(tmp_path):
     assert data["files_scanned"] == 2
     assert data["extraction_rules"]["recipe_set"] == "standard" and data["extraction_rules"]["ast_grep_version"]
     assert data["counts"]["exports_public_api"] == 1
+
+
+@pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")
+@pytest.mark.skipif(os.name == "nt", reason="the shim is a POSIX script")
+def test_a_call_cut_while_it_prints_is_read_by_eye_and_merged(tmp_path):
+    """#731: a shim first on PATH runs the real ast-grep, prints every match
+    but `pkg/api.py`'s class and exits 1, as #722's does. The runner lists
+    both files of the call in `unread`, `init`'s warning says their exports
+    are read by eye, and §5's `add` of that read adds only the lost class
+    (T1-low), keeping the runner's records T1."""
+    cut = tmp_path / "cut.py"
+    cut.write_text(f"""import json, os, subprocess, sys
+real = {shutil.which("ast-grep")!r}
+if sys.argv[1:2] != ["scan"]:
+    os.execv(real, [real, *sys.argv[1:]])
+res = subprocess.run([real, *sys.argv[1:]], capture_output=True, text=True)
+for line in res.stdout.splitlines():
+    match = json.loads(line)
+    if (match["file"], match["ruleId"]) != ("pkg/api.py", "python-public-classes"):
+        print(line)
+sys.stderr.write("killed\\n")
+sys.exit(1)
+""", encoding="utf-8")
+    shim = tmp_path / "bin" / "ast-grep"
+    shim.parent.mkdir()
+    shim.write_bytes(f"#!/bin/sh\nexec '{sys.executable}' '{cut}' \"$@\"\n".encode("utf-8"))
+    shim.chmod(0o755)
+    root = tmp_path / "src"
+    (root / "pkg").mkdir(parents=True)
+    (root / "pkg" / "api.py").write_text("def ping():\n    return 1\n\n\nclass Search:\n    pass\n", encoding="utf-8")
+    (root / "pkg" / "other.py").write_text("def helper():\n    return 2\n", encoding="utf-8")
+    runner_json = tmp_path / "demo.extraction.json"
+    ran = subprocess.run([sys.executable, str(RUNNER), "--mode", "full", "--source-root", str(root),
+                          "--head-cap", "0", "-o", str(runner_json)], capture_output=True, text=True,
+                         encoding="utf-8", timeout=300, check=False,
+                         env={**os.environ, "PATH": f"{shim.parent}{os.pathsep}{os.environ['PATH']}"})
+    assert ran.returncode == 1, ran.stderr
+    out = _load(runner_json)
+    assert out["status"] == "incomplete"
+    assert [(e["files"], e["first_file"], e["unread"]) for e in out["errors"]] == [
+        (2, "pkg/api.py", ["pkg/api.py", "pkg/other.py"])]
+    path = tmp_path / "demo.inventory.json"
+    _ok(_run("init", "--inventory", str(path), "--skill", "demo", "--mode", "source", "--tier", "Forge",
+             "--extraction", str(runner_json)))
+    assert ("ast-grep did not finish on 2 files from `pkg/api.py` (exit 1: killed): their exports are read by eye"
+            in _load(path)["warnings"])
+    read = [{"export_name": "ping", "export_type": "function", "source_file": "pkg/api.py", "source_line": 1},
+            {"export_name": "Search", "export_type": "class", "source_file": "pkg/api.py", "source_line": 5},
+            {"export_name": "helper", "export_type": "function", "source_file": "pkg/other.py", "source_line": 1}]
+    added = _ok(_run("add", "--inventory", str(path), "--field", "exports", stdin=json.dumps(read)))
+    assert (added["added"], added["duplicates"]) == (1, 2)
+    assert {(e["export_name"], e["source_file"]): e["confidence"] for e in _load(path)["exports"]} == {
+        ("ping", "pkg/api.py"): "T1", ("Search", "pkg/api.py"): "T1-low", ("helper", "pkg/other.py"): "T1"}
 
 
 # --------------------------------------------------------------------------

@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  When an ast-grep call of the recipe runner (`skf-extract-public-api.py`) times out, or is killed or crashes after it printed some of its matches, Create Skill now runs the runner once more and, when the run is still `incomplete`, reads by eye every file a failed call lists in `unread` and adds what it finds as T1-low. Update Skill and Audit Skill already run the runner again and read those files by eye, and Test Skill already reads them by eye. A file such a call left unread or cut in part used to ship with exports missing from the provenance map, behind a warning that named only how many files the call held and the first of them; the warning now says those files are read by eye. One failed call over a large batch of files can send all of them to the by-eye read.
+prs: [739]
+issues: [731]
