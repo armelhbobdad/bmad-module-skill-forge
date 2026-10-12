@@ -1046,6 +1046,10 @@ def test_run_lock_replaces_the_pid_guard():
                   "'write:verify-manual-integrity')", "a failed write in write.md §2 to §5 (error.phase "
                   "'write:artifact-write')", "only after §6 and §7, the last checks that can halt"):
         assert token in status, token
+    # #723: write.md \u00a78 halts the same way when another flip of the link holds the flip lock
+    assert ("or when write.md \u00a78 finds another flip of the active link holding its lock for 5 s (error.phase "
+            "'write:active-symlink', error.reason 'busy: ...'). error.reason names the run that holds a run lock, "
+            "never a PID)") in status
     assert "PID-file" not in status and "minutes" not in status and "\u2014" not in status
     for token in ("run-lock-replaced", "run-lock-not-released"):
         assert token in props["warnings"]["description"], token
@@ -4439,6 +4443,11 @@ def test_write_makes_the_version_live_after_the_last_check():
     eight = _slice(write, "### 8. Update the Active Symlink", "### 8a.")
     assert "now that §6 and §7 have checked the written package" in eight
     assert eight.count("Continue to §8a.") == 2
+    # #723: the helper holds the flip lock and reports `busy` when another flip keeps it for the whole wait
+    assert "`status` ∈ `{ok, flipped, mismatch, missing-target, busy}`" in eight
+    assert ("- **`busy`** (exit 2): another flip of the link held its lock for the helper's whole wait, so the link "
+            "is unchanged. HALT with status `halted-for-concurrent-run` and display `halt_message` verbatim.") in eight
+    assert "For each exit-2 halt, the halt procedure takes `phase: \"write:active-symlink\"`" in eight
     rules = _slice(write, "## Rules", "## Steps")
     assert ("§8 points the `active` link at the new version only after §6 and §7, the last checks that can halt, so "
             "every halt in this step rolls back a version no reader sees yet") in rules

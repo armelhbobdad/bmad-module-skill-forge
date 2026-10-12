@@ -459,7 +459,7 @@ uv run {updateActiveSymlinkHelper} update \
     --version {version}
 ```
 
-The helper emits a result envelope with `status` ∈ `{ok, flipped, mismatch, missing-target}` and a pre-formatted `log_message`. Log the message to the evidence report.
+The helper emits a result envelope with `status` ∈ `{ok, flipped, mismatch, missing-target, busy}` and a pre-formatted `log_message`. Log the message to the evidence report.
 
 **Dispatch on `status`:**
 
@@ -467,8 +467,9 @@ The helper emits a result envelope with `status` ∈ `{ok, flipped, mismatch, mi
 - **`flipped`** (exit 0): symlink was atomically updated (temp-and-replace). Continue to §8a.
 - **`missing-target`** (exit 2): `{skill_group}/{version}/` does not exist on disk, so step 4 §6b did not create it. HALT with status `halted-for-write-failure` and display `halt_message` verbatim.
 - **`mismatch`** (exit 2): the link still points elsewhere after the flip. HALT with status `halted-for-write-failure` and display `halt_message` verbatim.
+- **`busy`** (exit 2): another flip of the link held its lock for the helper's whole wait, so the link is unchanged. HALT with status `halted-for-concurrent-run` and display `halt_message` verbatim.
 
-For both exit-2 halts, the halt procedure takes `phase: "write:active-symlink"`, `path: "{skill_group}/active"`, `reason: "<status>: <halt_message>"`. Its rollback removes the new version (the `active` link does not name it) or, in gap-driven mode, restores the package from the snapshot.
+For each exit-2 halt, the halt procedure takes `phase: "write:active-symlink"`, `path: "{skill_group}/active"`, `reason: "<status>: <halt_message>"`. Its rollback removes the new version (the `active` link does not name it) or, in gap-driven mode, restores the package from the snapshot.
 
 ### 8a. Verify the Active Symlink
 

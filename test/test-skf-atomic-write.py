@@ -14,8 +14,11 @@ lock path or with a folder there is raised as before. On POSIX, a flip
 refused by a held lock leaves the lock file to its holder; a flip whose
 locked file is no longer at the path opens the path again, and exits 2
 when a newer flip holds the file there or the wait runs out; the holder
-removes the file before it releases the lock. The copy of
-_names_open_file stays identical to the one in gap-ledger.py.
+removes the file before it releases the lock. take_flip_lock, which
+skf-update-active-symlink.py update calls too, keeps trying a held lock
+for the `wait` its caller gives, raises FlipLockHeld once that wait ends
+(at once with no wait), and takes the lock once the holder lets it go.
+The copy of _names_open_file stays identical to the one in gap-ledger.py.
 """
 
 from __future__ import annotations
@@ -27,6 +30,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from pathlib import Path
 
@@ -343,6 +347,35 @@ class TestFlipLockOnPosix:
         assert os.readlink(link) == "1.0.0"
         assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no lock or temp link left"
 
+    def test_a_longer_wait_also_extends_the_retry_for_a_file_that_left_the_path(self, tmp_path, monkeypatch):
+        # #723: about 0.3 s into a 1 s wait, past _LOCK_OPEN_WAIT_SECONDS, the holder removes its file
+        # and lets go between this call's open and its lock: the call opens the path again.
+        group = _three_versions(tmp_path)
+        link, lock = group / "active", group / "active.skf-lock"
+        real_acquire = mod._acquire_lock
+        holder = [_hold_lock(lock)]
+        started = time.monotonic()
+
+        def holder_lets_go_after_a_while(fd):
+            if holder and time.monotonic() - started >= 0.3:
+                lock.unlink()
+                os.close(holder.pop())
+            return real_acquire(fd)
+
+        monkeypatch.setattr(mod, "_acquire_lock", holder_lets_go_after_a_while)
+        monkeypatch.setattr(mod, "_LOCK_OPEN_WAIT_SECONDS", 0.1)
+        try:
+            got = mod.take_flip_lock(link, wait=1.0)
+        finally:
+            for fd in holder:
+                os.close(fd)
+        try:
+            assert not holder, "the holder let go"
+            assert _still_at_path(got, lock), "it locked the file at the path"
+        finally:
+            mod.release_flip_lock(link, got)
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no lock file left"
+
     def test_a_file_that_keeps_leaving_the_path_exits_2_after_the_wait(self, tmp_path, monkeypatch, capsys):
         group = _three_versions(tmp_path)
         link, lock = group / "active", group / "active.skf-lock"
@@ -386,6 +419,45 @@ class TestFlipLockOnPosix:
         assert at_release == [False], "the lock file was still at the path when the lock was released"
         assert json.loads(capsys.readouterr().out)["points_to"] == "1.0.0"
         assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"]
+
+    def test_take_flip_lock_raises_after_its_wait_and_at_once_with_none(self, tmp_path):
+        # skf-update-active-symlink.py update waits; flip-link passes no wait (#723).
+        group = _three_versions(tmp_path)
+        link, lock = group / "active", group / "active.skf-lock"
+        fd = _hold_lock(lock)
+        try:
+            started = time.monotonic()
+            with pytest.raises(mod.FlipLockHeld) as exc:
+                mod.take_flip_lock(link, wait=0.3)
+            assert time.monotonic() - started >= 0.3
+            assert str(exc.value) == f"another process holds flip lock on {link}"
+            started = time.monotonic()
+            with pytest.raises(mod.FlipLockHeld) as exc:
+                mod.take_flip_lock(link)
+            assert time.monotonic() - started < 0.3, "with no wait the call is refused at once"
+            assert str(exc.value) == f"another process holds flip lock on {link}"
+            assert _still_at_path(fd, lock), "the holder's lock file is still at the path"
+        finally:
+            os.close(fd)
+
+    def test_take_flip_lock_takes_the_lock_once_the_holder_lets_go(self, tmp_path):
+        group = _three_versions(tmp_path)
+        link, lock = group / "active", group / "active.skf-lock"
+        fd = _hold_lock(lock)
+        holder = threading.Timer(0.3, mod.release_flip_lock, (link, fd))
+        started = time.monotonic()
+        holder.start()
+        try:
+            got = mod.take_flip_lock(link, wait=5.0)
+        finally:
+            holder.join()
+        try:
+            assert 0.3 <= time.monotonic() - started < 5.0, "it waited for the holder, not for the whole wait"
+            assert _still_at_path(got, lock), "it locked the file at the path"
+        finally:
+            mod.release_flip_lock(link, got)
+        assert os.readlink(link) == "1.6.2"
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no lock file left"
 
 
 def _top_level_def(path: Path, name: str) -> str:

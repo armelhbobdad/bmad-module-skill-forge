@@ -12,6 +12,10 @@ Covers update + verify subcommands:
   - missing target directory → halt
   - mismatch detection in verify-only mode
   - refusal to overwrite a non-symlink path
+  - update holds `active.skf-lock`, flip-link's lock (#723): a flip-link
+    between its flip and its re-read is refused, it waits while another
+    flip holds the lock and returns busy when the lock stays held, a
+    second update waits for the first, and a no-op leaves no lock file
 """
 
 from __future__ import annotations
@@ -21,6 +25,8 @@ import json
 import os
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -35,11 +41,18 @@ pytestmark = pytest.mark.skipif(
 
 REPO_ROOT = Path(__file__).parent.parent
 SCRIPT_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-update-active-symlink.py"
+# The sibling whose flip-link takes the lock update takes too.
+ATOMIC_WRITE_PATH = SCRIPT_PATH.with_name("skf-atomic-write.py")
 
 spec = importlib.util.spec_from_file_location("skf_update_active_symlink", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 spec.loader.exec_module(mod)
+
+aw_spec = importlib.util.spec_from_file_location("skf_atomic_write_for_update", ATOMIC_WRITE_PATH)
+aw = importlib.util.module_from_spec(aw_spec)
+assert aw_spec.loader is not None
+aw_spec.loader.exec_module(aw)
 
 
 # --------------------------------------------------------------------------
@@ -153,6 +166,150 @@ class TestUpdate:
         assert "does not exist" in result["halt_message"]
         # no symlink was created
         assert not (group / "active").exists()
+
+    def test_no_op_leaves_no_lock_file(self, tmp_path: Path) -> None:
+        group = _make_group(tmp_path, "1.0.0")
+        os.symlink("1.0.0", group / "active")
+        assert mod.update(group, "1.0.0")["status"] == "ok"
+        assert sorted(p.name for p in group.iterdir()) == ["1.0.0", "active"], "no lock file left"
+
+
+# --------------------------------------------------------------------------
+# update() and the flip lock (#723)
+# --------------------------------------------------------------------------
+
+
+THREE_VERSIONS = ["0.5.8", "1.0.0", "1.6.2"]
+
+
+def _three_versions(tmp_path: Path) -> Path:
+    """oms-cognee with 0.5.8, 1.0.0 and 1.6.2, and `active -> 1.6.2`."""
+    group = tmp_path / "oms-cognee"
+    for v in THREE_VERSIONS:
+        (group / v).mkdir(parents=True)
+    os.symlink("1.6.2", group / "active")
+    return group
+
+
+def _flip_link(link: Path, target: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(ATOMIC_WRITE_PATH), "flip-link", "--link", str(link), "--target", target],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _hold_lock(group: Path) -> int:
+    """Open and lock `active.skf-lock` as a flip does; the caller closes the fd."""
+    fd = os.open(group / "active.skf-lock", os.O_WRONLY | os.O_CREAT, 0o644)
+    try:
+        aw._acquire_lock(fd)
+    except BaseException:
+        os.close(fd)
+        raise
+    return fd
+
+
+def _update_cli(group: Path, version: str) -> subprocess.Popen:
+    return subprocess.Popen(
+        [sys.executable, str(SCRIPT_PATH), "update", "--skill-group", str(group), "--version", version],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+
+class TestUpdateHoldsTheFlipLock:
+    def test_a_flip_link_between_the_flip_and_the_reread_is_refused(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        group = _three_versions(tmp_path)
+        real_flip = mod.atomic_flip_symlink
+        seen: dict[str, subprocess.CompletedProcess] = {}
+
+        def flip_then_flip_link(link_path: Path, target: str) -> None:
+            real_flip(link_path, target)
+            seen["flip_link"] = _flip_link(link_path, "0.5.8")
+
+        monkeypatch.setattr(mod, "atomic_flip_symlink", flip_then_flip_link)
+        result = mod.update(group, "1.0.0")
+        assert seen["flip_link"].returncode == 2, seen["flip_link"].stderr
+        assert json.loads(seen["flip_link"].stderr)["message"] == (
+            f"another process holds flip lock on {group / 'active'}")
+        assert result["status"] == "flipped", result
+        assert os.readlink(group / "active") == "1.0.0"
+
+    def test_update_waits_while_another_flip_holds_the_lock(self, tmp_path: Path) -> None:
+        group = _three_versions(tmp_path)
+        fd = _hold_lock(group)
+        out: dict[str, dict] = {}
+        worker = threading.Thread(target=lambda: out.setdefault("result", mod.update(group, "1.0.0")))
+        try:
+            worker.start()
+            time.sleep(0.3)
+            assert os.readlink(group / "active") == "1.6.2", "update flipped while the lock was held"
+        finally:
+            # let go as a flip does: remove the file, then release the lock
+            os.unlink(group / "active.skf-lock")
+            aw._release_lock(fd)
+            os.close(fd)
+            worker.join(10)
+        assert out["result"]["status"] == "flipped", out
+        assert os.readlink(group / "active") == "1.0.0"
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no lock or temp link left"
+
+    def test_update_is_busy_when_the_lock_stays_held(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        group = _three_versions(tmp_path)
+        monkeypatch.setattr(mod, "FLIP_LOCK_WAIT_SECONDS", 0.2)
+        fd = _hold_lock(group)
+        try:
+            started = time.monotonic()
+            result = mod.update(group, "1.0.0")
+            assert time.monotonic() - started >= 0.2
+            assert result["status"] == "busy", result
+            assert mod._exit_code_for_status(result["status"]) == 2
+            assert (result["current_target"], result["action_taken"]) == (None, "halt")
+            assert result["log_message"] == (
+                f"active_symlink_update: busy (another process holds flip lock on {group / 'active'})")
+            assert "Re-run once the other run ends" in result["halt_message"]
+            assert os.readlink(group / "active") == "1.6.2"
+            assert os.path.samestat(os.fstat(fd), os.stat(group / "active.skf-lock")), "the holder's file left the path"
+        finally:
+            aw._release_lock(fd)
+            os.close(fd)
+
+    def test_a_second_update_waits_for_the_first(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        group = _three_versions(tmp_path)
+        tmp_link = group / ".active.skf-symlink.tmp"
+        real_symlink = os.symlink
+        made, go = threading.Event(), threading.Event()
+
+        def symlink_then_pause(src, dst, *args, **kwargs):
+            real_symlink(src, dst, *args, **kwargs)
+            if Path(dst) == tmp_link and not made.is_set():
+                made.set()
+                go.wait(10)
+
+        monkeypatch.setattr(os, "symlink", symlink_then_pause)
+        out: dict[str, dict] = {}
+        first = threading.Thread(target=lambda: out.setdefault("first", mod.update(group, "1.0.0")))
+        first.start()
+        try:
+            assert made.wait(10), "the first update made its temp link"
+            second = _update_cli(group, "0.5.8")
+            time.sleep(0.3)
+            assert second.poll() is None, "the second update did not wait"
+            assert os.readlink(tmp_link) == "1.0.0" and os.readlink(group / "active") == "1.6.2"
+        finally:
+            go.set()
+            first.join(10)
+        stdout, stderr = second.communicate(timeout=10)
+        assert out["first"]["status"] == "flipped", out
+        assert second.returncode == 0, stderr
+        assert json.loads(stdout)["status"] == "flipped"
+        assert os.readlink(group / "active") == "0.5.8"
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no lock or temp link left"
 
 
 # --------------------------------------------------------------------------
