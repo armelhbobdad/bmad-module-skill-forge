@@ -24,8 +24,9 @@ Subcommands:
   flip-link  Point the link <link> at <target>: create the new link as
              <link>.skf-tmp-link, then os.replace it over <link>, holding an
              exclusive lock on <link>.skf-lock, which only the flip holding
-             it removes. Refuses to replace a <link> that is a real directory
-             or file.
+             it removes. skf-update-active-symlink.py update takes the same
+             lock (take_flip_lock), so one flip of a link runs at a time.
+             Refuses to replace a <link> that is a real directory or file.
 
 Cross-platform: locking branches between fcntl (POSIX) and msvcrt
 (Windows). On Windows os.symlink needs Developer Mode or admin; when it
@@ -81,6 +82,8 @@ else:
 # by design, so the wait is short), then exits 2 as it does for a held lock.
 # The same wait bounds a POSIX flip that keeps finding the file it locked
 # gone from the path: it opens the path again until then, then exits 2.
+# A caller that gives take_flip_lock a longer `wait` (skf-update-active-symlink.py
+# update) keeps both retries going until that wait ends.
 _IS_WINDOWS = os.name == "nt"
 _LOCK_OPEN_WAIT_SECONDS = 1.0
 _LOCK_OPEN_POLL_SECONDS = 0.02
@@ -307,11 +310,100 @@ def _is_link_or_junction(p: Path) -> bool:
         return False
 
 
+class FlipLockHeld(Exception):
+    """Another flip holds <link>.skf-lock; the message names <link>."""
+
+
+def take_flip_lock(link: Path, wait: float = 0.0) -> int:
+    """Take <link>.skf-lock, the lock every flip of <link> holds, and return its fd.
+
+    flip-link and skf-update-active-symlink.py update both take it, so one
+    flip of a link runs at a time. `wait` is how long to keep trying a lock
+    another flip holds: the call closes the file, sleeps
+    _LOCK_OPEN_POLL_SECONDS and opens the path again. flip-link passes 0
+    and is refused at once. Raises FlipLockHeld when the lock stays held
+    past `wait`, and when the retries cmd_flip_link's docstring describes
+    (Windows refusing the open, a locked file that left the path) run out:
+    they run until max(_LOCK_OPEN_WAIT_SECONDS, wait). release_flip_lock
+    gives the lock back.
+    """
+    lock_path = link.with_name(link.name + ".skf-lock")
+    held_deadline = time.monotonic() + wait
+    deadline = time.monotonic() + max(_LOCK_OPEN_WAIT_SECONDS, wait)
+    vanished = False
+    while True:
+        try:
+            lock_fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
+        except PermissionError as exc:
+            # Windows refuses to open a file whose removal is pending. A folder
+            # at the path, or nothing there twice running (once can be the
+            # removal ending just now), is a lasting denial: raise it.
+            if not _IS_WINDOWS or os.path.isdir(lock_path):
+                raise
+            if not os.path.lexists(lock_path):
+                if vanished:
+                    raise
+                vanished = True
+                continue
+            vanished = False
+            if time.monotonic() >= deadline:
+                raise FlipLockHeld(f"another process holds flip lock on {link} (last open refused: {exc})")
+            time.sleep(_LOCK_OPEN_POLL_SECONDS)
+            continue
+        held = False
+        try:
+            try:
+                _acquire_lock(lock_fd)
+            except OSError as e:
+                if e.errno != errno.EAGAIN:
+                    raise
+                if time.monotonic() >= held_deadline:
+                    raise FlipLockHeld(f"another process holds flip lock on {link}")
+                held = True
+            else:
+                # os.name here and in release_flip_lock follows the real OS; _IS_WINDOWS is the open retry's test seam.
+                if os.name == "nt" or _names_open_file(lock_fd, lock_path):
+                    return lock_fd
+                _release_lock(lock_fd)
+        except BaseException:
+            os.close(lock_fd)
+            raise
+        os.close(lock_fd)
+        if held:
+            time.sleep(_LOCK_OPEN_POLL_SECONDS)
+            continue
+        if time.monotonic() >= deadline:
+            raise FlipLockHeld(f"another process holds flip lock on {link}")
+
+
+def release_flip_lock(link: Path, lock_fd: int) -> None:
+    """Give back the lock take_flip_lock returned, removing <link>.skf-lock."""
+    lock_path = link.with_name(link.name + ".skf-lock")
+    # Only the flip holding the lock gets here, so it alone removes the
+    # lock file: on POSIX while the lock is still held, so that a flip on
+    # the old file sees the path no longer names it; on Windows, which
+    # removes no open file, after the release and the close. Best effort:
+    # a leftover file is locked and removed by the next flip.
+    if os.name != "nt":
+        try:
+            lock_path.unlink()
+        except OSError:
+            pass
+    _release_lock(lock_fd)
+    os.close(lock_fd)
+    if os.name == "nt":
+        try:
+            lock_path.unlink()
+        except OSError:
+            pass
+
+
 def cmd_flip_link(link: Path, target: str) -> None:
     """Atomically point <link> at <target> using rename-over-symlink pattern.
 
     target is the value of the symlink (may be relative, as is convention
-    for `active -> 1.0.0`). A lock on <link>.skf-lock prevents concurrent flips.
+    for `active -> 1.0.0`). A lock on <link>.skf-lock, which
+    skf-update-active-symlink.py update takes too, prevents concurrent flips.
 
     On Windows, os.symlink requires Developer Mode or admin. When that fails
     with PRIVILEGE_NOT_HELD/ACCESS_DENIED the helper falls back to a directory
@@ -339,7 +431,6 @@ def cmd_flip_link(link: Path, target: str) -> None:
     refusal with a folder at the path, or with nothing there on an
     immediate second try, is a lasting denial and is raised as before.
     """
-    lock_path = link.with_name(link.name + ".skf-lock")
     link.parent.mkdir(parents=True, exist_ok=True)
 
     # Refuse only if <link> is a real directory/file (not a symlink or junction).
@@ -347,44 +438,10 @@ def cmd_flip_link(link: Path, target: str) -> None:
     if link.exists() and not _is_link_or_junction(link):
         _die(2, f"refusing to replace non-link: {link}")
 
-    deadline = time.monotonic() + _LOCK_OPEN_WAIT_SECONDS
-    vanished = False
-    while True:
-        try:
-            lock_fd = os.open(lock_path, os.O_WRONLY | os.O_CREAT, 0o644)
-        except PermissionError as exc:
-            # Windows refuses to open a file whose removal is pending. A folder
-            # at the path, or nothing there twice running (once can be the
-            # removal ending just now), is a lasting denial: raise it.
-            if not _IS_WINDOWS or os.path.isdir(lock_path):
-                raise
-            if not os.path.lexists(lock_path):
-                if vanished:
-                    raise
-                vanished = True
-                continue
-            vanished = False
-            if time.monotonic() >= deadline:
-                _die(2, f"another process holds flip lock on {link} (last open refused: {exc})")
-            time.sleep(_LOCK_OPEN_POLL_SECONDS)
-            continue
-        try:
-            try:
-                _acquire_lock(lock_fd)
-            except OSError as e:
-                if e.errno == errno.EAGAIN:
-                    _die(2, f"another process holds flip lock on {link}")
-                raise
-            # os.name here and in the finally follows the real OS; _IS_WINDOWS is the open retry's test seam.
-            if os.name == "nt" or _names_open_file(lock_fd, lock_path):
-                break
-            _release_lock(lock_fd)
-        except BaseException:
-            os.close(lock_fd)
-            raise
-        os.close(lock_fd)
-        if time.monotonic() >= deadline:
-            _die(2, f"another process holds flip lock on {link}")
+    try:
+        lock_fd = take_flip_lock(link)
+    except FlipLockHeld as exc:
+        _die(2, str(exc))
     try:
         tmp_link = link.with_name(link.name + ".skf-tmp-link")
         if tmp_link.is_symlink() or tmp_link.exists():
@@ -415,23 +472,7 @@ def cmd_flip_link(link: Path, target: str) -> None:
                 link.rmdir()
         os.replace(tmp_link, link)
     finally:
-        # Only the flip holding the lock gets here, so it alone removes the
-        # lock file: on POSIX while the lock is still held, so that a flip on
-        # the old file sees the path no longer names it; on Windows, which
-        # removes no open file, after the release and the close. Best effort:
-        # a leftover file is locked and removed by the next flip.
-        if os.name != "nt":
-            try:
-                lock_path.unlink()
-            except OSError:
-                pass
-        _release_lock(lock_fd)
-        os.close(lock_fd)
-        if os.name == "nt":
-            try:
-                lock_path.unlink()
-            except OSError:
-                pass
+        release_flip_lock(link, lock_fd)
 
     _ok({"link": str(link), "points_to": target, "kind": link_kind})
 

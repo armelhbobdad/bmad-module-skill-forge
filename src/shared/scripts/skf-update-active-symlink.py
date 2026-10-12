@@ -16,12 +16,16 @@ to verify it points where expected and halts on divergence.
 This helper consolidates the two steps into one workflow-specific
 invocation:
 
+  - holds {skill-group}/active.skf-lock, the lock skf-atomic-write.py
+    flip-link takes, from the read through the re-read, so one flip of
+    the link runs at a time; while another flip holds it, waits up to
+    FLIP_LOCK_WAIT_SECONDS, then returns busy without touching the link
   - detects whether a flip is required (idempotent: already pointing
     at the target → no-op)
   - performs the flip atomically (symlink → temp name → os.replace)
     so concurrent readers never see a missing symlink
   - verifies the post-state and surfaces ok / flipped / mismatch
-    / missing-target
+    / missing-target / busy
 
 Two subcommands:
 
@@ -41,7 +45,7 @@ silently breaks downstream consumers that expect it to resolve.
 
 Output JSON (stdout):
   {
-    "status": "ok" | "flipped" | "mismatch" | "missing-target",
+    "status": "ok" | "flipped" | "mismatch" | "missing-target" | "busy",
     "skill_group": "<abs path>",
     "active_link": "<abs path to active>",
     "expected_target": "<version>",
@@ -52,10 +56,13 @@ Output JSON (stdout):
   }
 
 Exit codes:
-  0  — ok (already correct) or flipped (just updated)
-  1  — script error (bad args, group path invalid)
-  2  — mismatch (verify mode and target diverges) OR missing-target
-       (the {version} directory doesn't exist; caller must halt)
+  0: ok (already correct) or flipped (just updated)
+  1: script error (bad args, group path invalid, skf-atomic-write.py
+     not loadable from this script's folder)
+  2: mismatch (verify mode and target diverges), missing-target
+     (the {version} directory doesn't exist; caller must halt), or
+     busy (update: another flip held the link's lock for the whole
+     wait; the link is unchanged, caller must halt)
 
 Platform: POSIX symlinks. On Windows this script intentionally
 exits 1 with a clear error — update-skill's documented supported
@@ -65,6 +72,7 @@ platform is WSL2 (same as skf-atomic-write.py's flip-link).
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import sys
@@ -72,6 +80,23 @@ from pathlib import Path
 
 
 ACTIVE_NAME = "active"
+ATOMIC_WRITE_HELPER = Path(__file__).resolve().parent / "skf-atomic-write.py"
+# A flip holds <link>.skf-lock for well under a millisecond, so update waits
+# this long for another flip to let it go before it returns busy.
+FLIP_LOCK_WAIT_SECONDS = 5.0
+
+
+def _load_atomic_write():
+    """Load skf-atomic-write.py, which installs into the same folder as this script."""
+    try:
+        spec = importlib.util.spec_from_file_location("skf_atomic_write", ATOMIC_WRITE_HELPER)
+        if spec is None or spec.loader is None:
+            raise ImportError("no import spec")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except (OSError, ImportError, SyntaxError) as e:
+        raise OSError(f"cannot load the flip-lock helper {ATOMIC_WRITE_HELPER}: {e}") from e
+    return module
 
 
 # --------------------------------------------------------------------------
@@ -197,6 +222,23 @@ def _envelope_mismatch(skill_group: Path, version: str, current: str | None) -> 
     }
 
 
+def _envelope_busy(skill_group: Path, version: str, message: str) -> dict:
+    return {
+        "status": "busy",
+        "skill_group": str(skill_group),
+        "active_link": str(skill_group / ACTIVE_NAME),
+        "expected_target": version,
+        "current_target": None,
+        "action_taken": "halt",
+        "log_message": f"active_symlink_update: busy ({message})",
+        "halt_message": (
+            f"Another flip of `{skill_group / ACTIVE_NAME}` held its lock for "
+            f"{FLIP_LOCK_WAIT_SECONDS:g} s, so the link is unchanged. "
+            "Re-run once the other run ends."
+        ),
+    }
+
+
 def update(skill_group: Path, version: str) -> dict:
     """Idempotently flip {skill_group}/active to point at {version}."""
     target_dir = skill_group / version
@@ -204,16 +246,24 @@ def update(skill_group: Path, version: str) -> dict:
         return _envelope_missing_target(skill_group, version)
 
     link_path = skill_group / ACTIVE_NAME
-    current = read_link_target(link_path)
-    if current == version:
-        return _envelope_ok(skill_group, version, current)
+    atomic_write = _load_atomic_write()
+    try:
+        lock_fd = atomic_write.take_flip_lock(link_path, wait=FLIP_LOCK_WAIT_SECONDS)
+    except atomic_write.FlipLockHeld as exc:
+        return _envelope_busy(skill_group, version, str(exc))
+    try:
+        current = read_link_target(link_path)
+        if current == version:
+            return _envelope_ok(skill_group, version, current)
 
-    atomic_flip_symlink(link_path, version)
+        atomic_flip_symlink(link_path, version)
 
-    # Re-read to confirm
-    post = read_link_target(link_path)
+        # Re-read to confirm
+        post = read_link_target(link_path)
+    finally:
+        atomic_write.release_flip_lock(link_path, lock_fd)
     if post != version:
-        # Should be impossible — os.replace would have raised — but defend
+        # Only a writer that skips the lock, such as a hand-run `ln -sfn`, gets here.
         return _envelope_mismatch(skill_group, version, post)
     return _envelope_flipped(skill_group, version, current)
 
@@ -235,7 +285,7 @@ def verify(skill_group: Path, version: str) -> dict:
 def _exit_code_for_status(status: str) -> int:
     if status in ("ok", "flipped"):
         return 0
-    if status in ("mismatch", "missing-target"):
+    if status in ("mismatch", "missing-target", "busy"):
         return 2
     return 1
 

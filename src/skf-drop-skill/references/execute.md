@@ -144,7 +144,7 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
          --skill-group {skills_output_folder}/{target_skill} \
          --version {new_active_version}
        ```
-       Record a `mismatch`/`missing-target` exit (code 2), or a missing helper (no probe candidate), as above with the manual fix `ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`, and continue.
+       Record a `mismatch`/`missing-target` exit (code 2), or a missing helper (no probe candidate), as above with the manual fix `ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`, and continue. Record a `busy` exit (code 2, another run was moving the link) the same way, with the manual fix "once the other run has finished, if `active` still names the dropped version, run `ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`".
      - **No non-deprecated versions remain** (`resolve.counts.non_deprecated` is `0`, reachable only when dropping the sole surviving version, permitted in step 1 because no other non-deprecated versions existed): remove the now-dangling `active` symlink with a single atomic unlink of the link itself: `rm {skills_output_folder}/{target_skill}/active` (unlink removes only the symlink, never its target). When it fails, record it as above with the manual fix `rm {skills_output_folder}/{target_skill}/active`.
 
 3. Format the size of the deleted folders through the sizing helper; do not add or round in-prompt:

@@ -1061,6 +1061,13 @@ def test_troubleshooting_names_the_run_lock_halts():
                   "delete the lock file the message names", "**`run-lock-lost`:**",
                   "`merge:run-lock` or `write:run-lock`"):
         assert token in update, token
+    # #723: another run's flip of `active` held the flip lock for the update's whole wait
+    busy = _slice(update, "**`busy`:**", "\n")
+    for token in ("another run's flip of the skill's `active` link (Create Skill, Quick Skill or Drop Skill) held "
+                  "the link's lock for 5 seconds", "(`error.phase` is `write:active-symlink`)",
+                  "The update did not change the link, and the halt undid what the update wrote.",
+                  "Re-run the update once that run ends."):
+        assert token in busy, token
     contract = _read(SRC / "skf-rename-skill" / "references" / "invocation-contract.md")
     assert "`{forge_data_folder}/.skf-rename-{old_name}.lock`" in contract
     assert "(60 minutes after it was taken or renewed)" in contract and "`--dry-run` takes none" in contract

@@ -1075,6 +1075,14 @@ def test_the_new_active_rule_covers_a_null_active_version():
             "then `resolve.newest_non_deprecated`") in delete
 
 
+def test_a_busy_repoint_is_recorded_with_a_fix_for_after_the_other_run():
+    """#723: the helper waits for another flip of `active` and exits 2 `busy` when it keeps the lock."""
+    delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
+    assert ("Record a `busy` exit (code 2, another run was moving the link) the same way, with the manual fix "
+            "\"once the other run has finished, if `active` still names the dropped version, run "
+            "`ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`\".") in delete
+
+
 @pytest.mark.parametrize("active, statuses, dropped, expected", [
     ("0.6.0", {"0.6.0": "active", "0.5.0": "archived"}, "0.5.0", "0.6.0"),
     ("0.5.0", {"0.5.0": "active", "0.4.0": "archived", "0.3.0": "archived"}, "0.5.0", "0.4.0"),

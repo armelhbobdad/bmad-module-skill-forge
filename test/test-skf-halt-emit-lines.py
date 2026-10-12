@@ -319,7 +319,7 @@ def _reason_problem(workflow: str, text: str) -> str | None:
     if workflow == "skf-update-skill":
         named = {m.group(1) for m in STATUS_RE.finditer(text)} & _statuses(workflow)
         stated = {m.group(1) for m in STATUS_RE.finditer(text)}
-        unknown = sorted(s for s in stated - named if s not in ("ok", "flipped", "missing-target", "mismatch"))
+        unknown = sorted(s for s in stated - named if s not in ("ok", "flipped", "missing-target", "mismatch", "busy"))
         return f"statuses {unknown} are not in the schema" if unknown and not named else None
     if workflow == "skf-setup":
         return None

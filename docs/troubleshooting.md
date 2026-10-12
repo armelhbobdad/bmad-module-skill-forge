@@ -151,6 +151,8 @@ Surfaced by `@Ferris US` when another update of the same skill holds its run loc
 
 **`run-lock-lost`:** the same status with this reason means the update waited at a question past the stale time, so another update may have changed the skill (`error.phase` is `merge:run-lock` or `write:run-lock`). It stops before it writes `metadata.json`, and the halt undoes anything the update already wrote: it removes the new version folders, or, for a repair from a test report, restores the files it edited in place from the copy it took first, and the message says which. Re-run the update once no other update of that skill runs; if a version folder the message names is still on disk, delete it first.
 
+**`busy`:** the same status with this reason means another run's flip of the skill's `active` link (Create Skill, Quick Skill or Drop Skill) held the link's lock for 5 seconds while the update was pointing the link at its version (`error.phase` is `write:active-symlink`). The update did not change the link, and the halt undid what the update wrote. Re-run the update once that run ends.
+
 ### A report says `Tessl Review: off`, `not run`, `no result` or `failed`
 
 Create Skill and Test Skill record one `Tessl Review:` line in the evidence report and the test report. Tessl Review is optional and never stops a run, so the line says why it produced no score:
