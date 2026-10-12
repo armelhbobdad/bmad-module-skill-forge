@@ -441,6 +441,19 @@ def test_a_tier_a_list_that_counts_no_name_gives_no_set(tmp_path, tier_a):
     assert inflation["remediation"].startswith("Edit `scope.tier_a_include`")
 
 
+def test_a_tier_a_glob_over_a_named_re_export_from_outside_scope_gives_no_set(tmp_path):
+    """#725: a name an in-scope barrel re-exports by name from a file scope.include leaves out has no
+    outside_scope row, so it stays in the surface; a tier A name counts only in a file scope.include matches."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["scope"]["tier_a_include"] = ["lib/gen.ts"]
+    data["entry_point_diff"]["public"].append(
+        {"name": "gen", "entry": "src/index.ts", "via": "re-export", "file": "lib/gen.ts", "line": 1})
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", data))
+    assert "gen" in out["sets"]["all"] and "gen" not in out["sets"]["scope.include"]
+    assert "tier_a_include" not in out["sets"]
+    assert out["candidates"]["tierAIncludeUnion"] is None
+
+
 def test_a_fallback_extraction_gives_only_its_scope_and_stale_globs(tmp_path):
     """#712: the fallback per-file scan passes the runner's exit-3 JSON beside its per-file results: its stale
     tier A glob counts no name and fires the stale-scope guard, the deflation guard runs on the per-file names,
@@ -724,6 +737,17 @@ def test_a_stale_glob_restores_the_root_exports_it_dropped(tmp_path):
         "the `scope.include` glob `cognee/pipelines.py` matches no file in the source tested; the `all` set "
         "restores 2 root exports, defined in files no include glob covers: `Task` in `cognee/pipelines/task.py`, "
         "`run_pipeline` in `cognee/pipelines/run.py`")
+
+
+@pytest.mark.parametrize(("tier_a", "expected"), [(["cognee/pipelines/**"], None),
+                                                  (["cognee/pipelines/**", "cognee/api/v1/add.py"], ["add"])],
+                         ids=["restored-only", "restored-and-in-scope"])
+def test_a_tier_a_glob_over_a_restored_file_counts_no_name(tmp_path, tier_a, expected):
+    """#725: a restored name is back in `all`, but its file matches no include glob, so no tier A glob counts it."""
+    out = _cognee(tmp_path, patch={"tier_a_include": tier_a})
+    assert out["sets"]["all"] == ["Task", "add", "run_pipeline"]
+    assert out["guards"]["staleScope"]["restored"] == RESTORED
+    assert out["sets"].get("tier_a_include") == expected
 
 
 def test_a_stale_tier_a_glob_joins_the_stale_scope_gap(tmp_path):
@@ -1255,3 +1279,46 @@ def test_a_real_cognee_tree(tmp_path):
     assert out["sets"]["scope.include"] == ["add", *ROUTER_NAMES]
     assert out["guards"]["staleScope"]["restored"] == RESTORED
     assert [n["entry"] for n in out["excluded"]["nestedEntries"]] == [ROUTERS]
+
+
+TIER_A_TREE = {
+    "package.json": '{"name": "demo", "exports": {".": "./src/index.ts", "./macro": "./macro/index.ts"}}\n',
+    "src/index.ts": "export { format } from './utils/format';\nexport const VERSION = '1';\n",
+    "src/utils/format.ts": "export function format(v: string): string { return v; }\n",
+    "macro/index.ts": "export function macro(): void {}\nexport interface MacroOptions { x: number }\n",
+}
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+@pytest.mark.parametrize(("include", "tier_a", "basis", "count"),
+                         [(["src/**"], ["macro/**"], "scope.include", 2),
+                          (["src/**"], ["src/utils/**", "macro/**"], "tier_a_include", 1),
+                          (["src/**"], ["src/utils/**"], "tier_a_include", 1),
+                          ([], ["macro/**"], "tier_a_include", 2)],
+                         ids=["outside-only", "mixed", "inside-only", "no-include"])
+def test_the_runner_and_the_surface_count_one_tier_a_set(tmp_path, include, tier_a, basis, count):
+    """#725: the count Create Skill stores is the one Test Skill re-derives: the runner's tier A count is the
+    tier_a_include set, and when it falls back to scope.include the surface has no set."""
+    source = tmp_path / "src"
+    for rel, text in TIER_A_TREE.items():
+        _write(source / rel, text)
+    extraction = tmp_path / "run" / "extract-full.json"
+    extraction.parent.mkdir()
+    argv = [sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source),
+            "--tier", "Forge", "--head-cap", "0", "--output", str(extraction)]
+    for glob in include:
+        argv += ["--include", glob]
+    for glob in tier_a:
+        argv += ["--tier-a-include", glob]
+    proc = subprocess.run(argv, capture_output=True, text=True)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    counts = json.loads(extraction.read_text(encoding="utf-8"))["counts"]
+    out = _surface(tmp_path, "--extraction", str(extraction))
+    assert counts["effective_denominator_basis"] == basis
+    if basis == "tier_a_include":
+        assert counts["effective_denominator"] == out["candidates"]["tierAIncludeUnion"] == count
+    else:
+        assert "tier_a_include" not in out["sets"]
+        assert counts["effective_denominator"] == out["candidates"]["scopeIncludeUnion"] == count

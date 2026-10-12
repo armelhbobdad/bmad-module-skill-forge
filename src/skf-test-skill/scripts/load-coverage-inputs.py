@@ -98,10 +98,12 @@ nested Python top's names);
 record names a file: the names whose file (an extraction's definition file,
 the quick output's source_file, a per-file result's file, a provenance
 entry's source_file) matches a glob of the list and no scope.exclude glob,
-so a name with no file is in `all` only (a tier_a_include glob an
-extraction lists as matching no file is left out of the list, and a list
-that counts no name, each glob left out or matching only excluded files or
-files no record names, gives no tier_a_include set); and, from an
+and for `tier_a_include` a scope.include glob too when the scope has one,
+so a name with no file is in `all` only and a restored name is in no
+tier_a_include set (a tier_a_include glob an extraction lists as matching
+no file is left out of the list, and a list that counts no name, each glob
+left out or matching only excluded files, files scope.include leaves out
+or files no record names, gives no tier_a_include set); and, from an
 extraction only, `subpaths` (the names a non-root `exports` map subpath
 without `*` reaches) and `root` (the names the root entry points reach).
 reconcile-coverage.py and score-signatures.py --surface-set pick one.
@@ -789,15 +791,19 @@ def surface(args: argparse.Namespace) -> dict:
     if scope is None:
         scope = brief["scope"] if brief is not None else _scope(None, None, None)
     # A tier A glob the runner lists as matching no file counts no name: the
-    # set comes from the globs that matched. A tier A list that counts no
-    # name (every glob stale, or matching only excluded files or files that
-    # define no name) narrows nothing: there is no set.
+    # set comes from the globs that matched, over the names whose file a
+    # scope.include glob matches too (any file with none), so a restored
+    # name is in no set. A tier A list that counts no name (every glob
+    # stale, or matching only excluded files, files scope.include leaves out
+    # or files that define no name) narrows nothing: there is no set.
     stale_tier_a = set(extracted["staleScope"]["unmatchedTierAInclude"]) if extracted is not None else set()
     tier_a = [g for g in scope["tier_a_include"] if g not in stale_tier_a]
     filed = [r for r in records if r["file"]]
     if filed and scope["include"]:
         sets["scope.include"] = matching(filed, scope["include"], scope["exclude"])
-    tier_a_names = matching(filed, tier_a, scope["exclude"]) if tier_a else []
+    in_include = [r for r in filed if not scope["include"]
+                  or any(glob_match(_norm(r["file"]), g) for g in scope["include"])]
+    tier_a_names = matching(in_include, tier_a, scope["exclude"]) if tier_a else []
     if tier_a_names:
         sets["tier_a_include"] = tier_a_names
 

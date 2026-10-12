@@ -1112,12 +1112,15 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     # with no tier A glob matching a file there is no tier_a_include set: the ladder and the guards go on
     assert "2. Otherwise the `tier_a_include` set when `surface.json` has it" in protocol
     # #712: nor when the globs match only files that define no name, at a pattern-reference app too
+    # (#725: or only files scope.include leaves out)
     assert ("when the tier A globs count no name (none matches a file, or each matches only files `scope.exclude` "
-            "drops or that define no public name), `surface.json` has no `tier_a_include` set and priority 3 "
-            "applies") in protocol
+            "drops, that `scope.include` leaves out or that define no public name), `surface.json` has no "
+            "`tier_a_include` set and priority 3 applies") in protocol
     assert ("The denominator is the `tier_a_include` set when `surface.json` has it, else the canonicalized "
             "provenance map") in protocol
     assert "the brief carries no `scope.tier_a_include` glob that counts a public name" in protocol
+    # #725: a tier A name counts only in a file scope.include matches, so the deflation guard runs there too
+    assert "a tier A name counts only when its file also matches a `scope.include` glob" in protocol
     assert ("or a stored `effective_denominator` of 0 is below a barrel that re-derives any name "
             "(`guards.deflation.pct` null), `guards.deflation.fires` is true") in protocol
     assert "then the `tier_a_include` set when `surface.json` has it" in protocol

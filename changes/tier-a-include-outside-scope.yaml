@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-brief-skill, skf-create-skill, skf-test-skill
+summary: |
+  A `scope.tier_a_include` glob now counts a public name only in a file that a `scope.include` glob also matches, in the count Create Skill stores and in the `tier_a_include` set Test Skill re-derives alike. Create Skill used to count names in files `scope.include` leaves out while Test Skill dropped most of them, so a tier A list over such files only stored a count that raised a Medium `metadata-drift` gap naming no cause, and a list mixing them with files in scope scored Export Coverage over names the surface leaves out. Create Skill now warns `scope.tier_a_include pattern '<glob>' matches only files outside scope.include` for each such glob, and a list that counts no name in scope falls back to `scope.include` with its warning. Brief Skill no longer proposes as tier A candidates the files whose names the recipe runner lists as outside the scope (`entry_point_diff.outside_scope`). A name a stale `scope.include` glob restores no longer counts in a tier A list either, so a count Create Skill stored from a tier A glob over such a name's file now raises the deflation guard's Medium `metadata-drift` gap, and a run that passed can fail.
+migration: |
+  Re-run Create Skill on each skill whose brief has `scope.tier_a_include`, then Test Skill. On the warning that a tier A glob matches only files outside `scope.include`, widen `scope.include` to cover the file or remove the glob from `scope.tier_a_include`.
+issues: [725]
