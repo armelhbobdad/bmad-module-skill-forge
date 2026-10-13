@@ -2875,6 +2875,119 @@ def test_the_documented_stats_calls_run(tmp_path, monkeypatch, capsys):
     assert "effective_denominator" not in out["stats"]
 
 
+def test_write_passes_the_effective_denominator_create_skill_decides():
+    """#741: write §2 passes `effective_denominator` under compile.md §4's three conditions, stated inline (write.md
+    cannot load compile.md), from the runner run it already makes, so an update keeps the count Create Skill stored,
+    following the source and the brief, and drops it where the conditions fail; before, the payload never named it
+    and the first update dropped it."""
+    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
+    bullet = _slice(two, "  - `effective_denominator`, as create-skill's compile.md §4 decides it", "\n")
+    for token in ("so the count follows the source and the brief this update read",
+                  "the runner's `counts.effective_denominator`, only when one of its `arms` is true",
+                  "the skill brief's `scope.type` is neither `full-library` nor `reference-app`",
+                  "the globs `counts.effective_denominator_basis` names list a curated subset rather than the full "
+                  "workspace (in a single-package repo, the whole package; `all-files` names none)",
+                  "the brief's `scope.notes` documents the stratification",
+                  "Under the drift override, and for a docs-only skill, pass the value `stats.effective_denominator` "
+                  "records once the queued `metadata_patches[]` are applied, when it records one",
+                  "Otherwise leave it out, and `metadata.json` keeps no `stats.effective_denominator`: remove one an "
+                  "earlier run recorded"):
+        assert token in bullet, token
+    # compile.md's tier A sentence (#736): a tier A count reads only `scope.include`'s files, so a curated
+    # `scope.include` keeps the globs condition true under a wide `scope.tier_a_include`
+    tier_a = ("A `tier_a_include` count, the runner's or yours, reads only the files a `scope.include` glob also "
+              "matches, so its globs list a curated subset whenever `scope.include` lists one, even when "
+              "`scope.tier_a_include` covers the full workspace; the `scope.type` condition still applies.")
+    # main's by-eye rule (#745 closed as by design): names read by eye go in, each once and only when the count
+    # does not hold them yet, when the count's globs match their file; the bullet names the files to read
+    # (`files_without_recipes` counts by extension) and the names the count holds (a bare number)
+    by_eye = ("Add to it, each name once, and only a name it does not hold yet, the names you read by eye in the "
+              "in-scope files with a `files_without_recipes` extension that the globs "
+              "`counts.effective_denominator_basis` names match; it holds the names `entry_point_diff.public` "
+              "lists (a namespace as its `members`, each by its own file) whose file those globs match and no "
+              "`scope.exclude` glob does.")
+    # the by-hand path states what it needs inline: write.md cannot load compile.md
+    by_hand = ("When you counted the entry points by hand above, count it yourself: the public names whose "
+               "definition file matches a `scope.include` glob (any file when the brief has none), a "
+               "`scope.tier_a_include` glob when that list counts a public name, and no `scope.exclude` glob, each "
+               "name once, a type once with its methods rolled up under it, and a namespace as its members, each "
+               "member by its own file.")
+    hand_list = ("Judge the list that count used (`scope.tier_a_include` when it counts a public name, else "
+                 "`scope.include`; with no `scope.include` either, the count is every file's and fails) and, without "
+                 "the runner's `arms`, judge each arm from the source:")
+    arms = ("(a) `monorepo`, a workspace layout of a kind `skf-detect-workspaces.py` detects;",
+            "(b) `specific_modules`, a `specific-modules` scope, not a monorepo;",
+            "(c) `multi_subpath_exports`, an in-scope `package.json` whose `exports` map has more than one non-root "
+            "subpath without `*` whose target is a JS/TS file, not a monorepo.")
+    for token in (tier_a, by_eye, by_hand, hand_list) + arms:
+        assert token in bullet, token
+    order = [bullet.index(token) for token in (tier_a, by_eye, by_hand, hand_list) + arms]
+    assert order == sorted(order)
+    assert bullet.index("documents the stratification.") < bullet.index(tier_a)
+    # gone: #745's two by-eye branches and its basis clause, and the citation of a file write.md cannot load
+    for gone in ("stay out of it when the runner found an export", "Test Skill's fallback scan reads those files",
+                 "which can still say `tier_a_include`", "as compile.md §4 says"):
+        assert gone not in bullet, gone
+    assert bullet.count("compile.md") == 1
+    # a run still incomplete after its second run stores no count, even one counted by hand (#744's rule)
+    incomplete = ("When the runner is still `incomplete` after its second run (`status` `incomplete`, `errors[]` "
+                  "present), leave it out and remove one an earlier run recorded, even though you then counted the "
+                  "entry points by hand: a file a failed call left unread can hide a public name, so the count can "
+                  "be 0 or partial.")
+    again = "An Update Skill run where ast-grep finishes stores it again."
+    for token in (incomplete, again):
+        assert token in bullet, token
+    assert (bullet.index("When you counted the entry points by hand above") < bullet.index(incomplete)
+            < bullet.index(again) < bullet.index("Under the drift override"))
+    # a payload bullet, after the two counts it is judged beside and before the inventories
+    exports_at = two.index("  - `exports_public_api` and `exports_internal`, unless the drift override below applies")
+    assert two.index("  **Payload (passed") < exports_at < two.index(bullet) < two.index("  - `scripts` / `assets`:")
+    assert "\u2014" not in bullet and "\u2013" not in bullet
+    # the conditions it restates are compile.md §4's, which write.md does not load
+    compile_ = _slice(_read(SRC / "skf-create-skill" / "references" / "compile.md"),
+                      "### 4. Build metadata.json Content", "### 5.")
+    for token in ("one of the `arms` step 3 recorded is true. When it recorded none, judge each from the source",
+                  "`scope.type` is not `full-library` (and not `reference-app`",
+                  "list a curated file/directory subset rather than the full workspace (in a single-package repo, "
+                  "the whole package). A basis of `all-files` names no list and fails this",
+                  "When step 3 counted the entry points itself, judge the list its count used",
+                  "`scope.tier_a_include` when that list counts a public name, else `scope.include`; with no "
+                  "`scope.include` either, the count is every file's and this fails",
+                  "A tier A count, the runner's or a hand count, reads only the files a `scope.include` glob also "
+                  "matches, so its files are a curated subset when `scope.include` lists one, even when "
+                  "`scope.tier_a_include` covers the full workspace",
+                  "`arms.monorepo` (a workspace layout of a kind `skf-detect-workspaces.py` detects)",
+                  "`arms.specific_modules` (a `specific-modules` scope, not a monorepo)",
+                  "`arms.multi_subpath_exports` (an in-scope `package.json` whose `exports` map has more than one "
+                  "non-root subpath without `*` whose target is a JS/TS file, not a monorepo)",
+                  "`scope.notes` is present and documents the stratification strategy"):
+        assert token in compile_, token
+
+
+def test_the_documented_library_call_keeps_the_effective_denominator_it_is_passed(tmp_path, monkeypatch, capsys):
+    """#741: the key the payload bullet adds reaches `stats` through write §2's library call as written, and the
+    reference-app call never emits it, so the bullet's count is what metadata.json stores."""
+    entries = [{"export_name": f"name{i}", "source_file": "src/m.py", "source_line": i + 1, "confidence": "T1",
+                "extraction_method": "ast-grep", "ast_node_type": "function_definition", "signature_source": "T1"}
+               for i in range(3)]
+    forge_version = tmp_path / "fv"
+    forge_version.mkdir()
+    (forge_version / "provenance-map.json").write_text(json.dumps({"entries": entries}), encoding="utf-8")
+    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
+    library = _fence(two, "    | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json\n")
+    app = _fence(two, "--shape reference-app\n")
+    key = '"exports_internal": {M}, '
+    assert key in library and key in app
+    code, out = _stats_main(library.replace(key, key + '"effective_denominator": 7, '), forge_version,
+                            monkeypatch, capsys)
+    assert code == 0 and out["stats"]["effective_denominator"] == 7
+    code, out = _stats_main(library, forge_version, monkeypatch, capsys)
+    assert code == 0 and "effective_denominator" not in out["stats"]  # left out: nothing to keep
+    code, out = _stats_main(app.replace(key, key + '"effective_denominator": 7, '), forge_version,
+                            monkeypatch, capsys)
+    assert code == 0 and "effective_denominator" not in out["stats"]
+
+
 # --------------------------------------------------------------------------
 # Docs and knowledge
 # --------------------------------------------------------------------------
