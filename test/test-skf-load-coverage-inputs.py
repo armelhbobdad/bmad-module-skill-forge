@@ -26,6 +26,7 @@ a last test runs the real extractor when ast-grep is installed.
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import json
 import shutil
 import subprocess
@@ -1180,6 +1181,44 @@ def test_two_globs_are_apart_when_a_literal_segment_differs_before_any_wildcard(
     assert mod._apart(include, tier_a) is apart
 
 
+@pytest.mark.parametrize(("tier_a", "exclude", "inside"), [
+    ("src/gen/**", "src/gen/**", True),
+    ("src/gen/extra.ts", "src/gen/**", True),
+    ("src/gen/*.ts", "src/gen/**", True),
+    ("src/b.ts", "src/b.ts", True),
+    ("src/gen/**", "src/**", True),
+    ("src/gen/**", "**/gen/**", True),
+    ("src/gen/x.ts", "src/*/x.ts", True),
+    ("src/gen", "src/gen/**", False),
+    ("src/**", "src/gen/**", False),
+    ("src/*/x.ts", "src/gen/**", False),
+    ("src/g?n/**", "src/gen/**", False),
+    ("src/gen/**", "src/gen/*", False),
+    ("src/gen/x.ts", "src/gen/y.ts", False),
+    ("gen/**", "**/gen/**", False),
+])
+def test_a_tier_a_glob_is_inside_an_exclude_glob_that_covers_it_segment_by_segment(tier_a, exclude, inside):
+    """#749: a tier A glob is inside an exclude glob when, segment by segment, each of the exclude's is
+    `**`, the same, or `*` beside one that is not `**`, with no segment of the tier A glob left over unless
+    the exclude ends in `**`; any other pair counts as not inside, even one the exclude does cover (`gen/**`
+    in `**/gen/**`), so the rule never drops a tier A glob that can count a name."""
+    assert mod._inside(tier_a, exclude) is inside
+
+
+def test_a_glob_inside_another_matches_no_path_the_other_misses():
+    """#749: every pair `_inside` holds for, over globs of one to three segments, leaves no sampled path of
+    one to four segments the tier A glob matches outside the exclude glob, by the extractor's own glob rule."""
+    segments = ["src", "gen", "x.ts", "*", "**", "*.ts", "g?n"]
+    globs = ["/".join(p) for n in (1, 2, 3) for p in itertools.product(segments, repeat=n)]
+    names = ["src", "gen", "x.ts", "a"]
+    paths = ["/".join(p) for n in (1, 2, 3, 4) for p in itertools.product(names, repeat=n)]
+    for tier_a in globs:
+        matched = [p for p in paths if mod.glob_match(p, tier_a)]
+        for exclude in globs:
+            if mod._inside(tier_a, exclude):
+                assert all(mod.glob_match(p, exclude) for p in matched), (tier_a, exclude)
+
+
 def test_a_quick_tier_tier_a_glob_outside_scope_include_runs_the_guards(tmp_path):
     """#733: `gen/**` beside `src/**` counts no name whatever the tree holds, so at Quick tier too it leaves
     the tier A list and both guards run; a glob inside `src/**` still keeps them off (#712)."""
@@ -1209,6 +1248,74 @@ def test_a_quick_tier_tier_a_glob_not_apart_from_every_include_glob_keeps_the_gu
     include, or with no scope.include at all, it stays, so at Quick tier the guards stay off (#712)."""
     out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx(tmp_path, "gen/**", 1, head))
     assert "tier_a_include" not in out["sets"]
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
+                                          "pct": 200.0, "fires": False}
+    assert out["guards"]["inflation"]["applicable"] is False
+
+
+# #749: an exclude that covers a tier A glob segment by segment leaves no file
+# that glob can match, so at Quick tier too it counts no name.
+FX_EXCLUDE = FX_BRIEF + "  exclude: ['src/gen/**']\n"
+
+
+@pytest.mark.parametrize("tier_a", ["src/gen/**", "src/gen/extra.ts"])
+def test_a_quick_tier_tier_a_glob_inside_a_scope_exclude_glob_runs_the_guards(tmp_path, tier_a):
+    """#749: a tier A glob a scope.exclude glob covers counts no name whatever the tree holds, so at Quick tier
+    it leaves the tier A list and both guards run, as at Forge tier."""
+    out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx(tmp_path, tier_a, 1, FX_EXCLUDE))
+    assert "tier_a_include" not in out["sets"]
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
+                                          "pct": 200.0, "fires": True}
+    assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 3, "provenanceEntries": 3,
+                                          "pct": 0.0, "fires": False}
+    assert out["guards"]["tierAInclude"] == [tier_a], "the gap still names the brief's glob"
+    [drift] = gap_ledger.from_guards(out)
+    assert (drift["severity"], drift["category"]) == ("Medium", "metadata-drift")
+    assert drift["issue"].endswith("and no `scope.tier_a_include` glob in the brief counts a public name")
+
+
+def _fx_globs(tmp_path: Path, exclude: list[str], tier_a: list[str]) -> list[str]:
+    """`_fx` at a stored 1, with a list of scope.exclude globs and a list of tier A globs."""
+    brief = _write(tmp_path / "skill-brief.yaml", FX_BRIEF + f"  exclude: {json.dumps(exclude)}\n"
+                   f"  tier_a_include: {json.dumps(tier_a)}\n")
+    meta = _write(tmp_path / "metadata.json", {**METADATA, "stats": {"effective_denominator": 1}})
+    prov = _write(tmp_path / "provenance.json", FX_PROVENANCE)
+    return ["--brief", brief, "--metadata", meta, "--provenance", prov]
+
+
+@pytest.mark.parametrize(("exclude", "tier_a", "fires"), [
+    (["src/vendor/**", "src/gen/**"], ["src/gen/**"], True),
+    (["src/gen/**"], ["src/gen/**", "gen/**"], True),
+    (["src/gen/**"], ["src/gen/**", "src/b.ts"], False),
+], ids=["inside-the-second-exclude-glob", "beside-a-glob-apart-from-scope-include",
+        "beside-a-file-the-exclude-leaves"])
+def test_a_quick_tier_tier_a_list_runs_the_guards_only_when_each_glob_leaves_it(tmp_path, exclude, tier_a,
+                                                                                 fires):
+    """#749: any scope.exclude glob can cover a tier A glob, and at Quick tier the guards run only when each
+    glob leaves the list, inside an exclude glob or apart from every scope.include glob (#733)."""
+    out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx_globs(tmp_path, exclude, tier_a))
+    assert "tier_a_include" not in out["sets"]
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
+                                          "pct": 200.0, "fires": fires}
+    assert out["guards"]["inflation"]["applicable"] is fires
+    assert out["guards"]["tierAInclude"] == tier_a
+    gaps = gap_ledger.from_guards(out)
+    assert [(g["severity"], g["category"]) for g in gaps] == ([("Medium", "metadata-drift")] if fires else [])
+    assert all(g["issue"].endswith("and no `scope.tier_a_include` glob in the brief counts a public name")
+               for g in gaps)
+
+
+@pytest.mark.parametrize(("tier_a", "tier_a_set"), [
+    ("src/b.ts", None),
+    ("src/**", ["alpha", "beta", "gamma"]),
+    ("src/g?n/**", None),
+], ids=["a-file-the-exclude-leaves", "the-include-glob", "a-wildcard-segment"])
+def test_a_quick_tier_tier_a_glob_an_exclude_glob_does_not_cover_keeps_the_guards_off(tmp_path, tier_a,
+                                                                                         tier_a_set):
+    """#749: a tier A glob that can match a file the exclude leaves stays in the list, so at Quick tier the
+    guards stay off (#712)."""
+    out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx(tmp_path, tier_a, 1, FX_EXCLUDE))
+    assert out["sets"].get("tier_a_include") == tier_a_set
     assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
                                           "pct": 200.0, "fires": False}
     assert out["guards"]["inflation"]["applicable"] is False
@@ -1315,6 +1422,18 @@ def test_per_file_results_without_fallback_scan_drop_a_tier_a_glob_apart_from_sc
     entry = _write(tmp_path / "per-file-1.json", {"file": "src/index.ts", "exports_found": ["alpha", "beta", "gamma"],
                                                   "signature_mismatches": []})
     out = _surface(tmp_path, "--per-file", entry, *_fx(tmp_path, "gen/**", 2))
+    assert "tier_a_include" not in out["sets"]
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
+                                          "pct": 50.0, "fires": True}
+    assert out["guards"]["inflation"]["applicable"] is True
+
+
+def test_per_file_results_without_fallback_scan_drop_a_tier_a_glob_inside_a_scope_exclude_glob(tmp_path):
+    """#749: State 4's results carry the entry file too, so with no --fallback-scan a tier A glob a
+    scope.exclude glob covers leaves the list and the guards run."""
+    entry = _write(tmp_path / "per-file-1.json", {"file": "src/index.ts", "exports_found": ["alpha", "beta", "gamma"],
+                                                  "signature_mismatches": []})
+    out = _surface(tmp_path, "--per-file", entry, *_fx(tmp_path, "src/gen/**", 2, FX_EXCLUDE))
     assert "tier_a_include" not in out["sets"]
     assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
                                           "pct": 50.0, "fires": True}
