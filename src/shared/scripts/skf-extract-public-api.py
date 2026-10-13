@@ -138,6 +138,17 @@ A module that cannot be fetched or read stays in `unlisted[]`, and a
 warning names it and why. The output then also lists `followed`, the
 modules read this way, in the order they were read.
 
+With --source-root, each Python, JavaScript and TypeScript export also
+carries `defined_in`: the file that defines it, traced as full mode traces
+an entry point (through each import, re-export, `export *` and star import
+to the end of its chain, a cycle cut), so a name an entry file only passes
+on names its own module. It reads only files under --source-root (the
+files full mode lists there, never the --tree-file listing) and needs no
+ast-grep: Python with full mode's module reader, JavaScript and TypeScript
+from each module's text as quick mode reads an entry file. It is null when
+the trace finds no file, as for a name passed on from another package or a
+module --source-root does not hold. `source_file` stays the file read.
+
 Each path is relative to --source-root, the folder the files were staged in
 laid out like the repository (or a local checkout), else to the current
 folder, and is the `path` the output names (`source_file`), written with
@@ -157,7 +168,10 @@ Output JSON shape (stdout):
     "package_name": "foo",
     "version":      "1.2.3",
     "description":  "...",
-    "exports":      [{"name": "Bar", "type": "class", "source_file": "..."}, ...],
+    "exports":      [{"name": "Bar", "type": "class", "source_file": "...",
+                      "defined_in": "..."}, ...],      (defined_in: Python,
+                                                   JS and TS, with
+                                                   --source-root)
     "dependencies": ["requests", "pydantic", ...],
     "modules":      ["server", "client"],         (Maven/Gradle only)
     "module_folders": ["server", "client"],       (each module's folder in
@@ -4754,6 +4768,168 @@ def _follow(args: argparse.Namespace, result: dict) -> dict:
     return result
 
 
+_JS_LIST_SOURCE_RE = re.compile(r"\s*from\s*(['\"])")
+_JS_IMPORT_RE = re.compile(r"^import\s+(?:type\s+)?([A-Za-z_$*{][^;'\"]*?)\s*from\s*(['\"])", re.M)
+_JS_BRACES_RE = re.compile(r"\{([^}]*)\}")
+DEFINED_IN_FAMILIES = {"python": "python", "js": "js", "ts": "js", "javascript": "js", "typescript": "js"}
+
+
+def _quick_js_facts(content: str) -> dict:
+    """What one JS/TS module exports, read from its text as quick mode reads
+    an entry file, in _js_facts's shape: {"names": {exposed name: {"how",
+    "local", "source"}}, "stars": [source], "default": the local name of
+    its default export, or None}. A declaration beats a list item, and an
+    exported binding an import brings in is that import's re-export (or
+    namespace, for `import * as`)."""
+    code = _blank(content, "js")
+    imports: dict[str, tuple[str, str]] = {}
+    for m in _JS_IMPORT_RE.finditer(code):
+        source = _js_string(content, code, m.end(2) - 1)
+        braces = _JS_BRACES_RE.search(m.group(1))
+        for piece in braces.group(1).split(",") if braces else []:
+            words = piece.split()
+            if words and _JS_NAME_RE.fullmatch(words[-1]):
+                imports.setdefault(words[-1], (_specifier_local(piece), source))
+        for part in _JS_BRACES_RE.sub("", m.group(1)).split(","):
+            words = part.split()
+            if len(words) == 3 and words[:2] == ["*", "as"]:
+                imports.setdefault(words[2], ("*", source))
+            elif len(words) == 1 and _JS_NAME_RE.fullmatch(words[0]):
+                imports.setdefault(words[0], ("default", source))
+    names: dict[str, dict] = {}
+
+    def put(name: str, how: str, local: str | None, source: str | None) -> None:
+        names.setdefault(name, {"how": how, "local": local, "source": source})
+
+    def bound(name: str, local: str) -> None:
+        imported, source = imports.get(local, (None, None))
+        if imported == "*":
+            put(name, "namespace", None, source)
+        elif imported is not None:
+            put(name, "re-export", imported, source)
+        else:
+            put(name, "declaration", local, None)
+
+    for export in scan_exports_js(content, "", None, None, defaults=False):
+        if export["type"] not in ("re-export", "namespace"):
+            put(export["name"], "declaration", export["name"], None)
+    default = None
+    for m in _JS_DECL_RE.finditer(code):
+        if m.group(1) and "default" in m.group(1).split():
+            default = default or m.group(3)
+            put("default", "declaration", m.group(3), None)
+        elif m.group(1) and _js_type(m.group(2)) == "namespace":
+            put(m.group(3), "declaration", m.group(3), None)  # `export namespace X`, `export module X`
+    stars: list[str] = []
+    for m in _JS_STAR_RE.finditer(code):
+        source = _js_string(content, code, m.end(2) - 1)
+        if m.group(1):
+            put(m.group(1), "namespace", None, source)
+        else:
+            stars.append(source)
+    for m in _JS_LIST_RE.finditer(code):
+        after = _JS_LIST_SOURCE_RE.match(code, m.end())
+        source = _js_string(content, code, after.end(1) - 1) if after else None
+        for piece in m.group(1).split(","):
+            words = piece.split()
+            if not words or not _JS_NAME_RE.fullmatch(words[-1]):
+                continue
+            if source is not None:
+                put(words[-1], "re-export", _specifier_local(piece), source)
+            else:
+                bound(words[-1], _specifier_local(piece))
+    for m in _JS_DEFAULT_RE.finditer(code):
+        if m.group(1) not in _JS_NOT_NAMES:
+            default = default or m.group(1)
+            bound("default", m.group(1))
+    return {"names": names, "stars": stars, "default": default}
+
+
+def _js_defined_in(root: Path, tree: set[str]) -> Callable[[str, str], str | None]:
+    """(module, name it exports) -> the file that defines that name, as
+    _js_surface's resolve traces it: through each re-export, imported
+    binding and `export *` (a cycle ends the trace at the module it
+    reached), a namespace export giving its module's file; None for a
+    re-export or a namespace whose module no file under `root` holds."""
+    cache: dict[str, dict] = {}
+
+    def facts(file: str) -> dict:
+        if file not in cache:
+            cache[file] = _quick_js_facts(_read_text(root, file) or "")
+        return cache[file]
+
+    def owner(file: str, name: str) -> str | None:
+        """The first module the `export *` chain of `file` passes `name` on from."""
+        stack, visited = [file], set()
+        while stack:
+            module = stack.pop()
+            if module in visited:
+                continue
+            visited.add(module)
+            if module != file and name in facts(module)["names"]:
+                return module
+            stack += reversed([t for t in (resolve_js_module(s, module, tree) for s in facts(module)["stars"]) if t])
+        return None
+
+    def resolve(file: str, name: str) -> str | None:
+        if name not in facts(file)["names"] and name == facts(file)["default"]:
+            name = "default"  # quick mode names a default export by what it declares
+        visited: set[tuple[str, str]] = set()
+        while (file, name) not in visited:
+            visited.add((file, name))
+            fact = facts(file)["names"].get(name)
+            if fact is None:
+                found = owner(file, name) if name != "default" else None
+                if found is None:
+                    return file
+                file = found
+                continue
+            if fact["how"] == "declaration":
+                return file
+            target = resolve_js_module(fact["source"], file, tree)
+            if fact["how"] == "namespace" or target is None:
+                return target
+            file, name = target, fact["local"]
+        return file
+
+    return resolve
+
+
+def _py_defined_in(root: Path, tree: set[str]) -> Callable[[str, str], str | None]:
+    """(module, name it exports) -> the file full mode's _py_surface traces
+    that name to from that module (None when it gives none: a name another
+    package passes on, or one the trace does not list)."""
+    traced: dict[str, dict[str, str | None]] = {}
+
+    def resolve(file: str, name: str) -> str | None:
+        if file not in traced:
+            surface = _Surface()
+            _py_surface(root, [{"file": file}], tree, surface, [])
+            traced[file] = {n: info["file"] for n, info in surface.names.items()}
+        return traced[file].get(name)
+
+    return resolve
+
+
+def _defined_in(root: Path, result: dict) -> None:
+    """Give each export of a Python, JavaScript or TypeScript quick result
+    its `defined_in` (see "Quick mode" above): the file the export is
+    declared in for a name its file binds itself, else the file the trace
+    reaches. The tree under `root` is listed only when a name is traced."""
+    family = DEFINED_IN_FAMILIES.get(result.get("language") or "")
+    if family is None:
+        return
+    resolve: Callable[[str, str], str | None] | None = None
+    for export in result["exports"]:
+        if export["type"] not in ("re-export", "namespace", "module"):
+            export["defined_in"] = export["source_file"]
+            continue
+        if resolve is None:
+            tree = set(list_tree(root))
+            resolve = (_py_defined_in if family == "python" else _js_defined_in)(root, tree)
+        export["defined_in"] = resolve(export["source_file"], export["name"])
+
+
 def _main_entries(args: argparse.Namespace, parser: argparse.ArgumentParser) -> int:
     """`--mode entries`: the entry files of one package, as JSON on stdout."""
     if args.manifest_file is not None or args.entry_file or args.follow_file:
@@ -4829,6 +5005,8 @@ def main(argv: list[str]) -> int:
             result = extract(payload)
             if args.follow and "_error" not in result:
                 result = _follow(args, result)
+            if args.source_root is not None and "_error" not in result:
+                _defined_in(Path(args.source_root), result)
             if args.fetch_list is not None and "_error" not in result:
                 follow = [item["module_file"] for item in result["unlisted"] if item["module_file"]]
                 _write_fetch_list(args.fetch_list, list(dict.fromkeys(follow)))

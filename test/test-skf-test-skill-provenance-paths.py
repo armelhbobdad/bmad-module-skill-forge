@@ -751,6 +751,45 @@ def test_quick_tier_parses_a_quick_skill_skill_with_its_parser():
     assert "--name" not in flow
 
 
+def test_quick_tier_parses_a_python_javascript_or_typescript_skill_with_its_parser(tmp_path):
+    """#750: a create-skill skill in Python, JavaScript or TypeScript, from local source, is parsed too: each
+    name carries the file that defines it (`defined_in`), so a name the entry file passes on from a file the
+    brief scopes out leaves the scope.include set, as at Forge tier. Other languages are still read by eye."""
+    flow = _flow(_quick_tier())
+    assert ("**A skill quick-skill built** (`metadata.json` `generated_by` is `quick-skill`), or **any skill in "
+            "Python, JavaScript or TypeScript**, **from local source** (State 1)") in flow
+    assert "it gives each name the file that defines it (`defined_in`)" in flow
+    assert "**Any other skill** (create-skill's Quick tier reads the entry points of another language" in flow
+    source = _write_tree(tmp_path / "src", {
+        "package.json": '{"name": "fx", "version": "1.0.0", "exports": {".": "./src/index.ts"}}\n',
+        "src/index.ts": ("export { alpha } from './a';\nexport { beta, gamma } from './b';\n"
+                         "export { extra } from '../gen/extra';\n"),
+        "src/a.ts": "export function alpha() {}\n",
+        "src/b.ts": "export function beta() {}\nexport function gamma() {}\n",
+        "gen/extra.ts": "export function extra() {}\n",
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    proc = _run(QUICK_CMD, {"{source_path}": source.as_posix(), "<language>": "typescript",
+                            "<manifest path>": "package.json", "<entry path>": "src/index.ts"}, tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    (run / "quick-1.json").write_bytes(proc.stdout)
+    forge = tmp_path / "forge-data"
+    _write_tree(forge / "fx", {"skill-brief.yaml": "name: fx\nlanguage: typescript\nscope:\n"
+                                                   "  type: specific-modules\n  include: ['src/**']\n"})
+    skill = _write_tree(tmp_path / "skill", {
+        "metadata.json": json.dumps({"skill_type": "single", "exports": ["alpha", "beta", "gamma"],
+                                     "stats": {"effective_denominator": 3}}),
+        "provenance-map.json": json.dumps({"entries": [{"export_name": n} for n in ("alpha", "beta", "gamma")]})})
+    values = {"{run_dir}": run.as_posix(), "{forge_data_folder}": forge.as_posix(), "{skill_name}": "fx",
+              "{resolved_skill_package}": skill.as_posix(),
+              "{forge_provenance_map}": (skill / "provenance-map.json").as_posix(), "<n>": "1"}
+    surface = _exec(_choose(_command(COVERAGE_TIERS, "surface --quick"), keep=("--brief", "--provenance")), values,
+                    tmp_path)
+    assert surface["sets"] == {"all": ["alpha", "beta", "extra", "gamma"], "scope.include": ["alpha", "beta", "gamma"]}
+    assert (surface["guards"]["deflation"]["fires"], surface["guards"]["inflation"]["fires"]) == (False, False)
+
+
 QUICK_SURFACE_CMD = ('uv run {coverageInputsScript} surface --quick "{run_dir}/quick-<n>.json" '
                      '[--per-file "{run_dir}/per-file-<n>.json"] '
                      '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] '
@@ -1423,6 +1462,20 @@ def test_the_prose_fallback_scan_runs(tmp_path):
     assert (scores["signatureAccuracy"], scores["typeCoverage"]) == (0.0, 100.0)
     assert [record["title"] for record in json.loads((run / "signature-gaps.json").read_bytes())] == [
         "Signature mismatch: fetchData"]
+
+
+def test_the_fallback_scan_asks_each_file_for_the_names_it_defines():
+    """#750: a barrel (or an entry file that defines a name of its own, as cognee's `__init__.py` defines
+    `logger`) gets a subagent too, so each subagent leaves out the names its file only passes on from another
+    module of the source: the module that defines each one has its own result, and the loader reads every result
+    as the defining file's. A name passed on from another package stays, since no other result counts it."""
+    scan = _flow(_slice(_read(COVERAGE_TIERS), "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
+    assert "It extracts the symbols the file exports, with their full signatures" in scan
+    assert ("leaves out a name the file only passes on from another module of the source being tested "
+            "(`export { x } from './x'`, `export * from`, an `__init__.py` import, a Rust `pub use`), which that "
+            "module's own result counts, keeps a name it passes on from another package (`export { z } from "
+            "'zod'`), which no other result counts") in scan
+    assert "the file's exported symbols" not in scan
 
 
 def test_the_prose_state_4_surface_runs(tmp_path):

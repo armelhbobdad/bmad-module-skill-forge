@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  When Test Skill falls back to its per-file scan because the recipe runner cannot be used, the subagent for each file now leaves out a name that file only passes on from another module of the source being tested (`export { x } from './x'`, `export * from`, an `__init__.py` import, a Rust `pub use`), which that module's own result counts, and still lists a name it passes on from another package (`export { z } from 'zod'`), which no other result counts. A barrel, or an entry file that defines a name of its own, used to list every name it passes on as its own, so a name defined in a file the skill brief scopes out (outside `scope.include`, or dropped by `scope.exclude`, as Update Skill's gap-driven rescope does) counted in the `scope.include` set: Export Coverage could score it as missing, and the deflation or inflation guard could raise a Medium `metadata-drift` or `denominator-inflation` gap over a correct stored `stats.effective_denominator`. The per-file scan now counts the `scope.include` set the recipe runner counts.
+issues: [750]
