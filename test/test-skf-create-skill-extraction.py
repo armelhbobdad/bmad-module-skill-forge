@@ -542,6 +542,33 @@ def test_an_incomplete_run_runs_again_and_reads_its_unread_files_by_eye() -> Non
     assert f"(Quick tier, a `file_issues` file, {unread}, or the runner's fallback)" in six
 
 
+def test_phase_4_sorts_an_export_read_by_eye_by_its_shape() -> None:
+    """#748: Steps 1, 2 and 4 take the exports their recipes found, and an
+    export Phase 4 reads by eye (a `file_issues` file, or a file an
+    `errors[]` item lists in `unread`) has no `ast_recipe`, so read by recipe
+    no step took it: a Props interface read so got no `params`, and its
+    component was recorded as having no Props interface. Phase 4 says, ahead
+    of Step 1 and naming no recipe, that such an export is sorted by its
+    shape, as at Quick tier, so a `*Props` interface read by eye is a Props
+    contract for Steps 1 and 3, in the words Step 2 uses for a type-only
+    list item."""
+    phase_4 = _phase_4()
+    head = phase_4[:phase_4.index("**Step 1 (extract Props interfaces):**")]
+    clause = ("and the steps below sort the exports by `ast_recipe`, and an export read by eye, which has none, by its "
+              "shape, as at Quick tier (a `*Props` interface read by eye is a Props contract for Steps 1 and 3).")
+    assert clause + " Read by eye, as T1-low, each file its `file_issues` lists" in head
+    assert re.findall(r"`([^`]+)`", clause) == ["ast_recipe", "*Props"], "the clause names no recipe id"
+    assert "At Quick tier no recipe runs: read the shapes the steps below name from source, as T1-low." in head
+    assert phase_4.count("is a Props contract for Steps 1 and 3") == 2
+    line = next(row for row in head.splitlines() if clause in row)
+    assert not re.search("[\u2013\u2014]", line), "no em or en dash on the line"
+    # what the sort feeds: Step 1 cites a by-eye read, Phase 6 sends its fields as `params` and labels it T1-low
+    assert "- Provenance: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`" in phase_4
+    six = _slice(_read(COMPONENT), "### Phase 6:", "## RETURN PROTOCOL")
+    assert "each Props interface's fields as its `params`" in six
+    assert "- `ast_recipe`: the `id` of the recipe that matched it, or `null` when read by eye" in six
+
+
 # --------------------------------------------------------------------------
 # The protocol: the runner first, the recipe runs by hand only as its fallback
 # --------------------------------------------------------------------------
