@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  An export Create Skill reads by eye and adds to its extraction inventory with `./` in front of its file, or with `\` separators, now merges with the recipe runner's record of the same export instead of being documented twice. Such a copy added a second, T1-low entry for the same name, file and line to the provenance map and raised `stats.exports_documented` and `public_api_coverage` with it, and when an ast-grep call fails every file it held is read by eye, so one such read could double nearly every export of the skill. A call that sends an export with an absolute path is now refused and adds none of its exports until the path is sent relative to the source root, with a message that names each such export. Such an export used to be added as a second entry or, on a `public-api` skill, marked off the public surface, so an export only that read found was left out of the provenance map.
+prs: [753]
+issues: [747]

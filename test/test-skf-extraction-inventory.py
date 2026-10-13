@@ -187,6 +187,71 @@ def test_an_export_read_by_eye_gets_the_by_eye_labels_once(tmp_path):
     assert refused.returncode == 1 and "export_name" in json.loads(refused.stderr)["message"]
 
 
+@pytest.mark.parametrize("form", ["./src/a.py", "src\\a.py", "././src/a.py"], ids=["dot-slash", "backslash",
+                                                                                   "dot-slash-twice"])
+def test_an_export_read_by_eye_in_another_path_form_merges_with_the_runners(tmp_path, form):
+    """#747: the file is compared and written as the runner writes it (`/` separators, no leading `./`), so an
+    export the inventory holds at `src/a.py`, read again by eye as `./src/a.py` or `src\\a.py`, is no T1-low twin."""
+    path = _write(tmp_path)
+    read = [{"export_name": "parse", "export_type": "function", "source_file": form, "source_line": 1,
+             "citation": f"[SRC:{form}:L1]"},
+            {"export_name": "fresh", "export_type": "function", "source_file": form, "source_line": 9}]
+    out = _ok(_run("add", "--inventory", str(path), "--field", "exports", stdin=json.dumps(read)))
+    assert (out["added"], out["duplicates"], out["counts"]["exports"], out["counts"]["t1"]) == (1, 1, 3, 1)
+    exports = _load(path)["exports"]
+    assert [(e["export_name"], e["source_file"], e["confidence"]) for e in exports] == [
+        ("parse", "src/a.py", "T1"), ("Client", "src/b.py", "T1-low"), ("fresh", "src/a.py", "T1-low")]
+    # a patch sent with the same path lands on the record, as one sent with the runner's
+    patches = [{"export_name": name, "source_file": form, "signature": f"def {name}()"} for name in ("parse", "fresh")]
+    patched = _ok(_run("patch", "--inventory", str(path), stdin=json.dumps(patches)))
+    assert (patched["patched"], patched["unmatched"], patched["ambiguous"]) == (2, [], [])
+    assert [e.get("signature") for e in _load(path)["exports"]] == ["def parse()", None, "def fresh()"]
+    target = tmp_path / "provenance-map.json"
+    assert _provenance(path, target)["entries"] == 3
+
+
+@pytest.mark.parametrize("form", ["/work/src/a.py", "C:\\work\\src\\a.py", "c:/work/src/a.py"],
+                         ids=["posix", "windows", "windows-slash"])
+def test_an_export_read_by_eye_at_an_absolute_path_is_refused(tmp_path, form):
+    """#747: an absolute source_file never matches the runner's relative one, nor the public surface's pairs:
+    `add` refuses the whole call, and its message says what to send."""
+    path = _write(tmp_path)
+    before = path.read_bytes()
+    read = [{"export_name": "fresh", "export_type": "function", "source_file": "src/c.py", "source_line": 1},
+            {"export_name": "parse", "export_type": "function", "source_file": form, "source_line": 1}]
+    proc = _run("add", "--inventory", str(path), "--field", "exports", stdin=json.dumps(read))
+    assert proc.returncode == 1 and not proc.stdout
+    assert json.loads(proc.stderr)["message"] == (
+        f"parse: source_file {form} is absolute; send it relative to the source root, with / separators, as the "
+        "runner writes its files")
+    assert path.read_bytes() == before
+
+
+def test_the_refusal_names_every_absolute_source_file_the_call_sends(tmp_path):
+    """#747: every exports entry is checked before the refusal, so one fix of the payload is enough."""
+    path = _write(tmp_path)
+    before = path.read_bytes()
+    read = [{"export_name": "parse", "export_type": "function", "source_file": "/work/src/a.py", "source_line": 1},
+            {"export_name": "fresh", "export_type": "function", "source_file": "src/c.py", "source_line": 1},
+            {"export_name": "gap", "export_type": "function", "source_file": "C:\\work\\src\\c.py", "source_line": 3}]
+    proc = _run("add", "--inventory", str(path), "--field", "exports", stdin=json.dumps(read))
+    assert proc.returncode == 1 and not proc.stdout
+    assert json.loads(proc.stderr)["message"] == (
+        "parse: source_file /work/src/a.py, gap: source_file C:\\work\\src\\c.py are absolute; send them relative "
+        "to the source root, with / separators, as the runner writes its files")
+    assert path.read_bytes() == before
+    # past ten, the message names the first ten and counts the rest
+    many = [{"export_name": f"f{i}", "export_type": "function", "source_file": f"/work/src/m{i}.py", "source_line": 1}
+            for i in range(12)]
+    proc = _run("add", "--inventory", str(path), "--field", "exports", stdin=json.dumps(many))
+    assert proc.returncode == 1 and not proc.stdout
+    shown = ", ".join(f"f{i}: source_file /work/src/m{i}.py" for i in range(10))
+    assert json.loads(proc.stderr)["message"] == (
+        f"{shown} and 2 more are absolute; send them relative to the source root, with / separators, as the runner "
+        "writes its files")
+    assert path.read_bytes() == before
+
+
 def test_warnings_are_strings_kept_once(tmp_path):
     path = _write(tmp_path)
     out = _ok(_run("add", "--inventory", str(path), "--field", "warnings",
