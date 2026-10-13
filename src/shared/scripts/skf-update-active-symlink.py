@@ -22,8 +22,9 @@ invocation:
     FLIP_LOCK_WAIT_SECONDS, then returns busy without touching the link
   - detects whether a flip is required (idempotent: already pointing
     at the target → no-op)
-  - performs the flip atomically (symlink → temp name → os.replace)
-    so concurrent readers never see a missing symlink
+  - performs the flip through skf-atomic-write.py's replace_link, the
+    code flip-link runs (link at a temp name → os.replace), so on POSIX
+    concurrent readers never see a missing symlink
   - verifies the post-state and surfaces ok / flipped / mismatch
     / missing-target / busy
 
@@ -57,16 +58,21 @@ Output JSON (stdout):
 
 Exit codes:
   0: ok (already correct) or flipped (just updated)
-  1: script error (bad args, group path invalid, skf-atomic-write.py
-     not loadable from this script's folder)
+  1: script error, one `error:` line on stderr and nothing on stdout
+     (group path invalid, a real folder or file at {skill-group}/active,
+     skf-atomic-write.py not loadable from this script's folder, or the
+     link could not be moved); argparse exits 2 on bad arguments
   2: mismatch (verify mode and target diverges), missing-target
      (the {version} directory doesn't exist; caller must halt), or
      busy (update: another flip held the link's lock for the whole
      wait; the link is unchanged, caller must halt)
 
-Platform: POSIX symlinks. On Windows this script intentionally
-exits 1 with a clear error — update-skill's documented supported
-platform is WSL2 (same as skf-atomic-write.py's flip-link).
+Platform: Linux, macOS and native Windows, as skf-atomic-write.py's
+flip-link. On Windows the flip removes the old link first whenever the
+rename over it is refused, which it always is over a directory link, so
+it is not atomic there; without symlink privilege the new link is a
+directory junction. A junction reads back as the name of the version folder it
+resolves to, so `ok` means the link names {version} whichever kind it is.
 """
 
 from __future__ import annotations
@@ -105,46 +111,51 @@ def _load_atomic_write():
 
 
 def read_link_target(link_path: Path) -> str | None:
-    """Return the symlink target as a relative string, or None if the link
-    doesn't exist. Raises ValueError if `link_path` exists but isn't a symlink
-    (someone replaced it with a regular dir/file)."""
-    if not link_path.exists() and not link_path.is_symlink():
+    """Return what the link at `link_path` names, or None if nothing is there.
+
+    A symlink gives its stored target (`1.6.2` for the links SKF makes). A
+    Windows junction, which Path.is_symlink() does not report and whose
+    os.readlink is an absolute `\\\\?\\` path, gives the name of the folder it
+    resolves to when that folder sits beside it, else its stored path (a
+    junction whose folder is gone, one that leads elsewhere, or a loop). Raises
+    ValueError if `link_path` exists but is not a link (someone replaced it
+    with a regular dir/file)."""
+    if not os.path.lexists(link_path):
         return None
-    if not link_path.is_symlink():
+    if link_path.is_symlink():
+        return os.readlink(link_path)
+    try:
+        stored = os.readlink(link_path)
+    except (OSError, ValueError):
         raise ValueError(
             f"{link_path} exists but is not a symlink — refusing to overwrite "
             "(manual recovery required)"
-        )
-    return os.readlink(link_path)
+        ) from None
+    try:
+        resolved = link_path.resolve(strict=True)
+    except (OSError, RuntimeError):  # Python 3.11 and 3.12 raise RuntimeError on a loop
+        return stored
+    if resolved.parent == link_path.parent.resolve():
+        return resolved.name
+    return stored
 
 
 def atomic_flip_symlink(link_path: Path, target_name: str) -> None:
-    """Atomically point `link_path` at `target_name` using the
-    create-temp + rename pattern. `target_name` is a relative path
-    interpreted in the parent of `link_path` (same convention as
-    {skill_group}/active → version-dir-sibling).
+    """Point `link_path` at `target_name` using the create-temp + rename
+    pattern. `target_name` is a relative path interpreted in the parent of
+    `link_path` (same convention as {skill_group}/active → version-dir-sibling).
 
-    Implementation: os.symlink writes a new link at link_path.tmp,
-    then os.replace atomically renames it over link_path. POSIX
-    rename is atomic for symlinks, so concurrent readers either see
-    the old target or the new one, never a missing file.
+    Implementation: skf-atomic-write.py's replace_link, the code flip-link
+    runs, with `.{name}.skf-symlink.tmp` as the temp name: it removes a stale
+    temp from a prior crash, writes the new link there and os.replace renames
+    it over link_path. POSIX rename is atomic for symlinks, so concurrent
+    readers either see the old target or the new one, never a missing file.
+    On Windows the old link is removed first whenever the rename over it is
+    refused, which it always is over a directory link; without symlink
+    privilege the new link is a junction.
     """
-    parent = link_path.parent
-    tmp = parent / f".{link_path.name}.skf-symlink.tmp"
-    # Clean up a stale temp from a prior crash, if any.
-    if tmp.is_symlink() or tmp.exists():
-        os.unlink(tmp)
-    try:
-        os.symlink(target_name, tmp)
-        os.replace(tmp, link_path)
-    except OSError:
-        # Best-effort cleanup; raise the original error.
-        try:
-            if tmp.is_symlink() or tmp.exists():
-                os.unlink(tmp)
-        except OSError:
-            pass
-        raise
+    tmp = link_path.parent / f".{link_path.name}.skf-symlink.tmp"
+    _load_atomic_write().replace_link(link_path, target_name, tmp)
 
 
 # --------------------------------------------------------------------------
@@ -216,8 +227,8 @@ def _envelope_mismatch(skill_group: Path, version: str, current: str | None) -> 
             f"Active symlink divergence. `{skill_group / ACTIVE_NAME}` "
             f"resolves to `{cur}` but metadata.json reports `version: "
             f"{version}`. The flip did not apply. Re-point the symlink manually "
-            f"(`ln -sfn {version} {skill_group / ACTIVE_NAME}`) or re-run "
-            "update-skill, then re-verify."
+            f"(`uv run \"{ATOMIC_WRITE_HELPER}\" flip-link --link \"{skill_group / ACTIVE_NAME}\" "
+            f"--target \"{version}\"`) or re-run update-skill, then re-verify."
         ),
     }
 
@@ -348,14 +359,6 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    if sys.platform.startswith("win"):
-        print(
-            "error: native Windows symlinks require admin/developer mode; "
-            "use WSL2 to run update-skill (same constraint as "
-            "skf-atomic-write.py flip-link)",
-            file=sys.stderr,
-        )
-        return 1
     parser = _build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

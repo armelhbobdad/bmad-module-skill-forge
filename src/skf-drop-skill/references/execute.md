@@ -12,6 +12,10 @@ skillInventoryProbeOrder:
 dropRosterHelper: 'scripts/drop-roster.py'
 # {dirSizesHelper}: the §4 `disk_freed` label.
 dirSizesHelper: 'scripts/dir-sizes.py'
+# {atomicWriteHelper}: the §4 manual fixes that point `active` at a version.
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -144,7 +148,7 @@ Report: "**Rebuilt managed sections in:** {list of updated files}. {if any faile
          --skill-group {skills_output_folder}/{target_skill} \
          --version {new_active_version}
        ```
-       Record a `mismatch`/`missing-target` exit (code 2), or a missing helper (no probe candidate), as above with the manual fix `ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`, and continue. Record a `busy` exit (code 2, another run was moving the link) the same way, with the manual fix "once the other run has finished, if `active` still names the dropped version, run `ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`". Record any other non-zero exit, or no JSON on stdout (exit 1, or an exit 2 that prints no JSON: the helper could not run, could not move the link, or failed after moving it, and the last line it prints on stderr says why), the same way, with the manual fix "if `active` still names the dropped version, run `ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`" followed by that line in parentheses, or by `(exit <code>)` when the helper prints nothing on stderr.
+       In each manual fix below, `{atomicWriteHelper}` is the first existing path in `{atomicWriteProbeOrder}`, or its first entry when neither exists (the fix then works once SKF is re-installed); the same command works in Git Bash, PowerShell and WSL2. Record a `mismatch`/`missing-target` exit (code 2), or a missing helper (no probe candidate), as above with the manual fix `uv run {atomicWriteHelper} flip-link --link "{skills_output_folder}/{target_skill}/active" --target "{new_active_version}"`, and continue. Record a `busy` exit (code 2, another run was moving the link) the same way, with the manual fix "once the other run has finished, if `active` still names the dropped version, run `uv run {atomicWriteHelper} flip-link --link "{skills_output_folder}/{target_skill}/active" --target "{new_active_version}"`". Record any other non-zero exit, or no JSON on stdout (exit 1, or an exit 2 that prints no JSON: the helper could not run, could not move the link, or failed after moving it, and the last line it prints on stderr says why), the same way, with the manual fix "if `active` still names the dropped version, run `uv run {atomicWriteHelper} flip-link --link "{skills_output_folder}/{target_skill}/active" --target "{new_active_version}"`" followed by that line in parentheses, or by `(exit <code>)` when the helper prints nothing on stderr.
      - **No non-deprecated versions remain** (`resolve.counts.non_deprecated` is `0`, reachable only when dropping the sole surviving version, permitted in step 1 because no other non-deprecated versions existed): remove the now-dangling `active` symlink with a single atomic unlink of the link itself: `rm {skills_output_folder}/{target_skill}/active` (unlink removes only the symlink, never its target). When it fails, record it as above with the manual fix `rm {skills_output_folder}/{target_skill}/active`.
 
 3. Format the size of the deleted folders through the sizing helper; do not add or round in-prompt:

@@ -19,6 +19,14 @@ skf-update-active-symlink.py update calls too, keeps trying a held lock
 for the `wait` its caller gives, raises FlipLockHeld once that wait ends
 (at once with no wait), and takes the lock once the holder lets it go.
 The copy of _names_open_file stays identical to the one in gap-ledger.py.
+
+Windows links (#735): with Windows simulated on POSIX, flip-link replaces a
+junction, one whose folder was deleted included, clears a stale temp
+junction whose folder is gone, removes the old link first when Windows
+refuses the rename over it, and never removes a real folder. On Windows,
+TestFlipLinkOnNativeWindows makes os.symlink fail as it does without
+symlink rights, so the real `mklink /J` path runs, and flips over a
+directory symlink with the runner's own privilege.
 """
 
 from __future__ import annotations
@@ -27,11 +35,14 @@ import ast
 import importlib.util
 import json
 import os
+import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import threading
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -131,10 +142,10 @@ def _pending_lock_file(group: Path) -> Path:
 class TestFlipLink:
     """flip-link leaves `active` naming the version folder beside it, or refuses without touching it.
 
-    On Windows no test flips over an existing link: CI's Windows runner
-    holds symlink privilege, and replacing an existing directory link is the
-    one step whose Windows behaviour is unverified. TestFlipLockOnPosix,
-    which skips Windows, flips over one.
+    These tests flip over no existing link, so they run on Windows as they
+    are. TestFlipLinkOnNativeWindows flips over an existing junction and an
+    existing directory symlink there; TestFlipLockOnPosix, which skips
+    Windows, flips over a symlink.
     """
 
     def test_flip_creates_a_missing_link(self, tmp_path):
@@ -458,6 +469,192 @@ class TestFlipLockOnPosix:
             mod.release_flip_lock(link, got)
         assert os.readlink(link) == "1.6.2"
         assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no lock file left"
+
+
+# What os.readlink gives for a junction on Windows: its absolute substitution path.
+JUNCTION_PREFIX = "\\\\?\\C:\\Users\\me\\skills\\oms-cognee\\"
+
+
+def _simulate_windows_links(monkeypatch: pytest.MonkeyPatch, symlink_rights: bool = False) -> None:
+    """Native Windows, on POSIX (#735).
+
+    A link whose stored target is absolute stands for a junction:
+    Path.is_symlink() is False for it, flip-link's os.readlink gives its
+    `\\\\?\\` path, Path.resolve() follows it as Windows follows a junction, and
+    rmdir removes it as Windows removes a junction. A rename over an
+    existing link is refused, as Windows refuses one over a directory.
+    Without symlink rights, flip-link's fallback makes such a junction.
+    """
+    real_is_symlink, real_readlink, real_replace, real_rmdir = Path.is_symlink, os.readlink, os.replace, Path.rmdir
+
+    def is_junction(path) -> bool:
+        return real_is_symlink(Path(path)) and os.path.isabs(real_readlink(path))
+
+    def readlink(path, *args, **kwargs):
+        stored = real_readlink(path, *args, **kwargs)
+        return JUNCTION_PREFIX + os.path.basename(stored) if os.path.isabs(stored) else stored
+
+    def replace(src, dst, *args, **kwargs):
+        if os.path.lexists(dst):
+            raise PermissionError(13, "Access is denied", os.fspath(dst))
+        real_replace(src, dst, *args, **kwargs)
+
+    def rmdir(path, *args, **kwargs):
+        if is_junction(path):
+            os.unlink(path)
+        else:
+            real_rmdir(Path(path))
+
+    def make_junction(target: str, link_path: Path) -> str:
+        abs_target = (link_path.parent / target).resolve()
+        if not abs_target.is_dir():
+            raise OSError(20, f"junction fallback requires existing directory target: {abs_target}")
+        os.symlink(str(abs_target), link_path)
+        return "junction"
+
+    windows_os = types.SimpleNamespace(**{name: getattr(os, name) for name in dir(os) if not name.startswith("__")})
+    windows_os.readlink, windows_os.replace, windows_os.rmdir = readlink, replace, rmdir
+    monkeypatch.setattr(Path, "is_symlink", lambda self: real_is_symlink(self) and not is_junction(self))
+    monkeypatch.setattr(Path, "rmdir", rmdir)
+    monkeypatch.setattr(mod, "os", windows_os)
+    monkeypatch.setattr(mod, "_IS_WINDOWS", True)
+    if not symlink_rights:
+        monkeypatch.setattr(mod, "_create_symlink_or_junction", make_junction)
+
+
+def _junction(group: Path, version: str, name: str = "active") -> None:
+    """The junction a flip-link without symlink rights makes."""
+    os.symlink(str((group / version).resolve()), group / name)
+
+
+def _flip_in_process(link: Path, target: str, capsys) -> dict:
+    mod.cmd_flip_link(link, target)
+    return json.loads(capsys.readouterr().out)
+
+
+@pytest.mark.skipif(os.name == "nt", reason="simulates Windows links with POSIX symlinks")
+class TestFlipLinkOnWindowsSimulated:
+    def test_flip_replaces_a_junction(self, tmp_path, monkeypatch, capsys):
+        group = _three_versions(tmp_path)
+        os.unlink(group / "active")
+        _junction(group, "1.6.2")
+        _simulate_windows_links(monkeypatch)
+        out = _flip_in_process(group / "active", "1.0.0", capsys)
+        assert (out["kind"], out["points_to"]) == ("junction", "1.0.0")
+        assert (group / "active").resolve() == (group / "1.0.0").resolve()
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no lock or temp link left"
+
+    def test_flip_replaces_a_junction_whose_folder_was_deleted(self, tmp_path, monkeypatch, capsys):
+        """Drop Skill's state after a purge, then a Create Skill or Quick Skill flip."""
+        group = _three_versions(tmp_path)
+        os.unlink(group / "active")
+        _junction(group, "1.6.2")
+        shutil.rmtree(group / "1.6.2")
+        _simulate_windows_links(monkeypatch)
+        out = _flip_in_process(group / "active", "1.0.0", capsys)
+        assert (out["kind"], out["points_to"]) == ("junction", "1.0.0")
+        assert (group / "active").resolve() == (group / "1.0.0").resolve()
+        assert sorted(p.name for p in group.iterdir()) == ["0.5.8", "1.0.0", "active"], "no lock or temp link left"
+
+    def test_a_stale_temp_junction_whose_folder_is_gone_is_cleared(self, tmp_path, monkeypatch, capsys):
+        group = _three_versions(tmp_path)
+        (group / "9.9.9").mkdir()
+        _junction(group, "9.9.9", "active.skf-tmp-link")
+        shutil.rmtree(group / "9.9.9")
+        _simulate_windows_links(monkeypatch)
+        out = _flip_in_process(group / "active", "1.0.0", capsys)
+        assert out["points_to"] == "1.0.0"
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "the stale temp link is gone"
+
+    def test_a_refused_rename_over_a_symlink_removes_it_first(self, tmp_path, monkeypatch, capsys):
+        """With symlink rights the new link is a symlink, and Windows refuses to rename it over the old one."""
+        group = _three_versions(tmp_path)
+        _simulate_windows_links(monkeypatch, symlink_rights=True)
+        out = _flip_in_process(group / "active", "1.0.0", capsys)
+        assert (out["kind"], out["points_to"]) == ("symlink", "1.0.0")
+        assert os.readlink(group / "active") == "1.0.0"
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no lock or temp link left"
+
+    def test_a_refused_rename_off_windows_is_raised_and_leaves_no_temp_link(self, tmp_path, monkeypatch):
+        group = _three_versions(tmp_path)
+        _simulate_windows_links(monkeypatch, symlink_rights=True)
+        monkeypatch.setattr(mod, "_IS_WINDOWS", False)
+        with pytest.raises(PermissionError):
+            mod.cmd_flip_link(group / "active", "1.0.0")
+        assert os.readlink(group / "active") == "1.6.2", "the link is unchanged"
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no lock or temp link left"
+
+    def test_replace_link_never_removes_a_real_folder(self, tmp_path, monkeypatch):
+        """An empty folder, which rmdir would remove without _remove_link's guard."""
+        group = _three_versions(tmp_path)
+        os.unlink(group / "active")
+        (group / "active").mkdir()
+        _simulate_windows_links(monkeypatch)
+        with pytest.raises(OSError):
+            mod.replace_link(group / "active", "1.0.0")
+        assert (group / "active").is_dir() and not os.path.islink(group / "active"), "the folder is kept"
+        assert sorted(p.name for p in group.iterdir()) == THREE_VERSIONS + ["active"], "no temp link left"
+
+    def test_replace_link_never_removes_a_real_file_at_the_temp_link(self, tmp_path, monkeypatch):
+        group = _three_versions(tmp_path)
+        (group / "active.skf-tmp-link").write_bytes(b"x\n")
+        _simulate_windows_links(monkeypatch)
+        with pytest.raises(OSError):
+            mod.replace_link(group / "active", "1.0.0")
+        assert (group / "active.skf-tmp-link").read_bytes() == b"x\n", "the file is kept"
+        assert os.readlink(group / "active") == "1.6.2", "the link is unchanged"
+
+
+def _no_symlink_rights(monkeypatch: pytest.MonkeyPatch) -> None:
+    """os.symlink fails as Windows does without Developer Mode or admin (ERROR_PRIVILEGE_NOT_HELD)."""
+    def refuse(src, dst, *args, **kwargs):
+        raise OSError(1, "A required privilege is not held by the client", os.fspath(dst), 1314)
+
+    monkeypatch.setattr(os, "symlink", refuse)
+
+
+def _is_junction(path: Path) -> bool:
+    return not path.is_symlink() and os.lstat(path).st_reparse_tag == stat.IO_REPARSE_TAG_MOUNT_POINT
+
+
+@pytest.mark.skipif(os.name != "nt", reason="the real junction path runs on Windows only")
+class TestFlipLinkOnNativeWindows:
+    def test_flip_makes_and_replaces_a_junction_without_symlink_rights(self, tmp_path, monkeypatch, capsys):
+        group = _group(tmp_path)
+        (group / "0.7.0" / "cognee").mkdir(parents=True)
+        _no_symlink_rights(monkeypatch)
+        assert _flip_in_process(group / "active", "0.6.0", capsys)["kind"] == "junction"
+        assert _is_junction(group / "active")
+        out = _flip_in_process(group / "active", "0.7.0", capsys)
+        assert (out["kind"], out["points_to"]) == ("junction", "0.7.0")
+        assert _is_junction(group / "active")
+        assert (group / "active").resolve() == (group / "0.7.0").resolve()
+        assert sorted(p.name for p in group.iterdir()) == ["0.6.0", "0.7.0", "active"], "no lock or temp link left"
+
+    def test_flip_replaces_a_junction_whose_folder_was_deleted(self, tmp_path, monkeypatch, capsys):
+        group = _group(tmp_path)
+        (group / "0.7.0" / "cognee").mkdir(parents=True)
+        _no_symlink_rights(monkeypatch)
+        _flip_in_process(group / "active", "0.7.0", capsys)
+        shutil.rmtree(group / "0.7.0")
+        out = _flip_in_process(group / "active", "0.6.0", capsys)
+        assert (out["kind"], out["points_to"]) == ("junction", "0.6.0")
+        assert (group / "active").resolve() == (group / "0.6.0").resolve()
+        assert sorted(p.name for p in group.iterdir()) == ["0.6.0", "active"], "no lock or temp link left"
+
+    def test_flip_over_an_existing_directory_symlink(self, tmp_path):
+        """With the runner's own symlink privilege: the rename over an existing directory link."""
+        group = _group(tmp_path)
+        (group / "0.7.0" / "cognee").mkdir(parents=True)
+        try:
+            os.symlink("0.6.0", group / "active", target_is_directory=True)
+        except OSError as exc:
+            pytest.skip(f"this runner holds no symlink privilege: {exc}")
+        proc = _run_flip(group / "active", "0.7.0")
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["kind"] == "symlink"
+        assert os.readlink(group / "active") == "0.7.0"
+        assert sorted(p.name for p in group.iterdir()) == ["0.6.0", "0.7.0", "active"], "no lock or temp link left"
 
 
 def _top_level_def(path: Path, name: str) -> str:

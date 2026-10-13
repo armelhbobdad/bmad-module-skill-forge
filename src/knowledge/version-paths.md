@@ -266,7 +266,7 @@ Drops a specific version or the entire skill with two modes:
 
 **Hard drop (`--purge`):** Same as soft drop, plus deletes the version directory (`{skill_package}`) and forge data directory (`{forge_version}`, only when SKF generated it). Irreversible.
 
-**Active version guard:** Cannot drop the active version while other non-deprecated versions exist. The user must either make the version they keep active first (point the `active` link at it with `ln -sfn <version to keep> {skill_group}/active`, then run export-skill: the Manifest-lag guard makes it export that version, and its manifest update archives the old one), or drop all versions at once.
+**Active version guard:** Cannot drop the active version while other non-deprecated versions exist. The user must either make the version they keep active first (point the `active` link at it with `uv run _bmad/skf/shared/scripts/skf-atomic-write.py flip-link --link {skill_group}/active --target <version to keep>`, then run export-skill: the Manifest-lag guard makes it export that version, and its manifest update archives the old one), or drop all versions at once.
 
 **Skill-level drop:** Removes the entire `{skill_group}` from the manifest. If purge, also deletes `{skill_group}` and `{forge_group}` directories (the forge one only when SKF generated it).
 
