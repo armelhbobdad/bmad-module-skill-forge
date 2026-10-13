@@ -2,4 +2,5 @@ type: fixed
 scope: skf-update-skill
 summary: |
   Update Skill dropped `stats.effective_denominator` from `metadata.json` on its first run after Create Skill stored it: it gave the stats helper no `effective_denominator` and wrote back the stats the helper returned, so Test Skill then measured a curated subset without that count and without its check for a lowered count. Update Skill now passes the recipe runner's count under the rules Create Skill uses, so the stored count follows the source version and the brief each update reads (a rescope that excludes files lowers it). It removes the count when those rules do not hold, and replaces one set by hand or by a repair from a test report. When `--allow-workspace-drift` lets it run on a source checkout that is not at the skill's pinned commit, it keeps the recorded count. An update whose recipe runner run is still incomplete after its second run also removes the stored count, so Test Skill measures coverage as for a skill with no stored count until an Update Skill or Create Skill run where ast-grep finishes stores it again.
+prs: [755]
 issues: [741]
