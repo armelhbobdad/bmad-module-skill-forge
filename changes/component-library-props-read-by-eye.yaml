@@ -2,4 +2,5 @@ type: fixed
 scope: skf-create-skill
 summary: |
   In a component library, an export Create Skill reads by eye (in a file the recipes could not parse, or one a failed ast-grep call left unread) is now sorted by its shape, as at the Quick tier: a Props interface read so is taken as a Props contract, so its fields are documented in SKILL.md and recorded in the provenance map, and its component is linked to it, and a component read so is recorded as a component. Before, only the exports a recipe found were sorted, so such a Props interface was left with no fields, its component was recorded as having no Props interface, and metadata.json's `components_documented` left that component out.
+prs: [751]
 issues: [748]
