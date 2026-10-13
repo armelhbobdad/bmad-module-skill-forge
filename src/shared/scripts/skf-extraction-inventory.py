@@ -65,7 +65,12 @@ Subcommands:
            added twice and counts in `duplicates`. An exports entry needs an
            export_name; a missing confidence, extraction_method,
            ast_node_type or ast_recipe defaults to T1-low, source-read,
-           null and null (an export read by eye). An exports entry is
+           null and null (an export read by eye). Its source_file is
+           relative to the source root, written and compared with `/`
+           separators and no leading `./`, as the runner writes its files
+           (`./pkg/api.py` and `pkg\\api.py` are `pkg/api.py`); an absolute
+           one (a leading `/` or a drive letter) is refused, and the call
+           adds nothing. An exports entry is
            marked `public` by the inventory's `public_surface`, as `init`
            marks the runner's (a `public` key the payload sends is not
            kept), and the warning naming the exports marked `public: false`
@@ -83,7 +88,8 @@ Subcommands:
            in `unmatched`, one that matches several in `ambiguous`; neither
            changes anything. params lists each parameter as the runner
            records one, {name, type, default, optional}, or as a typed
-           string ('userId: string').
+           string ('userId: string'). The source_file is compared as `add`
+           compares it: `./pkg/api.py` matches the export at `pkg/api.py`.
 
   set      --inventory <file>
            Read a JSON object on stdin and set each of its keys: top_exports,
@@ -206,8 +212,9 @@ Exit codes:
   1  input error, nothing changed: an inventory that is missing, not JSON
      or has no exports list, an --extraction or --detected file that
      cannot be read, a provenance map at --target that --add-entries
-     cannot read, a stdin payload of the wrong shape, an unknown key or a
-     kept file the inventory does not list, or a write that failed
+     cannot read, a stdin payload of the wrong shape, an exports entry
+     whose source_file is absolute, an unknown key or a kept file the
+     inventory does not list, or a write that failed
   2  usage error (argparse)
 """
 
@@ -361,6 +368,17 @@ def _norm_path(path: object) -> str | None:
     while text.startswith("./"):
         text = text[2:]
     return text
+
+
+def _relative_source(entry: dict) -> bool:
+    """Write an exports entry's source_file in _norm_path's form, the runner's; False for an absolute one."""
+    path = _norm_path(entry.get("source_file"))
+    if path is None:
+        return True
+    if path.startswith("/") or re.match(r"[A-Za-z]:/", path):
+        return False
+    entry["source_file"] = path
+    return True
 
 
 PUBLIC_API = "public-api"
@@ -574,6 +592,13 @@ def add(data: dict, field: str, entries: list) -> tuple[int, int, list[str]]:
         if not all(isinstance(e.get("export_name"), str) and e["export_name"] for e in entries):
             raise InventoryError("every exports entry needs an export_name")
         entries = [{**BY_EYE_DEFAULTS, **e} for e in entries]
+        absolute = [e for e in entries if not _relative_source(e)]
+        if absolute:
+            sent = ", ".join(f"{e['export_name']}: source_file {e['source_file']}" for e in absolute[:10])
+            sent += f" and {len(absolute) - 10} more" if len(absolute) > 10 else ""
+            verb, them = ("is", "it") if len(absolute) == 1 else ("are", "them")
+            raise InventoryError(f"{sent} {verb} absolute; send {them} relative to the source root, with / "
+                                 "separators, as the runner writes its files")
         for entry in entries:
             _mark(surface, entry)
     target = data.setdefault(field, [])
@@ -585,8 +610,8 @@ def add(data: dict, field: str, entries: list) -> tuple[int, int, list[str]]:
             dropped.append(entry["export_name"])
             continue
         if field == "exports":
-            key = (entry["export_name"], entry.get("source_file"))
-            repeat = any(isinstance(e, dict) and (e.get("export_name"), e.get("source_file")) == key
+            key = (entry["export_name"], _norm_path(entry.get("source_file")))
+            repeat = any(isinstance(e, dict) and (e.get("export_name"), _norm_path(e.get("source_file"))) == key
                          for e in target)
         else:
             repeat = any(_same(entry, e) for e in target)
@@ -617,7 +642,7 @@ def patch(data: dict, entries: list) -> tuple[int, list[str], list[str]]:
     for entry in entries:
         name, source = entry["export_name"], entry.get("source_file")
         found = [e for e in data["exports"] if isinstance(e, dict) and e.get("export_name") == name
-                 and (source is None or e.get("source_file") == source)]
+                 and (source is None or _norm_path(e.get("source_file")) == _norm_path(source))]
         label = name if source is None else f"{name} ({source})"
         if not found:
             unmatched.append(label)
