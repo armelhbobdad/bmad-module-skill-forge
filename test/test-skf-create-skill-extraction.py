@@ -698,6 +698,45 @@ def test_compile_counts_come_from_the_runner() -> None:
             "`aggregates.exports`)") in four
 
 
+def test_a_hand_count_counts_each_name_once_in_effective_denominator() -> None:
+    """#746: since #734 the runner counts `exports_public_api` by (name, file)
+    and `effective_denominator` by name, as Test Skill's sets of names count
+    it, so a name the entry points pass on from two files (a namespace member
+    named like another public name) or in two languages is 2 in the first and
+    1 in the second. compile.md §4 said "each member by its own file" and
+    entry-points-by-hand.md gave only the per-file rule, so a hand count could
+    store one more per extra file than Test Skill re-derives (66.67 for a
+    fully documented skill, 21 for cognee's 20 baml_client names).
+    extract.md §4b's by-eye names took no unit either, and the runner help's
+    limit on "from two files" holds on both lines."""
+    payload = _slice(_section(COMPILE, "4"), "**Judgment payload (passed as JSON on stdin):**",
+                     "    2. `scope.type` is not")
+    bullet = _slice(payload, "  - `effective_denominator` (**optional**", "Include it when ALL of the following hold:")
+    assert ("and a namespace counts as its `members` there too, each member's own file deciding whether it "
+            "counts: a name the entry points pass on from two files (a namespace member named like another public "
+            "name, or like another namespace's member, at another file) or in two languages counts once, when any "
+            "one of its files matches, whereas `exports_public_api` counts it once per file;") in bullet
+    assert "each member by its own file" not in payload
+    # a hand count takes the same unit, which the bullet still says
+    assert "When step 3 counted the entry points itself, count it by the same unit." in bullet
+    # the per-file rule names its count; the hand-count file points to compile §4 and counts no third number
+    by_hand = " ".join(_read(REFS / "entry-points-by-hand.md").split())
+    assert ("counts as the names its module passes on, each name and file once in `exports_public_api`, as the "
+            "recipe runner counts it; a name the entry points pass on from two files (a namespace member named "
+            "like another public name, or like another namespace's member, at another file) or in two languages "
+            "counts once in compile.md §4's `effective_denominator`.") in by_hand
+    assert ("then count `exports_public_api` (the entry points' public names) and `exports_internal` (every "
+            "other non-underscore export) for step 5 §4:") in by_hand
+    by_eye = _slice(_section(EXTRACT, "4b"), "Files you read by eye because no recipe reads their language", "\n")
+    assert ("add their names to the counts (to `effective_denominator` only a name whose file its globs count and "
+            "that it does not count yet, as step 5 §4 defines it, since it counts each name once: it already "
+            "counts the names `entry_point_diff.public` lists, a namespace's `members` by their own files, whose "
+            "file its globs count), and send the counts you changed with §5's `set`.") in by_eye
+    assert "add their names to the counts, and send" not in by_eye
+    for text in (bullet, by_hand, by_eye):
+        assert "\u2014" not in text and "\u2013" not in text
+
+
 def _condition_2() -> str:
     return _slice(_section(COMPILE, "4"), "    2. `scope.type` is not", "    3. `scope.notes`")
 
