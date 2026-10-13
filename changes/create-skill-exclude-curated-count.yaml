@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill, skf-update-skill
+summary: |
+  For a `specific-modules` brief on a repository that is not a monorepo, with the tiers described in `scope.notes`, Create Skill now judges whether its coverage count covers a curated subset by the files `scope.include` matches less those `scope.exclude` drops, the surface Test Skill carves from both lists, and Update Skill judges the same way on each update. So a whole-package `scope.include` such as `src/**` with `scope.exclude: [src/core/**]` keeps `stats.effective_denominator` in `metadata.json` when `scope.exclude` leaves out part of the package that defines public names, as a curated `scope.include` does. Excludes that drop only files defining no public name, such as tests or build output, still leave a whole-package count out. Test Skill's Export Coverage does not change: it re-derives the same number, and the stored count is what its deflation check compares.
+issues: [743]

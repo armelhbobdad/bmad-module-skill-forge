@@ -781,6 +781,79 @@ def test_condition_2_passes_a_tier_a_count_over_a_curated_include() -> None:
     assert "\u2014" not in two and "\u2013" not in two
 
 
+CONDITION_2_EXCLUDE = (
+    "Under arm (b) (`arms.specific_modules`), judge the files the count read, for a tier A count as for a "
+    "`scope.include` one: those `scope.include` matches less those `scope.exclude` drops (a tier A count reads "
+    "only files among them), as Test Skill's single-crate curated-subset clause carves the surface. A "
+    "`scope.include` that covers the whole package then lists a curated subset when a `scope.exclude` glob leaves "
+    "out package files that define public names (for a runner count, step 3 §4b lists such names under "
+    "`outside_scope`, at a file a `scope.exclude` glob matches; for a hand count, check whether an excluded file "
+    "defines a name the entry points export), and still covers the whole package when the excludes drop only files "
+    "that define none, such as tests or build output. This only adds a way to pass: a tier A count whose "
+    "`scope.tier_a_include` lists a curated subset still passes on its own globs.")
+
+
+def test_condition_2_judges_scope_exclude_under_arm_b() -> None:
+    """#743: the count never reads a file a `scope.exclude` glob matches, and
+    Test Skill's single-crate clause carves the surface with both lists, so
+    under arm (b) a whole-package `scope.include` that an exclude narrows to
+    part of the package's public names is a curated subset. Condition 2
+    judged `scope.include` as written, saw the whole package and left the
+    count out. The sentence follows #730's, and #726's tokens stay."""
+    two = _condition_2()
+    assert CONDITION_2_EXCLUDE in two
+    assert two.index("its `scope.type` part still applies.") < two.index(CONDITION_2_EXCLUDE)
+    assert "A basis of `all-files` names no list and fails this." in two
+    assert "\u2014" not in two and "\u2013" not in two
+
+
+def test_an_exclude_narrowed_include_counts_what_a_curated_include_counts(tmp_path: Path) -> None:
+    """#743: the premise of condition 2's arm (b) sentence, on the documented
+    runner call. `src/**` less `src/core/**` counts the 2 names of
+    `src/utils/a.ts` over 2 files under `scope.include`, as the curated
+    `src/utils/**` and `src/index.ts` do, and both list the names the
+    exclude leaves out under `outside_scope`; `src/**` alone, or less a test
+    file that defines no public name, counts the whole package, 5 over 3
+    files, and lists none. A tier A `src/**` over the narrowed include counts
+    the same 2, and an exclude with no `scope.include` counts every file's. A
+    curated tier A `src/utils/**` over `src/**` less a test file counts 2
+    under `tier_a_include` and lists none: it passes on its own globs, which
+    the arm (b) sentence leaves as they were."""
+    if not _pinned_ast_grep():
+        pytest.skip("no ast-grep of the version package.json pins")
+    head = "name: demo\nlanguage: typescript\nscope:\n  type: specific-modules\n"
+    test_file = {"src/utils/a.test.ts": 'import { ua } from "./a";\nua();\n'}
+    briefs = {"exclude": ("  include: ['src/**']\n  exclude: ['src/core/**']\n", {}),
+              "curated": ("  include: ['src/utils/**', 'src/index.ts']\n", {}),
+              "whole": ("  include: ['src/**']\n", {}),
+              "tests": ("  include: ['src/**']\n  exclude: ['src/**/*.test.ts']\n", test_file),
+              "tier_a": ("  include: ['src/**']\n  exclude: ['src/core/**']\n  tier_a_include: ['src/**']\n", {}),
+              "no_include": ("  exclude: ['src/core/**']\n", {}),
+              "tier_a_curated": ("  include: ['src/**']\n  exclude: ['src/**/*.test.ts']\n"
+                                 "  tier_a_include: ['src/utils/**']\n", test_file)}
+    counts, outside = {}, {}
+    for label, (scope, extra) in briefs.items():
+        tree = {**WIDE_TIER_A_TREE, **extra, "brief/skill-brief.yaml": head + scope}
+        out = _runner_output(tmp_path / label, tree)
+        assert (out["status"], out["warnings"], out["arms"]["specific_modules"]) == ("ok", [], True), label
+        counts[label] = out["counts"]
+        outside[label] = [(item["name"], item["file"]) for item in out["entry_point_diff"]["outside_scope"]]
+    assert counts["exclude"] == counts["curated"] == {
+        "exports_public_api": 5, "exports_internal": 0, "effective_denominator": 2,
+        "effective_denominator_basis": "scope.include", "denominator_files": 2}
+    assert outside["exclude"] == outside["curated"] == [("ca", "src/core/b.ts"), ("cb", "src/core/b.ts"),
+                                                         ("cc", "src/core/b.ts")]
+    assert counts["whole"] == counts["tests"] == {**counts["curated"], "effective_denominator": 5,
+                                                  "denominator_files": 3}
+    assert outside["whole"] == outside["tests"] == []
+    assert (counts["tier_a"]["effective_denominator"], counts["tier_a"]["effective_denominator_basis"]) == (
+        2, "tier_a_include")
+    assert counts["no_include"]["effective_denominator_basis"] == "all-files"
+    assert counts["tier_a_curated"] == {**counts["curated"], "effective_denominator_basis": "tier_a_include",
+                                        "denominator_files": 1}
+    assert outside["tier_a_curated"] == []
+
+
 # --------------------------------------------------------------------------
 # The relabel rule: one home, looked up through kind-at
 # --------------------------------------------------------------------------

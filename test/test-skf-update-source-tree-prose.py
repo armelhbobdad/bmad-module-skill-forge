@@ -2964,6 +2964,48 @@ def test_write_passes_the_effective_denominator_create_skill_decides():
         assert token in compile_, token
 
 
+WRITE_EXCLUDE = (
+    "Under arm (b) (`arms.specific_modules`), judge the files `scope.include` matches less those `scope.exclude` "
+    "drops, for a tier A count as for a `scope.include` one (a tier A count reads only files among them): a "
+    "`scope.include` that covers the whole package lists a curated subset when an exclude glob leaves out package "
+    "files that define public names (the runner's `entry_point_diff.outside_scope` lists such names at a file an "
+    "exclude glob matches; for a hand count, check whether an excluded file defines a name the entry points "
+    "export), and stays the whole package when the excludes drop only files that define none, such as tests or "
+    "build output. This only adds a way to pass: a tier A count whose `scope.tier_a_include` lists a curated subset "
+    "still passes on its own globs.")
+# the hand-count part points back to it, after the arms it names
+WRITE_EXCLUDE_HAND = "not a monorepo. Under arm (b), judge that list less what `scope.exclude` drops, as above."
+
+
+def test_write_judges_scope_exclude_under_arm_b_as_create_skill_does():
+    """#743: under arm (b) Create Skill's condition 2 judges `scope.include` less what `scope.exclude` drops, so a
+    whole-package `scope.include` that an exclude narrows to part of the package's public names is a curated
+    subset. Update Skill recomputes the count on each update (#741), so its bullet judges the same way after its
+    conditions and its tier A note, in condition 2's order; without it the next update judges the whole package
+    and removes the count Create Skill stored. The hand-count part points back to it, and its outcome clauses
+    are condition 2's."""
+    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
+    bullet = _slice(two, "  - `effective_denominator`, as create-skill's compile.md §4 decides it", "\n")
+    assert WRITE_EXCLUDE in bullet
+    tier_a_note = bullet.index("covers the full workspace; the `scope.type` condition still applies.")
+    assert bullet.index("documents the stratification") < tier_a_note < bullet.index(WRITE_EXCLUDE)
+    assert bullet.index(WRITE_EXCLUDE) < bullet.index("Add to it, each name once")
+    assert bullet.index("When you counted the entry points by hand above") < bullet.index(WRITE_EXCLUDE_HAND)
+    assert "\u2014" not in bullet and "\u2013" not in bullet
+    # the rule it restates is compile.md §4's condition 2, which write.md does not load
+    compile_ = _slice(_read(SRC / "skf-create-skill" / "references" / "compile.md"),
+                      "### 4. Build metadata.json Content", "### 5.")
+    assert ("Under arm (b) (`arms.specific_modules`), judge the files the count read, for a tier A count as for a "
+            "`scope.include` one") in compile_
+    for clause in ("leaves out package files that define public names",
+                   "glob matches; for a hand count, check whether an excluded file defines a name the entry points "
+                   "export)",
+                   "the excludes drop only files that define none, such as tests or build output.",
+                   "This only adds a way to pass: a tier A count whose `scope.tier_a_include` lists a curated subset "
+                   "still passes on its own globs."):
+        assert clause in bullet and clause in compile_, clause
+
+
 def test_the_documented_library_call_keeps_the_effective_denominator_it_is_passed(tmp_path, monkeypatch, capsys):
     """#741: the key the payload bullet adds reaches `stats` through write §2's library call as written, and the
     reference-app call never emits it, so the bullet's count is what metadata.json stores."""
