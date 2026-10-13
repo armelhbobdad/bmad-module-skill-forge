@@ -2,4 +2,5 @@ type: fixed
 scope: skf-update-skill
 summary: |
   When the check Update Skill runs right after it points the skill's `active` link at the new version found a real folder in the link's place (a copy, as `ln -s` makes in Git Bash without symlink rights) or found the skill folder gone, its helper exited 1 with no result and Update Skill named no rule for that exit, so a run could go on to report `success` with `active` no longer a link, which the next update and Create Skill, Quick Skill and Rename Skill then refuse to replace. It now stops with `halted-for-write-failure` (`error.phase` `write:verify-active-symlink`), shows the helper's error and undoes what the update wrote, as the same check already did when the link named another version. The folder at `active` is left for you to replace with a link.
+prs: [754]
 issues: [742]
