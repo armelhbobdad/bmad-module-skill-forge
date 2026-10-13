@@ -39,7 +39,9 @@ drop steps document, filled in as an agent fills them, against fixtures:
   a whole-skill deprecate marks every version deprecated and keeps the entry,
   and only a purge removes it.
 - A repoint the helper cannot make (#732) is recorded as `active_link_dangling`
-  with the `ln -sfn` fix and the helper's line.
+  with the helper's line and a fix that runs `skf-atomic-write.py flip-link`,
+  which also works on native Windows without symlink rights (#735); the guard
+  refusal's recovery names the same command.
 """
 
 from __future__ import annotations
@@ -966,16 +968,24 @@ def test_the_guard_refusal_names_a_recovery_that_works():
     """enhancement-3 (gate run 3): Export Skill has no version choice, so the refusal names the `active` link."""
     guard = _section(_read(SELECT), "### 7. Active Version Guard", "### 8. ")
     assert "with a different version selected" not in guard, "Export Skill takes no version"
-    assert ("point the `active` link at it (`ln -sfn <version to keep> {skills_output_folder}/{target_skill}/active`), "
+    assert ("point the `active` link at it (`uv run {atomicWriteHelper} flip-link --link "
+            "\"{skills_output_folder}/{target_skill}/active\" --target <version to keep>`), "
             "run `[EX] Export Skill` for `{target_skill}`, which exports that version and archives `{version}`, "
             "then return here to drop `{version}`") in guard
     assert ("`<version to keep>` is the first `{version_rows}` entry other than `{version}` whose `in_manifest` "
             "and `on_disk` are true and whose `status` is not `\"deprecated\"`") in guard
+    assert ("`{atomicWriteHelper}` is the first existing path in `{atomicWriteProbeOrder}`, or its first entry "
+            "when neither exists.") in guard
     safety = _section(_read("docs/workflows.md"), "### Drop Skill (DS)", "**Preview first:**")
-    assert "`ln -sfn <version to keep> <skills_output_folder>/<name>/active`" in safety and "`@Ferris EX`" in safety
+    assert ("`uv run _bmad/skf/shared/scripts/skf-atomic-write.py flip-link --link <skills_output_folder>/<name>/active "
+            "--target <version to keep>`, which works in Git Bash, PowerShell and WSL2") in safety
+    assert "`@Ferris EX`" in safety
     drop = _section(_read("src/knowledge/version-paths.md"), "### Drop (DS - Drop Skill)", "**Skill-level drop:**")
-    assert "`ln -sfn <version to keep> {skill_group}/active`" in drop
+    assert ("`uv run _bmad/skf/shared/scripts/skf-atomic-write.py flip-link --link {skill_group}/active "
+            "--target <version to keep>`") in drop
     assert "switch active to another version first" not in drop
+    for text in (guard, safety, drop):
+        assert "ln -s" not in text, "Git Bash without symlink rights turns `ln -s` into a copy of the folder"
 
 
 def _version_to_keep(entry: dict, version: str) -> str | None:
@@ -1031,7 +1041,14 @@ def test_the_guard_recovery_lets_the_drop_through(tmp_path):
     assert _export_resolve(skills, forge, "cognee")["chosen_version"] == "0.6.0"
     keep = _version_to_keep(entry, "0.6.0")
     assert keep == "0.5.0"
-    _link_active(skills / "cognee", keep)
+    # The recovery the refusal names, as the agent fills it in.
+    guard = _section(_read(SELECT), "### 7. Active Version Guard", "### 8. ")
+    recovery = re.search(r"point the `active` link at it \(`(uv run \{atomicWriteHelper\} flip-link [^`]+)`\)", guard)
+    proc = _run(recovery.group(1).replace("<version to keep>", keep),
+                {"atomicWriteHelper": str(SCRIPTS / "skf-atomic-write.py"), "skills_output_folder": str(skills),
+                 "target_skill": "cognee"})
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["points_to"] == "0.5.0"
     resolved = _export_resolve(skills, forge, "cognee")
     assert (resolved["chosen_version"], resolved["reason"]) == ("0.5.0", "manifest-lags-link")
     # Export's manifest step records the version in the exported package's metadata.json.
@@ -1083,18 +1100,26 @@ def test_a_busy_repoint_is_recorded_with_a_fix_for_after_the_other_run():
     delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
     assert ("Record a `busy` exit (code 2, another run was moving the link) the same way, with the manual fix "
             "\"once the other run has finished, if `active` still names the dropped version, run "
-            "`ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`\".") in delete
+            "`uv run {atomicWriteHelper} flip-link --link \"{skills_output_folder}/{target_skill}/active\" "
+            "--target \"{new_active_version}\"`\".") in delete
 
 
 def test_a_repoint_that_exits_1_is_recorded():
-    """#732: the helper exits 1 with no JSON when it cannot run or cannot move the link (native Windows, a missing
-    skf-atomic-write.py, a skill folder that refuses the change), and the link still names the dropped version."""
+    """#732: the helper exits 1 with no JSON when it cannot run or cannot move the link (a missing
+    skf-atomic-write.py, a skill folder that refuses the change), and the link still names the dropped version.
+    #735: every manual fix in §4 runs flip-link, never `ln -sfn`, which Git Bash without symlink rights turns into
+    a copy of the folder; `{atomicWriteHelper}` falls back to its installed path when no candidate exists."""
     delete = _section(_read(EXECUTE), "### 4. Delete Files (Purge Mode Only)", "### 5. ")
     assert ("Record any other non-zero exit, or no JSON on stdout (exit 1, or an exit 2 that prints no JSON: the helper "
             "could not run, could not move the link, or failed after moving it, and the last line it prints on stderr "
             "says why), the same way, with the manual fix \"if `active` still names the dropped version, run "
-            "`ln -sfn {new_active_version} {skills_output_folder}/{target_skill}/active`\" followed by that line in "
+            "`uv run {atomicWriteHelper} flip-link --link \"{skills_output_folder}/{target_skill}/active\" "
+            "--target \"{new_active_version}\"`\" followed by that line in "
             "parentheses, or by `(exit <code>)` when the helper prints nothing on stderr.") in delete
+    assert ("In each manual fix below, `{atomicWriteHelper}` is the first existing path in `{atomicWriteProbeOrder}`, "
+            "or its first entry when neither exists (the fix then works once SKF is re-installed)") in delete
+    assert delete.count("`uv run {atomicWriteHelper} flip-link --link") == 3
+    assert "ln -sfn" not in delete
 
 
 def _repoint_command(delete: str) -> str:
@@ -1103,7 +1128,8 @@ def _repoint_command(delete: str) -> str:
     return " ".join(block.replace("\\\n", " ").split())
 
 
-@pytest.mark.skipif(os.name == "nt", reason="the helper exits 1 on native Windows before it reads its arguments")
+@pytest.mark.skipif(os.name == "nt", reason="Windows refuses to open a folder with errno 13, not EISDIR; "
+                    "test-skf-update-active-symlink.py runs the helper on Windows")
 @pytest.mark.parametrize("broken, said", [
     ("no-lock-helper", "error: cannot load the flip-lock helper "),
     ("lock-path-is-a-folder", f"error: [Errno {errno.EISDIR}]"),
@@ -1133,11 +1159,15 @@ def test_a_helper_that_cannot_load_its_lock_leaves_the_link_on_the_dropped_versi
     assert (proc.returncode, proc.stdout) == (1, b""), proc.stderr
     assert proc.stderr.decode("utf-8").splitlines()[-1].startswith(said), proc.stderr
     assert os.readlink(group / "active") == "0.5.0" and not (group / "active").exists(), "the link still dangles"
-    # The `ln -sfn` fix the exit-1 rule records, each value quoted as a shell fills it.
+    # The flip-link fix the exit-1 rule records, run with the installed skf-atomic-write.py. It takes the lock the
+    # helper could not, so a folder at the lock path, which the helper's line names, goes first.
     rule = re.search(r"Record any other non-zero exit[^\n]*", delete).group(0)
-    fix = re.search(r"run `(ln -sfn [^`]+)`", rule).group(1)
-    filled = re.sub(r"\{(\w+)\}", lambda m: shlex.quote(values[m.group(1)]), fix)
-    subprocess.run(shlex.split(filled), check=True, timeout=30)
+    fix = re.search(r"run `(uv run \{atomicWriteHelper\} flip-link [^`]+)`", rule).group(1)
+    if broken == "lock-path-is-a-folder":
+        assert "active.skf-lock" in proc.stderr.decode("utf-8").splitlines()[-1]
+        (group / "active.skf-lock").rmdir()
+    proc = _run(fix, {**values, "atomicWriteHelper": str(SCRIPTS / "skf-atomic-write.py")})
+    assert proc.returncode == 0, proc.stderr
     assert os.readlink(group / "active") == "0.6.0" and (group / "active").is_dir()
 
 

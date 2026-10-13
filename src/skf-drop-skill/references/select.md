@@ -8,6 +8,10 @@ skillInventoryProbeOrder:
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
 # {dirSizesHelper}: the §9b size of the folders in scope.
 dirSizesHelper: 'scripts/dir-sizes.py'
+# {atomicWriteHelper}: the §7 recovery that points `active` at the version to keep.
+atomicWriteProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
+  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -167,11 +171,11 @@ Set `target_versions = "all"` and `is_skill_level = true`.
       "**Cannot drop the active version `{version}`.**
       Other non-deprecated versions of `{target_skill}` still exist. To proceed, either:
 
-      **(a)** Make the version you keep active first: point the `active` link at it (`ln -sfn <version to keep> {skills_output_folder}/{target_skill}/active`), run `[EX] Export Skill` for `{target_skill}`, which exports that version and archives `{version}`, then return here to drop `{version}`, OR
+      **(a)** Make the version you keep active first: point the `active` link at it (`uv run {atomicWriteHelper} flip-link --link "{skills_output_folder}/{target_skill}/active" --target <version to keep>`), run `[EX] Export Skill` for `{target_skill}`, which exports that version and archives `{version}`, then return here to drop `{version}`, OR
 
       **(b)** Use the `[A] All versions` option to drop every version of `{target_skill}` at once."
 
-      In (a), `<version to keep>` is the first `{version_rows}` entry other than `{version}` whose `in_manifest` and `on_disk` are true and whose `status` is not `"deprecated"` (the rows are newest first); with no such entry, show `<version to keep>` as written.
+      In (a), `<version to keep>` is the first `{version_rows}` entry other than `{version}` whose `in_manifest` and `on_disk` are true and whose `status` is not `"deprecated"` (the rows are newest first); with no such entry, show `<version to keep>` as written. `{atomicWriteHelper}` is the first existing path in `{atomicWriteProbeOrder}`, or its first entry when neither exists.
 
       HALT (exit code 5, `halt_reason: "active-version-guard-refused"`, phase `select:active-version-guard`), with `skill: "{target_skill}"` and `versions_affected: ["{version}"]` in the §1 halt envelope. Do not proceed.
 

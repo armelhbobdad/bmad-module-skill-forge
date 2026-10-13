@@ -360,7 +360,7 @@ def test_version_folder_steps_run_against_the_real_helpers(tmp_path):
     entry = json.loads(inventory.stdout)["skills"][0]
     assert entry["ownership"] == "skf" and entry["foreign_entries"] == []
 
-    if os.name != "nt":  # write.md §8; the symlink helper refuses Windows
+    if os.name != "nt":  # write.md §8; test-skf-update-active-symlink.py flips on Windows (TestNativeWindows)
         os.symlink("1.0.0", group / "active")
         flip = subprocess.run([sys.executable, str(SYMLINK), "update", "--skill-group", str(group),
                                "--version", "1.0.1"], capture_output=True, encoding="utf-8")

@@ -32,10 +32,13 @@ Cross-platform: locking branches between fcntl (POSIX) and msvcrt
 (Windows). On Windows os.symlink needs Developer Mode or admin; when it
 fails for lack of privilege, flip-link creates a directory junction
 (mklink /J) instead, which needs neither but requires <target> to be an
-existing directory. A junction cannot be renamed over an existing link,
-so on that path flip-link removes the old link first and the flip is not
-atomic. No test exercises the junction path: CI's Windows runner holds
-symlink privilege.
+existing directory. Windows renames nothing over an existing directory
+link, so on the junction path, and on Windows whenever the rename over the
+old link is refused, replace_link removes the old link first (a junction
+whose folder is gone included) and the flip is not atomic. The Windows
+tests in test-skf-atomic-write.py and test-skf-update-active-symlink.py
+make os.symlink fail as it does without the privilege, so CI's Windows
+runner, which holds it, runs the junction path too.
 
 Exit codes:
   0 on success (JSON on stdout)
@@ -310,6 +313,58 @@ def _is_link_or_junction(p: Path) -> bool:
         return False
 
 
+def _remove_link(p: Path) -> None:
+    """Remove the symlink or junction at p, whether or not the folder it names exists.
+
+    os.readlink raises for a real folder or file (OSError) and for another
+    Windows reparse point (ValueError), so neither is ever removed. os.unlink
+    removes a symlink, and on Windows a directory symlink or a junction too;
+    os.rmdir is the fallback for a directory link unlink refuses.
+    """
+    if not p.is_symlink():
+        os.readlink(p)
+    try:
+        os.unlink(p)
+    except OSError:
+        os.rmdir(p)
+
+
+def replace_link(link: Path, target: str, tmp_link: Path | None = None) -> str:
+    """Point the link <link> at <target> through <tmp_link>; return "symlink" or "junction".
+
+    The caller holds take_flip_lock(link) and has refused a real folder or
+    file at <link>. A stale <tmp_link> from a crashed flip is removed first.
+    The new link is made at <tmp_link> and renamed over <link>, which is
+    atomic for a symlink on POSIX. Windows renames nothing over an existing
+    directory link, so the old link is removed first on the junction path,
+    and on Windows when the rename is refused: a reader can then find no
+    <link> for a moment. A failure removes <tmp_link> and raises.
+    """
+    if tmp_link is None:
+        tmp_link = link.with_name(link.name + ".skf-tmp-link")
+    if os.path.lexists(tmp_link):
+        _remove_link(tmp_link)
+    link_kind = _create_symlink_or_junction(target, tmp_link)
+    try:
+        if link_kind == "junction" and os.path.lexists(link):
+            _remove_link(link)
+        try:
+            os.replace(tmp_link, link)
+        except OSError:
+            if not _IS_WINDOWS or not os.path.lexists(link):
+                raise
+            _remove_link(link)
+            os.replace(tmp_link, link)
+    except BaseException:
+        try:
+            if os.path.lexists(tmp_link):
+                _remove_link(tmp_link)
+        except (OSError, ValueError):
+            pass
+        raise
+    return link_kind
+
+
 class FlipLockHeld(Exception):
     """Another flip holds <link>.skf-lock; the message names <link>."""
 
@@ -361,7 +416,8 @@ def take_flip_lock(link: Path, wait: float = 0.0) -> int:
                     raise FlipLockHeld(f"another process holds flip lock on {link}")
                 held = True
             else:
-                # os.name here and in release_flip_lock follows the real OS; _IS_WINDOWS is the open retry's test seam.
+                # os.name here and in release_flip_lock follows the real OS; _IS_WINDOWS is the test seam of the
+                # open retry and of replace_link's remove-first retry.
                 if os.name == "nt" or _names_open_file(lock_fd, lock_path):
                     return lock_fd
                 _release_lock(lock_fd)
@@ -408,7 +464,9 @@ def cmd_flip_link(link: Path, target: str) -> None:
     On Windows, os.symlink requires Developer Mode or admin. When that fails
     with PRIVILEGE_NOT_HELD/ACCESS_DENIED the helper falls back to a directory
     junction (no elevation needed); junctions resolve identically for
-    skf-skill-inventory's resolve_active_version().
+    skf-skill-inventory's resolve_active_version(). replace_link makes the
+    new link and renames it over <link>; skf-update-active-symlink.py update
+    flips through it too.
 
     The lock follows ledger_lock in gap-ledger.py (the same identity check
     and removal order): a fix to one belongs in both. The lock file is
@@ -443,34 +501,7 @@ def cmd_flip_link(link: Path, target: str) -> None:
     except FlipLockHeld as exc:
         _die(2, str(exc))
     try:
-        tmp_link = link.with_name(link.name + ".skf-tmp-link")
-        if tmp_link.is_symlink() or tmp_link.exists():
-            # On Windows a junction returns is_dir()=True, exists()=True but
-            # is_symlink()=False — must rmdir/unlink based on type.
-            if tmp_link.is_dir() and not tmp_link.is_symlink():
-                tmp_link.rmdir()
-            else:
-                tmp_link.unlink()
-        try:
-            link_kind = _create_symlink_or_junction(target, tmp_link)
-        except OSError as e:
-            if os.name == "nt" and getattr(e, "winerror", None) in (1314, 5):
-                _die(
-                    2,
-                    "symlink/junction creation failed on Windows. Junction fallback "
-                    "requires the target directory to exist. Either enable Developer "
-                    "Mode (Settings → Privacy & Security → For Developers) or use WSL2.",
-                )
-            raise
-        # os.replace can swap a symlink-over-symlink atomically, but Windows
-        # rejects renaming a directory (junction) over an existing directory
-        # (junction or real). Drop the existing link first when junction-based.
-        if link_kind == "junction" and (link.is_dir() or link.is_symlink() or link.exists()):
-            if link.is_symlink() or not link.is_dir():
-                link.unlink()
-            else:
-                link.rmdir()
-        os.replace(tmp_link, link)
+        link_kind = replace_link(link, target)
     finally:
         release_flip_lock(link, lock_fd)
 
