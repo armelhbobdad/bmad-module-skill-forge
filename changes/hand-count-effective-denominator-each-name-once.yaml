@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  When Create Skill counts the public API by hand (at Quick tier, by source reading, for a brief whose language no recipe reads, when the recipe runner cannot run, or for files no recipe reads beside files it does read), it now counts a name the package's entry points pass on from two files or in two languages once in `stats.effective_denominator`, as the recipe runner does and as Test Skill counts it, while `stats.exports_public_api` still counts it once per file. A hand count could store one more for each extra file, so a curated skill that documented every name scored Export Coverage below 100 on the stored count (66.67 for two names counted as three). A skill keeps its old count until Create Skill or Update Skill runs again.
+issues: [746]
