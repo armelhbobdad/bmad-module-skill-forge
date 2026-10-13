@@ -17,6 +17,8 @@ Covers update + verify subcommands:
     flip holds the lock and returns busy when the lock stays held, a
     second update waits for the first, and a no-op leaves no lock file
   - exit 1 after a flip that worked leaves the link moved (#732)
+  - verify exits 1 with no JSON when a real folder replaced the link after
+    a flip, or the skill folder is no folder (#742)
 """
 
 from __future__ import annotations
@@ -435,3 +437,28 @@ class TestCli:
         assert out == ""
         assert err.splitlines()[-1] == f"error: [Errno {errno.EIO}] {os.strerror(errno.EIO)}"
         assert os.readlink(group / "active") == "1.6.2"
+
+    def test_verify_exits_1_with_no_json_when_a_folder_replaced_the_link_after_a_flip(self, tmp_path: Path) -> None:
+        """#742: the outcomes write.md §8a's "any other exit" rule meets. A real folder put at `active` between
+        §8's flip and §8a's check (a copy, as `ln -s` makes in Git Bash without symlink rights), and a skill folder
+        that is no folder, give exit 1, nothing on stdout and one `error:` line on stderr."""
+        group = _make_group(tmp_path, "1.0.0", "1.6.2")
+        os.symlink("1.0.0", group / "active")
+        flipped = _run_cli("update", "--skill-group", str(group), "--version", "1.6.2")
+        assert flipped.returncode == 0, flipped.stderr
+        assert json.loads(flipped.stdout)["status"] == "flipped"
+        os.unlink(group / "active")
+        (group / "active").mkdir()
+        (group / "active" / "SKILL.md").write_text("copy\n", encoding="utf-8")
+        result = _run_cli("verify", "--skill-group", str(group), "--version", "1.6.2")
+        assert result.returncode == 1
+        assert result.stdout == ""
+        last = result.stderr.splitlines()[-1]
+        assert last.startswith("error: ") and str(group / "active") in last and "not a symlink" in last
+        not_a_folder = tmp_path / "not-a-folder"
+        not_a_folder.write_text("x\n", encoding="utf-8")
+        for missing in (not_a_folder, tmp_path / "gone"):
+            result = _run_cli("verify", "--skill-group", str(missing), "--version", "1.6.2")
+            assert result.returncode == 1
+            assert result.stdout == ""
+            assert result.stderr.splitlines()[-1] == f"error: skill-group not a directory: {missing}"
