@@ -1142,10 +1142,13 @@ def test_a_quick_tier_tier_a_glob_that_counts_no_name_gives_no_set(tmp_path):
     assert out["guards"]["tierAInclude"] == ["packages/core/src/util/**"]
 
 
-# #733: the issue's fixture, `src/**` in scope. At Quick tier every name
-# carries the entry file that exports it, so only a tier A glob whose
-# folder or file differs from every scope.include glob's before any
-# wildcard is known to count no name.
+# #733: the issue's fixture, `src/**` in scope. At Quick tier the loader
+# keeps this glob rule whether or not the quick names carry defined_in: a
+# name read by eye, or a quick name with no defined_in, carries the entry
+# file that exports it, so only a tier A glob whose folder or file differs
+# from every scope.include glob's before any wildcard, or one a
+# scope.exclude glob covers segment by segment (#749), is known to count no
+# name.
 FX_BRIEF = "name: fx\nlanguage: typescript\nscope:\n  type: specific-modules\n  include: ['src/**']\n"
 FX_PROVENANCE = {"entries": [{"export_name": n} for n in ("alpha", "beta", "gamma")]}
 
@@ -1438,6 +1441,95 @@ def test_per_file_results_without_fallback_scan_drop_a_tier_a_glob_inside_a_scop
     assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
                                           "pct": 50.0, "fires": True}
     assert out["guards"]["inflation"]["applicable"] is True
+
+
+# #750: the quick parser's `defined_in` places each name at the file that
+# defines it, as the runner's records do, and the fallback scan's barrel
+# result leaves out the names it only passes on.
+FX_DEFINED_IN = {"alpha": "src/a.ts", "beta": "src/b.ts", "gamma": "src/b.ts", "extra": "gen/extra.ts"}
+
+
+def _fx_quick_traced(tmp_path: Path, defined_in: dict[str, str | None] | None) -> list[str]:
+    exports = [{"name": n, "type": "re-export", "source_file": "src/index.ts"} for n in FX_DEFINED_IN]
+    if defined_in is not None:
+        exports = [{**e, "defined_in": defined_in[e["name"]]} for e in exports]
+    return ["--quick", _write(tmp_path / "quick-1.json", {"exports": exports, "warnings": []})]
+
+
+def _fx_stored(tmp_path: Path, tier_a: str | None, head: str = FX_BRIEF) -> list[str]:
+    brief = _write(tmp_path / "skill-brief.yaml", head + (f"  tier_a_include: ['{tier_a}']\n" if tier_a else ""))
+    meta = _write(tmp_path / "metadata.json", {**METADATA, "stats": {"effective_denominator": 3}})
+    return ["--brief", brief, "--metadata", meta, "--provenance", _write(tmp_path / "provenance.json", FX_PROVENANCE)]
+
+
+@pytest.mark.parametrize("tier_a", [None, "gen/**"], ids=["no-tier-a-list", "tier-a-apart"])
+def test_a_quick_surface_places_each_name_at_its_defined_in(tmp_path, tier_a):
+    """#750: `extra`, which the entry file passes on from gen/extra.ts, leaves the scope.include set, so the
+    runner's stored 3 fires neither guard; the `all` set keeps every name."""
+    out = _surface(tmp_path, *_fx_quick_traced(tmp_path, FX_DEFINED_IN), *_fx_stored(tmp_path, tier_a))
+    assert out["sets"] == {"all": ["alpha", "beta", "extra", "gamma"], "scope.include": ["alpha", "beta", "gamma"]}
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 3, "rederived": 3,
+                                          "pct": 0.0, "fires": False}
+    assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 3, "provenanceEntries": 3,
+                                          "pct": 0.0, "fires": False}
+    assert gap_ledger.from_guards(out) == []
+
+
+@pytest.mark.parametrize("tier_a", [None, "src/gen/**"], ids=["exclude-only", "tier-a-inside-exclude"])
+def test_a_quick_surface_leaves_out_a_name_defined_in_an_excluded_file(tmp_path, tier_a):
+    """#750 with #749: `extra`, which the entry file passes on from src/gen/extra.ts, keeps that file, which
+    scope.exclude drops, so it leaves the scope.include set and the stored 3 fires neither guard, with no tier A
+    list or with a tier A glob inside the exclude (which leaves the list)."""
+    traced = {**FX_DEFINED_IN, "extra": "src/gen/extra.ts"}
+    out = _surface(tmp_path, *_fx_quick_traced(tmp_path, traced), *_fx_stored(tmp_path, tier_a, FX_EXCLUDE))
+    assert [e["file"] for e in out["exports"] if e["name"] == "extra"] == ["src/gen/extra.ts"]
+    assert out["sets"] == {"all": ["alpha", "beta", "extra", "gamma"], "scope.include": ["alpha", "beta", "gamma"]}
+    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 3, "rederived": 3,
+                                          "pct": 0.0, "fires": False}
+    assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 3, "provenanceEntries": 3,
+                                          "pct": 0.0, "fires": False}
+    if tier_a:
+        assert out["guards"]["tierAInclude"] == [tier_a]
+    assert gap_ledger.from_guards(out) == []
+
+
+def test_a_quick_surface_with_no_defined_in_keeps_the_entry_file(tmp_path):
+    """#750: an older quick output (no key) and a name the parser could not trace (null) carry their
+    source_file, as before."""
+    without = _surface(tmp_path, *_fx_quick_traced(tmp_path, None), *_fx_stored(tmp_path, None))
+    assert without["sets"]["scope.include"] == ["alpha", "beta", "extra", "gamma"]
+    assert without["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 3, "rederived": 4,
+                                              "pct": 33.33, "fires": True}
+    null = _surface(tmp_path, *_fx_quick_traced(tmp_path, dict.fromkeys(FX_DEFINED_IN)), *_fx_stored(tmp_path, None))
+    assert {k: null[k] for k in ("sets", "candidates", "guards")} == {
+        k: without[k] for k in ("sets", "candidates", "guards")}
+
+
+def test_a_quick_tier_live_tier_a_glob_over_a_defining_file_gives_a_set(tmp_path):
+    """#750: with names at their defining files, a tier A glob over src/b.ts gives a set at Quick tier, as at
+    Forge tier, and the guards stay off under #712's glob rule."""
+    out = _surface(tmp_path, *_fx_quick_traced(tmp_path, FX_DEFINED_IN), *_fx_stored(tmp_path, "src/b.ts"))
+    assert out["sets"]["tier_a_include"] == ["beta", "gamma"]
+    assert out["guards"]["inflation"]["applicable"] is False
+
+
+def test_a_fallback_scan_barrel_result_without_its_passed_on_names_matches_the_runner(tmp_path):
+    """#750: the barrel's own result holds only what it defines (here nothing), so the scope sets are the
+    definition files' and the stored 3 fires no guard; with the names it passes on, `extra` comes in."""
+    barrel = _write(tmp_path / "per-file-3.txt", {"file": "src/index.ts", "exports_found": [], "types_found": [],
+                                                   "signature_mismatches": []})
+    out = _surface(tmp_path, *_fx_fallback(tmp_path), "--per-file", barrel, "--fallback-scan",
+                   *_fx_stored(tmp_path, None))
+    assert out["sets"] == {"all": ["alpha", "beta", "gamma"], "scope.include": ["alpha", "beta", "gamma"]}
+    assert (out["guards"]["deflation"]["pct"], out["guards"]["deflation"]["fires"]) == (0.0, False)
+    assert (out["guards"]["inflation"]["pct"], out["guards"]["inflation"]["fires"]) == (0.0, False)
+    passes_on = _write(tmp_path / "per-file-3.txt", {"file": "src/index.ts", "types_found": [],
+                                                      "exports_found": ["alpha", "beta", "gamma", "extra"],
+                                                      "signature_mismatches": []})
+    out = _surface(tmp_path, *_fx_fallback(tmp_path), "--per-file", passes_on, "--fallback-scan",
+                   *_fx_stored(tmp_path, None))
+    assert out["sets"]["scope.include"] == ["alpha", "beta", "extra", "gamma"]
+    assert out["guards"]["deflation"]["fires"] and out["guards"]["inflation"]["fires"]
 
 
 def test_without_a_source_read_the_guards_do_not_run(tmp_path):

@@ -74,7 +74,9 @@ subcommands, each reading files and writing one JSON object:
                             gives no name and no set: only its scope, its
                             stale globs and its `extraction` object, so the
                             fallback scan passes it beside its results.
-              --quick       skf-extract-public-api.py --mode quick output
+              --quick       skf-extract-public-api.py --mode quick output,
+                            each name at its defined_in (the file that
+                            defines it), else at its source_file
               --per-file    a subagent's per-file result (exports_found and
                             types_found), schema-checked as
                             score-signatures.py checks it
@@ -105,8 +107,9 @@ Name sets (surface `sets`, each sorted): `all` (the union above, less a
 nested Python top's names);
 `scope.include` and `tier_a_include` when the scope has those globs and a
 record names a file: the names whose file (an extraction's definition file,
-the quick output's source_file, a per-file result's file, a provenance
-entry's source_file) matches a glob of the list and no scope.exclude glob,
+the quick output's defined_in, else its source_file, a per-file result's
+file, a provenance entry's source_file) matches a glob of the list and no
+scope.exclude glob,
 and for `tier_a_include` a scope.include glob too when the scope has one,
 so a name with no file is in `all` only and a restored name is in no
 tier_a_include set (a tier_a_include glob an extraction lists as matching
@@ -128,9 +131,10 @@ only on a surface read from the source. The deflation guard compares the
 re-derived scope.include set (the `all` set without one) with
 `stats.effective_denominator` and fires above DEFLATION_PCT when there is
 no tier A list (with an extraction or --fallback-scan, no tier_a_include
-set; otherwise no tier_a_include glob left in the list, since a quick or
-State 4 result's name carries its entry file, not the file that defines
-it); a stored 0 is deflation, not a
+set; otherwise no tier_a_include glob left in the list, since a name read
+by eye at Quick tier or State 4, and a quick name with no defined_in,
+carries its entry file, not the file that defines it); a stored 0 is
+deflation, not a
 denominator (`pct` null), and fires under that condition when any name is
 re-derived. The inflation guard compares the scope.include set with the
 provenance entry count (--provenance) and fires above INFLATION_PCT under
@@ -689,7 +693,7 @@ def from_quick(data: dict) -> list[dict]:
     exports = data.get("exports")
     if not isinstance(exports, list):
         raise InputError("--quick is not skf-extract-public-api.py --mode quick output (no exports list)")
-    return [_record(e["name"], e.get("type"), e.get("source_file"), None, None, "quick")
+    return [_record(e["name"], e.get("type"), e.get("defined_in") or e.get("source_file"), None, None, "quick")
             for e in exports if isinstance(e, dict) and isinstance(e.get("name"), str) and e["name"]]
 
 
@@ -872,8 +876,9 @@ def surface(args: argparse.Namespace) -> dict:
         }
         # With an extraction or the fallback scan's results (each at the file
         # that defines its names), no tier A set is no tier A list; otherwise
-        # the globs left in the list decide (a Quick-tier or State 4 name
-        # carries its entry file, not the file that defines it).
+        # the globs left in the list decide (a name read by eye at Quick tier
+        # or State 4, and a quick name with no defined_in, carries its entry
+        # file, not the file that defines it).
         no_tier_a = ("tier_a_include" not in sets if extracted is not None or args.fallback_scan
                      else not tier_a)
         deflation = {"applicable": source_read and stats_eff is not None, "effectiveDenominator": stats_eff,

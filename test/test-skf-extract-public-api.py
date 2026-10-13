@@ -1079,6 +1079,137 @@ class TestQuickFiles:
         assert [e["name"] for e in json.loads(proc.stdout)["exports"]] == ["parse", "Token", "Range"]
 
 
+# #750: each Python, JavaScript and TypeScript name carries the file that
+# defines it, so Test Skill's scope sets place it as the recipe runner does.
+FX_FILES = {
+    "package.json": '{"name": "fx", "version": "1.0.0", "exports": {".": "./src/index.ts"}}\n',
+    "src/index.ts": ("export { alpha } from './a';\nexport { beta, gamma } from './b';\n"
+                     "export { extra } from '../gen/extra';\n"),
+    "src/a.ts": "export function alpha() {}\n",
+    "src/b.ts": "export function beta() {}\nexport function gamma() {}\n",
+    "gen/extra.ts": "export function extra() {}\n",
+}
+
+
+def _defined(out: dict) -> list[tuple[str, str, str | None]]:
+    return [(e["name"], e["source_file"], e["defined_in"]) for e in out["exports"]]
+
+
+def _fx_files(ext: str) -> dict[str, str]:
+    """FX_FILES with each source file (and the manifest's entry) under `ext`."""
+    return {(path[:-3] + ext if path.endswith(".ts") else path): text.replace("./src/index.ts", f"./src/index{ext}")
+            for path, text in FX_FILES.items()}
+
+
+class TestQuickDefinedIn:
+    @pytest.mark.parametrize("language", ["typescript", "ts", "javascript", "js"])
+    def test_a_named_re_export_carries_the_file_that_defines_it(self, tmp_path, capsys, language):
+        ext = ".ts" if language in ("typescript", "ts") else ".js"
+        root = _stage(tmp_path, _fx_files(ext))
+        code, out = _quick(capsys, "--language", language, "--source-root", str(root),
+                           "--manifest-file", "package.json", "--entry-file", f"src/index{ext}")
+        assert (code, out["warnings"]) == (0, [])
+        entry = f"src/index{ext}"
+        assert _defined(out) == [("alpha", entry, f"src/a{ext}"), ("beta", entry, f"src/b{ext}"),
+                                 ("gamma", entry, f"src/b{ext}"), ("extra", entry, f"gen/extra{ext}")]
+        assert {e["type"] for e in out["exports"]} == {"re-export"}, "the type is still the entry file's form"
+
+    def test_a_python_chain_is_traced_to_its_end(self, tmp_path, capsys):
+        root = _stage(tmp_path, {
+            "pkg/__init__.py": "from .api import run, Client\nfrom . import tools\n\ndef local():\n    pass\n",
+            "pkg/api/__init__.py": "from .impl import run\nfrom .client import *\n",
+            "pkg/api/impl.py": "def run():\n    pass\n",
+            "pkg/api/client.py": "__all__ = ['Client']\nclass Client:\n    pass\n",
+            "pkg/tools/__init__.py": "def tool():\n    pass\n",
+        })
+        code, out = _quick(capsys, "--language", "python", "--source-root", str(root),
+                           "--entry-file", "pkg/__init__.py")
+        assert code == 0
+        assert _defined(out) == [("run", "pkg/__init__.py", "pkg/api/impl.py"),
+                                 ("Client", "pkg/__init__.py", "pkg/api/client.py"),
+                                 ("tools", "pkg/__init__.py", "pkg/tools/__init__.py"),
+                                 ("local", "pkg/__init__.py", "pkg/__init__.py")]
+
+    def test_a_module_import_listed_in_all_carries_its_package_file(self, tmp_path, capsys):
+        root = _stage(tmp_path, {"pkg/__init__.py": "import pkg.tools as tools\n\n__all__ = ['tools']\n",
+                                 "pkg/tools/__init__.py": "def tool():\n    pass\n"})
+        code, out = _quick(capsys, "--language", "python", "--source-root", str(root),
+                           "--entry-file", "pkg/__init__.py")
+        assert code == 0
+        assert [(e["name"], e["type"], e["defined_in"]) for e in out["exports"]] == [
+            ("tools", "module", "pkg/tools/__init__.py")]
+
+    def test_a_chain_that_leaves_the_tree_gives_null(self, tmp_path, capsys):
+        root = _stage(tmp_path, {
+            "pkg/__init__.py": "from pydantic import BaseModel\nfrom .gone import lost\n\n"
+                               "__all__ = ['BaseModel', 'lost']\n",
+            "src/index.ts": ("export { z } from 'zod';\nexport { y } from './missing';\n"
+                             "export * as ns from './nowhere';\n"),
+        })
+        code, out = _quick(capsys, "--language", "python", "--source-root", str(root),
+                           "--entry-file", "pkg/__init__.py")
+        assert code == 0
+        assert _defined(out) == [("BaseModel", "pkg/__init__.py", None), ("lost", "pkg/__init__.py", None)]
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--entry-file", "src/index.ts")
+        assert code == 0 and _defined(out) == [("z", "src/index.ts", None), ("y", "src/index.ts", None),
+                                               ("ns", "src/index.ts", None)]
+
+    def test_js_imports_defaults_namespaces_and_star_chains_are_traced(self, tmp_path, capsys):
+        root = _stage(tmp_path, {
+            "src/index.ts": ("import { a } from './a';\nimport Main from './main';\nexport { a, Main };\n"
+                             "export { default as B } from './b';\nexport * as ns from './ns';\n"
+                             "export { c } from './mid';\nexport { loop } from './cycle';\nexport const own = 1;\n"
+                             "import Foo from './foo';\nexport default Foo;\n"
+                             "import * as Ns from './ns';\nexport { Ns };\n"),
+            "src/a.ts": "export const a = 1;\n",
+            "src/main.ts": "export default class Main {}\n",
+            "src/foo.ts": "export default class Foo {}\n",
+            "src/b.ts": "export default function makeB() {}\n",
+            "src/ns/index.ts": "export const inner = 1;\n",
+            "src/mid.ts": "export * from './deep';\n",
+            "src/deep.js": "export function c() {}\n",
+            "src/cycle.ts": "export { loop } from './cycle2';\n",
+            "src/cycle2.ts": "export { loop } from './cycle';\n",
+        })
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--entry-file", "src/index.ts")
+        assert code == 0
+        assert {e["name"]: e["defined_in"] for e in out["exports"]} == {
+            "a": "src/a.ts", "Main": "src/main.ts", "B": "src/b.ts", "ns": "src/ns/index.ts", "c": "src/deep.js",
+            "loop": "src/cycle.ts", "own": "src/index.ts", "Foo": "src/foo.ts", "Ns": "src/ns/index.ts"}, (
+            "a cycle ends where it closes, as full mode's trace does")
+
+    def test_a_namespace_declaration_behind_an_export_star_carries_its_file(self, tmp_path, capsys):
+        root = _stage(tmp_path, {"src/index.ts": "export { Shapes, Geo } from './mid';\n",
+                                 "src/mid.ts": "export * from './shapes';\n",
+                                 "src/shapes.ts": ("export namespace Shapes {\n  export const square = 1;\n}\n"
+                                                   "export module Geo {\n  export const point = 1;\n}\n")})
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--entry-file", "src/index.ts")
+        assert code == 0
+        assert _defined(out) == [("Shapes", "src/index.ts", "src/shapes.ts"), ("Geo", "src/index.ts", "src/shapes.ts")]
+
+    def test_a_followed_module_and_an_entry_definition_carry_their_own_file(self, tmp_path, capsys):
+        root = _stage(tmp_path, {"src/index.ts": "export * from './core';\n",
+                                 "src/core.ts": "export function core() {}\n"})
+        listing = _listing(tmp_path, ["src/index.ts", "src/core.ts"])
+        code, out = _quick(capsys, "--language", "ts", "--source-root", str(root), "--tree-file", str(listing),
+                           "--entry-file", "src/index.ts", "--follow")
+        assert code == 0 and _defined(out) == [("core", "src/core.ts", "src/core.ts")]
+
+    def test_no_defined_in_without_source_root_from_a_payload_or_in_another_language(self, tmp_path, capsys,
+                                                                                       monkeypatch):
+        root = _stage(tmp_path / "staged", {"Cargo.toml": CARGO, "src/lib.rs": RUST_LIB})
+        code, out = _quick(capsys, "--language", "rust", "--source-root", str(root), "--manifest-file", "Cargo.toml",
+                           "--entry-file", "src/lib.rs")
+        assert code == 0 and all("defined_in" not in e for e in out["exports"])
+        payload = mod.extract({"language": "typescript", "entries": [{"path": "src/index.ts",
+                                                                       "content": FX_FILES["src/index.ts"]}]})
+        assert all("defined_in" not in e for e in payload["exports"])
+        _stage(tmp_path / "cwd", FX_FILES)
+        monkeypatch.chdir(tmp_path / "cwd")
+        code, out = _quick(capsys, "--language", "ts", "--entry-file", "src/index.ts")
+        assert code == 0 and all("defined_in" not in e for e in out["exports"])
+
+
 # --------------------------------------------------------------------------
 # Full mode: shared helpers and source trees
 # --------------------------------------------------------------------------
