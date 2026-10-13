@@ -112,7 +112,9 @@ so a name with no file is in `all` only and a restored name is in no
 tier_a_include set (a tier_a_include glob an extraction lists as matching
 no file is left out of the list, and so is one whose folder or file
 differs from every scope.include glob's before any `*` or `?`, such as
-`gen/**` beside `src/**`; a list that counts no name, each glob left out
+`gen/**` beside `src/**`, and so is one a scope.exclude glob covers
+segment by segment, such as `src/gen/**` or `src/gen/extra.ts` beside an
+exclude of `src/gen/**`; a list that counts no name, each glob left out
 or matching only excluded files, files scope.include leaves out or files
 no record names, gives no tier_a_include set); and, from an
 extraction only, `subpaths` (the names a non-root `exports` map subpath
@@ -481,6 +483,17 @@ def _apart(a: str, b: str) -> bool:
     return False
 
 
+def _inside(a: str, b: str) -> bool:
+    """True when glob `b` matches every path glob `a` can match: segment by segment each of `b`'s is
+    `**`, the same as `a`'s, or `*` beside one of `a`'s that is not `**`, and `a` has as many segments
+    as `b`, or more when `b` ends in `**`. Any other pair counts as not inside, even one where `b`
+    does cover `a` (`gen/**` in `**/gen/**`), so this never drops a glob that can count a name."""
+    xs, ys = a.split("/"), b.split("/")
+    if len(xs) < len(ys) or (len(xs) > len(ys) and ys[-1] != "**"):
+        return False
+    return all(y == "**" or x == y or (y == "*" and x != "**") for x, y in zip(xs, ys))
+
+
 def _nested_tops(entry_files: list[dict], named: set[str], exporting: set[str]) -> dict[str, str]:
     """{top: the outermost top whose folder holds it} for each Python top
     __init__.py inside the folder of another top that `exporting` lists (one
@@ -822,15 +835,18 @@ def surface(args: argparse.Namespace) -> dict:
         scope = brief["scope"] if brief is not None else _scope(None, None, None)
     # A tier A glob the runner lists as matching no file counts no name, and
     # so does one whose folder or file differs from every scope.include
-    # glob's before any `*` or `?` (`gen/**` beside `src/**`), whatever the
-    # tree holds: the set comes from the other globs, over the names whose
-    # file a scope.include glob matches too (any file with none), so a
-    # restored name is in no set. A tier A list that counts no name (every
-    # glob stale, or matching only excluded files, files scope.include leaves
-    # out or files that define no name) narrows nothing: there is no set.
+    # glob's before any `*` or `?` (`gen/**` beside `src/**`) or one a
+    # scope.exclude glob covers segment by segment (`src/gen/**` beside an
+    # exclude of `src/gen/**`), whatever the tree holds: the set comes from
+    # the other globs, over the names whose file a scope.include glob matches
+    # too (any file with none), so a restored name is in no set. A tier A
+    # list that counts no name (every glob stale, or matching only excluded
+    # files, files scope.include leaves out or files that define no name)
+    # narrows nothing: there is no set.
     stale_tier_a = set(extracted["staleScope"]["unmatchedTierAInclude"]) if extracted is not None else set()
     tier_a = [g for g in scope["tier_a_include"] if g not in stale_tier_a
-              and not (scope["include"] and all(_apart(g, i) for i in scope["include"]))]
+              and not (scope["include"] and all(_apart(g, i) for i in scope["include"]))
+              and not any(_inside(g, e) for e in scope["exclude"])]
     filed = [r for r in records if r["file"]]
     if filed and scope["include"]:
         sets["scope.include"] = matching(filed, scope["include"], scope["exclude"])
@@ -946,7 +962,8 @@ def _build_parser() -> argparse.ArgumentParser:
                         "names: as with --extraction, no tier_a_include set is no tier A list, so the deflation "
                         "and inflation guards run; without either, a tier_a_include glob keeps them off unless "
                         "its folder or file differs from every scope.include glob's before any wildcard "
-                        "(gen/** beside src/**)")
+                        "(gen/** beside src/**) or a scope.exclude glob covers it segment by segment "
+                        "(src/gen/** beside an exclude of src/gen/**)")
     p.add_argument("--name", action="append", help="a name read by eye whose file is not known (repeatable)")
     p.add_argument("--provenance", help="the provenance map: its named exports")
     p.add_argument("--metadata", help="metadata.json: its exports[] names, stats and language")

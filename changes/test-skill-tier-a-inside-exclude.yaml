@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's deflation and inflation guards no longer stay off at Quick tier, or when it reads the source remotely by eye with no local clone, just because the skill brief lists a `scope.tier_a_include` glob that lies inside a `scope.exclude` glob (such as `src/gen/**` or `src/gen/extra.ts` beside an exclude of `src/gen/**`, or one file named in both lists). Every file such a glob can match is excluded, so it counts no name there, as it already did at Forge tier. A stored `stats.effective_denominator` far below the re-derived surface then raises a Medium `metadata-drift` gap and can be scored over the `scope.include` set, so Export Coverage can fall and a run that passed can fail.
+migration: |
+  Re-run Create Skill on each skill whose brief lists a `scope.tier_a_include` glob inside a `scope.exclude` glob, then Test Skill. On a `metadata-drift` gap that says no `scope.tier_a_include` glob in the brief counts a public name, remove those globs from `scope.tier_a_include` in the skill brief by hand (or from `scope.exclude`, if their files belong in the authored tier), then re-run Create Skill.
+issues: [749]
