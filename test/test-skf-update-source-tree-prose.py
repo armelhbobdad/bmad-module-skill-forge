@@ -4467,6 +4467,26 @@ def test_write_makes_the_version_live_after_the_last_check():
     assert "unless write.md §5b already made the new version the active one" not in status
 
 
+def test_write_8a_halts_on_any_other_verify_exit():
+    """§8a's `verify` exits 1 with nothing on stdout when a real folder has replaced `active` or the skill folder is
+    gone since §8's flip, and §9 to §11 never halt: §8a continues on `ok` and halts on any other outcome as §8 does,
+    at its own phase, so the run never closes its rollback window with `active` no longer a link (#742, deferred by
+    PR #737)."""
+    eight_a = _slice(_read(WRITE), "### 8a. Verify the Active Symlink", "### 9.")
+    assert "On `ok` (exit 0), continue to §9." in eight_a
+    assert ("On any other exit, or no JSON on stdout (exit 1, or an exit 2 that prints no JSON: the helper could not "
+            "run or could not read the link, as when a real folder has replaced `active` or the skill folder is gone "
+            "since §8, and the last line it prints on stderr says why), HALT with status `halted-for-write-failure` "
+            "and display that line, which is `exit <code>` when the helper prints nothing on stderr.") in eight_a
+    assert ('The halt procedure takes `phase: "write:verify-active-symlink"`, `path: "{skill_group}/active"`, '
+            '`reason: "<that line>"`.') in eight_a
+    # the mismatch rule stands, and the new rule follows it
+    mismatch = eight_a.index("On `mismatch` (exit 2), HALT with status `halted-for-write-failure`")
+    assert mismatch < eight_a.index("On `ok` (exit 0)")
+    assert '`reason: "mismatch: <halt_message>"`' in eight_a
+    assert "\u2014" not in eight_a and "\u2013" not in eight_a
+
+
 # gap-driven.md stands in for steps 2 and 3 in gap-driven mode and has no Stages row yet (#600)
 BRANCH_STAGES = ("gap-driven.md",)
 # A step or stage file named before §: "step 5 §8", "Step 3 §0.a", "write.md §6". Another skill's step

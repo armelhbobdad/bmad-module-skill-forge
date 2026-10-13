@@ -200,6 +200,21 @@ class TestNewVersion:
         assert out["removed"] == [] and version.is_dir() and forge.is_dir()
         assert {k["why"] for k in out["kept"]} == {"the active link names it", "the active link names its version"}
 
+    def test_a_folder_at_active_names_no_created_version(self, tmp_path: Path) -> None:
+        # write.md §8a halts when a real folder has replaced `active` after §8's flip (#742): the folder names no
+        # version this run created, so the halt removes them, as for a `mismatch`
+        group, version, staging, forge = self._folders(tmp_path)
+        run_dir = tmp_path / "run"
+        run_dir.mkdir()
+        mod.begin_new_version(run_dir, [version, forge], staging, group)
+        _write(version / "lib" / "SKILL.md", b"new\n")
+        _write(forge / "provenance-map.json", b"{}\n")
+        _write(group / "active" / "lib" / "SKILL.md", b"new\n")
+        out = mod.rollback(run_dir, remove_run_dir=False)
+        assert out["kept"] == [] and out["failed"] == []
+        assert sorted(out["removed"]) == sorted(p.as_posix() for p in (version, forge))
+        assert (group / "active" / "lib" / "SKILL.md").read_bytes() == b"new\n"
+
 
 class TestRollbackAndCli:
     def test_no_run_state_is_nothing_to_undo(self, tmp_path: Path) -> None:

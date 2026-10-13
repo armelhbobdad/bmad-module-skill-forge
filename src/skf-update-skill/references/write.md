@@ -484,6 +484,8 @@ uv run {updateActiveSymlinkHelper} verify \
 
 On `mismatch` (exit 2), HALT with status `halted-for-write-failure` and display the helper's `halt_message` verbatim: it names the diverged target, the expected version and the recovery command. The halt procedure takes `phase: "write:verify-active-symlink"`, `path: "{skill_group}/active"`, `reason: "mismatch: <halt_message>"`.
 
+On `ok` (exit 0), continue to §9. On any other exit, or no JSON on stdout (exit 1, or an exit 2 that prints no JSON: the helper could not run or could not read the link, as when a real folder has replaced `active` or the skill folder is gone since §8, and the last line it prints on stderr says why), HALT with status `halted-for-write-failure` and display that line, which is `exit <code>` when the helper prints nothing on stderr. The halt procedure takes `phase: "write:verify-active-symlink"`, `path: "{skill_group}/active"`, `reason: "<that line>"`.
+
 ### 9. Move the Workspace Clone to the Recorded Commit
 
 Run only when `{source_tree_status}` is `ready` and `{workspace_clone}` is not null. test-skill and audit-skill read the skill's source from metadata.json `source_root`, the clone SKF keeps for this repository, and test-skill compares its HEAD with the `source_commit` §2 just wrote. From `{project-root}`, resolve `{sourceTreeHelper}` ← first existing path in `{sourceTreeProbeOrder}`, `{cccGitHygieneHelper}` ← first existing path in `{cccGitHygieneProbeOrder}` and `{checkWorkspaceDriftHelper}` ← first existing path in `{checkWorkspaceDriftProbeOrder}`, then run:
