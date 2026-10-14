@@ -1,18 +1,25 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["pyyaml"]
 # ///
 """SKF Merge Doc URLs — merge corpora-seeded + detected docs for a skill brief.
 
 Deterministic merge of an upstream brief's `doc_urls` (registry-seeded
 companion corpora, source: language-registry) with the docs freshly
 discovered by `skf-detect-docs.py` (mapped to the brief `{url, label, source}`
-contract). Replaces the prose dedup/suppression that lived inline in
-`skf-brief-skill/references/step-auto-brief.md` §3 — that logic is fiddly
+contract). Replaces the prose mapping, dedup and suppression that lived inline
+in `skf-brief-skill/references/step-auto-brief.md` §3. That logic is fiddly
 (normalized-URL collisions, non-corpus path segments, locale duplicates) and
 must behave identically on every run, so it belongs in a tested script.
 
-Three operations, in order:
+With --detected-file, each skf-detect-docs.py entry {url, detected_via,
+content_type} is first mapped to {url, label, source}: `source` from
+`detected_via` and `label` from `content_type`, by the two tables below (a
+content_type they do not list gives the label ""). An entry whose
+`detected_via` they do not list is never merged: `suppressed` lists it with
+reason unknown-detected-via.
+
+Three merge operations, in order:
 
   1. Normalized-URL dedup — lowercase host, strip a trailing `/index.html`
      and any trailing `/` before comparing, so a seeded `…/book/` and a
@@ -41,10 +48,18 @@ DEGRADED case is intentionally out of scope (there is no canonical corpus host
 to anchor suppression against).
 
 CLI:
+  uv run src/shared/scripts/skf-merge-doc-urls.py --scope-type <type> \
+      --detected-file <detect-docs.json> --existing-brief <skill-brief.yaml>
   echo '{"scope_type": "...", "existing": [...], "detected": [...]}' \
     | uv run src/shared/scripts/skf-merge-doc-urls.py
 
-Input (JSON object on stdin):
+Files form (stdin is not read): --detected-file holds skf-detect-docs.py's
+JSON array, mapped as above; --existing-brief is a skill-brief.yaml whose
+`doc_urls` are the existing entries (none when it has no doc_urls), read as
+skf-resolve-authoritative-files.py reads a brief; --scope-type is the scope
+type. Each flag is optional: an absent one gives no entries (or "").
+
+Input of the stdin form (a JSON object), whose entries are merged as given:
   {
     "scope_type": "full-library",
     "existing":   [{"url": "...", "label": "...", "source": "language-registry"}, ...],
@@ -54,21 +69,41 @@ Input (JSON object on stdin):
 Output (JSON object on stdout):
   {
     "doc_urls":   [{"url": "...", "label": "...", "source": "..."}, ...],
-    "suppressed": [{"url": "...", "reason": "non-corpus-segment|non-primary-locale-dup"}, ...]
+    "suppressed": [{"url": "...", "reason":
+                    "unknown-detected-via|non-corpus-segment|non-primary-locale-dup"}, ...]
   }
 
 Exit codes:
   0  success (merged list emitted)
-  2  error (bad JSON, wrong input shape)
+  2  error (bad JSON, wrong input shape, a file that cannot be read, a brief
+     that is not a YAML mapping)
 """
 
 from __future__ import annotations
 
+import argparse
+import importlib.util
 import json
 import re
 import sys
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
+
+# skf-detect-docs.py's `detected_via` -> the brief's coarse provenance, the
+# skill-brief.v1.json doc_urls[].source enum (a test pins it to the schema).
+_SOURCE_BY_DETECTED_VIA = {
+    "homepageUrl": "homepage",
+    "readme_link": "readme-detection",
+    "pages_api": "pages-api",
+    "docs_folder": "docs-folder",
+}
+# skf-detect-docs.py's `content_type` -> the entry's display label.
+_LABEL_BY_CONTENT_TYPE = {
+    "api-docs": "API Documentation",
+    "guide": "Guide",
+    "reference": "Reference",
+}
 
 # Path components (case-insensitive) that mark a non-corpus page on a doc host:
 # changelogs/news, contribution guides, wikis. Matched as whole path components
@@ -153,6 +188,28 @@ def _matches_non_corpus_segment(path: str) -> bool:
     return False
 
 
+def map_detected(raw: list[Any]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """skf-detect-docs.py entries as brief doc_urls entries {url, label, source}.
+
+    Returns (mapped, suppressed): an entry whose detected_via maps to no
+    source is suppressed with reason unknown-detected-via; one with no url is
+    skipped, as the merge skips it.
+    """
+    mapped: list[dict[str, Any]] = []
+    suppressed: list[dict[str, Any]] = []
+    for d in raw:
+        if not isinstance(d, dict) or not d.get("url"):
+            continue
+        via, content_type = d.get("detected_via"), d.get("content_type")
+        source = _SOURCE_BY_DETECTED_VIA.get(via) if isinstance(via, str) else None
+        if source is None:
+            suppressed.append({"url": d["url"], "reason": "unknown-detected-via"})
+            continue
+        label = _LABEL_BY_CONTENT_TYPE.get(content_type, "") if isinstance(content_type, str) else ""
+        mapped.append({"url": d["url"], "label": label, "source": source})
+    return mapped, suppressed
+
+
 def merge_doc_urls(
     scope_type: str,
     existing: list[dict[str, Any]],
@@ -232,30 +289,96 @@ def _force_utf8(*streams) -> None:
                 stream.reconfigure(encoding="utf-8", errors=errors)
 
 
-def main() -> int:
-    _force_utf8(sys.stdin, sys.stdout)
+class InputError(Exception):
+    """An input the merge cannot read (exit 2)."""
+
+
+def _read_detected(path: str) -> list[Any]:
+    """The JSON array skf-detect-docs.py wrote to `path`."""
+    try:
+        data = json.loads(Path(path).read_bytes().decode("utf-8-sig"))
+    except OSError as exc:
+        raise InputError(f"cannot read --detected-file {path}: {exc.strerror or exc}") from exc
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise InputError(f"--detected-file {path} is not JSON: {exc}") from exc
+    if not isinstance(data, list):
+        raise InputError(f"--detected-file {path} must hold a JSON array (skf-detect-docs.py output)")
+    return data
+
+
+def _brief_doc_urls(path: str) -> list[Any]:
+    """The doc_urls of the skill brief at `path`, read by
+    skf-resolve-authoritative-files.py's parse_brief_yaml (beside this file)."""
+    resolver_path = Path(__file__).resolve().parent / "skf-resolve-authoritative-files.py"
+    spec = importlib.util.spec_from_file_location("skf_resolve_authoritative_files", resolver_path)
+    if spec is None or spec.loader is None:
+        raise InputError(f"cannot load {resolver_path.name} beside {Path(__file__).name}")
+    resolver = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(resolver)
+    except (OSError, ImportError, SyntaxError) as exc:
+        raise InputError(f"cannot load {resolver_path.name} beside {Path(__file__).name}: {exc}") from exc
+    try:
+        brief = resolver.parse_brief_yaml(Path(path).read_bytes().decode("utf-8-sig"))
+    except OSError as exc:
+        raise InputError(f"cannot read --existing-brief {path}: {exc.strerror or exc}") from exc
+    except (UnicodeDecodeError, resolver.yaml.YAMLError) as exc:
+        raise InputError(f"--existing-brief {path} is not YAML: {exc}") from exc
+    if not isinstance(brief, dict):
+        raise InputError(f"--existing-brief {path} holds no brief mapping")
+    doc_urls = brief.get("doc_urls") or []
+    if not isinstance(doc_urls, list):
+        raise InputError(f"the doc_urls of --existing-brief {path} must be a list")
+    return doc_urls
+
+
+def _stdin_payload() -> tuple[str, list[Any], list[Any]]:
+    """(scope_type, existing, detected) of the stdin form."""
     raw = sys.stdin.read()
     if not raw or not raw.strip():
-        sys.stderr.write("skf-merge-doc-urls: empty stdin (expected JSON object)\n")
-        return 2
+        raise InputError("empty stdin (expected JSON object)")
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as exc:
-        sys.stderr.write(f"skf-merge-doc-urls: invalid JSON on stdin: {exc}\n")
-        return 2
+        raise InputError(f"invalid JSON on stdin: {exc}") from exc
     if not isinstance(payload, dict):
-        sys.stderr.write("skf-merge-doc-urls: input must be a JSON object\n")
-        return 2
-
-    scope_type = payload.get("scope_type") or ""
+        raise InputError("input must be a JSON object")
     existing = payload.get("existing") or []
     detected = payload.get("detected") or []
     if not isinstance(existing, list) or not isinstance(detected, list):
-        sys.stderr.write("skf-merge-doc-urls: 'existing' and 'detected' must be arrays\n")
+        raise InputError("'existing' and 'detected' must be arrays")
+    return payload.get("scope_type") or "", existing, detected
+
+
+def main(argv: list[str] | None = None) -> int:
+    _force_utf8(sys.stdin, sys.stdout)
+    parser = argparse.ArgumentParser(
+        prog="skf-merge-doc-urls",
+        description="Merge a brief's doc_urls with the docs skf-detect-docs.py found. With no flag, read the "
+                    "{scope_type, existing, detected} JSON object on stdin.",
+    )
+    parser.add_argument("--detected-file", metavar="PATH",
+                        help="skf-detect-docs.py's JSON array, mapped to {url, label, source}")
+    parser.add_argument("--existing-brief", metavar="PATH",
+                        help="the skill-brief.yaml whose doc_urls are the existing entries")
+    parser.add_argument("--scope-type", metavar="TYPE", help="the brief's scope.type")
+    args = parser.parse_args(argv)
+    unknown: list[dict[str, Any]] = []
+    try:
+        if args.detected_file is None and args.existing_brief is None and args.scope_type is None:
+            scope_type, existing, detected = _stdin_payload()
+        else:
+            scope_type = args.scope_type or ""
+            existing = _brief_doc_urls(args.existing_brief) if args.existing_brief is not None else []
+            detected = []
+            if args.detected_file is not None:
+                detected, unknown = map_detected(_read_detected(args.detected_file))
+    except InputError as exc:
+        sys.stderr.write(f"skf-merge-doc-urls: {exc}\n")
         return 2
 
     doc_urls, suppressed = merge_doc_urls(scope_type, existing, detected)
-    json.dump({"doc_urls": doc_urls, "suppressed": suppressed}, sys.stdout, ensure_ascii=False)
+    json.dump({"doc_urls": doc_urls, "suppressed": unknown + suppressed}, sys.stdout, ensure_ascii=False)
     sys.stdout.write("\n")
     return 0
 

@@ -35,6 +35,11 @@ brief file with a staged patch of the fields steps 3 and 4 can change
 amendments log among them, are never retyped; only a derive run stages the
 flat payload.
 
+v4.0.0 quality gate run 2 (determinism-1): the [auto] path keeps the doc
+detector's JSON in the run folder and hands it, with the upstream brief, to
+one merge call that maps and merges the entries, and a merged entry the
+writer refuses drops the enrichment instead of halting.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the helpers, with the fetch helper reading
 from a local folder where a command reads GitHub.
@@ -254,7 +259,6 @@ def test_no_brief_step_types_a_payload_into_an_echo():
 
 @pytest.mark.parametrize("path", [
     pytest.param(HEADLESS_ARGS, id="headless-args"),
-    pytest.param(AUTO_BRIEF, id="step-auto-brief"),
     pytest.param(WRITE_BRIEF, id="write-brief"),
     pytest.param(QMD_REGISTRATION, id="qmd-collection-registration"),
     pytest.param(DRAFT_CHECKPOINT, id="draft-checkpoint"),
@@ -792,24 +796,34 @@ def test_the_auto_path_hands_every_upstream_field_back_to_the_writer(tmp_path):
     assert '--base-brief "{brief_path}"' in write and "--from-flat" not in write
 
     upstream = _upstream_brief(tmp_path)
+    brief_path = tmp_path / "upstream" / "skill-brief.yaml"
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    # §3: the merge input, staged as the documented heredoc names its keys, and the helper's output kept in a file
-    [merge] = _blocks(_section(text, "### 3. Enrich Brief with Detected Docs"), "{mergeDocUrlsHelper}")
-    template = HEREDOC_RE.search(merge).group("body")
-    detected = [{"url": "https://demo.dev/docs/index.html", "label": "README Link", "source": "readme-detection"},
-                {"url": "https://demo.dev/api", "label": "API's reference", "source": "homepage"}]
-    staged = (template.replace('"<scope_type>"', json.dumps(upstream["scope"]["type"]))
-              .replace("<the upstream brief's doc_urls, [] if none>", json.dumps(upstream["doc_urls"]))
-              .replace("<the mapped detected entries>", json.dumps(detected)))
-    assert merge.rstrip().endswith('> "{run_dir}/doc-urls-merged.json"')
-    proc = _run("skf-merge-doc-urls.py", stdin=staged)
+    # §2 keeps skf-detect-docs.py's JSON in the run folder, and §3's one merge call maps it and reads the upstream
+    # brief's doc_urls itself, so no entry is typed (v4.0.0 quality gate run 2, skf-brief-skill determinism-1)
+    [detect] = _blocks(_section(text, "### 2. Run Doc Detection"), "{detectDocsHelper}")
+    assert detect.strip() == 'uv run {detectDocsHelper} --repo-url "{source_repo}" > "{run_dir}/detected.json"'
+    three = _section(text, "### 3. Enrich Brief with Detected Docs")
+    [merge] = _blocks(three, "{mergeDocUrlsHelper}")
+    redirect = ' > "{run_dir}/doc-urls-merged.json"'
+    assert merge.rstrip().endswith(redirect) and "<<" not in merge
+    for gone in ("README Link", "`readme_link`", "`homepageUrl`", "detected_via", "SKF_JSON"):
+        assert gone not in text, gone
+    (run_dir / "detected.json").write_bytes(json.dumps([
+        {"url": "https://demo.dev/docs/index.html", "detected_via": "readme_link", "content_hash": "sha256:0",
+         "content_type": "reference"},
+        {"url": "https://demo.dev/api", "detected_via": "homepageUrl", "content_hash": "sha256:1",
+         "content_type": "api-docs"}]).encode("utf-8"))
+    argv = _helper_call(merge.replace(redirect, ""), "mergeDocUrlsHelper", "skf-merge-doc-urls.py", {
+        "{scope_type}": upstream["scope"]["type"], "{run_dir}": run_dir.as_posix(), "{brief_path}": brief_path.as_posix()})
+    proc = subprocess.run(argv, capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
     assert proc.returncode == 0, proc.stderr
     (run_dir / "doc-urls-merged.json").write_bytes(proc.stdout.encode("utf-8"))
     merged = json.loads(proc.stdout)["doc_urls"]
+    assert merged == [*upstream["doc_urls"], {"url": "https://demo.dev/api", "label": "API Documentation",
+                                              "source": "homepage"}]
     # §4: the documented writer call, on the upstream brief file and the merged list
     target = tmp_path / "forge" / "demo" / "skill-brief.yaml"
-    brief_path = tmp_path / "upstream" / "skill-brief.yaml"
     argv = _helper_call(write, "writeSkillBriefHelper", "skf-write-skill-brief.py", {
         "{forge_data_folder}/{skill_name}/skill-brief.yaml": target.as_posix(), "{brief_path}": brief_path.as_posix(),
         "{run_dir}": run_dir.as_posix()})
@@ -820,6 +834,40 @@ def test_the_auto_path_hands_every_upstream_field_back_to_the_writer(tmp_path):
     assert written["doc_urls"] == merged and len(merged) == 2
     assert {k: v for k, v in written.items() if k != "doc_urls"} == \
         {k: v for k, v in upstream.items() if k != "doc_urls"}
+
+
+def test_a_refused_doc_url_drops_the_enrichment_and_keeps_the_upstream_brief(tmp_path):
+    """v4.0.0 quality gate run 2 (skf-brief-skill determinism-1): doc detection is best-effort (the step's rule),
+    so a merged entry the schema refuses never halts the pipeline or replaces AN's brief. The writer refuses it
+    before writing (exit 1, field doc_urls), and §4 warns and runs the call again without --doc-urls-file."""
+    four = _section(_read(AUTO_BRIEF), "### 4. Write Enriched Brief")
+    [write] = _blocks(four, "{writeSkillBriefHelper}")
+    [fallback] = [line for line in four.splitlines() if "whose stderr `field` is `doc_urls`" in line]
+    assert fallback.startswith("- Exit 1 of a call with `--doc-urls-file` whose stderr `field` is `doc_urls`")
+    assert "to `workflow_warnings[]`, run the call once more without `--doc-urls-file`" in fallback
+    assert "HALT" not in fallback
+    assert "- Any other exit 1 (validation/invariant): emit the halt envelope first" in four
+    upstream = _upstream_brief(tmp_path)
+    brief_path = tmp_path / "upstream" / "skill-brief.yaml"  # AN wrote it where BS[auto] writes: one file
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "doc-urls-merged.json").write_bytes(json.dumps({"doc_urls": [
+        *upstream["doc_urls"], {"url": "https://demo.dev/api", "label": "Reference", "source": "readme_link"}]})
+        .encode("utf-8"))
+    values = {"{forge_data_folder}/{skill_name}/skill-brief.yaml": brief_path.as_posix(),
+              "{brief_path}": brief_path.as_posix(), "{run_dir}": run_dir.as_posix()}
+    before = brief_path.read_bytes()
+    proc = subprocess.run(_helper_call(write, "writeSkillBriefHelper", "skf-write-skill-brief.py", values),
+                          capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
+    assert proc.returncode == 1 and json.loads(proc.stderr)["field"] == "doc_urls", proc.stderr
+    assert brief_path.read_bytes() == before
+    retry = write.replace(' --doc-urls-file "{run_dir}/doc-urls-merged.json"', "")
+    assert retry != write
+    proc = subprocess.run(_helper_call(retry, "writeSkillBriefHelper", "skf-write-skill-brief.py", values),
+                          capture_output=True, text=True, encoding="utf-8", timeout=120, check=False)
+    assert proc.returncode == 0, proc.stderr
+    result = json.loads(_run("skf-validate-brief-schema.py", str(brief_path)).stdout)
+    assert result["valid"] is True and result["brief"] == upstream
 
 
 # The fields step 4 or a step 3 [R] pass can change: the ratify patch names each, and no other.

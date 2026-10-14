@@ -60,50 +60,31 @@ Nothing the upstream brief carries is rebuilt or dropped: §4's writer starts fr
 
 **Resolve `{detectDocsHelper}`** from `{detectDocsProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-Invoke doc detection to discover documentation URLs for the source repo:
+Invoke doc detection to discover documentation URLs for the source repo, keeping its JSON in the run folder:
 
 ```bash
-uv run {detectDocsHelper} --repo-url {source_repo}
+uv run {detectDocsHelper} --repo-url "{source_repo}" > "{run_dir}/detected.json"
 ```
 
-`--repo-url` is always required (the script uses it for GitHub API calls). If a local clone is also available at `{local_clone_path}`, add `--local-path {local_clone_path}` to enable docs-folder scanning in addition to API-based detection.
+`--repo-url` is always required (the script uses it for GitHub API calls). If a local clone is also available at `{local_clone_path}`, add `--local-path "{local_clone_path}"` to enable docs-folder scanning in addition to API-based detection.
 
 **Handle exit codes:**
 
-- **Exit 0 (found docs):** Parse the JSON output array. Each entry has `{url, detected_via, content_hash, content_type}`. Proceed to §3 with the detected docs.
+- **Exit 0 (found docs):** Proceed to §3, which reads `{run_dir}/detected.json`.
 - **Exit 1 (none found):** Log: "No external documentation found — brief generated from source analysis only." Proceed to §4 with no doc enrichment.
 - **Exit 2 (error):** Log the warning "Doc detection failed: proceeding without doc enrichment." and add it to `workflow_warnings[]`. Do NOT halt: doc enrichment is best-effort. Proceed to §4 with no doc enrichment.
 
 ### 3. Enrich Brief with Detected Docs
 
-For each detected doc entry, create a brief `doc_urls` entry:
-
-- `url` ← `url` (direct copy)
-- `label` ← derive from `content_type` if available:
-  - `"api-docs"` → `"API Documentation"`
-  - `"guide"` → `"Guide"`
-  - `"reference"` → `"Reference"`
-  - Otherwise derive from `detected_via`:
-    - `"homepageUrl"` → `"Homepage"`
-    - `"readme_link"` → `"README Link"`
-    - `"pages_api"` → `"GitHub Pages"`
-    - `"docs_folder"` → `"Docs Folder"`
-- `source` ← coarse provenance derived from `detected_via` (per the `skill-brief.v1.json` `doc_urls[].source` enum): `homepageUrl` → `homepage`, `readme_link` → `readme-detection`, `pages_api` → `pages-api`, `docs_folder` → `docs-folder`. This marks the entry as opportunistically detected, distinct from a registry-guaranteed corpus.
-
-**Merge via the canonical helper.** Resolve `{mergeDocUrlsHelper}` from `{mergeDocUrlsProbeOrder}` (first existing path wins; HALT if neither exists). Stage its input in the run folder, the upstream brief's `doc_urls` as `existing` and the entries just mapped above as `detected`, then run it on the file:
+**Merge via the canonical helper.** Resolve `{mergeDocUrlsHelper}` from `{mergeDocUrlsProbeOrder}` (first existing path wins; HALT if neither exists). It maps each detected entry to the brief's `{url, label, source}`, reads the upstream brief's `doc_urls` itself and merges the two, so no entry is typed here:
 
 ```bash
-cat > "{run_dir}/doc-urls.json" <<'SKF_JSON'
-{"scope_type": "<scope_type>", "existing": <the upstream brief's doc_urls, [] if none>, "detected": <the mapped detected entries>}
-SKF_JSON
-uv run {mergeDocUrlsHelper} < "{run_dir}/doc-urls.json" > "{run_dir}/doc-urls-merged.json"
+uv run {mergeDocUrlsHelper} --scope-type "{scope_type}" --detected-file "{run_dir}/detected.json" --existing-brief "{brief_path}" > "{run_dir}/doc-urls-merged.json"
 ```
 
-The redirect keeps the helper's output in `{run_dir}/doc-urls-merged.json`: §4 hands the writer that file, and the suppressed entries below are read from it.
+§4 hands the writer that file: its `doc_urls` are the merged list, every upstream entry kept with its `source`. On a non-zero exit, add `Doc merge failed: proceeding without doc enrichment.` to `workflow_warnings[]` and proceed to §4 with no doc enrichment.
 
-The helper returns `{"doc_urls": [...], "suppressed": [...]}`. It deduplicates by **normalized** URL (lowercase host, strip a trailing `/index.html` and any trailing `/`), so a seeded `…/book/` and a README's `…/book/index.html` collapse to one entry; existing/corpora-seeded entries always win and keep their `source: language-registry`, so the registry-vs-detected distinction survives the merge. For a **whole-language reference** (`scope_type == "full-library"` AND ≥1 `existing` entry has `source: language-registry`) it additionally suppresses README noise on a corpus host: non-corpus path segments (`/whatsnew/`, `/contribute`, `/wiki/`) and non-primary-locale duplicates of a kept page (`/ja/master/` when `/en/master/` is kept). Ordinary skills (any other `scope_type`, or no registry corpora) pass through with dedup only — no suppression. Use the returned `doc_urls` as the brief's merged list.
-
-**Log suppressed entries.** When `suppressed` is non-empty, log one line per entry — `"info: suppressed {url} ({reason})"` — so the operator can see what the whole-language noise filter dropped (never drop silently). The N==0 DEGRADED case (a whole-language repo whose registry returned no corpora) carries no `language-registry` entry, so suppression stays inactive and its README docs are kept — this is intentional (there is no canonical corpus host to filter against).
+**Log suppressed entries.** When its `suppressed` is non-empty, log one line per entry, `"info: suppressed {url} ({reason})"`, so the operator sees each entry the merge dropped and why (never drop silently).
 
 ### 4. Write Enriched Brief
 
@@ -115,10 +96,11 @@ Write the enriched brief through the canonical writer. It starts from the upstre
 uv run {writeSkillBriefHelper} write --target {forge_data_folder}/{skill_name}/skill-brief.yaml --base-brief "{brief_path}" --doc-urls-file "{run_dir}/doc-urls-merged.json"
 ```
 
-Leave `--doc-urls-file` out when §2 and §3 were skipped or found nothing.
+Leave `--doc-urls-file` out when §2 and §3 were skipped or found nothing, or the merge failed.
 
 **On script failure (non-zero exit):**
-- Exit 1 (validation/invariant): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HARD HALT (exit code 2).
+- Exit 1 of a call with `--doc-urls-file` whose stderr `field` is `doc_urls` (a merged entry the brief schema refuses): doc enrichment is best-effort, so add `Doc enrichment dropped: {its message}` to `workflow_warnings[]`, run the call once more without `--doc-urls-file`, and handle that result.
+- Any other exit 1 (validation/invariant): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "input-invalid"` (SKILL.md Halt Contract), then HARD HALT (exit code 2).
 - Exit 2 (I/O failure): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "write-failed"` (SKILL.md Halt Contract), then HARD HALT (exit code 4).
 
 **On success:** Capture `brief_path` and `version` from the response envelope for step-auto-validate's envelope emission, and add each entry of its `warnings[]` to `workflow_warnings[]`.

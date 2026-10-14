@@ -72,7 +72,8 @@ Context payload shape (consumed by `write`):
     "doc_urls":         [{"url": "...", "label": "...", "source": "..."}],
     #   `source` (optional per #432): language-registry | readme-detection |
     #   homepage | pages-api | docs-folder. Threaded through when present;
-    #   absent → entry renders as {url, label} only (no false drift).
+    #   absent → entry renders as {url, label} only (no false drift); any
+    #   other value is refused before anything is written (exit 1).
     "scripts_intent":   "detect" | "none" | free-text,
     "assets_intent":    "detect" | "none" | free-text,
     "source_authority": "official" | "community" | "internal",
@@ -237,6 +238,8 @@ VALID_SCOPE_TYPES = {
     "reference-app",
     "docs-only",
 }
+# skill-brief.v1.json's doc_urls[].source enum (a test pins it to the schema).
+VALID_DOC_URL_SOURCES = {"language-registry", "readme-detection", "homepage", "pages-api", "docs-folder"}
 
 
 def _die(message: str, field: str | None = None, code: int = 1) -> None:
@@ -323,6 +326,10 @@ def validate_context(ctx: dict[str, Any]) -> list[str]:
             url = entry.get("url")
             if not url or not isinstance(url, str):
                 _die(f"doc_urls[{i}].url is required and must be a non-empty string", field="doc_urls")
+            source = entry.get("source")
+            if source and (not isinstance(source, str) or source not in VALID_DOC_URL_SOURCES):
+                _die(f"doc_urls[{i}].source must be one of {sorted(VALID_DOC_URL_SOURCES)}. Got: {source!r}",
+                     field="doc_urls")
 
     # source_authority (default 'community') with docs-only force rule
     source_authority = ctx.get("source_authority", "community")
