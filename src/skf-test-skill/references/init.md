@@ -243,18 +243,16 @@ Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid
 Read `metadata.json` to extract:
 - `name` — display name
 - `skill_type` — single or stack (needed for mode detection)
-- `source_path` — path to source code (if present)
+- `source_root`: the source tree the skill was extracted from; bind `{source_path}` ← `source_root` (null or absent for a docs-only skill and a stack skill)
 - `source_commit` — pinned commit the skill was extracted against (may be null for docs-only skills, `"local"` for non-git sources, or a per-repo map for stack skills)
 - `source_ref` — pinned ref (tag/branch/`HEAD`) used at extraction time
 - `generation_date` — when skill was generated
 - `confidence_tier` — tier used during creation
 - `generated_by`: the SKF workflow that built the skill (coverage-check §2 reads it at Quick tier)
 
-If source path override was provided as optional input, use that instead.
-
 ### 5b. Verify Workspace HEAD Matches Pinned Commit
 
-Test-skill reads `source_path` during coverage and coherence analysis. If the local workspace has drifted from `metadata.source_commit`, gap and signature-mismatch findings silently reflect the drifted tree, not the skill's pinned source: false positives that downstream update-skill runs may then "repair" by corrupting correct documentation.
+Test-skill reads `{source_path}` during coverage and coherence analysis. If the local workspace has drifted from `metadata.source_commit`, gap and signature-mismatch findings silently reflect the drifted tree, not the skill's pinned source: false positives that downstream update-skill runs may then "repair" by corrupting correct documentation.
 
 The guard runs through `{checkWorkspaceDriftHelper}`, never through `git` commands run by hand. Resolve it ← first existing path in `{checkWorkspaceDriftProbeOrder}`. If neither path exists, HALT (`halt_reason: "helper-missing"`, phase `init:workspace-drift`) with: "Error: cannot locate skf-check-workspace-drift.py at `{project-root}/_bmad/skf/shared/scripts/skf-check-workspace-drift.py` or `{project-root}/src/shared/scripts/skf-check-workspace-drift.py`. Install the SKF module or run from a development checkout with src/ present." No test report is written.
 
@@ -264,7 +262,7 @@ Run it once per source tree, from `{project-root}`, passing `--allow-drift` only
 uv run {checkWorkspaceDriftHelper} "{tree}" --pinned-commit "{pinned_commit}" [--source-ref "{source_ref}"] [--allow-drift] --workflow test-skill
 ```
 
-- **One tree:** `{tree}` is `{source_path}`, `{pinned_commit}` is `metadata.source_commit` (an empty string when it is null), and `{source_ref}` is `metadata.source_ref` when it is set.
+- **One tree:** `{tree}` is `{source_path}`, `{pinned_commit}` is `metadata.source_commit` (an empty string when it is null), and `{source_ref}` is `metadata.source_ref` when it is set. When metadata.json records no `source_root` (null, empty or absent), make no call and log `workspace_drift_check: skipped (metadata.json records no source_root)`.
 - **A stack skill** (`metadata.source_commit` is a `{repo_path: commit}` map): one call per entry, with that repo path as `{tree}`, its commit as `{pinned_commit}`, and the same key's value of `metadata.source_ref` as `{source_ref}` when that is a map too. Check every repo: do not skip stack skills.
 - Make no call for a tree that is not on disk (coverage then reads the provenance map, State 2 of the source access protocol), and log `workspace_drift_check: skipped (no local source at {tree})`. The helper itself skips a tree with no pinned commit (`""` or `"local"`) and one that is not a git working tree.
 

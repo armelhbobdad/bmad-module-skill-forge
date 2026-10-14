@@ -200,7 +200,7 @@ Error: indeterminate API surface: 0 exports discovered in source for {skill_name
 Export Coverage is undefined, and scoring would yield a vacuous PASS. Fix one of:
   - Set `scope.include` in the brief to point at the package's entry point(s)
   - Add `[EXT:]` citations if this is actually a docs-only skill
-  - Verify the skill's source_path / source_ref resolve to the intended tree
+  - Verify the skill's source_root / source_ref resolve to the intended tree
 ```
 
 Do not write the Coverage Analysis section or attach a score: this is an indeterminate state, not a FAIL. **If `docs_only_mode == true` and the validated inventory documents no item:** HALT the same way with "docs-only skill declares zero items: no API surface to test".
