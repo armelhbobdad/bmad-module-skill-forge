@@ -19,7 +19,7 @@ It covers the four branches §2c enumerates:
     Missing = barrel_set − documented_set, Stale = documented_set − barrel_set,
     Export Coverage = |Documented| / |barrel_set| * 100.
 
-  * "scalar"  (§2b priority-1 effective_denominator, no enumerated name set):
+  * "scalar"  (§2b's scalar branch, stats.effective_denominator, no enumerated name set):
     look each documented name up in SKILL.md ∪ references/*.md;
     Documented = count present, denominator = effective_denominator,
     Missing = max(0, denominator − Documented), Stale not enumerable (empty),

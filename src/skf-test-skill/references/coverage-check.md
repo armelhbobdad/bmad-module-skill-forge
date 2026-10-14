@@ -73,6 +73,8 @@ uv run {stageHelperPayloadScript} detect-workspaces --source-root "{source_path}
 
 Bind `{source_is_monorepo}` ← `is_monorepo` and `{source_workspace_kind}` ← `manifest_kind`. At States 2 to 5, or when the helper does not resolve or the command exits non-zero, the layout is unknown: bind `{source_is_monorepo}` ← false. §5 records the layout.
 
+**Clause flags.** Every `surface` command in §2 takes `--monorepo` when `{source_is_monorepo}` is true, and the flags the Source API Surface Definition leaves to you.
+
 ### 1. Extract Documented Exports from SKILL.md
 
 Delegate the reading of the skill under test to a subagent, given the path to SKILL.md and to its `references/` directory when one exists. The subagent reads SKILL.md, and every `references/*.md` file as well when SKILL.md's `## Full` headings are absent or stubs. For each export documented both in the SKILL.md body and in a reference file, it compares the two: parameters (name, type, order, optionality), the return type, and descriptions that contradict (brief against detailed is fine). It returns only this JSON, with no prose and no commentary:
@@ -133,7 +135,7 @@ Exit 2 is an input error (a brief the runner cannot read, say) or a failure the 
 Build the surface from it, with the metadata, the brief when the skill has one and, when init.md §2 bound one, the provenance map (the baselines of the §2b candidates and guards; they add no name):
 
 ```bash
-uv run {coverageInputsScript} surface --extraction "{run_dir}/extract-full.json" --metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] --output "{run_dir}/surface.json"
+uv run {coverageInputsScript} surface --extraction "{run_dir}/extract-full.json" --metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] [--monorepo] [--pattern-reference-intent] [--curated-subset] --output "{run_dir}/surface.json"
 ```
 
 The surface holds the names the entry points export, less those defined in a file the brief scopes out (`excluded.outsideScope`); the recipes' internal matches are never part of it. A Python `__init__.py` nested in the folder of another package that exports a name is no barrel: its names (`excluded.nestedEntries`) leave only the `all` and `root` sets and the umbrella ratio, and `plan` still compares their signatures. When a `scope.include` glob matches no file (`guards.staleScope.fires`), the root exports defined in a file no glob covers and the brief does not exclude are back in it (`guards.staleScope.restored`). A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) and counts no name. List `excluded.outsideScope`, `excluded.nestedEntries` and the restored names in the report. Decide what to do from the JSON, not from the exit code:
@@ -162,12 +164,12 @@ Save each response to `{run_dir}/signatures-<n>.txt` with the Write tool. Withou
 - **State 2** (`{forge_provenance_map}`, the provenance map init.md §2 bound): the union of its named exports and the `metadata.json` `exports[]` names, with `--fold`, `--keep` and `--fold-prefix` as the Source API Surface Definition's canonicalization says:
 
   ```bash
-  uv run {coverageInputsScript} surface --provenance "{forge_provenance_map}" --metadata "{resolved_skill_package}/metadata.json" [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] [--fold] [--keep <variant>] [--fold-prefix <prefix>] --output "{run_dir}/surface.json"
+  uv run {coverageInputsScript} surface --provenance "{forge_provenance_map}" --metadata "{resolved_skill_package}/metadata.json" [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] [--fold] [--keep <variant>] [--fold-prefix <prefix>] [--monorepo] [--pattern-reference-intent] [--curated-subset] --output "{run_dir}/surface.json"
   ```
 
   Step 5's scoring script reads its `state2` counts, and the report records its fold summary, `canonical.summary`.
-- **State 3**: the `metadata.json` `exports[]` names: `surface --metadata "{resolved_skill_package}/metadata.json" --output "{run_dir}/surface.json"`.
-- **State 4**: the names read remotely by eye, as per-file results: `surface --per-file "{run_dir}/per-file-<n>.json" [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] --metadata "{resolved_skill_package}/metadata.json" --output "{run_dir}/surface.json"`.
+- **State 3**: the `metadata.json` `exports[]` names: `surface --metadata "{resolved_skill_package}/metadata.json" [--monorepo] [--pattern-reference-intent] [--curated-subset] --output "{run_dir}/surface.json"`.
+- **State 4**: the names read remotely by eye, as per-file results: `surface --per-file "{run_dir}/per-file-<n>.json" [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] --metadata "{resolved_skill_package}/metadata.json" [--monorepo] [--pattern-reference-intent] [--curated-subset] [--barrel <state>] --output "{run_dir}/surface.json"`.
 
 ### 2b. Resolve the Denominator and Guard Zero Exports
 
@@ -177,11 +179,9 @@ Load the metadata and provenance-map counts once, for §2c, §4b and the numerat
 uv run {coverageInputsScript} metadata --metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] --output "{run_dir}/coverage-inputs.json"
 ```
 
-**Pick the denominator.** Which clause of the Source API Surface Definition (§0b) matches this skill is a judgment; the counts each clause names are in `surface.json` `candidates` and `guards`. The clause gives §2c its branch:
+**Pick the denominator.** `surface.json` `denominator` holds the Source API Surface Definition clause (§0b) `surface` picked: its §2c `branch` (`barrel`, `scalar` or `stack`), `surfaceSet` (the set the barrel branch counts and the signature score reads) and `ladderStep`. When `absentSet` names a set the surface lacks (the scope sets need the brief's globs and names that carry their files, `subpaths` and `root` an extraction), `surfaceSet` is `all` and the `Denominator:` line (§4) adds `({absentSet} set absent: all set used)`. When `rebuild` is `provenance-fold`, rerun State 2's command with no `--metadata`, with `--fold` and `--pattern-reference-intent`, and read its `denominator`.
 
-- **Standard barrel**, **multi-entry**, **specific-modules**, **pattern-reference**, State 2 or a priority-2/3 **stratified-scope** denominator: the barrel branch, over the `surface.json` set the clause names (`all`, `subpaths`, `tier_a_include` or `scope.include`). The scope sets need the brief's globs and names that carry their files (State 3's metadata names carry none), and `subpaths` and `root` an extraction. When the set is absent, the denominator is the `all` set, and the `Denominator:` line (§4) adds `({set} set absent: all set used)`.
-- **Stratified-scope priority 1**: the scalar branch over `stats.effective_denominator` (`candidates.statsEffectiveDenominator`), unless `guards.deflation.fires`: then the barrel branch over the `scope.include` set (`all` when the brief has no `scope.include`).
-- **A stack skill** (`metadata.json.skill_type == "stack"`): the stack branch, over `coverage-inputs.json` `stack.denominator`. Its own barrel is empty by design, and its `[from skill: …]` citations never make it docs-only. **If `stack.denominator` is 0**: HALT (`halt_reason: "indeterminate-surface"`, phase `coverage-check:denominator`) with `Error: stack composition surface empty: {skill_name} cites no contracts, libraries, or integration pairs, so Export Coverage is undefined. Verify the stack was compiled from at least one constituent skill.` Do not write the Coverage Analysis section; this is an indeterminate state, not a FAIL.
+- **A stack skill** (`branch` `stack`): `coverage-inputs.json` `stack.denominator`. Its own barrel is empty by design, and its `[from skill: …]` citations never make it docs-only. **If `stack.denominator` is 0**: HALT (`halt_reason: "indeterminate-surface"`, phase `coverage-check:denominator`) with `Error: stack composition surface empty: {skill_name} cites no contracts, libraries, or integration pairs, so Export Coverage is undefined. Verify the stack was compiled from at least one constituent skill.` Do not write the Coverage Analysis section; this is an indeterminate state, not a FAIL.
 - **A docs-only skill**: the `docsOnly` branch, over the inventory.
 
 **Numerator ground truth.** A declared count equal to the denominator (`stats.exports_documented == stats.effective_denominator`, the inflation signature) may be padded to a tautological 100%. Run the check on every source-based skill; without the signature (a stack and a reference app carry none) it reports `skipped`:
@@ -205,7 +205,7 @@ Export Coverage is undefined, and scoring would yield a vacuous PASS. Fix one of
 
 Do not write the Coverage Analysis section or attach a score: this is an indeterminate state, not a FAIL. **If `docs_only_mode == true` and the validated inventory documents no item:** HALT the same way with "docs-only skill declares zero items: no API surface to test".
 
-**Score the signatures** (Forge, Forge+ and Deep tier at State 1, once §2 compared them). Give `{scoreSignaturesScript}` the set the denominator counts as `--surface-set`: the set §2c's barrel branch reads, or for the scalar branch `tier_a_include` when `surface.json` has it, else `scope.include`, else `all`. Type Coverage then counts that set's types alone, so a type the clause leaves out (a stratified skill's deferred Tier B) lowers neither Export Coverage nor Type Coverage. Give it one `--results` per saved response (the fallback scan's `per-file-<n>.txt`, else the `signatures-<n>.txt`):
+**Score the signatures** (Forge, Forge+ and Deep tier at State 1, once §2 compared them). Give `{scoreSignaturesScript}` `denominator.surfaceSet` as `--surface-set`. Type Coverage then counts that set's types alone, so a type the clause leaves out (a stratified skill's deferred Tier B) lowers neither Export Coverage nor Type Coverage. Give it one `--results` per saved response (the fallback scan's `per-file-<n>.txt`, else the `signatures-<n>.txt`):
 
 ```bash
 uv run {scoreSignaturesScript} score --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --surface-set <set> --results "{run_dir}/signatures-<n>.txt" --output "{run_dir}/signatures.json" --gaps-output "{run_dir}/signature-gaps.json"
@@ -265,14 +265,14 @@ Each category score is read from its script's file, the file step 5 hands to the
 - **Signature Accuracy:** `signatures.json` `signatureAccuracy` (Forge, Forge+ and Deep tier at State 1; "N/A" otherwise)
 - **Type Coverage:** `signatures.json` `typeCoverage`, over the types of the set §2b scored; "N/A" where Signature Accuracy is
 
-Record the denominator source in the Coverage Analysis section with the annotation the matching clause of `{sourceAccessProtocol}` specifies: `Denominator: {barrel | stratified (…) | multi-entry (…) | specific-modules (…) | pattern-reference (…) | stack composition (…) | pattern-surface (…) | docs-only completeness}`, and the `canonical.summary` line when `surface.json` has a fold. When stratified-scope or multi-entry resolution picked the denominator, append this block right after the `Denominator:` line, with every count from `surface.json` `candidates` (`absent` for a null one):
+Record the denominator source in the Coverage Analysis section with the annotation `{sourceAccessProtocol}` gives `denominator.clause` (§4b gives a stack's and a reference app's): `Denominator: {barrel | empty barrel (…) | stratified (…) | multi-entry (…) | specific-modules (…) | pattern-reference (…) | stack composition (…) | pattern-surface (…) | docs-only completeness}`, and the `canonical.summary` line when `surface.json` has a fold. When `denominator.clause` is `stratified-scope` or `multi-entry`, append this block after the `Denominator:` line, with every count from `surface.json` `candidates` (`absent` for a null one):
 
 ```markdown
 **Denominator Candidates** (stratified-scope audit trail):
-- `stats.effective_denominator`: {statsEffectiveDenominator | absent}  {← chosen if priority (1) applied}
-- `scope.tier_a_include` union: {tierAIncludeUnion | absent}    {← chosen if priority (2) applied}
-- `scope.include` union: {scopeIncludeUnion | absent}           {← chosen if priority (3) applied}
-- exports-map subpath union: {subpathUnion | absent}        {← chosen if the multi-entry clause applied}
+- `stats.effective_denominator`: {statsEffectiveDenominator | absent}  {← chosen on the scalar branch}
+- `scope.tier_a_include` union: {tierAIncludeUnion | absent}    {← chosen if the barrel branch's set}
+- `scope.include` union: {scopeIncludeUnion | absent}           {← chosen if the barrel branch's set}
+- exports-map subpath union: {subpathUnion | absent}        {← chosen if the barrel branch's set}
 - root barrel: {rootBarrel | absent}                               {secondary candidate: root-barrel-vs-subpath-union audit}
 ```
 

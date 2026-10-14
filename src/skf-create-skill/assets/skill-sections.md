@@ -134,7 +134,7 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
     "total_coverage": 0.0,
     "scripts_count": 0,
     "assets_count": 0
-    // "effective_denominator": 0  // optional — emitted for the curated-subset shapes in compile.md §4 condition 1; test-skill uses this as the coverage denominator when present. See compile.md §4 emit rules.
+    // "effective_denominator": 0  // optional: emitted when compile.md §4 passes it (counts.effective_denominator_decision.store and a stratified scope.notes); test-skill uses this as the coverage denominator when present.
   },
   // scripts[] and assets[] — include ONLY when inventories are non-empty; omit entirely otherwise
   // "scripts": [{ "file": "scripts/{name}", "purpose": "{description}", "source_file": "{source-path}", "confidence": "T1-low" }],

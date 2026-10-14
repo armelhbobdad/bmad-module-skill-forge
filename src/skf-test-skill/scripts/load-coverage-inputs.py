@@ -5,10 +5,12 @@
 # ///
 """SKF test-skill coverage inputs: the counts, name sets and candidates coverage-check reads.
 
-coverage-check.md decides which denominator clause applies to a skill and
-whether a bookkeeping variant is a real export; everything it counts, folds
-or unions on the way runs here, so no count is made by hand. Three
-subcommands, each reading files and writing one JSON object:
+coverage-check.md decides whether a bookkeeping variant is a real export,
+and makes the judgments the denominator clause needs where no file holds
+them (--pattern-reference-intent, and --curated-subset and --barrel where
+the extraction does not say); the clause, everything it counts, folds or
+unions on the way runs here, so no count is made by hand. Three subcommands, each
+reading files and writing one JSON object:
 
   census    docs-only detection. Counts the citations SKILL.md and each .md
             file directly in references/ write, by form: `[EXT:` against
@@ -99,8 +101,12 @@ subcommands, each reading files and writing one JSON object:
             names to their base name (`X_def`, `X_exact`, `a11y_X`, and
             `<prefix>X` for each --fold-prefix when `X` is itself a name)
             unless --keep names the variant as a real export, and
-            `canonical` gives the provenance map's fold summary. --brief
-            gives the skill brief's scope, language and scope-expansion
+            `canonical` gives the provenance map's fold summary; a map
+            whose distinct named exports number
+            `stats.effective_denominator` (--metadata) is already canonical
+            and is not folded (`canonical.skipped`), and `residual` is the
+            canonical count less that stored count. --brief gives the
+            skill brief's scope, scope type, language and scope-expansion
             amendments; an extraction's recorded scope wins over its scope.
 
 Name sets (surface `sets`, each sorted): `all` (the union above, less a
@@ -153,6 +159,53 @@ with its file and line (`restored`). Globs follow
 skf-extract-public-api.py: `**` spans any number of path segments, none
 included, and `*` and `?` stay inside one.
 
+Denominator (surface `denominator`): the Source API Surface Definition's
+clause (source-access-protocol.md), the branch reconcile-coverage.py takes
+and the set it and score-signatures.py --surface-set read: {clause, branch,
+surfaceSet, ladderStep, absentSet, rebuild, barrel}. The inputs: the scope
+type (the brief's, else the extraction's, else metadata.json's
+`scope_type`), metadata.json's `skill_type` and `stats.effective_denominator`,
+the extraction's `arms`, the deflation guard, and:
+  monorepo  --monorepo (the workspace layout skf-detect-workspaces.py
+            found), or the extraction's `arms.monorepo`.
+  curated   the extraction's `counts.curated_subset` (the rule Create Skill
+            stores the count by), else --curated-subset (the workflow's
+            judgment that a monorepo's scope.include lists a curated subset).
+  barrel    (`barrel`: "barrel", "empty-barrel", "no-entry-point" or null)
+            a complete extraction's `entry_points.status`; for one the
+            per-file scan replaces, "no-entry-point" when it read a file in
+            scope and found no entry point (`entry_points.files` empty), as
+            a complete run says; a quick output's (an export is a barrel,
+            none and no warning an empty one); else --barrel (`barrel`,
+            `empty` or `none`, what the workflow read); else null.
+  --pattern-reference-intent  the workflow's judgment that scope.notes
+            flags pattern-reference intent.
+The first clause that applies:
+  stack             skill_type stack: branch `stack`, no set.
+  pattern-reference not a monorepo, no non-empty barrel, a scope type other
+                    than specific-modules, component-library, docs-only and
+                    reference-app, not public-api with a multi-subpath
+                    `exports` map, and either the intent flag or no entry
+                    point at all with no such map: the tier_a_include set,
+                    else `all` with `rebuild` `provenance-fold` on a surface
+                    read from the source (build it again from the provenance
+                    map alone, folded), `all` on one that is not.
+  empty-barrel      an empty barrel: the scope.include set.
+  stratified-scope  --monorepo and --curated-subset, not full-library.
+  specific-modules  scope type specific-modules, not --monorepo.
+  multi-entry       arms.multi_subpath_exports, not --monorepo, a
+                    full-library or public-api scope.
+  standard-barrel   any other: the `all` set.
+The last three walk a ladder, `ladderStep` naming the rung taken: rung 1,
+`stats.effective_denominator` when metadata.json has one above 0 (a stored
+0 is no denominator), is the `scalar` branch, whose `surfaceSet` (the set score-signatures.py scores) is
+tier_a_include, else scope.include, else all, unless the deflation guard
+fires: then the barrel branch over scope.include. The next rungs are sets,
+each taken when the surface has it, the last taken in any case:
+tier_a_include then scope.include (stratified-scope), scope.include
+(specific-modules), tier_a_include then subpaths (multi-entry). A set the
+surface lacks is counted as `all`, and `absentSet` names it.
+
 Fallback verdict: `extraction.fallback.needed` is true when the extractor
 found no ast-grep (`no-ast-grep`), read no file in scope, read files only
 in languages it has no recipe for (`files_without_recipes` and no export),
@@ -169,7 +222,8 @@ Usage:
   uv run load-coverage-inputs.py surface [--extraction <file>] [--quick <file>]... \\
       [--per-file <file>]... [--fallback-scan] [--name <name>]... [--provenance <file>] \\
       [--metadata <file>] [--brief <skill-brief.yaml>] [--fold] [--fold-prefix <prefix>]... \\
-      [--keep <name>]... [--output <file>]
+      [--keep <name>]... [--monorepo] [--pattern-reference-intent] [--curated-subset] \\
+      [--barrel barrel|empty|none] [--output <file>]
 
 Exit codes:
   0  the result was printed (and written to --output)
@@ -210,6 +264,17 @@ FOLD_PREFIX = "a11y_"
 ROOT_SUBPATHS = (None, ".")
 # The latest action of a scope-expansion amendment that keeps its path out of scope.
 DECLINED_ACTIONS = ("skipped", "demoted-include")
+# The rungs each laddered clause tries in order, `scalar` being stats.effective_denominator.
+CLAUSE_LADDERS = {
+    "stratified-scope": ("scalar", "tier_a_include", "scope.include"),
+    "specific-modules": ("scalar", "scope.include"),
+    "multi-entry": ("scalar", "tier_a_include", "subpaths"),
+}
+# --barrel: what the workflow read of the entry points, where surface cannot tell -> the extractor's status.
+BARREL_FLAG = {"barrel": "barrel", "empty": "empty-barrel", "none": "no-entry-point"}
+# The scope types the pattern-reference clause never applies to (a reference app's brief carries its own
+# pattern-surface denominator).
+NOT_PATTERN_REFERENCE = frozenset({"specific-modules", "component-library", "docs-only", "reference-app"})
 # The languages skf-extract-public-api.py's recipes read (its LANGUAGE_FAMILIES).
 RECIPE_LANGUAGES = frozenset({"python", "rust", "go", "golang", "typescript", "ts", "tsx", "javascript", "js",
                               "jsx", "vue"})
@@ -439,7 +504,7 @@ def _scope(include, exclude, tier_a_include) -> dict:
 
 
 def read_brief(path: str) -> dict:
-    """A skill brief's scope globs and language, the fields skf-extract-public-api.py reads, and the
+    """A skill brief's scope globs, scope type and language, the fields skf-extract-public-api.py reads, and the
     latest action of each scope-expansion amendment by its path (`amendments`), a legacy headless skip
     read as a deferral as skf-resolve-authoritative-files.py reads it."""
     try:
@@ -464,6 +529,7 @@ def read_brief(path: str) -> dict:
             if amended and action is not None:
                 amendments[amended] = action
     return {"scope": _scope(scope.get("include"), scope.get("exclude"), scope.get("tier_a_include")),
+            "type": scope.get("type") if isinstance(scope.get("type"), str) else None,
             "language": data.get("language") if isinstance(data.get("language"), str) else None,
             "amendments": amendments}
 
@@ -546,6 +612,7 @@ def _extraction_summary(data: dict, language: str | None) -> dict:
     the files to read by eye and the fallback verdict."""
     counts = data.get("counts") if isinstance(data.get("counts"), dict) else {}
     arms = data.get("arms") if isinstance(data.get("arms"), dict) else {}
+    entry_points = data.get("entry_points") if isinstance(data.get("entry_points"), dict) else {}
     without = data.get("files_without_recipes") if isinstance(data.get("files_without_recipes"), dict) else {}
     status = data.get("status")
     reason = None
@@ -571,6 +638,11 @@ def _extraction_summary(data: dict, language: str | None) -> dict:
         "effectiveDenominatorBasis": counts.get("effective_denominator_basis"),
         "exportsPublicApi": _count(counts.get("exports_public_api")),
         "arms": arms,
+        "curatedSubset": counts.get("curated_subset") if isinstance(counts.get("curated_subset"), bool) else None,
+        "entryPointStatus": entry_points.get("status"),
+        # A run that read a file in scope and found no entry point says so whether or not ast-grep ran.
+        "entryPointsFound": (bool(entry_points["files"]) if isinstance(entry_points.get("files"), list)
+                             and data.get("files_in_scope") else None),
         "readByEye": read_by_eye,
         "fallback": {"needed": reason is not None, "reason": reason},
     }
@@ -602,7 +674,8 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
         return {"records": [], "nestedRecords": [], "sets": {}, "outside": [], "nested": [],
                 "staleScope": {"unmatchedInclude": unmatched, "unmatchedTierAInclude": unmatched_tier_a,
                                "restored": []},
-                "gaps": [], "scope": scope, "umbrella": dict(NO_UMBRELLA), "extraction": extraction}
+                "gaps": [], "scope": scope, "scopeType": recorded.get("type"), "umbrella": dict(NO_UMBRELLA),
+                "extraction": extraction}
 
     diff = data.get("entry_point_diff") if isinstance(data.get("entry_point_diff"), dict) else {}
     public = _members_in_place([p for p in diff.get("public") or []
@@ -678,6 +751,7 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
                                     for o in sorted(restored, key=lambda o: (o["name"], o["file"]))]},
         "gaps": [{"name": g.get("name"), "file": g.get("file"), "line": g.get("line")} for g in gaps],
         "scope": scope,
+        "scopeType": recorded.get("type") if isinstance(recorded.get("type"), str) else None,
         "umbrella": {
             "entries": sorted(f for f in root_files if f),
             "names": len(root_names),
@@ -745,11 +819,67 @@ def fold_names(names: list[str], prefixes: list[str], keep: set[str],
     return variants, tally
 
 
+def _over(clause: str, sets: dict, name: str, step: int | None, rebuild: str | None = None) -> dict:
+    """The barrel branch over set `name`, the `all` set when the surface lacks it."""
+    present = name in sets
+    return {"clause": clause, "branch": "barrel", "surfaceSet": name if present else "all", "ladderStep": step,
+            "absentSet": None if present else name, "rebuild": rebuild}
+
+
+def pick_denominator(sets: dict, stats_eff: int | None, deflation_fires: bool, barrel: str | None, arms: dict,
+                     scope_type: str | None, skill_type: str | None, monorepo: bool, pattern_reference: bool,
+                     curated: bool, source_read: bool) -> dict:
+    """The Source API Surface Definition's clause for a skill, with the branch
+    and the name set reconcile-coverage.py and score-signatures.py read, and
+    the entry points' state it was picked by (see "Denominator" above)."""
+    return {**_pick(sets, stats_eff, deflation_fires, barrel, arms, scope_type, skill_type, monorepo,
+                    pattern_reference, curated, source_read), "barrel": barrel}
+
+
+def _pick(sets: dict, stats_eff: int | None, deflation_fires: bool, barrel: str | None, arms: dict,
+          scope_type: str | None, skill_type: str | None, monorepo: bool, pattern_reference: bool,
+          curated: bool, source_read: bool) -> dict:
+    if skill_type == "stack":
+        return {"clause": "stack", "branch": "stack", "surfaceSet": None, "ladderStep": None, "absentSet": None,
+                "rebuild": None}
+    multi = bool(arms.get("multi_subpath_exports"))
+    if (not monorepo and barrel != "barrel" and scope_type not in NOT_PATTERN_REFERENCE
+            and not (multi and scope_type == "public-api")
+            and (pattern_reference or (barrel == "no-entry-point" and not multi))):
+        if "tier_a_include" in sets:
+            return _over("pattern-reference", sets, "tier_a_include", None)
+        # The canonicalized provenance map: a surface read from the source is built again from the map alone.
+        return _over("pattern-reference", sets, "all", None, "provenance-fold" if source_read else None)
+    if barrel == "empty-barrel":
+        return _over("empty-barrel", sets, "scope.include", None)
+    if monorepo and curated and scope_type != "full-library":
+        clause = "stratified-scope"
+    elif scope_type == "specific-modules" and not monorepo:
+        clause = "specific-modules"
+    elif multi and not monorepo and scope_type in ("full-library", "public-api"):
+        clause = "multi-entry"
+    else:
+        return _over("standard-barrel", sets, "all", None)
+    ladder = CLAUSE_LADDERS[clause]
+    for step, rung in enumerate(ladder, 1):
+        if rung != "scalar":
+            if rung in sets or step == len(ladder):
+                return _over(clause, sets, rung, step)
+        elif stats_eff:
+            # A stored 0 is no denominator: the next rung.
+            if deflation_fires:
+                return _over(clause, sets, "scope.include", step)
+            scored = next((name for name in ("tier_a_include", "scope.include") if name in sets), "all")
+            return {"clause": clause, "branch": "scalar", "surfaceSet": scored, "ladderStep": step,
+                    "absentSet": None, "rebuild": None}
+    raise AssertionError(f"the {clause} ladder ends on a set")
+
+
 def surface(args: argparse.Namespace) -> dict:
     records: list[dict] = []
     sets: dict[str, list[str]] = {}
     warnings: list[str] = []
-    out: dict = {"candidates": None, "guards": None, "state2": None, "canonical": None,
+    out: dict = {"candidates": None, "guards": None, "denominator": None, "state2": None, "canonical": None,
                  "extraction": None, "extractionGaps": [], "excluded": {"outsideScope": [], "nestedEntries": []}}
 
     meta = _object(args.metadata, "--metadata") if args.metadata else None
@@ -758,6 +888,8 @@ def surface(args: argparse.Namespace) -> dict:
     language = (brief or {}).get("language")
     if not language and meta is not None and isinstance(meta.get("language"), str):
         language = meta["language"]
+    stats = meta.get("stats") if isinstance(meta, dict) and isinstance(meta.get("stats"), dict) else {}
+    stats_eff = _count(stats.get("effective_denominator"))
 
     extracted = None
     if args.extraction:
@@ -769,8 +901,10 @@ def surface(args: argparse.Namespace) -> dict:
         out["extractionGaps"] = extracted["gaps"]
         out["excluded"] = {"outsideScope": extracted["outside"], "nestedEntries": extracted["nested"]}
         warnings += [f"{Path(args.extraction).name}: {w}" for w in data.get("warnings") or [] if isinstance(w, str)]
+    quick_outputs = []
     for path in args.quick or []:
         data = _object(path, "--quick")
+        quick_outputs.append(data)
         records += from_quick(data)
         warnings += [f"{Path(path).name}: {w}" for w in data.get("warnings") or [] if isinstance(w, str)]
     violations: list[str] = []
@@ -793,11 +927,15 @@ def surface(args: argparse.Namespace) -> dict:
         exports = meta.get("exports") if meta is not None else None
         meta_names = sorted({n for n in (_export_name(e) for e in exports) if n}) if isinstance(exports, list) else []
         base_of: dict[str, str] = {}
+        # A map whose raw count is the stored effective_denominator is already canonical: no fold.
+        skipped = bool(args.fold) and provenance is not None and stats_eff == len(prov_names)
         if args.fold:
             # One fold over both lists, so a variant folded out of the map
             # never comes back through metadata.json.
             base_of, tally = fold_names(sorted(set(prov_names) | set(meta_names)), args.fold_prefix or [],
                                         set(args.keep or []), tallied=set(prov_names))
+            if skipped:
+                base_of, tally = {}, dict.fromkeys(tally, 0)
             if provenance is not None:
                 canonical = sorted({base_of.get(n, n) for n in prov_names})
                 out["canonical"] = {
@@ -805,10 +943,14 @@ def surface(args: argparse.Namespace) -> dict:
                     "canonical": len(canonical),
                     "folded": tally,
                     "variants": {n: base_of[n] for n in prov_names if n in base_of},
+                    "skipped": skipped,
+                    "residual": None if stats_eff is None else len(canonical) - stats_eff,
                     "summary": (f"Provenance-map canonicalization: {len(prov_names)} raw entries → "
                                 f"{len(canonical)} canonical bases ({len(prov_names) - len(canonical)} "
                                 f"bookkeeping variants folded: _def×{tally['_def']}, _exact×{tally['_exact']}, "
-                                f"a11y_×{tally[FOLD_PREFIX]}, other×{tally['other']})"),
+                                f"a11y_×{tally[FOLD_PREFIX]}, other×{tally['other']})"
+                                + (": the raw count equals `stats.effective_denominator`, so the map is already "
+                                   "canonical" if skipped else "")),
                 }
         seen = set()
         for e in named:
@@ -861,8 +1003,6 @@ def surface(args: argparse.Namespace) -> dict:
         sets["tier_a_include"] = tier_a_names
 
     if extracted is not None or brief is not None or meta is not None:
-        stats = meta.get("stats") if isinstance(meta, dict) and isinstance(meta.get("stats"), dict) else {}
-        stats_eff = _count(stats.get("effective_denominator"))
         include_union = len(sets["scope.include"]) if "scope.include" in sets else len(sets["all"])
         extraction = extracted["extraction"] if extracted is not None else {}
         out["candidates"] = {
@@ -911,6 +1051,32 @@ def surface(args: argparse.Namespace) -> dict:
             "thresholds": {"deflationPct": DEFLATION_PCT, "inflationPct": INFLATION_PCT,
                            "umbrellaRatio": UMBRELLA_RATIO},
         }
+
+    # The clause: an extraction's entry-point status (one the per-file scan replaces says only that it found no
+    # entry point), else a quick output's (an export is a barrel; none, and no warning, an empty one), else what
+    # the workflow read (--barrel).
+    barrel = None
+    summary = extracted["extraction"] if extracted is not None else None
+    if summary is not None and not summary["fallback"]["needed"]:
+        barrel = summary["entryPointStatus"]
+    elif summary is not None and summary["entryPointsFound"] is False:
+        barrel = "no-entry-point"
+    elif quick_outputs:
+        barrel = "barrel" if any(q["exports"] for q in quick_outputs) else (
+            None if any(q.get("warnings") for q in quick_outputs) else "empty-barrel")
+    if barrel is None and args.barrel:
+        barrel = BARREL_FLAG[args.barrel]
+    recorded_type = extracted["scopeType"] if extracted is not None else None
+    meta_type = meta.get("scope_type") if isinstance(meta, dict) and isinstance(meta.get("scope_type"), str) else None
+    arms = summary["arms"] if summary is not None else {}
+    # The extraction's verdict, the rule Create Skill stores the count by, else the workflow's judgment.
+    curated = summary["curatedSubset"] if summary is not None and summary["curatedSubset"] is not None \
+        else bool(args.curated_subset)
+    out["denominator"] = pick_denominator(
+        sets, stats_eff, bool((out["guards"] or {}).get("deflation", {}).get("fires")), barrel, arms,
+        (brief or {}).get("type") or recorded_type or meta_type,
+        meta.get("skill_type") if isinstance(meta, dict) else None, bool(args.monorepo or arms.get("monorepo")),
+        bool(args.pattern_reference_intent), curated, source_read)
 
     return {
         "inputs": {
@@ -976,6 +1142,17 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--fold", action="store_true", help="fold the provenance and metadata bookkeeping variants")
     p.add_argument("--fold-prefix", action="append", help="a renderer prefix to fold (repeatable)")
     p.add_argument("--keep", action="append", help="a variant that is a real export (repeatable)")
+    p.add_argument("--monorepo", action="store_true",
+                   help="the source is a monorepo (skf-detect-workspaces.py's is_monorepo)")
+    p.add_argument("--pattern-reference-intent", action="store_true",
+                   help="the brief's scope.notes flags pattern-reference intent (your judgment)")
+    p.add_argument("--curated-subset", action="store_true",
+                   help="with --monorepo: the brief's scope.include lists a curated subset rather than the full "
+                        "workspace (your judgment; an extraction's counts.curated_subset wins)")
+    p.add_argument("--barrel", choices=tuple(BARREL_FLAG),
+                   help="the entry points as you read them, where no extraction or quick output tells: none (no "
+                        "barrel file at any recognized entry-point path), empty (the primary one exports nothing) "
+                        "or barrel")
     p.add_argument("--output", help="also write the result to this file")
     p.set_defaults(func=surface)
     return parser

@@ -167,7 +167,9 @@ def test_filtered_list_is_trimmed_only_where_section_2_built_one() -> None:
     procedure = _section(_read(PROTOCOL), "2. **Apply the helper's classification:**", "3. **Prompt.**")
     in_scope = next(line for line in procedure.splitlines() if "`already_in_scope[]`" in line)
     assert "remove the path from §2's filtered file list when §2 built one" in in_scope
-    assert "the recipe runner reads the brief itself and builds no list" in in_scope
+    # v4.0.0 quality gate run 1 review: at Forge tier the runner's JSON lists the files in scope too, and lists
+    # source files only, so the parenthetical that said it builds no list is gone
+    assert "builds no list" not in in_scope
     promote = _section(_decision_section(), "- **[P] Promote:**", "- **[S] Skip:**")
     assert "remove it from §2's filtered file list when §2 built one" in promote
 
