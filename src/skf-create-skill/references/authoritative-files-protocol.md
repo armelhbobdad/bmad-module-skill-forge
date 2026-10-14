@@ -12,11 +12,9 @@ Once §2b has resolved source access, scan the resolved source tree (the local s
 
 This protocol detects such files, prompts the user, and records the decision in the brief so future runs (re-create, update, audit) honor it.
 
-**Heuristic scan list (handled by the helper — listed here for reference):** case-insensitive basename match, any directory depth, on `llms.txt`, `llms-full.txt`, `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `COPILOT.md`, `.cursorrules`, `.windsurfrules`, `.clinerules`.
-
 ## Procedure
 
-1. **Resolve, scan, classify, and load previews in one call.** Resolve `{resolveAuthoritativeFilesHelper}` ← first existing path in `{resolveAuthoritativeFilesProbeOrder}` (step 3's frontmatter); if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot scan for authoritative files: skf-resolve-authoritative-files.py is missing. Re-install SKF, then re-run create-skill." The helper handles the source-tree walk (pruning `node_modules`, `dist`, `.git`, etc.), case-insensitive basename matching, scope-filter diff (with `**`-recursive-glob support), amendment reconciliation (most-recent action wins), preview load (first 20 lines), and SHA-256 hashing:
+1. **Resolve, scan, classify, and load previews in one call.** Resolve `{resolveAuthoritativeFilesHelper}` ← first existing path in `{resolveAuthoritativeFilesProbeOrder}` (step 3's frontmatter); if neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot scan for authoritative files: skf-resolve-authoritative-files.py is missing. Re-install SKF, then re-run create-skill." The helper walks the tree, classifies each candidate and hashes it:
 
    ```bash
    uv run {resolveAuthoritativeFilesHelper} resolve \
@@ -120,22 +118,3 @@ This protocol detects such files, prompts the user, and records the decision in 
 **Record for evidence report:** `authoritative_files_scan: {candidates: N, promoted: P, skipped: S, deferred: D, pre_decided: A, decisions: [{path, action, heuristic, reason}]}`. Step 3 §5 writes it and `promoted_docs[]` into the extraction inventory, and step 5 writes it into `evidence-report.md`.
 
 When step 3 §2a's remote source guard skipped the scan, the record is `authoritative_files_scan: {not_scanned: "remote source not cloned"}` instead (its own key, apart from the `skipped` count of candidates above), and step 6 lists that skip under the evidence report's Remaining Warnings.
-
-## How promoted docs reach the provenance map
-
-Promoted docs do not flow through §4 code extraction. Instead:
-
-1. §2a populates the `promoted_docs[]` list with content hashes, which step 3 §5 writes into the extraction inventory.
-2. **Step-05 §6** (provenance-map assembly) reads `promoted_docs[]` from the inventory and emits one `file_entries[]` entry per promoted doc with `file_type: "doc"`, `extraction_method: "promoted-authoritative"`, `confidence: "T1-low"`, and the pre-computed `content_hash`.
-3. **Step 7's promotion** does not copy doc files into the skill package (unlike scripts and assets). The source file remains at its original path; only the provenance map tracks it. Future audit and update workflows compare against this tracking entry via content hash. No file copy is required, because the intent is drift detection on the *source*, not bundling documentation into the skill output.
-
-**Re-running `skf-create-skill`** reads the amended brief. Files with `action: "promoted"` amendments already appear in `scope.include`, but §2a still runs — it detects the file is in scope AND has an existing amendment, and takes the "pre-decided" silent path. The `promoted_docs[]` list is rebuilt on each run by scanning amendments with `action: "promoted"` (this is the deterministic replay path).
-
-## Downstream workflow consumption
-
-Zero code changes required in consumer workflows:
-
-- **`skf-update-skill`** reads `provenance-map.json`. Promoted docs appear as `file_entries[]` entries. Update-skill Category D (script/asset file changes) iterates `file_entries` and compares content hashes — this works identically for `file_type: "doc"` entries, giving drift detection for free.
-- **`skf-audit-skill`** scans files from `provenance-map.json`. The re-index builds its list from `entries[].source_file ∪ file_entries[].source_file`, so promoted doc paths are naturally included in the audit scan.
-
-The brief is the single source of truth for authored scope intent. The provenance map is the single source of truth for extracted state. `scope.amendments[]` is the bridge that records when those two intentionally diverged. `promoted_docs[]` is the handoff from §2a to step 5 §6, through the extraction inventory; the published form is the `file_entries[]` list in provenance-map.json.

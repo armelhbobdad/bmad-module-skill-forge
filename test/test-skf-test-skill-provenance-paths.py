@@ -1708,11 +1708,32 @@ def test_the_result_envelope_is_the_runs_last_line():
     shared = _read(SRC / "shared" / "health-check.md")
     arrival = _flow(_slice(shared, "### 0. Announce Arrival", "**Display in `{communication_language}`:**"))
     assert "may bind `{result_envelope_line}`" in arrival and "In a standalone headless run" in arrival
-    for start, end in (("### 2. Reflect on Execution", "### 3."), ("### 5c. Local-Queue Path", "## CRITICAL")):
-        stop = _flow(_slice(shared, start, end))
+    # §5c, the local queue, is the file's last section: it runs to the end of the file
+    assert shared.count("### 5c. Local-Queue Path") == 1
+    for start, end in (("### 2. Reflect on Execution", "### 3."), ("### 5c. Local-Queue Path", None)):
+        stop = _flow(_slice(shared, start, end) if end else shared[shared.index(start):])
         assert "When `{result_envelope_line}` is bound (§0), display it verbatim after that" in stop, start
+    # nothing follows §5c's envelope line: it is the shared health check's last line
+    assert shared.rstrip().endswith("display it verbatim after that block, as the last line.")
     report = _flow(_read(REPORT))
     assert "bind `{result_envelope_line}` ← `{result_line}`" in report
     assert "display `{result_envelope_line}` verbatim as the run's last line" in report
     # The stdout/stderr split is explained once, in the contract.
     assert "the split is a label only" in _flow(_read(CONTRACT)) and "the split is a label only" not in report
+
+
+def test_the_shared_health_check_states_its_findings_rule_once():
+    """v4.0.0 quality gate run 1, skf-create-skill leanness-2: the
+    anti-fabrication rule is one reasoned rule in the execution rules, not
+    shouted bullets restated in the issue-writing rules and a closing
+    checklist."""
+    shared = _read(SRC / "shared" / "health-check.md")
+    rules = _flow(_slice(shared, "## MANDATORY EXECUTION RULES:", "## MANDATORY SEQUENCE"))
+    assert ("Zero findings is the expected outcome of a good run. Report only a bug, friction or gap you hit in this "
+            "session, each with the step file and section where it happened, and leave out anything you cannot tell "
+            "apart from your own confusion: a finding you invent can become a real GitHub issue filed against the "
+            "module.") in rules
+    folded = shared.lower()
+    assert folded.count("zero findings") == 1 and "zero issues" not in folded
+    assert folded.count("your own confusion") == 1
+    assert "system failure" not in folded and "fabricat" not in folded

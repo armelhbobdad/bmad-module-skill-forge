@@ -7,6 +7,10 @@ nextStepFile: 'health-check.md'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# The result-contract emitter (Rules).
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -19,7 +23,8 @@ To display the final compilation summary (skill name, version, source, export co
 
 ## Rules
 
-- Write only the brief's result files (through the emitter, §5) and, outside `--batch`, the removal of the brief's run folder. Change no skill artifact, except in §5's fallback when `{emitEnvelopeHelper}` resolved no path: `validation_status` in `{skill_package}/metadata.json` and one warning appended to `{forge_version}/evidence-report.md`
+- Write only the brief's result files (through the emitter, §5) and, outside `--batch`, the removal of the brief's run folder. Change no skill artifact, except in §5's fallback when no path in `{emitEnvelopeProbeOrder}` exists: `validation_status` in `{skill_package}/metadata.json` and one warning appended to `{forge_version}/evidence-report.md`
+- §5 emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound.
 - Deliver structured report with confidence breakdown
 - The user-facing report is not the end of the run: §5 and §6 follow it in order, and §6 chains to the health check via `{nextStepFile}`, or under `--batch` back to `references/batch-mode.md`, which runs it once the last brief is recorded
 
@@ -91,7 +96,7 @@ To use this skill immediately, add the context snippet to your CLAUDE.md:
 
 Every brief that reaches this step gets its own result contract and `on_complete` call, each brief of a `--batch` run included. A HARD HALT in steps 1 to 7 never reaches this step: it emits its envelope where it fires, as its HALT line says, and writes its result file there once step 7 has created `{forge_version}`.
 
-**Write the result contract through the emitter.** `{emitEnvelopeHelper}` (SKILL.md On Activation) writes `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and its `create-skill-result-latest.json` copy (a stable path for pipeline consumers; a copy, not a symlink), stamps the timestamp, the run id and the run sink's decisions and warnings into them, checks the brief's `SKF_CREATE_SKILL_RESULT_JSON` line against `skf-create-skill-result-envelope.v1.json` and prints it. First read the run sink, from `{project-root}`:
+**Write the result contract through the emitter.** `{emitEnvelopeHelper}` writes `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and its `create-skill-result-latest.json` copy (a stable path for pipeline consumers; a copy, not a symlink), stamps the timestamp, the run id and the run sink's decisions and warnings into them, checks the brief's `SKF_CREATE_SKILL_RESULT_JSON` line against `skf-create-skill-result-envelope.v1.json` and prints it. First read the run sink, from `{project-root}`:
 
 ```bash
 grep -c . "{run_dir}/headless-decisions.jsonl" 2>/dev/null; grep -c '"gate":"zero-exports"' "{run_dir}/headless-decisions.jsonl" 2>/dev/null
@@ -108,15 +113,21 @@ uv run {emitEnvelopeHelper} emit --workflow skf-create-skill --run-dir "{run_dir
 
 The evidence report in `outputs` carries the `## Auto-Decisions` audit table: a pipeline consumer follows its path to audit the run. Display the line the emitter prints. If it exits non-zero, fix `result-context.json` once (its `message` names the problem) and run it again. When it fails again, display its `message`: this brief has no result contract.
 
-**If `{emitEnvelopeHelper}` resolved no path** (an incomplete install), write no result contract: append "Result contract skipped: skf-emit-result-envelope.py is missing." under `{forge_version}/evidence-report.md`'s `## Remaining Warnings`, and set `validation_status: 'schema-unavailable'` in `{skill_package}/metadata.json`, rewritten through `python3 {atomicWriteHelper} write --target {skill_package}/metadata.json` when `{atomicWriteHelper}` resolves. Pipeline consumers observe the missing `-latest.json` and the metadata flag.
+**If no path in `{emitEnvelopeProbeOrder}` exists** (an incomplete install), write no result contract: append "Result contract skipped: skf-emit-result-envelope.py is missing." under `{forge_version}/evidence-report.md`'s `## Remaining Warnings`, and set `validation_status: 'schema-unavailable'` in `{skill_package}/metadata.json`, rewritten through `python3 {atomicWriteHelper} write --target {skill_package}/metadata.json` when `{atomicWriteHelper}` resolves. Pipeline consumers observe the missing `-latest.json` and the metadata flag.
 
-**Post-completion hook.** When `{onCompleteCommand}` is non-empty (SKILL.md On Activation §3 resolved it from `workflow.on_complete`) and the emitter wrote this brief's result contract (its `emit` exited 0), run it as a shell command from `{project-root}`, for this brief:
+**Post-completion hook.** When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
+
+```bash
+uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow.on_complete
+```
+
+When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's result contract (its `emit` exited 0), run it as a shell command from `{project-root}`, for this brief:
 
 ```bash
 {onCompleteCommand} --result-path={forge_version}/create-skill-result-latest.json
 ```
 
-The hook runs after the contract, so a git-add, registry registration or notifier sees a complete package. A hook failure never fails the brief, since the skill is written and its result contract is final: display "on_complete failed for `{name}`: {its exit code and first stderr line}" and go on. When the emitter wrote no result contract for this brief (no `{emitEnvelopeHelper}`, or `emit` failed twice), `--result-path` would name a missing file or an earlier compile's: skip the hook and display "on_complete skipped for `{name}`: no result contract was written ({the reason})". When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+The hook runs after the contract, so a git-add, registry registration or notifier sees a complete package. A hook failure never fails the brief, since the skill is written and its result contract is final: display "on_complete failed for `{name}`: {its exit code and first stderr line}" and go on. When the emitter wrote no result contract for this brief (no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice), `--result-path` would name a missing file or an earlier compile's: skip the hook and display "on_complete skipped for `{name}`: no result contract was written ({the reason})". When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
 
 **Remove the run folder.** The brief finished, so outside `--batch` delete `{run_dir}` (`rm -rf "{run_dir}"`); under `--batch`, batch-mode.md §3 reads the staged `result-context.json` there and removes the folder itself. A halted brief keeps its folder, with the decisions it recorded and its staged payloads.
 

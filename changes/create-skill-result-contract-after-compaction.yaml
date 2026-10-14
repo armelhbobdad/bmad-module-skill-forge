@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  A long or `--batch` Create Skill run whose context was compacted before its report step now still writes each finished brief's result contract (the `create-skill-result-*.json` file and its `create-skill-result-latest.json` copy), prints its `SKF_CREATE_SKILL_RESULT_JSON` line and runs the `on_complete` hook a team configured. The report step now finds the result emitter and the `on_complete` value on its own, so a complete install no longer skips the contract as if the emitter were missing, no longer sets `validation_status` to `schema-unavailable` in the skill's `metadata.json`, and no longer skips a configured hook as if it were empty.
+prs: [763]
