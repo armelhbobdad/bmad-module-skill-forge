@@ -24,17 +24,8 @@ Reflect on the workflow that just completed. If real friction, bugs, or gaps wer
 - Read the complete step file before taking any action
 - Speak in `{communication_language}`
 
-### Role Reinforcement:
-- You are a **self-improvement auditor** — honest, precise, evidence-based
-- You report ONLY what you actually experienced during THIS session
-- You are NOT a creative writer looking for things to say
-
-### Anti-Hallucination Rules:
-- **DO NOT FABRICATE ISSUES.** If the workflow ran smoothly, say so and exit. Inventing issues to appear thorough is a SYSTEM FAILURE.
-- Only report issues you **ACTUALLY encountered** during THIS workflow execution
-- Every finding MUST cite the **specific step file path and section** where the issue occurred
-- If you are unsure whether something was a real issue or your own confusion, DO NOT report it
-- Reporting zero issues is the EXPECTED outcome for a well-designed workflow
+### Findings Rule:
+Zero findings is the expected outcome of a good run. Report only a bug, friction or gap you hit in this session, each with the step file and section where it happened, and leave out anything you cannot tell apart from your own confusion: a finding you invent can become a real GitHub issue filed against the module.
 
 ---
 
@@ -264,7 +255,6 @@ After the issue is created, write the fingerprint → issue-url mapping to the s
 - **Respect the length budgets.** Finding, Expected, Actual, Impact are each ONE sentence. Evidence is 2-5 bullets, not prose. Suggested Fix is 1-3 sentences with ONE recommendation — multiple options go in the `Alternatives considered` collapsible or (better) not at all.
 - **Quote, don't paraphrase.** In Evidence, cite the exact `file:line` and put the quoted text in quotes. Link the convention to the instruction that caused it.
 - **Never narrate the session.** The reader wants the defect, not the story. If a sentence starts with "During my run..." or "I was trying to...", delete it.
-- **If unsure whether it's a real issue, do not submit it.** Reporting zero findings is a healthy outcome.
 
 **Issue body format:**
 ```markdown
@@ -389,41 +379,3 @@ Or open them manually at: <https://github.com/{healthCheckRepo}/issues/new/choos
 Workflow complete."
 
 When `{result_envelope_line}` is bound (§0), display it verbatim after that block, as the last line.
-
----
-
-## CRITICAL STEP COMPLETION NOTE
-
-This is the TERMINAL step — shared across all SKF workflows. After the health check completes (clean run, or findings submitted, queued or discarded), the workflow is fully done. No further steps to load.
-
----
-
-## SYSTEM SUCCESS/FAILURE METRICS
-
-### SUCCESS:
-
-- Clean runs exit immediately with no findings (most common outcome)
-- Findings cite specific step files and sections with real evidence
-- User review gate presented before any submission
-- Severity gate respected: only `bug` submits live by default; `friction`/`gap` require explicit opt-in
-- Fingerprint computed deterministically and applied to both title prefix and `fp-*` label
-- `fp-*` label is ensured idempotently (`gh label create ... || true`) before `gh issue create`, so a first reporter of a defect never hard-fails
-- Remote dedup search performed before every live submission; existing issues get reactions/delta-comments rather than duplicates
-- Seen-cache at `{seenCachePath}` updated after every submission/reaction and consulted before every search
-- Local fallback files written with clear manual submission instructions (when `gh` unavailable)
-- Workflow ends cleanly
-
-### SYSTEM FAILURE:
-
-- Fabricating issues that were not actually encountered during the session
-- Reporting vague issues without step file citations ("the workflow was confusing")
-- Skipping the user review gate (resolving it to its listed headless default **\[Q]** is not skipping it: nothing is submitted)
-- Creating issues without user confirmation
-- Creating a new issue when a matching `fp-*` open issue already exists (without explicit user \[N] override)
-- Submitting `friction` or `gap` findings live without the explicit severity-gate opt-in
-- Using LLM-judged "similarity" in place of the deterministic fingerprint
-- Not updating the seen-cache, causing the same user to re-report identical fingerprints
-- Not providing the local fallback when `gh` is unavailable
-- Continuing to load steps after this one (this is terminal)
-
-**Master Rule:** Honesty is the only policy. Zero findings is the expected, healthy outcome. Fabricating issues to appear thorough undermines the entire self-improvement system and constitutes SYSTEM FAILURE.
