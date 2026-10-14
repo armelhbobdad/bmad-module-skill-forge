@@ -696,6 +696,109 @@ def test_the_prose_drift_command_runs(tmp_path, pin, allow, status, code):
 
 
 # --------------------------------------------------------------------------
+# v4.0.0 quality gate run 2, skf-test-skill architecture-1: the drift guard
+# reads the source tree from the metadata.json key the producers write
+# --------------------------------------------------------------------------
+
+
+SOURCE_TREE_BINDING_RE = re.compile(r"bind `\{source_path\}` ← `([a-z_]+)`")
+NO_SOURCE_ROOT_LOG = "`workspace_drift_check: skipped (metadata.json records no source_root)`"
+QUICK_TEMPLATE = SRC / "skf-quick-skill" / "assets" / "skill-template.md"
+QUICK_METADATA = SCRIPTS / "skf-render-quick-metadata.py"
+# `source_path` read as a metadata.json key: a bare name in the prose (not the
+# `{source_path}` binding), a quoted key in a script.
+METADATA_SOURCE_PATH_RE = {
+    ".md": re.compile(r"(?<![\w{])source_path(?![\w}])"),
+    ".toml": re.compile(r"(?<![\w{])source_path(?![\w}])"),
+    ".py": re.compile(r"""["']source_path["']"""),
+}
+
+
+def _init_5() -> str:
+    return _slice(_read(INIT), "### 5. Load Skill Metadata", "### 5b.")
+
+
+def test_init_binds_the_source_tree_from_the_key_the_producers_write():
+    """v4.0.0 quality gate run 2 (the clearing run), skf-test-skill
+    architecture-1: §5 read a metadata.json `source_path` that no SKF workflow
+    writes, so §5b found no tree, ran no drift check and recorded
+    `not-checked` on a drifted workspace. Create Skill and Quick Skill write
+    `source_root`: §5 binds `{source_path}` from it, names no undeclared
+    override, and a skill that records none logs why §5b skipped it."""
+    for producer in (SKILL_SECTIONS, QUICK_TEMPLATE, QUICK_METADATA):
+        text = _read(producer)
+        assert '"source_root"' in text and '"source_path"' not in text, producer.name
+    section = _init_5()
+    assert SOURCE_TREE_BINDING_RE.findall(section) == ["source_root"]
+    assert "`source_path`" not in section and "override" not in section
+    one_tree = _flow(_slice(_read(INIT), "- **One tree:**", "- **A stack skill**"))
+    assert f"records no `source_root` (null, empty or absent), make no call and log {NO_SOURCE_ROOT_LOG}" in one_tree
+
+
+def test_no_test_skill_file_reads_a_metadata_source_path_key():
+    """Every `source_path` test-skill names is the `{source_path}` binding init.md §5 makes."""
+    found = [f"{path.relative_to(REPO_ROOT).as_posix()}:{n}"
+             for path in sorted(TEST_SKILL.rglob("*")) if path.suffix in METADATA_SOURCE_PATH_RE
+             for n, line in enumerate(_read(path).splitlines(), 1)
+             if METADATA_SOURCE_PATH_RE[path.suffix].search(line)]
+    assert not found, f"reads a metadata.json `source_path` key, which no producer writes: {found}"
+
+
+def _producer_metadata(producer: str, tmp_path: Path, repo: Path, pinned: str) -> dict:
+    """The metadata.json `producer` writes for a skill extracted from `repo` at `pinned`."""
+    if producer == "quick-skill":
+        payload = tmp_path / "metadata-input.json"
+        payload.write_bytes(json.dumps({
+            "name": "demo", "language": "python", "source_repo": "https://github.com/o/demo",
+            "source_root": repo.as_posix(), "source_commit": pinned, "exports": ["parse"], "skf_version": "4.0.0",
+        }).encode("utf-8"))
+        output = tmp_path / "metadata.json"
+        proc = subprocess.run([sys.executable, str(QUICK_METADATA), "--input", str(payload), "--output", str(output)],
+                              capture_output=True, text=True, check=False)
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(output.read_text(encoding="utf-8"))
+    # Create Skill's metadata.json (assets/skill-sections.md) for a Forge run on a local tree.
+    return {
+        "name": "demo", "version": "1.0.0", "skill_type": "single", "scope_type": "full-library",
+        "source_authority": "official", "source_repo": "https://github.com/o/demo", "source_root": repo.as_posix(),
+        "source_commit": pinned, "source_ref": "v1.0.0", "confidence_tier": "Forge", "spec_version": "1.3",
+        "generation_date": "2026-10-14T00:00:00Z", "description": "Demo.", "language": "python",
+        "ast_node_count": 1, "exports": ["parse"],
+        "tool_versions": {"ast_grep": "0.45.3", "qmd": None, "skf": "4.0.0"},
+        "confidence_distribution": {"t1": 1, "t1_low": 0, "t2": 0, "t3": 0},
+        "stats": {"exports_documented": 1, "exports_public_api": 1, "exports_internal": 0, "exports_total": 1,
+                  "public_api_coverage": 1.0, "total_coverage": 1.0, "scripts_count": 0, "assets_count": 0},
+        "generated_by": "create-skill", "dependencies": [], "compatibility": "",
+    }
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.parametrize("producer", ["create-skill", "quick-skill"])
+@pytest.mark.parametrize("allow, status, code", [(False, "mismatch", 2), (True, "overridden", 0)],
+                         ids=["halts", "allow-workspace-drift"])
+def test_the_drift_guard_checks_the_tree_the_producer_records(tmp_path, producer, allow, status, code):
+    """§5b's command, run on the tree §5 binds from the producer's metadata.json,
+    sees a HEAD one commit past the pin: a mismatch halts the run, and
+    --allow-workspace-drift records `overridden`, never `not-checked`."""
+    pinned, head = _repo(tmp_path / "src")
+    metadata = _producer_metadata(producer, tmp_path, tmp_path / "src", pinned)
+    key = SOURCE_TREE_BINDING_RE.search(_init_5())
+    assert key, "init.md §5 binds `{source_path}` from no metadata.json key"
+    tree = metadata.get(key.group(1))
+    assert tree and Path(tree).is_dir(), (f"metadata.json holds no tree under `{key.group(1)}`, so §5b makes no call "
+                                          "and records `workspaceDrift: not-checked` on a drifted workspace")
+    keep = tuple(flag for flag, on in (("--source-ref", bool(metadata.get("source_ref"))), ("--allow-drift", allow)) if on)
+    command = _choose(_command(INIT, "uv run {checkWorkspaceDriftHelper}"), keep)
+    proc = _run(command, {"{tree}": tree, "{pinned_commit}": metadata.get("source_commit") or "",
+                          "{source_ref}": metadata.get("source_ref") or ""}, tmp_path)
+    assert proc.returncode == code, proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["status"] == status
+    if status == "mismatch":
+        assert pinned in out["halt_message"] and head in out["halt_message"]
+
+
+# --------------------------------------------------------------------------
 # #584: the Quick-tier scan and the workspace layout
 # --------------------------------------------------------------------------
 
@@ -836,8 +939,8 @@ def test_signatures_are_scored_over_the_denominator_set():
     command = _command(COVERAGE, "uv run {scoreSignaturesScript} score")
     assert "--surface-set <set>" in command and command in section2b
     assert "uv run {scoreSignaturesScript} score" not in _slice(text, "### 2. Analyze Source Code", "### 2b.")
-    summary = _flow(_slice(text, "### Coverage Summary", "### Category Scores"))
-    assert "each entry of `signatures.json` `warnings`" in summary
+    # Its warnings reach the Coverage Analysis section through §5's render, never retyped.
+    assert "§5's render lists its `warnings`" in _flow(section2b)
     # The scalar is read from the loader's file, never typed in.
     assert "--denominator-value" not in text
     assert '--denominator-source scalar --coverage-inputs "{run_dir}/coverage-inputs.json"' in text
@@ -847,7 +950,7 @@ def test_a_run_with_no_local_source_names_its_skip():
     flags = _flow(_slice(_read(SCORE), "#### 3a. Construct Scoring Input JSON", "#### 3b."))
     assert "`metadata-only` or `remote-only`, States 3 and 4" in flags
     docs_only = _flow(_slice(_read(COVERAGE), "**A docs-only run**", "**Docs-only skill detected.**"))
-    assert "§4's Export Coverage line and its `Denominator: docs-only completeness` annotation" in docs_only
+    assert "§4's `Denominator: docs-only completeness` annotation" in docs_only
 
 
 def test_the_prose_quick_command_runs(tmp_path):
@@ -1164,10 +1267,9 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     # #695: a stale tier A glob fires the guard too and counts no name
     assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
             "and counts no name") in forge
-    # the report lists every name the surface leaves out of the barrel or puts back in it
-    assert ("List `excluded.outsideScope`, `excluded.nestedEntries` and the restored names in the report"
-            in forge)
-    section4 = _flow(_slice(_read(COVERAGE), "### 4. Category Scores", "### 4b."))
+    # the report lists every name the surface leaves out of the barrel or puts back in it, through §5's render
+    assert "§5's render lists `excluded.outsideScope`, `excluded.nestedEntries` and the restored names" in forge
+    section4 = _flow(_slice(_read(COVERAGE), "### 4. The Denominator Record", "### 4b."))
     assert "`guards.staleScope.fires` a Medium `brief-scope-stale` gap at the brief" in section4
     protocol = _flow(_read(SOURCE_ACCESS))
     assert ("is not a second package root when the folder of another package root that exports a name holds it, "
@@ -1558,10 +1660,10 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
     for restated in ("documented_set ∩ barrel_set", "max(0,", "do not re-derive", "**do not",
                      "### 3. Build Coverage Results", "Signature Match", "Weight application is deferred"):
         assert restated not in text, restated
-    summary = _flow(_slice(text, "### Coverage Summary", "### Category Scores"))
-    for field in ("`denominator`", "`documented`", "`exportCoverage`", "`missingCount`", "`staleCount`",
-                  "`numeratorSurplus`", "`coverageUncapped`"):
-        assert field in summary, field
+    # The counts, the per-export table and the category scores are the render's (determinism-2).
+    section5 = _slice(text, "### 5. Write the Coverage Analysis Section", "### 5b.")
+    assert 'uv run {reconcileScript} render --coverage "{run_dir}/coverage.json"' in section5
+    assert "### Coverage Summary" not in text and "{the render output}" in section5
 
 
 # --------------------------------------------------------------------------

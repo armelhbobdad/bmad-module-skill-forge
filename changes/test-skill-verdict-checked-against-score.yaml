@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill now checks the verdict fields it wrote into the test report (`testResult`, `score`, `threshold`, `thresholdFallback` and `originalThreshold`) against the scoring output before it publishes the report. A field that disagrees with what the scoring settled, such as `testResult` `pass` when a cap turned the run into a `FAIL`, a bare `pass` on a run whose workspace drift was overridden (`--allow-workspace-drift` with the workspace off the pinned commit), or the target threshold on a run the threshold fallback accepted at the 80% floor, now halts with `helper-failed` (phase `report:result-contract`) and leaves the report under its in-progress name and the previous result files in place, instead of publishing that verdict with exit code 0 and `next_workflow` `export-skill`. A correct run is unchanged.
+prs: [764]

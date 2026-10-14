@@ -65,7 +65,7 @@ Load `{outputFormatsFile}` for the Ledger Record Format and the remediation qual
 Every run that reaches this step, a blocked one included, ends through one sequence, and a check that fails stops it before anything is published:
 
 1. §4b records the discovery outcome in the ledger (a blocked run skips it).
-2. §4c renders the Gap Report from the ledger, checks that every stage ran and wrote its section and that the health check is installed, then publishes the report, writes the result contract and runs the on_complete hook.
+2. §4c renders the Gap Report from the ledger, checks that every stage ran and wrote its section and that the health check is installed, then builds the result payload, publishes the report, writes the result contract and runs the on_complete hook.
 3. §6 presents the result, §6b keeps the headless envelope for the run's last line, and §7 releases the run lock and hands over to the health check.
 
 ### 4b. Discovery Testing
@@ -213,6 +213,14 @@ uv run {runLockHelper} acquire --lock "{forge_version}/.test-skill.lock" --owner
 
 The run lock renewed here stays held until §7 releases it, so no other run publishes over this run's report or result files meanwhile.
 
+**Build the result payload** before the report takes its public name. Every value in it comes from the run's own records: `{resultContextScript}` (it resolves relative to the skill root) reads the report frontmatter, the gap ledger and the scoring output, checks the verdict fields score.md §7 wrote (`testResult`, `score`, `threshold` and the fallback fields) against the scoring output, derives `verdict`, `exit_code` and `next_workflow` from `testResult`, and writes the shared emitter's payload, which names the report by its public name. Pass `--score` for a scored run (a run the hard gate blocked has no scoring output), `--no-health-check` when that flag was given, and `--warning` when SKILL.md On Activation step 3 kept a `{customization_resolver_unavailable}` reason: first write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes, backticks or `$( )`), and pass that file's text (the emitter adds the warnings a stage recorded in the run's sink):
+
+```bash
+uv run {resultContextScript} --report "{report_file}" --report-path "{publishedReportFile}" --ledger "{ledgerFile}" [--score "{run_dir}/score.json"] [--no-health-check] [--warning "$(cat "{run_dir}/resolver-warning.txt")"] --output "{run_dir}/result-context.json"
+```
+
+Bind `{emit_target}` ← `target` from its JSON (`stderr` for a run the hard gate blocked, else `stdout`). Exit 2: correct the command and run it again. Exit 1: HALT with its `error` (`halt_reason: "helper-failed"`, phase `report:result-contract`); the report keeps its in-progress name, so export-skill never reads a verdict the scoring output did not settle.
+
 **Publish the report.** Set `health_check_dispatched` in the `{outputFile}` frontmatter: `false` when `no_health_check` is true (the `--no-health-check` flag), else `true`, since the health check now runs with no menu before it. The checks passed, so the report takes its public name, the one export-skill and update-skill read, a blocked run's included. From `{project-root}`, run:
 
 ```bash
@@ -221,19 +229,13 @@ mv "{report_file}" "{publishedReportFile}"
 
 and bind `{report_file}` ← `{publishedReportFile}`. If the move fails, HALT (`halt_reason: "write-failed"`, phase `report:publish`, `"path": "{publishedReportFile}"`): no result file has been written, so the previous run's verdict still stands.
 
-**Write the result contract.** The shared emitter writes it, per `{outputContractSchema}`, and every value in it comes from the run's own records: `{resultContextScript}` (it resolves relative to the skill root) reads the report frontmatter, the gap ledger and the scoring output, derives `verdict`, `exit_code` and `next_workflow` from `testResult`, and writes the emitter's payload. Pass `--score` for a scored run (a run the hard gate blocked has no scoring output), `--no-health-check` when that flag was given, and `--warning` when SKILL.md On Activation step 3 kept a `{customization_resolver_unavailable}` reason: first write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes, backticks or `$( )`), and pass that file's text (the emitter adds the warnings a stage recorded in the run's sink):
-
-```bash
-uv run {resultContextScript} --report "{report_file}" --ledger "{ledgerFile}" [--score "{run_dir}/score.json"] [--no-health-check] [--warning "$(cat "{run_dir}/resolver-warning.txt")"] --output "{run_dir}/result-context.json"
-```
-
-Bind `{emit_target}` ← `target` from its JSON (`stderr` for a run the hard gate blocked, else `stdout`). Exit 1: HALT with its `error` (`halt_reason: "helper-failed"`, phase `report:result-contract`). Then, in every mode, run:
+**Write the result contract.** The shared emitter writes it, per `{outputContractSchema}`. In every mode, run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit --workflow skf-test-skill --run-dir "{run_dir}" --result-dir "{forge_version}" --target {emit_target} < "{run_dir}/result-context.json"
 ```
 
-It writes `{forge_version}/skf-test-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; it picks the name) and then its `skf-test-skill-result-latest.json` copy (stable path for pipeline consumers: a copy, not a symlink), each atomically, so a partial write is never observable; stamps the timestamp, `run_id`, `headless_decisions` and `warnings` into both; and prints the `SKF_TEST_RESULT_JSON:` line. Bind `{result_line}` ← that line and `{result_path}` ← its `result_path`. A run the hard gate blocked writes the record too, as a FAIL (`status: "error"`, `verdict: "FAIL"`, `halt_reason: "hard-gate-blocked"`, `exit_code` 2), so `skf-test-skill-result-latest.json` never holds an earlier run's verdict. A result file that could not be written leaves `result_path` null and a `result_file_write_failed` warning in the line, and the run still finishes. If the emitter exits non-zero, run both commands once more; if it fails again, HALT (`halt_reason: "write-failed"`, phase `report:result-contract`) with its stderr: the run's result contract could not be written. `references/invocation-contract.md` lists the record's fields.
+It writes `{forge_version}/skf-test-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; it picks the name) and then its `skf-test-skill-result-latest.json` copy (stable path for pipeline consumers: a copy, not a symlink), each atomically, so a partial write is never observable; stamps the timestamp, `run_id`, `headless_decisions` and `warnings` into both; and prints the `SKF_TEST_RESULT_JSON:` line. Bind `{result_line}` ← that line and `{result_path}` ← its `result_path`. A run the hard gate blocked writes the record too, as a FAIL (`status: "error"`, `verdict: "FAIL"`, `halt_reason: "hard-gate-blocked"`, `exit_code` 2), so `skf-test-skill-result-latest.json` never holds an earlier run's verdict. A result file that could not be written leaves `result_path` null and a `result_file_write_failed` warning in the line, and the run still finishes. If the emitter exits non-zero, run it once more; if it fails again, HALT (`halt_reason: "write-failed"`, phase `report:result-contract`) with its stderr: the run's result contract could not be written. `references/invocation-contract.md` lists the record's fields.
 
 Once the result files are written, append `'report'` to `stepsCompleted` in the `{outputFile}` frontmatter (it stays out of the expected set above).
 

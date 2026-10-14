@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's workspace drift check now finds the skill's source folder under `source_root` in `metadata.json`, the key Create Skill and Quick Skill write. It looked for a `source_path` key that no SKF workflow writes, so it could skip the check and record `workspaceDrift` as `not-checked`. A source checked out at another commit was then tested instead of stopping with `workspace-drift`, and with `--allow-workspace-drift` a pass was published as `PASS`, with exit code 0 and `next_workflow` `export-skill`, instead of `pass-with-drift`, with exit code 4 and `update-skill`. A skill whose `metadata.json` records no `source_root`, such as a docs-only or stack skill, now logs `workspace_drift_check: skipped (metadata.json records no source_root)`, and the message Test Skill shows when it finds no exports in the source names `source_root` too.
+prs: [764]

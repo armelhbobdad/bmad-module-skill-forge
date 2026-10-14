@@ -794,7 +794,7 @@ class TestStaleNameLineCheck:
     @pytest.fixture
     def section(self) -> str:
         text = _read(COVERAGE_FILE)
-        return text[text.index("- **Stale names**"):text.index("### 4. Category Scores")]
+        return text[text.index("- **Stale names**"):text.index("### 4. The Denominator Record")]
 
     def test_the_call_is_fenced_with_its_probe_order(self, section: str) -> None:
         assert self.CALL in _fence(section, self.CALL)
@@ -1027,9 +1027,10 @@ class TestReportTerminalSequence:
             "**Enforce step completeness.**",
             "**Check the report sections.**",
             "**Renew the run lock**",
+            # the payload is built, and the verdict checked, before the report takes its public name
+            '--output "{run_dir}/result-context.json"',
             "**Publish the report.**",
             'mv "{report_file}" "{publishedReportFile}"',
-            '--output "{run_dir}/result-context.json"',
             "emit --workflow skf-test-skill --run-dir",
             "Once the result files are written, append `'report'`",
             "{onCompleteCommand} --result-path=",
