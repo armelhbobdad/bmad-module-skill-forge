@@ -854,6 +854,39 @@ def test_an_exclude_narrowed_include_counts_what_a_curated_include_counts(tmp_pa
     assert outside["tier_a_curated"] == []
 
 
+def test_an_incomplete_run_count_is_left_out() -> None:
+    """#744: since #712 a tier A list that counts no public name falls back
+    to `scope.include`, but only on a run that read every file. A run still
+    `incomplete` after the protocol's second run keeps the `tier_a_include`
+    basis and its count (0 for such a list; cognee v1.6.2 gives 0 where the
+    complete run counts 68), and a failed barrel scan reads as empty, so any
+    count such a run gives can be wrong: Test Skill reported a stored 0 as a
+    Medium `metadata-drift` gap. Compile leaves the field out for that run,
+    keyed on the warning the inventory writes for each `errors[]` item."""
+    four = _section(COMPILE, "4")
+    carve = _slice(four, "    **Incomplete-run carve-out:**", "\n")
+    for token in ("leave `effective_denominator` out, even when the three conditions above hold, when step 3's "
+                  "recipe runner run is still `incomplete` after its second run, the AST Extraction Protocol's or "
+                  "component extraction's Phase 4",
+                  "(the inventory's `warnings` then hold a line that starts `ast-grep did not finish on` for each "
+                  "`errors[]` item)",
+                  "a file a failed call left unread can hide a public name or the file that defines it, so the "
+                  "count can be 0 or partial whatever `counts.effective_denominator_basis` names",
+                  "the exports step 3 read by eye in the files those calls left unread change no count"):
+        assert token in carve, token
+    assert "\u2014" not in carve and "\u2013" not in carve
+    # in the payload bullet, after the reference-app carve-out, before the next bullet
+    assert four.index("    **Reference-app carve-out:**") < four.index(carve) < four.index("- **Shape:**")
+    # the protocol's second run, one of the two the carve-out waits for
+    assert "run the step's command once more, and when it is still incomplete" in _read(PATTERNS)
+    # the warning it keys on is the inventory's line for each errors[] item, whatever its reason
+    inventory = _module("skf_create_extraction_inventory", INVENTORY)
+    item = {"files": 4, "first_file": "pkg/__init__.py", "detail": "exit 1: killed", "unread": ["pkg/__init__.py"]}
+    for reason in ("ast-grep-error", "ast-grep-timeout", "time-limit"):
+        (line,) = inventory.runner_warnings({"errors": [dict(item, reason=reason)]})
+        assert line.startswith("ast-grep did not finish on "), line
+
+
 # --------------------------------------------------------------------------
 # The relabel rule: one home, looked up through kind-at
 # --------------------------------------------------------------------------

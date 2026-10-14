@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  When the recipe runner's run is still incomplete after Create Skill runs it a second time (an ast-grep call failed or ran out of time both times), Create Skill now leaves `stats.effective_denominator` out of `metadata.json`. A file the failed call left unread can hide a public name or the file that defines it, so the count could be 0 or partial: with a `scope.tier_a_include` list that counts no public name it stayed 0, and Test Skill then reported a Medium `metadata-drift` gap against a count the brief never set. Test Skill now measures such a skill over the set it re-derives, as for a skill with no stored count, so a `specific-modules` skill whose `scope.tier_a_include` list does count names is measured over `scope.include` until Create Skill or Update Skill runs again with ast-grep finishing.
+issues: [744]
