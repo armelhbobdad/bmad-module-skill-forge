@@ -27,6 +27,8 @@ SCRIPT_PATH = (
     / "skf-write-skill-brief.py"
 )
 
+SCHEMA_PATH = SCRIPT_PATH.parent / "schemas" / "skill-brief.v1.json"
+
 spec = importlib.util.spec_from_file_location("skf_write_skill_brief", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
@@ -40,6 +42,8 @@ spec.loader.exec_module(mod)
 def _baseline_ctx() -> dict:
     return {
         "name": "marked",
+        # a detected version: with none, the default brings a warning
+        "detected_version": "1.0.0",
         "source_repo": "https://github.com/markedjs/marked",
         "language": "javascript",
         "description": "Render Markdown to HTML using the marked library.",
@@ -103,6 +107,21 @@ class TestValidateContextHappy:
     def test_minimal_baseline_passes(self):
         warnings = mod.validate_context(_baseline_ctx())
         assert warnings == []
+
+    def test_a_defaulted_version_is_warned_only_when_nothing_names_one(self):
+        """With no version given, the 1.0.0 default carries a warning, so a caller
+        tells it from a detected 1.0.0 (v4.0.0 quality gate run 1, skf-brief-skill
+        determinism-1); a docs-only brief has no source version to detect."""
+        ctx = _baseline_ctx()
+        del ctx["detected_version"]
+        [warning] = mod.validate_context(ctx)
+        assert warning.startswith("no source version detected: version defaults to 1.0.0;")
+        assert "set target_version in the brief to pin it" in warning
+        for key, value in (("detected_version", "2.3.4"), ("target_version", "2.3.4"),
+                           ("version_resolved", "1.0.0")):
+            assert mod.validate_context({**ctx, key: value}) == [], key
+        docs_only = {**ctx, "source_type": "docs-only", "doc_urls": [{"url": "https://example.com/docs"}]}
+        assert mod.validate_context(docs_only) == []
 
 
 class TestValidateContextRequiredFields:
@@ -199,6 +218,27 @@ class TestValidateContextDocsOnlyConditional:
         ctx["doc_urls"] = [{"label": "missing url"}]
         with pytest.raises(SystemExit):
             mod.validate_context(ctx)
+
+    # v4.0.0 quality gate run 2 (skf-brief-skill determinism-1): a source token outside the schema's enum is
+    # refused before anything is written, never written for the schema validator to halt on afterwards.
+    @pytest.mark.parametrize("source", [
+        pytest.param("readme_link", id="detect-docs-token"),
+        pytest.param("README Link", id="a-label"),
+        pytest.param(["homepage"], id="not-a-string"),
+    ])
+    def test_doc_url_source_outside_the_schema_enum_fails(self, source, capsys):
+        ctx = _baseline_ctx()
+        ctx["doc_urls"] = [{"url": "https://docs.example.com/", "source": "homepage"},
+                           {"url": "https://docs.example.com/api", "source": source}]
+        with pytest.raises(SystemExit) as exc:
+            mod.validate_context(ctx)
+        assert exc.value.code == 1
+        error = json.loads(capsys.readouterr().err)
+        assert error["field"] == "doc_urls" and error["message"].startswith("doc_urls[1].source must be one of")
+
+    def test_doc_url_sources_are_the_schema_enum(self):
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        assert mod.VALID_DOC_URL_SOURCES == set(schema["properties"]["doc_urls"]["items"]["properties"]["source"]["enum"])
 
 
 class TestValidateContextTargetVersion:
@@ -568,6 +608,13 @@ class TestCLIWriteFlat:
         assert "doc_urls:" not in body
         assert "source_authority:" not in body
         assert "scripts_intent:" not in body
+
+    def test_a_defaulted_version_reaches_the_envelope_as_a_warning(self, tmp_target):
+        flat = {**_baseline_flat(), "target_version": None, "detected_version": None}
+        code, response, stderr = self._write_flat(tmp_target, flat)
+        assert code == 0, stderr
+        assert response["version"] == "1.0.0"
+        assert any(w.startswith("no source version detected") for w in response["warnings"])
 
     def test_flat_write_validates_same_rules_as_nested(self, tmp_target):
         flat = _baseline_flat()
@@ -1367,6 +1414,19 @@ class TestBaseBrief:
         assert written["doc_urls"] == doc_urls and "suppressed" not in written
         assert {k: v for k, v in written.items() if k != "doc_urls"} == \
             {k: v for k, v in before.items() if k != "doc_urls"}
+
+    def test_a_doc_urls_source_outside_the_enum_leaves_the_target_byte_identical(self, tmp_path):
+        # BS[auto] writes over the upstream brief it starts from: a slipped token must not replace it.
+        base = self._base(tmp_path)
+        before = base.read_bytes()
+        merged = tmp_path / "doc-urls-merged.json"
+        merged.write_bytes(json.dumps({"doc_urls": [
+            {"url": "https://marked.js.org/", "label": "Docs", "source": "homepage"},
+            {"url": "https://marked.js.org/api", "label": "Reference", "source": "readme_link"}]}).encode("utf-8"))
+        proc = _base_write(base, base, "--doc-urls-file", str(merged))
+        assert proc.returncode == 1 and json.loads(proc.stderr)["field"] == "doc_urls"
+        assert "'readme_link'" in json.loads(proc.stderr)["message"]
+        assert base.read_bytes() == before
 
     def test_a_patch_changes_only_what_it_names(self, tmp_path):
         base = self._base(tmp_path)

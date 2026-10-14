@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-brief-skill
+summary: |
+  In a forge-auto pipeline, Brief Skill's `[auto]` run now hands the docs it detects to the doc URL merge script, which gives each one its label from its content type and its `source` from how it was found, so a detected doc never carries a stray `README Link` label or a `source` the brief schema refuses. The brief writer now refuses a `doc_urls` source outside the schema's values before it writes anything, and the `[auto]` run then drops the doc enrichment with a warning and writes the upstream brief as it was. Before, one such source made it overwrite Analyze Source's valid brief with an invalid one and halt, and a resumed run halted on that brief too. Analyze Source uses the same writer but writes only `language-registry` sources, so it sees no change.
+prs: [762]

@@ -4,6 +4,11 @@
 Covers the three operations (normalized-URL dedup, non-corpus segment
 suppression, non-primary-locale collapse), the whole-language gate, and the
 no-false-drift guarantee for ordinary skills. Plus a CLI-contract test.
+
+v4.0.0 quality gate run 2 (skf-brief-skill determinism-1): the files form
+maps skf-detect-docs.py's raw entries to the brief's {url, label, source}
+and reads the existing entries from the upstream brief, so step-auto-brief
+types no entry, and its source tokens stay inside the schema's enum.
 """
 
 from __future__ import annotations
@@ -15,8 +20,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).parent.parent
 SCRIPT_PATH = ROOT / "src" / "shared" / "scripts" / "skf-merge-doc-urls.py"
+SCHEMA_PATH = ROOT / "src" / "shared" / "scripts" / "schemas" / "skill-brief.v1.json"
 
 spec = importlib.util.spec_from_file_location("skf_merge_doc_urls", SCRIPT_PATH)
 mod = importlib.util.module_from_spec(spec)
@@ -223,3 +231,108 @@ class TestCli:
         assert proc.returncode == 0, proc.stderr.decode("utf-8", "replace")
         out = json.loads(proc.stdout.decode("utf-8"))
         assert out["doc_urls"][0]["label"] == "The Book \U0001F4CA"
+
+
+# --------------------------------------------------------------------------
+# Files form: skf-detect-docs.py's entries mapped, the existing entries read
+# from the upstream brief (v4.0.0 quality gate run 2, determinism-1)
+# --------------------------------------------------------------------------
+
+
+def _raw(url, detected_via="readme_link", content_type="reference"):
+    return {"url": url, "detected_via": detected_via, "content_hash": "sha256:0", "content_type": content_type}
+
+
+def _cli(*args, stdin=""):
+    return subprocess.run([sys.executable, str(SCRIPT_PATH), *args], input=stdin, capture_output=True,
+                          text=True, encoding="utf-8", timeout=15)
+
+
+class TestMapDetected:
+    @pytest.mark.parametrize("detected_via, source", [
+        pytest.param("homepageUrl", "homepage", id="homepage"),
+        pytest.param("readme_link", "readme-detection", id="readme-link"),
+        pytest.param("pages_api", "pages-api", id="pages-api"),
+        pytest.param("docs_folder", "docs-folder", id="docs-folder"),
+    ])
+    def test_source_comes_from_detected_via(self, detected_via, source):
+        mapped, suppressed = mod.map_detected([_raw("https://x.dev/", detected_via)])
+        assert mapped == [{"url": "https://x.dev/", "label": "Reference", "source": source}]
+        assert suppressed == []
+
+    @pytest.mark.parametrize("content_type, label", [
+        pytest.param("api-docs", "API Documentation", id="api-docs"),
+        pytest.param("guide", "Guide", id="guide"),
+        pytest.param("reference", "Reference", id="reference"),
+        pytest.param(None, "", id="none"),
+    ])
+    def test_label_comes_from_content_type_only(self, content_type, label):
+        # no "README Link" label: detected_via never names the label
+        [entry], _ = mod.map_detected([_raw("https://x.dev/", "readme_link", content_type)])
+        assert entry["label"] == label
+
+    def test_an_unknown_detected_via_is_suppressed_never_merged(self):
+        mapped, suppressed = mod.map_detected([_raw("https://x.dev/a", "brief_doc_urls"), {"url": "https://x.dev/b"},
+                                               _raw("https://x.dev/c", ["readme_link"]), {"detected_via": "pages_api"}])
+        assert mapped == []
+        assert suppressed == [{"url": f"https://x.dev/{c}", "reason": "unknown-detected-via"} for c in "abc"]
+
+    def test_every_source_it_writes_is_in_the_schema_enum(self):
+        schema = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
+        enum = set(schema["properties"]["doc_urls"]["items"]["properties"]["source"]["enum"])
+        assert set(mod._SOURCE_BY_DETECTED_VIA.values()) == enum - {"language-registry"}
+
+
+class TestFilesForm:
+    def _brief(self, tmp_path, text):
+        path = tmp_path / "skill-brief.yaml"
+        path.write_bytes(text.encode("utf-8"))
+        return path
+
+    def test_detected_file_and_existing_brief_merge_as_the_stdin_form_does(self, tmp_path):
+        brief = self._brief(tmp_path, "name: rust\nscope:\n  type: full-library\ndoc_urls:\n"
+                                      "  - url: https://doc.rust-lang.org/book/\n    label: The Book\n"
+                                      "    source: language-registry\n---\n")  # an SKF 1.x trailing ---
+        detected = tmp_path / "detected.json"
+        detected.write_bytes(json.dumps([
+            _raw("https://doc.rust-lang.org/book/index.html"),           # dedup against the corpus
+            _raw("https://doc.rust-lang.org/whatsnew/"),                 # whole-language noise
+            _raw("https://docs.rs/serde", "docs_folder", "api-docs"),
+            _raw("https://x.dev/", "brief_doc_urls"),
+        ]).encode("utf-8"))
+        proc = _cli("--scope-type", "full-library", "--detected-file", detected.as_posix(),
+                    "--existing-brief", brief.as_posix(), stdin="not read")
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert out["doc_urls"] == [
+            {"url": "https://doc.rust-lang.org/book/", "label": "The Book", "source": "language-registry"},
+            {"url": "https://docs.rs/serde", "label": "API Documentation", "source": "docs-folder"},
+        ]
+        assert out["suppressed"] == [{"url": "https://x.dev/", "reason": "unknown-detected-via"},
+                                     {"url": "https://doc.rust-lang.org/whatsnew/", "reason": "non-corpus-segment"}]
+
+    def test_a_brief_without_doc_urls_gives_no_existing_entry(self, tmp_path):
+        brief = self._brief(tmp_path, "name: demo\nscope:\n  type: public-api\n")
+        detected = tmp_path / "detected.json"
+        detected.write_bytes(json.dumps([_raw("https://demo.dev/guide/", "homepageUrl", "guide")]).encode("utf-8"))
+        proc = _cli("--scope-type", "public-api", "--detected-file", detected.as_posix(),
+                    "--existing-brief", brief.as_posix())
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout) == {
+            "doc_urls": [{"url": "https://demo.dev/guide/", "label": "Guide", "source": "homepage"}],
+            "suppressed": []}
+
+    @pytest.mark.parametrize("detected, brief, message", [
+        pytest.param(None, "name: x\n", "cannot read --detected-file", id="missing-detected-file"),
+        pytest.param('{"url": "https://x.dev/"}', "name: x\n", "must hold a JSON array", id="detected-not-an-array"),
+        pytest.param("[]", "name: [unclosed\n", "is not YAML", id="brief-not-yaml"),
+        pytest.param("[]", "- a\n- b\n", "holds no brief mapping", id="brief-not-a-mapping"),
+        pytest.param("[]", "doc_urls: https://x.dev/\n", "must be a list", id="doc-urls-not-a-list"),
+    ])
+    def test_bad_inputs_exit_2(self, tmp_path, detected, brief, message):
+        detected_path = tmp_path / "detected.json"
+        if detected is not None:
+            detected_path.write_bytes(detected.encode("utf-8"))
+        proc = _cli("--detected-file", detected_path.as_posix(),
+                    "--existing-brief", self._brief(tmp_path, brief).as_posix())
+        assert proc.returncode == 2 and message in proc.stderr, proc.stderr

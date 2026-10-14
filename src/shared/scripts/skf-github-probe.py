@@ -15,7 +15,7 @@ repository, and otherwise names the cause.
 CLI:
   uv run skf-github-probe.py repo --repo <repo> [--timeout <seconds>]
   uv run skf-github-probe.py tags --repo <repo> [--want <tag>]... \\
-      [--version <version> [--name <name>]] [--limit <n>] \\
+      [--version <version> [--name <name>]] [--limit <n>] [--ref <ref>] \\
       [--timeout <seconds>]
   uv run skf-github-probe.py tree --repo <repo> [--ref <ref>] \\
       [--out <file>] [--timeout <seconds>]
@@ -71,9 +71,15 @@ Output (one ASCII JSON line; every key of the command is always present):
          that names --version, else null), found ({tag: commit} for the
          --want tags that exist), missing (the --want tags the listing
          lacks), nearest (with --version, up to five tags that sort next
-         to it by version, newest first, else empty). When the listing
-         could not be read, found, missing and nearest are empty: only a
-         listing says a tag is absent.
+         to it by version, newest first, else empty), release (the tag a
+         version is read from, {"tag", "version"}, the version being the
+         tag's name less a leading `v`, else null: at --ref HEAD, the
+         default, the newest tag whose name is a release version, X.Y.Z
+         with no pre-release or build; at another --ref, that ref when the
+         listing holds it as a tag whose name is a version, a pre-release
+         included, so a branch or a commit names none). When the listing
+         could not be read, found, missing and nearest are empty and
+         release is null: only a listing says a tag is absent.
          A tag names --version in the forms skf-source-tree.py's
          match_tags tries, in its order: the version as given,
          `v<version>` and, with --name, `<name>@<v>`,
@@ -453,7 +459,7 @@ class Probe:
 # found and missing stay empty then, since no listing says a tag is absent.
 _EMPTY = {
     "repo": {"private": None, "default_branch": None},
-    "tags": {"tags": [], "count": 0, "match": None, "found": {}, "missing": [], "nearest": []},
+    "tags": {"tags": [], "count": 0, "match": None, "found": {}, "missing": [], "nearest": [], "release": None},
     "tree": {"ref": "HEAD", "tree": [], "count": 0, "truncated": False},
 }
 
@@ -501,8 +507,38 @@ def _sorted_tags(names) -> list[str]:
     return [name for _key, name in versioned] + sorted(name for _key, name in other)
 
 
+# A tag whose name is a version (`v1.2.3`, `1.2.3-rc.1`), and one whose name
+# is a release version (X.Y.Z, no pre-release or build); a leading v is not
+# part of the version.
+_VERSION_TAG_RE = re.compile(r"v?(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?)")
+_RELEASE_TAG_RE = re.compile(r"v?(\d+\.\d+\.\d+)")
+
+
+def tag_version(name: str, release: bool = False) -> str | None:
+    """The version a tag's name is, less a leading `v` (`v1.2.3` gives
+    1.2.3), else None; with `release`, a pre-release or a build is none."""
+    m = (_RELEASE_TAG_RE if release else _VERSION_TAG_RE).fullmatch(name)
+    return m.group(1) if m else None
+
+
+def release_of(ordered: list[str], ref: str | None) -> dict | None:
+    """The tag a version is read from at `ref`, as {"tag", "version"}: at
+    HEAD the newest of `ordered` (newest version first) whose name is a
+    release version; at another ref, that ref when `ordered` holds it and
+    its name is a version; else None."""
+    ref = _tree_ref(ref)
+    if ref != "HEAD":
+        version = tag_version(ref) if ref in ordered else None
+        return {"tag": ref, "version": version} if version else None
+    for name in ordered:
+        version = tag_version(name, release=True)
+        if version:
+            return {"tag": name, "version": version}
+    return None
+
+
 def probe_tags(owner: str, repo: str, wants: list[str], limit: int, version: str | None = None,
-               package: str | None = None) -> dict:
+               package: str | None = None, ref: str | None = None) -> dict:
     p = Probe(owner, repo)
     tags: dict[str, str | None] | None = None
     via = None
@@ -544,7 +580,8 @@ def probe_tags(owner: str, repo: str, wants: list[str], limit: int, version: str
     return p.output("ok", via, tags=ordered[:limit] if limit > 0 else ordered, count=len(ordered),
                     match=next((tag for tag in (*wanted, *named) if tag in tags), None), found=found,
                     missing=[tag for tag in wanted if tag not in tags],
-                    nearest=_sibling().nearest_tags(tags, version) if version else [])
+                    nearest=_sibling().nearest_tags(tags, version) if version else [],
+                    release=release_of(ordered, ref))
 
 
 def _tree_ref(value: str | None) -> str:
@@ -621,6 +658,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p_tags.add_argument("--name", help="with --version: the package name a monorepo's tags carry")
     p_tags.add_argument("--limit", type=int, default=DEFAULT_TAG_LIMIT,
                         help="tags to list, newest first (default 20; 0 for all)")
+    p_tags.add_argument("--ref", default="HEAD",
+                        help="the ref `release` reads a version at (default HEAD: the newest release tag)")
     p_tree = sub.add_parser("tree", help="list the repository's files at a ref")
     common(p_tree)
     p_tree.add_argument("--ref", default="HEAD", help="branch, tag or commit (default: the default branch)")
@@ -644,7 +683,7 @@ def main(argv: list[str] | None = None) -> int:
         elif args.cmd == "repo":
             out = probe_repo(*parsed)
         elif args.cmd == "tags":
-            out = probe_tags(*parsed, args.want, args.limit, args.version, args.name)
+            out = probe_tags(*parsed, args.want, args.limit, args.version, args.name, args.ref)
         else:
             out = probe_tree(*parsed, args.ref)
         if args.cmd == "tree" and args.out:

@@ -30,7 +30,7 @@ Every hard HALT exits with a stable code; the step files name the exact `halt_re
 
 The single-line JSON contract every headless run of skf-drop-skill prints. The shared emitter, `shared/scripts/skf-emit-result-envelope.py`, builds each line from the payload the emitting step hands it and checks it against `shared/scripts/schemas/skf-drop-skill-result-envelope.v1.json`, so no stage types an envelope and a HALT prints the right shape whatever else is still in context.
 
-When `{headless_mode}` is true, step 3 prints this envelope on **stdout** before chaining to step 4, a `--dry-run` prints it on **stdout** at the step 1 confirmation gate, and every HARD HALT prints it on **stderr** with `status: "error"`:
+When `{headless_mode}` is true, step 3 prints this envelope on **stdout** and the shared health check (step 4) displays it as the run's last line, a `--dry-run` prints it on **stdout** at the step 1 confirmation gate and displays it last there, and every HARD HALT prints it on **stderr** with `status: "error"`:
 
 ```
 SKF_DROP_SKILL_RESULT_JSON: {"status":"success|error|dry-run","skill":"…|null","drop_mode":"…|null","versions_affected":[],"files_deleted":[],"would_delete":[],"forge_left_in_place":null,"manifest_updated":false,"result_path":null,"exit_code":0,"halt_reason":null,"error":null}

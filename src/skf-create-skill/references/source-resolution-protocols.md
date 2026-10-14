@@ -36,7 +36,7 @@ Outcomes, from `tag_resolution.status`:
 
 ### Implicit Tag Resolution (when only brief.version is set)
 
-When `brief.target_version` is absent but `brief.version` is present, `brief.version` is an **implicit** target version. This matches `brief-skill`'s behavior, which auto-populates `brief.version` from the latest non-prerelease release tag, so a tag matching `brief.version` is the common case, and silently reading HEAD would produce a skill labeled with `brief.version` but built from an unrelated default-branch commit.
+When `brief.target_version` is absent but `brief.version` is present, `brief.version` is an **implicit** target version. This matches `brief-skill`'s behavior, which fills `brief.version` from the source's manifest or version files or, when they hold none, its latest release tag, so a tag matching `brief.version` is the common case, and silently reading HEAD would produce a skill labeled with `brief.version` but built from an unrelated default-branch commit.
 
 With `--implicit`, resolve tries only two forms, in this order:
 
@@ -53,7 +53,7 @@ Outcomes, from `tag_resolution.status`:
 
 **Do not halt on zero matches.** Implicit resolution never blocks compilation: `brief.version` is an auto-populated hint, and some repositories simply do not tag releases. The warning is sufficient notice; the evidence report in step 8 will surface the HEAD fallback for reviewers.
 
-**Interaction with Version Reconciliation (below):** When implicit tag resolution matches a tag, the tree's source files should carry the same version as `brief.version`, so the Version Reconciliation section's source-vs-brief mismatch warning will not fire. When implicit resolution falls back to HEAD, Version Reconciliation runs normally against the default branch's version file and may produce its own mismatch warning.
+**Interaction with Version Reconciliation (below):** When implicit tag resolution matches a tag, the tree's version file should carry `brief.version`, unless it holds a release-time placeholder, which the extractor reports as no version, so the Version Reconciliation section's source-vs-brief mismatch warning will not fire. When implicit resolution falls back to HEAD, Version Reconciliation runs normally against the default branch's version file and may produce its own mismatch warning.
 
 ### Several Matching Tags
 
@@ -114,23 +114,18 @@ Also store `source_ref` in context (from tag resolution above, or `HEAD` if no t
 
 **If `source_type: "docs-only"`:** skip this section — no source files exist to reconcile.
 
-After the source path is accessible (local path from step 1, or the private tree from above), check whether the source contains a version identifier and reconcile it with `brief.version`. Look for the first matching version file in the resolved source path:
+After the source path is accessible (local path from step 1, or the private tree from above), read the source's version with `{extractPublicApiHelper}` (resolve it ← first existing path in `{extractPublicApiProbeOrder}`), never from a version file by eye: it reports a release-time placeholder such as `0.0.0-development`, and a value that is not a string, as no version. The version file is, in the source root, `pyproject.toml`, else `setup.py`, else `setup.cfg` for Python and `Cargo.toml` for Rust; for JavaScript or TypeScript, the `package.json` whose `name` matches `brief.name`, else one with a `bin` field, else the root one. Any other language, or a source that holds none of them, keeps `brief.version`: skip the rest of this section. From `{project-root}`, run:
 
-- Python: `pyproject.toml` (`[project] version`), `setup.py` (`version=`), `__version__` in `__init__.py`
-- JavaScript/TypeScript: `package.json` (`"version"`). **Monorepo resolution:** When multiple `package.json` files exist (workspace root + packages), resolve version using this priority:
-  1. Package whose `name` field matches `brief.name` (e.g., the skill's target library name)
-  2. Package with a `bin` field (CLI entry point — represents the published version)
-  3. Root workspace `package.json` version (if present)
-  4. Fall back to `brief.version` if no version found. For monorepos using workspace protocols (pnpm, yarn, npm workspaces), the root `package.json` often has no `version` field — this is expected, not an error.
-- Rust: `Cargo.toml` (`[package] version`)
-- Go: `go.mod` (module version if tagged)
+```bash
+uv run {extractPublicApiHelper} --mode quick --language "{brief.language}" --source-root "{source_root}" --manifest-file "<version file>" --resolve-version
+```
 
-**If a source version is found AND it differs from `brief.version`:**
+**A remote source with no local tree** (Quick tier, or one §2b could not read into a tree): first stage the version file with `{githubFetchHelper}` (resolve it ← the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-github-fetch.py` and `{project-root}/src/shared/scripts/skf-github-fetch.py`), then run the call above with `--source-root "{run_dir}/files"`:
 
-⚠️ Warn the user: "Brief version ({brief.version}) differs from source version ({source_version}). Using source version ({source_version})."
+```bash
+gh api "repos/{owner}/{repo}/git/trees/{source_ref}?recursive=1" --jq '.tree[] | select(.type == "blob") | .path' | uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{source_ref}" --tree-file - --dest "{run_dir}/files" "<version file>"
+```
 
-Update the working version in context to the source version. Record the mismatch in context for the evidence report (step 8).
+**The source version** is the JSON's `version` when its `version_source` is `manifest` or starts with `file:`. Keep `brief.version`, with no mismatch warning, when `version` is null or `version_source` starts with `tag:` (no file of the source states that version), and when a call exits non-zero, prints no JSON or resolves no path. Record the JSON's `warnings` in context for the evidence report (step 8).
 
-**If no version file is found or version cannot be extracted:** keep `brief.version` as-is. No warning needed.
-
-**If source is remote and accessed via Quick tier (gh_bridge, no local files):** attempt to read the version file via `gh_bridge.read_file(owner, repo, "{version_file}")` — resolved as `gh api repos/{owner}/{repo}/contents/{version_file}` or direct file read if local (see `knowledge/tool-resolution.md`) — for the primary version file of the detected language. If the read fails, keep `brief.version`.
+**If the source version differs from `brief.version`:** ⚠️ Warn the user: "Brief version ({brief.version}) differs from source version ({source_version}). Using source version ({source_version})." Update the working version in context to the source version, and record the mismatch in context for the evidence report (step 8).

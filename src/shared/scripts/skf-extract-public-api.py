@@ -16,9 +16,10 @@ Four modes:
                  raw fetches into a folder, or a local checkout), so a file's
                  text never passes through the model or a shell string.
                  --follow also reads the modules an `export *` chain passes
-                 names on from, fetching them first with --repo. Multi-module
-                 monorepos are caller-orchestrated: invoke once per module,
-                 aggregate.
+                 names on from, fetching them first with --repo, and
+                 --resolve-version looks up a version the manifest does
+                 not state. Multi-module monorepos are caller-orchestrated:
+                 invoke once per module, aggregate.
   --mode full    The ast-grep recipe runner (skf-create-skill and the
                  workflows that extract as it does): runs the recipes in
                  src/shared/data/ast-grep-recipes.yaml over a source tree
@@ -125,7 +126,7 @@ or the files, read from disk (stdin is then never read):
   --mode quick --language <language> [--source-root <dir>]
       [--manifest-file <path>] [--entry-file <path>]...
       [--follow-file <path>]... [--tree-file <listing>] [--fetch-list <file>]
-      [--follow [--repo <owner/repo> [--ref <ref>]]]
+      [--follow] [--resolve-version] [--repo <owner/repo> [--ref <ref>]]
 
 An entry with `followed` true (a --follow-file) is a module an `unlisted[]`
 record named, read as an entry is, less a JS/TS `export default`, which
@@ -142,6 +143,30 @@ without it, each is read where --source-root holds it (a local checkout).
 A module that cannot be fetched or read stays in `unlisted[]`, and a
 warning names it and why. The output then also lists `followed`, the
 modules read this way, in the order they were read.
+
+--resolve-version (with --source-root) looks up a version the manifest does
+not state, in this order, and names where it came from in `version_source`:
+
+  python  the `__version__` literal of an entry `__init__.py`, then of the
+          `_version.py` beside it, then the `version=` literal of the
+          setup.py beside the manifest (a dynamic version, `attr:` or
+          `file:`, or a version setup.py computes)
+  rust    the `[workspace.package] version` of the workspace root, the
+          nearest Cargo.toml at or above the manifest's folder that holds
+          a `[workspace]` table (`version.workspace = true`)
+  any     the release tag: with --repo, skf-github-probe.py's tag listing
+          at --ref (the newest tag whose name is a release version, X.Y.Z,
+          at the default branch; the pinned tag itself at a tag; none at a
+          branch or a commit); without, the tag `git describe --tags
+          --abbrev=0` names in --source-root, when its name is a version
+
+A file the lookups read is read under --source-root; with --repo and
+--tree-file, one the listing holds is fetched there first, at --ref. A
+version a file gives must start with a digit and be no placeholder, and
+one a tag gives drops a leading `v`. For JavaScript and TypeScript read
+with --repo at the default branch, a manifest pre-release (`-alpha`,
+`-beta`, `-rc`, `-next`, `-canary`) gives way to the newest release, with
+a warning. When nothing gives a version, a warning says so.
 
 With --source-root, each Python, JavaScript and TypeScript export also
 carries `defined_in`: the file that defines it, traced as full mode traces
@@ -171,7 +196,15 @@ Output JSON shape (stdout):
   {
     "language":    "python",
     "package_name": "foo",
-    "version":      "1.2.3",
+    "version":      "1.2.3",                      (the manifest's literal
+                                                   version, else null: a
+                                                   go.mod, a dynamic or
+                                                   workspace-inherited one,
+                                                   a placeholder; with
+                                                   --resolve-version, the
+                                                   one it looked up)
+    "version_source": "manifest" | "file:<path>" | "tag:<tag>" | null,
+                                                  (--resolve-version only)
     "description":  "...",
     "exports":      [{"name": "Bar", "type": "class", "source_file": "...",
                       "defined_in": "..."}, ...],      (defined_in: Python,
@@ -212,10 +245,12 @@ Exit codes (quick):
        or given twice with the file inputs, a --manifest-file, --entry-file
        or --follow-file that cannot be read or leads outside --source-root,
        a --tree-file that cannot be read or a --fetch-list that cannot be
-       written, --follow without --tree-file and --source-root, --repo or
-       --ref without --follow (--ref without --repo), or a --repo or --ref
-       skf-github-fetch.py does not accept. A module --follow could not
-       read changes no exit code.
+       written, --follow without --tree-file and --source-root,
+       --resolve-version without --source-root, --repo or --ref without
+       --follow or --resolve-version (--ref without --repo), or a --repo or
+       --ref skf-github-fetch.py does not accept. A module --follow could
+       not read, and a version --resolve-version could not find, change no
+       exit code.
 
 Entries mode
 ------------
@@ -875,7 +910,7 @@ def parse_package_swift(content: str) -> dict:
     """Best-effort parse of a SwiftPM Package.swift manifest.
 
     SwiftPM has no version field in the manifest (versions come from git tags),
-    so `version` is always None; the brief falls back to target_version / default.
+    so `version` is always None; a caller reads it from a git tag.
     """
     name_m = re.search(r"\bPackage\s*\(\s*name:\s*['\"]([^'\"]+)['\"]", content, re.DOTALL)
     deps: list[str] = []
@@ -1485,6 +1520,35 @@ def _detect_placeholder_version(version: str | None) -> str | None:
     return None
 
 
+def _literal_version(version: object, warnings: list[str]) -> str | None:
+    """The version the manifest writes as a literal string, else None.
+
+    A placeholder and a version that is not a string (Cargo's
+    `version = { workspace = true }`, which the workspace root's Cargo.toml
+    holds) give None with a warning, so the output's `version` is a string
+    or null, which --resolve-version looks up."""
+    if version is None:
+        return None
+    if not isinstance(version, str):
+        if isinstance(version, dict) and version.get("workspace") is True:
+            warnings.append(
+                "manifest version is inherited from the workspace (version.workspace = true), "
+                "which the workspace root's Cargo.toml holds, so the manifest states none"
+            )
+        else:
+            warnings.append(f"manifest version {version!r} is not a string, so the manifest states none")
+        return None
+    placeholder = _detect_placeholder_version(version)
+    if placeholder is not None:
+        warnings.append(
+            f"manifest version {placeholder!r} is a release-time placeholder "
+            f"(workspace protocol or semantic-release sentinel) and is not a real version, "
+            f"so the manifest states none"
+        )
+        return None
+    return version
+
+
 def extract(payload: dict) -> dict:
     """Orchestrate manifest parse + export scan for one logical package."""
     warnings: list[str] = []
@@ -1506,14 +1570,7 @@ def extract(payload: dict) -> dict:
             warnings.append(parsed["_parse_error"])
             parsed = {}
 
-    placeholder = _detect_placeholder_version(parsed.get("version"))
-    if placeholder is not None:
-        warnings.append(
-            f"manifest version {placeholder!r} is a release-time placeholder "
-            f"(workspace protocol or semantic-release sentinel) and is not a real version; "
-            f"the brief will fall back to user-supplied target_version or the default"
-        )
-        parsed["version"] = None
+    parsed["version"] = _literal_version(parsed.get("version"), warnings)
 
     _, scanner = LANGUAGE_DISPATCH[language]
     exports: list[dict] = []
@@ -5031,11 +5088,17 @@ def _build_parser() -> argparse.ArgumentParser:
                        help=f"read each module an unlisted[] record names as one more --follow-file, round "
                             f"after round (at most {FOLLOW_ROUNDS}), until none is left; needs --tree-file and "
                             f"--source-root")
+    quick.add_argument("--resolve-version", action="store_true",
+                       help="look up a version the manifest does not state: a version file, a Cargo workspace "
+                            "root, then a release tag (of --repo at --ref, else git describe in --source-root); "
+                            "needs --source-root")
     quick.add_argument("--repo", metavar="OWNER/REPO",
                        help="with --follow: fetch each module from this GitHub repository into --source-root "
-                            "first (skf-github-fetch.py)")
+                            "first (skf-github-fetch.py); with --resolve-version: the repository whose tags "
+                            "it reads, and whose files it fetches with --tree-file")
     quick.add_argument("--ref", metavar="REF",
-                       help="with --repo: the branch, tag or commit to fetch at (default: the default branch)")
+                       help="with --repo: the branch, tag or commit to fetch and read the version at "
+                            "(default: the default branch)")
     listing = parser.add_argument_group("entries mode, and the listing quick mode follows chains in")
     listing.add_argument("--tree-file", metavar="PATH",
                          help="the repository's file listing (skf-github-probe.py tree output, JSON, or one "
@@ -5099,7 +5162,7 @@ DENOMINATOR_OWN_FLAGS = ("quick", "extraction")
 # The flags of entries mode; quick mode takes --tree-file and --fetch-list with its file inputs.
 LISTING_FLAGS = ("tree_file", "scope", "fetch_list")
 # Quick mode's own flags with its file inputs: the chains it follows itself.
-FOLLOW_FLAGS = ("follow", "repo", "ref")
+FOLLOW_FLAGS = ("follow", "repo", "ref", "resolve_version")
 FOLLOW_ROUNDS = 5
 
 
@@ -5227,6 +5290,165 @@ def _follow(args: argparse.Namespace, result: dict) -> dict:
                                   f"{', '.join(left)}")
     result["followed"] = followed
     return result
+
+
+# --resolve-version: a version the manifest does not state
+_PY_VERSION_RE = re.compile(r"""^__version__[ \t]*(?::[^=\n]*)?=[ \t]*(['"])([^'"\n]+)\1""", re.M)
+_JS_PRERELEASE_RE = re.compile(r"-(?:alpha|beta|rc|next|canary)", re.I)
+JS_FAMILY = ("js", "ts", "javascript", "typescript")
+
+
+def _version_reader(args: argparse.Namespace, tree: list[str] | None) -> Callable[[str], str | None]:
+    """path -> the text of that file under --source-root, else None. With
+    --repo and --tree-file, a file the listing holds and the folder does not
+    is fetched there first, as --follow fetches a module. Raises
+    QuickInputError."""
+    root = Path(args.source_root)
+    listed = set(tree or [])
+    fetch: list = []
+
+    def read(path: str) -> str | None:
+        target = root / path
+        if not target.is_file() and args.repo is not None and args.tree_file is not None and path in listed:
+            if not fetch:
+                fetch.append(_follow_reader(args))
+            fetch[0]([path])
+        try:
+            if target.is_file() and target.resolve().is_relative_to(root.resolve()):
+                return target.read_bytes().decode("utf-8-sig", errors="replace")
+        except OSError:
+            pass
+        return None
+    return read
+
+
+def _version_value(value: object) -> str | None:
+    """A version a version file writes: a literal that starts with a digit, not a placeholder."""
+    if not isinstance(value, str) or not re.match(r"\d", value.strip()):
+        return None
+    return None if _detect_placeholder_version(value) else value.strip()
+
+
+def _python_version_file(manifest: str | None, entries: list[str],
+                         read: Callable[[str], str | None]) -> tuple[str, str] | None:
+    """(version, path): the `__version__` literal of an entry __init__.py,
+    then of the _version.py beside it, then setup.py's `version=` literal
+    beside the manifest."""
+    inits = [e for e in entries if e.rsplit("/", 1)[-1] == "__init__.py"]
+    folder = posixpath.dirname(manifest or "")
+    candidates = [(path, "py") for path in inits]
+    candidates += [(posixpath.join(posixpath.dirname(path), "_version.py"), "py") for path in inits]
+    if posixpath.basename(manifest or "") != "setup.py":
+        candidates.append((posixpath.join(folder, "setup.py"), "setup.py"))
+    for path, kind in dict.fromkeys(candidates):
+        text = read(path)
+        if text is None:
+            continue
+        if kind == "py":
+            m = _PY_VERSION_RE.search(text)
+            version = _version_value(m.group(2)) if m else None
+        else:
+            version = _version_value(parse_setup_py(text).get("version"))
+        if version:
+            return version, path
+    return None
+
+
+def _cargo_workspace_version(manifest: str | None, read: Callable[[str], str | None]) -> tuple[str, str] | None:
+    """(version, path): the `[workspace.package] version` of the workspace
+    root, the nearest Cargo.toml at or above the manifest's folder that
+    holds a `[workspace]` table."""
+    if not manifest:
+        return None
+    folder = posixpath.dirname(manifest)
+    while True:
+        path = posixpath.join(folder, "Cargo.toml")
+        text = read(path)
+        try:
+            data = tomllib.loads(text) if text is not None else None
+        except tomllib.TOMLDecodeError:
+            data = None
+        workspace = data.get("workspace") if isinstance(data, dict) else None
+        if isinstance(workspace, dict):
+            package = workspace.get("package")
+            version = _version_value(package.get("version")) if isinstance(package, dict) else None
+            return (version, path) if version else None
+        if not folder:
+            return None
+        folder = posixpath.dirname(folder)
+
+
+def _release_tag(args: argparse.Namespace, warnings: list[str]) -> tuple[str, str] | None:
+    """(version, tag) of the tag a version is read from: with --repo, the
+    `release` skf-github-probe.py's tag listing gives at --ref (the newest
+    release tag at the default branch, the pinned tag itself at a tag);
+    without, the tag `git describe --tags --abbrev=0` names in
+    --source-root, when its name is a version. The version drops a
+    leading v."""
+    try:
+        probe = _sibling("skf-github-probe.py")
+    except RunnerError as exc:
+        warnings.append(f"--resolve-version could not read tags: {exc}")
+        return None
+    if args.repo is not None:
+        parsed = probe.parse_repo(args.repo)
+        if parsed is None:
+            warnings.append(f"--resolve-version read no tags: {args.repo} is not a github.com repository")
+            return None
+        probe._start_clock(probe.DEFAULT_TIMEOUT_SEC)
+        out = probe.probe_tags(*parsed, [], 1, ref=args.ref)
+        if out["status"] != "ok":
+            warnings.append(f"the tags of {args.repo} could not be listed ({out['message']}), so no release "
+                            f"tag gave a version")
+            return None
+        release = out["release"]
+        return (release["version"], release["tag"]) if release else None
+    try:
+        res = _sibling("skf-source-tree.py")._git(Path(args.source_root), "describe", "--tags", "--abbrev=0")
+    except RunnerError:
+        return None
+    if res is None or res[0] != 0:
+        return None
+    tag = res[1].decode("utf-8", errors="replace").strip()
+    version = probe.tag_version(tag)
+    return (version, tag) if version else None
+
+
+def resolve_version(args: argparse.Namespace, result: dict, tree: list[str] | None) -> None:
+    """--resolve-version: when the manifest states no version, look it up
+    (Python: _python_version_file; Rust: _cargo_workspace_version; then any
+    language: _release_tag), and for JavaScript or TypeScript read from
+    --repo at the default branch, let the newest release replace a manifest
+    pre-release (-alpha, -beta, -rc, -next, -canary). Sets `version` and
+    `version_source`: "manifest", "file:<path>", "tag:<tag>", or null with
+    a warning when nothing gave one. Raises QuickInputError."""
+    warnings = result["warnings"]
+    version = result["version"]
+    source = "manifest" if version is not None else None
+    manifest = Path(args.manifest_file).as_posix() if args.manifest_file is not None else None
+    if version is None:
+        read = _version_reader(args, tree)
+        found = None
+        if result["language"] == "python":
+            found = _python_version_file(manifest, [Path(e).as_posix() for e in args.entry_file or []], read)
+        elif result["language"] == "rust":
+            found = _cargo_workspace_version(manifest, read)
+        if found:
+            version, source = found[0], f"file:{found[1]}"
+    prerelease = (version is not None and source == "manifest" and result["language"] in JS_FAMILY
+                  and args.repo is not None and (args.ref or "").strip().lower() in ("", "null", "none", "head")
+                  and _JS_PRERELEASE_RE.search(version) is not None)
+    if version is None or prerelease:
+        tag = _release_tag(args, warnings)
+        if tag and prerelease:
+            warnings.append(f"manifest version {version!r} is a pre-release on the default branch; version is "
+                            f"the newest release, {tag[0]} (tag {tag[1]})")
+        if tag:
+            version, source = tag[0], f"tag:{tag[1]}"
+    if version is None:
+        warnings.append("no version found in the manifest, a version file or a release tag; version is null")
+    result["version"] = version
+    result["version_source"] = source
 
 
 _JS_LIST_SOURCE_RE = re.compile(r"\s*from\s*(['\"])")
@@ -5429,7 +5651,7 @@ def main(argv: list[str]) -> int:
     args = parser.parse_args(argv)
     files = args.manifest_file is not None or bool(args.entry_file) or bool(args.follow_file)
     listing = [f"--{flag.replace('_', '-')}" for flag in LISTING_FLAGS if getattr(args, flag) is not None]
-    following = [f"--{flag}" for flag in FOLLOW_FLAGS if getattr(args, flag) not in (None, False)]
+    following = [f"--{flag.replace('_', '-')}" for flag in FOLLOW_FLAGS if getattr(args, flag) not in (None, False)]
     if following and (args.mode != "quick" or not files):
         parser.error(f"{', '.join(following)}: quick mode only, with --manifest-file or --entry-file")
     own = [f"--{flag}" for flag in DENOMINATOR_OWN_FLAGS if getattr(args, flag) is not None]
@@ -5466,17 +5688,22 @@ def main(argv: list[str]) -> int:
     if files:
         if not args.language or len(args.language) != 1:
             parser.error("--manifest-file and --entry-file take one --language")
-        if (args.repo is not None or args.ref is not None) and not args.follow:
-            parser.error("--repo and --ref fetch the modules --follow reads, so pass --follow")
+        if (args.repo is not None or args.ref is not None) and not (args.follow or args.resolve_version):
+            parser.error("--repo and --ref fetch the modules --follow reads and name the tags --resolve-version "
+                         "reads, so pass --follow or --resolve-version")
         if args.ref is not None and args.repo is None:
             parser.error("--ref is the ref of --repo, so pass --repo")
         if args.follow and (args.tree_file is None or args.source_root is None):
             parser.error("--follow finds each module in --tree-file and reads it under --source-root: pass both")
+        if args.resolve_version and args.source_root is None:
+            parser.error("--resolve-version reads the version files under --source-root: pass it")
         try:
             payload = _quick_files_payload(args)
             result = extract(payload)
             if args.follow and "_error" not in result:
                 result = _follow(args, result)
+            if args.resolve_version and "_error" not in result:
+                resolve_version(args, result, payload.get("tree"))
             if args.source_root is not None and "_error" not in result:
                 _defined_in(Path(args.source_root), result)
             if args.fetch_list is not None and "_error" not in result:

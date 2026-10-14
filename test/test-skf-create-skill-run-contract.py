@@ -29,13 +29,19 @@
 - validate §4 splits the body by one rule set (#600), and customize.toml
   names its override files by {project-root} and says how to drop the
   persistent_facts default (#596).
+- Version Reconciliation, and update-skill's init §6c with it, reads the
+  source's version through the extractor's quick mode, so a release-time
+  placeholder such as 0.0.0-development keeps the brief's version (v4.0.0
+  quality gate run 2, determinism-2).
 """
 
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -784,3 +790,98 @@ def test_customize_names_its_override_files_and_how_to_drop_the_default():
         in activation
     assert "`{project-root}/_bmad/custom/skf-create-skill.toml` (team overrides, committed)" in activation
     assert "`_bmad/custom/skf-create-skill.toml` under `{project-root}`" not in activation
+
+
+# --------------------------------------------------------------------------
+# Version Reconciliation reads the source's version through the extractor
+# (v4.0.0 quality gate run 2, determinism-2)
+# --------------------------------------------------------------------------
+
+PROTOCOLS = REFS / "source-resolution-protocols.md"
+UPDATE_INIT = REPO / "src" / "skf-update-skill" / "references" / "init.md"
+EXTRACTOR = REPO / "src" / "shared" / "scripts" / "skf-extract-public-api.py"
+
+
+def _reconciliation() -> str:
+    return _section(_read(PROTOCOLS), "## Version Reconciliation", None)
+
+
+def _reconcile_call() -> str:
+    [call] = re.findall(r"```bash\n(uv run \{extractPublicApiHelper\} [^\n]*)\n```", _reconciliation())
+    return call
+
+
+def _reconciled(brief_version: str, out: dict) -> str:
+    """The working version the section's rule gives: the JSON's version when a file of the source states it."""
+    source = out.get("version_source") or ""
+    if out.get("version") is not None and (source == "manifest" or source.startswith("file:")):
+        return out["version"]
+    return brief_version
+
+
+def test_version_reconciliation_reads_the_version_through_the_extractor():
+    """A release-time placeholder (0.0.0-development) or a version that is not a string is no source version: the
+    section calls the extractor, which reports either as none, in place of reading a version file by eye, and
+    update-skill init §6c reads the source's version through the same call."""
+    text = _reconciliation()
+    assert _reconcile_call() == ('uv run {extractPublicApiHelper} --mode quick --language "{brief.language}" '
+                                 '--source-root "{source_root}" --manifest-file "<version file>" --resolve-version')
+    assert "never from a version file by eye" in text and "Look for the first matching version file" not in text
+    assert ("**The source version** is the JSON's `version` when its `version_source` is `manifest` or starts with "
+            "`file:`. Keep `brief.version`, with no mismatch warning, when `version` is null or `version_source` "
+            "starts with `tag:`") in text
+    assert "Record the JSON's `warnings` in context for the evidence report (step 8)." in text
+    # A remote source with no tree stages the version file first, and the same call reads it there.
+    [fetch] = re.findall(r"```bash\n(gh api [^\n]*)\n```", text)
+    assert fetch.endswith('| uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{source_ref}" --tree-file - '
+                          '--dest "{run_dir}/files" "<version file>"')
+    assert 'then run the call above with `--source-root "{run_dir}/files"`' in text
+    assert ("`{githubFetchHelper}` (resolve it ← the first existing path of "
+            "`{project-root}/_bmad/skf/shared/scripts/skf-github-fetch.py` and "
+            "`{project-root}/src/shared/scripts/skf-github-fetch.py`)") in text
+    extract = _frontmatter(REFS / "extract.md")
+    assert extract["extractPublicApiProbeOrder"] == ["{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py",
+                                                     "{project-root}/src/shared/scripts/skf-extract-public-api.py"]
+    # A tag implicit resolution matched need not hold brief.version in its files: semantic-release commits a placeholder.
+    implicit = _section(_read(PROTOCOLS), "**Interaction with Version Reconciliation (below):**", "\n")
+    assert ("the tree's version file should carry `brief.version`, unless it holds a release-time placeholder, which "
+            "the extractor reports as no version") in implicit
+    six_c = _section(_read(UPDATE_INIT), "### 6c. Detect the Source Version", "### 7.")
+    assert ("by the Version Reconciliation section of `skf-create-skill/references/source-resolution-protocols.md` "
+            "(its `{extractPublicApiHelper}` call, from `{extractPublicApiProbeOrder}`)") in six_c
+    assert "`__version__`" not in six_c and "`go.mod`" not in six_c
+    assert _frontmatter(UPDATE_INIT)["extractPublicApiProbeOrder"] == extract["extractPublicApiProbeOrder"]
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="git is not installed")
+@pytest.mark.parametrize("manifest, content, language, brief_version, expected", [
+    pytest.param("package.json", '{"name": "semrel", "version": "0.0.0-development"}', "typescript", "4.2.0",
+                 "4.2.0", id="semantic-release-placeholder"),
+    pytest.param("package.json", '{"name": "semrel", "version": "4.3.0"}', "typescript", "4.2.0", "4.3.0",
+                 id="literal-manifest-version"),
+    pytest.param("Cargo.toml", '[workspace]\nmembers = []\n\n[workspace.package]\nversion = "0.7.42"\n', "rust",
+                 "0.7.41", "0.7.42", id="cargo-workspace-version"),
+])
+def test_the_documented_reconciliation_keeps_the_brief_version_over_a_placeholder(
+        tmp_path, manifest, content, language, brief_version, expected):
+    """The semantic-release case: package.json holds 0.0.0-development at tag v4.2.0, so the version stays the
+    brief's 4.2.0 and the extractor's placeholder warning reaches the evidence report. A literal version, or one a
+    Cargo workspace root holds, is still the source version."""
+    root = tmp_path / "source"
+    root.mkdir()
+    (root / manifest).write_bytes(content.encode("utf-8"))
+    env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t",
+           "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+    for args in (["init", "-q"], ["add", "."], ["commit", "-qm", "release"], ["tag", "v4.2.0"]):
+        subprocess.run(["git", *args], cwd=root, env=env, check=True, capture_output=True)
+    values = {"{extractPublicApiHelper}": EXTRACTOR.as_posix(), "{brief.language}": language,
+              "{source_root}": root.as_posix(), "<version file>": manifest}
+    argv = [values.get(arg, arg) for arg in shlex.split(_reconcile_call())[2:]]
+    proc = subprocess.run([sys.executable, *argv], capture_output=True, text=True, encoding="utf-8", env=env,
+                          timeout=120, check=False)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout)
+    assert _reconciled(brief_version, out) == expected
+    if expected == brief_version:
+        assert out["version_source"] == "tag:v4.2.0"
+        assert any("'0.0.0-development' is a release-time placeholder" in w for w in out["warnings"]), out["warnings"]

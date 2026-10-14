@@ -72,7 +72,8 @@ Context payload shape (consumed by `write`):
     "doc_urls":         [{"url": "...", "label": "...", "source": "..."}],
     #   `source` (optional per #432): language-registry | readme-detection |
     #   homepage | pages-api | docs-folder. Threaded through when present;
-    #   absent → entry renders as {url, label} only (no false drift).
+    #   absent → entry renders as {url, label} only (no false drift); any
+    #   other value is refused before anything is written (exit 1).
     "scripts_intent":   "detect" | "none" | free-text,
     "assets_intent":    "detect" | "none" | free-text,
     "source_authority": "official" | "community" | "internal",
@@ -87,7 +88,9 @@ Version precedence (resolved into the rendered YAML's `version` field):
   3. Otherwise: detected_version when it is full X.Y.Z semver (SEMVER_RE);
      a detected version of another shape (`0.1`, `2.0.0rc1`) is passed as
      found and skipped here, with a warning.
-  4. Otherwise: "1.0.0".
+  4. Otherwise: "1.0.0", with a warning when no detected_version was given
+     (a docs-only brief aside), so a headless caller tells the default
+     from a detected 1.0.0.
 
 When target_version is set, the rendered YAML includes a `target_version`
 field whose value MUST match `version` (the script enforces this
@@ -235,6 +238,8 @@ VALID_SCOPE_TYPES = {
     "reference-app",
     "docs-only",
 }
+# skill-brief.v1.json's doc_urls[].source enum (a test pins it to the schema).
+VALID_DOC_URL_SOURCES = {"language-registry", "readme-detection", "homepage", "pages-api", "docs-folder"}
 
 
 def _die(message: str, field: str | None = None, code: int = 1) -> None:
@@ -321,6 +326,10 @@ def validate_context(ctx: dict[str, Any]) -> list[str]:
             url = entry.get("url")
             if not url or not isinstance(url, str):
                 _die(f"doc_urls[{i}].url is required and must be a non-empty string", field="doc_urls")
+            source = entry.get("source")
+            if source and (not isinstance(source, str) or source not in VALID_DOC_URL_SOURCES):
+                _die(f"doc_urls[{i}].source must be one of {sorted(VALID_DOC_URL_SOURCES)}. Got: {source!r}",
+                     field="doc_urls")
 
     # source_authority (default 'community') with docs-only force rule
     source_authority = ctx.get("source_authority", "community")
@@ -436,6 +445,12 @@ def validate_context(ctx: dict[str, Any]) -> list[str]:
         # Warn rather than HALT — auto-detection upstream may surface odd shapes
         warnings.append(
             f"detected_version {detected!r} is not full X.Y.Z semver — falling through to default 1.0.0"
+        )
+    elif detected is None and tv is None and ctx.get("version_resolved") is None and source_type != "docs-only":
+        # The default would otherwise reach a headless caller as if detected.
+        warnings.append(
+            "no source version detected: version defaults to 1.0.0; for a remote source skf-create-skill "
+            "tries tag 1.0.0 or v1.0.0; set target_version in the brief to pin it"
         )
 
     return warnings

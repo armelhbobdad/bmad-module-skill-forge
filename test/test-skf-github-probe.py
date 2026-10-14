@@ -360,6 +360,48 @@ class TestTags:
         script.gh[TAGS] = ("ok", _gh_tags(self.ASTRO))
         assert _mod().probe_tags("acme", "lib", [], 5)["nearest"] == []
 
+    # golang/sync's shape: version tags and no GitHub Release, with a newer
+    # pre-release, a package's tag, a two-part version and a name that is no version.
+    RELEASES = [("v0.25.0-rc.1", SHA_A), ("pkg@9.0.0", SHA_A), ("v1.2", SHA_A), ("latest", SHA_A),
+                ("v0.24.0", SHA_B), ("v0.9.0", SHA_C)]
+
+    @pytest.mark.parametrize("gh", ["ok", "missing"], ids=["gh", "git"])
+    def test_release_is_the_newest_release_version_tag(self, script, gh):
+        """At HEAD a brief reads its version from the newest tag whose name is a release version, less
+        its v, from either listing and whatever --limit keeps (v4.0.0 quality gate run 1,
+        skf-brief-skill determinism-1)."""
+        if gh == "ok":
+            script.gh[TAGS] = ("ok", _gh_tags(self.RELEASES))
+        else:
+            script.gh[TAGS] = ("missing",)
+            script.git["tags"] = ("ok", "".join(f"{sha}\trefs/tags/{name}\n" for name, sha in self.RELEASES))
+        out = _mod().probe_tags("acme", "lib", [], 1)
+        assert out["release"] == {"tag": "v0.24.0", "version": "0.24.0"}
+        assert out["tags"] == ["pkg@9.0.0"]
+
+    @pytest.mark.parametrize("ref, release", [
+        ("v0.9.0", {"tag": "v0.9.0", "version": "0.9.0"}),
+        ("v0.25.0-rc.1", {"tag": "v0.25.0-rc.1", "version": "0.25.0-rc.1"}),
+        ("HEAD", {"tag": "v0.24.0", "version": "0.24.0"}),
+        ("main", None),
+        ("v0.8.0", None),
+        ("pkg@9.0.0", None),
+        (SHA_A, None),
+    ], ids=["tag", "pre-release-tag", "head", "branch", "tag-not-listed", "package-tag", "commit"])
+    def test_release_at_a_pinned_ref_is_that_tag(self, script, ref, release):
+        """A brief pinned to a tag reads that tag's version, not the newest release's; a branch or a
+        commit names none (v4.0.0 quality gate run 1, skf-brief-skill determinism-1)."""
+        script.gh[TAGS] = ("ok", _gh_tags(self.RELEASES))
+        assert _mod().probe_tags("acme", "lib", [], 1, ref=ref)["release"] == release
+
+    def test_no_release_tag_and_an_unread_listing_are_null(self, script):
+        script.gh[TAGS] = ("ok", _gh_tags([("latest", SHA_A), ("v2.0.0-beta.1", SHA_B)]))
+        assert _mod().probe_tags("acme", "lib", [], 20)["release"] is None
+        script.gh[TAGS] = ("unauthenticated",)
+        script.git["tags"] = ("auth-required",)
+        script.api[OWNER] = ("ok", "{}")
+        assert _mod().probe_tags("acme", "lib", [], 20)["release"] is None
+
     def test_sorted_tags(self):
         names = ["v1.2.0", "latest", "v1.10.0", "v1.2.0-rc.1", "nightly", "pkg@3.0.0", "v1.9.0"]
         assert _mod()._sorted_tags(names) == ["pkg@3.0.0", "v1.10.0", "v1.9.0", "v1.2.0", "v1.2.0-rc.1",
@@ -787,7 +829,7 @@ class TestCli:
 
     @pytest.mark.parametrize("argv, extra", [
         (["repo"], {"private", "default_branch"}),
-        (["tags", "--want", "v1"], {"tags", "count", "match", "found", "missing", "nearest"}),
+        (["tags", "--want", "v1"], {"tags", "count", "match", "found", "missing", "nearest", "release"}),
         (["tree", "--ref", "v1"], {"ref", "tree", "count", "truncated"}),
     ])
     def test_invalid_repo(self, argv, extra):
@@ -815,7 +857,7 @@ class TestCli:
                           TAGS: ("ok", _gh_tags([("v1", SHA_A)])), _tree_path(): ("ok", _tree_json())})
         mod = _mod()
         for argv, extra in (("repo", {"private", "default_branch"}),
-                            ("tags", {"tags", "count", "match", "found", "missing", "nearest"}),
+                            ("tags", {"tags", "count", "match", "found", "missing", "nearest", "release"}),
                             ("tree", {"ref", "tree", "count", "truncated"})):
             assert mod.main([argv, "--repo", "acme/lib"]) == 0
             line = capsys.readouterr().out
@@ -827,6 +869,11 @@ class TestCli:
         assert _mod().main(["tags", "--repo", "acme/lib", "--version", "1.2.0", "--name", "pkg", "--limit", "5"]) == 0
         out = json.loads(capsys.readouterr().out)
         assert (out["match"], out["nearest"]) == ("pkg@1.2.0", ["pkg@1.2.0", "pkg@1.1.0"])
+
+    def test_tags_takes_the_ref_release_reads_at(self, script, capsys):
+        script.gh[TAGS] = ("ok", _gh_tags([("v1.2.0", SHA_A), ("v1.1.0", SHA_B)]))
+        assert _mod().main(["tags", "--repo", "acme/lib", "--ref", "v1.1.0"]) == 0
+        assert json.loads(capsys.readouterr().out)["release"] == {"tag": "v1.1.0", "version": "1.1.0"}
 
     def test_unavailable_exits_3(self, script, capsys):
         script.gh[REPO] = ("forbidden",)

@@ -1,17 +1,13 @@
 # Version Resolution
 
-Single source of truth for how brief-skill resolves the `version` field of `skill-brief.yaml`. Loaded by step 2 §4b (auto-detect, fallback path only when the language is not script-supported) and step 5 §3 (resolve & write) so both operate on the same precedence rules and invariant. Step-01 §3b references this file in prose for human-readable rationale but does not load it: that step only collects `target_version` and checks its shape with `skf-validate-brief-inputs.py --only target_version`.
-
-**Aligned with** `assets/skill-brief-schema.md` "Version Detection" section. If you change one, change the other.
+Single source of truth for how brief-skill resolves the `version` field of `skill-brief.yaml`. Loaded by step 2 §4b (auto-detect, when §4.2's fallback read the source) and step 5 §3 (resolve & write) so both operate on the same precedence rules and invariant. Step-01 §3b references this file in prose for human-readable rationale but does not load it: that step only collects `target_version` and checks its shape with `skf-validate-brief-inputs.py --only target_version`.
 
 ## Detection Algorithm
 
-For the detected source language, attempt the lookups in order. Stop at the first match.
+Step 2 §4.1's extractor detects the version of the languages it reads, with `--resolve-version`: the manifest's literal version, then a version file or a Cargo workspace root, then the release tag (`skf-extract-public-api.py --help` gives the order). When §4.2 read the source instead, attempt these lookups in order and stop at the first match:
 
-- **Python:** `pyproject.toml` `[project] version` (static) → if `dynamic = ["version"]`, check `__init__.py` for `__version__` → `_version.py` if exists → `setup.py` `version=` → `git describe --tags --abbrev=0`
-- **JavaScript / TypeScript:** root `package.json` (`"version"`). If the root has `"private": true` with a `"workspaces"` array or lacks a `"version"` field, fall back to a primary workspace package's `package.json` (e.g. `code/core/package.json`, or the first matching `packages/*/package.json`). For GitHub sources, prefer `gh api repos/{owner}/{repo}/releases/latest` → `tag_name` when a non-pre-release tag exists, over a default-branch pre-release. Treat a version containing `-alpha`, `-beta`, `-rc`, `-next`, or `-canary` as a pre-release.
-- **Rust:** `Cargo.toml` `[package] version` (static). If `version = { workspace = true }`, resolve from workspace root `Cargo.toml` → `git describe --tags --abbrev=0`.
-- **Go:** version tag from `go.mod`, or `git describe --tags --abbrev=0`.
+1. The version the manifest or a version file writes as a literal: `package.json`'s `"version"`, `pyproject.toml`'s `[project] version` or a package's `__version__`, a `.gemspec` or `version.rb` `VERSION`, a `.csproj` `<Version>`, `composer.json`'s `"version"`.
+2. The tag lookup. For a GitHub source, `uv run {githubProbeHelper} tags --repo "{owner}/{repo}" --ref "{analysis_ref}" --limit 1`: its `release.version` is the version (the newest release tag at `HEAD`, the pinned tag itself at a tag, none at a branch or a commit), and a null `release` or a non-zero exit gives none. For a local source, `git -C "{source_path}" describe --tags --abbrev=0`: a tag whose name is a version gives it, a leading `v` dropped.
 
 For remote GitHub sources, read version-bearing files from `{run_dir}/files/`, where step 2 stages the files it fetches; fetch one that is not there yet with step 2's fetch helper, naming it: `uv run {githubFetchHelper} --repo "{owner}/{repo}" --ref "{analysis_ref}" --tree-file "{run_dir}/tree.json" --dest "{run_dir}/files" "{file}"`. `{analysis_ref}` is the ref resolved in step 02 §1, defaulting to `HEAD` when no `target_ref`/`target_version` was pinned; reading at the pinned ref keeps the "Detected version" consistent with the version being skilled. For local sources, read the file directly.
 
@@ -43,5 +39,5 @@ Step-05 §3 enforces this by setting both fields to the same string when `target
 |------|----------------|
 | 01 §3b | Collect `target_version` (interactive prompt, or headless arg). Do not auto-detect — that is step 02's job. |
 | 02 §1 | Resolve `target_version` to the git tag step 2 reads, through `skf-validate-pins.py`. With no match, analyze `HEAD` and warn. |
-| 02 §4b | Run the detection algorithm regardless of whether `target_version` is set. If `target_version` is set and the detected version differs, surface the disagreement to the user — but the precedence above is unchanged: `target_version` wins. |
+| 02 §4b | Detect the version (§4.1's extractor, or the detection algorithm after §4.2) regardless of whether `target_version` is set. If `target_version` is set and the detected version differs, surface the disagreement to the user; the precedence above is unchanged, so `target_version` wins. |
 | 05 §3 | Apply the precedence rules and write `version`. If `target_version` is set, also write the `target_version` field with the identical value. Enforce the invariant. |
