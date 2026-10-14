@@ -1025,9 +1025,10 @@ class TestReportTerminalSequence:
             "**Enforce step completeness.**",
             "**Check the report sections.**",
             "**Renew the run lock**",
+            # the payload is built, and the verdict checked, before the report takes its public name
+            '--output "{run_dir}/result-context.json"',
             "**Publish the report.**",
             'mv "{report_file}" "{publishedReportFile}"',
-            '--output "{run_dir}/result-context.json"',
             "emit --workflow skf-test-skill --run-dir",
             "Once the result files are written, append `'report'`",
             "{onCompleteCommand} --result-path=",

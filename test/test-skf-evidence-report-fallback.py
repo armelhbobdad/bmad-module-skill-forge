@@ -352,8 +352,14 @@ def _build(tmp_path: pathlib.Path, fallback: bool) -> dict:
     ledger = tmp_path / "test-findings-20260101T000000Z-ab12cd34.json"
     subprocess.run([sys.executable, str(GAP_LEDGER), "append", "--ledger", str(ledger), "--stage", "coverage-check"],
                    input="[]", capture_output=True, text=True, encoding="utf-8", check=True)
+    # compute-score.py's output: the fallback turned its FAIL into a PASS at the 80 floor (the override group).
+    scored = {"result": "PASS", "totalScore": 84.5, "threshold": 80,
+              "activeCategories": ["exportCoverage", "externalValidation"]}
+    if fallback:
+        scored |= {"result": "FAIL", "threshold": 90, "effectiveResult": "PASS", "capReason": None,
+                   "thresholdFallback": True, "originalThreshold": 90}
     score = tmp_path / "score.json"
-    score.write_bytes(json.dumps({"activeCategories": ["exportCoverage", "externalValidation"]}).encode("utf-8"))
+    score.write_bytes(json.dumps(scored).encode("utf-8"))
     out = tmp_path / "result-context.json"
     proc = subprocess.run([sys.executable, str(BUILD_CONTEXT), "--report", str(report), "--ledger", str(ledger),
                            "--score", str(score), "--output", str(out)],
