@@ -117,7 +117,7 @@ def test_protocol_opening_follows_source_access() -> None:
 
 
 def test_protocol_helper_gets_the_resolved_tree() -> None:
-    procedure = _section(_read(PROTOCOL), "## Procedure", "## How promoted docs")
+    procedure = _section(_read(PROTOCOL), "## Procedure", "**Record for evidence report:**")
     assert '--source-root "{source_root}"' in procedure
     assert "`{source_root}` is the local tree §2b resolved" in procedure
 
