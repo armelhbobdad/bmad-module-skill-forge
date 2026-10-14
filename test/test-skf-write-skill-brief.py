@@ -40,6 +40,8 @@ spec.loader.exec_module(mod)
 def _baseline_ctx() -> dict:
     return {
         "name": "marked",
+        # a detected version: with none, the default brings a warning
+        "detected_version": "1.0.0",
         "source_repo": "https://github.com/markedjs/marked",
         "language": "javascript",
         "description": "Render Markdown to HTML using the marked library.",
@@ -103,6 +105,21 @@ class TestValidateContextHappy:
     def test_minimal_baseline_passes(self):
         warnings = mod.validate_context(_baseline_ctx())
         assert warnings == []
+
+    def test_a_defaulted_version_is_warned_only_when_nothing_names_one(self):
+        """With no version given, the 1.0.0 default carries a warning, so a caller
+        tells it from a detected 1.0.0 (v4.0.0 quality gate run 1, skf-brief-skill
+        determinism-1); a docs-only brief has no source version to detect."""
+        ctx = _baseline_ctx()
+        del ctx["detected_version"]
+        [warning] = mod.validate_context(ctx)
+        assert warning.startswith("no source version detected: version defaults to 1.0.0;")
+        assert "set target_version in the brief to pin it" in warning
+        for key, value in (("detected_version", "2.3.4"), ("target_version", "2.3.4"),
+                           ("version_resolved", "1.0.0")):
+            assert mod.validate_context({**ctx, key: value}) == [], key
+        docs_only = {**ctx, "source_type": "docs-only", "doc_urls": [{"url": "https://example.com/docs"}]}
+        assert mod.validate_context(docs_only) == []
 
 
 class TestValidateContextRequiredFields:
@@ -568,6 +585,13 @@ class TestCLIWriteFlat:
         assert "doc_urls:" not in body
         assert "source_authority:" not in body
         assert "scripts_intent:" not in body
+
+    def test_a_defaulted_version_reaches_the_envelope_as_a_warning(self, tmp_target):
+        flat = {**_baseline_flat(), "target_version": None, "detected_version": None}
+        code, response, stderr = self._write_flat(tmp_target, flat)
+        assert code == 0, stderr
+        assert response["version"] == "1.0.0"
+        assert any(w.startswith("no source version detected") for w in response["warnings"])
 
     def test_flat_write_validates_same_rules_as_nested(self, tmp_target):
         flat = _baseline_flat()

@@ -327,9 +327,32 @@ def test_a_target_version_resolves_to_a_tag_through_validate_pins():
     # an exit 1 with no suggestions may be a listing that failed, so its warning claims no missing tag
     [empty] = [line for line in text.splitlines() if "Exit 1 with an empty `suggestions`" in line]
     assert "Could not find or list the tags" in empty
-    # the latest release of a JavaScript source is still read from the releases API, which knows when there is none
-    [js] = [line for line in _read(VERSION_RESOLUTION).splitlines() if line.startswith("- **JavaScript")]
-    assert "releases/latest" in js and "validatePinsHelper" not in js
+    # the release a version is read from is the probe's, which skips a pre-release, not validate-pins' first tag
+    assert "releases/latest" not in _read(VERSION_RESOLUTION) and "validatePinsHelper" not in _read(VERSION_RESOLUTION)
+
+
+def test_a_version_the_manifest_does_not_state_is_looked_up_by_a_script():
+    """Step 2's extractor looks up a version the manifest does not state (every Go module, a dynamic Python
+    version, a Cargo workspace-inherited one), so neither a null version nor a lookup by hand defaults the
+    brief to 1.0.0; the prose fallback reads its release tag from the probe (v4.0.0 quality gate run 1,
+    skf-brief-skill determinism-1)."""
+    text = _read(ANALYZE_TARGET)
+    [parse] = _blocks(_section(text, "#### 4.1 Procedure"), "--mode quick")
+    assert "--resolve-version" in parse
+    assert "--resolve-version" in _run("skf-extract-public-api.py", "--help").stdout
+    section = _section(text, "### 4b. Detect Source Version")
+    [script, fallback] = [line for line in section.splitlines() if line.startswith("**When §4.")]
+    assert script.startswith("**When §4.1 ran:**") and "Do not derive it again or load" in script
+    assert fallback.startswith("**When §4.2 ran:**") and "load `{versionResolutionFile}`" in fallback
+    resolution = _read(VERSION_RESOLUTION)
+    assert "gh api" not in resolution and "- **Go:**" not in resolution
+    [tag] = [line for line in resolution.splitlines() if line.startswith("2. The tag lookup.")]
+    call = re.search(r"`(uv run \{githubProbeHelper\} tags [^`]*)`", tag).group(1)
+    assert call == 'uv run {githubProbeHelper} tags --repo "{owner}/{repo}" --ref "{analysis_ref}" --limit 1'
+    assert "`release.version`" in tag and "describe --tags --abbrev=0" in tag
+    help_text = _run("skf-github-probe.py", "tags", "--help").stdout
+    for flag in re.findall(r"(--[a-z-]+)", call):
+        assert flag in help_text, flag
 
 
 def _git(*args: str, cwd: Path) -> str:
@@ -502,7 +525,7 @@ def test_step_two_finds_the_entry_files_and_follows_their_re_exports(tmp_path):
         ["package.json", "src/index.ts"]
     run(parse.replace("<manifest path>", "package.json").replace("<entry path>", "src/index.ts"))
     out = json.loads((run_dir / "extract.json").read_text(encoding="utf-8"))
-    assert (out["package_name"], out["version"]) == ("demo", "2.1.0")
+    assert (out["package_name"], out["version"], out["version_source"]) == ("demo", "2.1.0", "manifest")
     assert sorted(e["name"] for e in out["exports"]) == ["greeting", "hello"]
     assert out["followed"] == ["src/greet.ts"] and (staged / "src" / "greet.ts").is_file()
     assert [r["module_file"] for r in out["unlisted"]] == ["src/private.ts"]

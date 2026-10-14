@@ -28,6 +28,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -470,6 +471,17 @@ class TestExtract:
         )
         assert result["version"] == "1.2.3"
         assert all("placeholder" not in w for w in result["warnings"])
+
+    @pytest.mark.parametrize("language, path, content, named", [
+        ("rust", "Cargo.toml", '[package]\nname = "member"\nversion.workspace = true\n', "version.workspace = true"),
+        ("js", "package.json", '{"name": "foo", "version": 1}', "manifest version 1 is not a string"),
+    ], ids=["cargo-workspace", "json-number"])
+    def test_a_version_that_is_not_a_string_warns_and_nulls(self, language, path, content, named):
+        """`version` is a string or null, so brief-skill's step 2 looks a null one up instead of
+        recording a table (v4.0.0 quality gate run 1, skf-brief-skill determinism-1)."""
+        result = mod.extract({"language": language, "manifest": {"path": path, "content": content}, "entries": []})
+        assert result["version"] is None
+        assert any(named in w for w in result["warnings"]), result["warnings"]
 
     def test_scanner_failure_recorded_as_warning(self, monkeypatch):
         def boom(content, source_file, warnings):
@@ -3518,7 +3530,7 @@ class TestFollow:
         assert "HTTP 404" in warning and "gh is not installed" in warning
 
     @pytest.mark.parametrize(("extra", "message"), [
-        (["--repo", "acme/lib"], "--repo and --ref fetch the modules --follow reads, so pass --follow"),
+        (["--repo", "acme/lib"], "so pass --follow or --resolve-version"),
         (["--follow", "--ref", "main"], "--ref is the ref of --repo, so pass --repo"),
     ], ids=["repo-without-follow", "ref-without-repo"])
     def test_a_flag_that_needs_another(self, tmp_path, capsys, extra, message):
@@ -3547,3 +3559,129 @@ class TestFollow:
         captured = capsys.readouterr()
         assert (code, captured.out) == (2, "")
         assert "not a repo is not a github.com repository" in captured.err
+
+
+# --------------------------------------------------------------------------
+# --resolve-version: a version the manifest does not state (v4.0.0 quality
+# gate run 1, skf-brief-skill determinism-1). No test reaches GitHub: the
+# tag listing is skf-github-probe.py's probe_tags, replaced by a stub.
+# --------------------------------------------------------------------------
+
+
+class TestResolveVersion:
+    PYPROJECT = '[project]\nname = "pkg"\ndynamic = ["version"]\n'
+
+    @pytest.fixture
+    def probe(self, monkeypatch):
+        """Each tag listing asked for, answered with `release` (None: no release tag)."""
+        asked: list[tuple] = []
+        answer = {"status": "ok", "message": None, "release": None}
+
+        def probe_tags(owner, repo, wants, limit, version=None, package=None, ref=None):
+            asked.append((owner, repo, ref))
+            return dict(answer)
+
+        monkeypatch.setattr(mod._sibling("skf-github-probe.py"), "probe_tags", probe_tags)
+        return SimpleNamespace(asked=asked, answer=answer)
+
+    def _resolve(self, capsys, root: Path, language: str, manifest: str, entries: list[str], *extra: str):
+        argv = ["--language", language, "--source-root", str(root), "--manifest-file", manifest]
+        for entry in entries:
+            argv += ["--entry-file", entry]
+        code, out = _quick(capsys, *argv, "--resolve-version", *extra)
+        assert code == 0
+        return out
+
+    @pytest.mark.parametrize("files, version, source", [
+        ({"src/pkg/__init__.py": '__version__: str = "2.3.4"\n'}, "2.3.4", "file:src/pkg/__init__.py"),
+        ({"src/pkg/__init__.py": "from ._version import __version__\n",
+          "src/pkg/_version.py": "__version__ = '2.3.5'\n"}, "2.3.5", "file:src/pkg/_version.py"),
+        ({"src/pkg/__init__.py": "__version__ = get_version()\n",
+          "setup.py": "from setuptools import setup\nsetup(name='pkg', version='2.3.6')\n"}, "2.3.6", "file:setup.py"),
+    ], ids=["init-literal", "version-file", "setup-py"])
+    def test_a_dynamic_python_version_is_read_from_its_version_file(self, tmp_path, capsys, probe, files, version,
+                                                                   source):
+        root = _stage(tmp_path / "src", {"pyproject.toml": self.PYPROJECT, **files})
+        out = self._resolve(capsys, root, "python", "pyproject.toml", ["src/pkg/__init__.py"])
+        assert (out["version"], out["version_source"]) == (version, source)
+        assert probe.asked == []
+
+    def test_a_cargo_member_takes_its_workspace_root_version_fetched_from_github(self, tmp_path, capsys,
+                                                                                 monkeypatch, probe):
+        """The workspace root's Cargo.toml, which the listing holds and the staged folder does not, is
+        fetched at --ref, and no tag is read: the root gives the version."""
+        member = "[package]\nname = \"m\"\nversion.workspace = true\n"
+        served = {"Cargo.toml": b'[workspace]\nmembers = ["crates/m"]\n\n[workspace.package]\nversion = "0.9.1"\n'}
+        asked: list[tuple] = []
+
+        def raw(owner, repo, ref, path):
+            asked.append((owner, repo, ref, path))
+            return (served[path], "") if path in served else (None, "HTTP 404")
+
+        fetch = mod._sibling("skf-github-fetch.py")
+        monkeypatch.setattr(fetch, "_raw", raw)
+        monkeypatch.setattr(fetch, "_gh_raw", lambda *a: (None, "gh is not installed"))
+        root = _stage(tmp_path / "files", {"crates/m/Cargo.toml": member, "crates/m/src/lib.rs": "pub fn f() {}\n"})
+        listing = _listing(tmp_path, ["Cargo.toml", "crates/m/Cargo.toml", "crates/m/src/lib.rs"])
+        out = self._resolve(capsys, root, "rust", "crates/m/Cargo.toml", ["crates/m/src/lib.rs"],
+                            "--tree-file", str(listing), "--repo", "acme/lib", "--ref", "v0.9.1")
+        assert (out["version"], out["version_source"]) == ("0.9.1", "file:Cargo.toml")
+        assert asked == [("acme", "lib", "v0.9.1", "Cargo.toml")] and probe.asked == []
+
+    def test_a_go_module_takes_the_release_tag_of_its_repository(self, tmp_path, capsys, probe):
+        probe.answer["release"] = {"tag": "v0.24.0", "version": "0.24.0"}
+        root = _stage(tmp_path / "files", {"go.mod": "module golang.org/x/sync\n", "x.go": "package x\n"})
+        out = self._resolve(capsys, root, "go", "go.mod", ["x.go"], "--repo", "golang/sync")
+        assert (out["version"], out["version_source"]) == ("0.24.0", "tag:v0.24.0")
+        assert probe.asked == [("golang", "sync", None)]
+        out = self._resolve(capsys, root, "go", "go.mod", ["x.go"], "--repo", "golang/sync", "--ref", "v0.20.0")
+        assert probe.asked[-1] == ("golang", "sync", "v0.20.0")
+
+    @pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+    def test_a_local_go_module_takes_the_tag_git_describe_names(self, tmp_path, capsys, probe):
+        root = _stage(tmp_path / "src", {"go.mod": "module example.com/x\n", "x.go": "package x\n"})
+        env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t",
+               "GIT_AUTHOR_EMAIL": "t@t", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@t"}
+        for args in (["init", "-q"], ["add", "."], ["commit", "-qm", "init"], ["tag", "v1.4.0"]):
+            subprocess.run(["git", *args], cwd=root, env=env, check=True, capture_output=True)
+        out = self._resolve(capsys, root, "go", "go.mod", ["x.go"])
+        assert (out["version"], out["version_source"]) == ("1.4.0", "tag:v1.4.0")
+        assert probe.asked == []
+
+    @pytest.mark.parametrize("ref, version, asked", [
+        (None, "4.2.0", [("acme", "lib", None)]),
+        ("v5.0.0-beta.1", "5.0.0-beta.1", []),
+    ], ids=["default-branch", "pinned-tag"])
+    def test_a_javascript_prerelease_gives_way_to_the_newest_release_on_github(self, tmp_path, capsys, probe,
+                                                                               ref, version, asked):
+        probe.answer["release"] = {"tag": "v4.2.0", "version": "4.2.0"}
+        root = _stage(tmp_path / "files", {"package.json": '{"name": "lib", "version": "5.0.0-beta.1"}',
+                                           "index.js": "export const a = 1;\n"})
+        out = self._resolve(capsys, root, "js", "package.json", ["index.js"], "--repo", "acme/lib",
+                            *(["--ref", ref] if ref else []))
+        assert out["version"] == version and probe.asked == asked
+        named = [w for w in out["warnings"] if "is a pre-release on the default branch" in w]
+        assert len(named) == (1 if asked else 0)
+
+    def test_a_manifest_version_is_kept_and_named(self, tmp_path, capsys, probe):
+        root = _stage(tmp_path / "files", {"package.json": '{"name": "lib", "version": "3.2.1"}',
+                                           "index.js": "export const a = 1;\n"})
+        out = self._resolve(capsys, root, "js", "package.json", ["index.js"], "--repo", "acme/lib")
+        assert (out["version"], out["version_source"]) == ("3.2.1", "manifest") and probe.asked == []
+
+    def test_no_version_anywhere_is_null_with_a_warning(self, tmp_path, capsys, probe):
+        root = _stage(tmp_path / "files", {"go.mod": "module example.com/x\n", "x.go": "package x\n"})
+        out = self._resolve(capsys, root, "go", "go.mod", ["x.go"], "--repo", "acme/lib")
+        assert (out["version"], out["version_source"]) == (None, None)
+        assert "no version found in the manifest, a version file or a release tag; version is null" in out["warnings"]
+        probe.answer.update(status="unavailable", message="gh is not logged in")
+        out = self._resolve(capsys, root, "go", "go.mod", ["x.go"], "--repo", "acme/lib")
+        assert any(w.startswith("the tags of acme/lib could not be listed (gh is not logged in)") for w in out["warnings"])
+
+    def test_it_needs_the_source_root(self, tmp_path, capsys):
+        root = _stage(tmp_path / "src", {"go.mod": "module example.com/x\n"})
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--mode", "quick", "--language", "go", "--manifest-file", str(root / "go.mod"),
+                      "--resolve-version"])
+        assert exc.value.code == 2 and "--resolve-version reads the version files under --source-root" in \
+            capsys.readouterr().err

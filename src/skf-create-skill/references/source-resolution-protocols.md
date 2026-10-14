@@ -36,7 +36,7 @@ Outcomes, from `tag_resolution.status`:
 
 ### Implicit Tag Resolution (when only brief.version is set)
 
-When `brief.target_version` is absent but `brief.version` is present, `brief.version` is an **implicit** target version. This matches `brief-skill`'s behavior, which auto-populates `brief.version` from the latest non-prerelease release tag, so a tag matching `brief.version` is the common case, and silently reading HEAD would produce a skill labeled with `brief.version` but built from an unrelated default-branch commit.
+When `brief.target_version` is absent but `brief.version` is present, `brief.version` is an **implicit** target version. This matches `brief-skill`'s behavior, which fills `brief.version` from the source's manifest or version files or, when they hold none, its latest release tag, so a tag matching `brief.version` is the common case, and silently reading HEAD would produce a skill labeled with `brief.version` but built from an unrelated default-branch commit.
 
 With `--implicit`, resolve tries only two forms, in this order:
 

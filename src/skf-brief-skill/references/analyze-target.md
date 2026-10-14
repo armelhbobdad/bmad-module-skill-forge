@@ -180,7 +180,7 @@ If `confidence` is `low` (or `unknown` is returned for `language`) and no `langu
 
 **Resolve `{extractPublicApiHelper}`** from `{extractPublicApiProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-Identify the public API surface. **Delegate the parsing to `{extractPublicApiHelper}` whenever the detected language is supported:** it finds the entry files, parses the manifest and reads the exports and the version, so none of them is derived in prose.
+Identify the public API surface. **Delegate the parsing to `{extractPublicApiHelper}` whenever the detected language is supported:** it finds the entry files, parses the manifest, reads the exports and finds the version, so none of them is derived in prose.
 
 **Script-supported languages** (use the script): `js`, `ts`, `javascript`, `typescript`, `python`, `rust`, `go`, `java`, `kotlin`.
 
@@ -203,14 +203,14 @@ Display `Listing the exports...`. This section runs exactly one of §4.1 (script
 2. **Parse them and follow their re-exports** by path: the `manifest` (no `--manifest-file` when it is null) and one `--entry-file` per entry file (for a GitHub source, each one the fetch `fetched`):
 
    ```bash
-   uv run {extractPublicApiHelper} --mode quick --language "<language>" --source-root "<source root>" --tree-file "{run_dir}/tree.json" --manifest-file "<manifest path>" --entry-file "<entry path>" --follow [--repo "{owner}/{repo}" --ref "{analysis_ref}"] > "{run_dir}/extract.json"
+   uv run {extractPublicApiHelper} --mode quick --language "<language>" --source-root "<source root>" --tree-file "{run_dir}/tree.json" --manifest-file "<manifest path>" --entry-file "<entry path>" --follow --resolve-version [--repo "{owner}/{repo}" --ref "{analysis_ref}"] > "{run_dir}/extract.json"
    ```
 
-   `--follow` reads each module an `export *` or a star import passes names on from, round after round, so a chain is read to its end, and lists them in `followed`; for a GitHub source, `--repo` and `--ref` fetch each into `{run_dir}/files` first. A module it could not read stays in `unlisted[]`, and a warning names it.
+   `--follow` reads each module an `export *` or a star import passes names on from, round after round, so a chain is read to its end, and lists them in `followed`; for a GitHub source, `--repo` and `--ref` fetch each into `{run_dir}/files` first. A module it could not read stays in `unlisted[]`, and a warning names it. `--resolve-version` looks up a version the manifest does not state.
 
 3. On a non-zero exit of the extractor (codes 1 or 2 per its docstring), log its stderr and fall through to §4.2 (the prose-fallback path), which writes over `{run_dir}/extract.json`: never HALT just because the script choked on an unusual manifest.
 
-4. Keep `{run_dir}/extract.json`'s `package_name`, `exports` (each entry's `name`/`type`/`source_file`), `dependencies` and `warnings` for §5, which shows the package, its dependency count, the exports and the warnings. Its `version` feeds §4b instead of being derived again, and step 3 counts its exports.
+4. Keep `{run_dir}/extract.json`'s `package_name`, `exports` (each entry's `name`/`type`/`source_file`), `dependencies` and `warnings` for §5, which shows the package, its dependency count, the exports and the warnings. Its `version` feeds §4b, and step 3 counts its exports.
 
 #### 4.2 Procedure — fallback (not script-supported)
 
@@ -251,9 +251,9 @@ If CCC is unavailable or returns no results: skip this subsection silently.
 
 ### 4b. Detect Source Version
 
-**When the language was script-supported (§4 took the script path):** the `version` field returned by `{extractPublicApiHelper}` IS the detected version — do not re-derive it and do not load `{versionResolutionFile}`. The script already implements the language-specific lookups documented in that reference, so loading the reference here only burns context.
+**When §4.1 ran:** `{run_dir}/extract.json`'s `version` is the detected version, null when the extractor found none. Do not derive it again or load `{versionResolutionFile}`.
 
-**When the language was not script-supported:** load `{versionResolutionFile}` and follow the prose Detection Algorithm directly (Ruby / C# / Swift / etc. fall outside the script's coverage).
+**When §4.2 ran:** load `{versionResolutionFile}` and run its Detection Algorithm.
 
 Whichever path produced it, keep the detected version for §5, which shows it beside `target_version`. The actual write happens in step 05.
 

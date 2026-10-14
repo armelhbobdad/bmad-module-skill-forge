@@ -87,7 +87,9 @@ Version precedence (resolved into the rendered YAML's `version` field):
   3. Otherwise: detected_version when it is full X.Y.Z semver (SEMVER_RE);
      a detected version of another shape (`0.1`, `2.0.0rc1`) is passed as
      found and skipped here, with a warning.
-  4. Otherwise: "1.0.0".
+  4. Otherwise: "1.0.0", with a warning when no detected_version was given
+     (a docs-only brief aside), so a headless caller tells the default
+     from a detected 1.0.0.
 
 When target_version is set, the rendered YAML includes a `target_version`
 field whose value MUST match `version` (the script enforces this
@@ -436,6 +438,12 @@ def validate_context(ctx: dict[str, Any]) -> list[str]:
         # Warn rather than HALT — auto-detection upstream may surface odd shapes
         warnings.append(
             f"detected_version {detected!r} is not full X.Y.Z semver — falling through to default 1.0.0"
+        )
+    elif detected is None and tv is None and ctx.get("version_resolved") is None and source_type != "docs-only":
+        # The default would otherwise reach a headless caller as if detected.
+        warnings.append(
+            "no source version detected: version defaults to 1.0.0; for a remote source skf-create-skill "
+            "tries tag 1.0.0 or v1.0.0; set target_version in the brief to pin it"
         )
 
     return warnings
