@@ -9,8 +9,8 @@ Covers its subcommands:
     typed from the compare and new-file helpers' files (a document-only
     change included)
   - deletion-ratio: §2.2 trigger computation
-  - rename-candidates and apply: Category C by rule, the provenance map an
-    update writes
+  - rename-candidates, apply and metadata: Category C by rule, the
+    provenance map an update writes and the metadata.json it leaves
   - records: step 3's re-extraction records, seeded from the runner's and
     step 2's files, with the workers' patches merged in
   - a public-api skill's public surface: records marks each export by the
@@ -1678,6 +1678,238 @@ class TestPublicSurface:
         surface, problem = mod.public_surface(_public_api_run([_runner("cognify", COGNIFY, 44)], SURFACE))
         assert isinstance(surface, mod._inventory()._PublicSurface) and problem is None
         assert not hasattr(mod, "_PublicSurface") and not hasattr(mod, "_FAMILY_OF_LANGUAGE")
+
+
+
+# --------------------------------------------------------------------------
+# metadata.json after an update: the lists apply writes from the entries and file entries it changed, and the
+# `metadata` subcommand that writes the file (v4.0.0 quality gate run 1, skf-update-skill determinism-1)
+# --------------------------------------------------------------------------
+
+UPDATE_REFS = REPO_ROOT / "src" / "skf-update-skill" / "references"
+
+
+class TestApplyExports:
+    def _exports(self, update_type: str, metadata: dict, **inputs) -> list:
+        _doc, summary = mod.apply_update(update_type=update_type, skill_name="lib", test_report_run_id=None,
+                                         metadata=metadata, **inputs, **BLOCK)
+        return summary["lists"]["exports"]
+
+    def test_a_normal_update_drops_the_removed_and_renames_in_place(self) -> None:
+        """A DELETED_EXPORT and a DELETED file's entry go, a MOVED file's comes back, a rename takes its old name's
+        place, a name apply never touched stays, and each name it added an entry for comes after, once."""
+        metadata = {"scope_type": "full-library",
+                    "exports": ["stable", "search", "old_fn", "shifted", "gone_a", "mv", "renamed_from", "hand_kept"]}
+        exports = self._exports("incremental", metadata, provenance=_old_map(), **TestApplyNormal()._inputs())
+        assert exports == ["stable", "search", "shifted", "mv", "renamed_to", "hand_kept", "helper", "by_eye", "fresh"]
+        # with no metadata.json given, the summary holds no lists
+        _doc, summary = mod.apply_update(update_type="incremental", provenance=_old_map(), skill_name="lib",
+                                         test_report_run_id=None, **TestApplyNormal()._inputs(), **BLOCK)
+        assert "lists" not in summary
+
+    def test_a_public_api_update_adds_no_name_off_the_surface(self) -> None:
+        old, inputs = TestPublicSurface()._inputs()
+        doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                        test_report_run_id=None, metadata={"exports": ["search", "carried"]},
+                                        **inputs, **BLOCK)
+        assert summary["lists"]["exports"] == ["search", "carried", "cognify"]
+        assert {item["name"] for item in summary["not_public"]} == {"helper", "get_default_tasks", "moved_internal"}
+        # exports[] and the map name the same exports (old_helper is an internal entry create-skill kept)
+        assert set(summary["lists"]["exports"]) == {e["export_name"] for e in doc["entries"]} - {"old_helper"}
+
+    def test_a_gap_driven_repair_drops_a_rescoped_name_and_adds_what_it_maps(self) -> None:
+        records = TestApplyGapDriven()
+        exports = self._exports("gap-driven", {"exports": ["stable", "search", "old_fn", "shifted"]},
+                                provenance=_old_map(), records=records._records(), merge_records=records._merge())
+        assert exports == ["stable", "search", "shifted", "deep", "cited", "doc_only"]
+
+    def test_a_docs_only_update_follows_the_changed_urls(self) -> None:
+        url = "https://docs.example.com/api"
+        old = {"entries": [{"export_name": "get", "source_file": url, "confidence": "T3"},
+                           {"export_name": "gone", "source_file": url, "confidence": "T3"}]}
+        records = {"mode": "docs-only", "changed_urls": [url], "exports": [
+            {"name": "get", "type": "function", "url": url}, {"name": "put", "type": "function", "url": url}]}
+        assert self._exports("incremental", {"exports": ["get", "gone"]}, provenance=old,
+                             records=records) == ["get", "put"]
+
+    def test_a_degraded_run_lists_the_rebuilt_map(self) -> None:
+        extraction = {"exports": [{"export_name": "a", "export_type": "function", "source_file": "x.py",
+                                   "source_line": 1, "ast_node_type": "function_definition",
+                                   "extraction_method": "ast-grep", "confidence": "T1"}]}
+        assert self._exports("full", {"exports": ["a", "stale"]}, provenance=None, extraction=extraction) == ["a"]
+
+    def test_a_reference_app_keeps_no_exports(self) -> None:
+        metadata = {"scope_type": "reference-app", "exports": ["stable"]}
+        assert self._exports("incremental", metadata, provenance=_old_map(), **TestApplyNormal()._inputs()) == []
+
+
+class TestApplyFileRows:
+    def test_the_rows_follow_the_file_entries_apply_writes(self, tmp_path: Path) -> None:
+        """A row the update keeps stays as metadata.json holds it, a DELETED_FILE's row goes, a doc row is never
+        listed, and a new script or asset gets a row whose purpose the detector reads from the file."""
+        src = tmp_path / "src"
+        (src / "tools").mkdir(parents=True)
+        (src / "schemas").mkdir()
+        (src / "tools" / "new.py").write_bytes(b"#!/usr/bin/env python3\n# Rebuild the index.\nprint('x')\n")
+        (src / "schemas" / "cfg.schema.json").write_bytes(b'{"title": "Config schema", "type": "object"}\n')
+        old = _old_map()
+        old["file_entries"].append({"file_name": "assets/gone.json", "file_type": "asset", "source_file": "gone.json",
+                                    "confidence": "T1-low", "extraction_method": "file-copy",
+                                    "content_hash": "sha256:gone"})
+        compare = {"comparisons": [{"source_file": "gone.json", "classification": "DELETED_FILE",
+                                    "stored_hash": "sha256:gone", "current_hash": None}]}
+        new_files = {"new_files": [{"source_file": "schemas/cfg.schema.json", "kind": "asset"},
+                                   {"source_file": "tools/new.py", "kind": "script"}]}
+        kept = {"file": "scripts/run.sh", "purpose": "Run the demo, as the author wrote it",
+                "source_file": "tools/run.sh", "confidence": "T1-low"}
+        metadata = {"exports": [], "scripts": [kept],
+                    "assets": [{"file": "assets/gone.json", "purpose": "gone", "source_file": "gone.json",
+                                "confidence": "T1-low"}]}
+        _doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                         test_report_run_id=None, compare=compare, new_files=new_files,
+                                         source_root=src, metadata=metadata, **BLOCK)
+        assert summary["lists"]["scripts"] == [
+            kept, {"file": "scripts/new.py", "purpose": "Rebuild the index.", "source_file": "tools/new.py",
+                   "confidence": "T1-low"}]
+        assert summary["lists"]["assets"] == [
+            {"file": "assets/cfg.schema.json", "purpose": "Config schema", "source_file": "schemas/cfg.schema.json",
+             "confidence": "T1-low"}]
+
+    def test_a_row_with_no_file_to_read_takes_its_name(self) -> None:
+        """A file entry metadata.json lists no row for, with no source tree to read it in: its file name."""
+        _doc, summary = mod.apply_update(update_type="incremental", provenance=_old_map(), skill_name="lib",
+                                         test_report_run_id=None, metadata={"exports": []}, **BLOCK)
+        assert summary["lists"]["scripts"] == [{"file": "scripts/run.sh", "purpose": "run.sh",
+                                                "source_file": "tools/run.sh", "confidence": "T1-low"}]
+        assert summary["lists"]["assets"] == []
+
+    def test_apply_writes_the_lists_to_the_run_folder(self, tmp_path: Path) -> None:
+        old, inputs = TestPublicSurface()._inputs()
+        paths = {}
+        for key, value in (("map", old), ("manifest", inputs["manifest"]), ("extraction", inputs["extraction"]),
+                           ("records", inputs["records"]), ("metadata", {"exports": ["search", "carried"]})):
+            paths[key] = tmp_path / f"{key}.json"
+            paths[key].write_bytes(json.dumps(value).encode("utf-8"))
+        out, lists = tmp_path / "new-map.json", tmp_path / "metadata-lists.json"
+        common = ("apply", "--update-type", "incremental", "--provenance-map", str(paths["map"]),
+                  "--manifest", str(paths["manifest"]), "--extraction", str(paths["extraction"]),
+                  "--reextract-records", str(paths["records"]), "--skill-name", "lib",
+                  "--generation-date", "2026-10-01T10:00:00Z", "--confidence-tier", "Forge",
+                  "--manual-sections-preserved", "0", "-o", str(out))
+        alone = _run_cli(*common, "--metadata-in", str(paths["metadata"]))
+        assert alone.returncode == 1 and "go together" in alone.stderr and not out.exists()
+        result = _run_cli(*common, "--metadata-in", str(paths["metadata"]), "--lists-out", str(lists))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(lists.read_bytes()) == {"exports": ["search", "carried", "cognify"], "scripts": [],
+                                                   "assets": []}
+        assert "lists" not in json.loads(result.stdout)
+
+
+LISTS = {"exports": ["search", "fresh"],
+         "scripts": [{"file": "scripts/run.sh", "purpose": "run", "source_file": "tools/run.sh",
+                      "confidence": "T1-low"}],
+         "assets": []}
+STATS_OUT = {"stats": {"exports_documented": 2, "exports_public_api": 2, "exports_internal": 0, "exports_total": 2,
+                       "public_api_coverage": 1.0, "total_coverage": 1.0, "scripts_count": 1, "assets_count": 0},
+             "confidence_distribution": {"t1": 1, "t1_low": 1, "t2": 0, "t3": 0},
+             "coherence": {"ok": True, "violations": []}}
+
+
+def _skill_metadata() -> dict:
+    return {"name": "lib", "version": "1.0.0", "skill_type": "single", "scope_type": "component-library",
+            "source_root": "https://github.com/o/lib", "source_commit": "aaa", "source_ref": "v1",
+            "generation_date": "2026-01-01T00:00:00Z", "description": "Lib.", "exports": ["search", "old"],
+            "doc_sources": [{"url": "https://docs", "content_hash": "sha256:x"}],
+            "stats": {"exports_documented": 9, "effective_denominator": 4, "components_registered": 3,
+                      "notes": "patched"},
+            "confidence_distribution": {"t1": 9, "t1_low": 0, "t2": 0, "t3": 0},
+            "assets": [{"file": "assets/gone.json", "purpose": "gone", "source_file": "gone.json"}],
+            "last_update": "2026-01-01", "update_type": "incremental"}
+
+
+class TestUpdateMetadata:
+    def test_it_sets_what_the_update_owns_and_keeps_the_rest(self) -> None:
+        out = mod.update_metadata(_skill_metadata(), LISTS, STATS_OUT, version="1.1.0",
+                                  generation_date="2026-10-01T10:00:00Z", source_commit="bbb")
+        assert out == {
+            "name": "lib", "version": "1.1.0", "skill_type": "single", "scope_type": "component-library",
+            "source_root": "https://github.com/o/lib", "source_commit": "bbb", "source_ref": "v1",
+            "generation_date": "2026-10-01T10:00:00Z", "description": "Lib.", "exports": ["search", "fresh"],
+            "doc_sources": [{"url": "https://docs", "content_hash": "sha256:x"}],
+            # the stats helper's fields, then a component library's own count and a patched note; the
+            # effective_denominator this run's stats leave out is gone
+            "stats": {**STATS_OUT["stats"], "components_registered": 3, "notes": "patched"},
+            "confidence_distribution": STATS_OUT["confidence_distribution"],
+            "scripts": LISTS["scripts"]}
+        assert "last_update" not in out and "update_type" not in out and "assets" not in out
+
+    def test_an_empty_ref_clears_it_and_no_flag_keeps_it(self) -> None:
+        out = mod.update_metadata(_skill_metadata(), LISTS, STATS_OUT, version="1.0.0",
+                                  generation_date="2026-10-01T10:00:00Z", source_ref="")
+        assert (out["source_commit"], out["source_ref"]) == ("aaa", None)
+
+    @pytest.mark.parametrize("change,needle", [
+        ({"stats": {**STATS_OUT, "stats": {**STATS_OUT["stats"], "scripts_count": 0}}},
+         "the stats count 0 scripts but apply's lists hold 1"),
+        ({"generation_date": "2026-10-01"}, "--generation-date must be YYYY-MM-DDTHH:MM:SSZ"),
+        ({"lists": {"exports": []}}, "--lists file must hold"),
+        ({"stats": {"stats": {}}}, "--stats file must hold"),
+        ({"metadata": []}, "--metadata file must hold a JSON object"),
+        ({"version": " "}, "--version must not be empty"),
+    ], ids=["stats-from-other-lists", "date-not-from-the-clock", "lists-not-apply", "stats-not-the-helpers",
+            "metadata-not-an-object", "empty-version"])
+    def test_it_refuses_inputs_that_do_not_fit(self, change: dict, needle: str) -> None:
+        given = {"metadata": _skill_metadata(), "lists": LISTS, "stats": STATS_OUT, "version": "1.1.0",
+                 "generation_date": "2026-10-01T10:00:00Z", **change}
+        with pytest.raises(ValueError, match=re.escape(needle)):
+            mod.update_metadata(given["metadata"], given["lists"], given["stats"], version=given["version"],
+                                generation_date=given["generation_date"])
+
+    def test_the_cli_writes_in_place_or_nothing(self, tmp_path: Path) -> None:
+        target, lists, stats_file = tmp_path / "metadata.json", tmp_path / "lists.json", tmp_path / "stats.json"
+        target.write_bytes(json.dumps(_skill_metadata()).encode("utf-8"))
+        lists.write_bytes(json.dumps(LISTS).encode("utf-8"))
+        stats_file.write_bytes(json.dumps({**STATS_OUT, "stats": {**STATS_OUT["stats"], "scripts_count": 2}})
+                               .encode("utf-8"))
+        argv = ("metadata", "--metadata", str(target), "--lists", str(lists), "--stats", str(stats_file),
+                "--version", "1.1.0", "--generation-date", "2026-10-01T10:00:00Z", "--source-commit", "bbb")
+        refused = _run_cli(*argv)
+        assert refused.returncode == 1 and "the stats count 2 scripts" in refused.stderr
+        assert json.loads(target.read_bytes()) == _skill_metadata()
+        stats_file.write_bytes(json.dumps(STATS_OUT).encode("utf-8"))
+        result = _run_cli(*argv)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout) == {"status": "written", "metadata": target.as_posix(), "version": "1.1.0",
+                                             "exports": 2, "scripts": 1, "assets": 0}
+        assert json.loads(target.read_bytes())["source_commit"] == "bbb"
+
+
+def test_write_sets_metadata_through_the_helper() -> None:
+    """write.md §3 passes the flags and §2 writes metadata.json through `metadata`, keeping no rule of its own,
+    and merge.md's Priority 6 leaves the script and asset rows to it."""
+    write = (UPDATE_REFS / "write.md").read_text(encoding="utf-8")
+    call = write[write.index("uv run {buildChangeManifestHelper} apply"):]
+    call = call[:call.index("```")]
+    assert '--metadata-in "{skill_package}/metadata.json"' in call
+    assert '--lists-out "{run_dir}/metadata-lists.json"' in call
+    two = write[write.index("### 2. Write Updated metadata.json"):write.index("### 3. ")]
+    meta = two[two.index("uv run {buildChangeManifestHelper} metadata"):]
+    meta = meta[:meta.index("```")]
+    for flag in ('--metadata "{skill_package}/metadata.json"', '--lists "{run_dir}/metadata-lists.json"',
+                 '--stats "{run_dir}/stats.json"', '--version "{new_version}"',
+                 '--generation-date "{generation_date}"'):
+        assert flag in meta, flag
+    assert two.count('-o "{run_dir}/stats.json"') == 2
+    for gone in ("Update `exports` array to reflect current export list", "add no name whose record",
+                 "Set `exports` to the list", "into `metadata.json` **verbatim**", "Update `generation_date`",
+                 "and write the `stats` and `confidence_distribution` it returns"):
+        assert gone not in two, gone
+    # a gap-driven patch reaches metadata.json before apply reads it, and never exports[], which apply owns
+    assert "to `metadata.json`, before §3's `apply` reads it" in two
+    assert "apply none to `exports[]`, which §3's `apply` builds from the list it reads" in two
+    merge = (UPDATE_REFS / "merge.md").read_text(encoding="utf-8")
+    assert "`metadata.json` `scripts[]`/`assets[]`" not in merge
+    assert "and `stats.scripts_count`/`stats.assets_count`" not in merge
 
 
 TRACE = "cognee/modules/observability/trace_context.py"

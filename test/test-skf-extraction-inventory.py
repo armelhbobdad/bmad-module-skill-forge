@@ -9,9 +9,11 @@ through `add`, `summary` counts it (step 3c's zero-content check reads
 `items`, step 5 its `t2_future`), step 5 writes the provenance map with
 `provenance` (an entry per inventory export, T1 and T1-low, the runner's
 params as the map's typed strings, per language) and merges its T2, T3 and
-file entries with `provenance --add-entries`, and step 7 writes
-extraction-rules.yaml with `rules`. A T3 item never overrides an export the
-inventory already holds, and an entry added twice is kept once.
+file entries with `provenance --add-entries`, then metadata.json with
+`metadata` (every field but those it decides, which it sends on stdin), and
+step 7 writes extraction-rules.yaml with `rules`. A T3 item never overrides
+an export the inventory already holds, and an entry added twice is kept
+once.
 """
 
 from __future__ import annotations
@@ -20,9 +22,12 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
+import textwrap
+import time
 from pathlib import Path
 
 import pytest
@@ -1182,3 +1187,295 @@ def test_the_temporal_fetch_reads_top_exports_from_the_inventory(tmp_path):
     assert ('uv run {fetchTemporalHelper} fetch --repo "{temporal_repo}" --feeder "{temporal_feeder}" '
             '--exports "{extraction_inventory}"') in prose
     assert "SKF_TOP_EXPORTS" not in prose and "as a JSON list" not in prose
+
+
+# --------------------------------------------------------------------------
+# metadata: compile §4 types only the fields it decides (v4.0.0 quality gate run 1, skf-create-skill determinism-1)
+# --------------------------------------------------------------------------
+
+BRIEF = """name: demo
+version: 1.0.0
+source_repo: https://github.com/o/demo
+language: python
+description: A demo library.
+forge_tier: Forge
+created: 2026-10-01
+created_by: test
+scope:
+  type: {scope_type}
+  include: []
+  exclude: []
+  notes: none
+{extra}---
+"""
+STATS_JSON = {"stats": {"exports_documented": 2, "exports_public_api": 2, "exports_internal": 1, "exports_total": 3,
+                        "public_api_coverage": 1.0, "total_coverage": 0.6667, "scripts_count": 2, "assets_count": 1},
+              "confidence_distribution": {"t1": 1, "t1_low": 1, "t2": 0, "t3": 0},
+              "coherence": {"ok": True, "violations": []}}
+DECIDED = {"version": "2.3.0", "language": "python", "source_root": "https://github.com/o/demo",
+           "source_commit": "0123456789abcdef", "source_ref": "v2.3.0", "qmd_version": None}
+DESCRIPTION = "Parse and fetch. Use when \"demo\" code is written: {T} stays sanitized."
+SKILL_MD = "---\nname: demo\ndescription: >-\n  Parse and fetch. Use when \"demo\" code is written:\n  {T} stays " \
+           "sanitized.\n---\n\n# demo\n"
+METADATA_INVENTORY = {
+    **INVENTORY, **DETECTED_JSON,
+    "exports": [
+        {"export_name": "parse", "source_file": "src/a.py", "confidence": "T1"},
+        {"export_name": "helper", "source_file": "src/a.py", "confidence": "T1", "internal": True},
+        {"export_name": "Client", "source_file": "src/b.py", "confidence": "T1-low", "public": True},
+        {"export_name": "parse", "source_file": "src/c.py", "confidence": "T1"},
+        {"export_name": "hidden", "source_file": "src/d.py", "confidence": "T1", "public": False},
+    ],
+    "aggregates": {"exports": 4, "by_type": {"function": 4}, "t1": 4, "t1_low": 0},
+    "extraction_rules": {"recipe_set": "standard", "recipes": ["py-function-defs"], "scope": {},
+                         "ast_grep_version": "0.45.3"},
+    "t3_items": [{"export_name": "configure", "citation": "[EXT:https://docs]"}],
+}
+
+
+def _metadata_files(tmp_path: Path, inventory: dict = METADATA_INVENTORY, scope_type: str = "full-library",
+                    extra: str = "source_authority: official\n", version: str | None = "4.0.0") -> dict:
+    """The files `metadata` reads: the inventory, the brief, the stats helper's JSON, an installed module and the
+    staged SKILL.md beside the target."""
+    paths = {"inventory": _write(tmp_path, inventory), "brief": tmp_path / "skill-brief.yaml",
+             "stats": _write(tmp_path, STATS_JSON, "demo.stats.json"), "skf": tmp_path / "_bmad" / "skf",
+             "target": tmp_path / "metadata.json"}
+    paths["brief"].write_text(BRIEF.format(scope_type=scope_type, extra=extra), encoding="utf-8")
+    (tmp_path / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
+    paths["skf"].mkdir(parents=True)
+    if version is not None:
+        (paths["skf"] / "VERSION").write_text(version + "\n", encoding="utf-8")
+    return paths
+
+
+def _metadata(paths: dict, decided: dict = DECIDED) -> subprocess.CompletedProcess:
+    return _run("metadata", "--inventory", str(paths["inventory"]), "--brief", str(paths["brief"]),
+                "--stats", str(paths["stats"]), "--skf-root", str(paths["skf"]), "--target", str(paths["target"]),
+                stdin=json.dumps(decided))
+
+
+def test_metadata_writes_every_field_compile_does_not_decide(tmp_path):
+    """The brief gives the name, scope type, repository and authority, the staged SKILL.md the description, the
+    inventory the tier, the public exports, the node count, the ast-grep version and the script and asset rows,
+    the stats helper its two objects, the installed module the SKF version and the clock the date: compile sends
+    only what it decides."""
+    paths = _metadata_files(tmp_path)
+    before = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    # the runner recorded its version, so a version stdin gives is not read
+    out = _ok(_metadata(paths, {**DECIDED, "ast_grep_version": "9.9.9"}))
+    after = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    written = _load(paths["target"])
+    stamp = written.pop("generation_date")
+    assert re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", stamp) and before <= stamp <= after
+    assert written == {
+        "name": "demo", "version": "2.3.0", "skill_type": "single", "scope_type": "full-library",
+        "source_authority": "official", "source_repo": "https://github.com/o/demo",
+        "source_root": "https://github.com/o/demo", "source_commit": "0123456789abcdef", "source_ref": "v2.3.0",
+        "confidence_tier": "Forge", "spec_version": "1.3", "description": DESCRIPTION,
+        "language": "python", "ast_node_count": 4,
+        # the internal export and the one off the public surface stay out, and a name in two files is listed once
+        "exports": ["parse", "Client"],
+        "tool_versions": {"ast_grep": "0.45.3", "qmd": None, "skf": "4.0.0"},
+        "confidence_distribution": STATS_JSON["confidence_distribution"],
+        "stats": STATS_JSON["stats"],
+        "scripts": [{"file": "scripts/run.sh", "purpose": "runner", "source_file": "bin/run.sh",
+                     "confidence": "T1-low"},
+                    {"file": "scripts/release.sh", "purpose": "release", "source_file": "scripts/release.sh",
+                     "confidence": "T1-low"}],
+        "assets": [{"file": "assets/a.schema.json", "purpose": "schema", "source_file": "schemas/a.schema.json",
+                    "confidence": "T1-low"}],
+        "generated_by": "create-skill", "dependencies": [], "compatibility": ""}
+    assert out == {"status": "ok", "target": paths["target"].as_posix(), "exports": 2, "commit_short": "01234567",
+                   "tool_versions": written["tool_versions"], "warnings": []}
+    assert _load(paths["inventory"]) == METADATA_INVENTORY  # the inventory is not changed
+
+
+def test_metadata_keeps_a_runless_inventory_and_an_empty_one_lean(tmp_path):
+    """No ast-grep at all (Quick tier, or every export read by eye): no node count and a null ast-grep version.
+    No script or asset detected: no scripts[] or assets[]. No source authority in the brief: community. No
+    commit: unknown."""
+    by_eye = [{**e, "confidence": "T1-low", "extraction_method": "source-read"} for e in METADATA_INVENTORY["exports"]]
+    inventory = {**METADATA_INVENTORY, "exports": by_eye, "scripts_inventory": [], "assets_inventory": [],
+                 "extraction_rules": {}, "aggregates": {}}
+    paths = _metadata_files(tmp_path, inventory, extra="")
+    out = _ok(_metadata(paths, {**DECIDED, "source_commit": None, "qmd_version": "2.0.1"}))
+    written = _load(paths["target"])
+    assert "ast_node_count" not in written and "scripts" not in written and "assets" not in written
+    assert written["tool_versions"] == {"ast_grep": None, "qmd": "2.0.1", "skf": "4.0.0"}
+    assert (written["source_authority"], written["source_commit"], out["commit_short"]) == \
+        ("community", None, "unknown")
+    assert out["warnings"] == []
+
+
+@pytest.mark.parametrize("given,version,warned", [
+    ("0.41.1", "0.41.1", False),
+    (None, "unknown", True),
+], ids=["version-from-stdin", "no-version-unknown"])
+def test_metadata_counts_the_recipes_run_without_the_runner(tmp_path, given, version, warned):
+    """The runner left no version (no-ast-grep, a failure, no JSON) and step 3 ran the recipes through the MCP
+    server or the CLI, labeling its matches ast-grep: ast-grep ran, so the node count is the number of those
+    exports and the version is the one stdin gives, else unknown with a warning."""
+    exports = [{"export_name": "parse", "source_file": "src/a.py", "confidence": "T1", "extraction_method": "ast-grep"},
+               {"export_name": "fetch", "source_file": "src/a.py", "confidence": "T1", "extraction_method": "ast-grep",
+                "internal": True},
+               {"export_name": "Client", "source_file": "src/b.py", "confidence": "T1-low",
+                "extraction_method": "source-read"}]
+    inventory = {**METADATA_INVENTORY, "exports": exports, "extraction_rules": {"ast_grep_version": None},
+                 "aggregates": {"exports": 0}}
+    paths = _metadata_files(tmp_path, inventory)
+    out = _ok(_metadata(paths, {**DECIDED, "ast_grep_version": given}))
+    written = _load(paths["target"])
+    assert written["ast_node_count"] == 2 and written["tool_versions"]["ast_grep"] == version
+    assert [w.startswith("tool_versions.ast_grep is unknown") for w in out["warnings"]] == ([True] if warned else [])
+
+
+@pytest.mark.parametrize("scope_type,mode,exports", [
+    ("docs-only", "docs-only", ["configure"]),
+    ("reference-app", "source", []),
+], ids=["docs-only-t3-items", "reference-app-empty"])
+def test_metadata_exports_follow_the_shape(tmp_path, scope_type, mode, exports):
+    """A docs-only skill's exports are its T3 items; a reference app's exports[] is empty by design."""
+    paths = _metadata_files(tmp_path, {**METADATA_INVENTORY, "extraction_mode": mode}, scope_type=scope_type)
+    _ok(_metadata(paths))
+    assert _load(paths["target"])["exports"] == exports
+
+
+def test_metadata_warns_when_the_skf_version_is_unknown(tmp_path):
+    paths = _metadata_files(tmp_path, version=None)
+    out = _ok(_metadata(paths))
+    assert _load(paths["target"])["tool_versions"]["skf"] == "unknown"
+    assert len(out["warnings"]) == 1 and out["warnings"][0].startswith("tool_versions.skf is unknown")
+
+
+@pytest.mark.parametrize("decided,needle", [
+    ({k: v for k, v in DECIDED.items() if k != "source_ref"}, "needs source_ref"),
+    ({**DECIDED, "exports": ["parse"]}, "not exports"),
+    ({**DECIDED, "description": "Typed again."}, "not description"),
+    ({**DECIDED, "dependencies": []}, "not dependencies"),
+    ({**DECIDED, "language": "  "}, "language must be a non-empty str"),
+    ({**DECIDED, "version": 2}, "version must be a non-empty str"),
+    ({**DECIDED, "stats_extra": {"exports_documented": 9}}, "stats_extra may not set exports_documented"),
+    ({**DECIDED, "stats_extra": {"components_registered": 3}}, "a full-library skill takes no stats_extra"),
+    ([DECIDED], "stdin must hold a JSON object"),
+], ids=["missing-key", "unknown-key", "description-typed", "dependencies-typed", "empty-language",
+        "number-version", "stats-clash", "stats-extra-off-shape", "not-an-object"])
+def test_metadata_refuses_a_bad_payload(tmp_path, decided, needle):
+    paths = _metadata_files(tmp_path)
+    proc = _metadata(paths, decided)
+    assert proc.returncode == 1 and needle in json.loads(proc.stderr)["message"]
+    assert not paths["target"].exists()
+
+
+@pytest.mark.parametrize("scope_type,extra,stats", [
+    ("component-library", {"components_registered": 3, "design_variants": {}}, {"components_registered": 3,
+                                                                                 "design_variants": {}}),
+    ("reference-app", {"notes": "reference-app: export counts are pattern-surface proxies"},
+     {"notes": "reference-app: export counts are pattern-surface proxies"}),
+    ("reference-app", {"pattern_surfaces_documented": 4}, None),
+], ids=["component-library-stats", "reference-app-notes", "reference-app-surface-count-refused"])
+def test_metadata_stats_extra_follows_the_shape(tmp_path, scope_type, extra, stats):
+    """A component library adds its own stats, a reference app its notes alone: the stats helper writes its
+    pattern_surfaces_documented."""
+    paths = _metadata_files(tmp_path, scope_type=scope_type)
+    proc = _metadata(paths, {**DECIDED, "stats_extra": extra})
+    if stats is None:
+        assert proc.returncode == 1 and "holds only notes" in json.loads(proc.stderr)["message"]
+        return
+    _ok(proc)
+    assert _load(paths["target"])["stats"] == {**STATS_JSON["stats"], **stats}
+
+
+@pytest.mark.parametrize("broken,needle", [
+    ("brief", "not valid YAML"),
+    ("stats", "stats helper's JSON"),
+    ("scope", "no scope.type"),
+    ("skill-md", "cannot read the description of the staged SKILL.md"),
+    ("no-description", "has no `description` field"),
+], ids=["brief-not-yaml", "stats-not-the-helpers", "brief-without-scope-type", "no-staged-skill-md",
+        "skill-md-without-description"])
+def test_metadata_refuses_an_input_it_cannot_read(tmp_path, broken, needle):
+    paths = _metadata_files(tmp_path)
+    if broken == "brief":
+        paths["brief"].write_text("name: [demo\n", encoding="utf-8")
+    elif broken == "stats":
+        paths["stats"].write_text(json.dumps({"stats": {}}), encoding="utf-8")
+    elif broken == "skill-md":
+        (tmp_path / "SKILL.md").unlink()
+    elif broken == "no-description":
+        (tmp_path / "SKILL.md").write_text("---\nname: demo\n---\n\n# demo\n", encoding="utf-8")
+    else:
+        paths["brief"].write_text("name: demo\nscope:\n  include: []\n", encoding="utf-8")
+    proc = _metadata(paths)
+    assert proc.returncode == 1 and needle in json.loads(proc.stderr)["message"]
+    assert not paths["target"].exists()
+
+
+def _documented_call(block: str, values: dict, script: Path) -> tuple[list[str], str]:
+    """A documented `uv run {helper} ...` call with its placeholders filled, as argv for this interpreter, and the
+    stdin its heredoc holds."""
+    head, _, rest = textwrap.dedent(block).partition("<<'SKF_JSON'\n")
+    for placeholder, value in values.items():
+        head = head.replace(placeholder, value)
+    words = shlex.split(head.replace("\\\n", " "))
+    assert words[:2] == ["uv", "run"], words
+    return [sys.executable, str(script), *words[3:]], rest.split("\nSKF_JSON")[0]
+
+
+def test_compile_writes_metadata_through_the_helper(tmp_path):
+    """compile.md §4 runs the stats helper with -o, then `metadata` on that file: every documented call runs,
+    the payload it documents is one the helper takes, and the stats helper's check finds the metadata.json it
+    wrote coherent with the staged map. §4 resolves no version and sets no field by hand any more."""
+    text = COMPILE.read_text(encoding="utf-8")
+    four = text[text.index("### 4. Build metadata.json Content"):text.index("### 5. ")]
+    for gone in ("Set `generation_date`", "resolution chain", "Resolve `{ast_grep_version}`", "Populate all fields",
+                 "Store `commit_short`", "populate the `scripts[]` array"):
+        assert gone not in four, gone
+    stats_block, meta_block = [b for b in re.findall(r"```bash\n(.*?)```", four, re.S)
+                               if "-o \"{stats_json}\"" in b or " metadata " in b]
+    assert 'rm -f "{stats_json}"' in stats_block and '--stats "{stats_json}"' in meta_block
+    assert "{stats_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.stats.json`" in four
+    # the runner-fallback version, and the stats each shape adds, are the only optional keys §4 documents
+    assert ("When step 3 ran the recipes without the runner (extraction-patterns.md's **When the Runner Cannot "
+            "Run**), add `ast_grep_version`") in four
+    assert ("For a component library, add `stats_extra`, the fields `{assemblyRulesData}`'s Component Library "
+            "stats block adds; for a reference app, only its `notes`") in four
+    # metadata.json does not exist when §6 writes the map, and the helper owns which exports metadata.json lists
+    assert "the source fields §4 set in metadata.json" not in text
+    assert "the values §4's `metadata` call sends (`null` for one that is unavailable)" in text
+    assert "`metadata.json`'s `exports[]`" not in text
+    assert "Fill its Tool Versions block from `{tool_versions}` (§4), with `not used` for a null one." in text
+    paths = _metadata_files(tmp_path, {**METADATA_INVENTORY, "extraction_rules": {}, "aggregates": {}})
+    staging = tmp_path / "stage"
+    staging.mkdir()
+    (staging / "SKILL.md").write_text(SKILL_MD, encoding="utf-8")
+    _provenance(paths["inventory"], staging / "provenance-map.json")
+    rows = [{"file_name": f"{kind}s/{e['name']}", "file_type": kind, "source_file": e["source_file"],
+             "content_hash": e["content_hash"], "confidence": "T1-low", "extraction_method": "file-copy"}
+            for kind, key in (("script", "scripts_inventory"), ("asset", "assets_inventory"))
+            for e in DETECTED_JSON[key]]
+    _ok(_run("provenance", "--inventory", str(paths["inventory"]), "--target", str(staging / "provenance-map.json"),
+             "--add-entries", stdin=json.dumps({"file_entries": rows})))
+    stats_json = tmp_path / "demo.stats.json"
+    values = {"{stats_json}": stats_json.as_posix(), "<staging-skill-dir>": staging.as_posix(),
+              "{renderMetadataStatsHelper}": "stats", "{extractionInventoryHelper}": "inventory",
+              "{extraction_inventory}": paths["inventory"].as_posix(), "{brief_path}": paths["brief"].as_posix(),
+              "{project-root}/_bmad/skf": paths["skf"].as_posix()}
+    stats_call = next(line for line in stats_block.splitlines() if "uv run {renderMetadataStatsHelper}" in line)
+    argv, _ = _documented_call(stats_call.strip().lstrip("| "), values, STATS)
+    judgment = {"exports_public_api": 2, "exports_internal": 1,
+                "scripts": DETECTED_JSON["scripts_inventory"], "assets": DETECTED_JSON["assets_inventory"]}
+    ran = subprocess.run(argv, input=json.dumps(judgment), capture_output=True, text=True, encoding="utf-8",
+                         timeout=60, check=False)
+    assert ran.returncode == 0 and stats_json.is_file(), ran.stderr
+    argv, payload = _documented_call(meta_block, values, SCRIPT)
+    assert set(json.loads(payload)) == {"version", "language", "source_root", "source_commit", "source_ref",
+                                        "qmd_version"}
+    ran = subprocess.run(argv, input=payload, capture_output=True, text=True, encoding="utf-8", timeout=60,
+                         check=False)
+    assert ran.returncode == 0, ran.stderr
+    target = staging / "metadata.json"
+    assert _load(target)["description"] == DESCRIPTION
+    check = subprocess.run([sys.executable, str(STATS), (staging / "provenance-map.json").as_posix(),
+                            "--check", target.as_posix()], capture_output=True, text=True, encoding="utf-8",
+                           timeout=60, check=False)
+    assert json.loads(check.stdout)["coherence"] == {"ok": True, "violations": []}, check.stdout

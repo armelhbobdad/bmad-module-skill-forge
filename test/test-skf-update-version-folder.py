@@ -161,7 +161,8 @@ def test_merge_stages_copies_publishes_and_rebinds_in_order():
 
 def test_write_names_the_folder_step_4_created():
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
-    assert "Update `version` to `{new_version}`, the version step 4 §6b chose" in two
+    assert "`version` is `{new_version}`, the version step 4 §6b chose" in two
+    assert '--version "{new_version}"' in two
     assert "From here on `{version}` is `{new_version}`" in two
     assert "increment patch version" not in two
     three = _slice(_read(WRITE), "### 3. Write Updated provenance-map.json", "Dispatch on its exit code:")
