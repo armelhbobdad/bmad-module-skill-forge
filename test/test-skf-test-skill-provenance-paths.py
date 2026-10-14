@@ -794,6 +794,7 @@ QUICK_SURFACE_CMD = ('uv run {coverageInputsScript} surface --quick "{run_dir}/q
                      '[--per-file "{run_dir}/per-file-<n>.json"] '
                      '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] '
                      '--metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] '
+                     '[--monorepo] [--pattern-reference-intent] [--curated-subset] [--barrel <state>] '
                      '--output "{run_dir}/surface.json"')
 
 
@@ -876,16 +877,42 @@ def test_workspace_layout_comes_from_the_detector():
     assert "**Workspace Layout:** {source_workspace_kind" in _read(COVERAGE)
 
 
-@pytest.mark.parametrize("start, end", [
-    ("- **Stratified-scope monorepo packages", "Resolution order:"),
-    ("- **Pattern-reference apps", "The denominator is"),
-    ("- **Multi-entry (exports-map) packages", "Installers reach"),
-], ids=["stratified-scope", "pattern-reference", "multi-entry"])
-def test_each_monorepo_test_reads_the_detector(start, end):
-    clause = _slice(_read(SOURCE_ACCESS), start, end)
-    assert "`{source_is_monorepo}`" in clause
+def test_each_monorepo_test_reads_the_detector():
+    """The clause's monorepo test is the detector's `{source_is_monorepo}`, passed as `--monorepo`
+    (v4.0.0 quality gate run 1, test-skill determinism-1: `surface` picks the clause), never a layout
+    read by eye."""
+    protocol = _read(SOURCE_ACCESS)
+    pick = _slice(protocol, "The clauses below decide", "Each clause, by its `denominator.clause`")
+    assert "`{source_is_monorepo}` (coverage-check.md §0b, passed as `--monorepo`)" in _flow(pick)
+    flags = _flow(_slice(_read(COVERAGE), "**Clause flags.**", "### 1. Extract Documented Exports"))
+    assert "`--monorepo` when `{source_is_monorepo}` is true" in flags
     for by_eye in ("`packages/` layout", "no `packages/`", "monorepo markers"):
-        assert by_eye not in clause, by_eye
+        assert by_eye not in protocol, by_eye
+
+
+def test_the_flags_left_to_the_model_are_stated_once():
+    """v4.0.0 quality gate run 1 review: the clause flags are the protocol's alone (§0b restated two of them);
+    `--curated-subset` stands only where the extraction has no `counts.curated_subset`, which `surface` reads
+    first, and `--barrel` carries the entry points' state where no extraction or quick output gives it, so the
+    empty-barrel and no-barrel triggers still fire on a fallback scan, a Quick-tier read by eye and State 4."""
+    flags = _flow(_slice(_read(COVERAGE), "**Clause flags.**", "### 1. Extract Documented Exports"))
+    assert "the flags the Source API Surface Definition leaves to you" in flags
+    assert "scope.notes" not in flags and "curated subset" not in flags
+    protocol = _flow(_slice(_read(SOURCE_ACCESS), "The clauses below decide", "The recipe runner already"))
+    for token in ("- **Pattern-reference intent** (`--pattern-reference-intent`):",
+                  "- **A curated monorepo subset** (`--curated-subset`), where the extraction has no "
+                  "`counts.curated_subset` (Quick tier, the fallback per-file scan, States 2 to 4):",
+                  "- **The entry points' state** (`--barrel`), where no complete extraction or quick output gives it "
+                  "(the fallback per-file scan when the runner listed entry points, Quick tier read by eye, State 4): "
+                  "`none` when no barrel file is at any recognized entry-point path"):
+        assert token in protocol, token
+    for command in (_command(COVERAGE_TIERS, "surface --quick"), _command(COVERAGE_TIERS, "surface --per-file")):
+        assert "[--barrel <state>]" in command, command
+    # the audit trail block stays with the two clauses whose candidates it compares
+    section4 = _flow(_read(COVERAGE))
+    assert ("When `denominator.clause` is `stratified-scope` or `multi-entry`, append this block after the "
+            "`Denominator:` line") in section4
+    assert "When `denominator.ladderStep` is set" not in section4
 
 
 @pytest.mark.parametrize("files, expected", [
@@ -1124,7 +1151,8 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     command = _command(COVERAGE, "surface --extraction")
     assert command == ('uv run {coverageInputsScript} surface --extraction "{run_dir}/extract-full.json" '
                        '--metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] '
-                       '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] --output "{run_dir}/surface.json"')
+                       '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] '
+                       '[--monorepo] [--pattern-reference-intent] [--curated-subset] --output "{run_dir}/surface.json"')
     forge = _flow(_slice(_read(COVERAGE), "**Forge Tier (ast-grep available):**", "**Deep Tier"))
     # an outer package that exports nothing (a stray source-root __init__.py) nests nothing; the nested names
     # leave the standard barrel and the umbrella ratio, never the scope sets or the signature comparisons
@@ -1148,21 +1176,21 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
             "still count them and their signatures are still compared") in protocol
     assert ("unless `scope.exclude` or a `scope-expansion` amendment whose latest action is `skipped` or "
             "`demoted-include` matches the file") in protocol
-    # with no tier A glob matching a file there is no tier_a_include set: the ladder and the guards go on
-    assert "2. Otherwise the `tier_a_include` set when `surface.json` has it" in protocol
-    # #712: nor when the globs match only files that define no name, at a pattern-reference app too
-    # (#725: or only files scope.include leaves out)
-    assert ("when the tier A globs count no name (none matches a file, or each matches only files `scope.exclude` "
-            "drops, that `scope.include` leaves out or that define no public name), `surface.json` has no "
-            "`tier_a_include` set and priority 3 applies") in protocol
+    # with no tier A glob matching a file there is no tier_a_include set, nor (#712) when the globs match only
+    # files that define no name, nor (#725) only files scope.include leaves out: the script's ladder goes on
+    # (test-skf-load-coverage-inputs.py pins it)
+    assert ("A `scope.tier_a_include` glob counts a name only in a file a `scope.include` glob also matches, and one "
+            "that matches no file (`guards.staleScope.unmatchedTierAInclude`, a brief older than the source) counts "
+            "none: when the tier A globs count no name, `surface.json` has no `tier_a_include` set.") in protocol
     assert ("The denominator is the `tier_a_include` set when `surface.json` has it, else the canonicalized "
             "provenance map") in protocol
-    assert "the brief carries no `scope.tier_a_include` glob that counts a public name" in protocol
-    # #725: a tier A name counts only in a file scope.include matches, so the deflation guard runs there too
-    assert "a tier A name counts only when its file also matches a `scope.include` glob" in protocol
-    assert ("or a stored `effective_denominator` of 0 is below a barrel that re-derives any name "
-            "(`guards.deflation.pct` null), `guards.deflation.fires` is true") in protocol
-    assert "then the `tier_a_include` set when `surface.json` has it" in protocol
+    # the deflation guard's rule (#712: a tier A glob that counts a name turns it off, a stored 0 below any
+    # re-derived name fires it) is load-coverage-inputs.py's, which test-skf-load-coverage-inputs.py pins; the
+    # protocol keeps what the model does with it (v4.0.0 quality gate run 1 review)
+    assert ("the `stats.effective_denominator` Create Skill stored, unless `guards.deflation.fires` (a Medium "
+            "`metadata-drift` gap, coverage-check.md §4: a legitimate scope reduction goes in the brief, through "
+            "`scope.tier_a_include` or `scope.exclude`, never into `metadata.stats`)") in protocol
+    assert "`guards.thresholds.deflationPct`" not in protocol and "`guards.deflation.pct` null" not in protocol
 
     run = tmp_path / "run"
     run.mkdir()

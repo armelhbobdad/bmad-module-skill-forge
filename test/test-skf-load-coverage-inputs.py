@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Tests for load-coverage-inputs.py (skf-test-skill coverage-check.md §0, §2, §2b; #613, #540).
 
-coverage-check.md decides which denominator clause applies and whether a
-bookkeeping variant is a real export; the script makes every count, the
+coverage-check.md decides whether a bookkeeping variant is a real export and
+the two judgments the denominator clause needs; the script picks the clause
+and makes every count, the
 surfaces of the Quick-tier and fallback per-file scans included (the
 branches coverage-check.md §2 loads from coverage-check-tiers.md):
   - census: the docs-only verdict from the citation forms a skill writes
@@ -1789,3 +1790,229 @@ def test_the_runner_counts_a_name_passed_on_from_two_files_once_as_the_surface_d
     candidates = out["candidates"]
     assert counts["effective_denominator"] == candidates[union] == candidates["extractorEffectiveDenominator"] == count
     assert len(out["sets"][basis]) == count
+
+
+# --------------------------------------------------------------------------
+# surface: the denominator clause (v4.0.0 quality gate run 1, skf-test-skill
+# determinism-1). The pick was a hand-run decision table in
+# source-access-protocol.md and coverage-check.md §2b; the script makes it
+# from the brief, the extraction, metadata.json and the two judgments the
+# model passes as flags, one golden case per clause.
+# --------------------------------------------------------------------------
+
+
+def _clause(tmp_path: Path, extraction: dict | None = None, stats: dict | None = None, *flags: str,
+            meta: dict | None = None) -> dict:
+    args = []
+    if extraction is not None:
+        args += ["--extraction", _write(tmp_path / "extract-full.json", extraction)]
+    if stats is not None or meta is not None:
+        args += ["--metadata", _write(tmp_path / "metadata.json", meta or dict(METADATA, stats=stats))]
+    return _surface(tmp_path, *args, *flags)["denominator"]
+
+
+def _extraction(scope_type: str = "full-library", status: str = "barrel", **arms) -> dict:
+    data = json.loads(json.dumps(EXTRACTION))
+    data["scope"]["type"] = scope_type
+    data["entry_points"]["status"] = status
+    data["arms"].update(arms)
+    return data
+
+
+def _barrel(clause: str, surface_set: str, step: int | None = None, absent: str | None = None,
+            rebuild: str | None = None, barrel: str | None = "barrel") -> dict:
+    return {"clause": clause, "branch": "barrel", "surfaceSet": surface_set, "ladderStep": step,
+            "absentSet": absent, "rebuild": rebuild, "barrel": barrel}
+
+
+def _scalar(clause: str, surface_set: str) -> dict:
+    return {"clause": clause, "branch": "scalar", "surfaceSet": surface_set, "ladderStep": 1, "absentSet": None,
+            "rebuild": None, "barrel": "barrel"}
+
+
+STORED = {"exports_public_api": 7, "exports_documented": 5, "effective_denominator": 7}
+DEFLATED = {"exports_public_api": 7, "exports_documented": 5, "effective_denominator": 4}
+
+
+def test_a_full_library_barrel_is_the_standard_barrel(tmp_path):
+    assert _clause(tmp_path, _extraction(), STORED) == _barrel("standard-barrel", "all")
+
+
+@pytest.mark.parametrize(("stats", "flags", "expected"), [
+    (STORED, [], _scalar("stratified-scope", "scope.include")),
+    (DEFLATED, [], _barrel("stratified-scope", "scope.include", 1)),
+    (None, [], _barrel("stratified-scope", "scope.include", 3))],
+    ids=["stored", "deflated", "no-stored-count"])
+def test_a_curated_monorepo_subset_walks_the_stratified_ladder(tmp_path, stats, flags, expected):
+    """Priority 1 is the stored count unless the deflation guard fires, then the `scope.include` set; with no
+    stored count and no tier A set, priority 3."""
+    extraction = _extraction("public-api")
+    meta = None if stats is not None else {k: v for k, v in METADATA.items() if k != "stats"}
+    assert _clause(tmp_path, extraction, stats, "--monorepo", "--curated-subset", *flags, meta=meta) == expected
+
+
+def test_a_stratified_tier_a_set_is_priority_2(tmp_path):
+    extraction = _extraction("public-api")
+    extraction["scope"]["tier_a_include"] = ["src/index.ts"]
+    meta = {k: v for k, v in METADATA.items() if k != "stats"}
+    assert _clause(tmp_path, extraction, None, "--monorepo", "--curated-subset", meta=meta) == _barrel(
+        "stratified-scope", "tier_a_include", 2)
+
+
+def test_a_full_library_monorepo_or_a_whole_workspace_is_the_standard_barrel(tmp_path):
+    assert _clause(tmp_path, _extraction(), STORED, "--monorepo", "--curated-subset") == _barrel(
+        "standard-barrel", "all")
+    assert _clause(tmp_path, _extraction("public-api"), STORED, "--monorepo") == _barrel("standard-barrel", "all")
+
+
+@pytest.mark.parametrize(("stats", "expected"), [
+    (STORED, _scalar("specific-modules", "scope.include")),
+    (None, _barrel("specific-modules", "scope.include", 2))], ids=["stored", "no-stored-count"])
+def test_a_specific_modules_skill_takes_its_stored_count_first(tmp_path, stats, expected):
+    """§2b sent specific-modules to the barrel branch while the protocol and Create Skill's compile §4 put
+    `stats.effective_denominator` first: the stored count is the denominator, under the deflation guard."""
+    meta = None if stats is not None else {k: v for k, v in METADATA.items() if k != "stats"}
+    assert _clause(tmp_path, _extraction("specific-modules"), stats, meta=meta) == expected
+
+
+@pytest.mark.parametrize(("stats", "expected"), [
+    (STORED, _scalar("multi-entry", "scope.include")),
+    (None, _barrel("multi-entry", "subpaths", 3))], ids=["stored", "no-stored-count"])
+def test_a_multi_entry_package_takes_its_stored_count_then_its_subpaths(tmp_path, stats, expected):
+    meta = None if stats is not None else {k: v for k, v in METADATA.items() if k != "stats"}
+    extraction = _extraction("public-api", multi_subpath_exports=True)
+    assert _clause(tmp_path, extraction, stats, meta=meta) == expected
+
+
+def test_an_empty_barrel_counts_the_scope_include_set(tmp_path):
+    assert _clause(tmp_path, _extraction("public-api", "empty-barrel"), STORED) == _barrel(
+        "empty-barrel", "scope.include", barrel="empty-barrel")
+
+
+@pytest.mark.parametrize(("status", "flags", "expected"), [
+    ("no-entry-point", [], _barrel("pattern-reference", "all", rebuild="provenance-fold", barrel="no-entry-point")),
+    ("empty-barrel", ["--pattern-reference-intent"], _barrel("pattern-reference", "all", rebuild="provenance-fold",
+                                                             barrel="empty-barrel")),
+    ("barrel", ["--pattern-reference-intent"], _barrel("standard-barrel", "all"))],
+    ids=["no-barrel", "intent", "a-non-empty-barrel"])
+def test_a_pattern_reference_app_counts_its_canonical_map(tmp_path, status, flags, expected):
+    """Either trigger fires, never over a non-empty barrel: with no tier A set the surface is built again
+    from the provenance map alone, folded."""
+    assert _clause(tmp_path, _extraction("public-api", status), STORED, *flags) == expected
+
+
+def test_a_pattern_reference_surface_from_the_map_needs_no_rebuild(tmp_path):
+    prov = _write(tmp_path / "provenance.json", PROVENANCE)
+    out = _surface(tmp_path, "--provenance", prov, "--fold", "--pattern-reference-intent")
+    assert out["denominator"] == _barrel("pattern-reference", "all", barrel=None)
+
+
+def test_a_stack_takes_the_stack_branch(tmp_path):
+    meta = dict(METADATA, skill_type="stack")
+    assert _clause(tmp_path, None, None, meta=meta) == {
+        "clause": "stack", "branch": "stack", "surfaceSet": None, "ladderStep": None, "absentSet": None,
+        "rebuild": None, "barrel": None}
+
+
+def test_an_absent_set_falls_back_to_all(tmp_path):
+    """A clause whose set the surface lacks (no brief glob, no file on the names) counts the `all` set, and
+    names the set it lacked for the `Denominator:` line."""
+    extraction = _extraction("specific-modules")
+    extraction["scope"]["include"] = []
+    meta = {k: v for k, v in METADATA.items() if k != "stats"}
+    assert _clause(tmp_path, extraction, None, meta=meta) == _barrel("specific-modules", "all", 2, "scope.include")
+
+
+def test_the_map_already_canonical_is_not_folded(tmp_path):
+    """The protocol's last canonicalization judgment was a compare: a map whose raw count equals
+    `stats.effective_denominator` is already canonical, so `--fold` folds nothing."""
+    prov = _write(tmp_path / "provenance.json", PROVENANCE)
+    named = 8  # the named exports less Extra::run
+    meta = _write(tmp_path / "metadata.json", dict(METADATA, stats={"effective_denominator": named}))
+    out = _surface(tmp_path, "--provenance", prov, "--metadata", meta, "--fold")
+    assert out["canonical"]["folded"] == {"_def": 0, "_exact": 0, "a11y_": 0, "other": 0}
+    assert out["canonical"]["canonical"] == named and out["canonical"]["skipped"] is True
+    folded = _write(tmp_path / "metadata2.json", dict(METADATA, stats={"effective_denominator": 5}))
+    out = _surface(tmp_path, "--provenance", prov, "--metadata", folded, "--fold")
+    assert out["canonical"]["skipped"] is False and out["canonical"]["residual"] == out["canonical"]["canonical"] - 5
+
+
+# v4.0.0 quality gate run 1 review: the entry points' state where no complete extraction or quick output gives it,
+# the extraction's curated-subset and monorepo verdicts, and a stored 0
+
+
+def _no_ast_grep(entry_files: list[dict]) -> dict:
+    """The runner's exit-3 JSON over one Python app: no recipe ran, the entry points it found listed."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data.update(status="no-ast-grep", exports=[], counts=None, entry_point_diff=None)
+    data["scope"].update(include=["app/**"], exclude=[], type="full-library", languages=["python"])
+    data["entry_points"] = {"status": None, "by_language": {}, "files": entry_files, "exports_maps": [],
+                            "unresolved": []}
+    return data
+
+
+APP_FILES = [{"file": "app/main.py", "exports_found": ["run", "serve"], "signature_mismatches": []},
+             {"file": "app/db.py", "exports_found": ["connect"], "signature_mismatches": []}]
+INIT_ENTRY = [{"language": "python", "file": "app/__init__.py", "package": "app", "subpath": None,
+               "resolution": "file", "in_scope": True}]
+
+
+def _fallback_scan(tmp_path: Path, extraction: dict | None, *flags: str) -> dict:
+    per_file = [_write(tmp_path / f"per-file-{n}.txt", result) for n, result in enumerate(APP_FILES, 1)]
+    args = [arg for path in per_file for arg in ("--per-file", path)]
+    if extraction is not None:
+        args += ["--fallback-scan", "--extraction", _write(tmp_path / "extract-full.json", extraction)]
+    else:
+        args += ["--brief", _write(tmp_path / "skill-brief.yaml", "name: app\nlanguage: python\nscope:\n"
+                                   "  type: full-library\n  include: ['app/**']\n")]
+    meta = _write(tmp_path / "metadata.json", {k: v for k, v in METADATA.items() if k != "stats"})
+    return _surface(tmp_path, *args, "--metadata", meta, *flags)["denominator"]
+
+
+def test_a_fallback_scan_with_no_entry_point_is_a_pattern_reference_app(tmp_path):
+    """A Python app with no `__init__.py`: with ast-grep the runner says `no-entry-point` and the app counts its
+    canonical map; without it the exit-3 JSON lists no entry file, which says the same, so the clause no longer
+    depends on whether ast-grep is installed."""
+    assert _fallback_scan(tmp_path, _no_ast_grep([])) == _barrel(
+        "pattern-reference", "all", rebuild="provenance-fold", barrel="no-entry-point")
+
+
+@pytest.mark.parametrize(("flags", "expected"), [
+    ([], _barrel("standard-barrel", "all", barrel=None)),
+    (["--barrel", "empty"], _barrel("empty-barrel", "scope.include", barrel="empty-barrel")),
+    (["--barrel", "none"], _barrel("pattern-reference", "all", rebuild="provenance-fold", barrel="no-entry-point")),
+    (["--barrel", "barrel"], _barrel("standard-barrel", "all"))], ids=["unknown", "empty", "none", "barrel"])
+def test_where_no_file_tells_the_entry_points_state_the_flag_does(tmp_path, flags, expected):
+    """An entry file the runner listed but no recipe read (an empty `__init__.py` read by eye), and a surface
+    of per-file results alone (Quick tier read by eye, State 4): `surface` cannot tell an empty barrel or a
+    missing one, so `--barrel` carries what the workflow read; with none the state is unknown."""
+    assert _fallback_scan(tmp_path, _no_ast_grep(INIT_ENTRY), *flags) == expected
+    assert _fallback_scan(tmp_path / "eye", None, *flags) == expected
+
+
+def test_a_complete_extraction_wins_over_the_barrel_flag(tmp_path):
+    assert _clause(tmp_path, _extraction(), STORED, "--barrel", "none") == _barrel("standard-barrel", "all")
+
+
+@pytest.mark.parametrize(("curated", "flags", "expected"), [
+    (True, [], _scalar("stratified-scope", "scope.include")),
+    (False, ["--curated-subset"], _barrel("standard-barrel", "all"))], ids=["extraction-curated", "extraction-not"])
+def test_the_extraction_decides_the_curated_monorepo_subset(tmp_path, curated, flags, expected):
+    """Create Skill stores `stats.effective_denominator` by the runner's `counts.curated_subset`, which the
+    extraction Test Skill runs carries too: it and `arms.monorepo` pick the stratified clause with no flag, and
+    a judgment that disagrees with the script is not taken."""
+    extraction = _extraction("public-api", monorepo=True)
+    extraction["counts"]["curated_subset"] = curated
+    assert _clause(tmp_path, extraction, STORED, *flags) == expected
+
+
+def test_a_stored_zero_is_no_denominator(tmp_path):
+    """A legacy stored 0 at State 2 (no source read, so no deflation guard): the scalar branch over 0 halted as
+    an indeterminate surface; the specific-modules ladder goes on to its set."""
+    prov = _write(tmp_path / "provenance.json", PROVENANCE)
+    meta = _write(tmp_path / "metadata.json", dict(METADATA, scope_type="specific-modules",
+                                                   stats={"effective_denominator": 0}))
+    brief = _write(tmp_path / "skill-brief.yaml", BRIEF)
+    out = _surface(tmp_path, "--provenance", prov, "--metadata", meta, "--brief", brief)
+    assert out["guards"]["deflation"]["applicable"] is False
+    assert out["denominator"] == _barrel("specific-modules", "scope.include", 2, barrel=None)

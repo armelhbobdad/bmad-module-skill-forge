@@ -624,8 +624,10 @@ class TestGapSeverityTable:
         loader = _load("skf_load_coverage_inputs_for_step_test", TS_DIR / "scripts" / "load-coverage-inputs.py")
         assert loader.DEFLATION_PCT == 25
         protocol = _read(REFS / "source-access-protocol.md")
-        assert f"{criterion} more than `guards.thresholds.deflationPct` percent" in protocol
-        assert "more than 25%" not in protocol
+        # v4.0.0 quality gate run 1 review: the loader applies the guard and the row states its criterion, so the
+        # protocol names the guard and what the model does with it, never the criterion again
+        assert "unless `guards.deflation.fires` (a Medium `metadata-drift` gap" in protocol
+        assert criterion not in protocol and "more than 25%" not in protocol
 
     @pytest.mark.parametrize("path", [COVERAGE_FILE, COHERENCE_FILE, EXT_VALIDATORS_FILE, REPORT_FILE],
                              ids=lambda p: p.stem)
