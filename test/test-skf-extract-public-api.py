@@ -3439,6 +3439,135 @@ class TestDenominatorDecision:
             k: v for k, v in full["counts"].items() if k != "exports_internal"}
 
 
+class TestScopeFacts:
+    """v4.0.0 quality gate run 1 (skf-create-skill determinism-2): Quick tier and the runner's fallback take the
+    files in scope, the entry points and the arms from the runner, never from globs matched by eye."""
+
+    def test_full_mode_lists_the_files_in_scope_without_ast_grep(self, tmp_path, capsys, no_ast_grep) -> None:
+        root = _tree(tmp_path, {"src/core/a.py": "", "src/gen/b.py": "", "src/c.py": "", "src/d.ts": "",
+                                "src/E.java": "", "README.md": ""})
+        code, out = _full(capsys, root, "--include", "src/**", "--exclude", "src/gen/**", "--language", "python")
+        assert (code, out["status"]) == (3, "no-ast-grep")
+        assert (out["files_in_scope"], out["files_in_scope_list"]) == (2, ["src/c.py", "src/core/a.py"])
+        # v4.0.0 quality gate run 1 review: the files no recipe reads are listed too, and both lists come last,
+        # past every field a run with the recipes reads
+        assert (out["files_without_recipes"], out["files_without_recipes_list"]) == ({".java": 1}, ["src/E.java"])
+        assert list(out)[-2:] == ["files_in_scope_list", "files_without_recipes_list"]
+
+    def test_denominator_mode_with_no_payload_gives_the_scope_facts(self, tmp_path, capsys, monkeypatch,
+                                                                    no_ast_grep) -> None:
+        root = _tree(tmp_path, TS_PACKAGE)
+        flags = ["--include", "src/**", "--include", "macro/**"]
+        _, full = _full(capsys, root, *flags)
+        code, facts = _denominator(capsys, monkeypatch, root, None, *flags)
+        assert code == 0 and facts["runner_status"] is None
+        for key in ("scope", "files_in_scope", "files_in_scope_list", "files_without_recipes",
+                    "files_without_recipes_list", "arms"):
+            assert facts[key] == full[key], key
+        assert facts["entry_points"] == {"files": full["entry_points"]["files"],
+                                         "exports_maps": full["entry_points"]["exports_maps"]}
+        assert facts["counts"]["exports_public_api"] == 0
+        assert facts["counts"]["effective_denominator_decision"]["store"] is False
+
+    def test_a_remote_listing_is_the_tree(self, tmp_path, capsys, monkeypatch) -> None:
+        """A remote source read without a tree: the repository's file list, on stdin or in a file."""
+        listing = "src/a.py\nsrc/gen/b.py\ndocs/x.md\ntests/test_a.py\n"
+        monkeypatch.setattr(sys, "stdin", io.StringIO(listing))
+        assert mod.main(["--mode", "denominator", "--tree-file", "-", "--include", "src/**", "--exclude",
+                         "src/gen/**"]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert (out["files_in_scope"], out["files_in_scope_list"]) == (1, ["src/a.py"])
+        assert (out["arms"], out["entry_points"]) == (mod.NO_ARMS, {"files": [], "exports_maps": []})
+        listed = _tree(tmp_path, {"tree.txt": listing}) / "tree.txt"
+        _, out = _denominator(capsys, monkeypatch, None, {"public": [{"name": "a", "file": "src/a.py"}]},
+                              "--tree-file", listed.as_posix(), "--include", "src/**")
+        assert out["files_in_scope_list"] == ["src/a.py", "src/gen/b.py"]
+        assert out["counts"]["effective_denominator"] == 1 and _decision(out) == (False, "no-source-tree")
+
+    def test_a_listing_beside_a_source_root_is_an_input_error(self, tmp_path, capsys, monkeypatch) -> None:
+        monkeypatch.setattr(sys, "stdin", io.StringIO("{}"))
+        assert mod.main(["--mode", "denominator", "--source-root", tmp_path.as_posix(), "--tree-file", "-"]) == 2
+        assert "--tree-file stands for a remote source with no --source-root" in capsys.readouterr().err
+
+    def test_a_listing_keeps_the_globs_it_matches_no_file_for(self, capsys, monkeypatch) -> None:
+        """v4.0.0 quality gate run 1 review: a listing's unmatched globs were warned of, yet
+        `scope.unmatched_include` and `scope.unmatched_tier_a_include` were always empty."""
+        monkeypatch.setattr(sys, "stdin", io.StringIO("src/a.py\nsrc/B.java\n"))
+        assert mod.main(["--mode", "denominator", "--tree-file", "-", "--include", "src/**", "--include", "lib/**",
+                         "--tier-a-include", "gone/**"]) == 0
+        out = json.loads(capsys.readouterr().out)
+        assert (out["scope"]["unmatched_include"], out["scope"]["unmatched_tier_a_include"]) == (["lib/**"],
+                                                                                                ["gone/**"])
+        assert (out["files_in_scope_list"], out["files_without_recipes_list"]) == (["src/a.py"], ["src/B.java"])
+        assert "scope.include pattern 'lib/**' matches no file" in out["warnings"]
+
+    def test_an_empty_listing_is_an_input_error(self, capsys, monkeypatch) -> None:
+        """A listing a failed `gh api` left empty reads as an input error, never as a source with no file."""
+        monkeypatch.setattr(sys, "stdin", io.StringIO(""))
+        assert mod.main(["--mode", "denominator", "--tree-file", "-", "--include", "src/**"]) == 2
+        captured = capsys.readouterr()
+        assert captured.out == "" and "error: the tree listing on stdin is empty" in captured.err
+
+
+class TestDenominatorDiff:
+    """v4.0.0 quality gate run 1 review (skf-create-skill determinism-2): with the names the model finds and the
+    exports extraction found, denominator mode diffs them as full mode does, so no internal export and no
+    extraction gap is told apart by eye."""
+
+    def test_the_names_and_the_exports_are_diffed(self, tmp_path, capsys, monkeypatch) -> None:
+        root = _tree(tmp_path, {"src/A.java": "", "src/B.java": "", "src/c.ts": "", "src/d.ts": ""})
+        payload = {"public": [{"name": "A", "file": "src/A.java", "language": "java"},
+                              {"name": "ns", "file": "src/c.ts",
+                               "members": [{"name": "c", "file": "src/c.ts"}, {"name": "gone", "file": "src/d.ts"}]}],
+                   "exports": [{"name": "A", "file": "src/A.java", "language": "java"},
+                               {"name": "B", "file": "src/B.java", "language": "java"},
+                               {"name": "c", "file": "src/c.ts", "language": "typescript"},
+                               {"name": "_private", "file": "src/c.ts", "language": "typescript"}]}
+        code, out = _denominator(capsys, monkeypatch, root, payload, "--include", "src/**")
+        assert code == 0
+        assert out["entry_point_diff"] == {
+            "public": [{"name": "A", "language": "java", "file": "src/A.java"},
+                       {"name": "c", "language": "javascript", "file": "src/c.ts"},
+                       {"name": "gone", "language": "javascript", "file": "src/d.ts"}],
+            "internal": [{"name": "B", "language": "java", "file": "src/B.java"}],
+            "extraction_gaps": [{"name": "gone", "language": "javascript", "file": "src/d.ts"}]}
+        assert (out["counts"]["exports_public_api"], out["counts"]["exports_internal"]) == (3, 1)
+
+    def test_the_runner_names_are_found_and_its_gaps_stay_its_own(self, tmp_path, capsys, monkeypatch) -> None:
+        """For the files no recipe reads the runner's names join yours: a payload name the runner found is no
+        gap, and the runner's own gaps are in its JSON, not repeated here."""
+        root = _tree(tmp_path, {"src/a.ts": "", "src/B.java": ""})
+        runner = _tree(tmp_path / "out", {"full.json": json.dumps({
+            "mode": "full", "status": "ok", "errors": [],
+            "entry_point_diff": {"public": [{"name": "a", "language": "javascript", "file": "src/a.ts",
+                                             "via": "declaration"},
+                                            {"name": "lost", "language": "javascript", "file": "src/a.ts",
+                                             "via": "declaration"}],
+                                 "internal": [{"name": "helper", "language": "javascript",
+                                               "source_file": "src/a.ts"}],
+                                 "extraction_gaps": [{"name": "lost", "language": "javascript",
+                                                      "file": "src/a.ts"}]}})}) / "full.json"
+        payload = {"public": [{"name": "B", "file": "src/B.java", "language": "java"},
+                              {"name": "a", "file": "src/a.ts"}],
+                   "exports": [{"name": "B", "file": "src/B.java", "language": "java"}]}
+        _, out = _denominator(capsys, monkeypatch, root, payload, "--include", "src/**", "--extraction",
+                              runner.as_posix())
+        diff = out["entry_point_diff"]
+        assert [(i["name"], i["file"]) for i in diff["internal"]] == [("helper", "src/a.ts")]
+        assert diff["extraction_gaps"] == []
+
+    def test_a_name_whose_file_is_not_in_the_tree_is_named(self, tmp_path, capsys, monkeypatch) -> None:
+        """v4.0.0 quality gate run 1 review: a path relative to the wrong root, or an absolute one, dropped the
+        name from effective_denominator and curated_subset without a word."""
+        root = _tree(tmp_path, CURATED_TREE)
+        names = [*CURATED_NAMES[:2], {"name": "ca", "file": "core/b.ts"}]
+        _, out = _denominator(capsys, monkeypatch, root, {"public": names}, "--scope-type", "specific-modules",
+                              "--include", "src/**")
+        assert (out["counts"]["exports_public_api"], out["counts"]["effective_denominator"]) == (3, 2)
+        assert ("public name ca is defined in core/b.ts, which is not in the tree: effective_denominator and "
+                "curated_subset leave it out") in out["warnings"]
+
+
 # --------------------------------------------------------------------------
 # Entries mode: quick mode's entry files, found in the listing (step 5b
 # quick-skill determinism-1)

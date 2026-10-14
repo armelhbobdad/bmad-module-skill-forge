@@ -57,7 +57,7 @@ This protocol detects such files, prompts the user, and records the decision in 
 
 2. **Apply the helper's classification:**
 
-   - **`already_in_scope[]`**: the file is in scope and not skipped. Append the record to in-context `promoted_docs[]`, and remove the path from §2's filtered file list when §2 built one (at Forge tier and above the recipe runner reads the brief itself and builds no list). No prompt: authoritative docs must never reach §4 code extraction even when scope.include matches.
+   - **`already_in_scope[]`**: the file is in scope and not skipped. Append the record to in-context `promoted_docs[]`, and remove the path from §2's filtered file list when §2 built one. No prompt: authoritative docs must never reach §4 code extraction even when scope.include matches.
    - **`pre_decided[]` with `prior_action: "promoted"`** — amendment says promoted; **append to `promoted_docs[]`** using the helper-supplied hash/size/lines. Deterministic replay path.
    - **`pre_decided[]` with `prior_action: "skipped"`** — user previously declined. Do nothing. Move on.
    - **`unresolved[]`**: proceed to step 3 below (user prompt). A `prior_action` of `deferred-headless` means an earlier headless run met the file and left the decision to the next interactive run.

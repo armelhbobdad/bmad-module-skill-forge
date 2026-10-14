@@ -1843,19 +1843,34 @@ def test_write_counts_the_public_api_with_the_runner():
         assert token in call, token
     assert "--files-from" not in call
     bullet = _slice(two, "  - `exports_public_api` and `exports_internal`", "\n")
+    # v4.0.0 quality gate run 1 review: where the runner gives no count (Quick tier included) or misses the files no
+    # recipe reads, the hand-count file's `--mode denominator` call counts the names, the runner's with them, and
+    # its JSON's counts are passed: nothing is added to a count by hand
     for token in ("unless the drift override below applies",
-                  "At Quick tier, count the entry points by hand with `{entryPointsByHandData}`, as create-skill does. "
-                  "Otherwise, from `{project-root}`, run",
+                  "At Quick tier, count them by `{entryPointsByHandData}`, as create-skill does, and pass the `counts` "
+                  "of `{run_dir}/denominator.json`. Otherwise, from `{project-root}`, run",
                   "once over the whole scope (no `--files-from`)",
                   "with the longest timeout your shell tool takes (a large tree takes minutes)",
                   "pass its `counts.exports_public_api` and `counts.exports_internal`",
                   "On exit 1 (`incomplete`) run it once more",
-                  "When its `files_without_recipes` is not empty (in-scope files no recipe reads), read those files' "
-                  "entry points as `{entryPointsByHandData}` says and add their names to the two counts",
-                  "on exit 2 or 3, no JSON, no candidate, or `entry_points.status` `no-entry-point`, count the entry "
-                  "points by hand with `{entryPointsByHandData}`",
+                  "When its `files_without_recipes` is not empty (in-scope files no recipe reads), count those files' "
+                  "entry points' names by steps 2 to 4 of `{entryPointsByHandData}`, with `--extraction "
+                  "\"{run_dir}/public-api.json\"`, as create-skill's extract.md §4b does, and pass the `counts` of "
+                  "`{run_dir}/denominator.json` in place of the runner's: they hold its names.",
+                  "on exit 2 or 3, no JSON, no candidate, or `entry_points.status` `no-entry-point`, count them by "
+                  "`{entryPointsByHandData}` and pass the `counts` of `{run_dir}/denominator.json`",
                   "A docs-only skill has no tree to count"):
         assert token in bullet, token
+    for gone in ("add their names to the two counts", "count the entry points by hand"):
+        assert gone not in bullet, gone
+    # the hand-count file binds update-skill's paths, and §2 halts where it cannot run
+    by_hand = " ".join((SRC / front["entryPointsByHandData"]).read_text(encoding="utf-8").split())
+    assert ("update-skill's `{forge_data_folder}/{skill_name}/skill-brief.yaml` (leave `--brief` out when that file "
+            "does not exist) and `{run_dir}/denominator.json`") in by_hand
+    assert "update-skill's `{run_dir}/public-api.json`" in by_hand
+    comment = " ".join(line.lstrip("# ") for line in _frontmatter(text).splitlines() if line.startswith("#")
+                       and ("extractPublicApiHelper" in line or "entryPointsByHandData" in line))
+    assert "if neither exists, §2 halts." in comment and "counts by hand" not in comment
     # the Quick-tier branch leads: the runner never runs at Quick tier, as in create-skill
     assert bullet.index("At Quick tier") < bullet.index("uv run {extractPublicApiHelper}")
     # the drift override still counts nothing at HEAD
@@ -1868,16 +1883,25 @@ def test_a_runner_input_error_in_write_counts_by_hand_and_warns():
     and listed where the report and the envelope list the warnings."""
     bullet = _slice(_slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3."),
                     "  - `exports_public_api` and `exports_internal`", "\n")
-    hand = ("on exit 2 or 3, no JSON, no candidate, or `entry_points.status` `no-entry-point`, count the entry points "
-            "by hand with `{entryPointsByHandData}`.")
+    hand = ("on exit 2 or 3, no JSON, no candidate, or `entry_points.status` `no-entry-point`, count them by "
+            "`{entryPointsByHandData}` and pass the `counts` of `{run_dir}/denominator.json`.")
     warn = ("On exit 2 (an input error, such as a skill brief it cannot read, or a failure it did not foresee), also "
             "add `public-api-counted-by-hand: {line}` to `warnings[]`, `{line}` being the stderr line that holds "
             "`error:`, recorded as **Warnings go to the run log** says, and show it to the user")
     assert hand in bullet and warn in bullet and bullet.index(hand) < bullet.index(warn)
+    # v4.0.0 quality gate run 1 review: the hand-count call reads the same brief, so it runs once more with the
+    # brief's scope as flags, and halts when it fails again: no count is made by hand
+    halt = ("When a call of `{entryPointsByHandData}` fails as its step 4 says, HALT with status `blocked` (halt "
+            "procedure: `phase: \"write:public-api\"`, its `error:` line, or the helper that does not resolve, as "
+            "`reason`).")
+    assert halt in bullet and bullet.index(warn) < bullet.index(halt)
+    # the names were found without the runner; the counts are still the script's
+    assert "so the public names were found without it" in _read(REPORT)
     assert "**Warnings go to the run log.** Record each warning this step adds to `warnings[]`" in _read(WRITE)
     assert "`public-api-counted-by-hand:` (write.md §2" in _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
     warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
     assert "public-api-counted-by-hand: entries (write.md §2" in warnings
+    assert "so the public names were found without it" in warnings and "counts were made by hand" not in warnings
 
 
 def test_the_runner_names_an_input_error_in_one_line(tmp_path):
@@ -2883,9 +2907,10 @@ def test_write_passes_the_effective_denominator_create_skill_decides():
     judged from the source); skf-extract-public-api.py now decides `store` with the count, for the runner and
     for names counted by hand, and test-skf-extract-public-api.py pins each fix."""
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
-    bullet = _slice(two, "  - `effective_denominator`: the `counts.effective_denominator` of the run", "\n")
-    for token in ("of the run that gave the two counts above (the recipe runner's, or `--mode denominator`'s for "
-                  "names counted without its diff, as `{entryPointsByHandData}` says)",
+    bullet = _slice(two, "  - `effective_denominator`: the `counts.effective_denominator` of the JSON", "\n")
+    # v4.0.0 quality gate run 1 review: the JSON whose counts the bullet above passed, the runner's or the hand-count
+    # call's, never one of each
+    for token in ("of the JSON whose two counts you passed above,",
                   "when its `counts.effective_denominator_decision.store` is true and the skill brief's "
                   "`scope.notes` documents the stratification",
                   "`skf-extract-public-api.py` decides `store` as it does for create-skill, so the count follows the "

@@ -513,7 +513,9 @@ Output JSON (stdout, or -o):
     "errors": [{"reason": "ast-grep-error" | "ast-grep-timeout" | "time-limit",
                 "files": N, "first_file", "detail",
                 "unread": [...]}, ...],      # unread: the files its call(s) may have left unread
-    "warnings": ["..."]
+    "warnings": ["..."],
+    "files_in_scope_list": ["<file>", ...],         # the files files_in_scope counts, in tree order
+    "files_without_recipes_list": ["<file>", ...]   # the files files_without_recipes counts
   }
 
 `via` says how an entry point exports a name: `declaration` (defined in the
@@ -526,8 +528,8 @@ package), and a member's `file` is null for a name from another package.
 An `unresolved` item names a subpath whose targets name no file, or a
 chain met tracing `entry` that stops at `file`, the module `from` naming
 no file here.
-Without ast-grep the JSON still has the entry points' `files`, the
-`exports_maps`, the unresolved subpaths and the `arms`.
+Without ast-grep the JSON still has the files in scope, the entry points'
+`files`, the `exports_maps`, the unresolved subpaths and the `arms`.
 `file_issues` lists the files to read by eye: a file ast-grep skips (not
 UTF-8), and a file where the parser met code it could not read (an ERROR
 node), where a recipe can miss an export. `t1_low` is 0: every export here
@@ -563,10 +565,11 @@ Exit codes (full):
 Denominator mode
 ----------------
 
-  --mode denominator [--source-root <dir>] [--brief <skill-brief.yaml>]
-      [--include GLOB]... [--exclude GLOB]... [--tier-a-include GLOB]...
-      [--scope-type TYPE] [--language LANG]... [--quick <quick.json>]...
-      [--extraction <full.json>] [-o <out.json>] < {payload_json}
+  --mode denominator [--source-root <dir> | --tree-file <listing>]
+      [--brief <skill-brief.yaml>] [--include GLOB]... [--exclude GLOB]...
+      [--tier-a-include GLOB]... [--scope-type TYPE] [--language LANG]...
+      [--quick <quick.json>]... [--extraction <full.json>] [-o <out.json>]
+      < {payload_json}
 
 The counts full mode writes, for public names no runner diff gave: those
 a stdin payload lists,
@@ -586,19 +589,35 @@ exports extraction found; `_` names left out) and of the runner's
 its basis, `curated_subset` and `effective_denominator_decision` follow
 full mode's rules, over the tree under --source-root, with the scope and
 arms full mode works out there; an --extraction that is `incomplete` is
-never stored. With no --source-root (a remote source read by eye) the
-names' files are the tree, the arms are all false, and the decision is
-never to store (`no-source-tree`). An empty payload (`{}`, or no stdin)
-gives the scope facts alone: `scope`, `files_in_scope_list`,
-`entry_points` (`files`, `exports_maps`) and `arms`, with no recipe run.
+never stored. A name whose `file` is not in that tree counts in
+`exports_public_api` alone, with a warning. With no --source-root (a
+remote source read by eye) the tree is the --tree-file listing (a file,
+or `-` for stdin, which then holds no payload: JSON with a `tree` list, a
+list, or one path per line; one that lists no file is an input error),
+else the names' files; the arms are all false, there is no entry point,
+and the decision is never to store (`no-source-tree`). An empty payload
+(`{}`, or no stdin) gives the scope facts alone, with no recipe run:
+`scope`, the two file lists (by full mode's Which files rule, null with
+neither a tree nor a listing), `entry_points` (`files`, `exports_maps`)
+and `arms`.
+
+`entry_point_diff` replaces a compare by eye, each item {"name",
+"language", "file"}: `public`, the names `exports_public_api` counts (a
+namespace as its `members`); `internal`, the exports `exports_internal`
+counts; `extraction_gaps`, the public names the payload and --quick give
+that no export found has (the payload's `exports`, the --extraction
+runner's names), to trace (the runner lists its own gaps).
 
 Output JSON: `mode` "denominator", `source_root`, `scope` (as full mode
-writes it), `files_in_scope` and `files_in_scope_list` (null with no
---source-root), `entry_points`, `arms`, `runner_status` (the
---extraction's `status`, else null), `counts` (as full mode writes it)
-and `warnings`. Exit 0, or 2 on an input error (a --source-root that is
-no folder, a brief, --quick or --extraction file that cannot be read, a
-payload that is not this shape, a flag of another mode).
+writes it), `files_in_scope`, `files_without_recipes`, `entry_points`,
+`arms`, `runner_status` (the --extraction's `status`, else null),
+`counts` (as full mode writes it), `entry_point_diff`, `warnings`, and
+last `files_in_scope_list` and `files_without_recipes_list` (as full
+mode writes them), to -o when given (its folder created). Exit 0, or 2
+on an input error (a --source-root that is no folder, a brief, --quick,
+--extraction or --tree-file that cannot be read, --tree-file beside
+--source-root, a payload that is not this shape, a flag of another
+mode).
 
 CLI examples:
   uv run skf-extract-public-api.py --mode quick < {payload_json}
@@ -4252,13 +4271,13 @@ def effective_denominator_decision(arms: dict, scope_type: str | None, basis: st
 
 def _select_files(root: Path, candidates: list[str], listed: bool, includes: list[str], excludes: list[str],
                   wanted: set[str], glob_match: Callable[[str, str], bool], issues: list[dict],
-                  warnings: list[str]) -> tuple[list[str], dict[str, int], list[str]]:
-    """(the files in scope, by extension the in-scope source files no recipe
-    reads, the include globs no candidate matches). A file a --files-from
-    list names that is missing, or that no recipe reads, is an issue; an
-    include glob no candidate matches, a warning too."""
+                  warnings: list[str]) -> tuple[list[str], list[str], list[str]]:
+    """(the files in scope, the in-scope source files no recipe reads, the
+    include globs no candidate matches). A file a --files-from list names
+    that is missing, or that no recipe reads, is an issue; an include glob
+    no candidate matches, a warning too."""
     in_scope: list[str] = []
-    without_recipes: Counter = Counter()
+    without_recipes: list[str] = []
     used = dict.fromkeys(includes, False)
     for rel in candidates:
         hits = [g for g in includes if glob_match(rel, g)]
@@ -4274,12 +4293,30 @@ def _select_files(root: Path, candidates: list[str], listed: bool, includes: lis
             if listed:
                 issues.append({"file": rel, "issue": "no-recipes"})
             elif extension in NO_RECIPE_EXTENSIONS:
-                without_recipes[extension] += 1
+                without_recipes.append(rel)
             continue
         in_scope.append(rel)
     unmatched = [g for g, hit in used.items() if not hit]
     warnings += [f"scope.include pattern {g!r} matches no file" for g in unmatched]
-    return in_scope, dict(sorted(without_recipes.items())), unmatched
+    return in_scope, without_recipes, unmatched
+
+
+def _by_extension(files: list[str]) -> dict[str, int]:
+    """`files_without_recipes`: how many of `files` each extension has."""
+    return dict(sorted(Counter(posixpath.splitext(f)[1].lower() for f in files).items()))
+
+
+def _unmatched_tier_a(tier_a: list[str], includes: list[str], tree: list[str],
+                      glob_match: Callable[[str, str], bool], warnings: list[str]) -> list[str]:
+    """The tier A globs that match no file of `tree` (the whole tree, regardless
+    of --files-from and before the excludes), with a warning for each, and one
+    for each that matches only files outside scope.include."""
+    unmatched = [g for g in dict.fromkeys(tier_a) if not any(glob_match(f, g) for f in tree)]
+    warnings += [f"scope.tier_a_include pattern {g!r} matches no file" for g in unmatched]
+    warnings += [f"scope.tier_a_include pattern {g!r} matches only files outside scope.include"
+                 for g in dict.fromkeys(tier_a) if includes and g not in unmatched
+                 and not any(glob_match(f, g) and any(glob_match(f, i) for i in includes) for f in tree)]
+    return unmatched
 
 
 def _brief_scope(args: argparse.Namespace) -> dict:
@@ -4314,12 +4351,8 @@ def _scope_facts(args: argparse.Namespace, root: Path) -> dict:
         root, tree if listed is None else listed, listed is not None, includes, excludes, wanted, glob_match,
         issues, warnings)
     # A tier A glob is matched against the whole tree under --source-root (the
-    # tree effective_denominator reads), regardless of --files-from and before the excludes.
-    unmatched_tier_a = [g for g in dict.fromkeys(tier_a) if not any(glob_match(f, g) for f in tree)]
-    warnings += [f"scope.tier_a_include pattern {g!r} matches no file" for g in unmatched_tier_a]
-    warnings += [f"scope.tier_a_include pattern {g!r} matches only files outside scope.include"
-                 for g in dict.fromkeys(tier_a) if includes and g not in unmatched_tier_a
-                 and not any(glob_match(f, g) and any(glob_match(f, i) for i in includes) for f in tree)]
+    # tree effective_denominator reads).
+    unmatched_tier_a = _unmatched_tier_a(tier_a, includes, tree, glob_match, warnings)
 
     # The entry points and the arms need no ast-grep.
     in_scope_set = set(in_scope)
@@ -4429,7 +4462,7 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
         "scope": _scope_record(args, facts),
         "files_in_scope": len(in_scope),
         "files_by_language": dict(sorted(Counter(_file_language(f) for f in in_scope).items())),
-        "files_without_recipes": facts["without_recipes"],
+        "files_without_recipes": _by_extension(facts["without_recipes"]),
         "file_issues": issues,
         "head_cap": head_cap,
         "truncated": False,
@@ -4444,6 +4477,9 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
         "arms": arms,
         "errors": errors,
         "warnings": warnings,
+        # Last: only a run without the recipes reads them, and a large tree lists thousands.
+        "files_in_scope_list": in_scope,
+        "files_without_recipes_list": facts["without_recipes"],
     }
     if exe is None:
         result["status"] = "no-ast-grep"
@@ -4633,6 +4669,9 @@ def run_denominator(args: argparse.Namespace, payload: dict) -> dict:
     """The counts of the public names `payload`, --quick and --extraction
     give, with the effective_denominator decision full mode makes."""
     public: dict[tuple[str, str], dict] = {}
+    runner_public: dict[tuple[str, str], dict] = {}
+    # The exports found, each key at its file: the payload's and the runner's.
+    found: dict[tuple[str, str], str | None] = {}
     internal: set[tuple[str, str]] = set()
     incomplete = False
     runner_status = None
@@ -4645,9 +4684,13 @@ def run_denominator(args: argparse.Namespace, payload: dict) -> dict:
         diff = runner.get("entry_point_diff") if isinstance(runner.get("entry_point_diff"), dict) else {}
         for info in diff.get("public") or []:
             if isinstance(info, dict) and isinstance(info.get("name"), str):
-                public[(str(info.get("language") or ""), info["name"])] = info
-        internal |= {(str(i.get("language") or ""), i["name"]) for i in diff.get("internal") or []
-                     if isinstance(i, dict) and isinstance(i.get("name"), str)}
+                key = (str(info.get("language") or ""), info["name"])
+                public[key] = runner_public[key] = info
+                found[key] = info.get("file")
+        for item in diff.get("internal") or []:
+            if isinstance(item, dict) and isinstance(item.get("name"), str):
+                internal.add((str(item.get("language") or ""), item["name"]))
+                found[(str(item.get("language") or ""), item["name"])] = item.get("source_file")
     for path in args.quick or []:
         quick = _read_json_file(path, "--quick")
         if not isinstance(quick.get("exports"), list):
@@ -4665,8 +4708,10 @@ def run_denominator(args: argparse.Namespace, payload: dict) -> dict:
             info.update(via="namespace", members=[{"name": m["name"], "file": m["file"]} for m in item["members"]])
         public[(family, item["name"])] = info
     for item in _payload_names(payload.get("exports"), "exports"):
+        key = (_name_family(item["language"], item["file"]), item["name"])
+        found.setdefault(key, item["file"])
         if not item["name"].startswith("_"):
-            internal.add((_name_family(item["language"], item["file"]), item["name"]))
+            internal.add(key)
     named = set(public) | {(family, m["name"]) for (family, _), info in public.items() if _has_members(info)
                            for m in info["members"]}
     counted = _public_keys(public)
@@ -4677,34 +4722,81 @@ def run_denominator(args: argparse.Namespace, payload: dict) -> dict:
             raise RunnerError(f"source root not found: {args.source_root}")
         facts = _scope_facts(args, root)
     else:
-        # No local tree (a remote source read by eye): the names' files are all there is.
+        # No local tree (a remote source read by eye): the repository's listing, else the names' files.
         facts = _brief_scope(args)
-        tree = sorted({file for _, _, file in counted if file})
-        facts.update(tree=tree, in_scope=None, unmatched_include=[], unmatched_tier_a=[], arms=dict(NO_ARMS),
+        in_scope = without_recipes = None
+        unmatched_include: list[str] = []
+        unmatched_tier_a: list[str] = []
+        if args.tree_file is not None:
+            try:
+                listed, cut = _read_listing(args.tree_file)
+            except QuickInputError as exc:
+                raise DenominatorInputError(str(exc)) from exc
+            tree = sorted(set(listed))
+            if cut:
+                facts["warnings"].append("the listing was cut short: the file lists can miss files")
+            in_scope, without_recipes, unmatched_include = _select_files(
+                Path("."), tree, False, facts["includes"], facts["excludes"], facts["wanted"], facts["glob_match"],
+                [], facts["warnings"])
+            unmatched_tier_a = _unmatched_tier_a(facts["tier_a"], facts["includes"], tree, facts["glob_match"],
+                                                 facts["warnings"])
+        else:
+            tree = sorted({file for _, _, file in counted if file})
+        facts.update(tree=tree, in_scope=in_scope, without_recipes=without_recipes,
+                     unmatched_include=unmatched_include, unmatched_tier_a=unmatched_tier_a, arms=dict(NO_ARMS),
                      workspace_sources=[], entries=[], maps=[])
     warnings = facts["warnings"]
+    tree_set = set(facts["tree"])
+    outside_tree = sorted((name, file) for _, name, file in counted if file and file not in tree_set)
+    warnings += [f"public name {name} is defined in {file}, which is not in the tree: effective_denominator "
+                 "and curated_subset leave it out" for name, file in outside_tree]
     counts = _denominator_counts(facts, counted, len(counted), len(internal - named), incomplete, warnings)
-    if not args.source_root and counts["effective_denominator_decision"]["reason"] in ("no-arm", "full-library",
-                                                                                     "all-files", "not-curated",
-                                                                                     "zero-count"):
+    if not args.source_root and counts["effective_denominator_decision"]["reason"] not in ("reference-app",
+                                                                                         "incomplete-run"):
         counts["effective_denominator_decision"] = {"store": False, "reason": "no-source-tree"}
-    in_scope = facts["in_scope"]
+    without_recipes = facts["without_recipes"]
+
+    def row(key: tuple[str, str], file: str | None) -> dict:
+        return {"name": key[1], "language": key[0], "file": file}
+
+    def by_name(keys):
+        return sorted(keys, key=lambda k: (k[1], k[0]))
+
+    # The names the payload and --quick gave (the runner diffed its own), a namespace as its members.
+    given: dict[tuple[str, str], str | None] = {}
+    for key, info in public.items():
+        if info is runner_public.get(key):
+            continue
+        for member in info["members"] if _has_members(info) else [info]:
+            given.setdefault((key[0], member["name"]), member["file"])
     return {
         "mode": "denominator",
         "source_root": args.source_root,
         "scope": _scope_record(args, facts),
-        "files_in_scope": None if in_scope is None else len(in_scope),
-        "files_in_scope_list": in_scope,
+        "files_in_scope": None if facts["in_scope"] is None else len(facts["in_scope"]),
+        "files_without_recipes": None if without_recipes is None else _by_extension(without_recipes),
         "entry_points": {"files": facts["entries"], "exports_maps": facts["maps"]},
         "arms": facts["arms"],
         "runner_status": runner_status,
         "counts": counts,
+        "entry_point_diff": {
+            "public": [row((family, name), file)
+                       for family, name, file in sorted(counted, key=lambda k: (k[1], k[0], k[2] or ""))],
+            "internal": [row(key, found.get(key)) for key in by_name(internal - named)],
+            "extraction_gaps": [row(key, given[key]) for key in by_name(given) if key not in found],
+        },
         "warnings": warnings,
+        "files_in_scope_list": facts["in_scope"],
+        "files_without_recipes_list": without_recipes,
     }
 
 
 def _main_denominator(args: argparse.Namespace) -> int:
-    raw = "" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read()
+    if args.source_root and args.tree_file is not None:
+        return _full_exit_2("--tree-file stands for a remote source with no --source-root: pass one of them")
+    # With `--tree-file -` stdin holds the listing, so there is no payload.
+    reads_stdin = args.tree_file != "-" and sys.stdin is not None and not sys.stdin.isatty()
+    raw = sys.stdin.read() if reads_stdin else ""
     try:
         payload = json.loads(raw) if raw.strip() else {}
     except ValueError as exc:
@@ -4720,6 +4812,7 @@ def _main_denominator(args: argparse.Namespace) -> int:
     text = json.dumps(result, indent=2) + "\n"
     if args.output:
         try:
+            Path(args.output).parent.mkdir(parents=True, exist_ok=True)
             Path(args.output).write_text(text, encoding="utf-8")
         except OSError as exc:
             return _full_exit_2(f"cannot write {args.output}: {exc}")
@@ -4946,8 +5039,9 @@ def _build_parser() -> argparse.ArgumentParser:
     listing = parser.add_argument_group("entries mode, and the listing quick mode follows chains in")
     listing.add_argument("--tree-file", metavar="PATH",
                          help="the repository's file listing (skf-github-probe.py tree output, JSON, or one "
-                              "path per line): entries mode finds the entry files in it, and quick mode "
-                              "resolves each unlisted[] statement's module_file against it")
+                              "path per line): entries mode finds the entry files in it, quick mode "
+                              "resolves each unlisted[] statement's module_file against it, and denominator "
+                              "mode, with no --source-root, takes it as the tree (- reads it from stdin)")
     listing.add_argument("--scope", metavar="FOLDER",
                          help="entries mode: the package folder to read (default: the repository root)")
     listing.add_argument("--fetch-list", metavar="FILE",
@@ -5344,6 +5438,7 @@ def main(argv: list[str]) -> int:
     if args.mode == "denominator":
         other = [f"--{flag.replace('_', '-')}" for flag in FULL_MODE_FLAGS
                  if getattr(args, flag) is not None and flag not in DENOMINATOR_FLAGS]
+        listing = [flag for flag in listing if flag != "--tree-file"]
         if files or listing or other:
             parser.error(f"{', '.join(other + listing) or '--manifest-file, --entry-file, --follow-file'}: "
                          "not denominator mode's")

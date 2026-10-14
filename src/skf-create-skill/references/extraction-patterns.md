@@ -5,11 +5,10 @@
 Source reading via gh_bridge — infer exports from file structure and content.
 
 ### Strategy
-1. `gh_bridge.list_tree(owner, repo, branch)` — map source structure
-2. Identify entry points: index files, main exports, public modules
-3. `gh_bridge.read_file(owner, repo, path)` — read each entry point
-4. Extract: exported function names, parameter lists, return types (from signatures)
-5. Infer types from JSDoc, docstrings, type annotations in source
+1. Files, entry points: step 3 §2's `files_in_scope_list`, `files_without_recipes_list`, `entry_points.files`
+2. Read each file that defines public API, locally or with `gh_bridge.read_file(owner, repo, path)`
+3. Extract: exported function names, parameter lists, return types (from signatures)
+4. Infer types from JSDoc, docstrings, type annotations in source
 
 ### Confidence
 - Every export is read by eye, so every entry is T1-low (source reading without structural verification): a `[SRC:...]` citation, `extraction_method: source-read` and `ast_node_type: null`

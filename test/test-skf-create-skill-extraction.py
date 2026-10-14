@@ -22,7 +22,7 @@ These tests keep the steps on the scripts:
 - a call that leaves no JSON, and a brief whose language no recipe reads,
   go where the protocol's When the Runner Cannot Run sends them: the
   recipes by hand, or source reading;
-- §2 builds the filtered file list by hand only where a step reads it, and
+- §2 has the runner build the filtered file list where a step reads it, and
   §4b and §5 read the runner's entry-point diff, aggregates and truncation
   flag, and compile §4 its counts and arms, never a hand count, and its
   condition 2 passes a tier A count over a curated `scope.include`;
@@ -377,16 +377,25 @@ def test_tool_resolution_names_the_runner_where_a_step_gives_it() -> None:
             "them all in one call; otherwise, and when the runner cannot run, the protocol's decision tree") in note
 
 
-def test_filtered_list_is_built_by_hand_only_where_a_step_reads_it() -> None:
+def test_filtered_list_is_built_by_the_runner_where_a_step_reads_it() -> None:
+    """v4.0.0 quality gate run 1 (create-skill determinism-2): the list Quick tier and the runner's fallback read
+    was built by matching the globs by eye; the runner builds it by its own rule, with no recipe run."""
     two = _section(EXTRACT, "2")
-    assert ("At Forge tier and above the recipe runner (§4) applies these globs to the source tree itself, and "
-            "its `files_in_scope` is the filtered file count") in two
-    assert ("Build the filtered file list by hand only where a step reads it: at Quick tier, for a "
-            "`component-library` brief (§2c), and in a §4 branch that extracts without the runner") in two
-    # the glob rule is stated once, in the protocol's Recipe Runner section
-    assert "matching the globs by the **Files in scope** rule of the Recipe Runner section in" in two
+    assert ("At Forge tier and above the recipe runner (§4) applies these globs to the source tree itself: its "
+            "`files_in_scope_list` and `files_without_recipes_list` are the filtered file list, and `files_in_scope` "
+            "its count") in two
+    assert ("Where a step reads the list without the runner (at Quick tier, for a `component-library` brief (§2c), "
+            "and in a §4 branch that extracts without the runner), resolve `{extractPublicApiHelper}` as §4 does and "
+            "build it from the source tree resolved in step 1 by step 1 of `{entryPointsByHandData}`") in two
+    assert "by hand" not in two and "matching the globs by the" not in two
     assert "`**/test_*` matches a top-level `test_x.py`" not in two
     assert "decision tree" not in two
+    # the call and its remote form are the hand-count file's, which update-skill loads too
+    assert "```bash" not in two
+    by_hand = " ".join(_read(REFS / "entry-points-by-hand.md").split())
+    assert ("with `--tree-file -` in place of `--source-root`. The filtered file list is its `files_in_scope_list` "
+            "(the files a recipe reads) and `files_without_recipes_list` (those in a language no recipe reads)") \
+        in by_hand
     # the auth-files order note stays where test-skf-auth-files-after-clone.py reads it
     assert "Sections 2b and 2a follow in that order" in two
     ready = _slice(_section(EXTRACT, "2b"), "- **`ready`**", "\n")
@@ -410,19 +419,19 @@ def test_entry_point_check_reads_the_runner_diff() -> None:
     outside = _slice(runner, "- `outside_scope`:", "\n")
     assert ("this surface stays undocumented while `exports_public_api` still counts it, so `public_api_coverage` "
             "drops (only `effective_denominator`, for the curated-subset shapes, leaves it out)") in outside
-    assert ("Files you read by eye because no recipe reads their language (`files_without_recipes`) are outside "
-            "this diff and these counts") in runner
+    assert ("Files you read by eye because no recipe reads their language (`files_without_recipes_list`) are "
+            "outside this diff and these counts") in runner
     # the by-eye read stays for Quick tier and source reading, after the runner branch
     by_eye = four_b[four_b.index("**Otherwise**"):]
     assert ("Quick tier, extraction by source reading, a brief whose language no recipe reads included, or the "
             "protocol's fallback") in by_eye
-    assert ("when the runner's JSON has `status: no-ast-grep`, its `entry_points.files` lists them, and §5's "
-            "`init` records its `arms` for step 5 §4") in by_eye
-    # its per-language reads live in a reference only that branch loads, so extract.md stays in budget
-    assert "load `{entryPointsByHandData}`, which only this branch reads" in by_eye
+    assert ("find the entry points' public names and count them by steps 2 to 4 of `{entryPointsByHandData}`, and "
+            "send the `counts` and `arms` its call writes with §5's `set`.") in by_eye
     assert _frontmatter(_read(EXTRACT))["entryPointsByHandData"] == "references/entry-points-by-hand.md"
     by_hand = _read(EXTRACT.parent / "entry-points-by-hand.md")
-    assert "- **Python:** Read `{source_root}/__init__.py`" in by_hand
+    assert "**Python:** `__init__.py`, its imports." in by_hand
+    assert ("1. **The files in scope and the entry points**, unless a runner JSON gives them (its `no-ast-grep` "
+            "result too):") in by_hand
     assert "so public_api_coverage drops (only effective_denominator, for the curated-subset shapes" in by_hand
     assert "**Multi-entry packages (`exports` map / declaration-file entry points).**" in by_hand
     assert "- **Python:** Read" not in four_b and "**Multi-entry packages" not in four_b
@@ -711,20 +720,24 @@ def test_a_hand_count_counts_each_name_once_in_effective_denominator() -> None:
     # hand count), so compile §4 no longer restates it
     bullet = _slice(_section(COMPILE, "4"), "  - `effective_denominator` (**optional**", "\n")
     assert "each member by its own file" not in bullet and "count it by the same unit" not in bullet
-    # the per-file rule names its count; the hand-count file points to compile §4 and counts no third number
+    # v4.0.0 quality gate run 1 (create-skill determinism-2): a hand count is the runner's too. The hand-count
+    # file finds the names and sends them to `--mode denominator`, and §4b's by-eye names join the runner's there
     by_hand = " ".join(_read(REFS / "entry-points-by-hand.md").split())
-    assert ("counts as the names its module passes on, each name and file once in `exports_public_api`, as the "
-            "recipe runner counts it; a name the entry points pass on from two files (a namespace member named "
-            "like another public name, or like another namespace's member, at another file) or in two languages "
-            "counts once in compile.md §4's `effective_denominator`.") in by_hand
-    assert ("then count `exports_public_api` (the entry points' public names) and `exports_internal` (every "
-            "other non-underscore export) for step 5 §4:") in by_hand
+    assert ("`{extractPublicApiHelper}`'s `--mode denominator` lists the files in scope, counts the public names "
+            "you find, diffs them with the exports extraction found and decides whether to store "
+            "`effective_denominator`, by the runner's own rules: no list, count or diff is made by hand.") in by_hand
+    assert ("stands for the names its module passes on: give it its `members`, each at its own file.") in by_hand
+    # v4.0.0 quality gate run 1 review: the entry points are diffed with the exports by the script too
+    for gone in ("then count `exports_public_api`", "counts once in compile.md §4's `effective_denominator`",
+                 "Compare against AST results", "An extracted export no entry point exports is internal"):
+        assert gone not in by_hand, gone
+    assert ("Its `entry_point_diff` replaces a compare by eye: trace each `extraction_gaps` name (re-export "
+            "protocol), and send each `internal` export with `\"internal\": true`") in by_hand
     by_eye = _slice(_section(EXTRACT, "4b"), "Files you read by eye because no recipe reads their language", "\n")
-    assert ("add their names to the counts (to `effective_denominator` only a name whose file its globs count and "
-            "that it does not count yet, as step 5 §4 defines it, since it counts each name once: it already "
-            "counts the names `entry_point_diff.public` lists, a namespace's `members` by their own files, whose "
-            "file its globs count), and send the counts you changed with §5's `set`.") in by_eye
-    assert "add their names to the counts, and send" not in by_eye
+    assert ("count their entry points' names by steps 2 to 4 of `{entryPointsByHandData}`, with `--extraction "
+            "\"{extraction_json}\"` (its names join them, each once), and send the `counts` its call writes with "
+            "§5's `set`.") in by_eye
+    assert "add their names to the counts" not in by_eye
     for text in (bullet, by_hand, by_eye):
         assert "\u2014" not in text and "\u2013" not in text
 
@@ -1146,6 +1159,158 @@ def _runner_output(tmp_path: Path, tree: dict[str, str] = SOURCE_TREE, extra: tu
     return json.loads(Path(out).read_text(encoding="utf-8"))
 
 
+def _tree_at(root: Path, tree: dict[str, str]) -> Path:
+    for rel, text in tree.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(text.encode("utf-8"))
+    return root
+
+
+def _scope_facts(tmp_path: Path, root: Path, brief: str | None = "brief/skill-brief.yaml",
+                 flags: tuple[str, ...] = ()) -> subprocess.CompletedProcess:
+    """Run step 1 of entry-points-by-hand.md as written, with create-skill's bindings, into a stage folder that
+    does not exist yet (the call creates it): `brief` None runs it with no --brief, `flags` in its place."""
+    by_hand = _read(REFS / "entry-points-by-hand.md")
+    assert ("`<the brief>` and `<the JSON>` are create-skill's `{brief_path}` and `{scope_json}` "
+            "(`{project-root}/_bmad-output/.skf-stage/{skill-name}.scope.json`)") in " ".join(by_hand.split())
+    out = tmp_path / "_bmad-output" / ".skf-stage" / "demo.scope.json"
+    rm, call = _block(by_hand, "echo ")
+    _rm(rm.replace('"<the JSON>"', '"{scope_json}"'), {"scope_json": out.as_posix()})
+    echo, _, command = call.partition(" | ")
+    assert shlex.split(echo) == ["echo", "{}"]
+    assert '[--brief "<the brief>"]' in command and '-o "<the JSON>"' in command
+    brief_flag = f'--brief "{(root / brief).as_posix()}"' if brief else " ".join(shlex.quote(f) for f in flags)
+    command = command.replace('[--brief "<the brief>"]', brief_flag).replace('"<the JSON>"', '"{scope_json}"')
+    words = _fill(command, {"extractPublicApiHelper": "runner.py", "source_root": root.as_posix(),
+                            "scope_json": out.as_posix()})
+    assert not out.parent.exists()
+    return subprocess.run([sys.executable, str(RUNNER), *words[3:]], input="{}", capture_output=True,
+                          text=True, encoding="utf-8", cwd=tmp_path, check=False)
+
+
+def test_the_documented_scope_call_lists_the_files_in_scope(tmp_path: Path) -> None:
+    """v4.0.0 quality gate run 1 (create-skill determinism-2): §2's call, step 1 of entry-points-by-hand.md, run
+    as written over a local source, gives the filtered file list, the entry points and the arms, with no recipe
+    run and no glob matched by eye. SOURCE_TREE's `**/*.py` less `**/test_*` keeps the package's two files."""
+    root = _tree_at(tmp_path / "source", SOURCE_TREE)
+    result = _scope_facts(tmp_path, root)
+    assert result.returncode == 0, result.stderr
+    facts = json.loads((tmp_path / "_bmad-output" / ".skf-stage" / "demo.scope.json").read_text(encoding="utf-8"))
+    assert (facts["files_in_scope"], facts["files_in_scope_list"]) == (2, ["src/pkg/__init__.py", "src/pkg/core.py"])
+    assert facts["files_without_recipes_list"] == []
+    assert [entry["file"] for entry in facts["entry_points"]["files"]] == ["src/pkg/__init__.py"]
+    assert facts["arms"]["monorepo"] is False
+
+
+QUICK_JAVA_TREE = {
+    "src/main/A.java": "public class A {}\n",
+    "src/main/B.java": "public class B {}\n",
+    "src/web/index.ts": "export function t(): void {}\n",
+    "README.md": "# demo\n",
+    "brief/skill-brief.yaml": "name: demo\nlanguage: java\nscope:\n  type: full-library\n  include: ['src/**']\n",
+    "brief/mixed.yaml": "name: demo\nscope:\n  type: full-library\n  include: ['src/**']\n",
+}
+
+
+@pytest.mark.parametrize(("brief", "in_scope"), [
+    ("brief/skill-brief.yaml", []), ("brief/mixed.yaml", ["src/web/index.ts"])], ids=["java", "ts-and-java"])
+def test_the_scope_call_lists_the_files_no_recipe_reads(tmp_path: Path, brief: str, in_scope: list[str]) -> None:
+    """v4.0.0 quality gate run 1 review (blocker): the Quick-tier Strategy reads a brief whose language no recipe
+    reads, so §2's list holds those files too. A `language: java` brief gave an empty list; a brief with no
+    language over TypeScript and Java listed the TypeScript file alone."""
+    root = _tree_at(tmp_path / "source", QUICK_JAVA_TREE)
+    result = _scope_facts(tmp_path, root, brief)
+    assert result.returncode == 0, result.stderr
+    facts = json.loads((tmp_path / "_bmad-output" / ".skf-stage" / "demo.scope.json").read_text(encoding="utf-8"))
+    assert facts["files_in_scope_list"] == in_scope
+    assert facts["files_without_recipes_list"] == ["src/main/A.java", "src/main/B.java"]
+    assert facts["files_without_recipes"] == {".java": 2}
+    strategy = _slice(_read(PATTERNS), "## Quick Tier (No AST)", "### Confidence")
+    assert ("1. Files, entry points: step 3 §2's `files_in_scope_list`, `files_without_recipes_list`, "
+            "`entry_points.files`") in strategy
+
+
+def test_a_failed_scope_or_count_call_runs_once_more_then_halts(tmp_path: Path) -> None:
+    """v4.0.0 quality gate run 1 review: the calls that replaced the by-hand list and counts had no failure
+    branch, and a runner exit 2 on a brief it cannot read sent the run to a call that read the same brief. On
+    exit 2 the call names its input in one `error:` line; run once more with the brief's scope as flags, and when
+    it fails again or no path resolves, the step halts: no count is made by hand."""
+    tree = dict(SOURCE_TREE, **{"brief/skill-brief.yaml": "name: demo\nscope: [unclosed\n"})
+    root = _tree_at(tmp_path / "source", tree)
+    failed = _scope_facts(tmp_path, root)
+    assert failed.returncode == 2 and failed.stdout == ""
+    assert len(failed.stderr.splitlines()) == 1 and failed.stderr.startswith("error: brief ")
+    again = _scope_facts(tmp_path, root, None, ("--include", "**/*.py", "--exclude", "**/test_*", "--scope-type",
+                                                 "full-library", "--language", "python"))
+    assert again.returncode == 0, again.stderr
+    facts = json.loads((tmp_path / "_bmad-output" / ".skf-stage" / "demo.scope.json").read_text(encoding="utf-8"))
+    assert facts["files_in_scope_list"] == ["src/pkg/__init__.py", "src/pkg/core.py"]
+    step = _slice(" ".join(_read(REFS / "entry-points-by-hand.md").split()), "4. **When a call fails:**",
+                  "**Multi-entry")
+    for token in ("on exit 2, show the stderr line that holds `error:` and run the call once more",
+                  "with the brief's scope as `--include`, `--exclude`, `--tier-a-include`, `--scope-type` and "
+                  "`--language` in place of `--brief` when it names the brief",
+                  "When it fails again or writes no JSON, or no `{extractPublicApiHelper}` path resolves, no count "
+                  "is made by hand: the step that loaded this file halts."):
+        assert token in step, token
+    two = _section(EXTRACT, "2")
+    assert ("When a call of that file fails as its step 4 says, **HARD HALT** (exit code 4, `write-failed`, phase "
+            "`extract`, or exit code 3, `helper-missing`, when no path resolves;") in two
+
+
+HAND_COUNT_TREE = {
+    "pkg/__init__.py": 'from .a import x\nfrom . import sub\n\n__all__ = ["x", "sub"]\n',
+    "pkg/a.py": "def x():\n    pass\n\n\ndef hidden():\n    pass\n",
+    "pkg/sub.py": "def s():\n    pass\n",
+    "brief/skill-brief.yaml": ("name: demo\nlanguage: python\nscope:\n  type: specific-modules\n"
+                               "  include: ['pkg/**']\n  exclude: ['pkg/sub.py']\n  notes: tiered\n"),
+}
+
+
+def test_the_documented_hand_count_calls_run(tmp_path: Path) -> None:
+    """v4.0.0 quality gate run 1 (create-skill determinism-2): entry-points-by-hand.md's two calls, run as
+    written: quick mode gives each public name at the file that defines it, and denominator mode counts them
+    with the names read by eye (the submodule `sub` as its member `s`) and decides, as the runner would: `s`
+    is public but its file is excluded, so the count is 1 and the excluded file makes it a curated subset."""
+    root = _tree_at(tmp_path / "source", HAND_COUNT_TREE)
+    by_hand = " ".join(_read(REFS / "entry-points-by-hand.md").split())
+    quick = re.search(r"`(uv run \{extractPublicApiHelper\} --mode quick [^`]*)`", by_hand).group(1)
+    words = _fill(quick, {"extractPublicApiHelper": "runner.py", "language": "python",
+                          "source_root": root.as_posix(), "entry-file": "pkg/__init__.py"})
+    result = _run(words, RUNNER, tmp_path)
+    assert result.returncode == 0, result.stderr
+    quick_json = tmp_path / "quick-1.json"
+    quick_json.write_text(result.stdout, encoding="utf-8")
+    call = _call(_read(REFS / "entry-points-by-hand.md"), "uv run {extractPublicApiHelper} --mode denominator")
+    call = call.partition(" <<")[0]
+    out = tmp_path / "denominator.json"
+    for synopsis, value in (('[--brief "<the brief>"]', f'--brief "{(root / "brief" / "skill-brief.yaml").as_posix()}"'),
+                            ('[--quick "<a quick JSON>"]...', f'--quick "{quick_json.as_posix()}"'),
+                            ('[--extraction "<the runner\'s JSON>"] ', ""),
+                            ('-o "<the JSON>"', f'-o "{out.as_posix()}"')):
+        assert synopsis in call, synopsis
+        call = call.replace(synopsis, value)
+    words = _fill(call, {"extractPublicApiHelper": "runner.py", "source_root": root.as_posix()})
+    payload = {"public": [{"name": "sub", "file": "pkg/sub.py", "language": "python",
+                           "members": [{"name": "s", "file": "pkg/sub.py"}]}],
+               "exports": [{"name": name, "file": file, "language": "python"}
+                           for name, file in (("x", "pkg/a.py"), ("hidden", "pkg/a.py"), ("s", "pkg/sub.py"))]}
+    result = subprocess.run([sys.executable, str(RUNNER), *words[3:]], input=json.dumps(payload),
+                            capture_output=True, text=True, encoding="utf-8", cwd=tmp_path, check=False)
+    assert result.returncode == 0, result.stderr
+    written = json.loads(out.read_text(encoding="utf-8"))
+    assert written["counts"] == {
+        "exports_public_api": 2, "exports_internal": 1, "effective_denominator": 1,
+        "effective_denominator_basis": "scope.include", "denominator_files": 2, "curated_subset": True,
+        "effective_denominator_decision": {"store": True, "reason": "curated-subset"}}
+    # v4.0.0 quality gate run 1 review: the diff the hand-count file compared by eye
+    assert written["entry_point_diff"] == {
+        "public": [{"name": "s", "language": "python", "file": "pkg/sub.py"},
+                   {"name": "x", "language": "python", "file": "pkg/a.py"}],
+        "internal": [{"name": "hidden", "language": "python", "file": "pkg/a.py"}],
+        "extraction_gaps": []}
+
+
 def _resolve(data: dict, path: str) -> None:
     """Assert that the dotted `path` (a `[]` part is a list) names a field of `data`."""
     node: object = data
@@ -1211,12 +1376,15 @@ def test_every_runner_field_the_prose_reads_is_in_its_json(tmp_path: Path) -> No
     passages.append(_section(COMPILE, "4"))
     patterns = _read(PATTERNS)
     passages.append(_slice(patterns, "### Recipe Runner", "### Known ast-grep Limitations"))
+    # §2's list and the entry points of a run without the runner (its `no-ast-grep` JSON's too)
+    passages.append(_read(REFS / "entry-points-by-hand.md"))
     # `scope.*` names brief fields too (`scope.notes`), so the runner's `scope` is checked on its own
     named = {token for text in passages for token in TOKEN_RE.findall(text)
              if token.split(".")[0].removesuffix("[]") in out and not token.startswith("scope")}
     assert {"files_in_scope", "files_without_recipes", "truncated", "status",
             "counts.effective_denominator", "counts.effective_denominator_decision.store", "entry_points.unresolved",
-            "entry_points.files", "ast_grep.version"} <= named, sorted(named)
+            "entry_points.files", "ast_grep.version", "files_in_scope_list", "files_without_recipes_list"} <= named, \
+        sorted(named)
     for token in sorted(named):
         _resolve(out, token)
     assert set(out["scope"]) >= {"include", "exclude", "tier_a_include", "type", "languages"}
