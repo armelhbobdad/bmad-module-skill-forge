@@ -1,6 +1,6 @@
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["pyyaml"]
 # ///
 """SKF Extraction Inventory: write, extend and read create-skill's extraction inventory on disk.
 
@@ -12,8 +12,9 @@ runner's JSON and the script/asset detector's JSON, so the model never
 types a record those tools already wrote; the model then sends only what it
 produced itself (`patch`, `add`, `set`). Step 3c adds the T3 items it
 extracts from fetched documentation, step 4 the T2 annotations it finds in
-QMD, and step 7 writes `extraction-rules.yaml` from it (`rules`). Every
-write goes through a temporary file and one rename.
+QMD, compile writes the provenance map (`provenance`) and metadata.json
+(`metadata`) from it, and step 7 writes `extraction-rules.yaml` from it
+(`rules`). Every write goes through a temporary file and one rename.
 
 Subcommands:
 
@@ -141,6 +142,48 @@ Subcommands:
            `public: false` is not added either and is listed in
            `not_public`, so the map never holds an export off the surface.
 
+  metadata --inventory <file> --brief <skill-brief.yaml> --stats <file>
+           --skf-root <dir> --target <metadata.json>
+           Write the skill's metadata.json to --target, so compile types
+           only the fields it decides. stdin holds them, a JSON object:
+           version and language (non-empty strings), source_root,
+           source_commit, source_ref and qmd_version (strings or null),
+           each required, and ast_grep_version (a string or null, default
+           null) and stats_extra (an object, default {}); any other key is
+           refused. The rest comes from the files:
+           name, scope_type (the brief's scope.type, verbatim), source_repo
+           and source_authority (default "community") from --brief;
+           description from the frontmatter of the SKILL.md beside
+           --target (compile's staged one); confidence_tier (the
+           inventory's tier); exports[], the names of the inventory's
+           exports but one marked `internal: true` or `public: false`,
+           each once, in its order (a docs-only inventory's t3_items
+           names; none for a reference-app brief); ast_node_count and
+           tool_versions.ast_grep, only when ast-grep ran: when the
+           runner ran it (extraction_rules.ast_grep_version is set), the
+           runner's aggregates.exports and that version; otherwise, when
+           exports carry extraction_method ast-grep (the recipes run
+           without the runner), their number and stdin's
+           ast_grep_version, else "unknown" with a warning (stdin's
+           ast_grep_version is read in that case only);
+           tool_versions.ast_grep is null when ast-grep did not run, and
+           ast_node_count left out; scripts[] and assets[], {file:
+           scripts/<name> or assets/<name>, purpose, source_file,
+           confidence} per scripts_inventory or assets_inventory entry,
+           left out when it is empty; and stats and
+           confidence_distribution verbatim from --stats (the JSON
+           skf-render-metadata-stats.py wrote), with stats_extra's keys
+           added: a component-library brief's own stats, or a
+           reference-app brief's notes alone (another scope type takes
+           none, and a key the stats helper wrote is refused). It stamps
+           generation_date (UTC, to the second), reads tool_versions.skf
+           under --skf-root (the installed module) as
+           skf-render-quick-metadata.py does (package.json's version, else
+           the VERSION file's first line, else "unknown", with a warning),
+           and writes skill_type "single", spec_version "1.3",
+           generated_by "create-skill", dependencies [] and compatibility
+           "". The inventory is not changed.
+
   rules    --inventory <file> --language <language> --target <file>
            Write extraction-rules.yaml (the skill, its language, tier and
            extraction mode, and the inventory's extraction_rules) to
@@ -172,7 +215,8 @@ Inventory shape (the keys this helper reads or writes):
 An export may carry `internal: true` (the runner's entry_point_diff.internal
 lists it) and `public: true` or `public: false` (see init's Public surface).
 
-Output (stdout, exit 0), for every subcommand but rules and provenance:
+Output (stdout, exit 0), for every subcommand but rules, provenance and
+metadata:
 
   {
     "status": "ok",
@@ -205,14 +249,17 @@ prints {"status": "ok", "target": "<path>", "bytes": N}, provenance
 (file)", ...]}, and provenance --add-entries {"status": "ok", "target":
 "<path>", "entries": N, "file_entries": N, "added": N, "duplicates": N,
 "not_public": [{"name", "file"}, ...]}, the counts of the map after the
-merge.
+merge, and metadata {"status": "ok", "target": "<path>", "exports": N,
+"commit_short": "<source_commit's first 8 characters, or unknown>",
+"tool_versions": {...}, "warnings": [...]}.
 
 Exit codes:
   0  success
   1  input error, nothing changed: an inventory that is missing, not JSON
-     or has no exports list, an --extraction or --detected file that
-     cannot be read, a provenance map at --target that --add-entries
-     cannot read, a stdin payload of the wrong shape, an exports entry
+     or has no exports list, an --extraction, --detected, --brief or
+     --stats file that cannot be read, a provenance map at --target that
+     --add-entries cannot read, a staged SKILL.md with no frontmatter
+     description, a stdin payload of the wrong shape, an exports entry
      whose source_file is absolute, an unknown key or a kept file the
      inventory does not list, or a write that failed
   2  usage error (argparse)
@@ -221,6 +268,7 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -783,6 +831,11 @@ def provenance_entries(data: dict) -> tuple[list[dict], list[str]]:
     return entries, unsigned
 
 
+def _utc_now() -> str:
+    """Now, in UTC, to the second (ISO-8601)."""
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
 def map_header(data: dict, given) -> dict:
     """The provenance map's header: stdin's keys over the defaults."""
     if not isinstance(given, dict):
@@ -793,8 +846,7 @@ def map_header(data: dict, given) -> dict:
     missing = [key for key, default in MAP_HEADER.items() if default is REQUIRED and key not in given]
     if missing:
         raise InventoryError(f"the map's header needs {', '.join(missing)} (null when unknown)")
-    defaults = {"skill_name": data.get("skill_name"),
-                "generated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+    defaults = {"skill_name": data.get("skill_name"), "generated_at": _utc_now()}
     return {key: given[key] if key in given else defaults.get(key, default) for key, default in MAP_HEADER.items()}
 
 
@@ -835,6 +887,187 @@ def add_map_entries(provenance: dict, payload, off: frozenset = frozenset()) -> 
             target.append(item)
             added += 1
     return added, duplicates, not_public
+
+
+_SIBLINGS: dict = {}
+
+
+def _sibling(filename: str):
+    """A helper installed beside this script, loaded once as a module: skf-resolve-authoritative-files.py (the
+    brief's YAML), skf-render-quick-metadata.py (the installed SKF's version) and skf-description-guard.py (the
+    staged SKILL.md's description)."""
+    if filename not in _SIBLINGS:
+        path = Path(__file__).resolve().parent / filename
+        spec = importlib.util.spec_from_file_location("skf_" + filename[4:-3].replace("-", "_"), path)
+        if spec is None or spec.loader is None:
+            raise InventoryError(f"cannot load {filename} beside {Path(__file__).name}")
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except ImportError as exc:
+            raise InventoryError(f"cannot load {filename} ({exc}): run this helper with `uv run`") from exc
+        except (OSError, SyntaxError) as exc:
+            raise InventoryError(f"cannot load {filename} beside {Path(__file__).name}: {exc}") from exc
+        _SIBLINGS[filename] = module
+    return _SIBLINGS[filename]
+
+
+def read_brief(path: Path) -> dict:
+    """The skill brief, a YAML mapping."""
+    module = _sibling("skf-resolve-authoritative-files.py")
+    try:
+        brief = module.parse_brief_yaml(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InventoryError(f"cannot read the brief {path.as_posix()}: {exc}") from exc
+    except module.yaml.YAMLError as exc:
+        raise InventoryError(f"the brief {path.as_posix()} is not valid YAML: {exc}") from exc
+    if not isinstance(brief, dict):
+        raise InventoryError(f"the brief {path.as_posix()} is not a YAML mapping")
+    return brief
+
+
+# metadata: the stdin keys, each with the JSON types it takes; METADATA_REQUIRED have no default.
+METADATA_INPUT = {
+    "version": (str,), "language": (str,),
+    "source_root": (str, type(None)), "source_commit": (str, type(None)), "source_ref": (str, type(None)),
+    "qmd_version": (str, type(None)), "ast_grep_version": (str, type(None)), "stats_extra": (dict,),
+}
+METADATA_REQUIRED = ("version", "language", "source_root", "source_commit", "source_ref", "qmd_version")
+NON_EMPTY = ("version", "language")
+REFERENCE_APP = "reference-app"
+COMPONENT_LIBRARY = "component-library"
+
+
+def _metadata_input(given) -> dict:
+    """stdin's fields, checked, with the defaults of the optional ones."""
+    if not isinstance(given, dict):
+        raise InventoryError("stdin must hold a JSON object with " + ", ".join(METADATA_REQUIRED))
+    unknown = sorted(set(given) - set(METADATA_INPUT))
+    if unknown:
+        raise InventoryError(f"metadata takes only {', '.join(METADATA_INPUT)}; not {', '.join(unknown)}")
+    missing = [key for key in METADATA_REQUIRED if key not in given]
+    if missing:
+        raise InventoryError(f"metadata needs {', '.join(missing)} (null when unknown, but for "
+                             f"{', '.join(NON_EMPTY)})")
+    for key, value in given.items():
+        if not isinstance(value, METADATA_INPUT[key]) or (key in NON_EMPTY and not value.strip()):
+            names = " or ".join("null" if t is type(None) else t.__name__ for t in METADATA_INPUT[key])
+            raise InventoryError(f"{key} must be {'a non-empty ' if key in NON_EMPTY else ''}{names}")
+    return {"ast_grep_version": None, "stats_extra": {}, **given}
+
+
+def read_description(skill_md: Path) -> str:
+    """The `description` of the staged SKILL.md's frontmatter, which compile §2a wrote."""
+    module = _sibling("skf-description-guard.py")
+    try:
+        description, _hash = module.read_description(skill_md)
+    except (OSError, UnicodeDecodeError, ValueError) as exc:
+        raise InventoryError(f"cannot read the description of the staged SKILL.md: {exc} (write SKILL.md, "
+                             "compile §2, before metadata.json)") from exc
+    if not description.strip():
+        raise InventoryError(f"the description of {skill_md.as_posix()} is empty")
+    return description
+
+
+def metadata_exports(data: dict, scope_type: object) -> list[str]:
+    """metadata.json's exports[]: the names of the inventory's exports but one marked internal or not public, each
+    once (a docs-only inventory's t3_items names; none for a reference app)."""
+    if scope_type == REFERENCE_APP:
+        return []
+    if data.get("extraction_mode") == "docs-only":
+        items = [i for i in data.get("t3_items") or [] if isinstance(i, dict)]
+    else:
+        items = [e for e in data["exports"] if isinstance(e, dict) and e.get("internal") is not True
+                 and e.get("public") is not False]
+    names = (i.get("export_name") for i in items)
+    return list(dict.fromkeys(n for n in names if isinstance(n, str) and n))
+
+
+def _file_rows(entries: object, folder: str) -> list[dict]:
+    """The scripts[] or assets[] rows of a scripts_inventory or assets_inventory."""
+    rows = []
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        source = entry.get("source_file")
+        name = entry.get("name") or (Path(str(source)).name if source else None)
+        rows.append({"file": f"{folder}/{name}", "purpose": entry.get("purpose") or "", "source_file": source,
+                     "confidence": entry.get("confidence") or "T1-low"})
+    return rows
+
+
+def _ast_grep_run(data: dict, given_version: str | None) -> tuple[str | None, int | None, list[str]]:
+    """(tool_versions.ast_grep, ast_node_count, warnings): the runner's version and match count when it ran
+    ast-grep, else the number of exports labeled ast-grep (the recipes run without the runner) and the version
+    stdin gave, else (None, None) when ast-grep did not run."""
+    rules = data.get("extraction_rules") if isinstance(data.get("extraction_rules"), dict) else {}
+    version = rules.get("ast_grep_version")
+    if isinstance(version, str) and version:
+        aggregates = data.get("aggregates") if isinstance(data.get("aggregates"), dict) else {}
+        matched = aggregates.get("exports")
+        return version, matched if isinstance(matched, int) and not isinstance(matched, bool) else None, []
+    matched = sum(1 for e in data["exports"] if isinstance(e, dict) and e.get("extraction_method") == "ast-grep")
+    if not matched:
+        return None, None, []
+    if given_version and given_version.strip():
+        return given_version.strip(), matched, []
+    return "unknown", matched, [f"tool_versions.ast_grep is unknown: ast-grep matched {matched} exports without "
+                                "the recipe runner, and stdin gave no ast_grep_version"]
+
+
+def build_metadata(data: dict, brief: dict, stats: object, given, skf_version: str,
+                   description: str) -> tuple[dict, list[str]]:
+    """(the skill's metadata.json, its warnings) (see `metadata` in the module docstring)."""
+    fields = _metadata_input(given)
+    if not isinstance(stats, dict) or not isinstance(stats.get("stats"), dict) \
+            or not isinstance(stats.get("confidence_distribution"), dict):
+        raise InventoryError("the --stats file must hold the stats helper's JSON: a stats and a "
+                             "confidence_distribution object")
+    clash = sorted(set(fields["stats_extra"]) & set(stats["stats"]))
+    if clash:
+        raise InventoryError(f"stats_extra may not set {', '.join(clash)}: the stats helper writes it")
+    scope = brief.get("scope") if isinstance(brief.get("scope"), dict) else {}
+    scope_type = scope.get("type")
+    if not isinstance(scope_type, str) or not scope_type:
+        raise InventoryError("the brief has no scope.type, which metadata.json records as scope_type")
+    extra = sorted(fields["stats_extra"])
+    if scope_type == REFERENCE_APP and set(extra) - {"notes"}:
+        raise InventoryError(f"a reference app's stats_extra holds only notes, not {', '.join(extra)}: the stats "
+                             "helper writes pattern_surfaces_documented")
+    if extra and scope_type not in (REFERENCE_APP, COMPONENT_LIBRARY):
+        raise InventoryError(f"a {scope_type} skill takes no stats_extra (only a component library or a "
+                             "reference app adds stats)")
+    ast_grep, node_count, warnings = _ast_grep_run(data, fields["ast_grep_version"])
+    metadata = {
+        "name": brief.get("name") or data.get("skill_name"),
+        "version": fields["version"],
+        "skill_type": "single",
+        "scope_type": scope_type,
+        "source_authority": brief.get("source_authority") or "community",
+        "source_repo": brief.get("source_repo"),
+        "source_root": fields["source_root"],
+        "source_commit": fields["source_commit"],
+        "source_ref": fields["source_ref"],
+        "confidence_tier": data.get("tier"),
+        "spec_version": "1.3",
+        "generation_date": _utc_now(),
+        "description": description,
+        "language": fields["language"],
+    }
+    if node_count is not None:
+        metadata["ast_node_count"] = node_count
+    metadata["exports"] = metadata_exports(data, scope_type)
+    metadata["tool_versions"] = {"ast_grep": ast_grep, "qmd": fields["qmd_version"], "skf": skf_version}
+    metadata["confidence_distribution"] = stats["confidence_distribution"]
+    metadata["stats"] = {**stats["stats"], **fields["stats_extra"]}
+    for key, folder in (("scripts_inventory", "scripts"), ("assets_inventory", "assets")):
+        rows = _file_rows(data.get(key), folder)
+        if rows:
+            metadata[folder] = rows
+    metadata["generated_by"] = "create-skill"
+    metadata["dependencies"] = []
+    metadata["compatibility"] = ""
+    return metadata, warnings
 
 
 def rules_yaml(data: dict, language: str) -> str:
@@ -946,6 +1179,16 @@ def _build_parser() -> argparse.ArgumentParser:
     p_prov.add_argument("--target", required=True, type=Path, help="the provenance-map.json to write")
     p_prov.add_argument("--add-entries", action="store_true",
                         help="append stdin's entries and file_entries to the map at --target instead")
+    p_meta = sub.add_parser("metadata", help="write metadata.json from the inventory, the brief and the stats, "
+                                             "the fields compile decides on stdin")
+    p_meta.add_argument("--inventory", required=True, type=Path, help=inventory_help)
+    p_meta.add_argument("--brief", required=True, type=Path, help="the skill-brief.yaml")
+    p_meta.add_argument("--stats", required=True, type=Path,
+                        help="the JSON skf-render-metadata-stats.py wrote (its -o file)")
+    p_meta.add_argument("--skf-root", required=True, type=Path,
+                        help="the installed SKF module folder ({project-root}/_bmad/skf), for tool_versions.skf")
+    p_meta.add_argument("--target", required=True, type=Path,
+                        help="the metadata.json to write, beside the staged SKILL.md it reads the description of")
     p_summary = sub.add_parser("summary", help="print the inventory's counts")
     p_summary.add_argument("--inventory", required=True, type=Path, help=inventory_help)
     return parser
@@ -978,6 +1221,19 @@ def main(argv: list[str] | None = None) -> int:
             write(args.target, provenance)
             result = {"status": "ok", "target": args.target.as_posix(), "entries": len(provenance["entries"]),
                       "unsigned": unsigned}
+        elif args.command == "metadata":
+            skf_version = _sibling("skf-render-quick-metadata.py").probe_skf_version(args.skf_root)
+            metadata, warnings = build_metadata(load(path), read_brief(args.brief),
+                                                _read_json(args.stats, "stats JSON"), _stdin_json(), skf_version,
+                                                read_description(args.target.parent / "SKILL.md"))
+            write(args.target, metadata)
+            commit = metadata["source_commit"]
+            if skf_version == "unknown":
+                warnings.append(f"tool_versions.skf is unknown: {args.skf_root.as_posix()} holds no package.json "
+                                "or VERSION file with a version")
+            result = {"status": "ok", "target": args.target.as_posix(), "exports": len(metadata["exports"]),
+                      "commit_short": commit[:8] if commit else "unknown",
+                      "tool_versions": metadata["tool_versions"], "warnings": warnings}
         elif args.command == "rules":
             text = rules_yaml(load(path), args.language)
             write(args.target, text)

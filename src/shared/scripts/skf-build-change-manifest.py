@@ -55,11 +55,20 @@ Subcommands:
   apply --update-type incremental|gap-driven|full --skill-name <name>
         --generation-date <iso> --confidence-tier <tier>
         --manual-sections-preserved <n> -o <file> [inputs...]
-        [--not-public-out <file>]
+        [--not-public-out <file>] [--metadata-in <file> --lists-out <file>]
       The provenance map an update writes (see "Apply" below): the old
       map with this run's changes, written to -o through a temporary file
-      and a rename, and the summary's not_public list to --not-public-out
+      and a rename, the summary's not_public list to --not-public-out and
+      metadata.json's exports[], scripts[] and assets[] to --lists-out
       when given. Prints a summary with the warnings for a person.
+
+  metadata --metadata <metadata.json> --lists <file> --stats <file>
+           --version <version> --generation-date <iso>
+           [--source-commit <sha>] [--source-ref <ref>]
+      The skill's metadata.json an update leaves (see "Metadata" below),
+      written over --metadata through a temporary file and a rename.
+      Prints {"status": "written", "metadata": <path>, "version",
+      "exports": N, "scripts": N, "assets": N}.
 
   records [--extraction <file>] [--export-details <file>]
           [--files-from <file>] [--patches <dir>] -o <file>
@@ -335,6 +344,46 @@ Apply (update-skill write.md §3):
   changes, or the verification records), confidence_tier and
   manual_sections_preserved. An older update-history key
   (update_operations, update_metadata) stays as it is.
+
+  Lists. With --metadata-in (the skill's metadata.json as the update
+  found it) and --lists-out, it also writes the lists metadata.json takes,
+  {"exports": [...], "scripts": [...], "assets": [...]}. exports: the
+  --metadata-in exports[] less each name whose entry this run removed (a
+  DELETED_EXPORT, a DELETED file's or a MOVED file's old path's, a
+  rescoped one, a changed URL's) or renamed, unless an entry of the new
+  map still holds it, then each name it added an entry for or renamed an
+  entry to, each once; a renamed name takes its old name's place. A name
+  left out as off the public surface (the summary's not_public) has no
+  entry, so it is not added. A full update, which rebuilds the map, also
+  drops each name the new map does not hold, and a reference app
+  (scope_type reference-app) gets []. scripts and assets: one row per
+  file_entries[] row of the new map whose file_type is script or asset
+  (a row with none takes the type its file_name's folder names), in the
+  map's order: the --metadata-in scripts[] or assets[] row of its
+  source_file (else of its file_name) as it stands, else a new row {file:
+  its file_name, purpose, source_file, confidence (default T1-low)},
+  whose purpose skf-detect-scripts-assets.py reads from the file under
+  --source-root (its file name when no --source-root is given or the
+  file is not there).
+
+Metadata (update-skill write.md §2):
+
+  metadata.json as --metadata holds it, with what the update sets: version
+  (--version) and generation_date (--generation-date, YYYY-MM-DDTHH:MM:SSZ);
+  source_commit and source_ref when --source-commit or --source-ref is
+  given (an empty one sets null), else as they stand; exports, scripts and
+  assets from --lists (apply's --lists-out), scripts or assets left out
+  when its list is empty; confidence_distribution from --stats (the JSON
+  skf-render-metadata-stats.py writes with -o), and stats: the stats
+  helper's fields, then each other field --metadata's stats holds (a
+  component library's own counts, a reference app's notes, a field a
+  gap-driven patch added), the stats helper's fields an earlier run wrote
+  that this run's does not (effective_denominator,
+  pattern_surfaces_documented) dropped. It removes last_update and
+  update_type, which the provenance map's update block records, and keeps
+  every other field. It refuses (exit 1, nothing written) a --stats whose
+  scripts_count or assets_count is not the length of --lists' scripts or
+  assets, a --generation-date of another form, and a file it cannot read.
 
   Summary on stdout: {"status": "written", "map": <-o>, "entries":
   {"added", "updated", "removed"}, "not_public": [{name, file}],
@@ -1447,6 +1496,7 @@ class _Map:
         self.added: list[str] = []
         self.updated: list[str] = []
         self.removed: list[str] = []
+        self.renamed: list[tuple[str, str]] = []  # (old name, new name)
         self.touched_files: set[str] = set()
 
     def find(self, name: str, path: str | None, line: int | None = None) -> int | None:
@@ -1472,6 +1522,8 @@ class _Map:
         if after != before:
             self.doc["entries"][index] = after
             self.updated.append(_name_of(after))
+            if _name_of(before) and _name_of(after) and _name_of(before) != _name_of(after):
+                self.renamed.append((_name_of(before), _name_of(after)))
             for path in (_file_of(before), _file_of(after)):
                 if path:
                     self.touched_files.add(path)
@@ -1760,14 +1812,118 @@ def _apply_files(pmap: _Map, compare: dict | None, new_files: dict | None, promo
     return done
 
 
+REFERENCE_APP = "reference-app"
+
+
+def _export_name(item: object) -> str | None:
+    """The name of a metadata.json exports[] item: a string, or an object's name or export_name."""
+    if isinstance(item, str):
+        return item or None
+    return _name_of(item) if isinstance(item, dict) else None
+
+
+def exports_after(metadata: object, pmap: _Map, update_type: str) -> list:
+    """metadata.json's exports[] after the update (see "Exports" in the module docstring)."""
+    if not isinstance(metadata, dict):
+        raise ValueError("--metadata-in file must hold a JSON object (the skill's metadata.json)")
+    if metadata.get("scope_type") == REFERENCE_APP:
+        return []
+    current = metadata.get("exports") if isinstance(metadata.get("exports"), list) else []
+    held = {_name_of(e) for e in pmap.doc["entries"] if isinstance(e, dict)} - {None}
+    renamed = dict(pmap.renamed)
+    gone = ({n for n in pmap.removed if n} | set(renamed)) - held
+    if update_type == "full":
+        gone |= {n for n in map(_export_name, current) if n and n not in held}
+    out: list = []
+    seen: set[str] = set()
+
+    def put(item: object, name: str | None) -> None:
+        if name and name not in seen:
+            seen.add(name)
+            out.append(item)
+
+    for item in current:
+        name = _export_name(item)
+        if name in gone:
+            new = renamed.get(name)
+            put(new, new if new in held else None)
+        else:
+            put(item, name)
+    for name in pmap.added + [new for _old, new in pmap.renamed]:
+        put(name, name if name in held else None)
+    return out
+
+
+_DETECTOR = None
+
+
+def _detector():
+    """skf-detect-scripts-assets.py, loaded once from this folder: the purpose a new script's or asset's row
+    takes, read from the file as create-skill's detector reads it."""
+    global _DETECTOR
+    if _DETECTOR is None:
+        path = Path(__file__).resolve().parent / "skf-detect-scripts-assets.py"
+        spec = importlib.util.spec_from_file_location("skf_detect_scripts_assets", path)
+        if spec is None or spec.loader is None or not path.is_file():
+            raise ValueError(f"cannot load {path.name} beside {Path(__file__).name}: re-install SKF")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _DETECTOR = module
+    return _DETECTOR
+
+
+def _purpose(source_file: str, kind: str, source_root: Path | None) -> str:
+    """A new script's or asset's purpose: the detector's, read from the file under `source_root`, else its name."""
+    path = source_root / source_file if source_root is not None else None
+    if path is None or not path.is_file():
+        return Path(source_file).name
+    detector = _detector()
+    hint = detector.asset_type(path, source_root) if kind == "asset" else None
+    return detector.extract_purpose(path, asset_type_hint=hint)
+
+
+def file_rows_after(metadata: dict, pmap: _Map, source_root: Path | None) -> dict[str, list]:
+    """metadata.json's scripts[] and assets[] after the update (see "Lists" in the module docstring)."""
+    by_source: dict[str, dict] = {}
+    by_file: dict[str, dict] = {}
+    for key in ("scripts", "assets"):
+        rows = metadata.get(key)
+        for row in rows if isinstance(rows, list) else []:
+            if not isinstance(row, dict):
+                continue
+            source = _norm_path(row.get("source_file"))
+            if source:
+                by_source.setdefault(source, row)
+            if isinstance(row.get("file"), str):
+                by_file.setdefault(row["file"], row)
+    lists: dict[str, list] = {"scripts": [], "assets": []}
+    entries = pmap.doc.get("file_entries")
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict) or _file_type(entry) not in ("script", "asset"):
+            continue
+        kind = _file_type(entry)
+        source = _norm_path(entry.get("source_file"))
+        held = by_source.get(source) if source else None
+        if held is None and isinstance(entry.get("file_name"), str):
+            held = by_file.get(entry["file_name"])
+        if held is None:
+            held = {"file": entry.get("file_name") or f"{kind}s/{Path(source or '').name}",
+                    "purpose": _purpose(source, kind, source_root) if source else "",
+                    "source_file": source, "confidence": entry.get("confidence") or "T1-low"}
+        lists[f"{kind}s"].append(held)
+    return lists
+
+
 def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, manifest: dict | None = None,
                  categories: dict | None = None, extraction: dict | None = None, details: dict | None = None,
                  records: dict | None = None, merge_records: dict | None = None, compare: dict | None = None,
                  new_files: dict | None = None, promoted: list | None = None, source_root: Path | None = None,
                  generation_date: str, test_report_run_id: str | None, confidence_tier: str,
                  manual_sections_preserved: int, source_commit: str | None = None,
-                 source_ref: str | None = None, drift: tuple | None = None) -> tuple[dict, dict]:
-    """(new map, summary) of one update (see "Apply" in the module docstring).
+                 source_ref: str | None = None, drift: tuple | None = None,
+                 metadata: dict | None = None) -> tuple[dict, dict]:
+    """(new map, summary) of one update (see "Apply" in the module docstring). With `metadata` (the skill's
+    metadata.json), the summary's `lists` holds the exports[], scripts[] and assets[] it takes after the update.
 
     A refusal returns ({}, summary) with status "refused" and no map.
     Raises ValueError for inputs it cannot read.
@@ -1830,7 +1986,58 @@ def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, 
         "file_entries": file_changes,
         "warnings": warnings,
     }
+    if metadata is not None:
+        summary["lists"] = {"exports": exports_after(metadata, pmap, update_type),
+                            **file_rows_after(metadata, pmap, source_root)}
     return doc, summary
+
+
+GENERATION_DATE_RE = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
+# the stats fields skf-render-metadata-stats.py writes, some only for a shape or a judgment
+STATS_HELPER_FIELDS = ("exports_documented", "exports_public_api", "exports_internal", "exports_total",
+                       "public_api_coverage", "total_coverage", "scripts_count", "assets_count",
+                       "pattern_surfaces_documented", "effective_denominator")
+
+
+def update_metadata(metadata: object, lists: object, stats: object, *, version: str, generation_date: str,
+                    source_commit: str | None = None, source_ref: str | None = None) -> dict:
+    """The metadata.json an update leaves (see "Metadata" in the module docstring). Raises ValueError."""
+    if not isinstance(metadata, dict):
+        raise ValueError("--metadata file must hold a JSON object (the skill's metadata.json)")
+    if not isinstance(lists, dict) or not all(isinstance(lists.get(k), list) for k in ("exports", "scripts",
+                                                                                        "assets")):
+        raise ValueError("--lists file must hold the exports, scripts and assets lists apply wrote (--lists-out)")
+    if not isinstance(stats, dict) or not isinstance(stats.get("stats"), dict) \
+            or not isinstance(stats.get("confidence_distribution"), dict):
+        raise ValueError("--stats file must hold the stats helper's JSON: a stats and a confidence_distribution "
+                         "object")
+    if not version.strip():
+        raise ValueError("--version must not be empty")
+    if not GENERATION_DATE_RE.fullmatch(generation_date):
+        raise ValueError(f"--generation-date must be YYYY-MM-DDTHH:MM:SSZ, read from the clock; got "
+                         f"{generation_date!r}")
+    for kind in ("scripts", "assets"):
+        counted = stats["stats"].get(f"{kind}_count")
+        if counted != len(lists[kind]):
+            raise ValueError(f"the stats count {counted} {kind} but apply's lists hold {len(lists[kind])}: run the "
+                             f"stats helper again with the lists' {kind}")
+    out = {k: v for k, v in metadata.items() if k not in ("last_update", "update_type")}
+    out["version"] = version
+    out["generation_date"] = generation_date
+    for key, value in (("source_commit", source_commit), ("source_ref", source_ref)):
+        if value is not None:
+            out[key] = value or None
+    out["exports"] = lists["exports"]
+    for kind in ("scripts", "assets"):
+        if lists[kind]:
+            out[kind] = lists[kind]
+        else:
+            out.pop(kind, None)
+    old_stats = metadata.get("stats") if isinstance(metadata.get("stats"), dict) else {}
+    kept = {k: v for k, v in old_stats.items() if k not in STATS_HELPER_FIELDS and k not in stats["stats"]}
+    out["stats"] = {**stats["stats"], **kept}
+    out["confidence_distribution"] = stats["confidence_distribution"]
+    return out
 
 
 NOT_PUBLIC_NAMED = 10  # the names the not_public warning spells out; the summary lists them all
@@ -2549,9 +2756,42 @@ def _apply_categories(args: argparse.Namespace) -> dict | None:
     return {**(categories or {}), "category_c": cat_c}
 
 
+def _metadata_in(path: str | None) -> dict | None:
+    """apply's --metadata-in: the skill's metadata.json, an object."""
+    if not path:
+        return None
+    metadata = _load_json_file(Path(path), "--metadata-in file")
+    if not isinstance(metadata, dict):
+        raise ValueError("--metadata-in file must hold a JSON object (the skill's metadata.json)")
+    return metadata
+
+
+def _cmd_metadata(args: argparse.Namespace) -> int:
+    target = Path(args.metadata)
+    try:
+        metadata = update_metadata(
+            _load_json_file(target, "--metadata file"), _load_json_file(Path(args.lists), "--lists file"),
+            _load_json_file(Path(args.stats), "--stats file"), version=args.version,
+            generation_date=args.generation_date, source_commit=args.source_commit, source_ref=args.source_ref)
+        _write_json_atomic(target, metadata)
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"error: cannot write {args.metadata}: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps({"status": "written", "metadata": target.as_posix(), "version": metadata["version"],
+                      "exports": len(metadata["exports"]), "scripts": len(metadata.get("scripts") or []),
+                      "assets": len(metadata.get("assets") or [])}))
+    return 0
+
+
 def _cmd_apply(args: argparse.Namespace) -> int:
     if bool(args.drift_head) != bool(args.drift_pinned):
         print("error: --drift-head and --drift-pinned go together", file=sys.stderr)
+        return 1
+    if bool(args.metadata_in) != bool(args.lists_out):
+        print("error: --metadata-in and --lists-out go together", file=sys.stderr)
         return 1
     try:
         promoted = _optional_json(args.promoted_docs, "--promoted-docs file")
@@ -2578,6 +2818,7 @@ def _cmd_apply(args: argparse.Namespace) -> int:
             source_commit=args.source_commit,
             source_ref=args.source_ref,
             drift=(args.drift_head, args.drift_pinned) if args.drift_head else None,
+            metadata=_metadata_in(args.metadata_in),
         )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -2585,7 +2826,9 @@ def _cmd_apply(args: argparse.Namespace) -> int:
     if summary["status"] == "refused":
         print(json.dumps(summary))
         return EXIT_REFUSED
-    for path, value in ((args.not_public_out, summary["not_public"]), (args.output, doc)):
+    lists = summary.pop("lists", None)
+    for path, value in ((args.not_public_out, summary["not_public"]), (args.lists_out, lists),
+                        (args.output, doc)):
         try:
             if path:
                 _write_json_atomic(Path(path), value)
@@ -2804,8 +3047,33 @@ def _build_parser() -> argparse.ArgumentParser:
     p_apply.add_argument("--drift-pinned", default=None, help="under the drift override: the pinned short SHA")
     p_apply.add_argument("--not-public-out", metavar="FILE",
                          help="also write the summary's not_public list here (a JSON array)")
+    p_apply.add_argument("--metadata-in", metavar="FILE",
+                         help="the skill's metadata.json, whose exports[], scripts[] and assets[] the update "
+                              "starts from")
+    p_apply.add_argument("--lists-out", metavar="FILE",
+                         help="write the exports[], scripts[] and assets[] metadata.json takes after the update "
+                              "here (a JSON object)")
     p_apply.add_argument("-o", "--output", required=True, metavar="FILE", help="where to write the new map")
     p_apply.set_defaults(func=_cmd_apply)
+
+    p_meta = sub.add_parser(
+        "metadata", help="write the metadata.json an update leaves",
+        description="Rewrite the skill's metadata.json in place. It sets version and generation_date, "
+                    "source_commit and source_ref when given, exports, scripts and assets from --lists (a script "
+                    "or asset list left out when empty), confidence_distribution from --stats and the stats "
+                    "helper's stats fields, dropping one an earlier run wrote that --stats lacks; it removes "
+                    "last_update and update_type and keeps every other field, a patched one included. It refuses "
+                    "a --stats whose scripts_count or assets_count is not the length of --lists' scripts or assets.")
+    p_meta.add_argument("--metadata", required=True, metavar="FILE",
+                        help="the skill's metadata.json, rewritten in place")
+    p_meta.add_argument("--lists", required=True, metavar="FILE", help="the lists apply wrote (--lists-out)")
+    p_meta.add_argument("--stats", required=True, metavar="FILE",
+                        help="the JSON skf-render-metadata-stats.py wrote (its -o file)")
+    p_meta.add_argument("--version", required=True, help="the version this update writes")
+    p_meta.add_argument("--generation-date", required=True, help="the clock's UTC time, YYYY-MM-DDTHH:MM:SSZ")
+    p_meta.add_argument("--source-commit", default=None, help="the commit this update read (an empty one: null)")
+    p_meta.add_argument("--source-ref", default=None, help="the ref this update read (an empty one: null)")
+    p_meta.set_defaults(func=_cmd_metadata)
 
     p_records = sub.add_parser("records", help="write step 3's re-extraction records from the runner's and the "
                                                "workers' files")

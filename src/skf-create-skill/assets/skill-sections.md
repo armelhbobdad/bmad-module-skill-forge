@@ -117,7 +117,7 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
   "tool_versions": {
     "ast_grep": "{version-or-null}",
     "qmd": "{version-or-null}",
-    "skf": "{skf_version}"
+    "skf": "{installed-skf-version-or-unknown}"
   },
   "confidence_distribution": {
     "t1": 0,
@@ -144,7 +144,7 @@ Indexed pipe-delimited format for CLAUDE.md managed section (~80-120 tokens per 
   // detected_via "brief_doc_urls" = docs-only skills: the brief's doc_urls (plus subpages step 3c fetched), hashed by `skf-detect-docs.py hash-urls`
   "generated_by": "{quick-skill|create-skill}",
   "dependencies": [],
-  "compatibility": "{semver-range}"
+  "compatibility": ""
 }
 ```
 
@@ -270,9 +270,9 @@ t2_future_count: {N}
 **Source:** {repo} @ {commit}
 
 ## Tool Versions
-- ast-grep: {version}
-- QMD: {version}
-- SKF: {skf_version}
+- ast-grep: {tool_versions.ast_grep}
+- QMD: {tool_versions.qmd}
+- SKF: {tool_versions.skf}
 
 ## Extraction Summary
 - Files scanned: {count}

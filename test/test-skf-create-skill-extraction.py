@@ -701,8 +701,18 @@ def test_compile_counts_come_from_the_runner() -> None:
     assert "judge each from the source" not in payload
     assert ("(or from `--mode denominator`'s, for names counted without the runner's diff); what you decide is "
             "whether the brief documents the stratification `effective_denominator` needs.") in payload
-    assert ("- Set `ast_node_count` to the number of exports ast-grep matched (the recipe runner's "
-            "`aggregates.exports`)") in four
+    # the inventory keeps the runner's aggregates and ast-grep version, from which `metadata` writes
+    # ast_node_count and tool_versions.ast_grep: §4 neither counts nor runs `ast-grep --version` (v4.0.0 quality
+    # gate run 1, skf-create-skill determinism-1)
+    assert "uv run {extractionInventoryHelper} metadata --inventory \"{extraction_inventory}\"" in four
+    assert "The helper writes every other field from the brief, the inventory," in four
+    assert "Resolve `{ast_grep_version}`" not in four and "`aggregates.exports`" not in four
+    # it runs `ast-grep --version` only when step 3 ran the recipes without the runner, which records none
+    assert "add `ast_grep_version`, what `ast-grep --version` prints" in four
+    helper = " ".join(_read(INVENTORY).split())
+    assert ("ast_node_count and tool_versions.ast_grep, only when ast-grep ran: when the runner ran it "
+            "(extraction_rules.ast_grep_version is set), the runner's aggregates.exports and that version") in helper
+    assert "tool_versions.ast_grep is null when ast-grep did not run, and ast_node_count left out" in helper
 
 
 def test_a_hand_count_counts_each_name_once_in_effective_denominator() -> None:
