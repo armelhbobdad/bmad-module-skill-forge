@@ -36,8 +36,8 @@ sourceTreeProbeOrder:
 mergeCccExclusionsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-merge-ccc-exclusions.py'
   - '{project-root}/src/shared/scripts/skf-merge-ccc-exclusions.py'
-# §4's recipe runner (--mode full); without it §4 follows the protocol's
-# fallback.
+# §2b's Version Reconciliation (--mode quick) and §4's recipe runner (--mode
+# full); without it §4 follows the protocol's fallback.
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
@@ -128,7 +128,7 @@ Dispatch on `{source_resolve_status}`:
 - **`unavailable`** (exit 3): no commit could be read, and no tree was left behind (`{source_resolve_reason}` is `invalid-ref`, `git-unavailable`, `upstream-unreachable`, `ref-not-found`, `fetch-failed`, `checkout-failed`, `tree-folder-failed` or `timed-out`). ⚠️ Warn the user explicitly: "Could not read `{source_repo}`: {source_resolve_message}. Degrading to source reading (T1-low) for this run. For T1 (AST-verified) confidence, clone the repository locally and update `source_repo` in your brief to the local path." Keep `{source_root}` the remote URL, bind `source_ref` ← `source_ref` when it is not null and `HEAD` otherwise, and extract with the Quick tier strategy in §4. Note the degradation reason in context for the evidence report.
 - **No candidate resolves, or the command exits 1 or 2, or prints no JSON:** continue as for `unavailable`, with `{source_resolve_message}` = "skf-source-tree.py did not finish: {the first stderr line; 'the shell stopped it before it printed a result' when your shell tool's timeout ended it; or 'it is missing; re-install SKF'}". A later run removes a tree a stopped run left behind once it is seven days old.
 
-Then run Source Commit Capture and Version Reconciliation from `{sourceResolutionData}` on `{source_root}`. This ensures source code is accessible regardless of which extraction path is taken below (standard, component-library, or docs-only).
+Then run Source Commit Capture and Version Reconciliation from `{sourceResolutionData}` on `{source_root}`.
 
 **Deferred CCC Discovery (Forge+ and Deep, remote sources only):**
 

@@ -34,6 +34,10 @@ sourceTreeProbeOrder:
 findTestReportProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-find-test-report.py'
   - '{project-root}/src/shared/scripts/skf-find-test-report.py'
+# `{extractPublicApiHelper}`: §6c's source version.
+extractPublicApiProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
+  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -343,7 +347,7 @@ Dispatch on `{source_tree_status}`:
 
 ### 6c. Detect the Source Version
 
-Run only when `{source_tree_status}` is `ready` or `offline`. Read the source's version from `{source_root}` with the Version Reconciliation rules of `skf-create-skill/references/source-resolution-protocols.md`: the version file for the detected language (`pyproject.toml`, `setup.py`, `__version__`, `package.json`, `Cargo.toml`, `go.mod`) and its monorepo `package.json` priority, matching package names against this skill's `name`. When no version file gives one, leave `{source_version_detected}` unset and skip the rest of this section. Otherwise compare it with the metadata.json `version` through `{skillInventoryHelper}` (resolve it ← first existing path in `{skillInventoryProbeOrder}`), from `{project-root}`:
+Run only when `{source_tree_status}` is `ready` or `offline`. Read the source's version from `{source_root}` by the Version Reconciliation section of `skf-create-skill/references/source-resolution-protocols.md` (its `{extractPublicApiHelper}` call, from `{extractPublicApiProbeOrder}`), with this skill's `name` and metadata.json `language` for the brief's. When no version file gives one, leave `{source_version_detected}` unset and skip the rest of this section. Otherwise compare it with the metadata.json `version` through `{skillInventoryHelper}` (resolve it ← first existing path in `{skillInventoryProbeOrder}`), from `{project-root}`:
 
 ```bash
 uv run {skillInventoryHelper} version order "{the source's version}" "{version}"
@@ -353,7 +357,7 @@ It prints `order` and `major_minor` (the source's version against `{version}`) a
 
 - **`order` is `higher`** (a higher semantic version than the metadata.json `version`): bind `{source_version_detected}` ← `a.normalized`. Step 4 §6b and step 5 §2 name the version this update writes after it.
 - **Otherwise** leave `{source_version_detected}` unset. When `major_minor` is `lower`, add `source-version-lower: {target_ref} reads {a.normalized}, older than {version}; this update keeps the patch-version rule` to `warnings[]`. A source version lower only in its patch number is expected, not a regression: every update that finds no higher version increments the skill's patch number (step 4 §6b), so a skill forged at the source's 1.2.0 is 1.2.1 after one update while the source still reads 1.2.0.
-- **Exit 1** (`code` `NOT_A_VERSION`: a value that names no version, such as a dynamic version in `pyproject.toml`), **no candidate, or no JSON:** leave `{source_version_detected}` unset: step 4 §6b takes the next patch version.
+- **Exit 1** (`code` `NOT_A_VERSION`: a value that names no version), **no candidate, or no JSON:** leave `{source_version_detected}` unset: step 4 §6b takes the next patch version.
 
 ### 7. Present Baseline Summary
 
