@@ -1432,8 +1432,9 @@ def test_pipeline_docs_say_a_resume_comes_from_the_journal():
 
 
 def test_headless_docs_name_every_workflow_whose_line_is_the_last():
-    """#593: Test Skill, Campaign, Export Skill and Audit Skill (v4.0.0 quality gate run 1, skf-audit-skill
-    enhancement-1) bind the line the shared health check displays last, as setup's envelope is."""
+    """#593: Test Skill, Campaign, Export Skill, Audit Skill and Drop Skill (v4.0.0 quality gate run 1,
+    skf-audit-skill and skf-drop-skill enhancement-1) bind the line the shared health check displays last, as
+    setup's envelope is; a Drop Skill dry run displays its own line last."""
     assert "it displays that line verbatim as its very last line" in _read(SRC / "shared" / "health-check.md")
     assert "bind `{result_envelope_line}`" in _read(TEST_SKILL / "references" / "report.md")
     assert "bound `{result_envelope_line}`" in _read(SRC / "skf-campaign" / "references" / "health-check.md")
@@ -1447,11 +1448,18 @@ def test_headless_docs_name_every_workflow_whose_line_is_the_last():
         _read(audit / "report.md"))
     assert "Result Contract bound `{result_envelope_line}` to the `SKF_AUDIT_RESULT_JSON` line" in (
         _read(audit / "health-check.md"))
+    drop = SRC / "skf-drop-skill" / "references"
+    assert "When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here" in (
+        _read(drop / "report.md"))
+    assert "report.md bound `{result_envelope_line}` to the `SKF_DROP_SKILL_RESULT_JSON` line" in (
+        _read(drop / "health-check.md"))
+    assert "after the delete and before the HALT, with nothing after it" in _read(drop / "select.md")
     setup = _slice(_read(WORKFLOWS), "**Exception: `/skf-setup` headless", "**Exception: `/skf-quick-skill` headless")
     final = _paragraph(setup, "Setup is not the only workflow whose result line is the run's final message")
     for token in ("`SKF_TEST_RESULT_JSON`", "`SKF_CAMPAIGN_RESULT_JSON`", "displays it last",
                   "Export Skill (a `--dry-run` too)", "`SKF_EXPORT_RESULT_JSON`",
-                  "Audit Skill", "`SKF_AUDIT_RESULT_JSON`",
+                  "Audit Skill", "`SKF_AUDIT_RESULT_JSON`", "Drop Skill", "`SKF_DROP_SKILL_RESULT_JSON`",
+                  "A Drop Skill `--dry-run` stops at its confirmation gate and displays its line itself, last.",
                   "(under `--no-health-check`, Test Skill displays it itself as its last line)"):
         assert token in final, token
     bypass = _paragraph(_read(TEST_SKILL / "references" / "report.md"), "**`--no-health-check` flag bypass.**")

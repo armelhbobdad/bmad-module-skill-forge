@@ -121,7 +121,7 @@ Then run, in every mode:
 uv run {emitEnvelopeHelper} emit --workflow skf-drop-skill --run-dir "{run_dir}" --result-dir "{skills_output_folder}" < "{run_dir}/result-context.json"
 ```
 
-The emitter stamps the UTC time, the run id, the run's warnings and the auto-decisions select.md recorded (`headless_decisions`) into the record, writes it as `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json`, copies it to `{skills_output_folder}/drop-skill-result-latest.json` (the stable path pipelines read), and prints the `SKF_DROP_SKILL_RESULT_JSON:` line on stdout (field rules in `references/invocation-contract.md`). Bind `{result_json_path}` ← that line's `result_path`: null when the record could not be written, and the line's `warnings` then say why. When `{headless_mode}` is true, display the line verbatim before chaining to step 4. If the helper exits non-zero, correct `result-context.json` from the `message` of its stderr JSON and run it once more; if it fails again, display "The drop result record could not be written: {message}" and go on, since the drop itself is complete.
+The emitter stamps the UTC time, the run id, the run's warnings and the auto-decisions select.md recorded (`headless_decisions`) into the record, writes it as `{skills_output_folder}/drop-skill-result-{YYYYMMDD-HHmmss}.json`, copies it to `{skills_output_folder}/drop-skill-result-latest.json` (the stable path pipelines read), and prints the `SKF_DROP_SKILL_RESULT_JSON:` line on stdout (field rules in `references/invocation-contract.md`). Bind `{result_json_path}` ← that line's `result_path`: null when the record could not be written, and the line's `warnings` then say why. When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the shared health check displays it verbatim as the run's last line, so a `claude -p` caller reads the envelope as the final message. If the helper exits non-zero, correct `result-context.json` from the `message` of its stderr JSON and run it once more; if it fails again, leave `{result_envelope_line}` empty, display "The drop result record could not be written: {message}" and go on, since the drop itself is complete.
 
 ### Post-drop hook (optional)
 
@@ -131,7 +131,7 @@ If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 fr
 {onCompleteCommand} --result-path={result_json_path}
 ```
 
-When it exits non-zero, display "on_complete hook failed (exit {code}): {its first stderr line}" as a line of its own (after the envelope line when `{headless_mode}` is true), and never fail the workflow on a hook error: the drop has already completed and may be irreversible. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+When it exits non-zero, display "on_complete hook failed (exit {code}): {its first stderr line}" as a line of its own, and never fail the workflow on a hook error: the drop has already completed and may be irreversible. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
 
 Whether or not a hook ran, then delete the run folder, whose payload the emitter has read: `rm -rf "{run_dir}"`.
 

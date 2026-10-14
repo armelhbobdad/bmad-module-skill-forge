@@ -309,7 +309,7 @@ When `{headless_mode}` is true, stage the preview as `{run_dir}/result-context.j
 uv run {emitEnvelopeHelper} emit --workflow skf-drop-skill --run-dir "{run_dir}" < "{run_dir}/result-context.json"
 ```
 
-Display the line it prints verbatim (the `message` of its stderr JSON when it exits non-zero). A dry run passes no `--result-dir`, so it writes no result file. Then, in either mode, delete the run folder (`rm -rf "{run_dir}"`) and HALT (exit code 0). The manifest, filesystem, and context files are untouched.
+A dry run passes no `--result-dir`, so it writes no result file. Then, in either mode, delete the run folder (`rm -rf "{run_dir}"`) and HALT (exit code 0). In a headless run, display the line the emitter printed verbatim (the `message` of its stderr JSON when it exits non-zero) after the delete and before the HALT, with nothing after it, so a `claude -p` caller reads it as the final message. The manifest, filesystem, and context files are untouched.
 
 **Otherwise (not a dry-run), GATE [default: Y]:** If `{headless_mode}`: auto-proceed with [Y], record `confirm_source = "headless-auto"`, stage `{run_dir}/decision.json` as `{"gate": "select.confirm", "default_action": "Y", "taken_action": "Y", "reason": "headless auto-confirm"}` and run the §8 `record` command, and log: "headless: auto-confirmed drop of {target_skill}"
 
