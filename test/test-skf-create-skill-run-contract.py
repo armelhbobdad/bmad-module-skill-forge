@@ -20,7 +20,10 @@
   the halt closes the private source tree and, under --batch, returns to
   batch-mode.md §3, and binds both helpers it needs for that, so a halt after
   a compaction that dropped SKILL.md still ends only its brief; step 1 and
-  batch-mode.md bind the emitter too (step 5b architecture-1).
+  batch-mode.md bind the emitter too (step 5b architecture-1), and so does
+  step 8, which writes every finished brief's result contract and resolves
+  its on_complete hook itself (v4.0.0 quality gate run 1, architecture-1 and
+  customization-2).
 - Gate 2 and both zero-export gates offer [R] Refine the brief, a HARD HALT
   with halted-for-brief-refinement (step 5b enhancement-1).
 - validate §4 splits the body by one rule set (#600), and customize.toml
@@ -35,6 +38,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -204,6 +208,45 @@ def test_every_halting_stage_closes_the_tree_and_returns_to_the_batch():
     assert "it emits its envelope where it fires, as its HALT line says" in five
     for path in STEP_FILES:
         assert "SKILL.md Workflow Rules" not in _read(path), path.name
+
+
+def test_the_report_step_binds_the_emitter_and_the_hook_itself():
+    """v4.0.0 quality gate run 1, architecture-1 and customization-2: step 8
+    writes every finished brief's result contract and runs its on_complete
+    hook, at the end of the longest chain and once per brief under --batch.
+    Like every other stage that emits, it binds the emitter in its own
+    frontmatter and Rules, so a compaction that dropped SKILL.md's binding
+    never sends a healthy install down §5's incomplete-install branch (no
+    result contract, metadata.json set to schema-unavailable): only an install
+    where neither path exists takes it. The hook resolves `{onCompleteCommand}`
+    the way activation does, with the resolver's dotted key, so a lost binding
+    never skips a team's hook as if it were the empty default. No line of the
+    step points back at SKILL.md for either."""
+    report = _read(REFS / "report.md")
+    rules = _rules(REFS / "report.md")
+    assert _frontmatter(REFS / "report.md")["emitEnvelopeProbeOrder"] == EMIT_PROBE
+    assert ("- §5 emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not "
+            "bound.") in rules.splitlines()
+    assert "SKILL.md On Activation" not in report
+    five = _section(_body(REFS / "report.md"), "### 5. Result Contract", "### 6.")
+    assert ("**If no path in `{emitEnvelopeProbeOrder}` exists** (an incomplete install), write no result "
+            "contract") in five
+    hook = _section(five, "**Post-completion hook.**", "{onCompleteCommand} --result-path=")
+    assert hook.startswith("**Post-completion hook.** When `{onCompleteCommand}` is not bound, bind it to the "
+                           "`workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` "
+                           "when the resolver cannot run:\n")
+    [activation_call] = [line.strip() for line in _section(_read(SKILL), "## On Activation", None).splitlines()
+                         if "resolve_customization.py" in line and line.strip().startswith("uv run ")]
+    assert activation_call.endswith(" --key workflow")
+    [hook_call] = re.findall(r"```bash\n(uv run [^\n]*resolve_customization\.py[^\n]*)\n```", hook)
+    assert hook_call == f"{activation_call}.on_complete"
+    assert "on_complete" in tomllib.loads(_read(CS / "customize.toml"))["workflow"]
+    assert ("When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's result contract (its `emit` "
+            "exited 0), run it") in hook
+    assert hook.index(hook_call) < hook.index("When `{onCompleteCommand}` is non-empty")
+    # One wording for the incomplete install, wherever the step names it.
+    assert "resolved no path" not in report and "no `{emitEnvelopeHelper}`" not in report
+    assert "(no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice)" in five
 
 
 def test_the_refine_exit_stops_the_run_at_both_zero_export_gates():
@@ -411,7 +454,7 @@ def test_on_complete_is_a_shell_command_run_only_after_a_result_contract():
     assert "the emitter wrote this brief's result contract (its `emit` exited 0), run it as a shell command" in five
     assert "on_complete skipped for `{name}`: no result contract was written" in five
     rules = _section(_read(REFS / "report.md"), "## Rules", "## MANDATORY SEQUENCE")
-    assert "except in §5's fallback when `{emitEnvelopeHelper}` resolved no path" in rules
+    assert "except in §5's fallback when no path in `{emitEnvelopeProbeOrder}` exists" in rules
     load_rules = _section(_read(REFS / "load-brief.md"), "## Rules", "## MANDATORY SEQUENCE")
     # the batch's state is the batch helper's, in its run folder: no sidecar checkpoint is written
     assert "batch-state.yaml" not in load_rules
