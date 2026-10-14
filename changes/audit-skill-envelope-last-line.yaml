@@ -1,0 +1,4 @@
+type: changed
+scope: skf-audit-skill
+summary: |
+  A headless Audit Skill run now ends on its `SKF_AUDIT_RESULT_JSON` line: the run hands the line to the shared health check, which displays it after everything else, so `claude -p` prints the envelope, with its `drift_score`, `next_workflow` and `upstream_ref`, as the final message instead of the health check's closing `Workflow complete.` line. Interactive runs are unchanged, and a halt still ends on its own line.
