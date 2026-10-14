@@ -2876,134 +2876,38 @@ def test_the_documented_stats_calls_run(tmp_path, monkeypatch, capsys):
 
 
 def test_write_passes_the_effective_denominator_create_skill_decides():
-    """#741: write §2 passes `effective_denominator` under compile.md §4's three conditions, stated inline (write.md
-    cannot load compile.md), from the runner run it already makes, so an update keeps the count Create Skill stored,
-    following the source and the brief, and drops it where the conditions fail; before, the payload never named it
-    and the first update dropped it."""
+    """#741: write §2 passes `effective_denominator` from the run that gave its counts, so an update keeps the
+    count Create Skill stored, following the source and the brief, and drops it where the decision fails.
+    v4.0.0 quality gate run 1 (update-skill determinism-2): the bullet restated compile.md §4's conditions
+    (#736's tier A sentence, #743's arm (b) excludes, #744's incomplete run, #745's names read by eye, the arms
+    judged from the source); skf-extract-public-api.py now decides `store` with the count, for the runner and
+    for names counted by hand, and test-skf-extract-public-api.py pins each fix."""
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
-    bullet = _slice(two, "  - `effective_denominator`, as create-skill's compile.md §4 decides it", "\n")
-    for token in ("so the count follows the source and the brief this update read",
-                  "the runner's `counts.effective_denominator`, only when one of its `arms` is true",
-                  "the skill brief's `scope.type` is neither `full-library` nor `reference-app`",
-                  "the globs `counts.effective_denominator_basis` names list a curated subset rather than the full "
-                  "workspace (in a single-package repo, the whole package; `all-files` names none)",
-                  "the brief's `scope.notes` documents the stratification",
+    bullet = _slice(two, "  - `effective_denominator`: the `counts.effective_denominator` of the run", "\n")
+    for token in ("of the run that gave the two counts above (the recipe runner's, or `--mode denominator`'s for "
+                  "names counted without its diff, as `{entryPointsByHandData}` says)",
+                  "when its `counts.effective_denominator_decision.store` is true and the skill brief's "
+                  "`scope.notes` documents the stratification",
+                  "`skf-extract-public-api.py` decides `store` as it does for create-skill, so the count follows the "
+                  "source and the brief this update read",
                   "Under the drift override, and for a docs-only skill, pass the value `stats.effective_denominator` "
                   "records once the queued `metadata_patches[]` are applied, when it records one",
                   "Otherwise leave it out, and `metadata.json` keeps no `stats.effective_denominator`: remove one an "
                   "earlier run recorded"):
         assert token in bullet, token
-    # compile.md's tier A sentence (#736): a tier A count reads only `scope.include`'s files, so a curated
-    # `scope.include` keeps the globs condition true under a wide `scope.tier_a_include`
-    tier_a = ("A `tier_a_include` count, the runner's or yours, reads only the files a `scope.include` glob also "
-              "matches, so its globs list a curated subset whenever `scope.include` lists one, even when "
-              "`scope.tier_a_include` covers the full workspace; the `scope.type` condition still applies.")
-    # main's by-eye rule (#745 closed as by design): names read by eye go in, each once and only when the count
-    # does not hold them yet, when the count's globs match their file; the bullet names the files to read
-    # (`files_without_recipes` counts by extension) and the names the count holds (a bare number)
-    by_eye = ("Add to it, each name once, and only a name it does not hold yet, the names you read by eye in the "
-              "in-scope files with a `files_without_recipes` extension that the globs "
-              "`counts.effective_denominator_basis` names match; it holds the names `entry_point_diff.public` "
-              "lists (a namespace as its `members`, each by its own file) whose file those globs match and no "
-              "`scope.exclude` glob does.")
-    # the by-hand path states what it needs inline: write.md cannot load compile.md
-    by_hand = ("When you counted the entry points by hand above, count it yourself: the public names whose "
-               "definition file matches a `scope.include` glob (any file when the brief has none), a "
-               "`scope.tier_a_include` glob when that list counts a public name, and no `scope.exclude` glob, each "
-               "name once, a type once with its methods rolled up under it, and a namespace as its members, each "
-               "member by its own file.")
-    hand_list = ("Judge the list that count used (`scope.tier_a_include` when it counts a public name, else "
-                 "`scope.include`; with no `scope.include` either, the count is every file's and fails) and, without "
-                 "the runner's `arms`, judge each arm from the source:")
-    arms = ("(a) `monorepo`, a workspace layout of a kind `skf-detect-workspaces.py` detects;",
-            "(b) `specific_modules`, a `specific-modules` scope, not a monorepo;",
-            "(c) `multi_subpath_exports`, an in-scope `package.json` whose `exports` map has more than one non-root "
-            "subpath without `*` whose target is a JS/TS file, not a monorepo.")
-    for token in (tier_a, by_eye, by_hand, hand_list) + arms:
-        assert token in bullet, token
-    order = [bullet.index(token) for token in (tier_a, by_eye, by_hand, hand_list) + arms]
-    assert order == sorted(order)
-    assert bullet.index("documents the stratification.") < bullet.index(tier_a)
-    # gone: #745's two by-eye branches and its basis clause, and the citation of a file write.md cannot load
-    for gone in ("stay out of it when the runner found an export", "Test Skill's fallback scan reads those files",
-                 "which can still say `tier_a_include`", "as compile.md §4 says"):
+    # gone: the restated conditions, now the script's
+    for gone in ("only when one of its `arms` is true", "Under arm (b)", "judge each arm from the source",
+                 "Add to it, each name once", "When the runner is still `incomplete` after its second run",
+                 "count it yourself", "A `tier_a_include` count, the runner's or yours", "compile.md"):
         assert gone not in bullet, gone
-    assert bullet.count("compile.md") == 1
-    # a run still incomplete after its second run stores no count, even one counted by hand (#744's rule)
-    incomplete = ("When the runner is still `incomplete` after its second run (`status` `incomplete`, `errors[]` "
-                  "present), leave it out and remove one an earlier run recorded, even though you then counted the "
-                  "entry points by hand: a file a failed call left unread can hide a public name, so the count can "
-                  "be 0 or partial.")
-    again = "An Update Skill run where ast-grep finishes stores it again."
-    for token in (incomplete, again):
-        assert token in bullet, token
-    assert (bullet.index("When you counted the entry points by hand above") < bullet.index(incomplete)
-            < bullet.index(again) < bullet.index("Under the drift override"))
     # a payload bullet, after the two counts it is judged beside and before the inventories
     exports_at = two.index("  - `exports_public_api` and `exports_internal`, unless the drift override below applies")
     assert two.index("  **Payload (passed") < exports_at < two.index(bullet) < two.index("  - `scripts` / `assets`:")
     assert "\u2014" not in bullet and "\u2013" not in bullet
-    # the conditions it restates are compile.md §4's, which write.md does not load
+    # the decision both stages read is the one compile.md §4 reads
     compile_ = _slice(_read(SRC / "skf-create-skill" / "references" / "compile.md"),
                       "### 4. Build metadata.json Content", "### 5.")
-    for token in ("one of the `arms` step 3 recorded is true. When it recorded none, judge each from the source",
-                  "`scope.type` is not `full-library` (and not `reference-app`",
-                  "list a curated file/directory subset rather than the full workspace (in a single-package repo, "
-                  "the whole package). A basis of `all-files` names no list and fails this",
-                  "When step 3 counted the entry points itself, judge the list its count used",
-                  "`scope.tier_a_include` when that list counts a public name, else `scope.include`; with no "
-                  "`scope.include` either, the count is every file's and this fails",
-                  "A tier A count, the runner's or a hand count, reads only the files a `scope.include` glob also "
-                  "matches, so its files are a curated subset when `scope.include` lists one, even when "
-                  "`scope.tier_a_include` covers the full workspace",
-                  "`arms.monorepo` (a workspace layout of a kind `skf-detect-workspaces.py` detects)",
-                  "`arms.specific_modules` (a `specific-modules` scope, not a monorepo)",
-                  "`arms.multi_subpath_exports` (an in-scope `package.json` whose `exports` map has more than one "
-                  "non-root subpath without `*` whose target is a JS/TS file, not a monorepo)",
-                  "`scope.notes` is present and documents the stratification strategy"):
-        assert token in compile_, token
-
-
-WRITE_EXCLUDE = (
-    "Under arm (b) (`arms.specific_modules`), judge the files `scope.include` matches less those `scope.exclude` "
-    "drops, for a tier A count as for a `scope.include` one (a tier A count reads only files among them): a "
-    "`scope.include` that covers the whole package lists a curated subset when an exclude glob leaves out package "
-    "files that define public names (the runner's `entry_point_diff.outside_scope` lists such names at a file an "
-    "exclude glob matches; for a hand count, check whether an excluded file defines a name the entry points "
-    "export), and stays the whole package when the excludes drop only files that define none, such as tests or "
-    "build output. This only adds a way to pass: a tier A count whose `scope.tier_a_include` lists a curated subset "
-    "still passes on its own globs.")
-# the hand-count part points back to it, after the arms it names
-WRITE_EXCLUDE_HAND = "not a monorepo. Under arm (b), judge that list less what `scope.exclude` drops, as above."
-
-
-def test_write_judges_scope_exclude_under_arm_b_as_create_skill_does():
-    """#743: under arm (b) Create Skill's condition 2 judges `scope.include` less what `scope.exclude` drops, so a
-    whole-package `scope.include` that an exclude narrows to part of the package's public names is a curated
-    subset. Update Skill recomputes the count on each update (#741), so its bullet judges the same way after its
-    conditions and its tier A note, in condition 2's order; without it the next update judges the whole package
-    and removes the count Create Skill stored. The hand-count part points back to it, and its outcome clauses
-    are condition 2's."""
-    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
-    bullet = _slice(two, "  - `effective_denominator`, as create-skill's compile.md §4 decides it", "\n")
-    assert WRITE_EXCLUDE in bullet
-    tier_a_note = bullet.index("covers the full workspace; the `scope.type` condition still applies.")
-    assert bullet.index("documents the stratification") < tier_a_note < bullet.index(WRITE_EXCLUDE)
-    assert bullet.index(WRITE_EXCLUDE) < bullet.index("Add to it, each name once")
-    assert bullet.index("When you counted the entry points by hand above") < bullet.index(WRITE_EXCLUDE_HAND)
-    assert "\u2014" not in bullet and "\u2013" not in bullet
-    # the rule it restates is compile.md §4's condition 2, which write.md does not load
-    compile_ = _slice(_read(SRC / "skf-create-skill" / "references" / "compile.md"),
-                      "### 4. Build metadata.json Content", "### 5.")
-    assert ("Under arm (b) (`arms.specific_modules`), judge the files the count read, for a tier A count as for a "
-            "`scope.include` one") in compile_
-    for clause in ("leaves out package files that define public names",
-                   "glob matches; for a hand count, check whether an excluded file defines a name the entry points "
-                   "export)",
-                   "the excludes drop only files that define none, such as tests or build output.",
-                   "This only adds a way to pass: a tier A count whose `scope.tier_a_include` lists a curated subset "
-                   "still passes on its own globs."):
-        assert clause in bullet and clause in compile_, clause
+    assert "`counts.effective_denominator_decision.store` is true" in compile_
 
 
 def test_the_documented_library_call_keeps_the_effective_denominator_it_is_passed(tmp_path, monkeypatch, capsys):

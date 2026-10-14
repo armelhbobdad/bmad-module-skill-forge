@@ -2167,8 +2167,11 @@ class TestFullRuns:
         # `internals`; `def` is the traced default export
         assert _names(diff["internal"]) == ["unused"]
         assert _names(diff["extraction_gaps"]) == ["declared", "mutable"]
+        # a multi-entry package whose scope.include lists every file that defines a public name: not curated
         assert out["counts"] == {"exports_public_api": 13, "exports_internal": 1, "effective_denominator": 13,
-                                 "effective_denominator_basis": "scope.include", "denominator_files": 8}
+                                 "effective_denominator_basis": "scope.include", "denominator_files": 8,
+                                 "curated_subset": False,
+                                 "effective_denominator_decision": {"store": False, "reason": "not-curated"}}
         assert out["arms"] == {"monorepo": False, "monorepo_kind": None, "specific_modules": False,
                                "multi_subpath_exports": True}
         _, narrowed = _full(capsys, root, "--include", "src/**", "--include", "macro/**",
@@ -2193,7 +2196,9 @@ class TestFullRuns:
         _, excluded = _full(capsys, root, "--include", "src/**", "--include", "macro/**", "--exclude", "src/internal/**",
                             "--tier-a-include", "src/internal/**")
         assert excluded["counts"] == {"exports_public_api": 13, "exports_internal": 1, "effective_denominator": 12,
-                                      "effective_denominator_basis": "scope.include", "denominator_files": 7}
+                                      "effective_denominator_basis": "scope.include", "denominator_files": 7,
+                                      "curated_subset": False,
+                                      "effective_denominator_decision": {"store": False, "reason": "not-curated"}}
         assert excluded["scope"]["unmatched_tier_a_include"] == []
         assert excluded["warnings"].count(fallback) == 1
         _, nameless = _full(capsys, root, "--include", "src/**", "--include", "macro/**",
@@ -2233,7 +2238,9 @@ class TestFullRuns:
         assert (public["foo"]["file"], public["ns"]["via"]) == ("src/a.ts", "namespace")
         assert [(m["name"], m["file"]) for m in public["ns"]["members"]] == [("foo", "src/b.ts"), ("bar", "src/b.ts")]
         assert out["counts"] == {"exports_public_api": 3, "exports_internal": 0, "effective_denominator": count,
-                                 "effective_denominator_basis": basis, "denominator_files": files}
+                                 "effective_denominator_basis": basis, "denominator_files": files,
+                                 "curated_subset": files == 1,
+                                 "effective_denominator_decision": {"store": False, "reason": "no-arm"}}
         assert out["warnings"] == []
 
     @pytest.mark.parametrize(("files", "public_api", "public"), [
@@ -2287,7 +2294,9 @@ class TestFullRuns:
         fallback = "scope.tier_a_include counts no public name: effective_denominator counts scope.include"
         _, only = _full(capsys, root, "--include", "src/**", "--tier-a-include", "macro/**")
         assert only["counts"] == {"exports_public_api": 13, "exports_internal": 1, "effective_denominator": 11,
-                                  "effective_denominator_basis": "scope.include", "denominator_files": 7}
+                                  "effective_denominator_basis": "scope.include", "denominator_files": 7,
+                                  "curated_subset": True,
+                                  "effective_denominator_decision": {"store": True, "reason": "curated-subset"}}
         assert only["warnings"].count(outside) == 1 and only["warnings"][-1] == fallback
         _, mixed = _full(capsys, root, "--include", "src/**", "--tier-a-include", "src/utils/**",
                          "--tier-a-include", "macro/**")
@@ -2315,7 +2324,9 @@ class TestFullRuns:
                                 "packages/a/generated/gen.ts": "export function gen(): void {}\n"})
         _, out = _full(capsys, root, "--include", "packages/a/src/**", "--tier-a-include", "packages/a/generated/**")
         assert out["counts"] == {"exports_public_api": 2, "exports_internal": 0, "effective_denominator": 1,
-                                 "effective_denominator_basis": "scope.include", "denominator_files": 1}
+                                 "effective_denominator_basis": "scope.include", "denominator_files": 1,
+                                 "curated_subset": True,
+                                 "effective_denominator_decision": {"store": True, "reason": "curated-subset"}}
         assert out["warnings"] == [
             "scope.tier_a_include pattern 'packages/a/generated/**' matches only files outside scope.include",
             "scope.tier_a_include counts no public name: effective_denominator counts scope.include"]
@@ -3095,7 +3106,9 @@ sys.exit(1)
         assert mod.main([*flags, str(complete)]) == 0
         out = json.loads(complete.read_text(encoding="utf-8"))
         assert out["counts"] == {"exports_public_api": 3, "exports_internal": 0, "effective_denominator": 3,
-                                 "effective_denominator_basis": "scope.include", "denominator_files": 4}
+                                 "effective_denominator_basis": "scope.include", "denominator_files": 4,
+                                 "curated_subset": False,
+                                 "effective_denominator_decision": {"store": False, "reason": "no-arm"}}
         assert out["warnings"] == [*warned, fallback]
         cut = tmp_path / "cut.py"
         cut.write_text(f"""import json, os, subprocess, sys
@@ -3124,8 +3137,11 @@ sys.exit(1)
         unread = ["pkg/__init__.py", "pkg/core.py", "pkg/extra.py", "pkg/types.py"]
         assert [(e["reason"], e["detail"], e["unread"]) for e in out["errors"]] == [
             ("ast-grep-error", "exit 1: killed", unread)]
+        # #744: never stored, whatever the basis: the decision names the incomplete run first
         assert out["counts"] == {"exports_public_api": 3, "exports_internal": 0, "effective_denominator": 0,
-                                 "effective_denominator_basis": "tier_a_include", "denominator_files": files}
+                                 "effective_denominator_basis": "tier_a_include", "denominator_files": files,
+                                 "curated_subset": True,
+                                 "effective_denominator_decision": {"store": False, "reason": "incomplete-run"}}
         assert out["warnings"] == warned
         assert [g["name"] for g in out["entry_point_diff"]["extraction_gaps"]] == ["gamma"]
 
@@ -3177,6 +3193,250 @@ sys.exit(1)
         assert Path(mod._native_ast_grep(str(bin_shim / "node_modules" / ".bin" / "ast-grep.CMD"))).as_posix() == (
             bin_shim / "node_modules" / "@ast-grep" / "cli-win32-x64-msvc" / "ast-grep.exe").as_posix()
         assert mod._native_ast_grep("/usr/bin/ast-grep") == "/usr/bin/ast-grep"
+
+
+# --------------------------------------------------------------------------
+# The effective_denominator decision and denominator mode (v4.0.0 quality
+# gate run 1, skf-update-skill determinism-2): the store-or-not rule
+# create-skill's compile.md §4 and update-skill's write.md §2 read, one test
+# per fix that once patched their prose
+# --------------------------------------------------------------------------
+
+# A single package: an index that re-exports from src/utils and src/core, and a test file that defines no name.
+CURATED_TREE = {
+    "package.json": '{"name": "demo", "exports": {".": "./src/index.ts"}}\n',
+    "src/index.ts": "export * from './utils/a';\nexport * from './core/b';\n",
+    "src/utils/a.ts": "export function ua(): void {}\nexport function ub(): void {}\n",
+    "src/core/b.ts": "export function ca(): void {}\n",
+    "src/utils/a.test.ts": "import { ua } from './a';\nua();\n",
+}
+# The public names a hand count of CURATED_TREE gives, each at the file that defines it.
+CURATED_NAMES = [{"name": "ua", "file": "src/utils/a.ts"}, {"name": "ub", "file": "src/utils/a.ts"},
+                 {"name": "ca", "file": "src/core/b.ts"}]
+# A pnpm monorepo of two packages.
+WORKSPACE_TREE = {
+    "pnpm-workspace.yaml": "packages:\n  - 'packages/*'\n",
+    "package.json": '{"name": "root", "private": true}\n',
+    "packages/a/package.json": '{"name": "a"}\n',
+    "packages/a/src/index.ts": "export function fa(): void {}\n",
+    "packages/b/package.json": '{"name": "b"}\n',
+    "packages/b/src/index.ts": "export function fb(): void {}\n",
+}
+
+
+def _denominator(capsys, monkeypatch, root: Path | None, payload: dict | str | None, *flags: str
+                 ) -> tuple[int, dict | None]:
+    """--mode denominator over `root` with `payload` on stdin."""
+    text = payload if isinstance(payload, str) else json.dumps(payload) if payload is not None else ""
+    monkeypatch.setattr(sys, "stdin", io.StringIO(text))
+    source = ["--source-root", root.as_posix()] if root is not None else []
+    code = mod.main(["--mode", "denominator", *source, *flags])
+    out = capsys.readouterr().out
+    return code, (json.loads(out) if out.strip() else None)
+
+
+def _decision(out: dict) -> tuple[bool, str]:
+    decision = out["counts"]["effective_denominator_decision"]
+    return decision["store"], decision["reason"]
+
+
+ARMS_ON = {"monorepo": False, "monorepo_kind": None, "specific_modules": True, "multi_subpath_exports": False}
+
+
+class TestDenominatorDecision:
+    @pytest.mark.parametrize(("arms", "scope_type", "basis", "curated", "count", "incomplete", "expected"), [
+        (ARMS_ON, "reference-app", "scope.include", True, 4, True, (False, "reference-app")),
+        (ARMS_ON, "specific-modules", "scope.include", True, 4, True, (False, "incomplete-run")),
+        (dict(ARMS_ON, specific_modules=False), "public-api", "scope.include", True, 4, False, (False, "no-arm")),
+        (dict(ARMS_ON, monorepo=True, specific_modules=False), "full-library", "scope.include", True, 4, False,
+         (False, "full-library")),
+        (ARMS_ON, "specific-modules", "all-files", False, 4, False, (False, "all-files")),
+        (ARMS_ON, "specific-modules", "scope.include", False, 4, False, (False, "not-curated")),
+        (ARMS_ON, "specific-modules", "tier_a_include", True, 0, False, (False, "zero-count")),
+        (ARMS_ON, "specific-modules", "tier_a_include", True, 4, False, (True, "curated-subset")),
+        (dict(ARMS_ON, specific_modules=False, multi_subpath_exports=True), None, "scope.include", True, 4, False,
+         (True, "curated-subset")),
+    ], ids=["reference-app", "incomplete-run", "no-arm", "full-library", "all-files", "not-curated", "zero-count",
+            "store", "multi-entry-no-type"])
+    def test_the_first_condition_that_fails_names_the_reason(self, arms, scope_type, basis, curated, count,
+                                                             incomplete, expected) -> None:
+        decision = mod.effective_denominator_decision(arms, scope_type, basis, curated, count, incomplete)
+        assert (decision["store"], decision["reason"]) == expected
+
+    def test_a_count_over_every_file_or_the_whole_workspace_is_not_stored(self, tmp_path, capsys,
+                                                                         monkeypatch) -> None:
+        """a098349d: the globs `effective_denominator_basis` names decide, a count over every file fails,
+        and so does a `scope.include` that covers the full workspace; one package of a monorepo is a
+        curated subset."""
+        root = _tree(tmp_path, WORKSPACE_TREE)
+        names = {"public": [{"name": "fa", "file": "packages/a/src/index.ts"}]}
+        _, one = _denominator(capsys, monkeypatch, root, names, "--include", "packages/a/**")
+        assert one["arms"]["monorepo"] is True and one["counts"]["curated_subset"] is True
+        assert _decision(one) == (True, "curated-subset")
+        _, whole = _denominator(capsys, monkeypatch, root, names, "--include", "packages/**")
+        assert (whole["counts"]["curated_subset"], _decision(whole)) == (False, (False, "not-curated"))
+        _, every = _denominator(capsys, monkeypatch, root, names)
+        assert every["counts"]["effective_denominator_basis"] == "all-files"
+        assert _decision(every) == (False, "all-files")
+
+    def test_a_tier_a_list_wider_than_a_curated_include_counts_the_curated_files(self, tmp_path, capsys,
+                                                                                 monkeypatch) -> None:
+        """0b2d4fba: a tier A count reads only the files scope.include matches, so `src/**` over a curated
+        `src/utils/**` and `src/index.ts` counts and stores the curated subset."""
+        root = _tree(tmp_path, CURATED_TREE)
+        _, out = _denominator(capsys, monkeypatch, root, {"public": CURATED_NAMES}, "--scope-type",
+                              "specific-modules", "--include", "src/utils/**", "--include", "src/index.ts",
+                              "--tier-a-include", "src/**")
+        assert out["counts"] | {"effective_denominator_decision": None} == {
+            "exports_public_api": 3, "exports_internal": 0, "effective_denominator": 2,
+            "effective_denominator_basis": "tier_a_include", "denominator_files": 3, "curated_subset": True,
+            "effective_denominator_decision": None}
+        assert _decision(out) == (True, "curated-subset")
+
+    def test_a_tier_a_list_that_counts_no_name_falls_back_to_scope_include(self, tmp_path, capsys,
+                                                                          monkeypatch) -> None:
+        """07baa855: a tier A list that counts no public name narrows nothing, with a warning, so a hand
+        count is never a stored 0 over a stale glob."""
+        root = _tree(tmp_path, CURATED_TREE)
+        _, out = _denominator(capsys, monkeypatch, root, {"public": CURATED_NAMES}, "--scope-type",
+                              "specific-modules", "--include", "src/**", "--exclude", "src/core/**",
+                              "--tier-a-include", "src/gone/**")
+        assert (out["counts"]["effective_denominator"], out["counts"]["effective_denominator_basis"]) == (
+            2, "scope.include")
+        assert out["warnings"][-1] == (
+            "scope.tier_a_include counts no public name: effective_denominator counts scope.include")
+        assert _decision(out) == (True, "curated-subset")
+
+    def test_a_tier_a_glob_counts_a_name_only_in_a_file_scope_include_matches(self, tmp_path, capsys,
+                                                                             monkeypatch) -> None:
+        """0c1046e5: `src/**` as the tier A list beside a `scope.include` of `src/utils/**` counts `ca`
+        (src/core/b.ts) nowhere."""
+        root = _tree(tmp_path, CURATED_TREE)
+        _, out = _denominator(capsys, monkeypatch, root, {"public": CURATED_NAMES}, "--include", "src/utils/**",
+                              "--tier-a-include", "src/**")
+        assert (out["counts"]["effective_denominator"], out["counts"]["denominator_files"]) == (2, 2)
+
+    def test_a_name_passed_on_from_two_files_counts_once(self, tmp_path, capsys, monkeypatch) -> None:
+        """bea5621c: `foo` at src/a.ts and the member `foo` of a namespace at src/b.ts are two keys of
+        exports_public_api and one name of effective_denominator."""
+        root = _tree(tmp_path, {"src/a.ts": "export function foo() {}\n",
+                                "src/b.ts": "export function foo() {}\nexport function bar() {}\n"})
+        payload = {"public": [{"name": "foo", "file": "src/a.ts"},
+                              {"name": "ns", "file": "src/b.ts", "members": [{"name": "foo", "file": "src/b.ts"},
+                                                                              {"name": "bar", "file": "src/b.ts"}]}]}
+        _, out = _denominator(capsys, monkeypatch, root, payload, "--include", "src/**")
+        assert (out["counts"]["exports_public_api"], out["counts"]["effective_denominator"]) == (3, 2)
+
+    def test_names_read_by_eye_join_the_runner_names_each_once(self, tmp_path, capsys, monkeypatch) -> None:
+        """81e5dac1: Update Skill recomputes the stored count by Create Skill's rule from the runner run it
+        makes, the names it reads by eye in files no recipe reads added each once: the runner's `public`
+        and `internal` with a payload's, recounted together."""
+        root = _tree(tmp_path, {"src/a.ts": "export function a() {}\n", "src/B.java": "public class B {}\n",
+                                "src/C.java": "public class C {}\n"})
+        runner = _tree(tmp_path / "out", {"full.json": json.dumps({
+            "mode": "full", "status": "ok", "errors": [],
+            "entry_point_diff": {"public": [{"name": "a", "language": "javascript", "file": "src/a.ts",
+                                             "via": "declaration"}],
+                                 "internal": [{"name": "helper", "language": "javascript",
+                                               "source_file": "src/a.ts"}]}})}) / "full.json"
+        payload = {"public": [{"name": "B", "file": "src/B.java", "language": "java"},
+                              {"name": "a", "file": "src/a.ts"}],
+                   "exports": [{"name": "B", "file": "src/B.java", "language": "java"},
+                               {"name": "C", "file": "src/C.java", "language": "java"}]}
+        _, out = _denominator(capsys, monkeypatch, root, payload, "--include", "src/**", "--extraction",
+                              runner.as_posix())
+        assert out["runner_status"] == "ok"
+        assert {k: out["counts"][k] for k in ("exports_public_api", "exports_internal", "effective_denominator")} \
+            == {"exports_public_api": 2, "exports_internal": 2, "effective_denominator": 2}
+
+    def test_a_hand_count_counts_a_name_in_two_languages_once(self, tmp_path, capsys, monkeypatch) -> None:
+        """72325733: a name the entry points pass on in two languages counts once in effective_denominator,
+        and once per file in exports_public_api."""
+        root = _tree(tmp_path, {"pkg/__init__.py": "def run(): pass\n", "web/index.ts": "export function run() {}\n"})
+        payload = {"public": [{"name": "run", "file": "pkg/__init__.py"}, {"name": "run", "file": "web/index.ts"}]}
+        _, out = _denominator(capsys, monkeypatch, root, payload)
+        assert (out["counts"]["exports_public_api"], out["counts"]["effective_denominator"]) == (2, 1)
+
+    @pytest.mark.parametrize(("exclude", "curated", "count"), [
+        ("src/core/**", True, 2), ("src/**/*.test.ts", False, 3)], ids=["drops-public-names", "drops-tests"])
+    def test_under_arm_b_scope_exclude_narrows_the_files_judged(self, tmp_path, capsys, monkeypatch, exclude,
+                                                                curated, count) -> None:
+        """11701faf: under arm (b) a whole-package scope.include that an exclude glob narrows to part of the
+        package's public names is a curated subset; one whose excludes drop only files that define none,
+        such as tests, still covers the whole package."""
+        root = _tree(tmp_path, CURATED_TREE)
+        _, out = _denominator(capsys, monkeypatch, root, {"public": CURATED_NAMES}, "--scope-type",
+                              "specific-modules", "--include", "src/**", "--exclude", exclude)
+        assert out["arms"]["specific_modules"] is True
+        assert (out["counts"]["curated_subset"], out["counts"]["effective_denominator"]) == (curated, count)
+        assert _decision(out) == ((True, "curated-subset") if curated else (False, "not-curated"))
+        # outside arm (b) the excludes narrow nothing: a public-api scope judges scope.include as written
+        _, public_api = _denominator(capsys, monkeypatch, root, {"public": CURATED_NAMES}, "--scope-type",
+                                     "public-api", "--include", "src/**", "--exclude", exclude)
+        assert public_api["counts"]["curated_subset"] is False
+
+    def test_a_run_still_incomplete_is_never_stored(self, tmp_path, capsys, monkeypatch) -> None:
+        """d520a516: a runner run still incomplete after its second run stores no effective_denominator,
+        even when the names are then counted by hand."""
+        root = _tree(tmp_path, CURATED_TREE)
+        runner = _tree(tmp_path / "out", {"full.json": json.dumps({
+            "mode": "full", "status": "incomplete", "entry_point_diff": None,
+            "errors": [{"reason": "ast-grep-error", "files": 1, "unread": ["src/core/b.ts"]}]})}) / "full.json"
+        _, out = _denominator(capsys, monkeypatch, root, {"public": CURATED_NAMES}, "--scope-type",
+                              "specific-modules", "--include", "src/utils/**", "--extraction", runner.as_posix())
+        assert out["runner_status"] == "incomplete"
+        assert out["counts"]["effective_denominator"] == 2 and _decision(out) == (False, "incomplete-run")
+
+    def test_without_a_local_tree_nothing_is_stored(self, capsys, monkeypatch) -> None:
+        """A remote source read by eye: the counts still come from the names, the decision never stores."""
+        _, out = _denominator(capsys, monkeypatch, None, {"public": CURATED_NAMES}, "--scope-type",
+                              "specific-modules", "--include", "src/utils/**")
+        assert (out["files_in_scope_list"], out["counts"]["effective_denominator"]) == (None, 2)
+        assert _decision(out) == (False, "no-source-tree")
+
+    def test_quick_output_gives_the_names_at_their_defining_files(self, tmp_path, capsys, monkeypatch) -> None:
+        root = _tree(tmp_path, {"pkg/__init__.py": "from .a import x\n__all__ = ['x', 'y']\ndef y(): pass\n",
+                                "pkg/a.py": "def x(): pass\n"})
+        assert mod.main(["--mode", "quick", "--language", "python", "--source-root", root.as_posix(),
+                         "--entry-file", "pkg/__init__.py"]) == 0
+        quick = _tree(tmp_path / "out", {"quick.json": capsys.readouterr().out}) / "quick.json"
+        _, out = _denominator(capsys, monkeypatch, root, {}, "--include", "pkg/a.py", "--quick", quick.as_posix())
+        assert (out["counts"]["exports_public_api"], out["counts"]["effective_denominator"]) == (2, 1)
+
+    @pytest.mark.parametrize(("payload", "flags", "message"), [
+        ("[1]", [], "stdin must be a JSON object"),
+        ({"public": [{"file": "a.ts"}]}, [], "public[0] is not an object with a name"),
+        ({"public": "a"}, [], "public is not a list"),
+        ({}, ["--quick", "missing.json"], "cannot read --quick missing.json"),
+        ({}, ["--head-cap", "0"], None)], ids=["not-an-object", "no-name", "not-a-list", "no-quick-file",
+                                             "a-full-mode-flag"])
+    def test_an_input_error_exits_2(self, tmp_path, capsys, monkeypatch, payload, flags, message) -> None:
+        monkeypatch.setattr(sys, "stdin", io.StringIO(payload if isinstance(payload, str) else json.dumps(payload)))
+        argv = ["--mode", "denominator", "--source-root", tmp_path.as_posix(), *flags]
+        if message is None:
+            with pytest.raises(SystemExit) as exc:
+                mod.main(argv)
+            assert exc.value.code == 2 and "--head-cap: not denominator mode's" in capsys.readouterr().err
+            return
+        assert mod.main(argv) == 2
+        captured = capsys.readouterr()
+        assert captured.out == "" and message in captured.err
+
+    def test_the_two_new_flags_are_denominator_mode_only(self, tmp_path, capsys) -> None:
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["--mode", "full", "--source-root", tmp_path.as_posix(), "--quick", "q.json"])
+        assert exc.value.code == 2 and "--quick: denominator mode only" in capsys.readouterr().err
+
+    @needs_ast_grep
+    def test_a_full_run_decides_as_denominator_mode_does(self, tmp_path, capsys, monkeypatch) -> None:
+        """The runner and a hand count of the same names reach one decision."""
+        root = _tree(tmp_path, CURATED_TREE)
+        flags = ["--scope-type", "specific-modules", "--include", "src/**", "--exclude", "src/core/**"]
+        code, full = _full(capsys, root, *flags)
+        assert code == 0 and _decision(full) == (True, "curated-subset")
+        _, hand = _denominator(capsys, monkeypatch, root, {"public": CURATED_NAMES}, *flags)
+        assert {k: v for k, v in hand["counts"].items() if k != "exports_internal"} == {
+            k: v for k, v in full["counts"].items() if k != "exports_internal"}
 
 
 # --------------------------------------------------------------------------

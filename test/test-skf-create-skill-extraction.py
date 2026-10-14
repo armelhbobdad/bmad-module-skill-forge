@@ -680,20 +680,18 @@ def test_a_runner_call_that_writes_no_json_leaves_no_stale_result(tmp_path: Path
 
 def test_compile_counts_come_from_the_runner() -> None:
     four = _section(COMPILE, "4")
-    payload = _slice(four, "**Judgment payload (passed as JSON on stdin):**", "    2. `scope.type` is not")
+    payload = _slice(four, "**Judgment payload (passed as JSON on stdin):**", "- **Shape:**")
     for token in ("`counts.exports_public_api`", "`counts.exports_internal`", "`counts.effective_denominator`",
-                  "`counts.effective_denominator_basis`", "`arms.monorepo`", "`arms.specific_modules`",
-                  "`arms.multi_subpath_exports`"):
+                  "`counts.effective_denominator_decision.store`"):
         assert token in payload, token
     for gone in ("count the union of **named exports**", "derive this from step 3's entry-point validation",
                  "count of all other non-underscore-prefixed exports", "detected via `packages/` layout",
                  "a `packages/` layout"):
         assert gone not in four, gone
-    # the arms by their field names, with the rule the runner applies for a run without its JSON
-    assert "one of the `arms` step 3 recorded is true. When it recorded none, judge each from the source" in payload
-    assert "`arms.monorepo` (a workspace layout of a kind `skf-detect-workspaces.py` detects)" in payload
-    assert ("`arms.multi_subpath_exports` (an in-scope `package.json` whose `exports` map has more than one "
-            "non-root subpath without `*` whose target is a JS/TS file, not a monorepo)") in payload
+    # v4.0.0 quality gate run 1 (create-skill determinism-2): no arm is judged from the source by hand
+    assert "judge each from the source" not in payload
+    assert ("(or from `--mode denominator`'s, for names counted without the runner's diff); what you decide is "
+            "whether the brief documents the stratification `effective_denominator` needs.") in payload
     assert ("- Set `ast_node_count` to the number of exports ast-grep matched (the recipe runner's "
             "`aggregates.exports`)") in four
 
@@ -709,16 +707,10 @@ def test_a_hand_count_counts_each_name_once_in_effective_denominator() -> None:
     fully documented skill, 21 for cognee's 20 baml_client names).
     extract.md §4b's by-eye names took no unit either, and the runner help's
     limit on "from two files" holds on both lines."""
-    payload = _slice(_section(COMPILE, "4"), "**Judgment payload (passed as JSON on stdin):**",
-                     "    2. `scope.type` is not")
-    bullet = _slice(payload, "  - `effective_denominator` (**optional**", "Include it when ALL of the following hold:")
-    assert ("and a namespace counts as its `members` there too, each member's own file deciding whether it "
-            "counts: a name the entry points pass on from two files (a namespace member named like another public "
-            "name, or like another namespace's member, at another file) or in two languages counts once, when any "
-            "one of its files matches, whereas `exports_public_api` counts it once per file;") in bullet
-    assert "each member by its own file" not in payload
-    # a hand count takes the same unit, which the bullet still says
-    assert "When step 3 counted the entry points itself, count it by the same unit." in bullet
+    # the unit is skf-extract-public-api.py's (test-skf-extract-public-api.py pins it for a runner count and a
+    # hand count), so compile §4 no longer restates it
+    bullet = _slice(_section(COMPILE, "4"), "  - `effective_denominator` (**optional**", "\n")
+    assert "each member by its own file" not in bullet and "count it by the same unit" not in bullet
     # the per-file rule names its count; the hand-count file points to compile §4 and counts no third number
     by_hand = " ".join(_read(REFS / "entry-points-by-hand.md").split())
     assert ("counts as the names its module passes on, each name and file once in `exports_public_api`, as the "
@@ -737,79 +729,38 @@ def test_a_hand_count_counts_each_name_once_in_effective_denominator() -> None:
         assert "\u2014" not in text and "\u2013" not in text
 
 
-def _condition_2() -> str:
-    return _slice(_section(COMPILE, "4"), "    2. `scope.type` is not", "    3. `scope.notes`")
-
-
-def test_condition_2_judges_the_globs_the_count_used() -> None:
-    """#724: since #712 a tier A list that counts no public name leaves the
-    count on `scope.include` (or every file), and the runner names the globs
-    in `counts.effective_denominator_basis`. Condition 2 judges those globs,
-    so a whole-package `scope.include` or an `all-files` count is not stored
-    as a curated denominator."""
-    two = _condition_2()
-    for token in ("the globs `counts.effective_denominator_basis` names",
-                  "(`scope.tier_a_include` for `tier_a_include`, `scope.include` for `scope.include`)",
-                  "rather than the full workspace (in a single-package repo, the whole package)",
-                  "A basis of `all-files` names no list and fails this.",
-                  "When step 3 counted the entry points itself, judge the list its count used: "
-                  "`scope.tier_a_include` when that list counts a public name, else `scope.include`; "
-                  "with no `scope.include` either, the count is every file's and this fails."):
-        assert token in two, token
-    assert "\u2014" not in two and "\u2013" not in two
-
-
-def test_condition_2_no_longer_judges_tier_a_when_present() -> None:
-    """#724: the old condition judged `tier_a_include` whenever the brief had
-    it, even when the count was `scope.include`'s."""
+def test_compile_stores_the_count_the_script_decides_to_store() -> None:
+    """v4.0.0 quality gate run 1 (update-skill determinism-2): compile §4 restated nine fixes of one decision
+    (#724's basis globs, #730's tier A over a curated include, #743's arm (b) excludes, #744's incomplete run,
+    the arms and the reference-app carve-out). skf-extract-public-api.py makes it with the count, and
+    test-skf-extract-public-api.py pins each fix; compile §4 reads `store` and keeps the one judgment, the
+    brief's `scope.notes`."""
     four = _section(COMPILE, "4")
-    assert "(`tier_a_include` if present, else `scope.include`)" not in four
-    assert "the resolved include list" not in four
-
-
-def test_condition_2_passes_a_tier_a_count_over_a_curated_include() -> None:
-    """#730: since #729 a tier A count reads only the files a `scope.include`
-    glob also matches, so a tier A list wider than a curated `scope.include`
-    (`src/**` over `src/utils/**` and `src/index.ts`) counts the curated
-    subset, the count the same brief stores with no tier A list. Condition 2
-    judged the tier A list alone, saw the whole package and left it out."""
-    two = _condition_2()
-    assert ("A tier A count, the runner's or a hand count, reads only the files a `scope.include` glob also "
-            "matches, so its files are a curated subset when `scope.include` lists one, even when "
-            "`scope.tier_a_include` covers the full workspace: the globs part of this condition holds, and its "
-            "`scope.type` part still applies.") in two
-    assert "\u2014" not in two and "\u2013" not in two
-
-
-CONDITION_2_EXCLUDE = (
-    "Under arm (b) (`arms.specific_modules`), judge the files the count read, for a tier A count as for a "
-    "`scope.include` one: those `scope.include` matches less those `scope.exclude` drops (a tier A count reads "
-    "only files among them), as Test Skill's single-crate curated-subset clause carves the surface. A "
-    "`scope.include` that covers the whole package then lists a curated subset when a `scope.exclude` glob leaves "
-    "out package files that define public names (for a runner count, step 3 §4b lists such names under "
-    "`outside_scope`, at a file a `scope.exclude` glob matches; for a hand count, check whether an excluded file "
-    "defines a name the entry points export), and still covers the whole package when the excludes drop only files "
-    "that define none, such as tests or build output. This only adds a way to pass: a tier A count whose "
-    "`scope.tier_a_include` lists a curated subset still passes on its own globs.")
-
-
-def test_condition_2_judges_scope_exclude_under_arm_b() -> None:
-    """#743: the count never reads a file a `scope.exclude` glob matches, and
-    Test Skill's single-crate clause carves the surface with both lists, so
-    under arm (b) a whole-package `scope.include` that an exclude narrows to
-    part of the package's public names is a curated subset. Condition 2
-    judged `scope.include` as written, saw the whole package and left the
-    count out. The sentence follows #730's, and #726's tokens stay."""
-    two = _condition_2()
-    assert CONDITION_2_EXCLUDE in two
-    assert two.index("its `scope.type` part still applies.") < two.index(CONDITION_2_EXCLUDE)
-    assert "A basis of `all-files` names no list and fails this." in two
-    assert "\u2014" not in two and "\u2013" not in two
+    bullet = _slice(four, "  - `effective_denominator` (**optional**", "\n")
+    for token in ("`counts.effective_denominator`, only when `counts.effective_denominator_decision.store` is true "
+                  "and the brief's `scope.notes` documents the stratification strategy",
+                  "`skf-extract-public-api.py` decides `store` with the count (the recipe runner, or "
+                  "`--mode denominator` for names counted without its diff). Otherwise omit it from the payload"):
+        assert token in bullet, token
+    # v4.0.0 quality gate run 1 review (leanness-4): the brief-author advice and the narrated `reason` no step
+    # reads are cut too
+    for gone in ("Include it when ALL of the following hold:", "    2. `scope.type` is not",
+                 "the globs `counts.effective_denominator_basis` names", "Under arm (b)",
+                 "**Reference-app carve-out:**", "**Incomplete-run carve-out:**", "(the resolved include list",
+                 "judge the list its count used", "gets `no-arm`", "its `reason` names the condition that fails"):
+        assert gone not in four, gone
+    assert "\u2014" not in bullet and "\u2013" not in bullet
+    # the files that cited the conditions by number cite the decision
+    assets = SRC / "skf-create-skill" / "assets"
+    for path in (assets / "compile-assembly-rules.md", assets / "skill-sections.md"):
+        text = _read(path)
+        assert "condition 1" not in text and "emit-conditions" not in text, path.name
+        assert "effective_denominator_decision" in text, path.name
 
 
 def test_an_exclude_narrowed_include_counts_what_a_curated_include_counts(tmp_path: Path) -> None:
-    """#743: the premise of condition 2's arm (b) sentence, on the documented
-    runner call. `src/**` less `src/core/**` counts the 2 names of
+    """#743: the premise of the arm (b) rule, on the documented runner call,
+    with the decision the runner makes on it. `src/**` less `src/core/**` counts the 2 names of
     `src/utils/a.ts` over 2 files under `scope.include`, as the curated
     `src/utils/**` and `src/index.ts` do, and both list the names the
     exclude leaves out under `outside_scope`; `src/**` alone, or less a test
@@ -818,7 +769,7 @@ def test_an_exclude_narrowed_include_counts_what_a_curated_include_counts(tmp_pa
     the same 2, and an exclude with no `scope.include` counts every file's. A
     curated tier A `src/utils/**` over `src/**` less a test file counts 2
     under `tier_a_include` and lists none: it passes on its own globs, which
-    the arm (b) sentence leaves as they were."""
+    the arm (b) rule leaves as they were."""
     if not _pinned_ast_grep():
         pytest.skip("no ast-grep of the version package.json pins")
     head = "name: demo\nlanguage: typescript\nscope:\n  type: specific-modules\n"
@@ -838,17 +789,22 @@ def test_an_exclude_narrowed_include_counts_what_a_curated_include_counts(tmp_pa
         assert (out["status"], out["warnings"], out["arms"]["specific_modules"]) == ("ok", [], True), label
         counts[label] = out["counts"]
         outside[label] = [(item["name"], item["file"]) for item in out["entry_point_diff"]["outside_scope"]]
+    stored = {"store": True, "reason": "curated-subset"}
     assert counts["exclude"] == counts["curated"] == {
         "exports_public_api": 5, "exports_internal": 0, "effective_denominator": 2,
-        "effective_denominator_basis": "scope.include", "denominator_files": 2}
+        "effective_denominator_basis": "scope.include", "denominator_files": 2, "curated_subset": True,
+        "effective_denominator_decision": stored}
     assert outside["exclude"] == outside["curated"] == [("ca", "src/core/b.ts"), ("cb", "src/core/b.ts"),
                                                          ("cc", "src/core/b.ts")]
-    assert counts["whole"] == counts["tests"] == {**counts["curated"], "effective_denominator": 5,
-                                                  "denominator_files": 3}
+    assert counts["whole"] == counts["tests"] == {
+        **counts["curated"], "effective_denominator": 5, "denominator_files": 3, "curated_subset": False,
+        "effective_denominator_decision": {"store": False, "reason": "not-curated"}}
     assert outside["whole"] == outside["tests"] == []
     assert (counts["tier_a"]["effective_denominator"], counts["tier_a"]["effective_denominator_basis"]) == (
         2, "tier_a_include")
+    assert counts["tier_a"]["effective_denominator_decision"] == stored
     assert counts["no_include"]["effective_denominator_basis"] == "all-files"
+    assert counts["no_include"]["effective_denominator_decision"] == {"store": False, "reason": "all-files"}
     assert counts["tier_a_curated"] == {**counts["curated"], "effective_denominator_basis": "tier_a_include",
                                         "denominator_files": 1}
     assert outside["tier_a_curated"] == []
@@ -861,25 +817,17 @@ def test_an_incomplete_run_count_is_left_out() -> None:
     basis and its count (0 for such a list; cognee v1.6.2 gives 0 where the
     complete run counts 68), and a failed barrel scan reads as empty, so any
     count such a run gives can be wrong: Test Skill reported a stored 0 as a
-    Medium `metadata-drift` gap. Compile leaves the field out for that run,
-    keyed on the warning the inventory writes for each `errors[]` item."""
-    four = _section(COMPILE, "4")
-    carve = _slice(four, "    **Incomplete-run carve-out:**", "\n")
-    for token in ("leave `effective_denominator` out, even when the three conditions above hold, when step 3's "
-                  "recipe runner run is still `incomplete` after its second run, the AST Extraction Protocol's or "
-                  "component extraction's Phase 4",
-                  "(the inventory's `warnings` then hold a line that starts `ast-grep did not finish on` for each "
-                  "`errors[]` item)",
-                  "a file a failed call left unread can hide a public name or the file that defines it, so the "
-                  "count can be 0 or partial whatever `counts.effective_denominator_basis` names",
-                  "the exports step 3 read by eye in the files those calls left unread change no count"):
-        assert token in carve, token
-    assert "\u2014" not in carve and "\u2013" not in carve
-    # in the payload bullet, after the reference-app carve-out, before the next bullet
-    assert four.index("    **Reference-app carve-out:**") < four.index(carve) < four.index("- **Shape:**")
-    # the protocol's second run, one of the two the carve-out waits for
+    Medium `metadata-drift` gap. The runner's decision leaves it out for that
+    run (`incomplete-run`, test-skf-extract-public-api.py pins the run), and
+    compile §4 reads the decision."""
+    decision = RUNNER_MOD.effective_denominator_decision(
+        {"monorepo": True, "specific_modules": False, "multi_subpath_exports": False}, "specific-modules",
+        "tier_a_include", True, 68, True)
+    assert decision == {"store": False, "reason": "incomplete-run"}
+    assert "`counts.effective_denominator_decision.store` is true" in _section(COMPILE, "4")
+    # the protocol's second run, the one whose result the decision reads
     assert "run the step's command once more, and when it is still incomplete" in _read(PATTERNS)
-    # the warning it keys on is the inventory's line for each errors[] item, whatever its reason
+    # the inventory still warns once for each errors[] item, whatever its reason
     inventory = _module("skf_create_extraction_inventory", INVENTORY)
     item = {"files": 4, "first_file": "pkg/__init__.py", "detail": "exit 1: killed", "unread": ["pkg/__init__.py"]}
     for reason in ("ast-grep-error", "ast-grep-timeout", "time-limit"):
@@ -1267,7 +1215,7 @@ def test_every_runner_field_the_prose_reads_is_in_its_json(tmp_path: Path) -> No
     named = {token for text in passages for token in TOKEN_RE.findall(text)
              if token.split(".")[0].removesuffix("[]") in out and not token.startswith("scope")}
     assert {"files_in_scope", "files_without_recipes", "truncated", "status",
-            "counts.effective_denominator", "arms.multi_subpath_exports", "entry_points.unresolved",
+            "counts.effective_denominator", "counts.effective_denominator_decision.store", "entry_points.unresolved",
             "entry_points.files", "ast_grep.version"} <= named, sorted(named)
     for token in sorted(named):
         _resolve(out, token)
@@ -1357,8 +1305,7 @@ def test_the_component_runner_json_seeds_the_inventory(tmp_path: Path) -> None:
 
 @needs_ast_grep
 def test_a_wide_tier_a_list_counts_what_scope_include_counts(tmp_path: Path) -> None:
-    """#730: the premise of condition 2's last sentence, on the documented
-    runner call. A tier A list over the whole package (`src/**`) or the whole
+    """#730: the premise of the tier A rule, on the documented runner call. A tier A list over the whole package (`src/**`) or the whole
     tree (`**`) counts the names `scope.include` counts, over its files, under
     the basis `tier_a_include`, and warns nothing; a narrow one
     (`src/utils/**`) counts the same names over its one file."""
@@ -1372,7 +1319,9 @@ def test_a_wide_tier_a_list_counts_what_scope_include_counts(tmp_path: Path) -> 
         assert (out["status"], out["warnings"], out["arms"]["specific_modules"]) == ("ok", [], True), label
         counts[label] = out["counts"]
     assert counts["none"] == {"exports_public_api": 5, "exports_internal": 0, "effective_denominator": 2,
-                              "effective_denominator_basis": "scope.include", "denominator_files": 2}
+                              "effective_denominator_basis": "scope.include", "denominator_files": 2,
+                              "curated_subset": True,
+                              "effective_denominator_decision": {"store": True, "reason": "curated-subset"}}
     for label in ("package", "tree"):
         assert counts[label] == {**counts["none"], "effective_denominator_basis": "tier_a_include"}, label
     assert counts["narrow"] == {**counts["none"], "effective_denominator_basis": "tier_a_include",
