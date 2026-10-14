@@ -2,3 +2,4 @@ type: changed
 scope: skf-drop-skill
 summary: |
   A headless Drop Skill run, a `--dry-run` included, now ends on its `SKF_DROP_SKILL_RESULT_JSON` line: a finished drop hands the line to the shared health check, which displays it after everything else, and a dry run deletes its run folder before it displays the line, so `claude -p` prints the envelope as the final message instead of the health check's closing `Workflow complete.` line. Interactive runs are unchanged, and a halt still ends on its own line.
+prs: [762]

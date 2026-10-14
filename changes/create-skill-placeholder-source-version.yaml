@@ -2,3 +2,4 @@ type: fixed
 scope: skf-create-skill, skf-update-skill
 summary: |
   Create Skill no longer takes a release-time placeholder such as `0.0.0-development` or `0.0.0-semantically-released` from a semantic-release package as the source version. It now reads the source's version with the public API extractor, which reports a placeholder, and a version that is not a string, as no version, so a skill built from such a package's release tag keeps the brief's version instead of being written under a `0.0.0-development` folder with that version in `metadata.json`. Update Skill reads the source's version the same way, so it no longer reads that placeholder as the source version either.
+prs: [762]
