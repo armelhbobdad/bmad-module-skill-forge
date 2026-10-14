@@ -792,7 +792,7 @@ class TestStaleNameLineCheck:
     @pytest.fixture
     def section(self) -> str:
         text = _read(COVERAGE_FILE)
-        return text[text.index("- **Stale names**"):text.index("### 4. Category Scores")]
+        return text[text.index("- **Stale names**"):text.index("### 4. The Denominator Record")]
 
     def test_the_call_is_fenced_with_its_probe_order(self, section: str) -> None:
         assert self.CALL in _fence(section, self.CALL)

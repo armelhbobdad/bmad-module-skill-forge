@@ -835,8 +835,8 @@ def test_signatures_are_scored_over_the_denominator_set():
     command = _command(COVERAGE, "uv run {scoreSignaturesScript} score")
     assert "--surface-set <set>" in command and command in section2b
     assert "uv run {scoreSignaturesScript} score" not in _slice(text, "### 2. Analyze Source Code", "### 2b.")
-    summary = _flow(_slice(text, "### Coverage Summary", "### Category Scores"))
-    assert "each entry of `signatures.json` `warnings`" in summary
+    # Its warnings reach the Coverage Analysis section through §5's render, never retyped.
+    assert "§5's render lists its `warnings`" in _flow(section2b)
     # The scalar is read from the loader's file, never typed in.
     assert "--denominator-value" not in text
     assert '--denominator-source scalar --coverage-inputs "{run_dir}/coverage-inputs.json"' in text
@@ -846,7 +846,7 @@ def test_a_run_with_no_local_source_names_its_skip():
     flags = _flow(_slice(_read(SCORE), "#### 3a. Construct Scoring Input JSON", "#### 3b."))
     assert "`metadata-only` or `remote-only`, States 3 and 4" in flags
     docs_only = _flow(_slice(_read(COVERAGE), "**A docs-only run**", "**Docs-only skill detected.**"))
-    assert "§4's Export Coverage line and its `Denominator: docs-only completeness` annotation" in docs_only
+    assert "§4's `Denominator: docs-only completeness` annotation" in docs_only
 
 
 def test_the_prose_quick_command_runs(tmp_path):
@@ -1136,10 +1136,9 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     # #695: a stale tier A glob fires the guard too and counts no name
     assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
             "and counts no name") in forge
-    # the report lists every name the surface leaves out of the barrel or puts back in it
-    assert ("List `excluded.outsideScope`, `excluded.nestedEntries` and the restored names in the report"
-            in forge)
-    section4 = _flow(_slice(_read(COVERAGE), "### 4. Category Scores", "### 4b."))
+    # the report lists every name the surface leaves out of the barrel or puts back in it, through §5's render
+    assert "§5's render lists `excluded.outsideScope`, `excluded.nestedEntries` and the restored names" in forge
+    section4 = _flow(_slice(_read(COVERAGE), "### 4. The Denominator Record", "### 4b."))
     assert "`guards.staleScope.fires` a Medium `brief-scope-stale` gap at the brief" in section4
     protocol = _flow(_read(SOURCE_ACCESS))
     assert ("is not a second package root when the folder of another package root that exports a name holds it, "
@@ -1530,10 +1529,10 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
     for restated in ("documented_set ∩ barrel_set", "max(0,", "do not re-derive", "**do not",
                      "### 3. Build Coverage Results", "Signature Match", "Weight application is deferred"):
         assert restated not in text, restated
-    summary = _flow(_slice(text, "### Coverage Summary", "### Category Scores"))
-    for field in ("`denominator`", "`documented`", "`exportCoverage`", "`missingCount`", "`staleCount`",
-                  "`numeratorSurplus`", "`coverageUncapped`"):
-        assert field in summary, field
+    # The counts, the per-export table and the category scores are the render's (determinism-2).
+    section5 = _slice(text, "### 5. Write the Coverage Analysis Section", "### 5b.")
+    assert 'uv run {reconcileScript} render --coverage "{run_dir}/coverage.json"' in section5
+    assert "### Coverage Summary" not in text and "{the render output}" in section5
 
 
 # --------------------------------------------------------------------------

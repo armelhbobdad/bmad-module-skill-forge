@@ -8,14 +8,19 @@ Covers the four §2c branches:
   - "docsOnly" (#540: documentation completeness over the inventory)
 Plus method-exclusion, dedup, rounding, validation, the whole-name lookup
 (`get` is found in neither `target` nor `getAll`), the run-folder file flags
-(an extraction surface whose internal recipe matches never count), and the
-subprocess CLI (exit codes + JSON-on-stdout contract).
+(an extraction surface whose internal recipe matches never count), the
+subprocess CLI (exit codes + JSON-on-stdout contract), and `render`, the
+Coverage Analysis section coverage-check.md §5 writes unchanged, pinned by a
+golden output.
 """
 
 from __future__ import annotations
 
+import doctest
 import importlib.util
 import json
+import re
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -692,6 +697,275 @@ def test_cli_refused_input_removes_a_stale_output(tmp_path):
 def test_cli_unreadable_input_file_exits_1(tmp_path):
     proc = _run_cli(["--denominator-source", "docsOnly", "--inventory", str(tmp_path / "absent.json")])
     assert proc.returncode == 1 and "cannot read --inventory" in proc.stderr
+
+
+
+# --------------------------------------------------------------------------
+# render: the Coverage Analysis section coverage-check.md §5 writes unchanged
+# (v4.0.0 quality gate run 1, determinism-2)
+# --------------------------------------------------------------------------
+
+COVERAGE_STEP = REPO_ROOT / "src" / "skf-test-skill" / "references" / "coverage-check.md"
+RENDER_INVENTORY = {"exports": [
+    {"name": "createClient", "kind": "function", "params": "opts", "return_type": "Client", "description": "d"},
+    {"name": "Client", "kind": "class", "description": "d"},
+    {"name": "Client.run", "kind": "method", "params": "", "return_type": "void", "description": "d"},
+    {"name": "parse", "kind": "function", "params": "text", "return_type": "Ast", "description": "d"},
+    {"name": "legacyFn", "kind": "function", "params": "", "return_type": "void", "description": "d"},
+]}
+RENDER_SURFACE = {
+    "exports": [
+        {"name": "Client", "kind": "class", "file": "src/client.ts", "line": 40, "origin": "extraction"},
+        {"name": "Options", "kind": "interface", "file": "src/types.ts", "line": 7, "origin": "extraction"},
+        {"name": "VERSION", "kind": "constant", "file": None, "line": None, "origin": "metadata"},
+        {"name": "createClient", "kind": "function", "file": "src/client.ts", "line": 12, "origin": "extraction"},
+        {"name": "parse", "kind": None, "file": "src/index.ts", "line": None, "origin": "extraction"},
+        {"name": "parse", "kind": "function", "file": "src/parse.ts", "line": 3, "origin": "extraction"},
+    ],
+    "sets": {"all": ["Client", "Options", "VERSION", "createClient", "parse"]},
+}
+RENDER_SIGNATURES = {
+    "valid": True, "signatureAccuracy": 50.0, "matchingSignatures": 1, "totalDocumented": 2,
+    "comparedNames": ["createClient", "parse"], "typeCoverage": 50.0, "documentedTypes": 1, "totalTypes": 2,
+    "missingTypes": ["Options"],
+    "mismatches": [{"name": "parse", "file": "src/parse.ts", "line": 3, "source_sig": "(text: string, o?: O) => Ast",
+                    "documented_sig": "(text: string) => Ast", "issue": "missing optional parameter 'o'"}],
+    "gapRecords": [],
+    "warnings": ["src/extra.ts:9: a signature mismatch for `ghost`, which is no documented signature on the "
+                 "source surface: not scored, no gap"],
+}
+# The golden output: one row per counted, stale or mismatched name; FAIL for a signature mismatch, WARN for a
+# missing or stale name, PASS otherwise; Files Analyzed counts the distinct files the surface records.
+GOLDEN_BARREL = """**Files Analyzed:** 4
+
+### Export Coverage
+
+| Export | Type | Documented | Signature | Source Location | Status |
+|--------|------|------------|-----------|-----------------|--------|
+| `Client` | class | yes | - | src/client.ts:40 | PASS |
+| `Options` | interface | no | - | src/types.ts:7 | WARN |
+| `VERSION` | constant | no | - | - | WARN |
+| `createClient` | function | yes | yes | src/client.ts:12 | PASS |
+| `legacyFn` | - | yes | - | - | WARN |
+| `parse` | function | yes | no | src/parse.ts:3 | FAIL |
+
+### Coverage Summary
+
+- **Exports Found:** 5
+- **Documented:** 3 (60%)
+- **Missing Documentation:** 2
+- **Signature Mismatches:** 1
+- **Stale Documentation:** 1, documented extras included
+- **Scoring Warnings:**
+  - src/extra.ts:9: a signature mismatch for `ghost`, which is no documented signature on the source surface: not scored, no gap
+
+### Category Scores
+
+| Category | Score |
+|----------|-------|
+| Export Coverage | 60% |
+| Signature Accuracy | 50% |
+| Type Coverage | 50% |
+"""
+
+
+def _run_render(*args):
+    return subprocess.run([sys.executable, str(SCRIPT_PATH), "render", *args], capture_output=True, text=True,
+                          encoding="utf-8")
+
+
+def _render_run_files(run):
+    """The run files §2, §2b and §2c write, the coverage one by this script's barrel branch."""
+    _write(run / "inventory.json", RENDER_INVENTORY)
+    _write(run / "surface.json", RENDER_SURFACE)
+    _write(run / "signatures.json", RENDER_SIGNATURES)
+    proc = _run_cli(["--denominator-source", "barrel", "--inventory", (run / "inventory.json").as_posix(),
+                     "--surface", (run / "surface.json").as_posix(), "--output", (run / "coverage.json").as_posix()])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+
+
+def test_the_render_helpers_doctests_pass():
+    result = doctest.testmod(mod, verbose=False)
+    assert result.attempted > 0 and result.failed == 0
+
+
+def test_barrel_lists_the_documented_names_it_counts():
+    out = reconcile({"denominatorSource": "barrel", "exports": RENDER_INVENTORY["exports"],
+                     "barrelSet": RENDER_SURFACE["sets"]["all"]})
+    assert out["documentedNames"] == ["Client", "createClient", "parse"]
+    assert (out["missing"], out["stale"]) == (["Options", "VERSION"], ["legacyFn"])
+
+
+def test_render_matches_the_golden_barrel_section(tmp_path):
+    run = tmp_path / "run"
+    _render_run_files(run)
+    proc = _run_render("--coverage", (run / "coverage.json").as_posix(), "--surface", (run / "surface.json").as_posix(),
+                       "--signatures", (run / "signatures.json").as_posix())
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == GOLDEN_BARREL
+    # identical run files give an identical section
+    assert _run_render("--coverage", (run / "coverage.json").as_posix(), "--surface",
+                       (run / "surface.json").as_posix(), "--signatures",
+                       (run / "signatures.json").as_posix()).stdout == GOLDEN_BARREL
+
+
+def test_coverage_check_writes_the_render_output_as_written(tmp_path):
+    """§5 runs the render with every run file the barrel branch wrote, and the model writes it unchanged."""
+    text = COVERAGE_STEP.read_text(encoding="utf-8")
+    section = text[text.index("### 5. Write the Coverage Analysis Section"):text.index("### 5b.")]
+    [command] = [line for line in section.splitlines() if line.startswith("uv run {reconcileScript} render")]
+    run = tmp_path / "run"
+    _render_run_files(run)
+    command = re.sub(r" \[([^\]]+)\]", r" \1", command).replace("{run_dir}", run.as_posix())
+    words = shlex.split(command)
+    assert words[:3] == ["uv", "run", "{reconcileScript}"]
+    proc = _run_render(*words[4:])
+    assert proc.returncode == 0 and proc.stdout == GOLDEN_BARREL
+    flow = " ".join(section.split())
+    assert "write its output unchanged where the section below places it" in flow
+    assert '(`halt_reason: "helper-failed"`, phase `coverage-check:render`)' in flow
+    assert "Exit 2 is a usage error: correct the command and run it again." in flow
+    # §4's Denominator Candidates block has its place, right under the Denominator line.
+    assert ("**Denominator:** {the §4 annotation}\n{the Denominator Candidates block, when §4 adds one}\n\n"
+            "{the render output}") in section
+    # The render marks a Quick-tier signature unverified, and lists the names the surface leaves out:
+    # the earlier sections no longer have the model write either by hand.
+    assert "Signatures cannot be verified at this tier (§5's render marks them unverified)." in text
+    assert 'note them as "unverified"' not in text
+    assert "§5's render lists `excluded.outsideScope`, `excluded.nestedEntries` and the restored names." in text
+    # No row, count or score is typed by hand any more.
+    for typed in ("| {name} | {kind} |", "{count}", "### Coverage Summary", "| Export Coverage | {N}% |"):
+        assert typed not in text, typed
+    assert "{file_count}" not in text
+
+
+def test_render_without_signatures_leaves_them_unverified(tmp_path):
+    """Quick tier, States 2 to 4: no signatures.json, so a documented name's signature is unverified."""
+    coverage = reconcile({"denominatorSource": "barrel", "exports": RENDER_INVENTORY["exports"],
+                          "barrelSet": RENDER_SURFACE["sets"]["all"]})
+    text = mod.render(coverage, RENDER_SURFACE)
+    assert "| `Client` | class | yes | unverified | src/client.ts:40 | PASS |" in text
+    assert "| `Options` | interface | no | - | src/types.ts:7 | WARN |" in text
+    assert "- **Signature Mismatches:** N/A" in text and "Scoring Warnings" not in text
+    assert "| Signature Accuracy | N/A |" in text and "| Type Coverage | N/A |" in text
+
+
+def test_render_a_docs_only_run():
+    exports = [{"name": "load", "kind": "function", "description": "Loads it."},
+               {"name": "Config", "kind": "type", "fields": ["a"], "description": "The config."}]
+    coverage = reconcile({"denominatorSource": "docsOnly", "exports": exports})
+    assert mod.render(coverage) == """**Files Analyzed:** N/A: no source surface
+
+### Export Coverage
+
+No per-export table: a docs-only run has no source surface to compare against. The summary below gives its \
+documentation completeness.
+
+### Coverage Summary
+
+- **Exports Found:** 2 documented items
+- **Documented:** 1 complete (50%)
+- **Missing Documentation:** 1 incomplete: `load` (function) lacks `params`, `return_type`
+- **Signature Mismatches:** N/A
+- **Stale Documentation:** N/A: a docs-only run has no source surface
+
+### Category Scores
+
+| Category | Score |
+|----------|-------|
+| Export Coverage | 50% |
+| Signature Accuracy | N/A |
+| Type Coverage | N/A |
+"""
+
+
+def test_render_states_a_capped_surplus():
+    coverage = reconcile({"denominatorSource": "scalar", "denominatorValue": 2,
+                          "exports": [{"name": n, "kind": "function"} for n in ("a", "b", "c")],
+                          "skillPackagePath": "/unused"}, doc_text="a b c")
+    text = mod.render(coverage, {"exports": []})
+    assert "**Files Analyzed:** 0" in text
+    assert "No per-export table: the scalar denominator (`stats.effective_denominator`)" in text
+    assert "- **Missing Documentation:** 0 (a floored residual: the numerator exceeds the denominator)" in text
+    assert "- **Numerator Surplus:** 1, uncapped coverage 150%" in text
+    assert ("- **Stale Documentation:** N/A: the scalar denominator (`stats.effective_denominator`) counts the "
+            "exports without naming them") in text
+
+
+def test_render_a_stack_run_names_no_export(tmp_path):
+    """A stack counts its composition surface without naming each export: one line stands in for the table."""
+    pkg = _make_skill_pkg(tmp_path, skill_md_text="composes react-query and zod")
+    coverage = reconcile({"denominatorSource": "stack", "compositionNames": ["react-query", "zod", "trpc"],
+                          "denominatorValue": 3, "skillPackagePath": pkg})
+    text = mod.render(coverage, {"exports": []})
+    assert "| Export |" not in text
+    for line in ("**Files Analyzed:** 0",
+                 "No per-export table: the stack denominator counts the composition surface without naming each "
+                 "export. The summary below gives the counts.",
+                 "- **Exports Found:** 3", "- **Documented:** 2 (66.67%)", "- **Missing Documentation:** 1",
+                 "- **Stale Documentation:** N/A: the stack denominator counts the composition surface without "
+                 "naming each export",
+                 "| Signature Accuracy | N/A |"):
+        assert line in text.splitlines(), line
+
+
+def test_render_gives_a_mismatch_outside_the_counted_set_its_own_fail_row():
+    """score-signatures.py compares every name a surface record names, so a method the barrel never counts
+    (`Client.run`) can mismatch: it gets its own FAIL row, and the counted rows stay as they were."""
+    method = {"name": "Client.run", "kind": "method", "file": "src/client.ts", "line": 55, "origin": "extraction"}
+    surface = {**RENDER_SURFACE, "exports": [*RENDER_SURFACE["exports"], method]}
+    coverage = reconcile({"denominatorSource": "barrel", "exports": RENDER_INVENTORY["exports"],
+                          "barrelSet": surface["sets"]["all"]})
+    assert "Client.run" not in coverage["documentedNames"] + coverage["missing"] + coverage["stale"]
+    mismatch = {"name": "Client.run", "file": "src/client.ts", "line": 55, "source_sig": "() => Promise<void>",
+                "documented_sig": "() => void", "issue": "return type differs"}
+    signatures = {**RENDER_SIGNATURES, "comparedNames": ["Client.run", "createClient", "parse"],
+                  "mismatches": [*RENDER_SIGNATURES["mismatches"], mismatch]}
+    text = mod.render(coverage, surface, signatures)
+    assert "| `Client.run` | method | yes | no | src/client.ts:55 | FAIL |" in text
+    assert "- **Signature Mismatches:** 2" in text and "- **Exports Found:** 5" in text
+    golden_rows = [line for line in GOLDEN_BARREL.splitlines() if line.startswith("| `")]
+    assert [line for line in text.splitlines() if line.startswith("| `") and "Client.run" not in line] == golden_rows
+
+
+def test_render_lists_the_names_the_surface_leaves_out_or_puts_back():
+    """coverage-check §2: the names a brief scoped out, a nested entry point's names and the names the stale-scope
+    guard restored reach the Coverage Summary from surface.json, each line only when it names one."""
+    surface = {**RENDER_SURFACE,
+               "excluded": {"outsideScope": [{"name": "genClient", "file": "src/gen/client.ts"}],
+                            "nestedEntries": [{"entry": "pkg/routers/__init__.py", "within": "pkg/__init__.py",
+                                               "names": ["Route", "router"]}]},
+               "guards": {"staleScope": {"applicable": True, "fires": True, "unmatchedInclude": ["lib/**"],
+                                         "unmatchedTierAInclude": [],
+                                         "restored": [{"name": "legacy", "file": "src/legacy.ts", "line": 9},
+                                                      {"name": "older", "file": "src/older.ts", "line": None}]}}}
+    coverage = reconcile({"denominatorSource": "barrel", "exports": RENDER_INVENTORY["exports"],
+                          "barrelSet": surface["sets"]["all"]})
+    text = mod.render(coverage, surface)
+    summary = text[text.index("### Coverage Summary"):text.index("### Category Scores")].splitlines()
+    assert "- **Scoped Out by the Brief:** `genClient` (src/gen/client.ts)" in summary
+    assert "- **Nested Entry Points:** `pkg/routers/__init__.py` inside `pkg/__init__.py`: `Route`, `router`" in summary
+    assert "- **Restored by the Stale-Scope Guard:** `legacy` (src/legacy.ts:9), `older` (src/older.ts)" in summary
+    # A surface that leaves nothing out writes none of the three lines.
+    assert not [line for line in GOLDEN_BARREL.splitlines() if "Scoped Out" in line or "Nested Entry" in line
+                or "Restored by" in line]
+
+
+@pytest.mark.parametrize("coverage, signatures, error", [
+    ({"branch": "enumerated", "denominator": 1, "documented": 1, "missing": [], "stale": []}, None,
+     "no `documentedNames`"),
+    ({"branch": "sideways"}, None, "no known `branch`"),
+    ({"branch": "docsOnly", "denominator": 1, "documented": 1}, {"valid": False, "violations": ["x"]},
+     "not score-signatures.py score's result"),
+], ids=["no-documented-names", "unknown-branch", "invalid-signatures"])
+def test_render_refuses_a_file_it_cannot_read(tmp_path, coverage, signatures, error):
+    args = ["--coverage", _write(tmp_path / "coverage.json", coverage)]
+    if signatures is not None:
+        args += ["--signatures", _write(tmp_path / "signatures.json", signatures)]
+    proc = _run_render(*[Path(a).as_posix() if a.endswith(".json") else a for a in args])
+    assert proc.returncode == 1 and error in proc.stderr and proc.stdout == ""
+    proc = _run_render("--coverage", (tmp_path / "absent.json").as_posix())
+    assert proc.returncode == 1 and "cannot read --coverage" in proc.stderr
 
 
 if __name__ == "__main__":
