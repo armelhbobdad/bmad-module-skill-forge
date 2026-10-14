@@ -3068,6 +3068,67 @@ sys.exit(1)
         assert {f["file"]: (f["status"], f["exports"]) for f in snap["files"]} == {
             "pkg/api.py": ("unread", 1), "pkg/other.py": ("unread", 1)}
 
+    @needs_ast_grep
+    @pytest.mark.skipif(os.name == "nt", reason="the shim is a POSIX script")
+    @pytest.mark.parametrize(("tier_a", "files", "warned"),
+                             [("pkg/types.py", 1, []),
+                              ("pkg/gone/**", 0, ["scope.tier_a_include pattern 'pkg/gone/**' matches no file"])],
+                             ids=["nameless", "stale"])
+    def test_a_failed_call_keeps_the_tier_a_basis_of_a_list_that_counts_no_name(
+            self, tmp_path, monkeypatch, tier_a, files, warned) -> None:
+        """#744: a tier A list that counts no public name falls back to
+        `scope.include` only on a run with no `errors` item (#712). A shim
+        first on PATH fails the call over `pkg/extra.py` as #722's does: the
+        entry points still give the 3 public names, but the count stays the
+        tier A files' 0 under `tier_a_include`, with no fallback warning, so
+        Create Skill leaves it out (compile.md section 4)."""
+        root = _tree(tmp_path / "src", {
+            "pkg/__init__.py": ("from .core import alpha, Beta\nfrom .extra import gamma\n\n"
+                                '__all__ = ["alpha", "Beta", "gamma"]\n'),
+            "pkg/core.py": "def alpha():\n    return 1\n\n\nclass Beta:\n    pass\n",
+            "pkg/extra.py": "def gamma():\n    return 3\n",
+            "pkg/types.py": "def _private():\n    return 0\n"})
+        flags = ["--mode", "full", "--source-root", str(root), "--include", "pkg/**", "--tier-a-include", tier_a,
+                 "--head-cap", "0", "-o"]
+        fallback = "scope.tier_a_include counts no public name: effective_denominator counts scope.include"
+        complete = tmp_path / "complete.json"
+        assert mod.main([*flags, str(complete)]) == 0
+        out = json.loads(complete.read_text(encoding="utf-8"))
+        assert out["counts"] == {"exports_public_api": 3, "exports_internal": 0, "effective_denominator": 3,
+                                 "effective_denominator_basis": "scope.include", "denominator_files": 4}
+        assert out["warnings"] == [*warned, fallback]
+        cut = tmp_path / "cut.py"
+        cut.write_text(f"""import json, os, subprocess, sys
+real = {shutil.which("ast-grep")!r}
+if sys.argv[1:2] != ["scan"]:
+    os.execv(real, [real, *sys.argv[1:]])
+res = subprocess.run([real, *sys.argv[1:]], capture_output=True, text=True)
+if "pkg/extra.py" not in sys.argv:
+    sys.stdout.write(res.stdout)
+    sys.exit(res.returncode)
+for line in res.stdout.splitlines():
+    if json.loads(line)["file"] != "pkg/extra.py":
+        print(line)
+sys.stderr.write("killed\\n")
+sys.exit(1)
+""", encoding="utf-8")
+        shim = tmp_path / "bin" / "ast-grep"
+        shim.parent.mkdir()
+        shim.write_bytes(f"#!/bin/sh\nexec '{sys.executable}' '{cut}' \"$@\"\n".encode("utf-8"))
+        shim.chmod(0o755)
+        monkeypatch.setenv("PATH", f"{shim.parent}{os.pathsep}{os.environ['PATH']}")
+        extraction = tmp_path / "extraction.json"
+        assert mod.main([*flags, str(extraction)]) == 1
+        out = json.loads(extraction.read_text(encoding="utf-8"))
+        assert out["status"] == "incomplete"
+        unread = ["pkg/__init__.py", "pkg/core.py", "pkg/extra.py", "pkg/types.py"]
+        assert [(e["reason"], e["detail"], e["unread"]) for e in out["errors"]] == [
+            ("ast-grep-error", "exit 1: killed", unread)]
+        assert out["counts"] == {"exports_public_api": 3, "exports_internal": 0, "effective_denominator": 0,
+                                 "effective_denominator_basis": "tier_a_include", "denominator_files": files}
+        assert out["warnings"] == warned
+        assert [g["name"] for g in out["entry_point_diff"]["extraction_gaps"]] == ["gamma"]
+
     @pytest.mark.parametrize("value", ["0", "-5"])
     def test_a_timeout_not_above_zero_is_an_input_error(self, value, tmp_path, capsys) -> None:
         assert mod.main(["--mode", "full", "--source-root", str(tmp_path), "--timeout", value]) == 2
