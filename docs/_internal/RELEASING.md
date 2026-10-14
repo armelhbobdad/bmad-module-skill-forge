@@ -234,17 +234,20 @@ Only `alpha`, `beta` and `rc` can be cut from a feature branch: the gate step re
 | Workflow filename | `release.yaml`            |
 | Environment       | `release`                 |
 
-**Last checked with `npm trust list`:** not run yet. Record the date and whether the four fields matched this table.
+**Last checked with `npm trust list`:** 2026-10-14, by `armelhbobdad` with npm 11.19.0: one entry, whose four fields match this table, with the permissions `publish` and `stage publish`. Check again after any change to the entry, to the name of `release.yaml` or to the `release` environment, and replace this line with that check's date and result.
 
 **Inspect current state.** `npm trust list` reads the entry. It needs npm 11.15.0 or later and a maintainer signed in to npm, with 2FA enabled on the account and write access to the package ([§ Preconditions](#preconditions)):
 
 ```bash
 npm trust list bmad-module-skill-forge --json
 # expected: one entry with "type": "github", "file": "release.yaml",
-# "repository": "armelhbobdad/bmad-module-skill-forge" and "environment": "release"
+# "repository": "armelhbobdad/bmad-module-skill-forge" and "environment": "release",
+# besides its "id" and its "permissions"
 ```
 
 Compare those four fields with the Registered table: `type` is the publisher type, `repository` holds the organization/user and the repository, `file` the workflow filename and `environment` the environment. The entry's `id` is what `npm trust revoke --id` takes ([§ Scenario F](#scenario-f--suspected-oidc-compromise--unauthorized-publish)). Without the package name, `npm trust` reads it from the `package.json` in the current directory. The same entry shows on the [npm package settings](https://www.npmjs.com/package/bmad-module-skill-forge) page, **Settings** tab, **Trusted Publisher** section; changing it there needs 2FA re-entry on the maintainer account.
+
+Run `npm trust list` with its output on the terminal, not piped or redirected: when the registry asks for a second factor, npm prompts for it only when both its input and its output are a terminal, and otherwise stops with `EOTP`. With `--json`, a package with no entry prints nothing at all.
 
 **Case-sensitive.** All four fields above use the exact lowercase forms shown; npm's matcher is an exact-string comparison. Do not capitalize on re-registration even if GitHub's UI surfaces a display-form with capitals.
 
@@ -832,13 +835,13 @@ The ruleset gets a new id; no command in this document names one, and `release.y
 
 **The `release` environment** is restored with the two calls in [§ Restore / re-apply](#restore--re-apply). Its baseline is the `GET` shape, which those calls do not take. `test/test-releasing-runbook.py` checks on every pull request that the two calls' JSON matches the committed baselines, so a capture that changes the environment fails its pull request until those calls are updated.
 
-**Restore drill.** A restore is trusted only once it has run. Right after a capture, run the snippet of [§ Restore from a saved baseline](#restore-from-a-saved-baseline) and answer `y` only when its `diff` printed nothing: the `PUT` then writes the ruleset's own state back, so a `200` that changes nothing shows that the API accepts the filtered baseline. Capture again afterwards: `git diff` on the ruleset file should show at most `updated_at`. If the API rejects a field, change `release-audits/baselines/ruleset-put.jq`, which every restore snippet reads, and record that here. The filter already drops the two keys of the `required_status_checks` rule that a `PUT` has refused (`do_not_enforce_on_create`, a null `integration_id`) and keeps every other rule parameter as the `GET` returns it, including two of the `pull_request` rule that this document does not otherwise name: `required_reviewers` and `require_extra_approval_for_unattributed_changes`.
+**Restore drill.** A restore is trusted only once it has run. Right after a capture, run the snippet of [§ Restore from a saved baseline](#restore-from-a-saved-baseline) and answer `y` only when its `diff` printed nothing: the `PUT` then writes the ruleset's own state back, so a `200` that changes nothing shows that the API accepts the filtered baseline. Capture again afterwards: `git diff` on the ruleset file should show at most `updated_at`. If the API rejects a field, change `release-audits/baselines/ruleset-put.jq`, which every restore snippet reads, and record that here. The filter already drops the two keys of the `required_status_checks` rule that a `PUT` has refused (`do_not_enforce_on_create`, a null `integration_id`) and keeps every other rule parameter as the `GET` returns it, including two of the `pull_request` rule that this document does not otherwise name: `required_reviewers` and `require_extra_approval_for_unattributed_changes`. Run the drill again after any change to the filter, and add a row.
 
 | Date | Target | Filter | Result |
 | ---- | ------ | ------ | ------ |
-| not run yet | `PUT` of the unchanged state to `Default` | `release-audits/baselines/ruleset-put.jq` | pending |
+| 2026-10-14 | `PUT` of the unchanged state to `Default`, from `gh` signed in as `armelhbobdad` | `release-audits/baselines/ruleset-put.jq` | Accepted (HTTP 200): before and after the `PUT`, the filtered live ruleset matched the filtered baseline, and the capture after it changed nothing |
 
-Until the first drill, the only check of the filter is offline: on 2026-10-01 the filtered baseline validated against the request schemas of the ruleset `PUT` and `POST` in GitHub's published REST API description, which does not list `require_extra_approval_for_unattributed_changes` but does not forbid extra parameters either.
+Before the first drill, on 2026-10-01, the filtered baseline was checked offline against the request schemas of the ruleset `PUT` and `POST` in GitHub's published REST API description, which does not list `require_extra_approval_for_unattributed_changes`; the drill's `PUT` accepted it. The `POST` above, for a deleted ruleset, sends the same filtered body to a request that takes the same six fields, and has not run against the API.
 
 ### Cutting v1.0.0 under --tag latest
 
