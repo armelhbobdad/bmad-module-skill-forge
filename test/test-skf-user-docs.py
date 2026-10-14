@@ -914,8 +914,9 @@ def test_docs_say_labels_follow_the_tool_and_t1_counts_drop():
     assert f'(T1 to T1-low, or back): Audit Skill lists it under "{LABEL_TABLE}"' in drift
     excerpt = _paragraph(_read(SKILL_MODEL), "The excerpt's `t1` count of 34")
     assert '"t1": 34' in _read(SKILL_MODEL) and "which SKF 3.0.0 counts as `t1_low`" in excerpt
-    assert "Set `ast_node_count` to the number of exports ast-grep matched" in _read(
-        SRC / "skf-create-skill" / "references" / "compile.md")
+    # compile.md §4's `metadata` writes it: the inventory helper's rule (v4.0.0 quality gate run 1)
+    assert "ast_node_count and tool_versions.ast_grep, only when ast-grep ran:" in " ".join(_read(
+        SRC / "shared" / "scripts" / "skf-extraction-inventory.py").split())
     assert '"ast_node_count": 34' in _read(SKILL_MODEL) and "`ast_node_count` counts only those exports" in excerpt
 
 

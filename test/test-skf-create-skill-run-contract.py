@@ -486,8 +486,12 @@ def test_later_steps_read_and_extend_the_inventory():
     compile_one = _section(_read(REFS / "compile.md"), "### 1. Load Data Files", "### 1a.")
     assert "Then load `{extraction_inventory}` (`{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`)" in compile_one
     assert "{skill-name}.language-guide.json" in compile_one
-    for field in ("`intent_mapping`", "an export marked `internal: true` stays out of `metadata.json`'s `exports[]`"):
-        assert field in compile_one, field
+    assert "`intent_mapping`" in compile_one
+    # which exports metadata.json lists is the `metadata` helper's rule, stated there once (v4.0.0 quality gate
+    # run 1, skf-create-skill determinism-1); §1 keeps the public: false rule for what compile writes itself
+    assert "`metadata.json`'s `exports[]`" not in compile_one
+    assert ("one marked `public: false`, off a `public-api` skill's public surface, stays out of SKILL.md, "
+            "`references/` and the provenance map") in compile_one
     assert ('run `uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"`: bind '
             "`{inventory_counts}` ← its `counts`") in compile_one
     seven_a = _section(_read(REFS / "validate.md"), "### 7a.", "### 8.")
