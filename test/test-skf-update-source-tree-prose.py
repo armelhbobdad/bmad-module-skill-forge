@@ -151,6 +151,8 @@ RE_EXTRACT = REFS / "re-extract.md"
 GAP = REFS / "gap-driven.md"
 MERGE = REFS / "merge.md"
 WRITE = REFS / "write.md"
+# where write.md §2 starts on metadata.json, after its run-lock renewal
+WRITE_TWO_LEAD = "The `metadata` call below writes `{skill_package}/metadata.json`"
 REPORT = REFS / "report.md"
 HEALTH = REFS / "health-check.md"
 SKILL = UPDATE / "SKILL.md"
@@ -697,8 +699,9 @@ def test_copies_come_from_the_tree():
 def test_write_records_commit_and_never_writes_tree():
     text = _read(WRITE)
     two = _slice(text, "### 2. Write Updated metadata.json", "### 3.")
-    for token in ("set `source_commit` to `{target_commit}`", "`source_ref` to `{target_ref}`", "Leave `source_root`",
-                  "never write `{source_tree}`"):
+    # the `metadata` call writes them (v4.0.0 quality gate run 1, skf-update-skill determinism-1)
+    for token in ('pass `--source-commit "{target_commit}"`', '`--source-ref "{target_ref}"`',
+                  "The call leaves `source_root`", "never write `{source_tree}`"):
         assert token in two, token
     three = _slice(text, "### 3. Write Updated provenance-map.json", "### 4.")
     assert "top-level `source_commit` and `source_ref`" in three
@@ -978,7 +981,7 @@ def test_run_lock_replaces_the_pid_guard():
     renewals = {
         "merge": (_slice(_read(MERGE), "**Renew the run lock**", "**Choose the version this update writes**"),
                   "before this section writes anything", 'phase: "merge:run-lock"'),
-        "write": (_slice(_read(WRITE), "**Renew the run lock first:**", "Update `{skill_package}/metadata.json`:"),
+        "write": (_slice(_read(WRITE), "**Renew the run lock first:**", WRITE_TWO_LEAD),
                   "before writing `metadata.json`", 'phase: "write:run-lock"'),
     }
     for name, (renewal, before, phase) in renewals.items():
@@ -993,7 +996,7 @@ def test_run_lock_replaces_the_pid_guard():
                   "acquire took it again", "wrote nothing to the skill package",
                   "The halt's release (step 3 of the halt procedure) removes a lock this acquire took"):
         assert token in merge_renewal, token
-    write_renewal = _slice(_read(WRITE), "**Renew the run lock first:**", "Update `{skill_package}/metadata.json`:")
+    write_renewal = _slice(_read(WRITE), "**Renew the run lock first:**", WRITE_TWO_LEAD)
     # the halt's rollback undoes what the run wrote: no recovery by hand (#587)
     for token in ("step 4 §8 may have waited at its gate", "`{lock_recovery}` is, outside gap-driven mode",
                   "the halt removed `{skill_group}/{new_version}/` and `{forge_data_folder}/{skill_name}/{new_version}/`",
@@ -1006,7 +1009,7 @@ def test_run_lock_replaces_the_pid_guard():
             < merge.index("**Choose the version this update writes**") < merge.index("stage-dir --target"))
     write = _read(WRITE)
     assert (write.index("### 2. Write Updated metadata.json") < write.index("**Renew the run lock first:**")
-            < write.index("Update `{skill_package}/metadata.json`:") < write.index("### 3."))
+            < write.index(WRITE_TWO_LEAD) < write.index("### 3."))
     rule = _slice(_slice(_read(SKILL), "## Workflow Rules", "## Stages"),
                   "- Every HALT, ABORT or other exit before step 7", "\n")
     assert "releases the run lock" in rule and "A halt never falls through to step 6" in rule
@@ -2162,7 +2165,7 @@ def test_relabel_runs_no_recipe_under_the_override():
         assert token in drift, token
     # the gate follows the rule whose lookup it gates, and the re-run keeps the shape (#550)
     assert relabel.index("`## Relabel Rule`") < relabel.index("**Under the drift override**")
-    assert "re-run the helper with the same payload and `--shape`" in relabel
+    assert "re-run the helper with the same payload, `--shape` and `-o`" in relabel
 
 
 def test_name_lookup_filters_by_the_citation_file(tmp_path):
@@ -2311,10 +2314,14 @@ def test_write_adds_the_cited_export_entry_and_names_the_drift(tmp_path, capsys)
         "files": []}).encode("utf-8"))
     (run_dir / "merge-records.json").write_bytes(json.dumps({"exports": [
         {"export_name": "fresh", "export_type": "function", "params": ["x"]}]}).encode("utf-8"))
+    skill_package = tmp_path / "skills" / "lib" / "1.0.0" / "lib"
+    skill_package.mkdir(parents=True)
+    (skill_package / "metadata.json").write_bytes(json.dumps({"exports": ["search"]}).encode("utf-8"))
     values = {"update_type": "gap-driven", "forge_version": str(forge_version), "run_dir": str(run_dir),
               "skill_name": "lib", "generation_date": "2026-10-01T10:00:00Z", "test_report_run_id": "r1",
               "forge_tier": "Forge", "manual_sections_preserved": "0", "map_source_commit": "abc",
-              "map_source_ref": "v1", "head_short_sha": "1234567", "pinned_short_sha": "abcdef0"}
+              "map_source_ref": "v1", "head_short_sha": "1234567", "pinned_short_sha": "abcdef0",
+              "skill_package": str(skill_package)}
     argv = _argv_with(call, "buildChangeManifestHelper", values, keep=(
         "--provenance-map", "--reextract-records", "--merge-records", "--test-report-run-id", "--drift-head"))
     manifest = _module(BUILD_MANIFEST, "skf_build_change_manifest_apply_prose")
@@ -2329,6 +2336,8 @@ def test_write_adds_the_cited_export_entry_and_names_the_drift(tmp_path, capsys)
     assert summary["warnings"] == [
         f"provenance: search: unknown {note}; no line taken from HEAD; definition lines per the test report: [7])"]
     assert (written["test_report_run_id"], written["source_commit"]) == ("r1", "abc")
+    # the exports[] §2's metadata call writes: the name apply mapped joins the ones metadata.json held
+    assert json.loads((run_dir / "metadata-lists.json").read_bytes())["exports"] == ["search", "fresh"]
 
 
 def test_new_entry_labels_pass_the_stats_helper():
@@ -2604,15 +2613,18 @@ def test_write_keeps_a_documented_defensive_halt(tmp_path):
     (run_dir / "reextract-records.json").write_bytes(json.dumps({"mode": "gap-driven", "verification": [
         {"export_name": "lost", "gap_category": "NEW_EXPORT", "severity": None, "verification": "unknown",
          "in_map": False, "map_entry": None}]}).encode("utf-8"))
+    (tmp_path / "metadata.json").write_bytes(b'{"exports": []}\n')
     values = {"update_type": "gap-driven", "forge_version": str(forge_version), "run_dir": str(run_dir),
               "skill_name": "lib", "generation_date": "2026-10-01T10:00:00Z", "forge_tier": "Quick",
-              "manual_sections_preserved": "0", "map_source_commit": "", "map_source_ref": ""}
+              "manual_sections_preserved": "0", "map_source_commit": "", "map_source_ref": "",
+              "skill_package": str(tmp_path)}
     argv = _argv_with(_apply_call(), "buildChangeManifestHelper", values,
                       keep=("--provenance-map", "--reextract-records"))
     code, out = _run_script(BUILD_MANIFEST, argv)
     assert code == 3 and out == {"status": "refused", "blocking_unresolved": [{"export_name": "lost",
                                                                               "severity": None}]}
     assert (forge_version / "provenance-map.json").read_bytes() == b'{"entries": []}\n'
+    assert not (run_dir / "metadata-lists.json").exists()
     status = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["status"]["enum"]
     assert "blocked" in status and "halted-for-remediation-path" in status
 
@@ -2651,11 +2663,11 @@ def test_a_public_api_update_maps_and_documents_only_its_public_surface(tmp_path
                   "an export the map already holds keeps its content (Priority 4) whatever its mark",
                   "In gap-driven and degraded mode document every record whatever its mark"):
         assert token in priority5, token
-    exports = _slice(_read(WRITE), "- Update `exports` array", "\n")
-    for token in ("In normal mode, add no name whose record in `{run_dir}/reextract-records.json` is marked "
-                  "`public: false`", held, "`{run_dir}/not-public.json`",
-                  "In gap-driven and degraded mode every name counts, whatever its mark"):
-        assert token in exports, token
+    # write §2's metadata call writes the exports[] apply lists, which follows the entries it changed (v4.0.0
+    # quality gate run 1, skf-update-skill determinism-1)
+    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
+    assert '--lists "{run_dir}/metadata-lists.json"' in two and "Set `exports`" not in two
+    assert "In normal mode, add no name whose record" not in _read(WRITE)
     zero = _slice(_write_3(), "- **0:**", "\n")
     for token in ("`not_public` lists, `{name, file}`, each new export of a `public-api` skill it did not add",
                   "it also wrote that list to `{run_dir}/not-public.json`",
@@ -2690,17 +2702,88 @@ def test_a_public_api_update_maps_and_documents_only_its_public_surface(tmp_path
     forge_version = tmp_path / "forge" / "1.6.2"
     forge_version.mkdir(parents=True)
     (forge_version / "provenance-map.json").write_bytes(b'{"entries": []}\n')
+    (tmp_path / "metadata.json").write_bytes(b'{"exports": []}\n')
     values = {"update_type": "incremental", "forge_version": str(forge_version), "run_dir": str(run_dir),
               "skill_name": "lib", "generation_date": "2026-10-01T10:00:00Z", "forge_tier": "Forge",
-              "manual_sections_preserved": "0", "map_source_commit": "", "map_source_ref": ""}
+              "manual_sections_preserved": "0", "map_source_commit": "", "map_source_ref": "",
+              "skill_package": str(tmp_path)}
     code, out = _run_script(BUILD_MANIFEST, _argv_with(_apply_call(), "buildChangeManifestHelper", values, keep=(
         "--provenance-map", "--manifest", "--extraction", "--reextract-records")))
     assert code == 0 and out["status"] == "written", out
     assert out["entries"]["added"] == ["cognify"]
     assert out["not_public"] == [{"name": "get_default_tasks", "file": added}] and len(out["warnings"]) == 1
+    assert json.loads((run_dir / "metadata-lists.json").read_bytes())["exports"] == ["cognify"]
     assert json.loads((run_dir / "not-public.json").read_bytes()) == out["not_public"]
     written = json.loads((forge_version / "provenance-map.json").read_bytes())
     assert [e["export_name"] for e in written["entries"]] == ["cognify"]
+
+
+def test_write_writes_metadata_json_through_its_documented_calls(tmp_path, monkeypatch, capsys):
+    """v4.0.0 quality gate run 1, skf-update-skill determinism-1: §3's apply lists exports[], scripts[] and assets[],
+    §2's stats call writes its -o file, and §2's metadata call writes metadata.json from both, as documented: a kept
+    script row stays as it was, a new script gets the purpose its file states, the stats a patch or a component
+    library added stay, the bookkeeping keys go, and the stats helper's check finds the file coherent."""
+    run_dir, forge_version, skill_package, src = (tmp_path / "run", tmp_path / "forge" / "1.1.0",
+                                                  tmp_path / "skills" / "lib" / "1.1.0" / "lib", tmp_path / "src")
+    for folder in (run_dir, forge_version, skill_package, src / "tools"):
+        folder.mkdir(parents=True)
+    (src / "tools" / "new.py").write_bytes(b"#!/usr/bin/env python3\n# Rebuild the search index.\n")
+    entry = {"export_name": "search", "export_type": "function", "source_file": "pkg/api.py", "source_line": 5,
+             "confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": "function_definition",
+             "signature_source": "T1"}
+    script = {"file_name": "scripts/run.sh", "file_type": "script", "source_file": "tools/run.sh",
+              "confidence": "T1-low", "extraction_method": "file-copy", "content_hash": "sha256:old"}
+    (forge_version / "provenance-map.json").write_bytes(json.dumps({"entries": [entry], "file_entries": [script]})
+                                                        .encode("utf-8"))
+    kept_row = {"file": "scripts/run.sh", "purpose": "Run it, as the author put it", "source_file": "tools/run.sh",
+                "confidence": "T1-low"}
+    (skill_package / "metadata.json").write_bytes(json.dumps({
+        "name": "lib", "version": "1.0.0", "scope_type": "component-library", "source_commit": "aaa",
+        "source_ref": "v1", "generation_date": "2026-01-01T00:00:00Z", "exports": ["search"],
+        "scripts": [kept_row], "stats": {"exports_documented": 1, "effective_denominator": 1,
+                                         "components_registered": 1, "notes": "patched"},
+        "confidence_distribution": {"t1": 1, "t1_low": 0, "t2": 0, "t3": 0}, "last_update": "2026-01-01",
+        "update_type": "incremental"}).encode("utf-8"))
+    (run_dir / "change-manifest.json").write_bytes(b'{"total_export_changes": 0, "per_file": []}')
+    (run_dir / "new-files.json").write_bytes(json.dumps({"new_files": [{"source_file": "tools/new.py",
+                                                                         "kind": "script"}]}).encode("utf-8"))
+    values = {"update_type": "incremental", "forge_version": str(forge_version), "run_dir": str(run_dir),
+              "skill_name": "lib", "generation_date": "2026-10-01T10:00:00Z", "forge_tier": "Forge",
+              "manual_sections_preserved": "0", "map_source_commit": "bbb", "map_source_ref": "v1",
+              "skill_package": str(skill_package), "source_root": str(src), "new_version": "1.1.0",
+              "target_commit": "bbb"}
+    code, out = _run_script(BUILD_MANIFEST, _argv_with(_apply_call(), "buildChangeManifestHelper", values, keep=(
+        "--provenance-map", "--manifest", "--new-files", "--source-root")))
+    assert code == 0 and out["status"] == "written", out
+    lists = json.loads((run_dir / "metadata-lists.json").read_bytes())
+    new_row = {"file": "scripts/new.py", "purpose": "Rebuild the search index.", "source_file": "tools/new.py",
+               "confidence": "T1-low"}
+    assert lists == {"exports": ["search"], "scripts": [kept_row, new_row], "assets": []}
+    two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
+    library = _fence(two, '    | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json -o "{run_dir}')
+    # the scripts / assets inventory arrays are the lists apply wrote
+    block = library.replace("{scripts-inventory-or-[]}", json.dumps(lists["scripts"])).replace(
+        "{assets-inventory-or-[]}", json.dumps(lists["assets"]))
+    payload = re.search(r"echo '(.*)' \\", block).group(1).replace("{N}", "1").replace("{M}", "0")
+    argv = [arg.replace("{forge_version}", str(forge_version)).replace("{run_dir}", str(run_dir))
+            for arg in shlex.split(block.split("uv run {renderMetadataStatsHelper}", 1)[1])]
+    stats = _module(STATS_HELPER, "skf_render_metadata_stats_metadata_call")
+    monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
+    assert stats.main(argv) == 0, capsys.readouterr()
+    meta_call = _fence(two, "uv run {buildChangeManifestHelper} metadata")
+    code, out = _run_script(BUILD_MANIFEST, _argv_with(meta_call, "buildChangeManifestHelper", values,
+                                                       keep=("--source-commit",)))
+    assert code == 0 and out == {"status": "written", "metadata": (skill_package / "metadata.json").as_posix(),
+                                 "version": "1.1.0", "exports": 1, "scripts": 2, "assets": 0}, out
+    written = json.loads((skill_package / "metadata.json").read_bytes())
+    assert (written["version"], written["generation_date"], written["source_commit"], written["source_ref"]) == \
+        ("1.1.0", "2026-10-01T10:00:00Z", "bbb", "v1")
+    assert written["scripts"] == [kept_row, new_row] and "last_update" not in written and "update_type" not in written
+    assert written["stats"]["components_registered"] == 1 and written["stats"]["notes"] == "patched"
+    assert written["stats"]["scripts_count"] == 2 and "effective_denominator" not in written["stats"]
+    check = subprocess.run([sys.executable, str(STATS_HELPER), str(forge_version / "provenance-map.json"), "--check",
+                            str(skill_package / "metadata.json")], capture_output=True, encoding="utf-8")
+    assert json.loads(check.stdout)["coherence"] == {"ok": True, "violations": []}, check.stdout
 
 
 def test_a_moved_export_across_files_names_its_old_file():
@@ -2788,16 +2871,20 @@ def test_update_bookkeeping_has_one_home():
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
     assert "`generation_date` / `last_update` below" not in two
     assert "of the fields that mark an update only `generation_date` below changes" in two
-    generation = _slice(two, "- Update `generation_date` timestamp", "\n")
+    generation = _slice(two, "- Bind `{generation_date}` ← the current UTC time", "\n")
     assert "§3's update operation block records `last_update` and `update_type` in provenance-map.json" in generation
-    # a copy an older SKF version left in metadata.json goes, or it keeps an earlier update's date
-    for token in ("Write neither key into metadata.json",
-                  "remove a `last_update` or `update_type` an older SKF version left there",
-                  "so metadata.json never keeps the date or type of an earlier update beside the map's current one"):
-        assert token in generation, token
+    # a copy an older SKF version left in metadata.json goes, or it keeps an earlier update's date: the `metadata`
+    # call removes it (v4.0.0 quality gate run 1, skf-update-skill determinism-1)
+    assert "the `metadata` call removes either key an older SKF version left in metadata.json" in generation
+    kept = _module(BUILD_MANIFEST, "skf_build_change_manifest_bookkeeping_prose").update_metadata(
+        {"last_update": "2026-01-01", "update_type": "incremental", "exports": []},
+        {"exports": [], "scripts": [], "assets": []},
+        {"stats": {"scripts_count": 0, "assets_count": 0}, "confidence_distribution": {}},
+        version="1.0.1", generation_date="2026-10-01T10:00:00Z")
+    assert "last_update" not in kept and "update_type" not in kept
     # the time to the second, read from the clock (#583): step 1 §4b never offers an applied report again, even on
     # the day of the test
-    assert "read from the clock (`date -u +%Y-%m-%dT%H:%M:%SZ`), never typed" in generation
+    assert "read from the clock with `date -u +%Y-%m-%dT%H:%M:%SZ`, never typed" in generation
     # the block itself is apply's: its docstring and UPDATE_BLOCK_KEYS hold it, and §3 names it once, with the one
     # update_type per mode the report names (step 5b leanness-1)
     manifest = _module(BUILD_MANIFEST, "skf_build_change_manifest_block_prose")
@@ -2842,14 +2929,16 @@ def _stats_main(block: str, forge_version: Path, monkeypatch, capsys) -> tuple[i
                                ("{assets-inventory-or-[]}", "[]")):
         payload = payload.replace(placeholder, value)
     # split the template, then fill it in: POSIX shlex.split would drop the backslashes of a Windows path
-    argv = [arg.replace("{forge_version}", str(forge_version))
+    argv = [arg.replace("{forge_version}", str(forge_version)).replace("{run_dir}", str(forge_version))
             for arg in shlex.split(block.split("uv run {renderMetadataStatsHelper}", 1)[1])]
     spec = importlib.util.spec_from_file_location("skf_render_metadata_stats_calls", STATS_HELPER)
     stats = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(stats)
     monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
     code = stats.main(argv)
-    return code, json.loads(capsys.readouterr().out)
+    # it writes to the -o file the metadata call reads, nothing on stdout
+    assert capsys.readouterr().out == ""
+    return code, json.loads((forge_version / "stats.json").read_text(encoding="utf-8"))
 
 
 def test_the_documented_stats_calls_run(tmp_path, monkeypatch, capsys):
@@ -2862,8 +2951,8 @@ def test_the_documented_stats_calls_run(tmp_path, monkeypatch, capsys):
     forge_version.mkdir(parents=True)
     (forge_version / "provenance-map.json").write_text(json.dumps({"entries": entries}), encoding="utf-8")
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
-    library = _fence(two, "    | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json\n")
-    app = _fence(two, "--shape reference-app\n")
+    library = _fence(two, '    | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json -o "{run_dir}')
+    app = _fence(two, "--shape reference-app -o")
     assert library != app and "--shape" not in library and '"pattern_surfaces_documented": {P}' in app
     code, out = _stats_main(library, forge_version, monkeypatch, capsys)
     assert code == 0 and out["coherence"]["ok"] is True
@@ -3016,8 +3105,8 @@ def test_the_documented_library_call_keeps_the_effective_denominator_it_is_passe
     forge_version.mkdir()
     (forge_version / "provenance-map.json").write_text(json.dumps({"entries": entries}), encoding="utf-8")
     two = _slice(_read(WRITE), "### 2. Write Updated metadata.json", "### 3.")
-    library = _fence(two, "    | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json\n")
-    app = _fence(two, "--shape reference-app\n")
+    library = _fence(two, '    | uv run {renderMetadataStatsHelper} {forge_version}/provenance-map.json -o "{run_dir}')
+    app = _fence(two, "--shape reference-app -o")
     key = '"exports_internal": {M}, '
     assert key in library and key in app
     code, out = _stats_main(library.replace(key, key + '"effective_denominator": 7, '), forge_version,

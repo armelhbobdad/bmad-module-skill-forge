@@ -112,7 +112,6 @@ Category D operates on every `file_entries[]` row regardless of `file_type`. Han
   - NEW_FILE: queue file for copy from `{source_root}`, add to `file_entries`
   - Files in `scripts/[MANUAL]/` or `assets/[MANUAL]/` are never modified (user-authored)
   - Update Section 7b manifest table to reflect changes
-  - Update `metadata.json` `scripts[]`/`assets[]` arrays and `stats.scripts_count`/`stats.assets_count`
 
 - **`file_type: "doc"`** (authoritative docs promoted by §2a/§1b):
   - MODIFIED_FILE: update `file_entries` content_hash only. **Do NOT copy the file** — doc-type entries are source-tracked but not bundled. Record the drift in the update report.
