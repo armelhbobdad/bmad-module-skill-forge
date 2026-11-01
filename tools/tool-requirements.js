@@ -72,6 +72,10 @@ const KINDS = ['runtime', 'tier', 'optional'];
 // compares the copies with.
 const REQUIRED_TOOLS = ['node', 'python', 'ast_grep'];
 const REQUIRED_MINIMUMS = ['node', 'python'];
+// The tools whose version tools/cli/lib/tool-check.js reads without running a
+// command: skill-check has no --version, so its package.json is read. Their
+// entries leave version_command out; every other tool needs one.
+const NO_VERSION_COMMAND = new Set(['skill_check']);
 const TOOL_KEYS = {
   name: 'string',
   summary: 'optional-string',
@@ -281,6 +285,15 @@ function validateRequirements(root, requirements) {
       if (!(field in TOOL_KEYS)) add(['tools', key, field], `tools.${key}: unknown key "${field}"`);
     }
     for (const [field, type] of Object.entries(TOOL_KEYS)) {
+      if (field === 'version_command' && NO_VERSION_COMMAND.has(key)) {
+        if (field in tool) {
+          add(
+            ['tools', key, field],
+            `tools.${key}.version_command must be left out: the tool check reads its version from its package.json`,
+          );
+        }
+        continue;
+      }
       if (!type.startsWith('optional') && !(field in tool)) {
         add(['tools', key], `tools.${key}.${field} is missing`);
         continue;

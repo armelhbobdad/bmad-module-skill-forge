@@ -519,6 +519,28 @@ test('schema: a tier tool with no Acknowledgements row name, and a tool the chec
   assert.match(out, /tools\.node is missing: the copy checks need it/);
 });
 
+test('schema: every tool needs a version_command but skill-check, which must leave it out', () => {
+  const root = makeRoot();
+  edit(root, REQUIREMENTS, '    version_command: [qmd, --version]\n', '');
+  edit(root, REQUIREMENTS, 'version_command: [tessl, --version]', 'version_command: []');
+  edit(
+    root,
+    REQUIREMENTS,
+    '    upgrade: npm install -g skill-check@latest\n',
+    '    upgrade: npm install -g skill-check@latest\n    version_command: [skill-check, --version]\n',
+  );
+  const { status, out } = run(root);
+  assert.strictEqual(status, 1, out);
+  assert.match(out, /tools\.qmd\.version_command is missing/);
+  assert.match(out, /tools\.tessl\.version_command must be a non-empty list of strings/);
+  expectFinding(
+    root,
+    REQUIREMENTS,
+    lineOf(root, REQUIREMENTS, 'version_command: [skill-check, --version]'),
+    /tools\.skill_check\.version_command must be left out: the tool check reads its version from its package\.json/,
+  );
+});
+
 test('a list that is not YAML, a missing list and no mode exit 2', () => {
   const root = makeRoot();
   write(root, REQUIREMENTS, 'tools: [\n');
