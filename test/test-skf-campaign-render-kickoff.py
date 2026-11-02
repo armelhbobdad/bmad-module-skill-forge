@@ -390,7 +390,7 @@ class TestRun:
         (tmp_path / "docs").mkdir()
         ctx = tmp_path / "docs" / "project-context.md"
         ctx.write_bytes(b"Keep names stable.\n")
-        # What `resolve_customization.py --key workflow.persistent_facts` prints.
+        # What the resolver prints for `--key workflow.persistent_facts`.
         resolved = {"workflow.persistent_facts": [
             "Don't vendor upstream code.", "file:{project-root}/**/project-context.md",
         ]}
@@ -625,7 +625,7 @@ class TestStep05Call:
     def test_the_resolver_pipes_the_facts(self):
         resolver, kickoff = _step05_pipeline()
         assert resolver == (
-            "uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
+            "uv run {resolveCustomizationHelper} --skill {skill-root} "
             "--project-root {project-root} --key workflow.persistent_facts"
         )
         assert mod.RESOLVER_KEY == "workflow.persistent_facts"

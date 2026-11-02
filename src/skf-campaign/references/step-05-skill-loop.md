@@ -12,6 +12,10 @@ kickoffScript: 'scripts/campaign-render-kickoff.py'
 gateScript: 'scripts/campaign-quality-gate.py'
 stateScript: 'scripts/campaign-state.py'
 validateScript: 'scripts/campaign-validate-state.py'
+# The customization helper the kickoff pipe runs (§5).
+resolveCustomizationProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
+  - '{project-root}/src/shared/scripts/skf-resolve-customization.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -86,8 +90,9 @@ For each ready Tier A skill:
      (During development, with no `{project-root}/_bmad/skf/shared/scripts/skf-preapply.py` installed, the helper lives at `{project-root}/src/shared/scripts/skf-preapply.py`.) It writes its `applied[]` workarounds to `{preapplyLogFile}`, which the kickoff script reads. Pre-apply is best-effort: if the helper is missing or exits non-zero, log a warning and proceed (it is not a gate), and leave `--workarounds-file` out of the kickoff call below, so an earlier skill's log is never listed for this one.
    - **Kickoff emit:** render the whole kickoff message with the kickoff script, which fills every placeholder of the template. The customization resolver pipes the persistent facts into it:
      ```
-     uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow.persistent_facts | uv run {kickoffScript} --state-file {stateFile} --brief-file {briefFile} --skill {skill_name} --template {kickoffTemplate} [--workarounds-file {preapplyLogFile}] --facts-json - --project-root {project-root} [--directive-file <campaign.directive_path>]
+     uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow.persistent_facts | uv run {kickoffScript} --state-file {stateFile} --brief-file {briefFile} --skill {skill_name} --template {kickoffTemplate} [--workarounds-file {preapplyLogFile}] --facts-json - --project-root {project-root} [--directive-file <campaign.directive_path>]
      ```
+     - `{resolveCustomizationHelper}` is resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
      - `--facts-json -` takes `workflow.persistent_facts` from the resolver unchanged. When the resolver is missing or fails, write the `persistent_facts` list of `{skill-root}/customize.toml`, as written, to `{factsFile}` as a JSON list with your file-writing tool, and replace the pipe with `< {factsFile}`: no fact or workaround ever passes through shell quoting.
      - `--workarounds-file` is passed when pre-apply exited 0 for this skill; the script lists each workaround it applied (the file, the fingerprint and its fix, the severity).
      - `--directive-file` is passed when state sets `campaign.directive_path`.

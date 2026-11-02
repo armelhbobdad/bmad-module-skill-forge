@@ -80,10 +80,10 @@ The sink, `{run_dir}/warnings.jsonl`, is the list: step 7 §8b lists it in `evid
    3. **Preferences fallback.** Otherwise, read `headless_mode` from `{sidecar_path}/preferences.yaml` (`true` or `false`).
    4. **Default:** `false`.
 
-3. **Resolve workflow customization.** Run:
+3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-create-stack-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran): `references/init.md` records it as the run's first warning once its pre-flight has created `{run_dir}`.

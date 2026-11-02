@@ -11,6 +11,10 @@ atomicWriteProbeOrder:
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+# The customization helper §5's post-completion hook runs.
+resolveCustomizationProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
+  - '{project-root}/src/shared/scripts/skf-resolve-customization.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -25,6 +29,7 @@ To display the final compilation summary (skill name, version, source, export co
 
 - Write only the brief's result files (through the emitter, §5) and, outside `--batch`, the removal of the brief's run folder. Change no skill artifact, except in §5's fallback when no path in `{emitEnvelopeProbeOrder}` exists: `validation_status` in `{skill_package}/metadata.json` and one warning appended to `{forge_version}/evidence-report.md`
 - §5 emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound.
+- §5's post-completion hook runs `{resolveCustomizationHelper}`, resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
 - Deliver structured report with confidence breakdown
 - The user-facing report is not the end of the run: §5 and §6 follow it in order, and §6 chains to the health check via `{nextStepFile}`, or under `--batch` back to `references/batch-mode.md`, which runs it once the last brief is recorded
 
@@ -118,7 +123,7 @@ The evidence report in `outputs` carries the `## Auto-Decisions` audit table: a 
 **Post-completion hook.** When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
 
 ```bash
-uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow.on_complete
+uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow.on_complete
 ```
 
 When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's result contract (its `emit` exited 0), run it as a shell command from `{project-root}`, for this brief:

@@ -478,9 +478,9 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
     #596: a `!` entry drops the project-context default, and customize.toml
     says how; the prepend comment says when SKILL.md runs it (customization-2)."""
     activation = " ".join(_section(_read(SKILL_MD), "## On Activation", None).split())
-    assert ("uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
+    assert ("uv run {resolveCustomizationHelper} --skill {skill-root} "
             "--project-root {project-root} --key workflow") in activation
-    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in activation
+    assert "{project-root}/_bmad/scripts/resolve_customization.py" not in activation
     for token in ("It merges the bundled `{skill-root}/customize.toml` with "
                   "`{project-root}/_bmad/custom/skf-export-skill.toml` (team overrides, committed) and `.user.toml` "
                   "(personal overrides, gitignored).",

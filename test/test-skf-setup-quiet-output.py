@@ -501,9 +501,9 @@ def test_item_6_runs_the_resolver_through_uv_and_binds_its_reason():
     prints one warning (never under --quiet: setup's envelope carries it) and
     keeps the reason for report.md and every later halt."""
     item = _section(_on_activation(_read(SKILL_MD)), "6. **Resolve workflow customization.**")
-    assert ("uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
+    assert ("uv run {resolveCustomizationHelper} --skill {skill-root} "
             "--project-root {project-root} --key workflow") in item
-    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in item
+    assert "{project-root}/_bmad/scripts/resolve_customization.py" not in item
     flat = " ".join(item.split())
     assert ("It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-setup.toml` "
             "(team overrides, committed) and `.user.toml` (personal overrides, gitignored).") in flat

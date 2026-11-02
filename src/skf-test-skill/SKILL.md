@@ -63,10 +63,10 @@ Headless callers: the full argument set (`Inputs`), the outputs, the exit codes 
 
 2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
-3. **Resolve workflow customization.** Run:
+3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-test-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}`: report.md §4c hands it to the result as a warning.

@@ -423,11 +423,12 @@ def _compute_tool_deltas(current: dict, previous) -> tuple[list[str], list[str]]
 def _resolver_warning(payload: dict) -> list[str]:
     """The customization_resolver_unavailable warning, when the payload reports one.
 
-    Every workflow's On Activation runs resolve_customization.py. When that
-    script is missing or fails, the run falls back to the skill's own
-    customize.toml, so the team and user overrides under `_bmad/custom/`
-    silently do nothing; the payload key carries the resolver's reason so
-    the envelope says so.
+    Every workflow's On Activation runs skf-resolve-customization.py, which
+    runs BMAD core's resolve_customization.py. When either script is missing
+    or fails, or a core before 6.11.0 would read another folder's overrides,
+    the run falls back to the skill's own customize.toml, so the team and
+    user overrides under `_bmad/custom/` silently do nothing; the payload
+    key carries the reason, whatever its words, so the envelope says so.
     """
     reason = payload.get("customization_resolver_unavailable")
     if not reason:

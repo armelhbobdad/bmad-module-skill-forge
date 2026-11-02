@@ -65,10 +65,10 @@ You are a system executor: run each step in sequence, write the configuration fi
 
 5. **Reconcile `{headless_mode}`**: OR it with `derived.headless_mode` (`headless_mode: true` in `preferences.yaml`). Then, if `{headless_mode}` is true, set `{quiet_mode}` to true.
 
-6. **Resolve workflow customization.** Run:
+6. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-setup.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. Bind `{customization_resolver_unavailable}` ← that reason (null when the resolver ran), which `references/report.md` and every later halt hand to the emitter; print the warning only when `{quiet_mode}` is false.
