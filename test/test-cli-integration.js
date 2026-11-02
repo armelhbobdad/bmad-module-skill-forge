@@ -12,8 +12,9 @@
  *   a stub that hangs, a stub in the project folder that never runs, .cmd
  *   shims on Windows, install and update returning (not exiting) so the
  *   update notice prints after them, a run that prints no report leaving no
- *   probe running, skill-check's version read from its package.json without
- *   running it, and tessl probed with its update check off
+ *   probe running, and the versions of skill-check (from its package.json)
+ *   and tessl (from the name of the binary it installed), read without
+ *   running either
  *
  * Usage: node test/test-cli-integration.js
  */
@@ -1374,44 +1375,162 @@ async function testSkillCheckVersionFromPackage() {
   console.log('');
 }
 
-async function testTesslProbeUpdateCheckOff() {
-  console.log(`${colors.yellow}Test Suite 17: tessl Is Probed With Its Update Check Off${colors.reset}\n`);
+async function testTesslVersionFromItsBinary() {
+  console.log(`${colors.yellow}Test Suite 17: tessl's Version Comes From the Binary It Installed, Never From a Run${colors.reset}\n`);
 
   const root = await makeTempDir('tools-tessl');
   try {
     const { checkTools } = require('../tools/cli/lib/tool-check');
-    const stubs = path.join(root, 'stubs');
-    // tessl prints its version only when both switches are set; qmd only when they are not.
-    await writeStub(stubs, 'tessl', {
-      posix: ['[ "$TESSL_AUTO_UPDATE_INTERVAL_MINUTES" = 0 ] && [ "$STRICLI_SKIP_VERSION_CHECK" = 1 ] && echo 0.111.0 || exit 3'],
-      windows: [
-        'if "%TESSL_AUTO_UPDATE_INTERVAL_MINUTES%"=="0" if "%STRICLI_SKIP_VERSION_CHECK%"=="1" (echo 0.111.0& exit /b 0)',
-        'exit /b 3',
-      ],
-    });
-    await writeStub(stubs, 'qmd', {
-      posix: ['[ -z "$TESSL_AUTO_UPDATE_INTERVAL_MINUTES$STRICLI_SKIP_VERSION_CHECK" ] && echo 2.8.3 || exit 3'],
-      windows: [
-        'if not defined TESSL_AUTO_UPDATE_INTERVAL_MINUTES if not defined STRICLI_SKIP_VERSION_CHECK (echo 2.8.3& exit /b 0)',
-        'exit /b 3',
-      ],
-    });
-    // The user's own interval is replaced, whatever the spelling of its name on Windows.
-    const userValue = IS_WINDOWS ? 'Tessl_Auto_Update_Interval_Minutes' : 'TESSL_AUTO_UPDATE_INTERVAL_MINUTES';
-    const switches = new Set(['TESSL_AUTO_UPDATE_INTERVAL_MINUTES', 'STRICLI_SKIP_VERSION_CHECK']);
-    const env = Object.fromEntries(Object.entries(envWithPath(stubs)).filter(([key]) => !switches.has(key.toUpperCase())));
-    env[userValue] = '180';
-    const rows = byKey(await checkTools({ projectDir: path.join(root, 'project'), env, timeoutMs: 10_000 }));
-    assert(
-      rows.tessl.version === '0.111.0' && rows.tessl.status === 'ok',
-      'tessl runs with TESSL_AUTO_UPDATE_INTERVAL_MINUTES=0 and STRICLI_SKIP_VERSION_CHECK=1',
-      JSON.stringify(rows.tessl),
-    );
-    delete env[userValue];
-    const other = byKey(await checkTools({ projectDir: path.join(root, 'project'), env, timeoutMs: 10_000 }));
-    assert(other.qmd.version === '2.8.3', 'no other probe gets those variables', JSON.stringify(other.qmd));
+    const marker = path.join(root, 'tessl-ran');
+    const project = path.join(root, 'project');
+    await fs.ensureDir(project);
+    const exe = IS_WINDOWS ? 'tessl.exe' : 'tessl';
+    const runs = { posix: [`echo ran > '${marker}'`, 'exit 3'], windows: [`echo ran> "${marker}"`, 'exit /b 3'] };
+    // A tessl binary that writes `ran` to the marker if it is ever run; `pad` changes its size.
+    const binary = async (file, pad = '') => {
+      await fs.ensureDir(path.dirname(file));
+      await fs.writeFile(file, ['#!/bin/sh', ...runs.posix, `# ${pad}`, ''].join('\n'));
+      await fs.chmod(file, 0o755);
+    };
+    // tessl `version` installed in `home` the way tessl installs it: a symlink
+    // .local/bin/tessl to .local/share/tessl/versions/tessl-<version>-linux-x64,
+    // or on Windows a copy tessl\bin\tessl.exe of tessl\versions\tessl-<version>-win32-x64.exe.
+    // Returns the folder that holds the PATH entry.
+    const native = async (home, version) => {
+      if (IS_WINDOWS) {
+        const source = path.join(home, 'tessl', 'versions', `tessl-${version}-win32-x64.exe`);
+        await binary(source);
+        await fs.ensureDir(path.join(home, 'tessl', 'bin'));
+        await fs.copyFile(source, path.join(home, 'tessl', 'bin', 'tessl.exe'));
+        return path.join(home, 'tessl', 'bin');
+      }
+      const source = path.join(home, '.local', 'share', 'tessl', 'versions', `tessl-${version}-linux-x64`);
+      await binary(source);
+      await fs.ensureDir(path.join(home, '.local', 'bin'));
+      await fs.symlink(source, path.join(home, '.local', 'bin', 'tessl'));
+      return path.join(home, '.local', 'bin');
+    };
+    // The npm or Homebrew launcher package `name` at `version` in `dir`: its
+    // binary next to node_modules/<name>/ (npm's layout on Windows), or, with
+    // `link`, a symlink into <package>/bin/tessl.js (npm and Homebrew on Linux and macOS).
+    const launcher = async (dir, { name = '@tessl/cli', version = '0.119.0', link = false } = {}) => {
+      const manifest = JSON.stringify({ name, version, bin: { tessl: 'bin/tessl.js' } });
+      if (!link) {
+        await writeStub(dir, 'tessl', runs);
+        await fs.ensureDir(path.join(dir, 'node_modules', name));
+        await fs.writeFile(path.join(dir, 'node_modules', name, 'package.json'), manifest);
+        return dir;
+      }
+      const pkg = path.join(dir, 'lib', 'node_modules', name);
+      await writeStub(path.join(pkg, 'bin'), 'tessl.js', runs);
+      await fs.writeFile(path.join(pkg, 'package.json'), manifest);
+      await fs.ensureDir(path.join(dir, 'bin'));
+      await fs.symlink(path.join(pkg, 'bin', 'tessl.js'), path.join(dir, 'bin', 'tessl'));
+      return path.join(dir, 'bin');
+    };
+    // A <folder>\bin copy and the <folder>\versions folder it was copied from (tessl's layout on Windows).
+    const copied = async (dir, sizes, folder = 'tessl') => {
+      const base = path.join(dir, folder);
+      for (const [version, pad] of Object.entries(sizes)) await binary(path.join(base, 'versions', `tessl-${version}-win32-x64.exe`), pad);
+      await fs.ensureDir(path.join(base, 'bin'));
+      await fs.copyFile(path.join(base, 'versions', 'tessl-0.119.0-win32-x64.exe'), path.join(base, 'bin', exe));
+      return path.join(base, 'bin');
+    };
+    const cases = [
+      {
+        label: String.raw`a tessl\bin copy takes the version of the versions file of its size (Windows)`,
+        expected: '0.119.0',
+        setup: (dir) => copied(dir, { '0.119.0': '', '0.111.0': 'longer' }),
+      },
+      {
+        label: 'a copy that two versions files match in size',
+        expected: null,
+        setup: (dir) => copied(dir, { '0.119.0': '', '0.111.0': '' }),
+      },
+      {
+        label: 'a copy in a bin folder that is not in a tessl folder',
+        expected: null,
+        setup: (dir) => copied(dir, { '0.119.0': '' }, 'tools'),
+      },
+      {
+        label: 'the npm launcher: the version of the binary it runs, not its own',
+        expected: '0.111.0',
+        setup: async (dir, home) => {
+          await native(home, '0.111.0');
+          return launcher(path.join(dir, 'npm'));
+        },
+      },
+      { label: 'a launcher that has not installed its binary yet', expected: null, setup: (dir) => launcher(path.join(dir, 'npm')) },
+      {
+        label: '@tessl/cli before 0.63.0 is the CLI itself',
+        expected: '0.62.2',
+        setup: async (dir, home) => {
+          await native(home, '0.111.0');
+          return launcher(path.join(dir, 'npm'), { version: '0.62.2' });
+        },
+      },
+      {
+        label: 'a tessl in a folder tessl did not install (winget)',
+        expected: null,
+        setup: async (dir) => {
+          await binary(path.join(dir, 'Programs', 'Tessl', exe));
+          return path.join(dir, 'Programs', 'Tessl');
+        },
+      },
+    ];
+    // The symlink layouts need symlinks, which Windows runners may not allow.
+    if (!IS_WINDOWS) {
+      cases.unshift(
+        {
+          label: "the binary tessl's installer links (Linux and macOS)",
+          expected: '0.119.0',
+          setup: (dir, home) => native(home, '0.119.0'),
+        },
+        {
+          label: 'a dangling link in the versions folder does not hide the copied file',
+          expected: '0.119.0',
+          setup: async (dir) => {
+            const bin = await copied(dir, { '0.119.0': '' });
+            await fs.symlink(path.join(dir, 'gone'), path.join(dir, 'tessl', 'versions', 'tessl-0.118.0-win32-x64.exe'));
+            return bin;
+          },
+        },
+        {
+          label: 'the npm launcher linked from its package',
+          expected: '0.111.0',
+          setup: async (dir, home) => {
+            await native(home, '0.111.0');
+            return launcher(path.join(dir, 'npm'), { link: true });
+          },
+        },
+        {
+          label: 'the Homebrew launcher',
+          expected: '0.111.0',
+          setup: async (dir, home) => {
+            await native(home, '0.111.0');
+            return launcher(path.join(dir, 'Cellar', 'tessl', '0.119.0', 'libexec'), { name: 'tessl', link: true });
+          },
+        },
+      );
+    }
+    for (const [index, { label, expected, setup }] of cases.entries()) {
+      const dir = path.join(root, `case-${index}`);
+      const home = path.join(dir, 'home');
+      const bin = await setup(dir, home);
+      // The launchers run the binary in the user's home: HOME, or LOCALAPPDATA on Windows.
+      const env = Object.fromEntries(
+        Object.entries(envWithPath(bin)).filter(([key]) => !['HOME', 'LOCALAPPDATA', 'USERPROFILE'].includes(key.toUpperCase())),
+      );
+      Object.assign(env, { HOME: home, LOCALAPPDATA: home, USERPROFILE: home });
+      const row = byKey(await checkTools({ projectDir: project, env, timeoutMs: 10_000 })).tessl;
+      const ok = expected
+        ? row.version === expected && row.status === 'ok'
+        : row.version === null && row.label === 'installed, version unknown';
+      assert(ok, `${label}: ${expected ?? 'version unknown'}`, JSON.stringify(row));
+    }
+    assert(!(await fs.pathExists(marker)), 'tessl never runs');
   } catch (error) {
-    assert(false, 'tessl probe test completes without error', error.stack);
+    assert(false, 'tessl version test completes without error', error.stack);
   } finally {
     await fs.remove(root);
   }
@@ -1444,7 +1563,7 @@ async function runTests() {
   await testCliPrintsReportAndNotice();
   await testCliStopsProbesWithoutReport();
   await testSkillCheckVersionFromPackage();
-  await testTesslProbeUpdateCheckOff();
+  await testTesslVersionFromItsBinary();
 
   console.log(`${colors.cyan}========================================`);
   console.log('Test Results:');

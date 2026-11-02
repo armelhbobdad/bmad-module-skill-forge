@@ -47,9 +47,10 @@
 #   minimum          the oldest supported version as a string, or null
 #   tested           the versions SKF has run on, as strings
 #   basis            where minimum and tested come from
-#   version_command  the command that prints the installed version (skill_check
-#                    has none: skill-check has no --version, so its entry
-#                    leaves this out and the check reads its package.json)
+#   version_command  the command that prints the installed version
+#                    (skill_check and tessl have none: the check never runs
+#                    them, and reads skill-check's package.json and the name
+#                    of the binary tessl installs)
 #   install_url      where to install it from
 #   upgrade          how to upgrade it
 #   acknowledged_as  its row in the README Acknowledgements table (required
@@ -182,7 +183,9 @@ tools:
     minimum: null
     tested: ["0.111.0"]
     basis: No minimum yet, since no older tessl has run Tessl Review. The tests stub tessl. Pull request 517 (unreleased v3 development, merged 2026-09-28 as 2b3b5113) records live create-skill and test-skill runs on tessl 0.111.0 in which Tessl Review returned a score. On 2026-10-04 the v3.0.0 pre-release tool check (recorded in the pull request that added these versions) ran `skf status` from main b5150b08 (the release candidate), which read tessl 0.111.0, and ran skf-tessl-review.py collect against it signed out, which starts no review.
-    version_command: [tessl, --version]
+    # tessl is not run: on a tessl that has never run, any command accepts its
+    # Terms for the user. The check reads the version from the name of the
+    # binary tessl installs (tessl-<version>-<platform> in tessl/versions/).
     install_url: https://tessl.io
     upgrade: tessl cli update
     acknowledged_as: tessl

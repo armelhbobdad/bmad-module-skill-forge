@@ -72,10 +72,14 @@ const KINDS = ['runtime', 'tier', 'optional'];
 // compares the copies with.
 const REQUIRED_TOOLS = ['node', 'python', 'ast_grep'];
 const REQUIRED_MINIMUMS = ['node', 'python'];
-// The tools whose version tools/cli/lib/tool-check.js reads without running a
-// command: skill-check has no --version, so its package.json is read. Their
-// entries leave version_command out; every other tool needs one.
-const NO_VERSION_COMMAND = new Set(['skill_check']);
+// The tools whose version tools/cli/lib/tool-check.js reads without running
+// them, with where it reads it: skill-check has no --version, and tessl's
+// first run accepts its Terms for the user. Their entries leave
+// version_command out; every other tool needs one.
+const NO_VERSION_COMMAND = new Map([
+  ['skill_check', 'its package.json'],
+  ['tessl', 'the name of the binary tessl installs'],
+]);
 const TOOL_KEYS = {
   name: 'string',
   summary: 'optional-string',
@@ -289,7 +293,7 @@ function validateRequirements(root, requirements) {
         if (field in tool) {
           add(
             ['tools', key, field],
-            `tools.${key}.version_command must be left out: the tool check reads its version from its package.json`,
+            `tools.${key}.version_command must be left out: the tool check reads its version from ${NO_VERSION_COMMAND.get(key)}`,
           );
         }
         continue;

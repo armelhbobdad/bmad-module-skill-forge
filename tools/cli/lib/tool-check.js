@@ -7,14 +7,16 @@
  *
  * Each probe runs a binary resolved on PATH outside the project folder, with
  * no shell and fixed arguments, and never npx, which can download. A .cmd or
- * .bat shim on Windows runs through cmd.exe. tessl runs with its update check
- * off, and skill-check, which has no --version, is not run: its version is
- * read from its package.json. A missing, hanging or failing probe reads as
- * unknown: nothing here throws or changes an exit code.
+ * .bat shim on Windows runs through cmd.exe. tessl and skill-check are never
+ * run: tessl's version is read from the name of the binary it installs, and
+ * skill-check's, which has no --version, from its package.json. A missing,
+ * hanging or failing probe reads as unknown: nothing here throws or changes
+ * an exit code.
  */
 
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const chalk = require('chalk');
 const yaml = require('js-yaml');
@@ -30,17 +32,24 @@ const NPX_TOOLS = new Set(['tessl', 'skill_check']);
 // ccc has no --version: `uv tool list` names each package uv installed, with its version.
 const CCC_PACKAGE = /^cocoindex-code v(\S+)/m;
 // skill-check has no --version either (1.2.0 exits 2 on it). Its version is
-// read from the package.json of the install its binary belongs to, at most
-// this many folders above the binary's real path.
+// read from the package.json of the install its binary belongs to. A
+// package.json is looked for at most this many folders above a binary's real
+// path.
 const SKILL_CHECK_PACKAGE = 'skill-check';
 const PACKAGE_DEPTH = 4;
 const MAX_PACKAGE_JSON = 1024 * 1024;
-// tessl checks for a newer release on every run, --version included, and
-// starts downloading one when it is due. Its probe runs with both turned off:
-// TESSL_AUTO_UPDATE_INTERVAL_MINUTES=0 is tessl's documented switch, and
-// STRICLI_SKIP_VERSION_CHECK skips the latest-version check of Stricli, the
-// CLI framework tessl is built on. These values replace the user's own.
-const PROBE_ENV = { tessl: { TESSL_AUTO_UPDATE_INTERVAL_MINUTES: '0', STRICLI_SKIP_VERSION_CHECK: '1' } };
+// tessl is not run either: on a tessl that has never run, any command,
+// --version included, accepts tessl's Terms and turns on usage sharing for
+// the user, and a run can start tessl's own update. tessl's installers name
+// each binary tessl-<version>-<platform> in a tessl/versions folder and point
+// the PATH entry at one: a symlink on Linux and macOS, a copy in tessl\bin on
+// Windows.
+const TESSL_BINARY = /^tessl-(.+)-(?:linux|darwin|win32)-(?:x64|arm64)(?:-musl)?(?:\.exe)?$/;
+// The npm (@tessl/cli) and Homebrew (tessl) packages hold a launcher that
+// runs the binary tessl installed, so their version is not the one that runs.
+// @tessl/cli before 0.63.0 held the CLI itself.
+const TESSL_LAUNCHERS = ['@tessl/cli', 'tessl'];
+const FIRST_TESSL_LAUNCHER = '0.63.0';
 const MAX_OUTPUT = 64 * 1024;
 const STYLES = { ok: chalk.green, upgrade: chalk.yellow, unknown: chalk.yellow, missing: chalk.red, optional: chalk.dim };
 
@@ -60,18 +69,6 @@ function envValue(env, name) {
   if (process.platform !== 'win32') return env[name];
   const key = Object.keys(env).find((candidate) => candidate.toUpperCase() === name.toUpperCase());
   return key === undefined ? undefined : env[key];
-}
-
-/**
- * The environment the probe of `key` runs with: `env`, with the tool's
- * PROBE_ENV values set over the user's (any spelling of the name on Windows).
- */
-function probeEnv(key, env) {
-  const fixed = PROBE_ENV[key];
-  if (!fixed) return env;
-  const names = new Set(Object.keys(fixed).map((name) => name.toUpperCase()));
-  const kept = Object.entries(env).filter(([name]) => process.platform !== 'win32' || !names.has(name.toUpperCase()));
-  return { ...Object.fromEntries(kept), ...fixed };
 }
 
 function realpath(file) {
@@ -149,7 +146,7 @@ function stop(child) {
  * cannot start, exits non-zero or outlives the timeout (it is then killed)
  * is not ok.
  */
-function run(command, context, env = context.env) {
+function run(command, context) {
   return new Promise((resolve) => {
     let stdout = '';
     let timer;
@@ -167,7 +164,7 @@ function run(command, context, env = context.env) {
     try {
       child = spawn(command.file, command.args, {
         cwd: context.cwd,
-        env,
+        env: context.env,
         stdio: ['ignore', 'pipe', 'ignore'],
         windowsHide: true,
         ...command.options,
@@ -190,11 +187,11 @@ function run(command, context, env = context.env) {
   });
 }
 
-/** The first x.y or x.y.z that `file` prints when run with `args` in `env`, or null. */
-async function versionOf(file, args, context, env = context.env) {
-  const command = commandFor(file, args, process.platform, env);
+/** The first x.y or x.y.z that `file` prints when run with `args`, or null. */
+async function versionOf(file, args, context) {
+  const command = commandFor(file, args, process.platform, context.env);
   if (!command) return null;
-  const { ok, stdout } = await run(command, context, env);
+  const { ok, stdout } = await run(command, context);
   return ok ? findVersion(stdout) : null;
 }
 
@@ -215,32 +212,110 @@ function readPackage(file) {
 }
 
 /**
- * skill-check's version, read without running it: from the shim folder's
- * node_modules/skill-check/package.json (npm's global layout on Windows),
- * else from the first package.json with a name above the binary's real path,
- * when it is skill-check's and declares that file as its skill-check bin
- * (npm, yarn and bun link the binary into its package on Linux and macOS).
- * null for any other layout, such as pnpm's or Volta's shims.
+ * The package.json of the package named one of `names` that installed
+ * `file`, the binary `bin` on PATH, or null: the shim folder's
+ * node_modules/<name>/package.json (npm's global layout on Windows), else the
+ * first package.json with a name above the binary's real path, when it is
+ * one of `names` and declares that file as its `bin` (npm, yarn, bun and
+ * Homebrew link the binary into its package on Linux and macOS). null for
+ * any other layout, such as pnpm's or Volta's shims.
  */
-function skillCheckVersion(file) {
-  const shim = readPackage(path.join(path.dirname(file), 'node_modules', SKILL_CHECK_PACKAGE, 'package.json'));
-  if (shim?.name === SKILL_CHECK_PACKAGE) return findVersion(shim.version);
+function packageOf(file, bin, names) {
+  for (const name of names) {
+    const shim = readPackage(path.join(path.dirname(file), 'node_modules', ...name.split('/'), 'package.json'));
+    if (shim?.name === name) return shim;
+  }
   const target = realpath(file);
   const declares = (data, dir) => {
-    const bin = typeof data.bin === 'string' ? data.bin : data.bin?.[SKILL_CHECK_PACKAGE];
-    return typeof bin === 'string' && realpath(path.resolve(dir, bin)) === target;
+    const entry = typeof data.bin === 'string' ? data.bin : data.bin?.[bin];
+    return typeof entry === 'string' && realpath(path.resolve(dir, entry)) === target;
   };
   let dir = path.dirname(target);
   for (let depth = 0; depth < PACKAGE_DEPTH; depth++) {
     const data = readPackage(path.join(dir, 'package.json'));
-    if (typeof data?.name === 'string') {
-      return data.name === SKILL_CHECK_PACKAGE && declares(data, dir) ? findVersion(data.version) : null;
-    }
+    if (typeof data?.name === 'string') return names.includes(data.name) && declares(data, dir) ? data : null;
     const parent = path.dirname(dir);
     if (parent === dir) break;
     dir = parent;
   }
   return null;
+}
+
+/** A file's stat, or null when it cannot be read (a dangling link, say). */
+function statOf(file) {
+  try {
+    return fs.statSync(file);
+  } catch {
+    return null;
+  }
+}
+
+/** The last part of `file`, in lower case on Windows, where names ignore case. */
+function nameOf(file) {
+  return process.platform === 'win32' ? path.basename(file).toLowerCase() : path.basename(file);
+}
+
+/**
+ * The version of the tessl binary `file`, from its name: tessl-<version>-
+ * <platform> once its real path is resolved, or, for a copy at
+ * tessl/bin/tessl or tessl.exe (tessl's layout on Windows), the name of the
+ * one file of tessl/versions that has its size. null when there is no such
+ * file, or more than one.
+ */
+function tesslBinaryVersion(file) {
+  const target = realpath(file);
+  const named = TESSL_BINARY.exec(nameOf(target));
+  if (named) return findVersion(named[1]);
+  const bin = path.dirname(target);
+  if (!/^tessl(?:\.exe)?$/.test(nameOf(target)) || nameOf(bin) !== 'bin' || nameOf(path.dirname(bin)) !== 'tessl') return null;
+  const size = statOf(target)?.size;
+  const versions = path.join(path.dirname(bin), 'versions');
+  let names;
+  try {
+    names = fs.readdirSync(versions);
+  } catch {
+    return null;
+  }
+  const copied = names.filter((name) => {
+    const stat = TESSL_BINARY.test(nameOf(name)) ? statOf(path.join(versions, name)) : null;
+    return stat?.isFile() && stat.size === size;
+  });
+  return size !== undefined && copied.length === 1 ? findVersion(TESSL_BINARY.exec(nameOf(copied[0]))[1]) : null;
+}
+
+/**
+ * The binary tessl's launchers run: ~/.local/bin/tessl, or
+ * %LOCALAPPDATA%\tessl\bin\tessl.exe on Windows. null when the home folder
+ * is not an absolute path, which would be read from the project folder.
+ */
+function tesslLauncherTarget(env) {
+  const target =
+    process.platform === 'win32'
+      ? path.join(
+          envValue(env, 'LOCALAPPDATA') ?? path.join(envValue(env, 'USERPROFILE') || os.homedir(), 'AppData', 'Local'),
+          'tessl',
+          'bin',
+          'tessl.exe',
+        )
+      : path.join(env.HOME || os.homedir(), '.local', 'bin', 'tessl');
+  return path.isAbsolute(target) ? target : null;
+}
+
+/**
+ * tessl's version, read without running it: from the binary on PATH (see
+ * tesslBinaryVersion), or, when that is the npm or Homebrew launcher, from
+ * the binary the launcher runs. An @tessl/cli older than the first launcher
+ * is the CLI itself, so its package.json has the version.
+ */
+function tesslVersion(file, env) {
+  const own = tesslBinaryVersion(file);
+  if (own) return own;
+  const launcher = packageOf(file, 'tessl', TESSL_LAUNCHERS);
+  if (!launcher) return null;
+  const packaged = findVersion(launcher.version);
+  if (launcher.name === '@tessl/cli' && packaged && compareVersions(packaged, FIRST_TESSL_LAUNCHER)) return packaged;
+  const target = tesslLauncherTarget(env);
+  return target ? tesslBinaryVersion(target) : null;
 }
 
 /** One tool: { found, version }, the version null when it cannot be read. */
@@ -263,12 +338,18 @@ async function probe(key, tool, context) {
   }
   if (key === 'skill_check') {
     const file = resolveOutsideProject(SKILL_CHECK_PACKAGE, context);
-    return file ? { found: true, version: skillCheckVersion(file) } : { found: false };
+    return file
+      ? { found: true, version: findVersion(packageOf(file, SKILL_CHECK_PACKAGE, [SKILL_CHECK_PACKAGE])?.version) }
+      : { found: false };
+  }
+  if (key === 'tessl') {
+    const file = resolveOutsideProject('tessl', context);
+    return file ? { found: true, version: tesslVersion(file, context.env) } : { found: false };
   }
   const [name, ...args] = Array.isArray(tool.version_command) ? tool.version_command.map(String) : [];
   const file = name ? resolveOutsideProject(name, context) : null;
   if (!file) return { found: false };
-  return { found: true, version: args.length > 0 ? await versionOf(file, args, context, probeEnv(key, context.env)) : null };
+  return { found: true, version: args.length > 0 ? await versionOf(file, args, context) : null };
 }
 
 /**
