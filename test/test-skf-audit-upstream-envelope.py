@@ -617,7 +617,7 @@ def test_the_customize_surface_reaches_what_it_overrides():
 
 # The shared #595 resolver block every workflow's On Activation carries, and
 # the #596 `!` persistent_facts clause (W6 handoffs).
-RESOLVER_CALL = ("uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
+RESOLVER_CALL = ("uv run {resolveCustomizationHelper} --skill {skill-root} "
                  "--project-root {project-root} --key workflow")
 RESOLVER_LAYERS = ("It merges the bundled `{skill-root}/customize.toml` with "
                    "`{project-root}/_bmad/custom/skf-audit-skill.toml` (team overrides, committed) and `.user.toml` "
@@ -641,7 +641,7 @@ def test_activation_runs_the_resolver_through_uv_and_honours_a_dropped_fact():
     customize.toml says how instead of suggesting a counter-fact."""
     activation = _flow(_slice(_read(SKILL), "## On Activation", "4. **Pre-flight"))
     assert f"```bash {RESOLVER_CALL} ```" in activation
-    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in _read(SKILL)
+    assert "{project-root}/_bmad/scripts/resolve_customization.py" not in _read(SKILL)
     assert RESOLVER_LAYERS in activation and RESOLVER_WARNING in activation and RESOLVER_FALLBACK in activation
     # #601: no bare `_bmad/` path is left for the path-standards scan to flag.
     assert re.search(r"(?<!\{project-root\}/)_bmad/", activation) is None

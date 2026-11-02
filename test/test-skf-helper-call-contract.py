@@ -12,8 +12,9 @@ helper itself:
   not know (spelled in full: abbreviations fail), a missing required flag or
   a stray argument fails the test.
 - A flag-only helper listed in FLAG_ONLY (argparse, no subcommands, such as
-  skf-render-metadata-stats.py, skf-names-present.py and the recipe runner
-  skf-extract-public-api.py): the same check,
+  skf-render-metadata-stats.py, skf-names-present.py, the recipe runner
+  skf-extract-public-api.py and the customization helper
+  skf-resolve-customization.py every activation runs): the same check,
   so a missing positional or required flag, an unknown flag or a value
   outside a flag's choices fails the test.
 - skf-manifest-ops.py reads sys.argv by hand, the skills folder first: the
@@ -83,6 +84,7 @@ FLAG_ONLY = frozenset({
     SRC / "shared" / "scripts" / "skf-names-present.py",
     SRC / "shared" / "scripts" / "skf-extract-public-api.py",
     SRC / "shared" / "scripts" / "skf-validate-brief-inputs.py",
+    SRC / "shared" / "scripts" / "skf-resolve-customization.py",
 })
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
@@ -525,6 +527,14 @@ FLAG_ONLY_MUST_FIND = [
      ("--files-from", "--head-cap", "[--scope-type")),
     # brief-skill's step 1 checks a typed or pre-filled version with the field-only mode.
     ("src/skf-brief-skill/references/gather-intent.md", "skf-validate-brief-inputs.py", ("--only",)),
+    # The customization helper (#770): an activation bound in its SKILL.md body, Ferris's, and the two stage
+    # calls whose probe lists bind it, Campaign's at the head of a pipe.
+    ("src/skf-create-skill/SKILL.md", "skf-resolve-customization.py", ("--skill", "--project-root", "--key")),
+    ("src/skf-forger/SKILL.md", "skf-resolve-customization.py", ("--skill", "--project-root", "--key")),
+    ("src/skf-create-skill/references/report.md", "skf-resolve-customization.py",
+     ("--skill", "--project-root", "--key")),
+    ("src/skf-campaign/references/step-05-skill-loop.md", "skf-resolve-customization.py",
+     ("--skill", "--project-root", "--key")),
 ]
 
 
@@ -603,6 +613,10 @@ def test_manifest_ops_commands_are_read_from_its_main():
     # The brief input validator: a field it does not know, the flag left without its field.
     ("skf-validate-brief-inputs.py", " --only version"),
     ("skf-validate-brief-inputs.py", " --only"),
+    # The customization helper: the project root left out, the key misspelled, core's short flag.
+    ("skf-resolve-customization.py", " --skill {skill-root} --key workflow"),
+    ("skf-resolve-customization.py", " --skill {skill-root} --project-root {project-root} --kye workflow"),
+    ("skf-resolve-customization.py", " --skill {skill-root} -p {project-root} --key workflow"),
     # The upstream check: a required flag left out, an unknown flag, the
     # check that runs without `upstream`.
     ("skf-check-workspace-drift.py", ' upstream --source-root "{r}" --baseline-commit "{c}"'),
@@ -631,6 +645,8 @@ def test_the_checker_rejects_broken_calls(script, rest):
     ("skf-names-present.py", " --provenance {forge_version}/provenance-map.json --skill-dir {skill_staging}"),
     ("skf-names-present.py", " --provenance {p}/provenance-map.json --skill-dir {s} --drop-absent"),
     ("skf-validate-brief-inputs.py", " --only target_version <<'SKF_JSON'"),
+    ("skf-resolve-customization.py",
+     " --skill {skill-root} --project-root {project-root} --key workflow.persistent_facts | uv run {kickoffScript}"),
     ("skf-check-workspace-drift.py",
      ' upstream --source-root "{r}" --baseline-commit "{c}" --baseline-ref "{b}" [--timeout "{t}"]'),
     # A repeatable synopsis group: quick-skill's entry files, audit-skill's by-eye details.

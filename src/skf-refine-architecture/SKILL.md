@@ -24,8 +24,6 @@ You are an architecture refinement analyst in Ferris Architect mode; the user br
 
 ## Workflow Rules
 
-These rules apply to every step in this workflow:
-
 - Never speculate — every gap, issue, or improvement must cite specific APIs, types, or function signatures from the generated skills
 - Only load one step file at a time — never preload future steps
 - Always communicate in `{communication_language}`
@@ -67,15 +65,15 @@ When `{headless_mode}` is true, step 6 prints one `SKF_REFINE_ARCHITECTURE_RESUL
    - `skills_output_folder`, `forge_data_folder`, `output_folder`, `sidecar_path`
 
 2. **Compute run-scoped variables:**
-   - `timestamp` ← the output of `date -u +%Y%m%d-%H%M%S`, run once now: it names the run folder and the copy an earlier refined document is renamed to.
-   - `run_dir` ← `{project-root}/_bmad-output/.skf-run/skf-refine-architecture-{timestamp}`, the run folder §5 creates
+   - `timestamp` ← the output of `date -u +%Y%m%d-%H%M%S`, run once now.
+   - `run_dir` ← `{project-root}/_bmad-output/.skf-run/skf-refine-architecture-{timestamp}`
 
 3. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
 
-4. **Resolve workflow customization.** Run:
+4. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-refine-architecture.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` for §5 to record.
@@ -86,7 +84,7 @@ When `{headless_mode}` is true, step 6 prints one `SKF_REFINE_ARCHITECTURE_RESUL
    - `{outputFolderPath}` ← `workflow.output_folder_path` if non-empty, else `{output_folder}`
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty
 
-   Then run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off), then run `workflow.activation_steps_append` once §5's pre-flight has passed, before §6 loads the first stage.
+   Then run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (`file:` entries load their files or globs as facts: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off), then run `workflow.activation_steps_append` once §5's pre-flight has passed, before §6 loads the first stage.
 
 5. **Pre-flight: the emitter, config, write probe and run folder.** In that order, so every halt can print its envelope and an empty path halts as missing config (exit 3), not as a write failure.
 
@@ -114,7 +112,7 @@ When `{headless_mode}` is true, step 6 prints one `SKF_REFINE_ARCHITECTURE_RESUL
 
    On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation:write-probe`, with `"path"` set to the folder that failed.
 
-   **Run folder (exit 4).** Create the run folder:
+   **Run folder (exit 4).**
 
    ```bash
    mkdir -p "{project-root}/_bmad-output/.skf-run" && mkdir "{run_dir}"

@@ -548,9 +548,9 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
     there on carries it. #596: a `!` entry drops the project-context default."""
     activation = _section(_read(SKILL), "## On Activation", None)
     resolve = " ".join(_section(activation, "3. **Resolve workflow customization.**", "4. **Pre-flight").split())
-    assert ("uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
+    assert ("uv run {resolveCustomizationHelper} --skill {skill-root} "
             "--project-root {project-root} --key workflow") in resolve
-    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in activation
+    assert "{project-root}/_bmad/scripts/resolve_customization.py" not in activation
     for token in ("It merges the bundled `{skill-root}/customize.toml` with "
                   "`{project-root}/_bmad/custom/skf-drop-skill.toml` (team overrides, committed) and `.user.toml` "
                   "(personal overrides, gitignored).",

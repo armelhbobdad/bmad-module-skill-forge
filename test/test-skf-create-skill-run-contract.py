@@ -242,9 +242,9 @@ def test_the_report_step_binds_the_emitter_and_the_hook_itself():
                            "`workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` "
                            "when the resolver cannot run:\n")
     [activation_call] = [line.strip() for line in _section(_read(SKILL), "## On Activation", None).splitlines()
-                         if "resolve_customization.py" in line and line.strip().startswith("uv run ")]
+                         if "{resolveCustomizationHelper}" in line and line.strip().startswith("uv run ")]
     assert activation_call.endswith(" --key workflow")
-    [hook_call] = re.findall(r"```bash\n(uv run [^\n]*resolve_customization\.py[^\n]*)\n```", hook)
+    [hook_call] = re.findall(r"```bash\n(uv run \{resolveCustomizationHelper\}[^\n]*)\n```", hook)
     assert hook_call == f"{activation_call}.on_complete"
     assert "on_complete" in tomllib.loads(_read(CS / "customize.toml"))["workflow"]
     assert ("When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's result contract (its `emit` "

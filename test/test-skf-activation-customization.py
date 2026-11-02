@@ -8,9 +8,11 @@ the same block from their own stage-6b package, and a later test compares the
 block across all sixteen activations.
 
 - #595 (option a): each runs BMad core's resolver through `uv run` with
-  `--project-root`, prints one `customization_resolver_unavailable` line when
-  it cannot run, reads the bundled customize.toml alone, and sends the reason
-  the way its result goes: the run sink, brief's warning list, campaign's
+  `--project-root` (through SKF's skf-resolve-customization.py since #770,
+  which also serves a core before 6.11.0), prints one
+  `customization_resolver_unavailable` line when it cannot run, reads the
+  bundled customize.toml alone, and sends the reason the way its result
+  goes: the run sink, brief's warning list, campaign's
   decision log, or test-skill's result context. A sink route records the
   reason in the step that creates or binds the run folder, and every command
   that carries it keeps a reason that holds quotes or `$( )` as plain text.
@@ -54,8 +56,14 @@ STEPS = {
 }
 WORKFLOWS = sorted(STEPS)
 
-COMMAND = ("uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
+# #770: SKF's helper runs core's resolver, so a core before 6.11.0, which rejects --project-root, still applies
+# the overrides when it would read this project; the step binds the helper on one line before the fence.
+HELPER = "skf-resolve-customization.py"
+COMMAND = ("uv run {resolveCustomizationHelper} --skill {skill-root} "
            "--project-root {project-root} --key workflow")
+BINDING = (f"Bind `{{resolveCustomizationHelper}}` ← `{{project-root}}/_bmad/skf/shared/scripts/{HELPER}`, "
+           f"else `{{project-root}}/src/shared/scripts/{HELPER}` (the first that exists)")
+CORE_RESOLVER = "{project-root}/_bmad/scripts/resolve_customization.py"
 WARNING = "`[activation/warn] customization_resolver_unavailable: <reason>`"
 FALLBACK = ("If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: "
             "the `{project-root}/_bmad/custom/` overrides do not apply to this run.")
@@ -134,7 +142,10 @@ def test_the_resolver_runs_through_uv_with_the_project_root(skill):
     step = _step(skill)
     fences = re.findall(r"```bash\n(.*?)```", step, re.S)
     assert [line.strip() for fence in fences for line in fence.splitlines() if line.strip()] == [COMMAND], skill
-    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in _skill_md(skill)
+    # #770: the helper is bound on one line, before its fence; core's resolver is never run directly.
+    [binding] = [line for line in step.splitlines() if BINDING in line]
+    assert step.index(binding) < step.index("```bash"), skill
+    assert CORE_RESOLVER not in _skill_md(skill)
 
 
 @pytest.mark.parametrize("skill", WORKFLOWS)

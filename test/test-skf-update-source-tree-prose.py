@@ -4815,9 +4815,10 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
     a file, since a resolver error can hold quotes. #603: headless_mode is read
     from the sidecar's preferences.yaml."""
     activation = _slice(_read(SKILL), "4. **Resolve workflow customization.**", "5. Load")
-    assert ("uv run {project-root}/_bmad/scripts/resolve_customization.py --skill {skill-root} "
-            "--project-root {project-root} --key workflow") in _fence(activation, "resolve_customization.py")
-    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in _read(SKILL)
+    assert ("uv run {resolveCustomizationHelper} --skill {skill-root} "
+            "--project-root {project-root} --key workflow") in _fence(activation,
+                                                                     "uv run {resolveCustomizationHelper}")
+    assert "{project-root}/_bmad/scripts/resolve_customization.py" not in _read(SKILL)
     flow = " ".join(activation.split())
     for token in ("It merges the bundled `{skill-root}/customize.toml` with "
                   "`{project-root}/_bmad/custom/skf-update-skill.toml` (team overrides, committed) and `.user.toml` "

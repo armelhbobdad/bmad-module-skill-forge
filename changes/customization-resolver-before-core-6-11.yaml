@@ -1,0 +1,5 @@
+type: fixed
+scope: all workflows, skf-forger
+summary: |
+  Customization overrides in `_bmad/custom/<skill>.toml` and `_bmad/custom/<skill>.user.toml` apply again on BMAD core 6.4.0 to 6.10.0. Every workflow, and Ferris, passed BMAD core's customization resolver `--project-root`, a flag core takes only from 6.11.0, so on an older core the resolver stopped with a `usage:` line, the run warned `customization_resolver_unavailable` without saying why, and the overrides were ignored. Each run now goes through SKF's own helper, `skf-resolve-customization.py`, which runs core's resolver with `--project-root` and, when an older core rejects it, runs it again without the flag if that core would read this project's overrides on its own. When it would read another folder's, such as a submodule's or another repository's, the run keeps the bundled defaults and warns `customization_resolver_unavailable: BMAD core before 6.11.0: ...`, naming that folder and the upgrade to 6.11.0 or later. Core 6.11.0 and later run as before, in one call with the flag.
+issues: [770]

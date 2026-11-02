@@ -2,13 +2,16 @@
 """The customization resolver block, the same in all sixteen activations
 (#595, #601; stage 6c of the v3.0.0 plan).
 
-Every activation runs BMad core's resolver once: the fifteen workflow
-SKILL.md files with `--key workflow`, and Ferris (skf-forger) with
-`--key agent`, since his customize.toml holds only an [agent] table. Three
-parts are word for word the same in all sixteen, compared from the one copy
+Every activation runs BMad core's resolver once, through SKF's
+skf-resolve-customization.py (#770): the fifteen workflow SKILL.md files
+with `--key workflow`, and Ferris (skf-forger) with `--key agent`, since his
+customize.toml holds only an [agent] table. Three parts are word for word
+the same in all sixteen, compared from the one copy
 test-skf-activation-customization.py keeps (COMMAND, WARNING, FALLBACK):
 
-- the `uv run ... --project-root {project-root}` command, alone in its fence;
+- the `uv run {resolveCustomizationHelper} ... --project-root
+  {project-root}` command, alone in its fence, after the line that binds
+  the helper (BINDING);
 - the merge sentence that names the override layers from the project root,
   the one-line `[activation/warn] customization_resolver_unavailable:
   <reason>` warning and how the reason is worded;
@@ -18,9 +21,12 @@ Where the warning goes next is each activation's own sentence and is not
 compared; ROUTE_EXCEPTIONS names the routes that differ most from a plain
 record, so a rewording that drops one shows up here. With a stub `python3`
 that reports 3.10 first on PATH, the bare form fails and the documented
-`uv run` form still returns a team override: the stub does not answer uv's
-interpreter query, so uv skips it and picks an interpreter that meets the
-resolver's `requires-python`. Ferris states the module-level and
+`uv run` form still returns a team override, from a core that takes
+`--project-root` and from one before 6.11.0 that does not: the stub does not
+answer uv's interpreter query, so uv skips it and picks an interpreter that
+meets the helper's `requires-python`, which the helper runs core under. No
+step runs core's resolver directly, and the helper runs at all eighteen
+call sites. Ferris states the module-level and
 sibling-skill path rules the workflows state, and pipeline-mode.md says how
 its paths resolve.
 """
@@ -38,6 +44,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
 
 REPO = Path(__file__).resolve().parent.parent
 SRC = REPO / "src"
@@ -52,6 +59,9 @@ def _load(name: str, path: Path):
 
 # The ten workflows' steps and the strings they share, from their own test.
 AC = _load("skf_activation_customization", REPO / "test" / "test-skf-activation-customization.py")
+# The helper's own test keeps the stand-ins for BMAD core before and from 6.11.0.
+RC = _load("skf_resolve_customization_test", REPO / "test" / "test-skf-resolve-customization.py")
+HELPER = SRC / "shared" / "scripts" / AC.HELPER
 
 # Each activation's customization step heading and the heading of the step after it.
 STEPS = {
@@ -119,9 +129,48 @@ def test_every_activation_is_compared():
 
 @pytest.mark.parametrize("skill", ACTIVATIONS)
 def test_the_resolver_runs_through_uv_with_the_project_root(skill):
-    fences = re.findall(r"```bash\n(.*?)```", _step(skill), re.S)
+    step = _step(skill)
+    fences = re.findall(r"```bash\n(.*?)```", step, re.S)
     assert [line.strip() for fence in fences for line in fence.splitlines() if line.strip()] == [_command(skill)]
-    assert "python3 {project-root}/_bmad/scripts/resolve_customization.py" not in _skill_md(skill)
+    # #770: the installed-else-src binding, on one line, before the fence.
+    [binding] = [line for line in step.splitlines() if AC.BINDING in line]
+    assert step.index(binding) < step.index("```bash"), skill
+    assert AC.CORE_RESOLVER not in _skill_md(skill)
+
+
+# The two calls outside an activation: create-skill's post-completion hook and Campaign's kickoff pipe, each
+# with the key it reads and a probe list for the helper, since a compaction may have lost the activation's binding.
+STAGE_CALLS = {
+    "src/skf-create-skill/references/report.md": "workflow.on_complete",
+    "src/skf-campaign/references/step-05-skill-loop.md": "workflow.persistent_facts",
+}
+PROBE_ORDER = [f"{{project-root}}/_bmad/skf/shared/scripts/{AC.HELPER}",
+               f"{{project-root}}/src/shared/scripts/{AC.HELPER}"]
+
+
+@pytest.mark.parametrize("rel", sorted(STAGE_CALLS))
+def test_the_stage_calls_run_the_helper_with_their_key(rel):
+    text = _read(REPO / rel)
+    assert yaml.safe_load(text.split("---", 2)[1])["resolveCustomizationProbeOrder"] == PROBE_ORDER
+    [rule] = [line for line in text.splitlines() if "`{resolveCustomizationProbeOrder}` when it is not bound" in line]
+    assert "`{resolveCustomizationHelper}`" in rule
+    assert text.count(AC.COMMAND.removesuffix("workflow") + STAGE_CALLS[rel]) == 1
+
+
+def test_no_step_runs_core_s_resolver_directly():
+    """Every customization call goes through the helper, which serves a core before 6.11.0 too: core's
+    resolver is named in no src/ Markdown file, and the helper runs at the sixteen activations and the
+    two stage calls."""
+    direct, calls = [], 0
+    for md in sorted(SRC.rglob("*.md")):
+        text = _read(md)
+        rel = md.relative_to(REPO).as_posix()
+        if "resolve_customization.py" in text:
+            direct.append(rel)
+        calls += len(re.findall(r"uv run \{resolveCustomizationHelper\} --skill \{skill-root\} "
+                                r"--project-root \{project-root\} --key [\w.]+", text))
+    assert not direct, f"run core's resolver through {AC.HELPER}: {direct}"
+    assert calls == len(ACTIVATIONS) + len(STAGE_CALLS) == 18
 
 
 @pytest.mark.parametrize("skill", ACTIVATIONS)
@@ -166,8 +215,9 @@ def test_ferris_applies_the_array_surfaces_an_override_adds():
 # The documented command still reads a team override when python3 is 3.10
 # --------------------------------------------------------------------------
 
-# A stand-in for BMad core's resolver (which the BMAD Method installer ships, not this repository): the same
-# PEP 723 header, the same flags and the same three-layer merge, enough to show what `uv run` changes.
+# A stand-in for BMad core's resolver from 6.11.0 (which the BMAD Method installer ships, not this repository):
+# the same PEP 723 header, the same flags and the same three-layer merge, enough to show what `uv run` changes.
+# The core before 6.11.0, which knows no --project-root and declares no requires-python, is the helper test's.
 RESOLVER = '''#!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
@@ -217,11 +267,14 @@ OVERRIDES = {
 }
 
 
-def _project(tmp_path: Path, skill: str) -> tuple[Path, dict]:
+CORES = {"6.11+": RESOLVER, "6.10": RC.CORE_6_10}
+
+
+def _project(tmp_path: Path, skill: str, core: str) -> tuple[Path, dict]:
     root = tmp_path / "project"
     (root / "_bmad" / "scripts").mkdir(parents=True)
     (root / "_bmad" / "custom").mkdir()
-    (root / "_bmad" / "scripts" / "resolve_customization.py").write_bytes(RESOLVER.encode("utf-8"))
+    (root / "_bmad" / "scripts" / "resolve_customization.py").write_bytes(CORES[core].encode("utf-8"))
     (root / "_bmad" / "custom" / f"{skill}.toml").write_bytes(OVERRIDES[skill][1].encode("utf-8"))
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
@@ -234,15 +287,22 @@ def _project(tmp_path: Path, skill: str) -> tuple[Path, dict]:
 
 
 @pytest.mark.skipif(not POSIX_UV, reason="needs a POSIX shell for the python3 stub, and uv")
+@pytest.mark.parametrize("core", sorted(CORES))
 @pytest.mark.parametrize("skill", sorted(OVERRIDES))
-def test_the_command_reads_a_team_override_under_a_python3_without_tomllib(tmp_path, skill):
+def test_the_command_reads_a_team_override_under_a_python3_without_tomllib(tmp_path, skill, core):
     key, _, (field, value) = OVERRIDES[skill]
-    root, env = _project(tmp_path, skill)
-    [command] = re.findall(r"^\s*(uv run \{project-root\}/_bmad/scripts/resolve_customization\.py .+)$", _step(skill),
-                           re.M)
-    words = [w.replace("{project-root}", root.as_posix()).replace("{skill-root}", (SRC / skill).as_posix())
-             for w in shlex.split(command)]
-    assert words[:2] == ["uv", "run"] and words[-2:] == ["--key", key]
+    root, env = _project(tmp_path, skill, core)
+    skill_root = SRC / skill
+    if core == "6.10":
+        # A core before 6.11.0 reads the overrides of the nearest folder above the skill holding `_bmad` or `.git`:
+        # the project only for a skill installed inside it, never for this checkout's src/.
+        skill_root = root / "_bmad" / "skf" / skill
+        skill_root.mkdir(parents=True)
+        shutil.copyfile(SRC / skill / "customize.toml", skill_root / "customize.toml")
+    [command] = re.findall(r"^\s*(uv run \{resolveCustomizationHelper\} .+)$", _step(skill), re.M)
+    words = [w.replace("{resolveCustomizationHelper}", HELPER.as_posix()).replace("{project-root}", root.as_posix())
+             .replace("{skill-root}", skill_root.as_posix()) for w in shlex.split(command)]
+    assert words[:3] == ["uv", "run", HELPER.as_posix()] and words[-2:] == ["--key", key]
     bare = subprocess.run(["python3", *words[2:]], capture_output=True, text=True, encoding="utf-8", env=env,
                           cwd=root, timeout=60)
     assert bare.returncode == 3 and "tomllib" in bare.stderr
@@ -253,6 +313,9 @@ def test_the_command_reads_a_team_override_under_a_python3_without_tomllib(tmp_p
     # The bundled defaults are still there under the override.
     bundled = tomllib.loads(_read(SRC / skill / "customize.toml"))[key]
     assert {k for k in bundled if k != field} <= set(merged)
+    if core == "6.10":  # rejected with the flag, then run again without it
+        calls = [json.loads(line) for line in _read(root / "_bmad" / "scripts" / "calls.jsonl").splitlines()]
+        assert ["--project-root" in call["argv"] for call in calls] == [True, False]
 
 
 # --------------------------------------------------------------------------
