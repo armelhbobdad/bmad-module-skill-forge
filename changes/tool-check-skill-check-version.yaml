@@ -1,0 +1,6 @@
+type: fixed
+scope: installer
+summary: |
+  The tool report that `install`, `update` and `status` print now shows the version of a `skill-check` installed globally with npm, yarn or bun (with npm on Windows) instead of `installed, version unknown`. skill-check has no `--version` option, so the check reads the version from the installed package's `package.json` and no longer runs skill-check.
+issues: [768]
+prs: [773]

@@ -47,7 +47,9 @@
 #   minimum          the oldest supported version as a string, or null
 #   tested           the versions SKF has run on, as strings
 #   basis            where minimum and tested come from
-#   version_command  the command that prints the installed version
+#   version_command  the command that prints the installed version (skill_check
+#                    has none: skill-check has no --version, so its entry
+#                    leaves this out and the check reads its package.json)
 #   install_url      where to install it from
 #   upgrade          how to upgrade it
 #   acknowledged_as  its row in the README Acknowledgements table (required
@@ -195,7 +197,8 @@ tools:
     minimum: null
     tested: ["1.2.0"]
     basis: SKF runs it through npx at whatever version npx resolves, so there is no floor it can check. In the v3.0.0 pre-release tool check (recorded in the pull request that added these versions) on 2026-10-04, on main b5150b08 (the release candidate), npx resolved skill-check 1.2.0, npm's latest since 2026-02-21, and test-skill's check (`npx skill-check check <skill-dir> --format json --no-security-scan`) on a copy of an oh-my-skills skill returned every field SKF reads. No other version has a recorded run.
-    version_command: [skill-check, --version]
+    # skill-check has no --version (1.2.0 exits 2 on it): the check reads the
+    # version from the package.json of the installed skill-check package.
     install_url: https://github.com/thedaviddias/skill-check
     upgrade: npm install -g skill-check@latest
     acknowledged_as: skill-check

@@ -1,0 +1,6 @@
+type: fixed
+scope: installer
+summary: |
+  The tool check that `install`, `update` and `status` run no longer starts tessl's own update check or its automatic update. It runs `tessl --version` with `TESSL_AUTO_UPDATE_INTERVAL_MINUTES=0` and `STRICLI_SKIP_VERSION_CHECK=1`, so reading tessl's version no longer downloads a newer tessl or rewrites tessl's update files in `~/.tessl/`. The report line is unchanged.
+issues: [768]
+prs: [773]

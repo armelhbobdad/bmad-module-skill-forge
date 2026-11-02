@@ -11,8 +11,9 @@
  *   PATH the test sets: each tool's version and status against its minimum,
  *   a stub that hangs, a stub in the project folder that never runs, .cmd
  *   shims on Windows, install and update returning (not exiting) so the
- *   update notice prints after them, and a run that prints no report
- *   leaving no probe running
+ *   update notice prints after them, a run that prints no report leaving no
+ *   probe running, skill-check's version read from its package.json without
+ *   running it, and tessl probed with its update check off
  *
  * Usage: node test/test-cli-integration.js
  */
@@ -691,6 +692,46 @@ async function writeStub(dir, name, { out = [], posix, windows } = {}) {
   await fs.chmod(file, 0o755);
 }
 
+/**
+ * A skill-check install in `dir` that, like skill-check 1.2.0, answers no
+ * --version: run with any arguments, it writes `ran` to `marker` and exits 2.
+ * The `link` layout is npm's global one on POSIX: the binary on PATH is a
+ * symlink into `<dir>/../<install>/lib/node_modules/skill-check/bin/`. The
+ * `shim` layout is npm's on Windows: the binary sits next to
+ * `node_modules/skill-check/`. `name`, `version` and `bin` fill the
+ * package.json, which `name: null` leaves out; `nameless` adds a
+ * package.json with no name next to the linked binary, as a
+ * `{"type": "module"}` file is.
+ */
+async function writeSkillCheck(
+  dir,
+  {
+    marker,
+    layout = IS_WINDOWS ? 'shim' : 'link',
+    name = 'skill-check',
+    version = '1.2.0',
+    bin = 'bin/skill-check.js',
+    nameless = false,
+    install = 'global',
+  },
+) {
+  const body = { posix: [`echo ran > '${marker}'`, 'exit 2'], windows: [`echo ran> "${marker}"`, 'exit /b 2'] };
+  const manifest = name === null ? null : JSON.stringify({ name, version, bin: { 'skill-check': bin } });
+  if (layout === 'shim') {
+    await writeStub(dir, 'skill-check', body);
+    const pkg = path.join(dir, 'node_modules', 'skill-check');
+    await fs.ensureDir(pkg);
+    if (manifest) await fs.writeFile(path.join(pkg, 'package.json'), manifest);
+    return;
+  }
+  const pkg = path.join(path.dirname(dir), install, 'lib', 'node_modules', 'skill-check');
+  await writeStub(path.join(pkg, 'bin'), 'skill-check.js', body);
+  if (manifest) await fs.writeFile(path.join(pkg, 'package.json'), manifest);
+  if (nameless) await fs.writeFile(path.join(pkg, 'bin', 'package.json'), JSON.stringify({ type: 'module' }));
+  await fs.ensureDir(dir);
+  await fs.symlink(path.join(pkg, 'bin', 'skill-check.js'), path.join(dir, 'skill-check'));
+}
+
 /** process.env with PATH replaced (every spelling of its name, for Windows). */
 function envWithPath(...dirs) {
   const env = {};
@@ -807,7 +848,7 @@ async function writeToolStubs(dir) {
   await writeStub(dir, 'gh', { out: ['gh: no version here'] });
   await writeStub(dir, 'ast-grep', { out: ['ast-grep 0.1.0'] });
   await writeStub(dir, 'ccc', { posix: ['exit 0'], windows: ['exit /b 0'] });
-  await writeStub(dir, 'skill-check', { out: ['skill-check 1.2.0'] });
+  await writeSkillCheck(dir, { marker: path.join(path.dirname(dir), 'skill-check-ran') });
 }
 
 async function testToolReport() {
@@ -844,6 +885,7 @@ async function testToolReport() {
     check('qmd', null, 'optional', `optional, ${list.tools.qmd.tiers[0]} tier`);
     check('tessl', null, 'optional', 'optional, runs through npx');
     check('skill_check', '1.2.0', 'ok', 'ok');
+    assert(!(await fs.pathExists(path.join(root, 'skill-check-ran'))), 'skill-check is not run: its version comes from its package.json');
     assert(found.ast_grep.hint === list.tools.ast_grep.upgrade, 'a tool below its minimum names its upgrade command');
     assert(found.qmd.hint === list.tools.qmd.install_url, 'a missing tier tool names its install page');
     assert(found.gh_cli.hint === undefined, 'a tool with no minimum and an unreadable version gets no upgrade line');
@@ -1284,6 +1326,99 @@ async function testCliStopsProbesWithoutReport() {
   console.log('');
 }
 
+async function testSkillCheckVersionFromPackage() {
+  console.log(`${colors.yellow}Test Suite 16: skill-check's Version Comes From Its package.json, Never From a Run${colors.reset}\n`);
+
+  const root = await makeTempDir('tools-skill-check');
+  try {
+    const { checkTools } = require('../tools/cli/lib/tool-check');
+    const marker = path.join(root, 'skill-check-ran');
+    const project = path.join(root, 'project');
+    await fs.ensureDir(project);
+    const rowFor = async (dir) => byKey(await checkTools({ projectDir: project, env: envWithPath(dir), timeoutMs: 10_000 })).skill_check;
+    const cases = [
+      { label: 'the package next to the shim (npm on Windows)', layout: 'shim', expected: '1.3.4' },
+      { label: 'another package named in the package.json', name: 'skill-checker', expected: null },
+      { label: 'no package.json', name: null, expected: null },
+    ];
+    // The link layout needs a symlink, which Windows runners may not allow.
+    if (!IS_WINDOWS) {
+      cases.unshift(
+        { label: 'the package the linked binary is in (npm, yarn and bun)', layout: 'link', expected: '1.3.4' },
+        { label: 'a package.json with no name next to the binary is skipped', layout: 'link', nameless: true, expected: '1.3.4' },
+        { label: 'a skill-check package that does not declare this binary', layout: 'link', bin: 'bin/other.js', expected: null },
+      );
+    }
+    for (const [index, { label, layout, name, bin, nameless, expected }] of cases.entries()) {
+      const dir = path.join(root, `case-${index}`, 'bin');
+      await writeSkillCheck(dir, { marker, layout, name, bin, nameless, version: '1.3.4', install: `install-${index}` });
+      const row = await rowFor(dir);
+      const ok = expected
+        ? row.version === expected && row.status === 'ok'
+        : row.version === null && row.label === 'installed, version unknown';
+      assert(ok, `${label}: ${expected ?? 'version unknown'}`, JSON.stringify(row));
+    }
+    const missing = await rowFor(path.join(root, 'empty'));
+    assert(
+      missing.status === 'optional' && missing.label === 'optional, runs through npx',
+      'no skill-check on PATH reads as optional',
+      JSON.stringify(missing),
+    );
+    assert(!(await fs.pathExists(marker)), 'skill-check never runs');
+  } catch (error) {
+    assert(false, 'skill-check version test completes without error', error.stack);
+  } finally {
+    await fs.remove(root);
+  }
+
+  console.log('');
+}
+
+async function testTesslProbeUpdateCheckOff() {
+  console.log(`${colors.yellow}Test Suite 17: tessl Is Probed With Its Update Check Off${colors.reset}\n`);
+
+  const root = await makeTempDir('tools-tessl');
+  try {
+    const { checkTools } = require('../tools/cli/lib/tool-check');
+    const stubs = path.join(root, 'stubs');
+    // tessl prints its version only when both switches are set; qmd only when they are not.
+    await writeStub(stubs, 'tessl', {
+      posix: ['[ "$TESSL_AUTO_UPDATE_INTERVAL_MINUTES" = 0 ] && [ "$STRICLI_SKIP_VERSION_CHECK" = 1 ] && echo 0.111.0 || exit 3'],
+      windows: [
+        'if "%TESSL_AUTO_UPDATE_INTERVAL_MINUTES%"=="0" if "%STRICLI_SKIP_VERSION_CHECK%"=="1" (echo 0.111.0& exit /b 0)',
+        'exit /b 3',
+      ],
+    });
+    await writeStub(stubs, 'qmd', {
+      posix: ['[ -z "$TESSL_AUTO_UPDATE_INTERVAL_MINUTES$STRICLI_SKIP_VERSION_CHECK" ] && echo 2.8.3 || exit 3'],
+      windows: [
+        'if not defined TESSL_AUTO_UPDATE_INTERVAL_MINUTES if not defined STRICLI_SKIP_VERSION_CHECK (echo 2.8.3& exit /b 0)',
+        'exit /b 3',
+      ],
+    });
+    // The user's own interval is replaced, whatever the spelling of its name on Windows.
+    const userValue = IS_WINDOWS ? 'Tessl_Auto_Update_Interval_Minutes' : 'TESSL_AUTO_UPDATE_INTERVAL_MINUTES';
+    const switches = new Set(['TESSL_AUTO_UPDATE_INTERVAL_MINUTES', 'STRICLI_SKIP_VERSION_CHECK']);
+    const env = Object.fromEntries(Object.entries(envWithPath(stubs)).filter(([key]) => !switches.has(key.toUpperCase())));
+    env[userValue] = '180';
+    const rows = byKey(await checkTools({ projectDir: path.join(root, 'project'), env, timeoutMs: 10_000 }));
+    assert(
+      rows.tessl.version === '0.111.0' && rows.tessl.status === 'ok',
+      'tessl runs with TESSL_AUTO_UPDATE_INTERVAL_MINUTES=0 and STRICLI_SKIP_VERSION_CHECK=1',
+      JSON.stringify(rows.tessl),
+    );
+    delete env[userValue];
+    const other = byKey(await checkTools({ projectDir: path.join(root, 'project'), env, timeoutMs: 10_000 }));
+    assert(other.qmd.version === '2.8.3', 'no other probe gets those variables', JSON.stringify(other.qmd));
+  } catch (error) {
+    assert(false, 'tessl probe test completes without error', error.stack);
+  } finally {
+    await fs.remove(root);
+  }
+
+  console.log('');
+}
+
 // ============================================================
 // Runner
 // ============================================================
@@ -1308,6 +1443,8 @@ async function runTests() {
   await testInstallAndUpdateReturn();
   await testCliPrintsReportAndNotice();
   await testCliStopsProbesWithoutReport();
+  await testSkillCheckVersionFromPackage();
+  await testTesslProbeUpdateCheckOff();
 
   console.log(`${colors.cyan}========================================`);
   console.log('Test Results:');

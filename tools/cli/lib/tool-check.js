@@ -7,8 +7,10 @@
  *
  * Each probe runs a binary resolved on PATH outside the project folder, with
  * no shell and fixed arguments, and never npx, which can download. A .cmd or
- * .bat shim on Windows runs through cmd.exe. A missing, hanging or failing
- * probe reads as unknown: nothing here throws or changes an exit code.
+ * .bat shim on Windows runs through cmd.exe. tessl runs with its update check
+ * off, and skill-check, which has no --version, is not run: its version is
+ * read from its package.json. A missing, hanging or failing probe reads as
+ * unknown: nothing here throws or changes an exit code.
  */
 
 const { spawn } = require('node:child_process');
@@ -27,6 +29,18 @@ const MINIMUM = /^\d+(?:\.\d+)*$/;
 const NPX_TOOLS = new Set(['tessl', 'skill_check']);
 // ccc has no --version: `uv tool list` names each package uv installed, with its version.
 const CCC_PACKAGE = /^cocoindex-code v(\S+)/m;
+// skill-check has no --version either (1.2.0 exits 2 on it). Its version is
+// read from the package.json of the install its binary belongs to, at most
+// this many folders above the binary's real path.
+const SKILL_CHECK_PACKAGE = 'skill-check';
+const PACKAGE_DEPTH = 4;
+const MAX_PACKAGE_JSON = 1024 * 1024;
+// tessl checks for a newer release on every run, --version included, and
+// starts downloading one when it is due. Its probe runs with both turned off:
+// TESSL_AUTO_UPDATE_INTERVAL_MINUTES=0 is tessl's documented switch, and
+// STRICLI_SKIP_VERSION_CHECK skips the latest-version check of Stricli, the
+// CLI framework tessl is built on. These values replace the user's own.
+const PROBE_ENV = { tessl: { TESSL_AUTO_UPDATE_INTERVAL_MINUTES: '0', STRICLI_SKIP_VERSION_CHECK: '1' } };
 const MAX_OUTPUT = 64 * 1024;
 const STYLES = { ok: chalk.green, upgrade: chalk.yellow, unknown: chalk.yellow, missing: chalk.red, optional: chalk.dim };
 
@@ -46,6 +60,18 @@ function envValue(env, name) {
   if (process.platform !== 'win32') return env[name];
   const key = Object.keys(env).find((candidate) => candidate.toUpperCase() === name.toUpperCase());
   return key === undefined ? undefined : env[key];
+}
+
+/**
+ * The environment the probe of `key` runs with: `env`, with the tool's
+ * PROBE_ENV values set over the user's (any spelling of the name on Windows).
+ */
+function probeEnv(key, env) {
+  const fixed = PROBE_ENV[key];
+  if (!fixed) return env;
+  const names = new Set(Object.keys(fixed).map((name) => name.toUpperCase()));
+  const kept = Object.entries(env).filter(([name]) => process.platform !== 'win32' || !names.has(name.toUpperCase()));
+  return { ...Object.fromEntries(kept), ...fixed };
 }
 
 function realpath(file) {
@@ -123,7 +149,7 @@ function stop(child) {
  * cannot start, exits non-zero or outlives the timeout (it is then killed)
  * is not ok.
  */
-function run(command, context) {
+function run(command, context, env = context.env) {
   return new Promise((resolve) => {
     let stdout = '';
     let timer;
@@ -141,7 +167,7 @@ function run(command, context) {
     try {
       child = spawn(command.file, command.args, {
         cwd: context.cwd,
-        env: context.env,
+        env,
         stdio: ['ignore', 'pipe', 'ignore'],
         windowsHide: true,
         ...command.options,
@@ -164,12 +190,57 @@ function run(command, context) {
   });
 }
 
-/** The first x.y or x.y.z that `file` prints when run with `args`, or null. */
-async function versionOf(file, args, context) {
-  const command = commandFor(file, args, process.platform, context.env);
+/** The first x.y or x.y.z that `file` prints when run with `args` in `env`, or null. */
+async function versionOf(file, args, context, env = context.env) {
+  const command = commandFor(file, args, process.platform, env);
   if (!command) return null;
-  const { ok, stdout } = await run(command, context);
+  const { ok, stdout } = await run(command, context, env);
   return ok ? findVersion(stdout) : null;
+}
+
+/**
+ * The package.json at `file` as an object, or null when there is none, it is
+ * not a regular file under MAX_PACKAGE_JSON (a FIFO would block the check
+ * past its timeout) or it cannot be read.
+ */
+function readPackage(file) {
+  try {
+    const stat = fs.statSync(file);
+    if (!stat.isFile() || stat.size > MAX_PACKAGE_JSON) return null;
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * skill-check's version, read without running it: from the shim folder's
+ * node_modules/skill-check/package.json (npm's global layout on Windows),
+ * else from the first package.json with a name above the binary's real path,
+ * when it is skill-check's and declares that file as its skill-check bin
+ * (npm, yarn and bun link the binary into its package on Linux and macOS).
+ * null for any other layout, such as pnpm's or Volta's shims.
+ */
+function skillCheckVersion(file) {
+  const shim = readPackage(path.join(path.dirname(file), 'node_modules', SKILL_CHECK_PACKAGE, 'package.json'));
+  if (shim?.name === SKILL_CHECK_PACKAGE) return findVersion(shim.version);
+  const target = realpath(file);
+  const declares = (data, dir) => {
+    const bin = typeof data.bin === 'string' ? data.bin : data.bin?.[SKILL_CHECK_PACKAGE];
+    return typeof bin === 'string' && realpath(path.resolve(dir, bin)) === target;
+  };
+  let dir = path.dirname(target);
+  for (let depth = 0; depth < PACKAGE_DEPTH; depth++) {
+    const data = readPackage(path.join(dir, 'package.json'));
+    if (typeof data?.name === 'string') {
+      return data.name === SKILL_CHECK_PACKAGE && declares(data, dir) ? findVersion(data.version) : null;
+    }
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return null;
 }
 
 /** One tool: { found, version }, the version null when it cannot be read. */
@@ -190,10 +261,14 @@ async function probe(key, tool, context) {
     const match = ok ? CCC_PACKAGE.exec(stdout) : null;
     return { found: true, version: match ? findVersion(match[1]) : null };
   }
+  if (key === 'skill_check') {
+    const file = resolveOutsideProject(SKILL_CHECK_PACKAGE, context);
+    return file ? { found: true, version: skillCheckVersion(file) } : { found: false };
+  }
   const [name, ...args] = Array.isArray(tool.version_command) ? tool.version_command.map(String) : [];
   const file = name ? resolveOutsideProject(name, context) : null;
   if (!file) return { found: false };
-  return { found: true, version: args.length > 0 ? await versionOf(file, args, context) : null };
+  return { found: true, version: args.length > 0 ? await versionOf(file, args, context, probeEnv(key, context.env)) : null };
 }
 
 /**
