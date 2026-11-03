@@ -10,7 +10,9 @@ Covers its subcommands:
     change included)
   - deletion-ratio: §2.2 trigger computation
   - rename-candidates, apply and metadata: Category C by rule, the
-    provenance map an update writes and the metadata.json it leaves
+    provenance map an update writes and the metadata.json it leaves; a new
+    entry's source_library in a map naming several libraries (#808) and
+    the signature_source an older map's entries lack (#802)
   - records: step 3's re-extraction records, seeded from the runner's and
     step 2's files, with the workers' patches merged in
   - a public-api skill's public surface: records marks each export by the
@@ -1241,8 +1243,275 @@ class TestApplyOtherModes:
         assert set(by_name) == {"get", "put", "other"}
         assert (by_name["get"]["params"], by_name["get"]["notes"], by_name["put"]["confidence"]) == \
             (["id"], "n", "T3")
-        assert by_name["other"] == old["entries"][2]
+        # an unchanged URL's entry is left alone but for the signature_source it lacked (#802)
+        assert by_name["other"] == {**old["entries"][2], "signature_source": "T3"}
         assert (doc["files_changed"], doc["exports_affected"]) == (1, 2)
+
+
+# #808: a new entry takes the source_library of its file's entries, else its folder's, in a map naming several
+
+STORYBOOK_REACT = "code/renderers/react/src/public-types.ts"
+STORYBOOK_CLI = "code/core/src/cli/angular/other.ts"
+
+
+def _storybook_map(*extra: dict) -> dict:
+    """storybook's shape: its first entry names @storybook/react, code/core's entries storybook."""
+    return {"provenance_version": "2.0", "skill_name": "storybook", "skill_type": "single", "entries": [
+        _entry("Meta", STORYBOOK_REACT, 12, source_library="@storybook/react"),
+        _entry("fn", STORYBOOK_CLI, 3, source_library="storybook"), *extra]}
+
+
+def _runner_export(name: str, path: str, line: int) -> dict:
+    return {"export_name": name, "export_type": "function", "source_file": path, "source_line": line,
+            "ast_node_type": "function_declaration", "confidence": "T1", "extraction_method": "ast-grep"}
+
+
+class TestSourceLibrary:
+    def _library(self, doc: dict, name: str) -> str:
+        [entry] = [e for e in doc["entries"] if e["export_name"] == name]
+        return entry["source_library"]
+
+    def _incremental(self, old: dict, per_file: list, exports: list) -> tuple[dict, dict]:
+        return mod.apply_update(update_type="incremental", provenance=old, skill_name="storybook",
+                                manifest={"total_export_changes": len(exports), "per_file": per_file},
+                                extraction={"exports": exports}, test_report_run_id=None, **BLOCK)
+
+    def _new_export(self, old: dict, path: str, name: str, **change) -> tuple[dict, dict]:
+        """An incremental NEW_EXPORT of `name` in `path`, the runner's record at line 20."""
+        return self._incremental(old, [{"file_path": path, "status": "MODIFIED", "exports_affected": [
+            {"name": name, "change_type": "NEW_EXPORT", "old_line": None, "new_line": 20, **change}]}],
+            [_runner_export(name, path, 20)])
+
+    @staticmethod
+    def _unresolved(named: str, count: int = 1) -> str:
+        return (f"provenance: {count} new entr{'y' if count == 1 else 'ies'} took source_library @storybook/react, "
+                f"the map's first, as the map names several libraries (@storybook/react, storybook) and each "
+                f"entry's file or folder does not settle which: {named}; check each entry's source_library")
+
+    def test_a_re_extracted_export_takes_its_files_library(self) -> None:
+        records = {"mode": "gap-driven", "verification": [
+            _verification("ANGULAR_JSON_PATH", "re-extracted", "NEW_EXPORT", new_location=f"{STORYBOOK_CLI}:9")],
+            "files": [{"file_path": STORYBOOK_CLI, "exports": [
+                {"name": "ANGULAR_JSON_PATH", "type": "constant", "location": f"{STORYBOOK_CLI}:9",
+                 "confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": "lexical_declaration"}]}]}
+        doc, summary = mod.apply_update(update_type="gap-driven", provenance=_storybook_map(), skill_name="storybook",
+                                        records=records, test_report_run_id="r", **BLOCK)
+        assert self._library(doc, "ANGULAR_JSON_PATH") == "storybook" and summary["warnings"] == []
+
+    def test_an_entry_in_a_new_file_takes_its_folders_library(self) -> None:
+        new = "code/core/src/cli/new.ts"
+        records = {"mode": "gap-driven", "files": [], "verification": [
+            _verification("scaffold", "verified", "NEW_EXPORT", source_citation={"file": new, "line": 4},
+                          reachability="public")]}
+        doc, summary = mod.apply_update(update_type="gap-driven", provenance=_storybook_map(), skill_name="storybook",
+                                        records=records, test_report_run_id="r", **BLOCK)
+        assert self._library(doc, "scaffold") == "storybook" and summary["warnings"] == []
+
+    def test_a_folder_naming_a_library_and_its_subpaths_gives_the_library(self) -> None:
+        old = _storybook_map(_entry("expect", "code/core/src/test/expect.ts", 5, source_library="storybook/test"))
+        doc, summary = self._incremental(old, [{"file_path": "code/core/src/preview.ts", "status": "ADDED"}],
+                                         [_runner_export("definePreview", "code/core/src/preview.ts", 2)])
+        assert self._library(doc, "definePreview") == "storybook" and summary["warnings"] == []
+
+    def test_an_incremental_new_export_takes_its_files_library(self) -> None:
+        doc, summary = self._new_export(_storybook_map(), STORYBOOK_CLI, "fn2")
+        assert self._library(doc, "fn2") == "storybook" and summary["warnings"] == []
+
+    def test_the_files_own_library_beats_an_unrelated_sibling_in_its_folder(self) -> None:
+        old = _storybook_map(_entry("builder", "code/core/src/cli/angular/builder.ts", 2,
+                                    source_library="@storybook/angular"))
+        doc, summary = self._new_export(old, STORYBOOK_CLI, "fn2")
+        assert self._library(doc, "fn2") == "storybook" and summary["warnings"] == []
+
+    def test_a_files_own_entries_naming_a_library_and_its_subpath_give_the_library(self) -> None:
+        # the folder also names an unrelated library, so only the file's own entries settle it
+        expect = "code/core/src/test/expect.ts"
+        old = _storybook_map(_entry("expect", expect, 5, source_library="storybook/test"),
+                             _entry("spy", expect, 9, source_library="storybook"),
+                             _entry("ngTest", "code/core/src/test/angular.ts", 1, source_library="@storybook/angular"))
+        doc, summary = self._new_export(old, expect, "assertType")
+        assert self._library(doc, "assertType") == "storybook" and summary["warnings"] == []
+
+    def test_a_files_own_entries_naming_two_unrelated_libraries_give_the_first_with_a_warning(self) -> None:
+        old = _storybook_map(_entry("docs", STORYBOOK_CLI, 30, source_library="@storybook/addon-docs"))
+        doc, summary = self._new_export(old, STORYBOOK_CLI, "fn2")
+        assert self._library(doc, "fn2") == "@storybook/react"
+        assert summary["warnings"] == [
+            "provenance: 1 new entry took source_library @storybook/react, the map's first, as the map names several "
+            "libraries (@storybook/react, storybook, @storybook/addon-docs) and each entry's file or folder does not "
+            f"settle which: fn2 in {STORYBOOK_CLI}; check each entry's source_library"]
+
+    def test_a_file_whose_folder_names_several_libraries_gets_the_first_with_a_warning(self) -> None:
+        doc, summary = self._incremental(_storybook_map(), [{"file_path": "code/new.ts", "status": "ADDED"}],
+                                         [_runner_export("setup", "code/new.ts", 1)])
+        assert self._library(doc, "setup") == "@storybook/react"
+        assert summary["warnings"] == [self._unresolved("setup in code/new.ts")]
+
+    def test_an_export_moved_from_another_file_tries_its_old_file(self) -> None:
+        # code/ names both libraries, so the new file settles nothing; its old file's entries name storybook
+        doc, summary = self._new_export(_storybook_map(), "code/moved.ts", "relocated", old_file=STORYBOOK_CLI)
+        assert self._library(doc, "relocated") == "storybook" and summary["warnings"] == []
+
+    @pytest.mark.parametrize("new_path, library", [
+        ("code/legacy.ts", "storybook"),  # code/ names several libraries: the old path's entries settle it
+        ("code/frameworks/angular/src/legacy.ts", "@storybook/angular"),  # the new path's folder settles it first
+    ])
+    def test_a_moved_files_new_export_tries_its_new_path_then_its_old(self, new_path: str, library: str) -> None:
+        old_path = "code/core/src/legacy.ts"
+        doc, summary = self._incremental(
+            _storybook_map(_entry("legacy", old_path, 1, source_library="storybook"),
+                           _entry("builder", "code/frameworks/angular/src/builder.ts", 2,
+                                  source_library="@storybook/angular")),
+            [{"file_path": new_path, "status": "MOVED", "old_path": old_path}],
+            [_runner_export("legacy", new_path, 1), _runner_export("added", new_path, 9)])
+        assert (self._library(doc, "legacy"), self._library(doc, "added")) == ("storybook", library)
+        assert summary["warnings"] == []
+
+    def test_a_docs_only_runs_new_export_takes_its_urls_library(self) -> None:
+        react, core = "https://docs.example.com/react/api", "https://docs.example.com/core/api"
+        old = {"entries": [
+            {"export_name": "render", "source_library": "@storybook/react", "source_file": react, "confidence": "T3",
+             "signature_source": "T3"},
+            {"export_name": "fn", "source_library": "storybook", "source_file": core, "confidence": "T3",
+             "signature_source": "T3"}]}
+        records = {"mode": "docs-only", "changed_urls": [core], "exports": [
+            {"name": "fn", "type": "function", "url": core}, {"name": "spyOn", "type": "function", "url": core}]}
+        doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="storybook",
+                                        records=records, test_report_run_id=None, **BLOCK)
+        assert (self._library(doc, "fn"), self._library(doc, "spyOn")) == ("storybook", "storybook")
+        assert summary["warnings"] == []
+
+    def test_a_full_update_takes_the_same_rule(self) -> None:
+        doc, summary = mod.apply_update(update_type="full", provenance=_storybook_map(), skill_name="storybook",
+                                        extraction={"exports": [_runner_export("scaffold", "code/core/src/cli/new.ts",
+                                                                               4)]},
+                                        test_report_run_id=None, **BLOCK)
+        assert self._library(doc, "scaffold") == "storybook" and summary["warnings"] == []
+
+    def test_a_single_library_map_gives_its_library(self) -> None:
+        doc, summary = mod.apply_update(
+            update_type="incremental", provenance=_old_map(), skill_name="other",
+            manifest={"total_export_changes": 1, "per_file": [{"file_path": "elsewhere/new.py", "status": "ADDED"}]},
+            extraction={"exports": [_runner_export("brand_new", "elsewhere/new.py", 1)]}, test_report_run_id=None,
+            **BLOCK)
+        assert self._library(doc, "brand_new") == "lib" and summary["warnings"] == []
+
+    def test_an_entry_with_no_file_takes_the_first_library_with_a_warning(self) -> None:
+        records = {"mode": "gap-driven", "files": [], "verification": [
+            _verification("Story", "unknown", "NEW_EXPORT", severity="Medium")]}
+        doc, summary = mod.apply_update(update_type="gap-driven", provenance=_storybook_map(), skill_name="storybook",
+                                        records=records, merge_records={"exports": [
+                                            {"export_name": "Story", "export_type": "type"}]},
+                                        test_report_run_id="r", **BLOCK)
+        assert self._library(doc, "Story") == "@storybook/react"
+        assert summary["warnings"] == [self._unresolved("Story (no file)")]
+
+    def test_the_warning_counts_every_entry_and_lists_the_first_ten(self) -> None:
+        records = {"mode": "gap-driven", "files": [], "verification": [
+            _verification(f"S{i}", "unknown", "NEW_EXPORT", severity="Low") for i in range(12)]}
+        doc, summary = mod.apply_update(update_type="gap-driven", provenance=_storybook_map(), skill_name="storybook",
+                                        records=records, test_report_run_id="r", **BLOCK)
+        named = ", ".join(f"S{i} (no file)" for i in range(10)) + ", and 2 more"
+        assert summary["warnings"] == [self._unresolved(named, 12)]
+
+
+# #802: an entry an older map carried without a signature_source takes the one its labels give
+
+
+def _unsigned(name: str, line: int, path: str = "pkg/old.py", **labels) -> dict:
+    entry = _entry(name, path, line, **labels)
+    del entry["signature_source"]
+    return entry
+
+
+class TestBackfillSignatureSource:
+    def test_the_tiers_are_the_ones_the_stats_helper_bins(self) -> None:
+        assert {tier.upper() for tier in mod.SIGNATURE_SOURCES} == set(stats._SIG_MAP)
+
+    def test_an_old_maps_entries_are_backfilled_so_the_stats_helper_bins_them(self) -> None:
+        old = {"provenance_version": "2.0", "skill_name": "lib", "skill_type": "single", "entries": [
+            _unsigned("matched", 1),
+            _unsigned("by_eye", 2, confidence="T1-low", extraction_method="source-read", ast_node_type=None),
+            {"export_name": "documented", "export_type": "function", "source_library": "lib",
+             "source_file": "https://docs.example.com/api", "confidence": "T3", "extraction_method": "doc-fetch"},
+            _unsigned("direct", 4, extraction_method="direct-read", ast_node_type=None),
+            _entry("labelled", "pkg/old.py", 5)]}
+        judgment = {"exports_public_api": 5, "exports_internal": 0}
+        before = stats.coherence_compute(stats.derive_stats(old, judgment), old)
+        assert "confidence_distribution" in [v["field"] for v in before["violations"]]
+        doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                        manifest={"total_export_changes": 0, "per_file": []},
+                                        test_report_run_id=None, **BLOCK)
+        assert [e["signature_source"] for e in doc["entries"]] == ["T1", "T1-low", "T3", "T1-low", "T1"]
+        assert [{k: v for k, v in e.items() if k != "signature_source"} for e in doc["entries"][:4]] == \
+            old["entries"][:4]
+        assert doc["entries"][4] == old["entries"][4]
+        assert summary["signature_source_backfilled"] == {"T1": 1, "T1-low": 2, "T3": 1}
+        assert summary["entries"] == {"added": [], "updated": [], "removed": []}
+        assert summary["warnings"] == [
+            "provenance: backfilled signature_source on 4 entries that had none or an unrecognized value (a map "
+            "written before the key existed), from each one's confidence and extraction_method: 1 T1, 2 T1-low, 1 T3"]
+        after = stats.coherence_compute(stats.derive_stats(doc, judgment), doc)
+        assert "confidence_distribution" not in [v["field"] for v in after["violations"]]
+
+    @pytest.mark.parametrize("method, confidence, expected", [
+        ("ast-grep", "T1", "T1"),
+        ("ast_bridge", "T1", "T1"),
+        (" AST-Grep ", "T1", "T1"),  # the method compared stripped and case-insensitively
+        ("ast-grep", "T1-low", "T1-low"),  # a confidence below T1 wins over the method
+        ("AST_BRIDGE", "t2", "T2"),
+        ("source-read", "T1", "T1-low"),  # T1 needs an ast-grep match
+        ("source_reading", "T3", "T3"),
+        ("direct-read", "T1", "T1-low"),
+        ("doc-fetch", "T3", "T3"),
+        (None, None, "T1-low"),
+    ])
+    def test_each_entry_takes_its_confidence_else_its_methods_tier(self, method, confidence, expected) -> None:
+        entry = {k: v for k, v in _unsigned("e", 1).items() if k not in ("confidence", "extraction_method")}
+        entry.update({k: v for k, v in (("confidence", confidence), ("extraction_method", method)) if v is not None})
+        doc, summary = mod.apply_update(update_type="incremental", provenance={"entries": [entry]}, skill_name="lib",
+                                        test_report_run_id=None, **BLOCK)
+        assert doc["entries"][0]["signature_source"] == expected
+        assert summary["signature_source_backfilled"] == {expected: 1}
+
+    def test_a_recognized_value_in_any_case_stays_and_an_unrecognized_one_is_listed(self) -> None:
+        old = {"entries": [
+            _entry("lower", "pkg/a.py", 1, confidence="T1-low", extraction_method="source-read", ast_node_type=None,
+                   signature_source="t1-low"),
+            _entry("odd", "pkg/a.py", 2, signature_source="high"),
+            _entry("numbered", "pkg/a.py", 3, signature_source=1),
+            _unsigned("annotated", 4, confidence="t2", extraction_method="source_reading", ast_node_type=None),
+            _unsigned("claimed", 5, extraction_method="source-read", ast_node_type=None)]}
+        doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib",
+                                        test_report_run_id=None, **BLOCK)
+        assert [e["signature_source"] for e in doc["entries"]] == ["t1-low", "T1", "T1", "T2", "T1-low"]
+        assert summary["signature_source_backfilled"] == {"T1": 2, "T1-low": 1, "T2": 1}
+        assert summary["warnings"] == [
+            "provenance: backfilled signature_source on 4 entries that had none or an unrecognized value (a map "
+            "written before the key existed), from each one's confidence and extraction_method: 2 T1, 1 T1-low, "
+            "1 T2; unrecognized values replaced: odd: high -> T1, numbered: 1 -> T1"]
+
+    def test_a_moved_export_whose_signature_the_runner_did_not_give_takes_t1_low(self) -> None:
+        # the runner matched the export at its new line but gave no params, so the entry keeps the params it held,
+        # and its new ast-grep labels say nothing of them: no T1 is derived from them
+        old = {"entries": [_unsigned("shifted", 30, "pkg/a.py", params=["x"], confidence="T1-low",
+                                     extraction_method="source-read", ast_node_type=None)]}
+        manifest = {"total_export_changes": 1, "per_file": [{"file_path": "pkg/a.py", "status": "MODIFIED",
+                                                             "exports_affected": [
+            {"name": "shifted", "change_type": "MOVED_EXPORT", "old_line": 30, "new_line": 33}]}]}
+        extraction = {"exports": [_runner_export("shifted", "pkg/a.py", 33)]}
+        doc, summary = mod.apply_update(update_type="incremental", provenance=old, skill_name="lib", manifest=manifest,
+                                        extraction=extraction, test_report_run_id=None, **BLOCK)
+        [entry] = doc["entries"]
+        assert (entry["source_line"], entry["params"], entry["extraction_method"], entry["signature_source"]) == \
+            (33, ["x"], "ast-grep", "T1-low")
+        assert (summary["signature_source_backfilled"], summary["entries"]["updated"]) == ({}, ["shifted"])
+
+    def test_a_map_with_every_signature_source_backfills_nothing(self) -> None:
+        doc, summary = mod.apply_update(update_type="incremental", provenance=_old_map(), skill_name="lib",
+                                        test_report_run_id=None, **BLOCK)
+        assert (summary["signature_source_backfilled"], summary["warnings"]) == ({}, [])
+        assert doc["entries"] == _old_map()["entries"]
 
 
 # --------------------------------------------------------------------------

@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  In a skill whose provenance map names several libraries (Storybook's names `@storybook/react`, `storybook` and `storybook/test`), Update Skill gave every export it added to the map the `source_library` of the map's first entry, whatever file the export is in. A new entry now takes the library the other entries of its file name, else the one the entries under the nearest folder above it name; when they name a library and its subpaths, such as `storybook` beside `storybook/test`, it takes the library itself. An export in a moved file, or one that moved from another file, also tries its old file. When neither settles it, or the export has no source file, the entry takes the map's first library as before, and one warning counts and names those entries so you can correct them.
+issues: [808]
+prs: [853]

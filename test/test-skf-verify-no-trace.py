@@ -233,8 +233,9 @@ class TestSourceFacts:
     def test_update_skills_write_step_is_read(self):
         """write.md names its keys in backticks; the pin reads them, so a new one there fails too."""
         # the file rows `apply` writes (their source_file) are its docstring's, not restated in write.md (v4.0.0
-        # quality gate run 1, skf-update-skill determinism-1)
-        assert _writer_keys(UPDATE_WRITE) == {"source_commit", "source_ref", "source_root"}
+        # quality gate run 1, skf-update-skill determinism-1); `source_library` is the library `apply` gives a new
+        # provenance entry, which write.md names for its warning (#808)
+        assert _writer_keys(UPDATE_WRITE) == {"source_commit", "source_ref", "source_root", "source_library"}
 
     @pytest.mark.parametrize("nested", [False, True], ids=["top-level", "nested"])
     @pytest.mark.parametrize("key", SOURCE_FACTS)
