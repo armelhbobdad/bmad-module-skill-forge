@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   Test Skill's report template and the frontmatter its first step writes into a new report now list the same keys, and the step says its frontmatter replaces the template's. The two lists used to differ (the template had no `thresholdSource`, the step no `health_check_dispatched`) and nothing said which one won, so a report could start without the threshold source that scoring reads back from it.
 issues: [777]
+prs: [857]
