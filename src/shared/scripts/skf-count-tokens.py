@@ -23,10 +23,23 @@ Measured artifacts (all relative to the positional skill-package dir):
                            extracted from the first --target-file that contains one
                            (shared across the batch; measured once)
 
+The managed_section object also gives `skills`, the number of skill rows (each
+`[name v...]` row header) in the measured block, and `target_files`, every --target-file
+that holds a block, in the order passed and each once. A target file that cannot be read
+as UTF-8 text is skipped.
+
 package_total sums context-snippet.md + SKILL.md + metadata.json + references_total and
 DELIBERATELY EXCLUDES the managed-section row — the managed section is a shared all-skills
 cost reported separately, and including it would double-count this skill's own snippet
 (see references/token-report.md §1).
+
+context_budget gives the token report's Context Budget Impact values, in tokens:
+  - always_on:       the managed section (loaded in every session); null when no
+                     target file holds a block
+  - on_trigger:      SKILL.md (loaded when the skill triggers)
+  - full_disclosure: SKILL.md + references_total (loaded when every reference is read too);
+                     neither the snippet nor metadata.json, so it is not package_total
+  - snippet:         context-snippet.md (this skill's share of the managed section)
 
 CLI:
   python3 skf-count-tokens.py <skill-package-dir>
@@ -51,6 +64,13 @@ MANAGED_SECTION_RE = re.compile(
     r"<!-- SKF:BEGIN[^>]*-->.*?<!-- SKF:END -->",
     re.DOTALL,
 )
+
+# A skill row header of the managed section: `[name v<version>]` at the start of a line,
+# optionally after the format's leading `|`, with or without a `root:` field. The
+# ` v<version>` keeps the section's own `[SKF Skills]|{n} skills|{m} stack` header out.
+# This is skf-rebuild-managed-sections.py's ROW_HEADER_PATTERN, so both scripts count the
+# rows parse_managed_rows returns (test-skf-count-tokens.py keeps them in step).
+MANAGED_ROW_RE = re.compile(r"^\|?\[(?P<name>[^\]]+?) v(?P<version>[^\]\s]+)\]", re.MULTILINE)
 
 # Core per-skill artifacts, in report order. (references/ is handled separately.)
 CORE_ARTIFACTS = [
@@ -85,6 +105,11 @@ def extract_managed_section(text: str) -> str | None:
     """Return the complete BEGIN..END managed-section span (markers included), or None."""
     m = MANAGED_SECTION_RE.search(text)
     return m.group(0) if m else None
+
+
+def count_managed_skills(section: str) -> int:
+    """The number of skill rows (`[name v...]` row headers) in a managed section."""
+    return len(MANAGED_ROW_RE.findall(section))
 
 
 def measure_reference_files(references_dir: Path) -> tuple[list[dict], dict]:
@@ -144,20 +169,38 @@ def count_package(skill_dir: Path, target_files: list[Path] | None = None) -> di
         "tokens": sum(core_by_role[r]["tokens"] for r in core_by_role) + references_total["tokens"],
     }
 
-    # Managed section — first --target-file that actually contains a block wins.
-    managed_section = {"present": False, "source_file": None, "words": 0, "tokens": 0}
+    # Managed section: the first --target-file that actually contains a block is measured;
+    # target_files lists every one that holds a block.
+    managed_section = {"present": False, "source_file": None, "target_files": [], "skills": 0,
+                       "words": 0, "tokens": 0}
+    seen: set[Path] = set()
     for tf in target_files:
         tf = Path(tf)
-        if not tf.is_file():
+        if tf.resolve() in seen or not tf.is_file():
             continue
-        section = extract_managed_section(_read_text(tf))
-        if section is not None:
-            managed_section = {
-                "present": True,
-                "source_file": tf.as_posix(),
+        seen.add(tf.resolve())
+        try:
+            section = extract_managed_section(_read_text(tf))
+        except (OSError, UnicodeDecodeError):
+            continue  # unreadable or not UTF-8: it holds no block this helper can measure
+        if section is None:
+            continue
+        managed_section["target_files"].append(tf.as_posix())
+        if not managed_section["present"]:
+            managed_section.update(
+                present=True,
+                source_file=tf.as_posix(),
+                skills=count_managed_skills(section),
                 **measure(section),
-            }
-            break
+            )
+
+    # The Context Budget Impact values token-report.md §2 renders.
+    context_budget = {
+        "always_on": managed_section["tokens"] if managed_section["present"] else None,
+        "on_trigger": core_by_role["skill-md"]["tokens"],
+        "full_disclosure": core_by_role["skill-md"]["tokens"] + references_total["tokens"],
+        "snippet": core_by_role["context-snippet"]["tokens"],
+    }
 
     return {
         "status": "ok",
@@ -166,6 +209,7 @@ def count_package(skill_dir: Path, target_files: list[Path] | None = None) -> di
         "references_total": references_total,
         "managed_section": managed_section,
         "package_total": package_total,
+        "context_budget": context_budget,
     }
 
 

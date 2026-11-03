@@ -350,23 +350,24 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **Regenerate `context-snippet.md` if stale:**
 
-`context-snippet.md` is a `{skill_package}` deliverable that goes stale whenever **headline exports**, **version**, or **gotchas** change in this run. Regenerate it only when at least one of these triggers fired; otherwise skip — a skip is the correct outcome for gap-driven repairs and other runs that touch internals below the snippet's surface, where regenerating would produce byte-identical content.
+`context-snippet.md` is a `{skill_package}` deliverable that goes stale whenever **headline exports**, **version**, **gotchas** or **section anchors** change in this run. Regenerate it only when at least one of these triggers fired; otherwise skip: a skip is the correct outcome for gap-driven repairs and other runs that touch internals below the snippet's surface, where regenerating would produce byte-identical content.
 
 **Staleness triggers:**
 
-- **Headline exports changed** — the top-K exports surfaced in the snippet differ from the prior snippet (a `NEW_EXPORT` was promoted into a headline slot, or a `MODIFIED_EXPORT` changed the signature/shape of a surfaced export).
+- **Headline exports changed**: the api names `skf-export-skill/references/generate-snippet.md` §3b ranks for this run differ from the prior snippet's `|api:` line (a listed name left `exports` or is now deprecated, a `NEW_EXPORT` took a free slot, or a `MODIFIED_EXPORT` changed the kind of a listed name). In gap-driven mode it fires only when a name of the prior line left `exports` or SKILL.md now marks it deprecated or removed: a line that differs by the ranking alone (its order, a free slot or the tier's limit) waits for the next export.
 - **Version changed** — §2 bumped `version` (normal mode with detected source drift; never fires in gap-driven mode per §2's carve-out).
-- **Gotchas changed** — new gotchas surfaced from this run's evidence that were not in the prior snippet, or a prior gotcha was invalidated and removed.
+- **Gotchas changed**: the gotchas line `skf-export-skill/references/generate-snippet.md` §3a resolves from the merged SKILL.md and this run's evidence report (at most 3 pitfalls, in its order) differs from the prior snippet's `|gotchas:` line, `[CARRIED]` markers aside.
+- **Anchors changed**: the prior snippet's `|quick-start:` or `|key-types:` anchor differs from the one `generate-snippet.md` §3b item 4 gives for the merged SKILL.md (an anchor points into `references/` although SKILL.md has the heading, or a heading moved). Record it as `anchors` in `Triggers fired`.
 
 **Record the decision on the on-disk evidence report:** open `{forge_version}/evidence-report.md` (written by §4 with placeholder values in the `### Context Snippet` sub-block) and update that sub-block under the Update Operation section just written. Set `Regenerated: true|false`, fill `Triggers fired:` with the list of triggers that fired (or `—` when none), and write a one-sentence `Notes:` entry. See §4's "Context Snippet population" note for field semantics.
 
 **If no trigger fired:** skip regeneration: do not touch `context-snippet.md` on disk. The snippet remains valid against the prior run's surface. Continue to §6.
 
-**If at least one trigger fired:** regenerate the snippet using the format from `skf-create-skill/assets/skill-sections.md` (pipe-delimited indexed format).
+**If at least one trigger fired:** regenerate the snippet. Its content comes from `skf-export-skill/references/generate-snippet.md` §3a and §3b, as the paragraph below says; `skf-create-skill/assets/skill-sections.md` gives only its line format (pipe-delimited indexed format).
 
 Use the **flat draft form** for the `root:` path in the draft snippet: `root: skills/{skill-name}/`. The per-IDE skill root (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/` — see `skf-export-skill/assets/managed-section-format.md`) is applied later by `export-skill` step 3 when the skill is exported. Do not choose an IDE-specific prefix in update-skill — that is an export-time decision that depends on config.yaml.
 
-Pull values for the regenerated snippet from the updated metadata.json (version, top exports), the merged SKILL.md (section anchors, inline summaries), and the evidence report (new gotchas). If gotchas cannot be derived from the updated evidence but the prior snippet has a `|gotchas:` line, carry forward the prior line with the `[CARRIED]` marker — see `skf-export-skill/references/generate-snippet.md` for the carry-forward protocol (one-cycle limit).
+Take the version from the updated metadata.json and the inline summaries from the merged SKILL.md. Rank the api names and verify the section anchors as `skf-export-skill/references/generate-snippet.md` §3b states, and derive the gotchas as its §3a states: the merged SKILL.md, this run's evidence report (`{forge_version}/evidence-report.md`) and the provenance map §3 wrote (`{forge_version}/provenance-map.json`, its `{forge_provenance_map}`) are the current sources, and the prior `context-snippet.md` gives `prior_api` and `prior_gotchas` (its §2.5). A prior pitfall no current source states takes a free slot with the `[CARRIED]` marker, or is dropped when already carried, by that file's carry-forward protocol (one-cycle limit).
 
 Write the regenerated snippet to `{skill_package}/context-snippet.md`, preserving file permissions.
 

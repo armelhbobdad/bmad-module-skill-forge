@@ -24,6 +24,11 @@ commands it documents:
   report of that version through `skf-find-test-report.py find`.
 - leanness-3: one gotchas decision tree, first-export branch included, serves
   single and stack skills.
+- #810, #811, #818: the current SKILL.md is a gotchas source, so `[CARRIED]`
+  marks only a prior pitfall no current source backs; the api line has one
+  ranking (the prior `|api:` names, then `## Key API Summary`, then
+  metadata.json `exports`); an anchor SKILL.md holds stays on SKILL.md. The
+  snippet format and update-skill's regeneration say the same.
 """
 
 from __future__ import annotations
@@ -757,7 +762,9 @@ def test_the_documented_calls_read_the_report_of_the_version_being_exported(tmp_
         for key in field.split("."):
             value = value[key]
         bound[name] = value
-    assert set(bound) == {"resolved_version", "resolved_skill_package", "forge_version", "forge_evidence_report"}
+    assert set(bound) == {"resolved_version", "resolved_skill_package", "forge_version", "forge_evidence_report",
+                          "forge_provenance_map"}
+    assert bound["forge_provenance_map"] is None, "no provenance map on disk: the api line keeps the prior `()`"
     assert bound["resolved_version"] == "1.1.0"
     assert Path(bound["resolved_skill_package"]).parts[-3:] == ("zod", "1.1.0", "zod")
     assert Path(bound["forge_evidence_report"]).parts[-3:] == ("zod", "1.1.0", "evidence-report.md")
@@ -790,3 +797,145 @@ def test_both_skill_types_use_one_gotchas_decision_tree():
     assert "`gotchas` per the §3a decision tree" in single
     assert "Stack skills: apply the gotchas decision tree above unchanged, including the first-export branch." in stack
     assert "Same one-cycle expiry logic" not in text and "See the single-skill steps" not in text
+
+
+# --------------------------------------------------------------------------
+# #810, #811, #818: the snippet's gotchas sources, api ranking and anchors
+# --------------------------------------------------------------------------
+
+SNIPPET_FORMAT = "assets/snippet-format.md"
+UPDATE_WRITE = SRC / "skf-update-skill" / "references" / "write.md"
+
+
+def _generate() -> str:
+    return _section(_read(SNIPPET), "### 3. Generate Snippet Content", "### 4. Verify Token Count")
+
+
+def _line(text: str, start: str) -> str:
+    """The one line of `text` that starts with `start`."""
+    [line] = [line for line in text.split("\n") if line.startswith(start)]
+    return line
+
+
+def _in_order(text: str, *parts: str) -> bool:
+    return all(part in text for part in parts) and [text.index(p) for p in parts] == sorted(text.index(p) for p in parts)
+
+
+def _regeneration() -> str:
+    return _section(UPDATE_WRITE.read_text(encoding="utf-8"), "### 5. Regenerate context-snippet.md", "### 6. ")
+
+
+def test_a_gotcha_the_current_skill_md_states_is_derived_not_carried():
+    """#810: a deprecation SKILL.md states and the evidence report lacks is kept without `[CARRIED]`."""
+    text = _read(SNIPPET)
+    shared = _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
+    sources = _section(shared, "A gotcha is **derived** when a current source states it:", "**Detect first-export state")
+    assert "a T2-future annotation in the evidence report at `{forge_evidence_report}`, when step 1 §2 bound" in sources
+    skill_md = _line(sources, "2. **The current SKILL.md**")
+    assert "a bullet of a section whose heading names gotchas, deprecations, migration, breaking changes or " \
+           "import corrections" in skill_md
+    assert "a `## Key API Summary` row whose purpose says deprecated or removed" in skill_md
+    assert "an async requirement its Quick Start shows (an API it calls with `await`)" in skill_md
+    assert "Key API Summary` rows give" not in text, "the summary table has no kind column"
+    assert "that source 1 or 2 still states, kept in its prior wording without the `[CARRIED]` marker" in sources
+    assert "`[CARRIED]` applies only to a prior pitfall no current source backs." in sources
+    assert "cannot be derived from the current evidence report" not in text
+    drop = _line(shared, "- **If an unbacked prior pitfall is already carried")
+    assert "no longer appear in the current SKILL.md or evidence report" in drop
+    assert "re-forge the skill with update-skill" in drop and "the evidence report's T2-future section" in drop
+    rule = _line(_read(SNIPPET_FORMAT), "- **gotchas line**")
+    assert "the current SKILL.md, through a bullet of a section whose heading names gotchas, deprecations" in rule
+    assert "`[CARRIED]` marks only a prior pitfall no current source backs" in rule
+    five = _regeneration()
+    assert "new gotchas" not in five and "derive the gotchas as its §3a states" in five
+    assert "this run's evidence report (`{forge_version}/evidence-report.md`) and the provenance map §3 wrote" in five
+
+
+def test_the_gotchas_line_has_one_selection():
+    """#810: at most 3 pitfalls split and joined on snippet-format's `; `; still-stated prior ones first;
+    an unbacked prior pitfall takes a free slot marked `[CARRIED]` and is never dropped silently."""
+    prior = _section(_read(SNIPPET), "### 2.5. Check Existing Snippet", "### 2.7. ")
+    assert "split `prior_gotchas_content` on the pitfall separator {snippetFormatData} gives (`; `)" in prior
+    assert "A pitfall that starts with the token `[CARRIED]` (whitespace-insensitive) is **already carried**" in prior
+    assert "prior_gotchas_already_carried" not in _read(SNIPPET)
+    shared = _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
+    assert "The line holds at most 3 pitfalls, joined by the separator {snippetFormatData} gives " \
+           "(`|gotchas: {pitfall-1}; {pitfall-2}; {pitfall-3}`)" in shared
+    derived = _line(shared, "- **If gotchas are derived:**")
+    assert _in_order(derived, "the prior pitfalls a current source still states, in their prior order",
+                     "then the new ones, in source order", "the first 3 of them",
+                     "Each slot left free goes to an unbacked prior pitfall, in prior order")
+    carry = _line(shared, "- **If an unbacked prior pitfall gets a free slot AND `is_first_export == false`")
+    assert "write it as `[CARRIED] {pitfall}`, beside any derived ones" in carry
+    drop = _line(shared, "- **If an unbacked prior pitfall is already carried")
+    assert "or gets no free slot:** Drop it. Emit warning" in drop
+    assert "Gotchas preserved from prior export" in carry
+    fmt = _read(SNIPPET_FORMAT)
+    assert "At most 3 pitfalls, separated by `; `" in _line(fmt, "- **gotchas line**")
+    assert "At most 3 pitfalls, separated by `; `" in _line(fmt, "- **Line 6 (gotchas):**")
+    trigger = _line(_regeneration(), "- **Gotchas changed**")
+    assert "(at most 3 pitfalls, in its order) differs from the prior snippet's `|gotchas:` line, " \
+           "`[CARRIED]` markers aside" in trigger
+
+
+def test_the_api_line_has_one_ranking():
+    """#811: the prior `|api:` names, then the `## Key API Summary` rows, then metadata.json `exports`."""
+    text = _read(SNIPPET)
+    prior = _section(text, "### 2.5. Check Existing Snippet", "### 2.7. ")
+    assert "capture the names, in order, as `prior_api` (no `()`, no spaces), noting each name the line wrote " \
+           "with `()`" in prior
+    rank = _line(_section(_generate(), "#### 3b. Single Skills", "#### 3c. "), "2. ")
+    assert _in_order(rank, "the prior snippet's `|api:` line", "SKILL.md's `## Key API Summary` table, in row order",
+                     "the metadata.json `exports`, in order")
+    assert "the Key Components of its `## Component Catalog` rows" in rank
+    assert "the surfaces of its `## Pattern Surface` rows" in rank
+    for normalized in ("without backticks, `()`, a module qualifier (`cognee.add` is `add`) or generic parameters "
+                       "(`Meta<T = Args>` is `Meta`)", "split a cell that names several on `/`"):
+        assert normalized in rank
+    assert "Take each name once, only when metadata.json `exports` lists it" in rank
+    assert "never one the current SKILL.md marks deprecated or removed: a bullet of a section whose heading names " \
+           "deprecations, migration or breaking changes gives it as the deprecated, removed or renamed name (not as " \
+           "its replacement), or its `## Key API Summary` row's purpose says deprecated or removed" in rank
+    assert "the first 10 for the Deep tier, 5 for the other tiers" in rank
+    assert _in_order(rank, "Append `()` to a name whose `export_type` in the provenance map at `{forge_provenance_map}` "
+                     "is a function", "keep the `()` the prior `|api:` line gave it")
+    assert "Key API Summary kind" not in text and "{forge_version}/provenance-map.json" not in text
+    assert "`{forge_provenance_map}` ← `paths.provenance_map.path`" in _read(LOAD)
+    trim = _line(_section(text, "### 4. Verify Token Count", "### 5. "), "- If `{count}` is above 300")
+    assert "drop api names from the end of the §3b ranking, one at a time" in trim
+    assert "Select top exports" not in text
+    fmt = _read(SNIPPET_FORMAT)
+    assert "Top exports from metadata.json" not in fmt
+    assert _in_order(_line(fmt, "- **api line**"), "the prior snippet's `|api:` names in order",
+                     "SKILL.md's `## Key API Summary` rows in row order", "then metadata.json `exports` in order",
+                     "never one the current SKILL.md marks deprecated or removed",
+                     "The first 10 for Deep tier, 5 for all other tiers", "names drop from the end",
+                     "Append `()` to a name whose provenance `export_type` is a function, or else when the prior "
+                     "`|api:` line wrote it with `()`")
+    five = _regeneration()
+    assert "top exports" not in five and "top-K" not in five
+    assert "Rank the api names and verify the section anchors as " \
+           "`skf-export-skill/references/generate-snippet.md` §3b states" in five
+    assert "`skf-create-skill/assets/skill-sections.md` gives only its line format" in five
+    exports = _line(five, "- **Headline exports changed**")
+    assert "In gap-driven mode it fires only when a name of the prior line left `exports` or SKILL.md now marks it " \
+           "deprecated or removed: a line that differs by the ranking alone" in exports
+
+
+def test_an_anchor_skill_md_holds_stays_on_skill_md():
+    """#818: only a heading SKILL.md lacks moves to `references/`, and only for a split-body skill."""
+    anchor = _line(_section(_generate(), "#### 3b. Single Skills", "#### 3c. "), "4. ")
+    assert _in_order(anchor, "when SKILL.md has the heading, keep `SKILL.md#{slug}`",
+                     "Only when SKILL.md lacks the heading and the skill is split-body",
+                     "point the anchor at the `references/{file}.md#{slug}` that holds the heading",
+                     "When neither holds it, omit that anchor line")
+    assert "rewrite the anchor to point to the reference file path" not in anchor
+    rule = _line(_read(SNIPPET_FORMAT), "- Section anchors must be verified")
+    assert _in_order(rule, "Keep `SKILL.md#{slug}` when SKILL.md has the heading",
+                     "Only when SKILL.md lacks it and the skill is split-body",
+                     "point the anchor at the `references/{file}.md#{slug}` that holds it",
+                     "Omit the anchor line when neither")
+    # update-skill regenerates a snippet whose anchors §3b item 4 would place elsewhere.
+    trigger = _line(_regeneration(), "- **Anchors changed**")
+    assert "differs from the one `generate-snippet.md` §3b item 4 gives for the merged SKILL.md" in trigger
+    assert "Record it as `anchors` in `Triggers fired`." in trigger

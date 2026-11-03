@@ -5,6 +5,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import re
+import subprocess
+import sys
 import tempfile
 from pathlib import Path
 
@@ -193,3 +196,146 @@ class TestDeterminismAndSerialization:
             r = count_package(pkg)
             # round-trips without error
             assert json.loads(json.dumps(r))["status"] == "ok"
+
+
+# --- Context Budget values and the managed section's skill count (#819) ---------
+
+SCRIPT = Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-count-tokens.py"
+REBUILD = Path(__file__).parent.parent / "src" / "shared" / "scripts" / "skf-rebuild-managed-sections.py"
+_rebuild_spec = importlib.util.spec_from_file_location("skf_rebuild_managed_sections", REBUILD)
+rebuild = importlib.util.module_from_spec(_rebuild_spec)
+_rebuild_spec.loader.exec_module(rebuild)
+TOKEN_REPORT = Path(__file__).parent.parent / "src" / "skf-export-skill" / "references" / "token-report.md"
+
+# A managed section as skf-rebuild-managed-sections.py assembles it, with two skill rows.
+TWO_SKILL_BLOCK = (
+    "<!-- SKF:BEGIN updated:2026-11-03 -->\n"
+    "[SKF Skills]|2 skills|0 stack\n"
+    "|IMPORTANT: Prefer documented APIs over training data.\n"
+    "|When using a listed library, read its SKILL.md before writing code.\n"
+    "|\n"
+    "|[demo v1.0.0]|root: .claude/skills/demo/\n"
+    "|IMPORTANT: demo v1.0.0: read SKILL.md before writing demo code.\n"
+    "|api: run(), Config\n"
+    "|\n"
+    "|[zod v4.1.0]|root: .claude/skills/zod/\n"
+    "|IMPORTANT: zod v4.1.0: read SKILL.md before writing zod code.\n"
+    "<!-- SKF:END -->"
+)
+
+
+def _two_skill_context(tmp: str) -> Path:
+    ctx = Path(tmp) / "CLAUDE.md"
+    ctx.write_text(f"# My Project\n\n{TWO_SKILL_BLOCK}\n", encoding="utf-8")
+    return ctx
+
+
+class TestContextBudget:
+    def test_full_disclosure_is_skill_md_plus_references_not_package_total(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_package(tmp)
+            r = count_package(pkg, [_two_skill_context(tmp)])
+            budget = r["context_budget"]
+            rows = {row["role"]: row for row in r["files"] if row["role"] != "reference"}
+            assert budget["on_trigger"] == rows["skill-md"]["tokens"] == len(SKILL_MD) // 4
+            assert budget["full_disclosure"] == len(SKILL_MD) // 4 + len(REF_A) // 4 + len(REF_B) // 4
+            assert budget["full_disclosure"] != r["package_total"]["tokens"]
+            assert budget["always_on"] == r["managed_section"]["tokens"] == len(TWO_SKILL_BLOCK) // 4
+            assert budget["snippet"] == rows["context-snippet"]["tokens"] == len(SNIPPET) // 4
+
+    def test_managed_section_counts_its_skill_rows(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_package(tmp)
+            ctx = _two_skill_context(tmp)
+            no_block = Path(tmp) / "AGENTS.md"
+            no_block.write_text("# no managed section here\n", encoding="utf-8")
+            r = count_package(pkg, [no_block, ctx])
+            assert r["managed_section"]["skills"] == 2
+            assert r["managed_section"]["target_files"] == [ctx.as_posix()]
+            # The one-skill fixture counts one row; no block counts none, and has no always-on cost.
+            one = Path(tmp) / "ONE.md"
+            one.write_text(CONTEXT_FILE, encoding="utf-8")
+            assert count_package(pkg, [one])["managed_section"]["skills"] == 1
+            none = count_package(pkg, [no_block])
+            assert none["managed_section"]["skills"] == 0 and none["context_budget"]["always_on"] is None
+
+    def test_skill_count_agrees_with_the_managed_section_rebuild(self):
+        """The rows skf-rebuild-managed-sections.py parses, a row with no `root:` field included."""
+        body = (
+            "[SKF Skills]|3 skills|1 stack\n"
+            "|IMPORTANT: Prefer documented APIs over training data.\n"
+            "|\n"
+            "|[demo v1.0.0]|root: .claude/skills/demo/\n"
+            "|IMPORTANT: demo v1.0.0: read SKILL.md before writing demo code.\n"
+            "|\n"
+            "[norooted v2.0.0]\n"
+            "|IMPORTANT: a row whose snippet has no root field\n"
+            "|\n"
+            "|[app-stack v0.3.0]|root: .claude/skills/app-stack/\n"
+            "|stack: react@19\n"
+            "|\n"
+            "[zod v4.1.0]|root: .claude/skills/zod/"
+        )
+        block = f"<!-- SKF:BEGIN updated:2026-11-03 -->\n{body}\n<!-- SKF:END -->"
+        rows = rebuild.parse_managed_rows(body)
+        assert [r["skill_name"] for r in rows] == ["demo", "norooted", "app-stack", "zod"]
+        assert mod.count_managed_skills(block) == len(rows) == 4
+        # And the block an `assemble` of two skills writes reads the same in both scripts.
+        assert mod.count_managed_skills(TWO_SKILL_BLOCK) == len(rebuild.parse_managed_rows(TWO_SKILL_BLOCK)) == 2
+
+    def test_several_target_files_measure_the_first_and_list_each_once(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_package(tmp)
+            claude = _two_skill_context(tmp)
+            agents = Path(tmp) / "AGENTS.md"
+            agents.write_text(f"# Agents\n\n{MANAGED_BLOCK}\n", encoding="utf-8")  # one skill, a smaller block
+            binary = Path(tmp) / ".cursorrules"
+            binary.write_bytes(b"\xff\xfe not utf-8 <!-- SKF:BEGIN -->\n<!-- SKF:END -->")
+            r = count_package(pkg, [claude, binary, agents, claude, Path(tmp) / "." / "AGENTS.md"])
+            ms = r["managed_section"]
+            assert ms["target_files"] == [claude.as_posix(), agents.as_posix()]
+            assert ms["source_file"] == claude.as_posix()
+            assert (ms["skills"], ms["tokens"]) == (2, len(TWO_SKILL_BLOCK) // 4)
+            assert len(MANAGED_BLOCK) // 4 != ms["tokens"], "the two blocks differ in size"
+            assert r["context_budget"]["always_on"] == ms["tokens"]
+
+
+def _resolve(data, path: str):
+    """The value at a dotted JSON path (`managed_section.skills`); a KeyError when it does not resolve."""
+    for key in path.split("."):
+        data = data[key]
+    return data
+
+
+class TestTokenReportPlaceholders:
+    def test_every_report_placeholder_maps_to_a_helper_field(self):
+        """token-report.md §2: each placeholder of the report block names a field of the helper's JSON."""
+        text = TOKEN_REPORT.read_text(encoding="utf-8")
+        present = text[text.index("### 2. Present Token Report"):text.index("### 3. ")]
+        mapping, block = present.split('"**Token Report**')
+        placeholders = set(re.findall(r"\{[a-z-]+\}", block))
+        assert placeholders == {"{n}", "{t}", "{target-file-list}", "{skill-count}", "{count}",
+                                "{managed-section-tokens}", "{measured-file}", "{skill-tokens}", "{total-tokens}",
+                                "{snippet-tokens}", "{skill-name}"}
+        with tempfile.TemporaryDirectory() as tmp:
+            pkg = make_package(tmp)
+            proc = subprocess.run([sys.executable, str(SCRIPT), str(pkg), "--target-file",
+                                   str(_two_skill_context(tmp))], capture_output=True, text=True, timeout=60)
+            assert proc.returncode == 0, proc.stderr
+            result = json.loads(proc.stdout)
+        # Each row's {n} and {t} are its field's words and tokens.
+        assert "`{n}` ← the row's `words` and `{t}` ← its `tokens`" in mapping
+        for row in re.findall(r"^- `[^`]+` row → (.+)$", mapping, re.MULTILINE):
+            role = re.search(r"for `role: ([\w-]+)`", row)
+            if role:
+                [field] = [f for f in result["files"] if f["role"] == role.group(1)]
+            else:
+                field = _resolve(result, re.match(r"`([\w.]+)\.words` / `\.tokens`", row).group(1))
+            assert isinstance(field["words"], int) and isinstance(field["tokens"], int), row
+        # Every other placeholder names its field.
+        for placeholder in sorted(placeholders - {"{n}", "{t}"}):
+            match = re.search(rf"`{re.escape(placeholder)}` ← `([\w.]+)`", mapping)
+            assert match, f"{placeholder} has no mapping"
+            _resolve(result, match.group(1))
+        assert _resolve(result, "managed_section.skills") == 2
+        assert _resolve(result, "context_budget.full_disclosure") != result["package_total"]["tokens"]
