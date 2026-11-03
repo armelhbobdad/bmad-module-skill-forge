@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill, skf-update-skill
+summary: |
+  A split-body mismatch (the `SKILL.md` body and a `references/` file document one export differently) now points at the file the pinned source contradicts. When Test Skill reads the local source at the pinned commit, at the Forge tier or above, and one declaration settles it, its `split-body-mismatch` gap cites `SKILL.md` when the reference matches the declaration and the body does not, and cites the reference file otherwise; its remediation names the file to edit, the file whose form it takes and the declaration, or says that both forms agree with the source or that no source settled it. The gap's title now names the reference file, so two reference files that disagree with one body are two gaps. Update Skill's `--from-test-report` run keeps that citation as the manifest entry's `package_citation` and edits the file it names, changing only what contradicts and keeping each file's level of detail, where before it always copied the body into the reference file, even when the body was the wrong one.
+issues: [778, 779]

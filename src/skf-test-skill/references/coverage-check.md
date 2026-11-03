@@ -113,7 +113,7 @@ uv run {validateInventoryScript} --input "{run_dir}/inventory-response.txt" --sk
 
 ### 1b. Cross-Check Split-Body Consistency
 
-Only when the validated inventory's `references` is non-empty. The SKILL.md body is authoritative: each `cross_check_mismatches` entry is a High `split-body-mismatch` gap. §5b records it titled `Split-body mismatch: {export}`, with its `export` and its Source at the reference file's line (`{reference_file}:{reference_line}`), inside the skill package: the reference file is the one to update, and update-skill repairs it without reading the source.
+Only when the validated inventory's `references` is non-empty. Each `cross_check_mismatches` entry is a High `split-body-mismatch` gap. §5b records it titled `Split-body mismatch: {export} ({reference_file})`, with its `export` and its Source at the side the source contradicts (the reference file when no source settles it): update-skill edits that file to match the other without reading the source.
 
 ### 2. Analyze Source Code (Tier-Dependent)
 
@@ -323,6 +323,8 @@ uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check -
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from metadata-coherence --input "{run_dir}/metadata-coherence.json" --metadata "{resolved_skill_package}/metadata.json"
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from provenance-line --input "{run_dir}/provenance-verify.json"
 ```
+
+**A split-body mismatch's Source** is a line inside the skill package. At State 1 and the Forge tier or above, with `workspaceDrift` not `overridden`, set the two forms its `issue` gives against the export's declaration at the `file` and `line` `surface.json` gives, when that one declaration decides (no overload set, no second declaring file): when the reference agrees and the body does not, the Source is `SKILL.md:{skill_md_line}`, else `{reference_file}:{reference_line}`. Its remediation names the file to edit and the file and line whose form it takes, citing the declaration's `file:line`; when both forms agree with it, it says so and names what differs; when neither does, or nothing decides, it says no source settled it.
 
 Then write the records no script wrote, §1b's split-body mismatches, in the Ledger Record Format of `{outputFormatsFile}`, each naming its export in `export` and in its title: the ledger tells two gaps apart by their title, Source and `export`, and update-skill takes the export's name from `export`. Write them as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`): the hard gate refuses to decide until every stage before it has recorded, with gaps or without.
 
