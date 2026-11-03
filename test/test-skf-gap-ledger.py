@@ -1062,9 +1062,16 @@ class TestCountAdapters:
         ]
         assert "40 exports, 60.0% above `stats.effective_denominator` (25)" in records[0]["issue"]
         assert "`scope.tier_a_include`" in records[1]["remediation"]
+        # #788: on an umbrella barrel both gaps still name the brief's tier A list, never a stored count set by hand
         surface["guards"]["umbrella"]["umbrella"] = True
-        umbrella = mod.from_guards(surface, "other/metadata.json")[1]["remediation"]
-        assert umbrella.startswith("Set `stats.effective_denominator` in `other/metadata.json`")
+        deflation, inflation = (r["remediation"] for r in mod.from_guards(surface, "other/metadata.json"))
+        assert deflation == inflation == (
+            "Add `scope.tier_a_include` to `data/skill-brief.yaml`, listing the files that define the authored names "
+            "rather than the root barrel, an umbrella of re-exports: the `scope.include` union is itself inflated, "
+            "so neither it nor the smaller stored count measures the authored surface. Then re-run Create Skill to "
+            "recount `stats.effective_denominator` in `other/metadata.json` from the tier A set: it stores that "
+            "count when `effective_denominator_decision.store` holds and the brief's `scope.notes` documents the "
+            "stratification, and otherwise drops the stored count.")
         assert mod.from_guards({"inputs": {}, "guards": None}) == []
         assert mod.from_guards({"inputs": {}, "guards": {"deflation": {"fires": False}}}) == []
 
@@ -1087,12 +1094,11 @@ class TestCountAdapters:
         assert inflation["issue"] == (
             "the `scope.include` union counts 50 exports, 100.0% above the 25 provenance entries, and no "
             "`scope.tier_a_include` glob in the brief matches a file")
-        assert deflation["remediation"].endswith(
-            "or edit `scope.tier_a_include` in the brief so its globs match the files of the authored tier the "
-            "smaller count measures.")
-        assert inflation["remediation"] == (
-            "Edit `scope.tier_a_include` in `data/skill-brief.yaml` so its globs match the files of the authored "
-            "surface: the denominator then counts it instead of the coarse `scope.include` union.")
+        # #788: both guards fire, so both name the one fix, the brief's tier A list
+        assert deflation["remediation"] == inflation["remediation"]
+        assert inflation["remediation"].startswith(
+            "Edit `scope.tier_a_include` in `data/skill-brief.yaml` so its globs list the files that define the "
+            "authored names: the `scope.include` union is itself inflated")
         # Without the key (a surface from before #695) the text is the one a brief with no tier A glob gets.
         del surface["guards"]["staleScope"]["unmatchedTierAInclude"]
         assert [r["issue"].endswith("and the brief has no `scope.tier_a_include`")
@@ -1122,11 +1128,7 @@ class TestCountAdapters:
             f"the re-derived surface counts 40 exports, 60.0% above `stats.effective_denominator` (25), and {clause}")
         assert inflation["issue"].endswith(f", and {clause}")
         assert inflation["remediation"].startswith(f"{verb} `scope.tier_a_include`")
-        assert deflation["remediation"].endswith(
-            "or add `scope.tier_a_include` to the brief to name the authored tier the smaller count measures."
-            if verb == "Add" else
-            "or edit `scope.tier_a_include` in the brief so its globs match the files of the authored tier the "
-            "smaller count measures.")
+        assert deflation["remediation"] == inflation["remediation"], "#788: both guards name one fix"
         assert len(stale) == (1 if unmatched else 0)
 
     def test_a_stored_zero_reads_as_a_count_against_zero(self):
@@ -1151,6 +1153,129 @@ class TestCountAdapters:
         assert record["remediation"] == (
             "Check `scope.include` in the brief, then re-run Create Skill so `stats.effective_denominator` in "
             "`pkg/metadata.json` is counted again.")
+
+    @pytest.mark.parametrize("umbrella", [True, False], ids=["umbrella", "no-umbrella"])
+    @pytest.mark.parametrize("tier_a, verb", [([], "Add"), (["src/old/**"], "Edit")], ids=["no-tier-a", "stale-tier-a"])
+    def test_both_guards_name_the_brief_tier_a_list(self, umbrella, tier_a, verb):
+        """#788: deflation and inflation fire on the same `scope.include` union, and their fixes disagreed: raise
+        the stored count to the union the other calls coarse, or, on an umbrella barrel, set it by hand, which
+        Update Skill's recount drops. Both now name one fix, the brief's tier A list, and say the union is itself
+        inflated; on an umbrella barrel the list names the defining files, not the barrel."""
+        surface = {"inputs": {"metadata": "pkg/metadata.json", "brief": "data/skill-brief.yaml"}, "guards": {
+            "deflation": {"applicable": True, "basis": "scope.include", "fires": True, "rederived": 40, "pct": 60.0,
+                          "effectiveDenominator": 25},
+            "inflation": {"fires": True, "scopeIncludeUnion": 50, "pct": 100.0, "provenanceEntries": 25},
+            "staleScope": {"fires": False, "unmatchedTierAInclude": tier_a},
+            "tierAInclude": tier_a, "umbrella": {"umbrella": umbrella}}}
+        deflation, inflation = mod.from_guards(surface)
+        assert [deflation["category"], inflation["category"]] == ["metadata-drift", "denominator-inflation"]
+        for record in (deflation, inflation):
+            assert "Set `stats.effective_denominator`" not in record["remediation"]
+            assert record["remediation"].startswith(f"{verb} `scope.tier_a_include`")
+            assert "the files that define the authored names" in record["remediation"]
+            assert "the `scope.include` union is itself inflated" in record["remediation"]
+            assert ("rather than the root barrel, an umbrella of re-exports" in record["remediation"]) is umbrella
+        assert deflation["remediation"] == inflation["remediation"]
+
+    @pytest.mark.parametrize("guards", [
+        {"deflation": {"fires": True, "pct": 60.0, "rederived": 40, "effectiveDenominator": 25}},
+        {"deflation": {"fires": True, "pct": None, "rederived": 40, "effectiveDenominator": 0}},
+        {"inflation": {"fires": True, "scopeIncludeUnion": 50, "pct": 100.0, "provenanceEntries": 25}},
+        {"deflation": {"fires": True, "basis": "tier_a_include", "pct": 50.0, "rederived": 3,
+                       "effectiveDenominator": 2}},
+        {"deflation": {"fires": True, "pct": 60.0, "rederived": 40, "effectiveDenominator": 25},
+         "inflation": {"fires": True, "scopeIncludeUnion": 50, "pct": 100.0, "provenanceEntries": 25}},
+    ], ids=["deflation", "stored-zero", "inflation", "tier-a-drift", "both"])
+    @pytest.mark.parametrize("umbrella", [True, False], ids=["umbrella", "no-umbrella"])
+    @pytest.mark.parametrize("tier_a", [[], ["src/old/**"]], ids=["no-tier-a", "tier-a"])
+    def test_no_remediation_sets_the_stored_count_by_hand(self, guards, umbrella, tier_a):
+        """#788, #803: Update Skill's recount drops a `stats.effective_denominator` set by hand, so no guard's fix,
+        in any branch, asks a person to set it."""
+        surface = {"inputs": {"metadata": "pkg/metadata.json"},
+                   "guards": {**guards, "tierAInclude": tier_a, "umbrella": {"umbrella": umbrella}}}
+        records = mod.from_guards(surface)
+        assert records
+        for record in records:
+            assert not re.search(r"\b[Ss]et `stats\.effective_denominator`", record["remediation"]), record
+
+    STORES = ("when `effective_denominator_decision.store` holds and the brief's `scope.notes` documents the "
+              "stratification, and otherwise drops the stored count")
+
+    @pytest.mark.parametrize("denominator, extraction, until", [
+        ({"branch": "barrel", "surfaceSet": "tier_a_include"}, None,
+         " Until then Test Skill counts the `tier_a_include` set as the denominator."),
+        ({"branch": "barrel", "surfaceSet": "scope.include"}, None,
+         " Until then Test Skill counts the `scope.include` set as the denominator."),
+        ({"branch": "scalar", "surfaceSet": "tier_a_include"}, {"status": "incomplete"},
+         " Until then the stored count stays the denominator: the extraction is incomplete, so the tier A set can "
+         "miss names."),
+        (None, None, ""),
+    ], ids=["tier-a-rung", "specific-modules", "incomplete-below", "no-denominator"])
+    @pytest.mark.parametrize("pct, stored, words", [(50.0, 2, "50.0% above"), (-57.14, 7, "57.14% below")],
+                             ids=["above", "below"])
+    def test_a_tier_a_basis_fire_is_denominator_drift_to_recount(self, pct, stored, words, denominator, extraction,
+                                                                 until):
+        """#813: a stored count the brief's tier A set disagrees with beyond the threshold, either way, is stale:
+        a Medium `metadata-drift` gap with its own title, giving the tier A count, the pct and the stored count,
+        that asks Create Skill to recount (Update Skill may write no metadata.json) under the rule it stores the
+        count by, and names what `denominator` counts until then."""
+        surface = {"inputs": {"metadata": "pkg/metadata.json", "brief": "data/skill-brief.yaml"}, "guards": {
+            "deflation": {"applicable": True, "basis": "tier_a_include", "effectiveDenominator": stored,
+                          "rederived": 3, "pct": pct, "fires": True},
+            "inflation": {"applicable": False, "fires": False}, "tierAInclude": ["src/index.ts"],
+            "umbrella": {"umbrella": False}}, "denominator": denominator, "extraction": extraction}
+        [record] = mod.from_guards(surface)
+        assert brief([record]) == [
+            ("Medium", "metadata-drift",
+             "denominator drift: effective_denominator disagrees with the brief's tier_a_include set",
+             "pkg/metadata.json", None)]
+        assert record["issue"] == (
+            f"the brief's `scope.tier_a_include` set counts 3 exports, {words} `stats.effective_denominator` "
+            f"({stored})")
+        assert record["remediation"] == (
+            "Re-run Create Skill to recount `stats.effective_denominator` in `pkg/metadata.json`: it stores the "
+            f"runner's count of the brief's `scope.tier_a_include` set {self.STORES}.{until}")
+        assert "Update Skill" not in record["remediation"]
+
+    @pytest.mark.parametrize("tier_a, fix", [
+        ([], "or add `scope.tier_a_include` to the brief to name the authored tier the smaller count measures."),
+        (["src/old/**"], "or edit `scope.tier_a_include` in the brief so its globs match the files of the authored "
+                         "tier the smaller count measures."),
+    ], ids=["no-tier-a-list", "tier-a-list"])
+    def test_a_deflation_alone_asks_create_skill_to_recount_or_the_brief_to_name_its_tier(self, tier_a, fix):
+        """#788: deflation on the `scope.include` basis with inflation off: recount through Create Skill, or name
+        the authored tier in the brief, never a stored count set by hand."""
+        surface = {"inputs": {"metadata": "pkg/metadata.json", "brief": "data/skill-brief.yaml"}, "guards": {
+            "deflation": {"applicable": True, "basis": "scope.include", "fires": True, "rederived": 40, "pct": 60.0,
+                          "effectiveDenominator": 25},
+            "inflation": {"applicable": True, "fires": False}, "tierAInclude": tier_a,
+            "umbrella": {"umbrella": True}}}
+        [record] = mod.from_guards(surface)
+        assert record["title"] == (
+            "denominator deflation: effective_denominator below source public surface without tier_a_include")
+        assert record["remediation"] == (
+            "Re-run Create Skill to recount `stats.effective_denominator` in `pkg/metadata.json` from the public "
+            f"surface the source re-derives (it stores that count {self.STORES}), {fix}")
+
+    @pytest.mark.parametrize("umbrella", [True, False], ids=["umbrella", "no-umbrella"])
+    @pytest.mark.parametrize("tier_a, fix", [
+        ([], "Add `scope.tier_a_include` to `data/skill-brief.yaml`, listing the files of the authored "
+             "surface{umbrella}, so the denominator counts it instead of the coarse `scope.include` union."),
+        (["src/old/**"], "Edit `scope.tier_a_include` in `data/skill-brief.yaml` so its globs match the files of "
+                         "the authored surface{umbrella}: the denominator then counts it instead of the coarse "
+                         "`scope.include` union."),
+    ], ids=["no-tier-a-list", "tier-a-list"])
+    def test_an_inflation_alone_names_the_umbrella_only_on_an_umbrella_barrel(self, tier_a, fix, umbrella):
+        """#788: inflation with deflation off names the files of the authored surface, rather than the root
+        barrel exactly when that barrel is an umbrella of re-exports."""
+        surface = {"inputs": {"metadata": "pkg/metadata.json", "brief": "data/skill-brief.yaml"}, "guards": {
+            "deflation": {"applicable": True, "basis": "scope.include", "fires": False},
+            "inflation": {"fires": True, "scopeIncludeUnion": 50, "pct": 100.0, "provenanceEntries": 25},
+            "tierAInclude": tier_a, "umbrella": {"umbrella": umbrella}}}
+        [record] = mod.from_guards(surface)
+        assert record["category"] == "denominator-inflation"
+        assert record["remediation"] == fix.format(
+            umbrella=" rather than the root barrel, an umbrella of re-exports" if umbrella else "")
 
     def test_a_stale_brief_scope_is_one_gap_at_the_brief(self):
         """#677: a scope.include glob that matches no file, and the root exports the surface restored."""

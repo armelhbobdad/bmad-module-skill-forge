@@ -254,7 +254,7 @@ Exit 2 printed an `INVALID_INPUT` envelope: correct the input it names and run i
 
 Record the denominator source in the Coverage Analysis section with the annotation `{sourceAccessProtocol}` gives `denominator.clause` (§4b gives a stack's and a reference app's): `Denominator: {barrel | empty barrel (…) | stratified (…) | multi-entry (…) | specific-modules (…) | pattern-reference (…) | stack composition (…) | pattern-surface (…) | docs-only completeness}`, and the `canonical.summary` line when `surface.json` has a fold. When `denominator.clause` is `stratified-scope` or `multi-entry`, load `{coverageBranchesFile}` and append the block of its **Denominator Candidates** section after the `Denominator:` line, with every count from `surface.json` `candidates` (`absent` for a null one).
 
-The guards raise coverage gaps too, which §5b records from `surface.json`: `guards.deflation.fires` is a Medium `metadata-drift` gap, `guards.inflation.fires` a Medium `denominator-inflation` gap and `guards.staleScope.fires` a Medium `brief-scope-stale` gap at the brief.
+The guards raise coverage gaps too, which §5b records from `surface.json`: `guards.deflation.fires` is a Medium `metadata-drift` gap (on its `tier_a_include` basis, a stale stored count to recount), `guards.inflation.fires` a Medium `denominator-inflation` gap (with deflation, both name one fix: the brief's tier A list) and `guards.staleScope.fires` a Medium `brief-scope-stale` gap at the brief.
 
 ### 4b. Metadata Export-Count Coherence Cross-Check
 

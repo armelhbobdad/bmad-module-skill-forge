@@ -1597,8 +1597,8 @@ def test_the_prose_fallback_scan_runs(tmp_path):
     assert (alone["deflation"]["fires"], alone["staleScope"]["applicable"]) == (True, False), "no runner word"
     surface = _exec(_choose(command, keep=("--extraction", "--brief")), values, tmp_path)
     assert surface["sets"] == {"all": ["Options", "fetchData"], "scope.include": ["Options", "fetchData"]}
-    assert surface["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 2,
-                                              "pct": 100.0, "fires": True}
+    assert surface["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 1,
+                                              "rederived": 2, "pct": 100.0, "fires": True}
     assert (surface["guards"]["staleScope"]["fires"], surface["guards"]["staleScope"]["unmatchedTierAInclude"]) == (
         True, ["src/old/**"])
     assert "only its scope and the globs it lists as matching no file" in _flow(_read(COVERAGE_TIERS))
@@ -1650,7 +1650,8 @@ def test_the_prose_state_4_surface_runs(tmp_path):
 COVERAGE_CHAR_BUDGET = 36_000
 
 # The text coverage-check.md carved into coverage-check-branches.md, byte for byte as the step held it at
-# 3ac917ef: each section's blocks, which the step no longer holds.
+# 3ac917ef (the surplus paragraph's guard sentence as #788 and #813 rewrote it): each section's blocks, which the
+# step no longer holds.
 CARVED_TO_BRANCHES = {
     "States 2 to 4": [(
         "- **State 2** (`{forge_provenance_map}`, the provenance map init.md §2 bound): the union of its "
@@ -1679,9 +1680,9 @@ CARVED_TO_BRANCHES = {
         "**A surplus is a signal, not a pass.** The scalar and stack branches count the numerator and "
         "denominator from independent sets, so `documented` can exceed `denominator`: it then reports "
         "`numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps "
-        "the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. On "
-        "a skill with no `scope.tier_a_include` glob that matches a file, a large surplus is the "
-        "deflated-denominator signature: check `guards.deflation` before accepting the 100."
+        "the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. A "
+        "large surplus is the deflated-denominator signature: check `guards.deflation`, whose `basis` names "
+        "the set it measured the stored count against, before accepting the 100."
     ), (
         "- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium "
         "`missing-export` gap for the count. When §2b's numerator check found the count inflated, its "

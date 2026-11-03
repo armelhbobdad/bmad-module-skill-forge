@@ -121,19 +121,33 @@ cites (never read; default `metadata.json`):
             Every per-name gap carries `export`.
   guards    --input load-coverage-inputs.py's surface result; --metadata.
             `guards.deflation.fires` is a Medium `metadata-drift` gap at
-            `{meta}` (else the result's `inputs.metadata`), and
-            `guards.inflation.fires` a Medium `denominator-inflation` gap at
-            the result's `inputs.brief` (else `skill-brief.yaml`), whose
-            remediation recommends `stats.effective_denominator` when
-            `guards.umbrella.umbrella` is true, else `scope.tier_a_include`.
+            `{meta}` (else the result's `inputs.metadata`): on the
+            `tier_a_include` basis (`guards.deflation.basis`) titled
+            `denominator drift: ...`, giving the tier A count, the pct and
+            the stored count, asking to recount by re-running Create Skill
+            (which stores the runner's count only when
+            `effective_denominator_decision.store` holds and `scope.notes`
+            documents the stratification, and otherwise drops the stored
+            count) and naming what `denominator` counts until then (its
+            `surfaceSet`, or the stored count on the scalar branch); else
+            `denominator deflation: ...`. `guards.inflation.fires` is a
+            Medium `denominator-inflation` gap at the result's
+            `inputs.brief` (else `skill-brief.yaml`), whose remediation adds
+            or edits `scope.tier_a_include`, listing the files rather than
+            the root barrel when `guards.umbrella.umbrella` is true. When
+            both fire on the `scope.include` basis, both remediations name
+            that one fix and say the `scope.include` union is itself
+            inflated. No remediation sets `stats.effective_denominator` by
+            hand, which Update Skill's recount drops.
             `guards.staleScope.fires` is one Medium `brief-scope-stale` gap
             at that brief, whose issue names each `unmatchedInclude` glob,
             each `restored` name with its file and each
-            `unmatchedTierAInclude` glob. The deflation and inflation gaps
-            say the brief has no `scope.tier_a_include` when
-            `guards.tierAInclude` lists no glob, that no glob matches a file
-            when each is an `unmatchedTierAInclude` glob, and else that no
-            glob counts a public name (a surface without
+            `unmatchedTierAInclude` glob. The `scope.include`-basis
+            deflation gap and the inflation gap say the brief has no
+            `scope.tier_a_include` when `guards.tierAInclude` lists no glob,
+            that no glob matches a file when each is an
+            `unmatchedTierAInclude` glob, and else that no glob counts a
+            public name (a surface without
             `guards.tierAInclude` reads the `unmatchedTierAInclude` globs
             alone). A stored `stats.effective_denominator` of 0 (`pct`
             null) is written as a count against 0, not a percentage, and
@@ -1089,42 +1103,86 @@ def from_guards(surface: object, metadata: str | None = None) -> list[dict]:
     else:
         no_tier_a = "no `scope.tier_a_include` glob in the brief counts a public name"
     deflation = guards.get("deflation") or {}
-    if deflation.get("fires") is True:
+    inflation = guards.get("inflation") or {}
+    stored = _count(deflation.get("effectiveDenominator")) or 0
+    # No remediation sets `stats.effective_denominator` by hand: Update Skill's recount drops such a value (#803).
+    # Both guards on the scope.include union name one fix, the brief's tier A list (#788).
+    both = (deflation.get("fires") is True and inflation.get("fires") is True
+            and deflation.get("basis") != "tier_a_include")
+    # On an umbrella barrel the names are re-exports, each counted at the file that defines it, never the barrel.
+    umbrella = (" rather than the root barrel, an umbrella of re-exports"
+                if (guards.get("umbrella") or {}).get("umbrella") is True else "")
+    verb = (f"Edit `scope.tier_a_include` in `{brief}` so its globs list" if brief_tier_a
+            else f"Add `scope.tier_a_include` to `{brief}`, listing")
+    # Only Create Skill always writes metadata.json, and it stores the runner's count only under this rule.
+    stores = ("when `effective_denominator_decision.store` holds and the brief's `scope.notes` documents the "
+              "stratification, and otherwise drops the stored count")
+    joint = (f"{verb} the files that define the authored names{umbrella}: the `scope.include` union is itself "
+             "inflated, so neither it nor the smaller stored count measures the authored surface. Then re-run "
+             f"Create Skill to recount `stats.effective_denominator` in `{meta}` from the tier A set: it stores "
+             f"that count {stores}.")
+    if deflation.get("fires") is True and deflation.get("basis") == "tier_a_include":
+        # A stored count the brief's tier A set disagrees with, either way: stale, so count it again (#813).
+        pct = deflation.get("pct")
+        if pct is None:  # a stored 0: no percentage against it
+            against = f" against a `stats.effective_denominator` of {stored}"
+        else:
+            below = isinstance(pct, (int, float)) and pct < 0
+            against = (f", {-pct if below else pct}% {'below' if below else 'above'} `stats.effective_denominator` "
+                       f"({deflation.get('effectiveDenominator')})")
+        # Until then: the set the denominator actually counts (a ladder with no tier A rung counts scope.include),
+        # or, on an incomplete extraction's tier A set below the stored count, the stored count.
+        denominator = surface.get("denominator") if isinstance(surface.get("denominator"), dict) else {}
+        extraction = surface.get("extraction") if isinstance(surface.get("extraction"), dict) else {}
+        if denominator.get("branch") == "scalar":
+            until = " Until then the stored count stays the denominator" + (
+                ": the extraction is incomplete, so the tier A set can miss names." if extraction.get("status")
+                == "incomplete" else ".")
+        elif isinstance(denominator.get("surfaceSet"), str):
+            until = f" Until then Test Skill counts the `{denominator['surfaceSet']}` set as the denominator."
+        else:
+            until = ""
+        records.append(_gap(
+            "Medium", "metadata-drift",
+            "denominator drift: effective_denominator disagrees with the brief's tier_a_include set", meta,
+            f"Re-run Create Skill to recount `stats.effective_denominator` in `{meta}`: it stores the runner's count "
+            f"of the brief's `scope.tier_a_include` set {stores}.{until}",
+            issue=f"the brief's `scope.tier_a_include` set counts {deflation.get('rederived')} exports{against}"))
+    elif deflation.get("fires") is True:
         if deflation.get("pct") is None:  # a stored 0: no percentage above it
-            above = (f" against a `stats.effective_denominator` of "
-                     f"{_count(deflation.get('effectiveDenominator')) or 0}")
+            above = f" against a `stats.effective_denominator` of {stored}"
         else:
             above = (f", {deflation.get('pct')}% above `stats.effective_denominator` "
                      f"({deflation.get('effectiveDenominator')})")
-        if deflation.get("pct") is None:  # a 0 measures no tier: count it again
+        if both:
+            fix = joint
+        elif deflation.get("pct") is None:  # a 0 measures no tier: count it again
             first = ("Edit `scope.tier_a_include` in the brief so its globs match the files that define the "
                      "authored tier" if brief_tier_a else "Check `scope.include` in the brief")
             fix = (f"{first}, then re-run Create Skill so `stats.effective_denominator` in `{meta}` is counted "
                    "again.")
         elif brief_tier_a:
-            fix = (f"Set `stats.effective_denominator` in `{meta}` to the public surface the source re-derives, "
-                   "or edit `scope.tier_a_include` in the brief so its globs match the files of the authored tier "
-                   "the smaller count measures.")
+            fix = (f"Re-run Create Skill to recount `stats.effective_denominator` in `{meta}` from the public surface "
+                   f"the source re-derives (it stores that count {stores}), or edit `scope.tier_a_include` in the "
+                   "brief so its globs match the files of the authored tier the smaller count measures.")
         else:
-            fix = (f"Set `stats.effective_denominator` in `{meta}` to the public surface the source re-derives, "
-                   "or add `scope.tier_a_include` to the brief to name the authored tier the smaller count "
-                   "measures.")
+            fix = (f"Re-run Create Skill to recount `stats.effective_denominator` in `{meta}` from the public surface "
+                   f"the source re-derives (it stores that count {stores}), or add `scope.tier_a_include` to the "
+                   "brief to name the authored tier the smaller count measures.")
         records.append(_gap(
             "Medium", "metadata-drift",
             "denominator deflation: effective_denominator below source public surface without tier_a_include",
             meta, fix,
             issue=f"the re-derived surface counts {deflation.get('rederived')} exports{above}, and {no_tier_a}"))
-    inflation = guards.get("inflation") or {}
     if inflation.get("fires") is True:
-        if (guards.get("umbrella") or {}).get("umbrella") is True:
-            fix = (f"Set `stats.effective_denominator` in `{meta}` to the authored surface: the root barrel "
-                   "is an umbrella of re-exports, so a `scope.tier_a_include` glob would still count them.")
+        if both:
+            fix = joint
         elif brief_tier_a:
             fix = (f"Edit `scope.tier_a_include` in `{brief}` so its globs match the files of the authored "
-                   "surface: the denominator then counts it instead of the coarse `scope.include` union.")
+                   f"surface{umbrella}: the denominator then counts it instead of the coarse `scope.include` union.")
         else:
-            fix = (f"Add `scope.tier_a_include` to `{brief}`, listing the files of the authored surface, so "
-                   "the denominator counts it instead of the coarse `scope.include` union.")
+            fix = (f"Add `scope.tier_a_include` to `{brief}`, listing the files of the authored surface{umbrella}, "
+                   "so the denominator counts it instead of the coarse `scope.include` union.")
         records.append(_gap(
             "Medium", "denominator-inflation",
             "denominator inflation: coarse scope.include union exceeds authored surface", brief, fix,

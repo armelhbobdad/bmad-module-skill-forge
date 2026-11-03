@@ -1006,9 +1006,11 @@ NOT_ROUTED_REASONS = {
         "update-skill recounts `stats.exports_public_api`, `stats.exports_documented` and "
         "`stats.effective_denominator` each time it writes metadata.json, so a metadata patch to them does not hold "
         "(under `--allow-workspace-drift` and for a docs-only skill it keeps the recorded public API counts and "
-        "`stats.effective_denominator` instead); Create Skill rebuilds diverging barrel counts from the source, a "
-        "person fixes denominator deflation in the brief's `scope.tier_a_include`, and documented-surface counts "
-        "that differ by the `Type::method` entries the named-export count leaves out need no fix"),
+        "`stats.effective_denominator` instead); Create Skill rebuilds diverging barrel counts from the source and "
+        "recounts a `stats.effective_denominator` the brief's `scope.tier_a_include` set disagrees with "
+        "(denominator drift), a person fixes denominator deflation on a brief with no tier A list by adding "
+        "`scope.tier_a_include` to it, and documented-surface counts that differ by the `Type::method` entries the "
+        "named-export count leaves out need no fix"),
     "provenance-unverified": (
         "the line-check rules could not verify the line, so a person checks by hand that it defines the export and, "
         "when another line does, sets its provenance `source_line` to that line"),

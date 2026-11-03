@@ -133,18 +133,26 @@ reconcile-coverage.py and score-signatures.py --surface-set pick one.
 Candidates and guards (with an extraction, --brief or --metadata): each
 set's count, the metadata `stats.effective_denominator` (--metadata), and
 the extractor's own effective_denominator and its basis. Both guards run
-only on a surface read from the source. The deflation guard compares the
-re-derived scope.include set (the `all` set without one) with
-`stats.effective_denominator` and fires above DEFLATION_PCT when there is
-no tier A list (with an extraction or --fallback-scan, no tier_a_include
-set; otherwise no tier_a_include glob left in the list, since a name read
-by eye at Quick tier or State 4, and a quick name with no defined_in,
-carries its entry file, not the file that defines it); a stored 0 is
-deflation, not a
-denominator (`pct` null), and fires under that condition when any name is
-re-derived. The inflation guard compares the scope.include set with the
-provenance entry count (--provenance) and fires above INFLATION_PCT under
-the same condition; `guards.tierAInclude` lists the scope's
+only on a surface read from the source. The deflation guard compares a
+re-derived set with `stats.effective_denominator` and names it in `basis`.
+It is the tier_a_include set (`tier_a_include`) when the clause's ladder
+holds a stored count (stratified-scope, specific-modules, multi-entry), the
+surface has that set and each name sits at the file that defines it (a
+runner extraction, --fallback-scan, or quick output whose every name
+carries its defined_in, with no --per-file or --name beside it): it fires
+when the stored count differs from the set by more than DEFLATION_PCT
+either way, since Create Skill stores the runner's tier A count. Otherwise
+it is the scope.include set (`scope.include`, else `all` when the surface
+has no scope.include set), firing above DEFLATION_PCT when there is no tier
+A list (with an extraction or --fallback-scan, no tier_a_include set;
+otherwise no tier_a_include glob left in the list, since a name read by eye
+at Quick tier or State 4, and a quick name with no defined_in, carries its
+entry file, not the file that defines it). A stored 0 is deflation, not a
+denominator (`pct` null), and fires under its basis's condition when any
+name is re-derived. The inflation guard compares the scope.include set
+with the provenance entry count (--provenance) and fires above
+INFLATION_PCT when there is no tier A list, as the scope.include basis
+reads it; `guards.tierAInclude` lists the scope's
 tier_a_include globs ([] when it has none) for gap-ledger.py's wording;
 the umbrella ratio (an
 extraction only) is the share of the root entry points' names that are
@@ -200,7 +208,13 @@ The last three walk a ladder, `ladderStep` naming the rung taken: rung 1,
 `stats.effective_denominator` when metadata.json has one above 0 (a stored
 0 is no denominator), is the `scalar` branch, whose `surfaceSet` (the set score-signatures.py scores) is
 tier_a_include, else scope.include, else all, unless the deflation guard
-fires: then the barrel branch over scope.include. The next rungs are sets,
+fires: then the barrel branch over tier_a_include when the ladder has that
+rung (stratified-scope, multi-entry) and the surface has the set, else over
+scope.include (when the inflation guard fires too, that union is itself
+inflated, and both gaps ask for the brief's tier A list, never a stored
+count set by hand). On an incomplete extraction, which can miss tier A
+names, a tier A set below the stored count fires the guard and leaves the
+scalar branch. The next rungs are sets,
 each taken when the surface has it, the last taken in any case:
 tier_a_include then scope.include (stratified-scope), scope.include
 (specific-modules), tier_a_include then subpaths (multi-entry). A set the
@@ -868,7 +882,9 @@ def _pick(sets: dict, stats_eff: int | None, deflation_fires: bool, barrel: str 
         elif stats_eff:
             # A stored 0 is no denominator: the next rung.
             if deflation_fires:
-                return _over(clause, sets, "scope.include", step)
+                # The ladder's tier A rung when it has one and the surface has the set, else scope.include.
+                rung = "tier_a_include" if "tier_a_include" in ladder and "tier_a_include" in sets else "scope.include"
+                return _over(clause, sets, rung, step)
             scored = next((name for name in ("tier_a_include", "scope.include") if name in sets), "all")
             return {"clause": clause, "branch": "scalar", "surfaceSet": scored, "ladderStep": step,
                     "absentSet": None, "rebuild": None}
@@ -1002,6 +1018,35 @@ def surface(args: argparse.Namespace) -> dict:
     if tier_a_names:
         sets["tier_a_include"] = tier_a_names
 
+    # The clause: an extraction's entry-point status (one the per-file scan replaces says only that it found no
+    # entry point), else a quick output's (an export is a barrel; none, and no warning, an empty one), else what
+    # the workflow read (--barrel).
+    barrel = None
+    summary = extracted["extraction"] if extracted is not None else None
+    if summary is not None and not summary["fallback"]["needed"]:
+        barrel = summary["entryPointStatus"]
+    elif summary is not None and summary["entryPointsFound"] is False:
+        barrel = "no-entry-point"
+    elif quick_outputs:
+        barrel = "barrel" if any(q["exports"] for q in quick_outputs) else (
+            None if any(q.get("warnings") for q in quick_outputs) else "empty-barrel")
+    if barrel is None and args.barrel:
+        barrel = BARREL_FLAG[args.barrel]
+    recorded_type = extracted["scopeType"] if extracted is not None else None
+    meta_type = meta.get("scope_type") if isinstance(meta, dict) and isinstance(meta.get("scope_type"), str) else None
+    arms = summary["arms"] if summary is not None else {}
+    # The extraction's verdict, the rule Create Skill stores the count by, else the workflow's judgment.
+    curated = summary["curatedSubset"] if summary is not None and summary["curatedSubset"] is not None \
+        else bool(args.curated_subset)
+    scope_type = (brief or {}).get("type") or recorded_type or meta_type
+    skill_type = meta.get("skill_type") if isinstance(meta, dict) else None
+    monorepo = bool(args.monorepo or arms.get("monorepo"))
+    # The clause alone (no stored count, no guard): only a clause whose ladder holds a stored count measures it
+    # against the tier A set.
+    clause = _pick(sets, None, False, barrel, arms, scope_type, skill_type, monorepo,
+                   bool(args.pattern_reference_intent), curated, source_read)["clause"]
+    swap = False
+
     if extracted is not None or brief is not None or meta is not None:
         include_union = len(sets["scope.include"]) if "scope.include" in sets else len(sets["all"])
         extraction = extracted["extraction"] if extracted is not None else {}
@@ -1021,14 +1066,32 @@ def surface(args: argparse.Namespace) -> dict:
         # file, not the file that defines it).
         no_tier_a = ("tier_a_include" not in sets if extracted is not None or args.fallback_scan
                      else not tier_a)
-        deflation = {"applicable": source_read and stats_eff is not None, "effectiveDenominator": stats_eff,
-                     "rederived": include_union if source_read else None, "pct": None, "fires": False}
+        # A clause whose ladder holds a stored count checks it against the tier A set, both ways, when each name
+        # sits at the file that defines it (a runner extraction, the fallback scan, quick output whose every name
+        # carries its defined_in): Create Skill stores the runner's tier A count, so one beyond the threshold is
+        # stale (#813). A name read by eye, or a quick name with no defined_in, sits at its entry file.
+        runner = extracted is not None and not extracted["extraction"]["fallback"]["needed"]
+        quick_traced = (bool(quick_outputs) and not args.per_file and not args.name
+                        and all(isinstance(e.get("defined_in"), str) and e["defined_in"]
+                                for q in quick_outputs for e in q["exports"] if isinstance(e, dict)))
+        tier_a_basis = ((runner or bool(args.fallback_scan) or quick_traced) and clause in CLAUSE_LADDERS
+                        and "tier_a_include" in sets)
+        rederived = len(sets["tier_a_include"]) if tier_a_basis else include_union
+        basis = "tier_a_include" if tier_a_basis else "scope.include" if "scope.include" in sets else "all"
+        deflation = {"applicable": source_read and stats_eff is not None, "basis": basis,
+                     "effectiveDenominator": stats_eff, "rederived": rederived if source_read else None, "pct": None,
+                     "fires": False}
         if deflation["applicable"] and stats_eff:
-            deflation["pct"] = round2((include_union - stats_eff) / stats_eff * 100)
-            deflation["fires"] = no_tier_a and deflation["pct"] > DEFLATION_PCT
+            deflation["pct"] = round2((rederived - stats_eff) / stats_eff * 100)
+            deflation["fires"] = (abs(deflation["pct"]) > DEFLATION_PCT if tier_a_basis
+                                  else no_tier_a and deflation["pct"] > DEFLATION_PCT)
         elif deflation["applicable"]:
             # A stored 0 is deflation, not a denominator, once a name is re-derived.
-            deflation["fires"] = no_tier_a and include_union > 0
+            deflation["fires"] = (tier_a_basis or no_tier_a) and rederived > 0
+        # An incomplete extraction can miss tier A names: a tier A set below the stored count is drift to report,
+        # not a denominator to take.
+        incomplete = runner and extracted["extraction"]["status"] == "incomplete"
+        swap = deflation["fires"] and not (incomplete and tier_a_basis and (deflation["pct"] or 0) < 0)
         entry_count = len(_entries(provenance)) if provenance is not None else 0
         inflation = {"applicable": source_read and no_tier_a and bool(scope["include"]) and entry_count > 0,
                      "scopeIncludeUnion": include_union if scope["include"] else None,
@@ -1052,31 +1115,8 @@ def surface(args: argparse.Namespace) -> dict:
                            "umbrellaRatio": UMBRELLA_RATIO},
         }
 
-    # The clause: an extraction's entry-point status (one the per-file scan replaces says only that it found no
-    # entry point), else a quick output's (an export is a barrel; none, and no warning, an empty one), else what
-    # the workflow read (--barrel).
-    barrel = None
-    summary = extracted["extraction"] if extracted is not None else None
-    if summary is not None and not summary["fallback"]["needed"]:
-        barrel = summary["entryPointStatus"]
-    elif summary is not None and summary["entryPointsFound"] is False:
-        barrel = "no-entry-point"
-    elif quick_outputs:
-        barrel = "barrel" if any(q["exports"] for q in quick_outputs) else (
-            None if any(q.get("warnings") for q in quick_outputs) else "empty-barrel")
-    if barrel is None and args.barrel:
-        barrel = BARREL_FLAG[args.barrel]
-    recorded_type = extracted["scopeType"] if extracted is not None else None
-    meta_type = meta.get("scope_type") if isinstance(meta, dict) and isinstance(meta.get("scope_type"), str) else None
-    arms = summary["arms"] if summary is not None else {}
-    # The extraction's verdict, the rule Create Skill stores the count by, else the workflow's judgment.
-    curated = summary["curatedSubset"] if summary is not None and summary["curatedSubset"] is not None \
-        else bool(args.curated_subset)
-    out["denominator"] = pick_denominator(
-        sets, stats_eff, bool((out["guards"] or {}).get("deflation", {}).get("fires")), barrel, arms,
-        (brief or {}).get("type") or recorded_type or meta_type,
-        meta.get("skill_type") if isinstance(meta, dict) else None, bool(args.monorepo or arms.get("monorepo")),
-        bool(args.pattern_reference_intent), curated, source_read)
+    out["denominator"] = pick_denominator(sets, stats_eff, swap, barrel, arms, scope_type, skill_type, monorepo,
+                                          bool(args.pattern_reference_intent), curated, source_read)
 
     return {
         "inputs": {
