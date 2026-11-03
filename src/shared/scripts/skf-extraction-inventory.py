@@ -37,9 +37,11 @@ Subcommands:
            any case) and its entry-point diff can be read, each export of a
            language family whose entry_points.by_language status is
            `barrel` is marked `public: true` when its name and file are a
-           pair of the diff's `public` (its name, or the name `local` gives
-           it in that file) or `extraction_gaps`, or when a `public` item of
-           its name and family has no file; `public: false` otherwise. A
+           pair of the diff's `public` or `other_definitions` (each other
+           in-scope definition of a public name, #830; its name, or the
+           name `local` gives it in that file) or `extraction_gaps`, or
+           when a `public` item of its name and family has no file;
+           `public: false` otherwise. A
            `public` item with `via` namespace and a `members` list (what
            the submodule passes on, which users reach as `pkg.sub.name`)
            gives its members' pairs (each member's name, or its `local`
@@ -208,6 +210,7 @@ Inventory shape (the keys this helper reads or writes):
     "authoritative_files_scan": {...} | null,
     "extraction_rules": {"recipe_set", "recipes", "scope", "ast_grep_version"},
     "public_surface": {"by_language": {...}, "public": [...],
+                       "other_definitions": [...],
                        "extraction_gaps": [...]} | null,
     "t2_annotations": [...], "t3_items": [...], "warnings": ["..."]
   }
@@ -447,7 +450,7 @@ class _PublicSurface:
         self.barrels = {family for family, status in statuses.items() if status == "barrel"}
         self.pairs: set[tuple[str, str]] = set()
         self.unfiled: set[tuple[object, str]] = set()  # (family, name) of a public name no file defines
-        for key in ("public", "extraction_gaps"):
+        for key in ("public", "other_definitions", "extraction_gaps"):
             for item in diff.get(key) or []:
                 if not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"]:
                     continue
@@ -459,8 +462,8 @@ class _PublicSurface:
                         if isinstance(member, dict) and isinstance(member.get("name"), str) and member["name"]:
                             self._add(family, member["name"], member.get("local"), member.get("file"), True)
                     continue
-                self._add(family, item["name"], item.get("local") if key == "public" else None, item.get("file"),
-                          key == "public")
+                self._add(family, item["name"], item.get("local") if key != "extraction_gaps" else None,
+                          item.get("file"), key == "public")
 
     def _add(self, family: object, name: str, local: object, path: object, listed_public: bool) -> None:
         """The pairs one public name (or gap) gives: (name, file) and (local, file), or, with no file, its
@@ -507,6 +510,7 @@ def public_surface(extraction: object) -> tuple[_PublicSurface | None, str | Non
 # The fields of an entry_point_diff item the rule reads, which the inventory's public_surface keeps for `add`, and
 # those of each member of a namespace item.
 SURFACE_FIELDS = {"public": ("name", "language", "file", "local", "via", "members"),
+                  "other_definitions": ("name", "language", "file", "local"),
                   "extraction_gaps": ("name", "language", "file")}
 MEMBER_FIELDS = ("name", "local", "file")
 NOT_PUBLIC_NAMED = 10  # the names the not-public warning spells out, as update-skill's apply does

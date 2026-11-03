@@ -528,9 +528,11 @@ it scans):
   no seed holds is not added, with a warning. confidence_breakdown counts
   the exports by confidence, and T2 the exports with a qmd_evidence.
 
-  Aliases. Each --extraction entry_point_diff `public` item, and each
-  member of a namespace item, whose `local` differs from its `name` gives
-  its name to the record of its `local` name and file, when one is seeded:
+  Aliases. Each --extraction entry_point_diff `public` and
+  `other_definitions` item (an other in-scope definition of a public
+  name), and each member of a namespace item, whose `local` differs from
+  its `name` gives its name to the record of its `local` name and file,
+  when one is seeded:
   that record's `aliases` lists each such public name once, sorted (an
   export re-exported under another name, `export { MockUniversalStore as
   experimental_MockUniversalStore }`, keeps its declared name and carries
@@ -542,9 +544,10 @@ it scans):
   case) and it has an entry_point_diff, each export of a language family
   whose entry_points.by_language status is `barrel` is marked `public`:
   true when its name and file are a pair of the runner's entry_point_diff
-  `public` (its name, or the name `local` gives it in that file) or
-  `extraction_gaps`, or when a `public` item of its name and family has
-  no file; false otherwise. A `public` item with `via` namespace and a
+  `public` or `other_definitions` (its name, or the name `local` gives it
+  in that file) or `extraction_gaps`, or when a `public` item of its name
+  and family has no file; false otherwise. A `public` item with `via`
+  namespace and a
   `members` list (what the submodule passes on, which users reach as
   `pkg.sub.name`, and which counts.exports_public_api counts in its place)
   gives its members' pairs (each member's name, or its `local` one, and
@@ -2697,7 +2700,8 @@ def build_records(extraction: dict | None, details: dict | None, files: list | N
             fill_if_null(key, patch)
     diff = extraction.get("entry_point_diff") if isinstance(extraction, dict) else None
     aliases: dict[tuple, set] = {}
-    for item in (diff.get("public") if isinstance(diff, dict) else None) or []:
+    rows = [*(diff.get("public") or []), *(diff.get("other_definitions") or [])] if isinstance(diff, dict) else []
+    for item in rows:
         members = item.get("members") if isinstance(item, dict) and item.get("via") == "namespace" else None
         for named in [item, *(members if isinstance(members, list) else [])]:
             if not isinstance(named, dict):
