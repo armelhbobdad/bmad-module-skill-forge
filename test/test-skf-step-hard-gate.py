@@ -60,6 +60,8 @@ STEP_FILE = REFS / "step-hard-gate.md"
 INIT_FILE = REFS / "init.md"
 DETECT_FILE = REFS / "detect-mode.md"
 COVERAGE_FILE = REFS / "coverage-check.md"
+# The text only some coverage-check branches take, loaded from the sentence that names its section.
+COVERAGE_BRANCHES_FILE = REFS / "coverage-check-branches.md"
 COHERENCE_FILE = REFS / "coherence-check.md"
 EXT_VALIDATORS_FILE = REFS / "external-validators.md"
 SCORE_FILE = REFS / "score.md"
@@ -629,8 +631,8 @@ class TestGapSeverityTable:
         assert "unless `guards.deflation.fires` (a Medium `metadata-drift` gap" in protocol
         assert criterion not in protocol and "more than 25%" not in protocol
 
-    @pytest.mark.parametrize("path", [COVERAGE_FILE, COHERENCE_FILE, EXT_VALIDATORS_FILE, REPORT_FILE],
-                             ids=lambda p: p.stem)
+    @pytest.mark.parametrize("path", [COVERAGE_FILE, COVERAGE_BRANCHES_FILE, COHERENCE_FILE, EXT_VALIDATORS_FILE,
+                                      REPORT_FILE], ids=lambda p: p.stem)
     def test_every_severity_the_prose_writes_is_a_row(self, path: pathlib.Path) -> None:
         pairs = set(SEVERITY_CATEGORY_RE.findall(_flow(_body(path))))
         assert pairs, f"{path.name} names no severity and category"
@@ -715,7 +717,8 @@ class TestStagesRecordTheirGaps:
     def test_inflated_names_become_missing_exports_update_skill_can_route(self, values: dict[str, str],
                                                                           tmp_path: pathlib.Path) -> None:
         text = _flow(_body(COVERAGE_FILE))
-        assert "its `absent[]` names replace this gap, one each" in text
+        scalar = _flow(_slice(_read(COVERAGE_BRANCHES_FILE), "## Scalar and Stack Branches", "## Denominator"))
+        assert "its `absent[]` names replace this gap, one each" in scalar
         # §5b keeps `--provenance` whenever the map is bound, though no run file holds it: the absent names'
         # Source comes from it, and update-skill takes that line as its `source_citation`.
         assert ("leaving out a bracketed flag whose file does not exist: a run file this run did not write, "

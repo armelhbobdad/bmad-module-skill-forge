@@ -57,7 +57,11 @@ the run; tooling health is `toolingStatus`, never `analysisConfidence`;
 scoring-rules.md, customize.toml and SKILL.md keep no copy of the scoring
 rules and no override of them; and coverage-check.md stays under the
 single-purpose reference budget (#600), its Quick-tier and fallback scans
-carved into coverage-check-tiers.md, loaded only by the branch that needs it.
+carved into coverage-check-tiers.md, loaded only by the branch that needs it,
+and the text only a few other branches take (States 2 to 4, the scalar and
+stack branches and the Denominator Candidates block) carved into
+coverage-check-branches.md, each section loaded only from the sentence of
+its branch.
 
 They also keep coherence-check section 5 on the integration entries
 create-stack-skill emits (#544): only the cross-cutting and library-pair
@@ -98,6 +102,8 @@ SOURCE_ACCESS = REFS / "source-access-protocol.md"
 COVERAGE = REFS / "coverage-check.md"
 # The §2 branches most runs never take, carved out of coverage-check.md (#600).
 COVERAGE_TIERS = REFS / "coverage-check-tiers.md"
+# The text only some other coverage-check branches take, carved out the same way.
+COVERAGE_BRANCHES = REFS / "coverage-check-branches.md"
 COHERENCE = REFS / "coherence-check.md"
 SCORING = REFS / "scoring-rules.md"
 INVENTORY = SRC / "shared" / "scripts" / "skf-skill-inventory.py"
@@ -170,7 +176,7 @@ COMPOSE_EVIDENCE = (
 READ_SITES = [
     (SOURCE_ACCESS, "Local absent, provenance-map exists:**", "**Cross-reference with metadata.json:**", PROVENANCE),
     (COVERAGE, "### 2b. Resolve the Denominator and Guard Zero Exports", "### 2c.", PROVENANCE),
-    (COVERAGE, "**States 2 to 4 (no local source):**", "### 2b.", PROVENANCE),
+    (COVERAGE_BRANCHES, "## States 2 to 4", "## Scalar and Stack Branches", PROVENANCE),
     (MIGRATION, "## Gate Check", "## Scope of Section 4b", EVIDENCE),
 ]
 READ_SITE_IDS = ["state-2", "metadata-loader", "state-2-surface", "migration-gate"]
@@ -821,7 +827,7 @@ def test_coverage_binds_the_helpers_and_the_payload_script():
                                     f"{{project-root}}/src/shared/scripts/{script}"]
     assert frontmatter["stageHelperPayloadScript"] == "scripts/stage-helper-payload.py"
     # The model copies no file text into a payload.
-    for path in (COVERAGE, COVERAGE_TIERS):
+    for path in (COVERAGE, COVERAGE_TIERS, COVERAGE_BRANCHES):
         text = _read(path)
         for by_hand in ("file-write tool", ".skf-quick-exports-", ".skf-workspaces-"):
             assert by_hand not in text, (path.name, by_hand)
@@ -1011,10 +1017,20 @@ def test_the_flags_left_to_the_model_are_stated_once():
         assert token in protocol, token
     for command in (_command(COVERAGE_TIERS, "surface --quick"), _command(COVERAGE_TIERS, "surface --per-file")):
         assert "[--barrel <state>]" in command, command
+    # State 2, 3 and 4's commands, carved with their branch, take the clause flags as §2's do
+    assert "Every `surface` command, in §2 or in a branch file it loads, takes `--monorepo`" in flags
+    states = _flow(_slice(_read(COVERAGE_BRANCHES), "## States 2 to 4", "## Scalar and Stack Branches"))
+    [state3] = re.findall(r"`(surface --metadata [^`]+)`", states)
+    [state4] = re.findall(r"`(surface --per-file [^`]+)`", states)
+    for command in (_command(COVERAGE_BRANCHES, "surface --provenance"), state3, state4):
+        assert "[--monorepo]" in command and "[--curated-subset]" in command, command
+    assert "[--barrel <state>]" in state4
     # the audit trail block stays with the two clauses whose candidates it compares
     section4 = _flow(_read(COVERAGE))
-    assert ("When `denominator.clause` is `stratified-scope` or `multi-entry`, append this block after the "
-            "`Denominator:` line") in section4
+    assert ("When `denominator.clause` is `stratified-scope` or `multi-entry`, load `{coverageBranchesFile}` and "
+            "append the block of its **Denominator Candidates** section after the `Denominator:` line") in section4
+    block = _read(COVERAGE_BRANCHES).split("\n## Denominator Candidates\n", 1)[1]
+    assert "**Denominator Candidates** (stratified-scope audit trail):" in _fence(block, "(stratified-scope audit")
     assert "When `denominator.ladderStep` is set" not in section4
 
 
@@ -1609,9 +1625,10 @@ def test_the_fallback_scan_asks_each_file_for_the_names_it_defines():
 
 
 def test_the_prose_state_4_surface_runs(tmp_path):
-    """State 4 reads no tier branch, so its `surface` call is spelled in coverage-check.md itself: the names
-    read remotely by eye, saved as a per-file result, are the surface, and the metadata adds no name."""
-    state4 = _flow(_slice(_read(COVERAGE), "- **State 4**:", "### 2b."))
+    """State 4 reads no tier branch, so its `surface` call is spelled in the States 2 to 4 section that
+    coverage-check.md §2 loads: the names read remotely by eye, saved as a per-file result, are the surface, and
+    the metadata adds no name."""
+    state4 = _flow(_slice(_read(COVERAGE_BRANCHES), "- **State 4**:", "## Scalar and Stack Branches"))
     calls = re.findall(r"`(surface --per-file [^`]+)`", state4)
     assert len(calls) == 1, state4
     skill = _write_tree(tmp_path / "skill", {
@@ -1632,12 +1649,71 @@ def test_the_prose_state_4_surface_runs(tmp_path):
 # 36,000 characters stand in for it here.
 COVERAGE_CHAR_BUDGET = 36_000
 
+# The text coverage-check.md carved into coverage-check-branches.md, byte for byte as the step held it at
+# 3ac917ef: each section's blocks, which the step no longer holds.
+CARVED_TO_BRANCHES = {
+    "States 2 to 4": [(
+        "- **State 2** (`{forge_provenance_map}`, the provenance map init.md §2 bound): the union of its "
+        "named exports and the `metadata.json` `exports[]` names, with `--fold`, `--keep` and "
+        "`--fold-prefix` as the Source API Surface Definition's canonicalization says:\n"
+        "\n"
+        "  ```bash\n"
+        "  uv run {coverageInputsScript} surface --provenance \"{forge_provenance_map}\" --metadata "
+        "\"{resolved_skill_package}/metadata.json\" [--brief "
+        "\"{forge_data_folder}/{skill_name}/skill-brief.yaml\"] [--fold] [--keep <variant>] [--fold-prefix "
+        "<prefix>] [--monorepo] [--pattern-reference-intent] [--curated-subset] --output "
+        "\"{run_dir}/surface.json\"\n"
+        "  ```\n"
+        "\n"
+        "  Step 5's scoring script reads its `state2` counts, and the report its fold summary, "
+        "`canonical.summary`.\n"
+        "- **State 3**: the `metadata.json` `exports[]` names: `surface --metadata "
+        "\"{resolved_skill_package}/metadata.json\" [--monorepo] [--pattern-reference-intent] "
+        "[--curated-subset] --output \"{run_dir}/surface.json\"`.\n"
+        "- **State 4**: the names read remotely by eye, as per-file results: `surface --per-file "
+        "\"{run_dir}/per-file-<n>.json\" [--brief \"{forge_data_folder}/{skill_name}/skill-brief.yaml\"] "
+        "--metadata \"{resolved_skill_package}/metadata.json\" [--monorepo] [--pattern-reference-intent] "
+        "[--curated-subset] [--barrel <state>] --output \"{run_dir}/surface.json\"`."
+    )],
+    "Scalar and Stack Branches": [(
+        "**A surplus is a signal, not a pass.** The scalar and stack branches count the numerator and "
+        "denominator from independent sets, so `documented` can exceed `denominator`: it then reports "
+        "`numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps "
+        "the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. On "
+        "a skill with no `scope.tier_a_include` glob that matches a file, a large surplus is the "
+        "deflated-denominator signature: check `guards.deflation` before accepting the 100."
+    ), (
+        "- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium "
+        "`missing-export` gap for the count. When §2b's numerator check found the count inflated, its "
+        "`absent[]` names replace this gap, one each: update-skill documents a named export, not a count."
+    )],
+    "Denominator Candidates": [(
+        "```markdown\n"
+        "**Denominator Candidates** (stratified-scope audit trail):\n"
+        "- `stats.effective_denominator`: {statsEffectiveDenominator | absent}  {← chosen on the scalar "
+        "branch}\n"
+        "- `scope.tier_a_include` union: {tierAIncludeUnion | absent}    {← chosen if the barrel "
+        "branch's set}\n"
+        "- `scope.include` union: {scopeIncludeUnion | absent}           {← chosen if the barrel "
+        "branch's set}\n"
+        "- exports-map subpath union: {subpathUnion | absent}        {← chosen if the barrel branch's "
+        "set}\n"
+        "- root barrel: {rootBarrel | absent}                               {secondary candidate: "
+        "root-barrel-vs-subpath-union audit}\n"
+        "```"
+    )],
+}
+
 
 def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
-    """#600, #613 (w3 leanness-5, architecture-6): coverage-check.md keeps each call, its bindings and the
-    branch the model takes, under budget. The Quick-tier scan and the fallback per-file scan, which most
-    runs never take, live in coverage-check-tiers.md: only the §2 branch that takes one loads it, and it
-    has no frontmatter, so no nextStepFile makes it a step a chain must reach."""
+    """#600, #613 (w3 leanness-5, architecture-6): coverage-check.md stays under budget and keeps its
+    bindings, its halts and the branch the model takes. A branch most runs never take lives in a branch file
+    with no frontmatter, so no nextStepFile makes it a step a chain must reach, and its own commands move
+    with it: the Quick-tier scan and the fallback per-file scan in coverage-check-tiers.md, which only the §2
+    branch that takes one loads; States 2 to 4 (State 2, 3 and 4's `surface` commands included), the scalar
+    and stack branches and the Denominator Candidates block in coverage-check-branches.md, byte for byte as
+    the step held them, each section loaded only from the sentence of its branch, which names it. Every
+    other call stays in the step."""
     text = _read(COVERAGE)
     assert len(text) < COVERAGE_CHAR_BUDGET, len(text)
     assert _frontmatter(COVERAGE)["coverageTiersFile"] == "references/coverage-check-tiers.md"
@@ -1653,6 +1729,55 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
     assert "load `{coverageTiersFile}` and follow its **Quick Tier** section" in quick
     forge = _flow(_slice(section2, "**Forge Tier (ast-grep available):**", "**Compare the signatures.**"))
     assert "load `{coverageTiersFile}` and run its **Fallback Per-File Scan**" in forge
+    assert _frontmatter(COVERAGE)["coverageBranchesFile"] == "references/coverage-check-branches.md"
+    branches = _read(COVERAGE_BRANCHES)
+    assert not branches.startswith("---"), "a branch file, not a step file"
+    assert "HALT" not in branches, "the step halts; a branch section holds no halt"
+    opening = _flow(_slice(branches, "Load this file only from", "\n## "))
+    assert "When the section is done, continue in coverage-check.md right after the sentence that loaded it" in opening
+    assert "§2 **Exits** apply here unchanged" in opening, "State 2, 3 and 4's `surface` calls exit as §2 says"
+    # Each section, and the coverage-check.md sections whose branch sentence loads it.
+    loads = {
+        "States 2 to 4": ["### 2. Analyze Source Code", "### 2b."],
+        "Scalar and Stack Branches": ["### 2c."],
+        "Denominator Candidates": ["### 4. The Denominator Record"],
+    }
+    assert re.findall(r"^## (.+)$", branches, re.M) == list(loads) == list(CARVED_TO_BRANCHES)
+    heading, fenced, pointers = None, False, []
+    for line in body.splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and re.match(r"#{1,6} ", line):
+            heading = line
+        elif "{coverageBranchesFile}" in line:
+            assert heading is not None, f"a pointer before any heading: {line}"
+            pointers.append((heading, _flow(line)))
+    assert len(pointers) == body.count("{coverageBranchesFile}") == sum(map(len, loads.values()))
+    for name, sections in loads.items():
+        assert f"**{name}**" in opening, name
+        at = [where for where, line in pointers if f"**{name}** section" in line]
+        assert len(at) == len(sections) and all(h.startswith(s) for h, s in zip(at, sections)), (name, at)
+        assert body.count(f"**{name}**") == len(sections), f"{name} is named only where its branch loads it"
+    assert "Load it once: when another sentence names one of its sections, read that section from the copy " \
+        "already loaded" in opening
+    assert "its run files, its per-file results and its §2 **Exits** apply here unchanged" in opening
+    flow = _flow(body)
+    for sentence in (
+        "**States 2 to 4 (no local source):** the surface is what the skill recorded, so there is no signature to "
+        "score: load `{coverageBranchesFile}` and follow its **States 2 to 4** section.",
+        # at State 1, which never loaded the section: State 2's command alone, with the flags the rebuild sets
+        "When `rebuild` is `provenance-fold`, load `{coverageBranchesFile}` and rerun State 2's command from its "
+        "**States 2 to 4** section without `--metadata` and with `--fold` and `--pattern-reference-intent`, running "
+        "nothing else from that section",
+        "**On the scalar or stack branch:** load `{coverageBranchesFile}` and follow its **Scalar and Stack "
+        "Branches** section.",
+    ):
+        assert sentence in flow, sentence
+    # Each carved block is byte for byte the step's old text, in its own section, and the step no longer holds it.
+    for name, blocks in CARVED_TO_BRANCHES.items():
+        section = branches.split(f"\n## {name}\n", 1)[1].split("\n## ", 1)[0]
+        for block in blocks:
+            assert block in section and block not in body, (name, block[:60])
     # A per-file result has one shape, given once in §2 for every branch that reads names by eye.
     assert '`{"file": "<path>", "exports_found": [<each name>], "signature_mismatches": []}`' in _flow(section2)
     # What a script owns is not restated: no formula or return list around a call, no hand guard
