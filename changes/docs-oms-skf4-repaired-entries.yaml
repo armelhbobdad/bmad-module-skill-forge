@@ -1,5 +1,5 @@
 type: docs
 summary: |
-  Verifying a Skill now walks through the published oms-cognee 1.6.2 `search` provenance entry, which passes the line, label and citation checks (an ast-grep match on its `def` line, labeled `T1`, cited `[AST:]` in `SKILL.md`), and keeps the older 1.0.0 entry as the example of what those checks catch. Its score table quotes the four oh-my-skills test reports from SKF 4.0.0, which range from 95.17% to 100%, including the oms-storybook-react-vite repair that named its story-authoring tier in `scope.tier_a_include` instead of documenting internal exports. The examples, skill model and getting started pages now follow oms-cognee 1.6.2.
+  Verifying a Skill now walks through the published oms-cognee 1.6.2 `search` provenance entry, which passes the line, label and citation checks (an ast-grep match on its `def` line, labeled `T1`, cited `[AST:]` in `SKILL.md`), and keeps the older 1.0.0 entry as the example of what those checks catch. Its score table quotes the four oh-my-skills test reports from SKF 4.0.0, including the oms-storybook-react-vite repair that named its story-authoring tier in `scope.tier_a_include` instead of documenting internal exports. The examples, skill model and getting started pages now follow oms-cognee 1.6.2.
 prs: [820]
 issues: [761]
