@@ -16,7 +16,7 @@ Load this file only from the coverage-check.md sentence that names one of its se
 
 ## Scalar and Stack Branches
 
-**A surplus is a signal, not a pass.** The scalar and stack branches count the numerator and denominator from independent sets, so `documented` can exceed `denominator`: it then reports `numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. On a skill with no `scope.tier_a_include` glob that matches a file, a large surplus is the deflated-denominator signature: check `guards.deflation` before accepting the 100.
+**A surplus is a signal, not a pass.** The scalar and stack branches count the numerator and denominator from independent sets, so `documented` can exceed `denominator`: it then reports `numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. A large surplus is the deflated-denominator signature: check `guards.deflation`, whose `basis` names the set it measured the stored count against, before accepting the 100.
 
 coverage-check.md §5b records this gap from the run files:
 

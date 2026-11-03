@@ -86,7 +86,7 @@
         "include": { "type": "array", "items": { "type": "string" } },
         "tier_a_include": {
           "type": "array",
-          "description": "Optional narrower tier-A include list. When present it becomes the coverage-denominator basis instead of the coarse scope.include, and it exempts the brief from the denominator deflation guard in skf-test-skill references/source-access-protocol.md — so an empty or blank-item list must not be accepted: it would silence that guard while narrowing nothing.",
+          "description": "Optional narrower tier-A include list. When present it becomes the coverage-denominator basis instead of the coarse scope.include, and the denominator deflation guard in skf-test-skill references/source-access-protocol.md measures the stored effective_denominator against it, in either direction, instead of against scope.include. An empty or blank-item list must not be accepted: it would narrow nothing.",
           "minItems": 1,
           "items": { "type": "string", "minLength": 1 }
         },

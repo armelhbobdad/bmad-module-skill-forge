@@ -588,11 +588,11 @@ class TestDateScalarGuard:
 class TestScopeTierAIncludeSchema:
     """skill-brief.v1.json: tier_a_include is optional but constrained when present.
 
-    It is not merely a narrowing hint — its presence exempts the brief from the
-    denominator deflation guard in `skf-test-skill`
-    `references/source-access-protocol.md`. An empty or blank-item list would
-    therefore silence that guard while narrowing nothing, so the schema refuses
-    it rather than leaving the field unvalidated.
+    It is not merely a narrowing hint: with it, skf-test-skill's denominator
+    deflation guard measures the stored count against the tier A set
+    (`references/source-access-protocol.md`). An empty or blank-item list would
+    narrow nothing, so the schema refuses it rather than leaving the field
+    unvalidated.
     """
 
     def test_legacy_brief_without_tier_a_include_validates(self) -> None:

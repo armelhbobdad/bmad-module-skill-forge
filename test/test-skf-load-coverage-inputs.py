@@ -386,15 +386,18 @@ def test_the_extraction_name_sets_and_candidates(tmp_path):
                                  "scopeIncludeUnion": 7, "subpathUnion": 2, "rootBarrel": 6,
                                  "extractorEffectiveDenominator": 7, "extractorBasis": "scope.include"}
     guards = out["guards"]
-    assert guards["deflation"] == {"applicable": True, "effectiveDenominator": 4, "rederived": 7,
-                                   "pct": 75.0, "fires": True}
+    assert guards["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 4,
+                                   "rederived": 7, "pct": 75.0, "fires": True}
     assert guards["inflation"] == {"applicable": True, "scopeIncludeUnion": 7, "provenanceEntries": 9,
                                    "pct": -22.22, "fires": False}
     assert guards["umbrella"]["ratio"] == 0.5 and guards["umbrella"]["umbrella"] is False
     assert out["state2"] is None
 
 
-def test_a_tier_a_include_silences_both_guards(tmp_path):
+def test_a_tier_a_set_keeps_both_guards_off_on_the_standard_barrel(tmp_path):
+    """A tier A set keeps both guards off on the standard barrel, whose ladder holds no stored count: the
+    deflation guard reads the scope.include union (#813 measures a stored count against the tier A set only on
+    stratified-scope, specific-modules and multi-entry)."""
     data = json.loads(json.dumps(EXTRACTION))
     data["scope"]["tier_a_include"] = ["src/index.ts"]
     extraction = _write(tmp_path / "extract-full.json", data)
@@ -402,7 +405,8 @@ def test_a_tier_a_include_silences_both_guards(tmp_path):
     prov = _write(tmp_path / "provenance.json", {"entries": [{"export_name": "x"}]})
     out = _surface(tmp_path, "--extraction", extraction, "--metadata", meta, "--provenance", prov)
     assert out["sets"]["tier_a_include"] == ["Mode", "Options", "fetchData"]
-    assert out["guards"]["deflation"]["fires"] is False
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 4,
+                                          "rederived": 7, "pct": 75.0, "fires": False}
     assert out["guards"]["inflation"]["applicable"] is False
     # #695: an extraction written before the runner listed unmatched tier A globs reads as listing none
     assert "unmatched_tier_a_include" not in data["scope"]
@@ -459,8 +463,8 @@ def test_with_no_tier_a_glob_matching_both_guards_run(tmp_path):
     assert out["candidates"]["tierAIncludeUnion"] is None
     assert out["guards"]["staleScope"]["fires"] is True
     assert out["guards"]["staleScope"]["unmatchedTierAInclude"] == ["src/old/**", "src/gone.ts"]
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 4, "rederived": 7,
-                                          "pct": 75.0, "fires": True}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 4,
+                                          "rederived": 7, "pct": 75.0, "fires": True}
     assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 7, "provenanceEntries": 1,
                                           "pct": 600.0, "fires": True}
     records = gap_ledger.from_guards(out)
@@ -476,8 +480,8 @@ def test_a_stored_zero_is_deflation_not_a_denominator(tmp_path):
     Medium metadata-drift gap that reads, not a 0-export halt."""
     out = _stale_tier_a(tmp_path, ["src/old/**"], ["src/old/**"], stats={"effective_denominator": 0})
     assert out["candidates"]["statsEffectiveDenominator"] == 0
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 0, "rederived": 7,
-                                          "pct": None, "fires": True}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 0,
+                                          "rederived": 7, "pct": None, "fires": True}
     records = gap_ledger.from_guards(out)
     drift = [r for r in records if r["category"] == "metadata-drift"]
     assert [(r["severity"], r["title"]) for r in drift] == [
@@ -493,17 +497,18 @@ def test_a_stored_zero_over_an_empty_surface_does_not_fire(tmp_path):
     out = _stale_tier_a(tmp_path, ["src/old/**"], ["src/old/**"], include=["nothing/**"],
                         stats={"effective_denominator": 0})
     assert out["sets"]["scope.include"] == []
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 0, "rederived": 0,
-                                          "pct": None, "fires": False}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 0,
+                                          "rederived": 0, "pct": None, "fires": False}
 
 
-def test_a_stored_zero_under_a_live_tier_a_set_does_not_fire(tmp_path):
-    """#712 leaves this open on purpose: with a tier_a_include set the guard stays off, so a stored 0 is
-    not deflation there."""
+def test_a_stored_zero_under_a_live_tier_a_set_on_the_standard_barrel_does_not_fire(tmp_path):
+    """#712 leaves this open on purpose: with a tier_a_include set the scope.include guard stays off, so a stored
+    0 is not deflation on the standard barrel, whose ladder holds no stored count (on the clauses whose ladder
+    does, #813 measures it against the set: test_a_stored_zero_against_a_tier_a_set_is_drift)."""
     out = _stale_tier_a(tmp_path, ["src/index.ts"], [], stats={"effective_denominator": 0})
     assert out["sets"]["tier_a_include"] == ["Mode", "Options", "fetchData"]
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 0, "rederived": 7,
-                                          "pct": None, "fires": False}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 0,
+                                          "rederived": 7, "pct": None, "fires": False}
 
 
 @pytest.mark.parametrize("tier_a", [["lib/**"], ["src/vendor/**"], ["src/reexports.ts"]],
@@ -514,8 +519,8 @@ def test_a_tier_a_list_that_counts_no_name_gives_no_set(tmp_path, tier_a):
     out = _stale_tier_a(tmp_path, tier_a, [])
     assert "tier_a_include" not in out["sets"]
     assert out["candidates"]["tierAIncludeUnion"] is None
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 4, "rederived": 7,
-                                          "pct": 75.0, "fires": True}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 4,
+                                          "rederived": 7, "pct": 75.0, "fires": True}
     assert out["guards"]["inflation"]["fires"] is True
     assert out["guards"]["staleScope"]["fires"] is False
     assert out["guards"]["tierAInclude"] == tier_a
@@ -558,8 +563,8 @@ def test_a_fallback_extraction_gives_only_its_scope_and_stale_globs(tmp_path):
     assert out["excluded"] == {"outsideScope": [], "nestedEntries": []} and out["extractionGaps"] == []
     assert out["guards"]["staleScope"] == {"applicable": True, "fires": True, "unmatchedInclude": [],
                                            "unmatchedTierAInclude": ["src/old/**"], "restored": []}
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 2,
-                                          "pct": 100.0, "fires": True}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 1,
+                                          "rederived": 2, "pct": 100.0, "fires": True}
     assert out["guards"]["umbrella"] == mod.NO_UMBRELLA
     assert out["warnings"][0] == "extract-full.json: scope.tier_a_include pattern 'src/old/**' matches no file"
 
@@ -1139,8 +1144,8 @@ def test_a_quick_tier_tier_a_glob_that_counts_no_name_gives_no_set(tmp_path):
     prov = _write(tmp_path / "provenance.json", {"entries": [{"export_name": "x"}]})
     out = _surface(tmp_path, *_quick_monorepo(tmp_path), "--brief", brief, "--metadata", meta, "--provenance", prov)
     assert "tier_a_include" not in out["sets"]
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 4,
-                                          "pct": 100.0, "fires": False}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 2,
+                                          "rederived": 4, "pct": 100.0, "fires": False}
     assert out["guards"]["inflation"]["applicable"] is False
     assert out["guards"]["tierAInclude"] == ["packages/core/src/util/**"]
 
@@ -1230,8 +1235,8 @@ def test_a_quick_tier_tier_a_glob_outside_scope_include_runs_the_guards(tmp_path
     the tier A list and both guards run; a glob inside `src/**` still keeps them off (#712)."""
     out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx(tmp_path, "gen/**", 1))
     assert "tier_a_include" not in out["sets"]
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
-                                          "pct": 200.0, "fires": True}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 1,
+                                          "rederived": 3, "pct": 200.0, "fires": True}
     assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 3, "provenanceEntries": 3,
                                           "pct": 0.0, "fires": False}
     assert out["guards"]["tierAInclude"] == ["gen/**"], "the gap still names the brief's glob"
@@ -1240,22 +1245,24 @@ def test_a_quick_tier_tier_a_glob_outside_scope_include_runs_the_guards(tmp_path
     assert drift["issue"].endswith("and no `scope.tier_a_include` glob in the brief counts a public name")
     out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx(tmp_path, "src/b.ts", 2))
     assert "tier_a_include" not in out["sets"], "no quick name carries src/b.ts"
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
-                                          "pct": 50.0, "fires": False}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 2,
+                                          "rederived": 3, "pct": 50.0, "fires": False}
     assert out["guards"]["inflation"]["applicable"] is False
 
 
-@pytest.mark.parametrize("head", [
-    "name: fx\nlanguage: typescript\nscope:\n  type: specific-modules\n  include: ['src/**', 'gen/**']\n",
-    "name: fx\nlanguage: typescript\nscope:\n  type: specific-modules\n",
+@pytest.mark.parametrize(("head", "basis"), [
+    ("name: fx\nlanguage: typescript\nscope:\n  type: specific-modules\n  include: ['src/**', 'gen/**']\n",
+     "scope.include"),
+    ("name: fx\nlanguage: typescript\nscope:\n  type: specific-modules\n", "all"),
 ], ids=["an-include-glob-over-gen", "no-scope-include"])
-def test_a_quick_tier_tier_a_glob_not_apart_from_every_include_glob_keeps_the_guards_off(tmp_path, head):
+def test_a_quick_tier_tier_a_glob_not_apart_from_every_include_glob_keeps_the_guards_off(tmp_path, head, basis):
     """#733: `gen/**` leaves the list only when it is apart from every scope.include glob: beside a `gen/**`
-    include, or with no scope.include at all, it stays, so at Quick tier the guards stay off (#712)."""
+    include, or with no scope.include at all, it stays, so at Quick tier the guards stay off (#712). With no
+    scope.include set the guard measures the `all` set, and says so."""
     out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx(tmp_path, "gen/**", 1, head))
     assert "tier_a_include" not in out["sets"]
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
-                                          "pct": 200.0, "fires": False}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": basis, "effectiveDenominator": 1,
+                                          "rederived": 3, "pct": 200.0, "fires": False}
     assert out["guards"]["inflation"]["applicable"] is False
 
 
@@ -1270,8 +1277,8 @@ def test_a_quick_tier_tier_a_glob_inside_a_scope_exclude_glob_runs_the_guards(tm
     it leaves the tier A list and both guards run, as at Forge tier."""
     out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx(tmp_path, tier_a, 1, FX_EXCLUDE))
     assert "tier_a_include" not in out["sets"]
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
-                                          "pct": 200.0, "fires": True}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 1,
+                                          "rederived": 3, "pct": 200.0, "fires": True}
     assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 3, "provenanceEntries": 3,
                                           "pct": 0.0, "fires": False}
     assert out["guards"]["tierAInclude"] == [tier_a], "the gap still names the brief's glob"
@@ -1301,8 +1308,8 @@ def test_a_quick_tier_tier_a_list_runs_the_guards_only_when_each_glob_leaves_it(
     glob leaves the list, inside an exclude glob or apart from every scope.include glob (#733)."""
     out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx_globs(tmp_path, exclude, tier_a))
     assert "tier_a_include" not in out["sets"]
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
-                                          "pct": 200.0, "fires": fires}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 1,
+                                          "rederived": 3, "pct": 200.0, "fires": fires}
     assert out["guards"]["inflation"]["applicable"] is fires
     assert out["guards"]["tierAInclude"] == tier_a
     gaps = gap_ledger.from_guards(out)
@@ -1316,14 +1323,16 @@ def test_a_quick_tier_tier_a_list_runs_the_guards_only_when_each_glob_leaves_it(
     ("src/**", ["alpha", "beta", "gamma"]),
     ("src/g?n/**", None),
 ], ids=["a-file-the-exclude-leaves", "the-include-glob", "a-wildcard-segment"])
-def test_a_quick_tier_tier_a_glob_an_exclude_glob_does_not_cover_keeps_the_guards_off(tmp_path, tier_a,
-                                                                                         tier_a_set):
+def test_a_quick_tier_tier_a_glob_an_exclude_glob_does_not_cover_keeps_the_guards_off_without_defined_in(
+        tmp_path, tier_a, tier_a_set):
     """#749: a tier A glob that can match a file the exclude leaves stays in the list, so at Quick tier the
-    guards stay off (#712)."""
+    guards stay off (#712). The quick names carry no defined_in, so they sit at their entry file: even the set
+    `src/**` gives is no count to measure the stored 1 against (#813), and the guard reads the scope.include
+    union."""
     out = _surface(tmp_path, *_fx_quick(tmp_path), *_fx(tmp_path, tier_a, 1, FX_EXCLUDE))
     assert out["sets"].get("tier_a_include") == tier_a_set
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
-                                          "pct": 200.0, "fires": False}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 1,
+                                          "rederived": 3, "pct": 200.0, "fires": False}
     assert out["guards"]["inflation"]["applicable"] is False
 
 
@@ -1360,8 +1369,8 @@ def test_the_deflation_guard_fires_at_quick_tier(tmp_path):
     brief = _write(tmp_path / "skill-brief.yaml", BRIEF)
     meta = _write(tmp_path / "metadata.json", {**METADATA, "stats": {"effective_denominator": 2}})
     out = _surface(tmp_path, *_quick_monorepo(tmp_path), "--brief", brief, "--metadata", meta)
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 4,
-                                          "pct": 100.0, "fires": True}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 2,
+                                          "rederived": 4, "pct": 100.0, "fires": True}
     assert out["candidates"]["scopeIncludeUnion"] == 4
 
 
@@ -1390,8 +1399,8 @@ def test_a_fallback_scan_tier_a_list_that_counts_no_name_runs_the_guards(tmp_pat
     scope.include) narrows nothing, and the stale-scope guard still needs the runner's word."""
     out = _surface(tmp_path, *_fx_fallback(tmp_path), "--fallback-scan", *_fx(tmp_path, tier_a, 1))
     assert out["sets"] == {"all": ["alpha", "beta", "gamma"], "scope.include": ["alpha", "beta", "gamma"]}
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 1, "rederived": 3,
-                                          "pct": 200.0, "fires": True}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 1,
+                                          "rederived": 3, "pct": 200.0, "fires": True}
     assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 3, "provenanceEntries": 3,
                                           "pct": 0.0, "fires": False}
     assert out["guards"]["staleScope"]["applicable"] is False
@@ -1400,12 +1409,13 @@ def test_a_fallback_scan_tier_a_list_that_counts_no_name_runs_the_guards(tmp_pat
     assert drift["issue"].endswith("and no `scope.tier_a_include` glob in the brief counts a public name")
 
 
-def test_a_fallback_scan_live_tier_a_glob_keeps_its_set_and_the_guards_off(tmp_path):
-    """#733: a tier A glob over the file that defines two of the names gives a set, so the guards stay off."""
+def test_a_fallback_scan_live_tier_a_glob_keeps_its_set_and_matches_the_stored_count(tmp_path):
+    """#733: a tier A glob over the file that defines two of the names gives a set, so the guards stay off on
+    the scope.include union; the deflation guard measures the stored 2 against the set instead (#813)."""
     out = _surface(tmp_path, *_fx_fallback(tmp_path), "--fallback-scan", *_fx(tmp_path, "src/b.ts", 2))
     assert out["sets"]["tier_a_include"] == ["beta", "gamma"]
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
-                                          "pct": 50.0, "fires": False}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "tier_a_include", "effectiveDenominator": 2,
+                                          "rederived": 2, "pct": 0.0, "fires": False}
     assert out["guards"]["inflation"]["applicable"] is False
 
 
@@ -1418,8 +1428,8 @@ def test_per_file_results_without_fallback_scan_keep_the_glob_rule(tmp_path, tie
                                                   "signature_mismatches": []})
     out = _surface(tmp_path, "--per-file", entry, *_fx(tmp_path, tier_a, 2))
     assert "tier_a_include" not in out["sets"]
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
-                                          "pct": 50.0, "fires": False}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 2,
+                                          "rederived": 3, "pct": 50.0, "fires": False}
 
 
 def test_per_file_results_without_fallback_scan_drop_a_tier_a_glob_apart_from_scope_include(tmp_path):
@@ -1429,8 +1439,8 @@ def test_per_file_results_without_fallback_scan_drop_a_tier_a_glob_apart_from_sc
                                                   "signature_mismatches": []})
     out = _surface(tmp_path, "--per-file", entry, *_fx(tmp_path, "gen/**", 2))
     assert "tier_a_include" not in out["sets"]
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
-                                          "pct": 50.0, "fires": True}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 2,
+                                          "rederived": 3, "pct": 50.0, "fires": True}
     assert out["guards"]["inflation"]["applicable"] is True
 
 
@@ -1441,8 +1451,8 @@ def test_per_file_results_without_fallback_scan_drop_a_tier_a_glob_inside_a_scop
                                                   "signature_mismatches": []})
     out = _surface(tmp_path, "--per-file", entry, *_fx(tmp_path, "src/gen/**", 2, FX_EXCLUDE))
     assert "tier_a_include" not in out["sets"]
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 2, "rederived": 3,
-                                          "pct": 50.0, "fires": True}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 2,
+                                          "rederived": 3, "pct": 50.0, "fires": True}
     assert out["guards"]["inflation"]["applicable"] is True
 
 
@@ -1471,8 +1481,8 @@ def test_a_quick_surface_places_each_name_at_its_defined_in(tmp_path, tier_a):
     runner's stored 3 fires neither guard; the `all` set keeps every name."""
     out = _surface(tmp_path, *_fx_quick_traced(tmp_path, FX_DEFINED_IN), *_fx_stored(tmp_path, tier_a))
     assert out["sets"] == {"all": ["alpha", "beta", "extra", "gamma"], "scope.include": ["alpha", "beta", "gamma"]}
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 3, "rederived": 3,
-                                          "pct": 0.0, "fires": False}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 3,
+                                          "rederived": 3, "pct": 0.0, "fires": False}
     assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 3, "provenanceEntries": 3,
                                           "pct": 0.0, "fires": False}
     assert gap_ledger.from_guards(out) == []
@@ -1487,8 +1497,8 @@ def test_a_quick_surface_leaves_out_a_name_defined_in_an_excluded_file(tmp_path,
     out = _surface(tmp_path, *_fx_quick_traced(tmp_path, traced), *_fx_stored(tmp_path, tier_a, FX_EXCLUDE))
     assert [e["file"] for e in out["exports"] if e["name"] == "extra"] == ["src/gen/extra.ts"]
     assert out["sets"] == {"all": ["alpha", "beta", "extra", "gamma"], "scope.include": ["alpha", "beta", "gamma"]}
-    assert out["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 3, "rederived": 3,
-                                          "pct": 0.0, "fires": False}
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 3,
+                                          "rederived": 3, "pct": 0.0, "fires": False}
     assert out["guards"]["inflation"] == {"applicable": True, "scopeIncludeUnion": 3, "provenanceEntries": 3,
                                           "pct": 0.0, "fires": False}
     if tier_a:
@@ -1501,8 +1511,8 @@ def test_a_quick_surface_with_no_defined_in_keeps_the_entry_file(tmp_path):
     source_file, as before."""
     without = _surface(tmp_path, *_fx_quick_traced(tmp_path, None), *_fx_stored(tmp_path, None))
     assert without["sets"]["scope.include"] == ["alpha", "beta", "extra", "gamma"]
-    assert without["guards"]["deflation"] == {"applicable": True, "effectiveDenominator": 3, "rederived": 4,
-                                              "pct": 33.33, "fires": True}
+    assert without["guards"]["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 3,
+                                              "rederived": 4, "pct": 33.33, "fires": True}
     null = _surface(tmp_path, *_fx_quick_traced(tmp_path, dict.fromkeys(FX_DEFINED_IN)), *_fx_stored(tmp_path, None))
     assert {k: null[k] for k in ("sets", "candidates", "guards")} == {
         k: without[k] for k in ("sets", "candidates", "guards")}
@@ -1510,10 +1520,14 @@ def test_a_quick_surface_with_no_defined_in_keeps_the_entry_file(tmp_path):
 
 def test_a_quick_tier_live_tier_a_glob_over_a_defining_file_gives_a_set(tmp_path):
     """#750: with names at their defining files, a tier A glob over src/b.ts gives a set at Quick tier, as at
-    Forge tier, and the guards stay off under #712's glob rule."""
+    Forge tier, and the inflation guard stays off under #712's glob rule; the deflation guard measures the
+    stored 3 against the set's 2 names, 33.33% below it, and fires (#813)."""
     out = _surface(tmp_path, *_fx_quick_traced(tmp_path, FX_DEFINED_IN), *_fx_stored(tmp_path, "src/b.ts"))
     assert out["sets"]["tier_a_include"] == ["beta", "gamma"]
     assert out["guards"]["inflation"]["applicable"] is False
+    deflation = out["guards"]["deflation"]
+    assert (deflation["basis"], deflation["rederived"], deflation["pct"], deflation["fires"]) == (
+        "tier_a_include", 2, -33.33, True)
 
 
 def test_a_fallback_scan_barrel_result_without_its_passed_on_names_matches_the_runner(tmp_path):
@@ -2018,3 +2032,148 @@ def test_a_stored_zero_is_no_denominator(tmp_path):
     out = _surface(tmp_path, "--provenance", prov, "--metadata", meta, "--brief", brief)
     assert out["guards"]["deflation"]["applicable"] is False
     assert out["denominator"] == _barrel("specific-modules", "scope.include", 2, barrel=None)
+
+
+# #788, #813: on a clause whose ladder holds a stored count, a stored `stats.effective_denominator` the brief's
+# tier A set disagrees with beyond the deflation threshold, either way, is stale: the gap asks to recount, and the
+# ladder's tier A rung (stratified-scope, multi-entry), else the scope.include set, is the denominator. When the
+# deflation and inflation guards both fire on the `scope.include` union, that union stays the denominator and both
+# gaps name the brief's tier A list.
+TIER_A_CLAUSES = {
+    "stratified-scope": (_extraction("public-api"), ["--monorepo", "--curated-subset"]),
+    "specific-modules": (_extraction("specific-modules"), []),
+    "multi-entry": (_extraction("public-api", multi_subpath_exports=True), []),
+}
+# The set a fire counts: specific-modules' ladder has no tier A rung.
+FIRED_SET = {"stratified-scope": "tier_a_include", "specific-modules": "scope.include", "multi-entry": "tier_a_include"}
+
+
+def _tier_a_clause(tmp_path: Path, clause: str, stored: int, tier_a: tuple[str, ...] = ("src/index.ts",),
+                   status: str = "ok") -> dict:
+    extraction, flags = TIER_A_CLAUSES[clause]
+    extraction = json.loads(json.dumps(extraction))
+    extraction["scope"]["tier_a_include"] = list(tier_a)
+    extraction["status"] = status
+    meta = _write(tmp_path / "metadata.json", dict(METADATA, stats={"effective_denominator": stored}))
+    return _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", extraction), "--metadata", meta,
+                    "--provenance", _write(tmp_path / "provenance.json", PROVENANCE), *flags)
+
+
+@pytest.mark.parametrize("clause", list(TIER_A_CLAUSES))
+@pytest.mark.parametrize(("stored", "pct"), [(2, 50.0), (7, -57.14)], ids=["above", "below"])
+def test_a_tier_a_set_beats_a_stale_stored_count(tmp_path, clause, stored, pct):
+    """#813: the brief's 3 tier A names against a stored 2 (+50%) or 7 (-57%): beyond the threshold either way,
+    so the deflation guard fires on the tier A basis, the barrel branch counts the ladder's tier A rung (the
+    scope.include set on specific-modules, which has none), and the ledger records a drift gap that asks Create
+    Skill to recount and names that set."""
+    out = _tier_a_clause(tmp_path, clause, stored)
+    assert out["sets"]["tier_a_include"] == ["Mode", "Options", "fetchData"]
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "tier_a_include",
+                                          "effectiveDenominator": stored, "rederived": 3, "pct": pct, "fires": True}
+    assert out["guards"]["inflation"]["applicable"] is False, "inflation stays gated on no tier A list"
+    assert out["denominator"] == _barrel(clause, FIRED_SET[clause], 1)
+    [drift] = gap_ledger.from_guards(out)
+    assert (drift["severity"], drift["category"], drift["title"]) == (
+        "Medium", "metadata-drift",
+        "denominator drift: effective_denominator disagrees with the brief's tier_a_include set")
+    assert drift["remediation"].startswith("Re-run Create Skill to recount")
+    assert drift["remediation"].endswith(f"Until then Test Skill counts the `{FIRED_SET[clause]}` set as the "
+                                         "denominator.")
+
+
+@pytest.mark.parametrize("clause", list(TIER_A_CLAUSES))
+def test_a_stored_count_within_the_threshold_of_the_tier_a_set_stays_the_denominator(tmp_path, clause):
+    """#813: a stored 3 equal to the tier A set's count fires nothing: the scalar branch, as before (the guard's
+    tier A basis is pinned beside the stale counts above)."""
+    out = _tier_a_clause(tmp_path, clause, 3)
+    assert out["guards"]["deflation"]["fires"] is False
+    assert out["denominator"] == _scalar(clause, "tier_a_include")
+    assert gap_ledger.from_guards(out) == []
+
+
+def test_a_tier_a_set_25_percent_above_the_stored_count_does_not_fire(tmp_path):
+    """#813: the threshold is exclusive on the tier A basis too: 5 tier A names against a stored 4 is +25.0%."""
+    out = _tier_a_clause(tmp_path, "stratified-scope", 4, ("src/index.ts", "src/extra.ts"))
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "tier_a_include", "effectiveDenominator": 4,
+                                          "rederived": 5, "pct": 25.0, "fires": False}
+    assert out["denominator"] == _scalar("stratified-scope", "tier_a_include")
+
+
+def test_a_stored_zero_against_a_tier_a_set_is_drift(tmp_path):
+    """#813 closes what #712 left open on a stratified skill: a stored 0 under a tier A set that counts names is
+    a stale count to recount, with no percentage against 0. A stored 0 was never the denominator: the ladder's
+    tier A rung still counts."""
+    out = _tier_a_clause(tmp_path, "stratified-scope", 0)
+    assert out["guards"]["deflation"] == {"applicable": True, "basis": "tier_a_include", "effectiveDenominator": 0,
+                                          "rederived": 3, "pct": None, "fires": True}
+    assert out["denominator"] == _barrel("stratified-scope", "tier_a_include", 2)
+    [drift] = gap_ledger.from_guards(out)
+    assert drift["title"] == "denominator drift: effective_denominator disagrees with the brief's tier_a_include set"
+    assert drift["issue"] == ("the brief's `scope.tier_a_include` set counts 3 exports against a "
+                              "`stats.effective_denominator` of 0")
+
+
+@pytest.mark.parametrize(("extraction", "expected"), [
+    (_extraction(), _barrel("standard-barrel", "all")),
+    (_extraction("public-api", "empty-barrel"), _barrel("empty-barrel", "scope.include", barrel="empty-barrel")),
+    (_extraction("public-api", "no-entry-point"),
+     _barrel("pattern-reference", "tier_a_include", barrel="no-entry-point")),
+], ids=["standard-barrel", "empty-barrel", "pattern-reference"])
+def test_a_clause_with_no_stored_count_takes_no_drift_gap(tmp_path, extraction, expected):
+    """#813: on a clause whose denominator is never the stored count, a tier A set that disagrees with it is no
+    drift: the guard reads the scope.include union (and stays off beside the tier A list), so no gap says the
+    tier A set is a denominator the clause does not count."""
+    extraction = json.loads(json.dumps(extraction))
+    extraction["scope"]["tier_a_include"] = ["src/index.ts"]
+    meta = _write(tmp_path / "metadata.json", dict(METADATA, stats={"effective_denominator": 2}))
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", extraction), "--metadata", meta)
+    assert out["sets"]["tier_a_include"] == ["Mode", "Options", "fetchData"]
+    assert (out["guards"]["deflation"]["basis"], out["guards"]["deflation"]["fires"]) == ("scope.include", False)
+    assert out["denominator"] == expected
+    assert gap_ledger.from_guards(out) == []
+
+
+@pytest.mark.parametrize(("stored", "expected"), [
+    (7, _scalar("stratified-scope", "tier_a_include")),
+    (2, _barrel("stratified-scope", "tier_a_include", 1)),
+], ids=["below-keeps-the-stored-count", "above-takes-the-set"])
+def test_an_incomplete_extraction_reports_a_downward_drift_without_taking_the_set(tmp_path, stored, expected):
+    """#813: an incomplete extraction can miss tier A names, so a tier A set below the stored count is drift to
+    report, not a denominator to take; a set above the stored count still counts."""
+    out = _tier_a_clause(tmp_path, "stratified-scope", stored, status="incomplete")
+    assert out["extraction"]["status"] == "incomplete"
+    assert out["guards"]["deflation"]["fires"] is True
+    assert out["denominator"] == expected
+    [drift] = gap_ledger.from_guards(out)
+    assert drift["title"] == "denominator drift: effective_denominator disagrees with the brief's tier_a_include set"
+    assert drift["remediation"].endswith(
+        "Until then the stored count stays the denominator: the extraction is incomplete, so the tier A set can miss "
+        "names." if expected["branch"] == "scalar" else
+        "Until then Test Skill counts the `tier_a_include` set as the denominator.")
+
+
+def test_both_guards_on_an_umbrella_barrel_keep_the_scope_include_denominator(tmp_path):
+    """#788 end to end: six more root re-exports make the root barrel an umbrella (9 of 12 names re-exported), and
+    a stored 4 against the 13-name `scope.include` union and four provenance entries fires both guards. The union
+    stays the denominator, and both gaps name the brief's tier A list instead of a stored count set by hand."""
+    extraction = _extraction("public-api")
+    extraction["entry_point_diff"]["public"] += [
+        {"name": f"util{n}", "entry": "src/index.ts", "via": "re-export", "file": f"src/util/u{n}.ts", "line": 1}
+        for n in range(6)]
+    meta = _write(tmp_path / "metadata.json", dict(METADATA, stats={"effective_denominator": 4}))
+    prov = _write(tmp_path / "provenance.json", {"entries": PROVENANCE["entries"][:4]})
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", extraction), "--metadata", meta,
+                   "--provenance", prov, "--monorepo", "--curated-subset")
+    guards = out["guards"]
+    assert guards["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 4,
+                                   "rederived": 13, "pct": 225.0, "fires": True}
+    assert guards["inflation"] == {"applicable": True, "scopeIncludeUnion": 13, "provenanceEntries": 4,
+                                   "pct": 225.0, "fires": True}
+    assert (guards["umbrella"]["names"], guards["umbrella"]["reexported"], guards["umbrella"]["umbrella"]) == (
+        12, 9, True)
+    assert out["denominator"] == _barrel("stratified-scope", "scope.include", 1)
+    deflation, inflation = gap_ledger.from_guards(out)
+    assert [deflation["category"], inflation["category"]] == ["metadata-drift", "denominator-inflation"]
+    assert deflation["remediation"] == inflation["remediation"]
+    assert inflation["remediation"].startswith("Add `scope.tier_a_include`")
+    assert "Set `stats.effective_denominator`" not in inflation["remediation"]
