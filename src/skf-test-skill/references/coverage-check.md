@@ -33,7 +33,7 @@ detectWorkspacesProbeOrder:
 
 ## STEP GOAL:
 
-Compare the exports, functions, classes, types, and interfaces documented in SKILL.md against the actual source code API surface. Identify missing documentation, undocumented exports, and signature mismatches. Analysis depth scales with forge tier.
+Compare what SKILL.md documents (exports, functions, classes, types, interfaces) with the source API surface: missing documentation, undocumented exports, signature mismatches, at the forge tier's depth.
 
 **Halt envelope.** Every HALT in this step names its `halt_reason` and phase and carries exit code 1. It releases the run lock first, whatever the release prints: from `{project-root}`, run `uv run {runLockHelper} release --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"` (SKILL.md Workflow Rules). In headless mode it then writes `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "skill_name": "{skill_name}", "report_path": "{report_file}"}`, adding `"path"` when the halt names one, to `{run_dir}/halt.json` and runs:
 
@@ -43,11 +43,11 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --run-dir "{run_
 
 Display the line it prints, as the run's last line, then stop. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
 
-**Run files.** Every script below writes its result into the run folder `{run_dir}` that init.md §6b created, and the next one reads it from there by path. A subagent's response is saved there with the Write tool exactly as it came back, fence and all, and passed by path, so a quote or an apostrophe in it never meets a shell. Every count, name list and score a script computes is read from the file it wrote, never re-derived by hand or copied from one command into another. Each command runs from `{project-root}`; a `{...Script}` path resolves relative to the skill root.
+**Run files.** Every script below writes its result into the run folder `{run_dir}` that init.md §6b created, where the next one reads it by path. A subagent's response is saved there with the Write tool exactly as it came back, fence and all, and passed by path, so a quote or an apostrophe in it never meets a shell. Every count, name list and score a script computes is read from the file it wrote, never re-derived by hand or copied between commands. Each command runs from `{project-root}`; a `{...Script}` path resolves relative to the skill root.
 
 ### 0. Check for Docs-Only Mode
 
-A skill is docs-only when every citation it writes is `[EXT:...]`, with no local source citation (`[AST:...]`, `[SRC:...]`, or a stack's `[from skill: ...]`). The citation census decides it:
+A skill is docs-only when every citation it writes is `[EXT:...]`, none local (`[AST:...]`, `[SRC:...]`, or a stack's `[from skill: ...]`). The citation census decides it:
 
 ```bash
 uv run {coverageInputsScript} census --skill-dir "{resolved_skill_package}" --output "{run_dir}/census.json"
@@ -63,9 +63,9 @@ A source-based skill continues with §0b.
 
 ### 0b. Load Source Access Protocol
 
-Load `{sourceAccessProtocol}` and follow both sections: **Source API Surface Definition** (the clause that decides the coverage denominator, picked in §2b) and **Source Access Resolution** (the 5-state waterfall that decides how source files are read and sets `analysis_confidence`; State 5 makes the run docs-only).
+Load `{sourceAccessProtocol}` and follow both sections: **Source API Surface Definition** (the denominator clause §2b picks) and **Source Access Resolution** (the 5-state waterfall that decides how the source is read and sets `analysis_confidence`; State 5 makes the run docs-only).
 
-**Workspace layout.** The Source API Surface Definition's monorepo tests read `{source_is_monorepo}`, which `{detectWorkspacesHelper}` decides. At State 1 (local source), resolve `{detectWorkspacesHelper}` ← first existing path in `{detectWorkspacesProbeOrder}` and run (`{stageHelperPayloadScript}` reads the source tree and the root manifests from disk and pipes them to the helper):
+**Workspace layout.** The Source API Surface Definition's monorepo tests read `{source_is_monorepo}`, which `{detectWorkspacesHelper}` decides. At State 1 (local source), resolve `{detectWorkspacesHelper}` ← first existing path in `{detectWorkspacesProbeOrder}` and run (`{stageHelperPayloadScript}` pipes it the source tree and the root manifests from disk):
 
 ```bash
 uv run {stageHelperPayloadScript} detect-workspaces --source-root "{source_path}" | uv run {detectWorkspacesHelper}
@@ -77,7 +77,7 @@ Bind `{source_is_monorepo}` ← `is_monorepo` and `{source_workspace_kind}` ← 
 
 ### 1. Extract Documented Exports from SKILL.md
 
-Delegate the reading of the skill under test to a subagent, given the path to SKILL.md and to its `references/` directory when one exists. The subagent reads SKILL.md, and every `references/*.md` file as well when SKILL.md's `## Full` headings are absent or stubs. For each export documented both in the SKILL.md body and in a reference file, it compares the two: parameters (name, type, order, optionality), the return type, and descriptions that contradict (brief against detailed is fine). It returns only this JSON, with no prose and no commentary:
+Delegate the reading of the skill under test to a subagent, given the path to SKILL.md and to its `references/` directory when one exists: it reads SKILL.md, and every `references/*.md` file too when SKILL.md's `## Full` headings are absent or stubs. For each export both the SKILL.md body and a reference file document, it compares the two: parameters (name, type, order, optionality), the return type, and descriptions that contradict (brief against detailed is fine, as is a form the skill labels partial that leaves out only optional members). It returns only this JSON, with no prose and no commentary:
 
 ```json
 {
@@ -85,7 +85,7 @@ Delegate the reading of the skill under test to a subagent, given the path to SK
     {"name": "functionName", "kind": "function", "params": "...", "return_type": "...", "description": "..."},
     {"name": "ClassName", "kind": "class", "methods": ["..."], "properties": ["..."], "description": "..."},
     {"name": "TypeName", "kind": "type", "fields": ["..."], "description": "..."},
-    {"name": "useHook", "kind": "hook", "usage_signature": "...", "description": "..."}
+    {"name": "useHook", "kind": "hook", "usage_signature": "...", "description": "...", "signature_form": "partial"}
   ],
   "references": ["references/api-reference.md"],
   "cross_check_mismatches": [
@@ -94,13 +94,13 @@ Delegate the reading of the skill under test to a subagent, given the path to SK
 }
 ```
 
-Tell the subagent the contract the validator checks: each `kind` is one of `function`, `class`, `type`, `constant`, `hook`, `interface`, `method`, `struct`, `enum`, `trait`, `macro` or `adapter`; every entry carries the `description` the skill gives it (an empty string when it gives none); a function or method carries `params` (`""` or `[]` when it takes none) and `return_type` as the skill documents them, and leaves a key out when the skill documents nothing for it.
+Tell the subagent the contract the validator checks: each `kind` is one of `function`, `class`, `type`, `constant`, `hook`, `interface`, `method`, `struct`, `enum`, `trait`, `macro` or `adapter`; every entry carries the `description` the skill gives it (an empty string when it gives none); a function or method carries `params` (`""` or `[]` when it takes none) and `return_type` as the skill documents them, and leaves a key out when the skill documents nothing for it. An entry whose signature the skill labels partial (simplified, key parameters, a `...` standing in for omitted members, not rest or variadic syntax) carries `signature_form: "partial"`, any other `"full"` or no key: copy the label, never judge the form.
 
-Save the subagent's response, as it came back, to `{run_dir}/inventory-response.txt` with the Write tool. The documented inventory is the one §1a validates: do not load SKILL.md or the reference files into the parent context. Without subagents, the parent reads the same files itself, builds the same JSON and saves it to the same file; §1a's checks still run on it.
+Save the subagent's response, as it came back, to `{run_dir}/inventory-response.txt` with the Write tool. The documented inventory is the one §1a validates: do not load SKILL.md or the reference files into the parent context. Without subagents, the parent builds the same JSON from the same files and saves it to that file; §1a's checks still run on it.
 
 #### 1a. Parent-Side Schema Validation + Spot-Check
 
-Before anything consumes the inventory, `{validateInventoryScript}` checks it against the §1 contract (a wrapping fence stripped) and spot-checks sampled names against SKILL.md and the reference files the subagent listed. The look-up is the script's, never a grep: an export named `$state` or `a.b` is neither a shell variable nor a regex.
+Before anything consumes the inventory, `{validateInventoryScript}` checks it against the §1 contract (a wrapping fence stripped) and spot-checks sampled names against SKILL.md and the subagent's listed reference files. The look-up is the script's, never a grep: an export named `$state` or `a.b` is neither a shell variable nor a regex.
 
 ```bash
 uv run {validateInventoryScript} --input "{run_dir}/inventory-response.txt" --skill-package "{resolved_skill_package}" --output "{run_dir}/inventory.json"
@@ -116,7 +116,7 @@ Only when the validated inventory's `references` is non-empty. The SKILL.md body
 
 ### 2. Analyze Source Code (Tier-Dependent)
 
-Identify the public API surface from the package entry points (see 0b), at the depth the tier allows. Whichever branch runs, `{coverageInputsScript} surface` writes it to `{run_dir}/surface.json`, which §2b, §2c, §4 and step 5 read. Names read by eye reach it as per-file results, `{"file": "<path>", "exports_found": [<each name>], "signature_mismatches": []}` for each file, saved to `{run_dir}/per-file-<n>.json` with the Write tool and given to `surface` with one `--per-file` each.
+Identify the public API surface from the package entry points (0b), as deep as the tier allows. Whichever branch runs, `{coverageInputsScript} surface` writes it to `{run_dir}/surface.json`, which §2b, §2c, §4 and step 5 read. Names read by eye reach it as per-file results, `{"file": "<path>", "exports_found": [<each name>], "signature_mismatches": []}` for each file, saved to `{run_dir}/per-file-<n>.json` with the Write tool and given to `surface` with one `--per-file` each.
 
 **Exits.** Every `{coverageInputsScript}` and `{scoreSignaturesScript}` command in §2 and §2b exits 0, or exits 1 with its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase `coverage-check:surface`). `surface` with a `--per-file`, and `score`, also exit 2 when a subagent response breaks the schema: re-dispatch that subagent once with its `violations[]` appended (or correct a result the main thread wrote), save the new response over the old one and run the command again; a second failure HALTs the same way.
 
@@ -142,7 +142,7 @@ The surface holds the names the entry points export, less those defined in a fil
 
 - `extraction.fallback.needed` is true, or the runner printed no JSON on an exit other than 2: load `{coverageTiersFile}` and run its **Fallback Per-File Scan** in place of the rest of this tier.
 - `extraction.status` is `incomplete` (exit 1): keep the surface, read by eye only the files `extraction.readByEye` names, save a per-file result for each, and run `surface` again with them.
-- `extractionGaps[]` names exports no recipe found: they are on the surface, and their signature is read by eye at their `file` and `line`.
+- `extractionGaps[]` names exports no recipe found: they are on the surface; read their signature by eye at their `file` and `line`.
 
 **Compare the signatures.** A script lists the comparisons; subagents judge them:
 
@@ -150,15 +150,17 @@ The surface holds the names the entry points export, less those defined in a fil
 uv run {scoreSignaturesScript} plan --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --output "{run_dir}/signature-plan.json"
 ```
 
-For each `files[]` entry, delegate one subagent with its checks. For each check it reads the full declaration at `{file}:{line}` (all of it: `signatureLine` is one physical line, and a multi-line signature cut there would read as a mismatch), compares it with the check's `documented` signature (params: name, type, order, optionality; and the return type), and returns only this JSON, with no prose and no markdown fences:
+For each `files[]` entry, delegate one subagent with its checks. For each check it reads the full declaration at `{file}:{line}` (all of it: `signatureLine` is one physical line, and a multi-line signature cut there reads as a mismatch), compares it with the check's `documented` signature (params: name, type, order, optionality; and the return type), and returns only this JSON, with no prose and no markdown fences:
 
 ```json
-{"file": "src/utils.ts", "signature_mismatches": [{"name": "formatDate", "line": 42, "source_sig": "(date: Date, format?: string) => string", "documented_sig": "(date: Date) => string", "issue": "missing optional parameter 'format'"}]}
+{"file": "src/utils.ts", "signature_mismatches": [{"name": "formatDate", "line": 42, "source_sig": "(date: Date, format?: string) => string", "documented_sig": "(date: Date) => string", "issue": "missing optional parameter 'format'", "difference": "omitted-optional"}]}
 ```
+
+A mismatch carries `difference` when the two differ only in one of these ways, else no key: `parameter-name` (only parameter names differ: types, order, optionality, defaults and return type equal; a destructured property is part of a type) or `omitted-optional` (the documented form leaves out only members the source marks optional). A parameter or field with a default or a `?`, or a TS/JS rest parameter, is optional; a Rust `Option<T>` field a struct literal still requires is not. Tag it in any language and form: `score` (§2b) checks the facts. The example above, tagged `omitted-optional`, stays Critical against a full form.
 
 Save each response to `{run_dir}/signatures-<n>.txt` with the Write tool. Without subagents, compare in the main thread and save the same JSON.
 
-**Deep Tier (ast-grep + gh + QMD):** all Forge tier checks, plus: verify with the gh CLI that the source repository matches the documented version, cross-check type definitions against their source declarations, and trace re-exported symbols to their original source.
+**Deep Tier (ast-grep + gh + QMD):** the Forge tier checks, plus: check with the gh CLI that the source repository matches the documented version, check type definitions against their source declarations, and trace re-exports to their origin.
 
 **States 2 to 4 (no local source):** the surface is what the skill recorded, so there is no signature to score:
 - **State 2** (`{forge_provenance_map}`, the provenance map init.md §2 bound): the union of its named exports and the `metadata.json` `exports[]` names, with `--fold`, `--keep` and `--fold-prefix` as the Source API Surface Definition's canonicalization says:
@@ -167,7 +169,7 @@ Save each response to `{run_dir}/signatures-<n>.txt` with the Write tool. Withou
   uv run {coverageInputsScript} surface --provenance "{forge_provenance_map}" --metadata "{resolved_skill_package}/metadata.json" [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] [--fold] [--keep <variant>] [--fold-prefix <prefix>] [--monorepo] [--pattern-reference-intent] [--curated-subset] --output "{run_dir}/surface.json"
   ```
 
-  Step 5's scoring script reads its `state2` counts, and the report records its fold summary, `canonical.summary`.
+  Step 5's scoring script reads its `state2` counts, and the report its fold summary, `canonical.summary`.
 - **State 3**: the `metadata.json` `exports[]` names: `surface --metadata "{resolved_skill_package}/metadata.json" [--monorepo] [--pattern-reference-intent] [--curated-subset] --output "{run_dir}/surface.json"`.
 - **State 4**: the names read remotely by eye, as per-file results: `surface --per-file "{run_dir}/per-file-<n>.json" [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] --metadata "{resolved_skill_package}/metadata.json" [--monorepo] [--pattern-reference-intent] [--curated-subset] [--barrel <state>] --output "{run_dir}/surface.json"`.
 
@@ -211,11 +213,11 @@ Do not write the Coverage Analysis section or attach a score: this is an indeter
 uv run {scoreSignaturesScript} score --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --surface-set <set> --results "{run_dir}/signatures-<n>.txt" --output "{run_dir}/signatures.json" --gaps-output "{run_dir}/signature-gaps.json"
 ```
 
-It writes each mismatch of a compared name to `signature-gaps.json` as a Critical `signature-mismatch` gap titled `Signature mismatch: {name}`, with `export` `{name}`, its Source at `{file}:{line}` and both signatures in its Issue; §5b appends that file to the ledger. §5's render lists its `warnings` (a mismatch for a name never compared, a category with nothing to compare).
+It grades each mismatch of a compared name from facts it checks, never a `difference` alone, into `signature-gaps.json`: a Low `signature-mismatch` gap for a `parameter-name` difference in the planned file when it is TS/JS, Go, Rust, Java, C or C++, an Info `observation` titled `Partial signature: {name}` for an `omitted-optional` one on a `partial` form, a Critical `signature-mismatch` gap otherwise (Python included). A signature gap is titled `Signature mismatch: {name}`, with `export` `{name}`, its Source at `{file}:{line}` and both signatures in its Issue; §5b appends that file to the ledger. A Low or Info one counts as matching, and §5 renders it so. §5's render lists its `warnings` (a mismatch for a name never compared, a category with nothing to compare).
 
 ### 2c. Reconcile Documented vs Source Surface (Deterministic Intersection)
 
-`{reconcileScript}` reconciles the §1 inventory with the source surface and writes `{run_dir}/coverage.json`, whose `exportCoverage` is the Export Coverage score step 5 hands to the scoring script. Run the branch §2b picked:
+`{reconcileScript}` reconciles the §1 inventory with the source surface and writes `{run_dir}/coverage.json`, whose `exportCoverage` is the Export Coverage step 5 hands to the scoring script. Run the branch §2b picked:
 
 1. **Barrel**, with the name set §2b picked as `--surface-set`:
 
@@ -235,7 +237,7 @@ It writes each mismatch of a compared name to `signature-gaps.json` as a Critica
    uv run {reconcileScript} --denominator-source stack --coverage-inputs "{run_dir}/coverage-inputs.json" --skill-dir "{resolved_skill_package}" --output "{run_dir}/coverage.json"
    ```
 
-4. **Docs-only**: Export Coverage is the documentation completeness ratio, complete items over documented items, and `incomplete[]` lists each incomplete item with the fields it lacks:
+4. **Docs-only**: Export Coverage is the documentation completeness ratio, complete over documented items, and `incomplete[]` lists each incomplete item with the fields it lacks:
 
    ```bash
    uv run {reconcileScript} --denominator-source docsOnly --inventory "{run_dir}/inventory.json" --output "{run_dir}/coverage.json"
@@ -243,12 +245,12 @@ It writes each mismatch of a compared name to `signature-gaps.json` as a Critica
 
 Exit 2 printed an `INVALID_INPUT` envelope: correct the input it names and run it again. Exit 1: HALT with its stderr (`halt_reason: "helper-failed"`, phase `coverage-check:reconcile`).
 
-**A surplus is a signal, not a pass.** The scalar and stack branches count the numerator and the denominator from independent sets, so `documented` can exceed `denominator`: the script then reports `numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. On a skill with no `scope.tier_a_include` glob that matches a file, a large surplus is the deflated-denominator signature: check `guards.deflation` before accepting the 100.
+**A surplus is a signal, not a pass.** The scalar and stack branches count the numerator and denominator from independent sets, so `documented` can exceed `denominator`: it then reports `numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. On a skill with no `scope.tier_a_include` glob that matches a file, a large surplus is the deflated-denominator signature: check `guards.deflation` before accepting the 100.
 
 **Classify what the script found.** §5b records each of these gaps from the run files:
 
 - **Missing names** (barrel branch: `missing`): Medium `missing-export` gaps (Medium `missing-type` for a name `signatures.json` lists in `missingTypes`), each at the file `surface.json` records for it, so update-skill can re-extract the export from it. A missing export does not block: it lowers Export Coverage.
-- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium `missing-export` gap for the count. When §2b's numerator ground-truth check found the count inflated, its `absent[]` names replace this gap, one each: update-skill documents a named export, not a count.
+- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium `missing-export` gap for the count. When §2b's numerator check found the count inflated, its `absent[]` names replace this gap, one each: update-skill documents a named export, not a count.
 - **Stale names** (barrel branch: `stale`): each is a documented name the enumerated source surface lacks. Where ast-grep read the source at the pinned commit (Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `workspaceDrift` not `overridden` in the `{outputFile}` frontmatter) and init.md §2 bound `{forge_provenance_map}`, check the lines the skill cites for them: resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` and run once:
 
   ```bash
@@ -286,7 +288,7 @@ A non-zero exit leaves the script's error, or nothing, in that file: delete it, 
 
 ### 4c. Provenance Line Check
 
-Check that the provenance map records each export at the line that defines it (the `def` or declaration line itself, not a decorator or blank line above it), so update-skill can move a wrong line. Run this section only when `analysis_confidence` is `full`, `{forge_version}/provenance-map.json` exists, and the `{outputFile}` frontmatter's `workspaceDrift` is not `overridden` (init.md §5b: the drifted tree is not the pinned commit). Otherwise skip to section 5.
+Check that the provenance map records each export at the line that defines it (the `def` or declaration line, not a decorator or blank line above it), so update-skill can move a wrong line. Run this section only when `analysis_confidence` is `full`, `{forge_version}/provenance-map.json` exists, and the `{outputFile}` frontmatter's `workspaceDrift` is not `overridden` (init.md §5b: the drifted tree is not the pinned commit). Otherwise skip to section 5.
 
 Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}`. If neither path exists, skip to section 5: the check is advisory. Otherwise run:
 
@@ -356,6 +358,6 @@ Rely on the JSON of each command:
 
 ### 6. Report Coverage Results
 
-Report the coverage result to the user from §5's render: the {forge_tier} tier, its **Files Analyzed** count, the three category scores and the issue count. Full details are in the Coverage Analysis section.
+Report to the user from §5's render: the {forge_tier} tier, the **Files Analyzed** count, the three category scores and the issue count; the Coverage Analysis section has the details.
 
 Append `'coverage-check'` to `stepsCompleted` in the `{outputFile}` frontmatter, then load and execute {nextStepFile}.

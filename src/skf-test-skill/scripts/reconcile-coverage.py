@@ -130,18 +130,25 @@ header lines, from the run files:
                        signature mismatches, by name:
       Type             the first kind the surface records for the name, else -
       Documented       no for a missing name, else yes
-      Signature        no for a mismatch, yes for a compared name that
+      Signature        no for a Critical mismatch, yes (Low) or yes (Info)
+                       for a name whose mismatches score-signatures.py
+                       graded Low or Info alone (they count as matching;
+                       Low when it has both), yes for a compared name that
                        matches, unverified for a documented name when no
                        --signatures was given, - otherwise
       Source Location  the file:line the surface records for the name, a
                        record with a line preferred (gap-ledger.py's rule
                        for a missing export's Source), else -
-      Status           FAIL for a signature mismatch, WARN for a missing or
-                       stale name, PASS otherwise
+      Status           FAIL for a Critical signature mismatch (a mismatch
+                       with no `severity`, from an older signatures.json,
+                       counts as one), WARN for a missing or stale name or
+                       a mismatch graded Low or Info alone, PASS otherwise
                        The scalar and stack branches count without naming
                        the exports, and a docs-only run has no source
                        surface: one line says so instead (NO_TABLE).
-  ### Coverage Summary the --coverage counts, the --signatures mismatch count
+  ### Coverage Summary the --coverage counts, the --signatures count of
+                       Critical mismatches (with the Low and Info ones,
+                       counted as matching, beside it when there are any)
                        and warnings, the numerator surplus when the ratio
                        was capped, and the names the --surface leaves out
                        or puts back: `excluded.outsideScope` (scoped out
@@ -165,6 +172,8 @@ import sys
 from pathlib import Path
 
 VALID_SOURCES = ("barrel", "scalar", "stack", "docsOnly")
+# The grades score-signatures.py gives a caller-invisible signature difference, most severe first.
+NON_BLOCKING_MISMATCH = ("Low", "Info")
 
 _INVENTORY_MODULE = None
 
@@ -512,10 +521,16 @@ def _rows(coverage, surface, signatures):
     documented = set(_string_list(coverage, "documentedNames", "--coverage"))
     missing = set(_string_list(coverage, "missing", "--coverage"))
     stale = set(_string_list(coverage, "stale", "--coverage"))
-    mismatched, compared = set(), set()
+    mismatched, critical, compared, graded = set(), set(), set(), {}
     if signatures is not None:
-        mismatched = {m["name"] for m in signatures.get("mismatches") or []
-                      if isinstance(m, dict) and isinstance(m.get("name"), str)}
+        named = [m for m in signatures.get("mismatches") or []
+                 if isinstance(m, dict) and isinstance(m.get("name"), str)]
+        mismatched = {m["name"] for m in named}
+        # A Low or an Info mismatch (a caller-invisible difference) warns; any other fails.
+        critical = {m["name"] for m in named if m.get("severity") not in NON_BLOCKING_MISMATCH}
+        # The more severe non-blocking grade of each name: Low over Info.
+        for severity in reversed(NON_BLOCKING_MISMATCH):
+            graded.update({m["name"]: severity for m in named if m.get("severity") == severity})
         compared = set(_string_list(signatures, "comparedNames", "--signatures"))
     kinds, sources = {}, {}
     if surface is not None:
@@ -526,15 +541,18 @@ def _rows(coverage, surface, signatures):
     rows = ["| Export | Type | Documented | Signature | Source Location | Status |",
             "|--------|------|------------|-----------|-----------------|--------|"]
     for name in sorted(documented | missing | stale | mismatched):
-        if name in mismatched:
+        if name in critical:
             signature = "no"
+        elif name in mismatched:
+            signature = f"yes ({graded[name]})"
         elif name in compared:
             signature = "yes"
         elif signatures is None and name not in missing:
             signature = "unverified"
         else:
             signature = "-"
-        status = "FAIL" if name in mismatched else "WARN" if name in missing or name in stale else "PASS"
+        status = ("FAIL" if name in critical
+                  else "WARN" if name in mismatched or name in missing or name in stale else "PASS")
         rows.append(f"| `{_cell(name)}` | {_cell(kinds.get(name, '-'))} | {'no' if name in missing else 'yes'} "
                     f"| {signature} | {_cell(sources.get(name, '-'))} | {status} |")
     return rows
@@ -575,7 +593,13 @@ def render(coverage, surface=None, signatures=None):
                   f"- **Documented:** {documented} ({coverage_pct})",
                   f"- **Missing Documentation:** {missing_count}{floored}"]
     mismatches = signatures.get("mismatches") if signatures is not None else None
-    lines.append(f"- **Signature Mismatches:** {len(mismatches) if isinstance(mismatches, list) else 'N/A'}")
+    if isinstance(mismatches, list):
+        named = [m for m in mismatches if isinstance(m, dict)]
+        lenient = sum(1 for m in named if m.get("severity") in NON_BLOCKING_MISMATCH)
+        lines.append(f"- **Signature Mismatches:** {len(named) - lenient}"
+                     + (f", plus {lenient} graded Low or Info and counted as matching" if lenient else ""))
+    else:
+        lines.append("- **Signature Mismatches:** N/A")
     if coverage.get("staleApplicable"):
         lines.append(f"- **Stale Documentation:** {coverage.get('staleCount')}, documented extras included")
     else:

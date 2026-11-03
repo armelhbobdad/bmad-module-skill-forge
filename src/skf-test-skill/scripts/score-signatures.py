@@ -17,7 +17,9 @@ ratios and the gap records of the wrong signatures.
          signature (an inventory entry of any kind but `method` that carries
          `params`, `return_type` or `usage_signature`) in the signature
          universe, grouped by source file, with the line that defines it in
-         the source and the documented signature. The signature universe is
+         the source and the documented signature (with the entry's
+         `signature_form` when it has one; of several entries of one name,
+         the first full one, else the first). The signature universe is
          the surface's `all` set plus every name on its export records, so
          the names of a Python sub-package load-coverage-inputs.py keeps out
          of `all` (excluded.nestedEntries) keep their checks. Also the whole
@@ -28,7 +30,7 @@ ratios and the gap records of the wrong signatures.
            Signature Accuracy = matching / compared * 100, where compared is
              the documented signatures of the signature universe (with a
              fallback scan's exports_found) and matching those no result
-             names in signature_mismatches[]: a wrong signature is wrong
+             names in a Critical mismatch: a wrong signature is wrong
              whichever set the denominator counts
            Type Coverage = documented types / total types * 100, where
              total types counts the names of the --surface-set set (the
@@ -38,11 +40,27 @@ ratios and the gap records of the wrong signatures.
              interface) and documented types those the inventory documents
          A category with nothing to compare scores 100 (nothing documented
          is wrong) and says so in `warnings`. Each signature mismatch of a
-         compared name becomes a Critical `signature-mismatch` record in the
-         gap ledger's record format (gap-ledger.py append --input reads
-         --gaps-output); a mismatch a result reports for any other name (one
-         the skill does not document, or the surface lacks) is listed in
-         `warnings` instead, and no gap.
+         compared name is graded (grade()) and becomes a record in the gap
+         ledger's record format (gap-ledger.py append --input reads
+         --gaps-output). The judge's `difference` tag alone never lowers a
+         grade: the script checks the fact each one rests on.
+           Low `signature-mismatch`  `difference` "parameter-name" reported
+             at the file the surface records for the name (the file the plan
+             sent the check to), when that file is of a language whose
+             callers cannot pass an argument by its name
+             (POSITIONAL_EXTENSIONS: TS/JS, Go, Rust, Java, C, C++; never
+             Python, whose positional-only parameters the script cannot see,
+             nor a Vue component, whose props callers set by name)
+           Info `observation`, titled `Partial signature: {name}`
+             `difference` "omitted-optional" on a documented signature whose
+             inventory entry is `signature_form` "partial"
+           Critical `signature-mismatch`  every other mismatch
+         Results that report one declaration (name, file and line) more
+         than once keep its most severe grade: Critical, then Low, then
+         Info. A Low or an Info mismatch still counts as matching. A
+         mismatch a result reports for any other name (one the skill does
+         not document, or the surface lacks) is listed in `warnings`
+         instead, and no gap.
 
 Inputs, all files in the run folder:
   --inventory  the validated inventory validate-inventory.py wrote (--output)
@@ -58,7 +76,9 @@ Inputs, all files in the run folder:
                   "exports_found": ["..."],     (fallback scan only)
                   "types_found": ["..."],       (fallback scan only)
                   "signature_mismatches": [
-                    {"name", "line", "source_sig", "documented_sig", "issue"}]}
+                    {"name", "line", "source_sig", "documented_sig", "issue",
+                     "difference"}]}  (difference optional: one of
+                                       DIFFERENCES, absent or null for none)
 
 Rounding is compute-score.py's (JS-compatible half-up, two decimals).
 
@@ -73,7 +93,9 @@ Output (stdout; --output also writes it, --gaps-output writes the records):
   score: {"valid": true, "signatureAccuracy", "matchingSignatures",
           "totalDocumented", "comparedNames": [the names compared],
           "typeCoverage", "documentedTypes", "totalTypes",
-          "missingTypes": [...], "mismatches": [...], "gapRecords": [...],
+          "missingTypes": [...], "mismatches": [{"name", "file", "line",
+          "source_sig", "documented_sig", "issue", "difference" (null for
+          none), "severity" (Critical, Low or Info)}], "gapRecords": [...],
           "warnings": [...]}
          or {"valid": false, "violations": [...]} when a result breaks the schema
 
@@ -92,13 +114,28 @@ import importlib.util
 import json
 import math
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 # Surface kinds that count toward total_types. A Rust struct is a class and a
 # trait an interface; `type` is a type alias.
 TYPE_KINDS = frozenset({"interface", "type", "enum", "class", "struct", "trait"})
 SIGNATURE_FIELDS = ("params", "return_type", "usage_signature")
 MISMATCH_FIELDS = ("name", "line", "source_sig", "documented_sig", "issue")
+# The optional `difference` a judge tags a mismatch with (coverage-check.md
+# section 2): only the parameter names differ, or only members the documented
+# form leaves out that the source marks optional.
+DIFFERENCES = ("parameter-name", "omitted-optional")
+# Source files of the languages with no keyword arguments, where a caller
+# never writes a parameter's name: TS/JS, Go, Rust, Java, C and C++. Not
+# Python, which has keyword arguments (the script cannot see which
+# parameters a caller must pass by position), nor Kotlin, C#, Swift or
+# Scala, which name arguments at the call, nor a Vue component, whose
+# documented parameters are props callers set by name.
+POSITIONAL_EXTENSIONS = frozenset({".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".go", ".rs",
+                                   ".java", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp"})
+# The grades of a mismatch, most severe first: one declaration reported
+# twice keeps the most severe.
+GRADES = ("Critical", "Low", "Info")
 
 _INVENTORY_MODULE = None
 
@@ -199,6 +236,9 @@ def check_result(item: object, where: str) -> list[str]:
         for field in ("name", "source_sig", "documented_sig", "issue"):
             if not (isinstance(entry[field], str) and entry[field].strip()):
                 errors.append(f"{at}: `{field}` must be a non-empty string")
+        if entry.get("difference") is not None and entry["difference"] not in DIFFERENCES:
+            errors.append(f"{at}: `difference` must be one of {', '.join(DIFFERENCES)} when present, "
+                          f"not {json.dumps(entry['difference'])}")
     return errors
 
 
@@ -238,15 +278,26 @@ def _has_signature(entry: dict) -> bool:
     )
 
 
+def _partial(fields: dict) -> bool:
+    return fields.get("signature_form") == "partial"
+
+
 def documented_signatures(inventory: list[dict]) -> dict[str, dict]:
-    """{name: its documented signature fields} for each documented export with one."""
+    """{name: its documented signature fields} for each documented export
+    with one, with the entry's `signature_form` when it has one. Of several
+    entries of one name, the first full one (no `signature_form`, or
+    `full`) is compared, else the first: a form the skill also gives in
+    full is held to it."""
     out: dict[str, dict] = {}
     for entry in inventory:
         name = entry.get("name")
-        if entry.get("kind") == "method" or not (isinstance(name, str) and name) or name in out:
+        if entry.get("kind") == "method" or not (isinstance(name, str) and name) or not _has_signature(entry):
             continue
-        if _has_signature(entry):
-            out[name] = {f: entry[f] for f in SIGNATURE_FIELDS if f in entry}
+        fields = {f: entry[f] for f in SIGNATURE_FIELDS if f in entry}
+        if entry.get("signature_form") is not None:
+            fields["signature_form"] = entry["signature_form"]
+        if name not in out or (_partial(out[name]) and not _partial(fields)):
+            out[name] = fields
     return out
 
 
@@ -296,17 +347,64 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict]) ->
     }
 
 
+def _extension(file: str) -> str:
+    """The lower-case extension of a source path, `/` or `\\` separated."""
+    return PurePosixPath(file.replace("\\", "/")).suffix.lower()
+
+
+def _planned_file(by_name: dict[str, list[dict]], name: str) -> str | None:
+    """The file plan sends the check of `name` to (its first surface record's,
+    "" for a record with none), or None when the surface records no `name`
+    (a fallback scan's exports_found name)."""
+    records = by_name.get(name)
+    return str(records[0].get("file") or "") if records else None
+
+
+def grade(difference: str | None, file: str, documented: dict, declared: str | None = None) -> str:
+    """The severity of one mismatch the result reports at `file`. The judge's
+    `difference` lowers it only where the script confirms the fact it rests
+    on: a parameter-name difference is Low when `declared`, the file the
+    surface records for the name (else `file`), is the result's file and of a
+    language with no keyword arguments; an omitted-optional difference on a
+    form the inventory marks partial is Info; every other mismatch is
+    Critical."""
+    if difference == "parameter-name":
+        at = file if declared is None else declared
+        if at.replace("\\", "/") == file.replace("\\", "/") and _extension(at) in POSITIONAL_EXTENSIONS:
+            return "Low"
+    if difference == "omitted-optional" and _partial(documented):
+        return "Info"
+    return "Critical"
+
+
 def _gap_record(m: dict) -> dict:
     name, where = m["name"], f"{m['file']}:{m['line']}"
+    issue = f"documented `{m['documented_sig']}`, source `{m['source_sig']}`: {m['issue']}"
+    remediation = (f"Update the documented signature of `{name}` from `{m['documented_sig']}` "
+                   f"to `{m['source_sig']}`, the signature the source defines at `{where}`.")
+    if m["severity"] == "Info":
+        return {
+            "severity": "Info",
+            "category": "observation",
+            "title": f"Partial signature: {name}",
+            "source": where,
+            "export": name,
+            "issue": (f"the skill labels its documented form of `{name}` partial, and it leaves out only "
+                      f"members the source marks optional: {issue}"),
+            "remediation": (f"No change: the documented form of `{name}` is labelled partial and leaves out "
+                            f"only optional members of the signature the source defines at `{where}`."),
+        }
+    if m["severity"] == "Low":
+        issue = (f"{issue} (only the parameter names differ, and a caller of a `{_extension(m['file'])}` "
+                 "file passes its arguments by position)")
     return {
-        "severity": "Critical",
+        "severity": m["severity"],
         "category": "signature-mismatch",
         "title": f"Signature mismatch: {name}",
         "source": where,
         "export": name,
-        "issue": f"documented `{m['documented_sig']}`, source `{m['source_sig']}`: {m['issue']}",
-        "remediation": (f"Update the documented signature of `{name}` from `{m['documented_sig']}` "
-                        f"to `{m['source_sig']}`, the signature the source defines at `{where}`."),
+        "issue": issue,
+        "remediation": remediation,
     }
 
 
@@ -325,25 +423,31 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     compared = (surface | signature_universe(names, exports)) & set(signatures)
     warnings = []
 
-    mismatches = []
+    graded: dict[tuple, dict] = {}
     seen = set()
     for result in results:
         for entry in result["signature_mismatches"]:
             key = (entry["name"], result["file"], entry["line"])
-            if key in seen:
-                continue
-            seen.add(key)
             if entry["name"] not in compared:
-                warnings.append(f"{result['file']}:{entry['line']}: a signature mismatch for "
-                                f"`{entry['name']}`, which is no documented signature on the source surface: "
-                                "not scored, no gap")
+                if key not in seen:
+                    warnings.append(f"{result['file']}:{entry['line']}: a signature mismatch for "
+                                    f"`{entry['name']}`, which is no documented signature on the source surface: "
+                                    "not scored, no gap")
+                seen.add(key)
                 continue
-            mismatches.append({"name": entry["name"], "file": result["file"], "line": entry["line"],
-                               "source_sig": entry["source_sig"], "documented_sig": entry["documented_sig"],
-                               "issue": entry["issue"]})
-    mismatches.sort(key=lambda m: (m["file"], m["line"], m["name"]))
+            difference = entry.get("difference")
+            severity = grade(difference, result["file"], signatures[entry["name"]],
+                             _planned_file(by_name, entry["name"]))
+            # Every entry is graded: one declaration reported twice keeps its most severe grade.
+            if key in graded and GRADES.index(graded[key]["severity"]) <= GRADES.index(severity):
+                continue
+            graded[key] = {"name": entry["name"], "file": result["file"], "line": entry["line"],
+                           "source_sig": entry["source_sig"], "documented_sig": entry["documented_sig"],
+                           "issue": entry["issue"], "difference": difference, "severity": severity}
+    mismatches = sorted(graded.values(), key=lambda m: (m["file"], m["line"], m["name"]))
 
-    wrong = {m["name"] for m in mismatches}
+    # A Low or an Info mismatch is a caller-invisible difference: it still matches.
+    wrong = {m["name"] for m in mismatches if m["severity"] == "Critical"}
     if compared:
         signature_accuracy = round2((len(compared) - len(wrong)) / len(compared) * 100)
     else:

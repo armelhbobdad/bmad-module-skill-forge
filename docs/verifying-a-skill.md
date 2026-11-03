@@ -50,7 +50,7 @@ The 1.6.2 map passes the [line, label and citation checks](#workflow-time-enforc
 
 Open `{source_repo}` at `{source_commit}`, jump to `{source_file}` line `{source_line}`. The signature in `SKILL.md` should match what you see in the source.
 
-If it doesn't, **that's a bug**. For a skill you built, Test Skill (`@Ferris TS`) rates a signature mismatch as a Critical gap, which stops the test at its [hard gate](#hard-gate), and Update Skill (`@Ferris US`) with `--from-test-report` repairs the gaps a test report lists. If you think SKF extracted it wrong, [open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose). Falsifiability isn't a feature. It's the whole deal.
+If it doesn't, **that's a bug**. For a skill you built, Test Skill (`@Ferris TS`) rates a signature mismatch as a Critical gap, which stops the test at its [hard gate](#hard-gate). Two differences a caller never meets are rated lower and still count as matching: a renamed parameter in a TypeScript, JavaScript, Go, Rust, Java, C or C++ file, whose callers pass arguments by position, is a Low gap, and an optional parameter left out of a signature the skill labels partial (such as `Props (simplified)`) is an Info observation. A renamed Python parameter stays Critical, because Test Skill cannot see which parameters a caller must pass by position, and so does a renamed Vue component prop, which callers set by name. Update Skill (`@Ferris US`) with `--from-test-report` repairs the gaps a test report lists. If you think SKF extracted it wrong, [open an issue](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/new/choose). Falsifiability isn't a feature. It's the whole deal.
 
 ### Workflow-time enforcement
 
@@ -115,7 +115,7 @@ The score is a weighted sum of up to five categories. The weights below are the 
 | Category | Weight | What it measures |
 |---|---|---|
 | **Export Coverage** | 36% | Percentage of source exports documented in `SKILL.md` |
-| **Signature Accuracy** | 22% | Documented function signatures match actual source signatures (parameter names, types, order, return types) |
+| **Signature Accuracy** | 22% | Documented function signatures match actual source signatures (parameter names, types, order, return types). A renamed parameter in a TypeScript, JavaScript, Go, Rust, Java, C or C++ file, whose callers pass every argument by position, still matches, and so does a signature the skill labels partial that leaves out only optional parameters |
 | **Type Coverage** | 14% | Types and interfaces referenced in exports are fully documented |
 | **Coherence** | 18% | Cross-references resolve, integration patterns are complete (contextual mode only) |
 | **External Validation** | 10% | skill-check quality score (0–100), averaged with the Tessl Review score (0–100) when you opt in to Tessl Review |
@@ -203,11 +203,11 @@ Each step rates every gap it records against the Gap Severity table in Test Skil
 
 | Severity | Examples |
 |---|---|
-| **Critical** | A wrong signature, or a fabricated one (a documented export that the source does not define at the line the skill cites); a broken reference in a stack skill (a file, skill, type, or `scripts/` or `assets/` file that does not exist) |
+| **Critical** | A wrong signature (any difference but the renamed parameter and the partial signature of the Low and Info rows), or a fabricated one (a documented export that the source does not define at the line the skill cites); a broken reference in a stack skill (a file, skill, type, or `scripts/` or `assets/` file that does not exist) |
 | **High** | An inaccurate reference in a stack skill (the target exists but does not match), or a reference whose real path leads outside the skill and its sources; a split-body mismatch (`SKILL.md` and a `references/` file document one export differently); `metadata.json` stats that count every export as documented while some are missing from the skill; in an individual skill, a missing required section, an unbalanced code fence, or an example that awaits a sync function or skips the `await` of an async one |
 | **Medium** | A missing export or type (a missing export lowers Export Coverage); stale documentation (a documented export outside the coverage surface that the run did not match to one declaration in the source, or that a brief scopes out); an incomplete integration pattern in a stack skill; in an individual skill, a code fence with no language tag, a function no example names, or a table row whose column count differs from its header |
-| **Low** | Gaps in metadata, the description or provenance lines, such as missing optional metadata or a provenance line that is not the definition line |
-| **Info** | Observations such as style suggestions or a documented extra (a documented name outside the coverage surface that the source still declares); discovery testing not performed |
+| **Low** | Gaps in metadata, the description or provenance lines, such as missing optional metadata or a provenance line that is not the definition line; a renamed parameter in a TypeScript, JavaScript, Go, Rust, Java, C or C++ file, whose callers pass arguments by position |
+| **Info** | Observations such as style suggestions or a documented extra (a documented name outside the coverage surface that the source still declares); a partial signature (an optional parameter left out of a signature the skill labels partial); discovery testing not performed |
 
 Only some runs can find a documented extra: the source must be Python or TypeScript/JavaScript, and the run needs the Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `workspaceDrift` not `overridden`, a provenance map and a coverage surface that a complete extraction built. On any other run, every documented export outside the coverage surface is stale documentation.
 
