@@ -3,7 +3,9 @@
 
 Covers the four §2c branches:
   - "barrel"  (enumerated intersection): Documented / Missing / Stale / coverage
-  - "scalar"  (effective_denominator, looked-up numerator, no Stale)
+  - "scalar"  (effective_denominator: the named surface set's documented, missing
+               and stale names on a surface read from the source, #791 and #792;
+               else a looked-up numerator and no Stale)
   - "stack"   (composition-surface looked-up numerator, empty barrel)
   - "docsOnly" (#540: documentation completeness over the inventory)
 Plus method-exclusion, dedup, rounding, validation, the whole-name lookup
@@ -290,6 +292,134 @@ def test_scalar_exact_match_is_not_treated_as_surplus():
     assert out["numeratorSurplus"] == 0
     assert out["coverageCapped"] is False
     assert out["exportCoverage"] == 100.0
+
+
+# --------------------------------------------------------------------------
+# Scalar branch over the named surface set (#791, #792)
+# --------------------------------------------------------------------------
+
+TIER_A = ["alpha", "beta", "gamma", "delta", "epsilon"]
+# The whole public surface: the tier A set and a Tier B name the skill may document without it counting.
+ALL_NAMES = TIER_A + ["tierB"]
+DOCUMENTED = ["alpha", "beta", "gamma", "phantomOne", "phantomTwo"]
+
+
+def _scalar_over_set(**overrides):
+    """A tier A set the surface trusts (`setCounted`), read from the source."""
+    inp = {"denominatorSource": "scalar", "denominatorValue": 5, "skillPackagePath": "/unused",
+           "exports": [{"name": n, "kind": "function"} for n in DOCUMENTED],
+           "barrelSet": TIER_A, "surfaceSet": "tier_a_include", "allSet": ALL_NAMES, "sourceRead": True,
+           "setCounted": True}
+    inp.update(overrides)
+    # Every documented name is written in the skill: the lookup alone would count all five (#792).
+    return reconcile(inp, doc_text=" ".join(e["name"] for e in inp["exports"]))
+
+
+def _lookup(**overrides):
+    """The scalar branch with no surface: today's looked-up numerator."""
+    inp = {"denominatorSource": "scalar", "denominatorValue": 5, "skillPackagePath": "/unused",
+           "exports": [{"name": n, "kind": "function"} for n in DOCUMENTED]}
+    inp.update(overrides)
+    return reconcile(inp, doc_text=" ".join(DOCUMENTED))
+
+
+def test_scalar_counts_only_the_documented_names_of_its_set():
+    """#792: two documented extras no longer offset two undocumented exports: the numerator counts the
+    documented names the counted set holds, and the set's undocumented names are listed."""
+    out = _scalar_over_set()
+    assert (out["documented"], out["documentedNames"]) == (3, ["alpha", "beta", "gamma"])
+    assert (out["missing"], out["missingCount"]) == (["delta", "epsilon"], 2)
+    assert (out["denominator"], out["exportCoverage"], out["numeratorSource"]) == (5, 60.0, "surface")
+    assert (out["surfaceSet"], out["surfaceSetSize"], out["warnings"]) == ("tier_a_include", 5, [])
+
+
+def test_scalar_reports_the_documented_names_the_source_does_not_export_as_stale():
+    """#791: the documented names the whole public surface (`all`) lacks are stale; a documented Tier B name the
+    source exports is neither counted nor stale."""
+    out = _scalar_over_set()
+    assert (out["stale"], out["staleCount"], out["staleApplicable"]) == (["phantomOne", "phantomTwo"], 2, True)
+    tier_b = _scalar_over_set(exports=[{"name": n, "kind": "function"} for n in DOCUMENTED + ["tierB"]])
+    assert "tierB" not in tier_b["stale"] and "tierB" not in tier_b["documentedNames"]
+    assert tier_b["documented"] == 3
+
+
+def test_a_nested_package_name_in_the_set_is_not_stale():
+    """A nested Python package's name sits in the scope sets, never in `all`: S ∪ `all` is the whole surface."""
+    out = _scalar_over_set(barrelSet=TIER_A + ["nested"],
+                           exports=[{"name": n, "kind": "function"} for n in DOCUMENTED + ["nested"]])
+    assert "nested" not in out["stale"] and "nested" in out["documentedNames"]
+    assert out["stale"] == ["phantomOne", "phantomTwo"]
+
+
+@pytest.mark.parametrize("overrides", [
+    {"barrelSet": ALL_NAMES, "surfaceSet": "all", "allSet": None},
+    {"barrelSet": ALL_NAMES, "surfaceSet": None, "allSet": None},
+    {"setCounted": False},
+], ids=["all", "null-is-all", "untrusted-scope-set"])
+def test_scalar_over_all_or_an_untrusted_set_keeps_the_lookup_and_lists_stale(overrides):
+    """`all` is the whole surface, not a scope set, and a set read by eye or from an incomplete extraction is
+    not trusted: the looked-up numerator and the count stay, and no name is listed missing, but the stale names
+    are valid against `all` on a surface read from the source."""
+    out = _scalar_over_set(**overrides)
+    lookup = _lookup()
+    for key in ("documented", "missingCount", "exportCoverage", "numeratorSource", "missing"):
+        assert out[key] == lookup[key], key
+    assert (out["documented"], out["numeratorSource"], out["missing"]) == (5, "lookup", [])
+    assert (out["stale"], out["staleApplicable"], out["warnings"]) == (["phantomOne", "phantomTwo"], True, [])
+    assert "documentedNames" not in out and "surfaceSetSize" not in out
+
+
+def test_scalar_over_all_still_takes_the_verified_numerator():
+    out = _scalar_over_set(barrelSet=ALL_NAMES, surfaceSet="all", allSet=None, verifiedNumerator=2)
+    assert (out["documented"], out["numeratorSource"], out["missingCount"]) == (2, "verified", 3)
+    assert out["stale"] == ["phantomOne", "phantomTwo"]
+
+
+def test_a_counted_set_ignores_the_verified_numerator():
+    out = _scalar_over_set(verifiedNumerator=1)
+    assert (out["documented"], out["numeratorSource"]) == (3, "surface")
+
+
+def test_an_empty_set_falls_back_to_the_lookup_with_a_warning():
+    """An empty S would read 0% by construction."""
+    out = _scalar_over_set(barrelSet=[])
+    assert (out["documented"], out["numeratorSource"], out["missing"]) == (5, "lookup", [])
+    [warning] = out["warnings"]
+    assert "`tier_a_include` set names no export" in warning
+    assert out["stale"] == ["phantomOne", "phantomTwo"]
+
+
+def test_scalar_warns_when_its_set_differs_from_the_stored_count():
+    names = [f"name{i}" for i in range(280)]
+    out = _scalar_over_set(denominatorValue=216, barrelSet=names, allSet=names,
+                           exports=[{"name": n, "kind": "function"} for n in names[:200]])
+    assert out["surfaceSetSize"] == 280 and out["denominator"] == 216
+    [warning] = out["warnings"]
+    assert "280" in warning and "216" in warning and "`tier_a_include`" in warning
+    assert (out["documented"], out["missingCount"], len(out["missing"])) == (200, 16, 80)
+
+
+@pytest.mark.parametrize("overrides", [{"sourceRead": False, "setCounted": False},
+                                       {"sourceRead": None, "setCounted": None}, {"barrelSet": None}],
+                         ids=["not-read-from-source", "no-flags", "no-set"])
+def test_scalar_without_a_source_read_surface_keeps_the_lookup(overrides):
+    """A surface not read from the source (States 2 and 3) names no set to count and no stale name: the lookup,
+    unchanged."""
+    out = _scalar_over_set(**overrides)
+    assert out == _lookup()
+    assert (out["documented"], out["stale"], out["staleApplicable"]) == (5, [], False)
+    assert "documentedNames" not in out and "warnings" not in out
+
+
+@pytest.mark.parametrize("overrides, message", [
+    ({"barrelSet": "alpha"}, "`barrelSet` must be a list"),
+    ({"surfaceSet": 7}, "`surfaceSet` must be a set name"),
+    ({"allSet": "alpha"}, "`allSet` must be a list"),
+    ({"allSet": None}, "requires `allSet`"),
+], ids=["set-not-a-list", "set-name-not-a-string", "all-not-a-list", "no-all-set"])
+def test_scalar_refuses_a_malformed_surface(overrides, message):
+    out = _scalar_over_set(**overrides)
+    assert out["code"] == "INVALID_INPUT" and message in out["error"], out
 
 
 # --------------------------------------------------------------------------
@@ -685,6 +815,76 @@ def test_cli_scalar_takes_its_denominator_from_the_coverage_inputs(tmp_path):
     proc = _run_cli(["--denominator-source", "scalar", "--coverage-inputs", without, "--inventory", inventory,
                      "--skill-dir", str(skill)])
     assert proc.returncode == 1 and "has no `effectiveDenominator`" in proc.stderr
+
+
+def _scalar_surface(applicable=True, counted=True, picked="tier_a_include"):
+    """load-coverage-inputs.py surface's result on the scalar branch: its tier A set, the deflation guard that
+    says whether the surface was read from the source, and whether it counts the set it picked."""
+    return {"exports": [{"name": n, "kind": "function", "file": "src/index.ts", "line": i}
+                        for i, n in enumerate(ALL_NAMES, 1)],
+            "sets": {"all": ALL_NAMES, "tier_a_include": TIER_A},
+            "guards": {"deflation": {"applicable": applicable, "fires": False}},
+            "denominator": {"clause": "stratified-scope", "branch": "scalar", "surfaceSet": picked,
+                            "setCounted": counted}}
+
+
+@pytest.mark.parametrize("surface, surface_set, expected", [
+    ({}, "tier_a_include", (3, 60.0, "surface", ["delta", "epsilon"], ["phantomOne", "phantomTwo"])),
+    ({"counted": False}, "tier_a_include", (5, 100.0, "lookup", [], ["phantomOne", "phantomTwo"])),
+    ({}, "all", (5, 100.0, "lookup", [], ["phantomOne", "phantomTwo"])),
+    ({"applicable": False, "counted": None}, "tier_a_include", (5, 100.0, "lookup", [], [])),
+], ids=["counted", "untrusted", "another-set-than-picked", "not-read-from-source"])
+def test_cli_scalar_counts_the_set_the_surface_trusts(tmp_path, surface, surface_set, expected):
+    """#791, #792 through coverage-check's flags: the set the surface picked and trusts (`setCounted`) is counted;
+    any other keeps the lookup, with the stale names whenever the surface was read from the source."""
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(" ".join(DOCUMENTED).encode("utf-8"))
+    inventory = _write(tmp_path / "i.json", {"exports": [{"name": n, "kind": "function"} for n in DOCUMENTED]})
+    inputs = _write(tmp_path / "coverage-inputs.json", {"effectiveDenominator": 5, "stack": None})
+    out_path = tmp_path / "coverage.json"
+    proc = _run_cli(["--denominator-source", "scalar", "--coverage-inputs", inputs, "--inventory", inventory,
+                     "--surface", _write(tmp_path / "surface.json", _scalar_surface(**surface)),
+                     "--surface-set", surface_set, "--skill-dir", str(skill), "--output", str(out_path)])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(out_path.read_text(encoding="utf-8"))
+    assert (out["documented"], out["exportCoverage"], out["numeratorSource"], out["missing"],
+            out["stale"]) == expected
+
+
+def test_render_draws_the_table_of_a_counted_set():
+    """A scalar result that counts its set names its exports: the per-export table, and its stale count."""
+    coverage = _scalar_over_set()
+    text = mod.render(coverage, _scalar_surface())
+    assert "No per-export table" not in text
+    rows = [line for line in text.splitlines() if line.startswith("| `")]
+    assert rows == [
+        "| `alpha` | function | yes | unverified | src/index.ts:1 | PASS |",
+        "| `beta` | function | yes | unverified | src/index.ts:2 | PASS |",
+        "| `delta` | function | no | - | src/index.ts:4 | WARN |",
+        "| `epsilon` | function | no | - | src/index.ts:5 | WARN |",
+        "| `gamma` | function | yes | unverified | src/index.ts:3 | PASS |",
+        "| `phantomOne` | - | yes | unverified | - | WARN |",
+        "| `phantomTwo` | - | yes | unverified | - | WARN |",
+    ]
+    for line in ("- **Exports Found:** 5", "- **Documented:** 3 (60%)", "- **Missing Documentation:** 2",
+                 "- **Stale Documentation:** 2, documented extras included", "| Export Coverage | 60% |"):
+        assert line in text.splitlines(), line
+    assert "Coverage Warnings" not in text
+
+
+def test_render_lists_the_coverage_warnings():
+    names = [f"name{i}" for i in range(6)]
+    coverage = _scalar_over_set(barrelSet=names, allSet=names)
+    text = mod.render(coverage, _scalar_surface())
+    [warning] = coverage["warnings"]
+    lines = text.splitlines()
+    assert lines[lines.index("- **Coverage Warnings:**") + 1] == f"  - {warning}"
+    # Over `all` the lookup counts: no table, the stale count still given.
+    over_all = mod.render(_scalar_over_set(barrelSet=ALL_NAMES, surfaceSet="all", allSet=None), _scalar_surface())
+    assert "No per-export table: the scalar denominator" in over_all
+    assert "- **Stale Documentation:** 2, documented extras included" in over_all.splitlines()
+    assert "Coverage Warnings" not in over_all
 
 
 def test_cli_refused_input_removes_a_stale_output(tmp_path):

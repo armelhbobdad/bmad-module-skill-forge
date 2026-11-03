@@ -139,8 +139,16 @@ cites (never read; default `metadata.json`):
             `{meta}`, except that a scalar count taken from the verified
             numerator (`numeratorSource` `verified`) is replaced by one
             `Missing export: {name}` gap per --numerator `absent` name, at
-            the first --provenance entry of that name, else `{meta}`.
-            Every per-name gap carries `export`.
+            the first --provenance entry of that name, else `{meta}`. A
+            scalar result that counts its set (`numeratorSource` `surface`)
+            records the `missing` names it lists in place of the count gap,
+            as the barrel branch does (the inflated-union summary gap
+            under the same gate included), and, when `missingCount` exceeds
+            them, one Medium `missing-export` gap `{residual} of
+            {denominator} exports not documented beyond the {surfaceSet}
+            set` at `{meta}`. A scalar result with `staleApplicable` true
+            records its `stale` names as the barrel branch does. Every
+            per-name gap carries `export`.
   guards    --input load-coverage-inputs.py's surface result; --metadata.
             `guards.deflation.fires` is a Medium `metadata-drift` gap at
             `{meta}` (else the result's `inputs.metadata`): on the
@@ -1049,6 +1057,117 @@ def _scoped_out_gap(name: str, row: dict, doc: str | None, brief: str) -> dict:
         export=name)
 
 
+def _named_inputs(surface: object, signatures: object) -> tuple[dict | None, set[str], set[str]]:
+    """The --surface result, the names --signatures lists in `missingTypes` and the names whose documented
+    signature it compared (`comparedNames`), for a result that names its missing and stale exports."""
+    types: set[str] = set()
+    scored: set[str] = set()
+    if signatures is not None:
+        signatures = _object(signatures, "--signatures (score-signatures.py)", "missingTypes")
+        types = set(_names(signatures, "missingTypes", "--signatures"))
+        scored = set(_names(signatures, "comparedNames", "--signatures"))
+    if surface is not None:
+        surface = _object(surface, "--surface (load-coverage-inputs.py surface)", "exports")
+    return surface, types, scored
+
+
+def _missing_gaps(cov: dict, surface: dict | None, types: set[str], meta: str) -> list[dict]:
+    """One gap per `missing` name, at the file and line the surface records for it, or, when the surface counts
+    an inflated `scope.include` union a tier A list corrects (`_inflated_union`), one summary gap at the brief in
+    their place (#795)."""
+    where = _surface_sources(surface)
+    missing = _names(cov, "missing", "--input")
+    if missing and _inflated_union(surface):
+        union = ((surface.get("guards") or {}).get("inflation") or {}).get("scopeIncludeUnion")
+        return [_inflated_union_gap(missing, where, types, _brief_of(surface), union)]
+    return [_missing_export(name, where.get(name), meta, "type" if name in types else "export") for name in missing]
+
+
+def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str],
+                skill_dir: str | None) -> list[dict]:
+    """One gap per `stale` name: fabricated, a documented extra, or stale documentation (with its own wording
+    for a name defined in a file the brief scopes out, #796)."""
+    records: list[dict] = []
+    # `excluded` is read once a stale name may be a documented extra
+    outside: dict[str, dict] | None = None
+    outside_read = False
+    classified: dict[str, dict] = {}
+    if stale is not None:
+        if not isinstance(stale, list):
+            raise AdapterError("--stale is not classify-stale JSON (a list)")
+        classified = {i["name"]: i for i in stale if isinstance(i, dict) and isinstance(i.get("name"), str)}
+    for name in _names(cov, "stale", "--input"):
+        item = classified.get(name) or {}
+        cited = item.get("source")
+        if item.get("fabricated") is True:
+            if not isinstance(cited, str) or not cited:
+                # a Critical gap needs the line it cites: never downgrade it
+                raise AdapterError(f"--stale: {name!r} is fabricated with no source")
+            records.append(_gap(
+                "Critical", "fabricated-signature", f"Fabricated signature: {name}", cited,
+                f"Remove `{name}` from SKILL.md and references/, or correct it to the export the source "
+                f"defines: no file its provenance cites defines it (`{cited}`).",
+                issue=f"SKILL.md documents `{name}`, which the source API surface lacks and the cited "
+                      "file does not define",
+                export=name))
+            continue
+        if not outside_read:
+            outside, outside_read = _outside_scope(surface), True
+        extra = _documented_extra_at(name, item, outside, skill_dir)
+        doc = _documenting_line(Path(skill_dir), name) if skill_dir else None
+        if extra:
+            declared, among = extra
+            # a homonym: the one declaring file the skill's own citations name
+            picked = (f"; of the {among} files that declare it, the skill cites only "
+                      f"`{declared.rsplit(':', 1)[0]}`") if among else ""
+            # never routed: update-skill leaves an `observation` alone. Signature scoring compares a
+            # documented signature of a name on the surface's records (a nested sub-package's) alone.
+            checked = ("Signature scoring compares its documented signature with the surface's record of it."
+                       if name in scored else
+                       "Its documented signature was not checked against that declaration.")
+            records.append(_gap(
+                "Info", "observation", f"Documented extra: {name}", declared,
+                f"No change: `{name}` is a documented extra, a name the source still declares at "
+                f"`{declared}` outside the enumerated surface, and its documentation stays. {checked}",
+                issue=f"{f'`{doc}`' if doc else 'the skill'} documents `{name}`, which the enumerated source API "
+                      f"surface lacks and the source still declares{picked}",
+                export=name))
+            continue
+        if outside is not None and name in outside and _scoped_out_by(outside[name]):
+            # an entry point exports it from a file the brief scopes out (#796)
+            records.append(_scoped_out_gap(name, outside[name], doc, _brief_of(surface)))
+            continue
+        records.append(_gap(
+            "Medium", "stale-documentation", f"Stale documentation: {name}", doc or "SKILL.md",
+            f"Check `{name}` against the source and update or remove its documentation at "
+            f"{doc or 'SKILL.md'}: the enumerated source surface does not export it.",
+            issue=f"SKILL.md documents `{name}`, which the enumerated source API surface lacks",
+            export=name))
+    return records
+
+
+def _residual_gap(cov: dict, meta: str) -> list[dict]:
+    """A counted set's residual: the exports the stored count counts beyond the names the set lists, one gap
+    when `missingCount` exceeds the listed `missing` names."""
+    listed = len(_names(cov, "missing", "--input"))
+    missing, denominator = _count(cov.get("missingCount")), _count(cov.get("denominator"))
+    residual = (missing or 0) - listed
+    if residual <= 0:
+        return []
+    set_name = cov.get("surfaceSet") if isinstance(cov.get("surfaceSet"), str) else "named"
+    size = _count(cov.get("surfaceSetSize"))
+    names = f"{size} names" if size is not None else "names"
+    return [_gap(
+        "Medium", "missing-export", f"{residual} of {denominator} exports not documented beyond the {set_name} set",
+        meta,
+        f"Find the {residual} exports the stored count (`stats.effective_denominator`) counts beyond the {names} "
+        f"of the `{set_name}` set (`{meta}` lists the exports) and document each with its signature; a stale "
+        "stored count is recounted by re-running Create Skill.",
+        issue=f"of the {denominator} exports the stored count counts, {missing} are not documented: the "
+              f"`{set_name}` set names {listed} of them, and the other {residual} are exports the count holds "
+              "beyond the set's names")]
+
+
 def from_coverage(cov: object, surface: object = None, signatures: object = None, numerator: object = None,
                   stale: object = None, provenance: object = None, skill_dir: str | None = None,
                   metadata: str | None = None) -> list[dict]:
@@ -1058,79 +1177,16 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
     branch = cov["branch"]
     records: list[dict] = []
     if branch == "enumerated":
-        types: set[str] = set()
-        # the names whose documented signature signature scoring compared
-        scored: set[str] = set()
-        if signatures is not None:
-            signatures = _object(signatures, "--signatures (score-signatures.py)", "missingTypes")
-            types = set(_names(signatures, "missingTypes", "--signatures"))
-            scored = set(_names(signatures, "comparedNames", "--signatures"))
-        if surface is not None:
-            surface = _object(surface, "--surface (load-coverage-inputs.py surface)", "exports")
-        where = _surface_sources(surface)
-        # `excluded` is read once a stale name may be a documented extra
-        outside: dict[str, dict] | None = None
-        outside_read = False
-        missing = _names(cov, "missing", "--input")
-        if missing and _inflated_union(surface):
-            union = ((surface.get("guards") or {}).get("inflation") or {}).get("scopeIncludeUnion")
-            records.append(_inflated_union_gap(missing, where, types, _brief_of(surface), union))
-        else:
-            for name in missing:
-                records.append(_missing_export(name, where.get(name), meta, "type" if name in types else "export"))
-        classified: dict[str, dict] = {}
-        if stale is not None:
-            if not isinstance(stale, list):
-                raise AdapterError("--stale is not classify-stale JSON (a list)")
-            classified = {i["name"]: i for i in stale if isinstance(i, dict) and isinstance(i.get("name"), str)}
-        for name in _names(cov, "stale", "--input"):
-            item = classified.get(name) or {}
-            cited = item.get("source")
-            if item.get("fabricated") is True:
-                if not isinstance(cited, str) or not cited:
-                    # a Critical gap needs the line it cites: never downgrade it
-                    raise AdapterError(f"--stale: {name!r} is fabricated with no source")
-                records.append(_gap(
-                    "Critical", "fabricated-signature", f"Fabricated signature: {name}", cited,
-                    f"Remove `{name}` from SKILL.md and references/, or correct it to the export the source "
-                    f"defines: no file its provenance cites defines it (`{cited}`).",
-                    issue=f"SKILL.md documents `{name}`, which the source API surface lacks and the cited "
-                          "file does not define",
-                    export=name))
-                continue
-            if not outside_read:
-                outside, outside_read = _outside_scope(surface), True
-            extra = _documented_extra_at(name, item, outside, skill_dir)
-            doc = _documenting_line(Path(skill_dir), name) if skill_dir else None
-            if extra:
-                declared, among = extra
-                # a homonym: the one declaring file the skill's own citations name
-                picked = (f"; of the {among} files that declare it, the skill cites only "
-                          f"`{declared.rsplit(':', 1)[0]}`") if among else ""
-                # never routed: update-skill leaves an `observation` alone. Signature scoring compares a
-                # documented signature of a name on the surface's records (a nested sub-package's) alone.
-                checked = ("Signature scoring compares its documented signature with the surface's record of it."
-                           if name in scored else
-                           "Its documented signature was not checked against that declaration.")
-                records.append(_gap(
-                    "Info", "observation", f"Documented extra: {name}", declared,
-                    f"No change: `{name}` is a documented extra, a name the source still declares at "
-                    f"`{declared}` outside the enumerated surface, and its documentation stays. {checked}",
-                    issue=f"{f'`{doc}`' if doc else 'the skill'} documents `{name}`, which the enumerated source API "
-                          f"surface lacks and the source still declares{picked}",
-                    export=name))
-                continue
-            if outside is not None and name in outside and _scoped_out_by(outside[name]):
-                # an entry point exports it from a file the brief scopes out (#796)
-                records.append(_scoped_out_gap(name, outside[name], doc, _brief_of(surface)))
-                continue
-            records.append(_gap(
-                "Medium", "stale-documentation", f"Stale documentation: {name}", doc or "SKILL.md",
-                f"Check `{name}` against the source and update or remove its documentation at "
-                f"{doc or 'SKILL.md'}: the enumerated source surface does not export it.",
-                issue=f"SKILL.md documents `{name}`, which the enumerated source API surface lacks",
-                export=name))
+        surface, types, scored = _named_inputs(surface, signatures)
+        records += _missing_gaps(cov, surface, types, meta)
+        records += _stale_gaps(cov, surface, stale, scored, skill_dir)
     elif branch in ("scalar", "stack"):
+        # A scalar result that counts its set lists its missing names, and one on a surface read from the
+        # source its stale names: each is recorded as the barrel branch's are.
+        counted = branch == "scalar" and cov.get("numeratorSource") == "surface"
+        stale_named = branch == "scalar" and cov.get("staleApplicable") is True
+        if counted or stale_named:
+            surface, types, scored = _named_inputs(surface, signatures)
         if branch == "scalar" and cov.get("numeratorSource") == "verified":
             if numerator is None:
                 raise AdapterError("the scalar count used the verified numerator: pass its result with "
@@ -1140,6 +1196,9 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
             where = _provenance_sources(_object(provenance, "--provenance (provenance map)", "entries")
                                         if provenance is not None else None)
             records += [_missing_export(name, where.get(name), meta) for name in absent]
+        elif counted:
+            records += _missing_gaps(cov, surface, types, meta)
+            records += _residual_gap(cov, meta)
         else:
             missing, denominator = _count(cov.get("missingCount")), _count(cov.get("denominator"))
             if missing:
@@ -1149,6 +1208,8 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
                     f"name (`{meta}` lists the exports) and document each with its signature.",
                     issue=f"SKILL.md and references/ name {cov.get('documented')} of the {denominator} exports "
                           f"the {branch} denominator counts"))
+        if stale_named:
+            records += _stale_gaps(cov, surface, stale, scored, skill_dir)
     elif branch != "docsOnly":
         raise AdapterError(f"--input (reconcile-coverage.py): unknown branch {branch!r}")
     return records

@@ -1000,8 +1000,9 @@ def test_signatures_are_scored_over_the_denominator_set():
     # Its warnings reach the Coverage Analysis section through §5's render, never retyped.
     assert "§5's render lists its `warnings`" in _flow(section2b)
     # The scalar is read from the loader's file, never typed in.
-    assert "--denominator-value" not in text
-    assert '--denominator-source scalar --coverage-inputs "{run_dir}/coverage-inputs.json"' in text
+    branches = _read(COVERAGE_BRANCHES)
+    assert "--denominator-value" not in text and "--denominator-value" not in branches
+    assert '--denominator-source scalar --coverage-inputs "{run_dir}/coverage-inputs.json"' in branches
 
 
 def test_a_run_with_no_local_source_names_its_skip():
@@ -1687,8 +1688,12 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     assert inputs["inflationSignature"] is False
     numerator = _exec(_command(COVERAGE, "uv run {numeratorVerifyScript}"), values, tmp_path)
     assert numerator["skipped"] is True
-    scalar = _exec(_command(COVERAGE, "--denominator-source scalar"), values, tmp_path)
+    scalar = _exec(_command(COVERAGE_BRANCHES, "--denominator-source scalar").replace("<set>", "all"), values,
+                   tmp_path)
     assert (scalar["documented"], scalar["denominator"]) == (3, 4), "the scalar comes from coverage-inputs.json"
+    # #791, #792: over `all` the lookup counts and no missing name is listed; the stale names are still read.
+    assert (scalar["numeratorSource"], scalar["missing"], scalar["missingCount"]) == ("lookup", [], 1)
+    assert (scalar["stale"], scalar["staleApplicable"]) == ([], True)
     coverage = _exec(_command(COVERAGE, "--denominator-source barrel").replace("<set>", "all"), values, tmp_path)
     assert (coverage["documented"], coverage["denominator"], coverage["exportCoverage"]) == (3, 3, 100.0)
     coherence = _exec(_command(COVERAGE, "uv run {coherenceScript}"), values, tmp_path)
@@ -1707,6 +1712,82 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     # naive weights 45/25/20/10: 45 + 12.5 + 20 + 8
     assert (score["totalScore"], score["result"]) == (85.5, "PASS")
     assert "effectiveResult" not in score
+
+
+# A stratified skill on the scalar branch (#791, #792): the entry point declares five tier A names and re-exports
+# helper, a Tier B name, from a file outside the tier A glob.
+TIER_A_NAMES = ["alpha", "beta", "gamma", "delta", "epsilon"]
+STRATIFIED_EXTRACTION = {
+    "mode": "full", "status": "ok", "files_in_scope": 2, "truncated": False, "files_without_recipes": {},
+    "file_issues": [], "errors": [],
+    "scope": {"type": "public-api", "include": ["src/**"], "exclude": [], "tier_a_include": ["src/index.ts"]},
+    "exports": [{"export_name": n, "export_type": "function", "source_file": "src/index.ts", "source_line": i,
+                 "signature_line": f"export function {n}(): void {{"} for i, n in enumerate(TIER_A_NAMES, 1)]
+               + [{"export_name": "helper", "export_type": "function", "source_file": "src/helper.ts",
+                   "source_line": 1, "signature_line": "export function helper(): void {"}],
+    "entry_points": {"status": "barrel",
+                     "files": [{"language": "typescript", "file": "src/index.ts", "subpath": "."}]},
+    "entry_point_diff": {
+        "public": [{"name": n, "entry": "src/index.ts", "via": "declaration", "file": "src/index.ts", "line": i}
+                   for i, n in enumerate(TIER_A_NAMES, 1)]
+                  + [{"name": "helper", "entry": "src/index.ts", "via": "re-export", "file": "src/helper.ts",
+                      "line": 1}],
+        "internal": [], "extraction_gaps": [], "outside_scope": []},
+    "counts": {"exports_public_api": 6, "exports_internal": 0, "effective_denominator": 5,
+               "effective_denominator_basis": "tier_a_include", "curated_subset": True},
+    "arms": {"monorepo": True, "specific_modules": False, "multi_subpath_exports": False},
+}
+
+
+def test_the_prose_scalar_branch_counts_the_named_set(tmp_path):
+    """#791, #792 through the coverage step's own commands: a stratified skill on the scalar branch documents
+    three of its five tier A names, two names the source does not export and the Tier B `helper`. The scalar
+    command (§2c sends it to coverage-check-branches.md) counts the tier A set §2b picked, which a complete
+    extraction lets it count (`setCounted`), so the run reads 60% with the two missing and the two stale names
+    (not 100%, two extras offsetting two undocumented exports), and §5b's ledger call records each by name."""
+    documented = ["alpha", "beta", "gamma", "phantomOne", "phantomTwo", "helper"]
+    skill = _write_tree(tmp_path / "skill", {
+        "SKILL.md": "---\nname: demo\ndescription: Demo. Use when testing.\n---\n# Demo\n\n"
+                    + "".join(f"`{n}()` runs.\n" for n in documented),
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "inventory-response.txt").write_bytes(json.dumps({"exports": [
+        {"name": n, "kind": "function", "params": "", "return_type": "void", "description": "Runs."}
+        for n in documented], "cross_check_mismatches": []}).encode("utf-8"))
+    (run / "extract-full.json").write_bytes(json.dumps(STRATIFIED_EXTRACTION).encode("utf-8"))
+    (skill / "metadata.json").write_bytes(json.dumps({
+        "skill_type": "single", "exports": TIER_A_NAMES + ["helper"],
+        "stats": {"exports_public_api": 6, "exports_documented": 6, "effective_denominator": 5}}).encode("utf-8"))
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(),
+              "{ledgerFile}": (tmp_path / "test-findings-20260101T000000Z-abcdef12.json").as_posix()}
+
+    assert _exec(_command(COVERAGE, "uv run {validateInventoryScript}"), values, tmp_path)["valid"] is True
+    surface = _exec(_choose(_command(COVERAGE, "surface --extraction"), keep=("--monorepo", "--curated-subset")),
+                    values, tmp_path)
+    assert surface["denominator"]["branch"] == "scalar" and surface["guards"]["deflation"]["applicable"] is True
+    chosen = surface["denominator"]["surfaceSet"]
+    assert (chosen, surface["denominator"]["setCounted"]) == ("tier_a_include", True), "a complete extraction"
+    _exec(_choose(_command(COVERAGE, "uv run {coverageInputsScript} metadata")), values, tmp_path)
+    _exec(_command(COVERAGE, "uv run {numeratorVerifyScript}"), values, tmp_path)
+    command = _command(COVERAGE_BRANCHES, "--denominator-source scalar")
+    assert '--surface "{run_dir}/surface.json" --surface-set <set>' in command
+    coverage = _exec(command.replace("<set>", chosen), values, tmp_path)
+    assert (coverage["denominator"], coverage["documented"], coverage["exportCoverage"]) == (5, 3, 60.0)
+    assert (coverage["missing"], coverage["stale"]) == (["delta", "epsilon"], ["phantomOne", "phantomTwo"])
+    assert "helper" not in coverage["documentedNames"] + coverage["stale"], "a Tier B name is neither"
+
+    _exec(_choose(_command(COVERAGE, "--from coverage"), keep=("--surface",)), values, tmp_path)
+    records = json.loads(Path(values["{ledgerFile}"]).read_bytes())["records"]
+    assert [(r["category"], r["title"], r["source"]) for r in records] == [
+        ("missing-export", "Missing export: delta", "src/index.ts:4"),
+        ("missing-export", "Missing export: epsilon", "src/index.ts:5"),
+        ("stale-documentation", "Stale documentation: phantomOne", "SKILL.md:10"),
+        ("stale-documentation", "Stale documentation: phantomTwo", "SKILL.md:11"),
+    ]
+    flow = _flow(_read(COVERAGE))
+    assert "- **Stale names** (`stale` when `staleApplicable` is true):" in flow
+    assert "- **Missing names** (`missing`, barrel or scalar):" in flow
 
 
 def test_the_prose_fallback_scan_runs(tmp_path):
@@ -1821,7 +1902,9 @@ COVERAGE_CHAR_BUDGET = 36_000
 
 # The text coverage-check.md carved into coverage-check-branches.md, byte for byte as the step held it at
 # 3ac917ef (the surplus paragraph's guard sentence as #788 and #813 rewrote it; §1a's failures as #814 rewrote
-# them, the refused file deleted before the re-dispatch): each section's blocks, which the step no longer holds.
+# them, the refused file deleted before the re-dispatch; §2c's scalar and stack commands, the scalar branch's
+# counted set and the surplus paragraph's subject as #791 and #792 moved, added and rewrote them): each
+# section's blocks, which the step no longer holds.
 CARVED_TO_BRANCHES = {
     "Inventory Failures": [(
         "- **`valid` false (exit 2):** delete the response `{validateInventoryScript}` refused, so a stale one is "
@@ -1861,15 +1944,53 @@ CARVED_TO_BRANCHES = {
         "[--curated-subset] [--barrel <state>] --output \"{run_dir}/surface.json\"`."
     )],
     "Scalar and Stack Branches": [(
-        "**A surplus is a signal, not a pass.** The scalar and stack branches count the numerator and "
-        "denominator from independent sets, so `documented` can exceed `denominator`: it then reports "
+        "Run the command of the branch §2b picked; §2c's exits apply to it:\n"
+        "\n"
+        "- **Scalar**, over the `coverage-inputs.json` scalar and §2b's set (`denominator.surfaceSet`); "
+        "`--verified` makes §2b's `verified` count the numerator when the count was inflated and the branch "
+        "counts no set:\n"
+        "\n"
+        "  ```bash\n"
+        "  uv run {reconcileScript} --denominator-source scalar --coverage-inputs "
+        "\"{run_dir}/coverage-inputs.json\" --inventory \"{run_dir}/inventory.json\" --surface "
+        "\"{run_dir}/surface.json\" --surface-set <set> --skill-dir \"{resolved_skill_package}\" --verified "
+        "\"{run_dir}/numerator.json\" --output \"{run_dir}/coverage.json\"\n"
+        "  ```\n"
+        "\n"
+        "- **Stack** (`metadata.json.skill_type == \"stack\"`):\n"
+        "\n"
+        "  ```bash\n"
+        "  uv run {reconcileScript} --denominator-source stack --coverage-inputs "
+        "\"{run_dir}/coverage-inputs.json\" --skill-dir \"{resolved_skill_package}\" --output "
+        "\"{run_dir}/coverage.json\"\n"
+        "  ```"
+    ), (
+        "**The scalar branch counts §2b's set** only when `surface.json` `denominator.setCounted` is true: a "
+        "scope set (not `all`) whose every name sits at the file that defines it (a complete runner extraction, "
+        "the fallback scan, or quick output that traces each name), read whole. Then `numeratorSource` is "
+        "`surface`: `documented` counts the documented names the set holds (`documentedNames`), so a documented "
+        "name the set lacks never offsets an undocumented one; `missing` lists the set's undocumented names; "
+        "§5's render draws the per-export table; and the denominator stays the stored count, so when the set's "
+        "size (`surfaceSetSize`) differs from it, `warnings` names both. Otherwise (`all`, a set read by eye or "
+        "from an incomplete extraction, or an empty set, which warns) the branch looks each documented name up "
+        "in the skill, `--verified` applies, and `missing` lists no name. On any surface read from the source "
+        "(`guards.deflation.applicable` true), `stale` lists the documented names the whole surface (the set and "
+        "the `all` set) lacks, with `staleApplicable` true, so §2c's Stale names bullet applies: a documented "
+        "name outside the set that the source still exports is neither counted nor stale. §5's render lists "
+        "each `warnings` entry."
+    ), (
+        "**A surplus is a signal, not a pass.** Where the numerator and denominator count independent sets (the "
+        "stack branch, and the scalar branch when it counts no set), `documented` can exceed `denominator`, as "
+        "it can when a counted set holds more names than the stored count: `coverage.json` then reports "
         "`numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps "
         "the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. A "
         "large surplus is the deflated-denominator signature: check `guards.deflation`, whose `basis` names "
         "the set it measured the stored count against, before accepting the 100."
     ), (
         "- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium "
-        "`missing-export` gap for the count. When §2b's numerator check found the count inflated, its "
+        "`missing-export` gap for the count. A scalar result that counts its set records its `missing` names as "
+        "§2c's Missing names bullet says instead, plus one gap for the rest when `missingCount` exceeds them. "
+        "When §2b's numerator check found the count inflated and the scalar branch counted no set, its "
         "`absent[]` names replace this gap, one each: update-skill documents a named export, not a count."
     )],
     "Denominator Candidates": [(
@@ -1895,10 +2016,11 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
     bindings, its halts and the branch the model takes. A branch most runs never take lives in a branch file
     with no frontmatter, so no nextStepFile makes it a step a chain must reach, and its own commands move
     with it: the Quick-tier scan and the fallback per-file scan in coverage-check-tiers.md, which only the §2
-    branch that takes one loads; States 2 to 4 (State 2, 3 and 4's `surface` commands included), the scalar
-    and stack branches and the Denominator Candidates block in coverage-check-branches.md, byte for byte as
-    the step held them, each section loaded only from the sentence of its branch, which names it. Every
-    other call stays in the step."""
+    branch that takes one loads; §1a's inventory failures (the refused response's `rm` included, #814), States
+    2 to 4 (State 2, 3 and 4's `surface` commands included), the scalar and stack branches (§2c's scalar and
+    stack commands included, #791 and #792) and the Denominator Candidates block in coverage-check-branches.md,
+    byte for byte as the step held them, each section loaded only from the sentence of its branch, which names
+    it. Every other call stays in the step."""
     text = _read(COVERAGE)
     assert len(text) < COVERAGE_CHAR_BUDGET, len(text)
     assert _frontmatter(COVERAGE)["coverageTiersFile"] == "references/coverage-check-tiers.md"
@@ -1955,8 +2077,9 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
         "When `rebuild` is `provenance-fold`, load `{coverageBranchesFile}` and rerun State 2's command from its "
         "**States 2 to 4** section without `--metadata` and with `--fold` and `--pattern-reference-intent`, running "
         "nothing else from that section",
-        "**On the scalar or stack branch:** load `{coverageBranchesFile}` and follow its **Scalar and Stack "
-        "Branches** section.",
+        # §2c's scalar and stack commands live in the section its branch loads (#791, #792)
+        "2. **Scalar or stack**: load `{coverageBranchesFile}` and follow its **Scalar and Stack Branches** "
+        "section, which runs the branch's command.",
     ):
         assert sentence in flow, sentence
     # Each carved block is byte for byte the step's old text, in its own section, and the step no longer holds it.

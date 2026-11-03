@@ -175,7 +175,14 @@ included, and `*` and `?` stay inside one.
 Denominator (surface `denominator`): the Source API Surface Definition's
 clause (source-access-protocol.md), the branch reconcile-coverage.py takes
 and the set it and score-signatures.py --surface-set read: {clause, branch,
-surfaceSet, ladderStep, absentSet, rebuild, barrel}. The inputs: the scope
+surfaceSet, ladderStep, absentSet, rebuild, barrel, setCounted}.
+`setCounted` (null off the scalar branch) says whether the scalar branch
+counts its `surfaceSet` as the numerator's set: true only for a scope set
+(not `all`) whose every name sits at the file that defines it, as the
+deflation guard's tier A basis requires (a runner extraction, the fallback
+scan, quick output whose every name carries its defined_in), read whole (an
+extraction neither `incomplete` nor truncated); otherwise the scalar branch
+keeps its looked-up numerator. The inputs: the scope
 type (the brief's, else the extraction's, else metadata.json's
 `scope_type`), metadata.json's `skill_type` and `stats.effective_denominator`,
 the extraction's `arms`, the deflation guard, and:
@@ -875,12 +882,16 @@ def _over(clause: str, sets: dict, name: str, step: int | None, rebuild: str | N
 
 def pick_denominator(sets: dict, stats_eff: int | None, deflation_fires: bool, barrel: str | None, arms: dict,
                      scope_type: str | None, skill_type: str | None, monorepo: bool, pattern_reference: bool,
-                     curated: bool, source_read: bool) -> dict:
+                     curated: bool, source_read: bool, set_trusted: bool = False) -> dict:
     """The Source API Surface Definition's clause for a skill, with the branch
-    and the name set reconcile-coverage.py and score-signatures.py read, and
-    the entry points' state it was picked by (see "Denominator" above)."""
-    return {**_pick(sets, stats_eff, deflation_fires, barrel, arms, scope_type, skill_type, monorepo,
-                    pattern_reference, curated, source_read), "barrel": barrel}
+    and the name set reconcile-coverage.py and score-signatures.py read, the
+    entry points' state it was picked by and, on the scalar branch, whether
+    it counts that set (`set_trusted`: each name at its defining file, read
+    whole; see "Denominator" above)."""
+    picked = _pick(sets, stats_eff, deflation_fires, barrel, arms, scope_type, skill_type, monorepo,
+                   pattern_reference, curated, source_read)
+    counted = (set_trusted and picked["surfaceSet"] not in (None, "all")) if picked["branch"] == "scalar" else None
+    return {**picked, "barrel": barrel, "setCounted": counted}
 
 
 def _pick(sets: dict, stats_eff: int | None, deflation_fires: bool, barrel: str | None, arms: dict,
@@ -1079,6 +1090,16 @@ def surface(args: argparse.Namespace) -> dict:
     clause = _pick(sets, None, False, barrel, arms, scope_type, skill_type, monorepo,
                    bool(args.pattern_reference_intent), curated, source_read)["clause"]
     swap = False
+    # Each name sits at the file that defines it (a runner extraction, the fallback scan, quick output whose every
+    # name carries its defined_in); a name read by eye, or a quick name with no defined_in, sits at its entry file.
+    runner = extracted is not None and not extracted["extraction"]["fallback"]["needed"]
+    quick_traced = (bool(quick_outputs) and not args.per_file and not args.name
+                    and all(isinstance(e.get("defined_in"), str) and e["defined_in"]
+                            for q in quick_outputs for e in q["exports"] if isinstance(e, dict)))
+    defining = runner or bool(args.fallback_scan) or quick_traced
+    # The scalar branch counts its scope set only from such names read whole: an incomplete or truncated
+    # extraction can miss names (#791, #792).
+    whole = summary is None or (summary["status"] != "incomplete" and not summary["truncated"])
 
     if extracted is not None or brief is not None or meta is not None:
         include_union = len(sets["scope.include"]) if "scope.include" in sets else len(sets["all"])
@@ -1103,12 +1124,7 @@ def surface(args: argparse.Namespace) -> dict:
         # sits at the file that defines it (a runner extraction, the fallback scan, quick output whose every name
         # carries its defined_in): Create Skill stores the runner's tier A count, so one beyond the threshold is
         # stale (#813). A name read by eye, or a quick name with no defined_in, sits at its entry file.
-        runner = extracted is not None and not extracted["extraction"]["fallback"]["needed"]
-        quick_traced = (bool(quick_outputs) and not args.per_file and not args.name
-                        and all(isinstance(e.get("defined_in"), str) and e["defined_in"]
-                                for q in quick_outputs for e in q["exports"] if isinstance(e, dict)))
-        tier_a_basis = ((runner or bool(args.fallback_scan) or quick_traced) and clause in CLAUSE_LADDERS
-                        and "tier_a_include" in sets)
+        tier_a_basis = defining and clause in CLAUSE_LADDERS and "tier_a_include" in sets
         rederived = len(sets["tier_a_include"]) if tier_a_basis else include_union
         basis = "tier_a_include" if tier_a_basis else "scope.include" if "scope.include" in sets else "all"
         deflation = {"applicable": source_read and stats_eff is not None, "basis": basis,
@@ -1149,7 +1165,8 @@ def surface(args: argparse.Namespace) -> dict:
         }
 
     out["denominator"] = pick_denominator(sets, stats_eff, swap, barrel, arms, scope_type, skill_type, monorepo,
-                                          bool(args.pattern_reference_intent), curated, source_read)
+                                          bool(args.pattern_reference_intent), curated, source_read,
+                                          defining and whole)
 
     return {
         "inputs": {
