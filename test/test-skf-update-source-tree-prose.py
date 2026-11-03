@@ -1306,7 +1306,14 @@ def test_spot_check_reads_definition_lines_from_the_verifier(tmp_path, capsys):
     (run_dir / "gap-judgments.json").write_bytes(json.dumps({"GAP-005": {"declaring_line": 1}}).encode("utf-8"))
     code, out = _run_gap_records(plan, values, capsys, keep=("--source-root", "--judgments"))
     assert code == 0 and out["status"] == "planned" and out["reextract"]["entries"] == [], out
-    code, out = _run_gap_records(record, values, capsys, keep=("--source-root", "--judgments"))
+    # each located export goes to §4a for its signature, at the line its check located (#804)
+    assert out["reextract"]["files"] == ["pkg/api.py", "lib.rs"]
+    assert [(s["gap_id"], s["file"], s["line"]) for s in out["reextract"]["signatures"]] == [
+        ("GAP-001", "pkg/api.py", 5), ("GAP-002", "pkg/api.py", 5), ("GAP-004", "pkg/api.py", 1),
+        ("GAP-005", "lib.rs", 1)]
+    (run_dir / "remediation-records.json").write_bytes(json.dumps({"mode": "normal", "files": [
+        {"file_path": path, "exports": []} for path in out["reextract"]["files"]]}).encode("utf-8"))
+    code, out = _run_gap_records(record, values, capsys, keep=("--source-root", "--judgments", "--remediation-records"))
     assert code == 0 and out["status"] == "written", out
     records = json.loads((run_dir / "reextract-records.json").read_bytes())
     outcomes = [(r["verification"], r["new_location"]) for r in records["verification"]]
@@ -1798,8 +1805,8 @@ def test_gap_driven_reextracted_records_are_built_by_script(tmp_path, capsys):
     code, out = _run_gap_records(_gap_calls()[1], values, capsys,
                                  keep=("--source-root", "--judgments", "--remediation-records", "--evidence"))
     assert code == 0 and out["status"] == "written", out
-    assert out["targeted_reextraction"] == {"resolved_count": 1, "files_scanned": 1, "exports_matched": 1,
-                                            "tier": "Forge"}
+    assert out["targeted_reextraction"] == {"resolved_count": 1, "files_scanned": 1, "signature_files_scanned": 0,
+                                            "exports_matched": 1, "tier": "Forge"}
     records = json.loads((run_dir / "reextract-records.json").read_bytes())
     [copied] = records["files"]
     # the record as `records` wrote it, byte for byte, with the docstring read at its line added
@@ -1819,6 +1826,86 @@ def test_gap_driven_reextracted_records_are_built_by_script(tmp_path, capsys):
         (["limit: number = 10", "opts?: Options"], "Item[]", 4)
     assert (entry["confidence"], entry["extraction_method"], entry["ast_node_type"]) == \
         ("T1", "ast-grep", "function_declaration")
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="no ast-grep on PATH")
+def test_a_located_export_takes_the_signature_the_runner_gives_at_its_line(tmp_path, capsys):
+    """#804, #809: a signature-mismatch gap on an export the map holds, and a cited new export the map lacks, take
+    their params and return type from the record §4a's runner gives at the line the spot-check located, never from
+    the old entry or from merge's prose. Run gap-driven.md §4's plan, §4a's runner and `records` calls, §4's record
+    call and step 5's apply on what they wrote."""
+    text = _read(GAP)
+    assert "when `reextract.entries` or `reextract.signatures` is not empty, run §4a for them" in \
+        _slice(text, "   - **`planned`:**", "\n")
+    zero_a = _slice(text, "### 4a. Targeted Re-Extraction Branch", "### 5.")
+    assert "invokes for the entries its plan lists in `reextract.entries` and `reextract.signatures`" in zero_a
+    assert "The plan adds the `file` of each export `reextract.signatures` lists" in \
+        _slice(zero_a, "2. **The file set**", "\n")
+    merge = _read(MERGE)
+    assert "**Gap-driven `MODIFIED_EXPORT`:** its fresh extraction is its record in `files`" in \
+        _slice(merge, "**Priority 4", "**Priority 5")
+    assert "Document it from its record in `files`" in _slice(merge, "**Priority 5", "**Priority 6")
+    assert "Leave out each part a record gives, and leave out an export whose record gives all three" in \
+        _slice(merge, "### 6. Compile Merge Results", "### 6b.")
+    src = tmp_path / "src tree"
+    (src / "pkg").mkdir(parents=True)
+    (src / "pkg" / "api.py").write_bytes(b"def search(query: str, limit: int = 10) -> list:\n    return []\n\n\n"
+                                         b"def fetch(key: str) -> bytes:\n    return b''\n")
+    old = {"export_name": "search", "export_type": "function", "source_library": "lib", "params": ["q"],
+           "return_type": None, "source_file": "pkg/api.py", "source_line": 1, "confidence": "T1",
+           "extraction_method": "ast-grep", "ast_node_type": "function_definition", "signature_source": "T1"}
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(json.dumps({"entries": [old]}).encode("utf-8"))
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "change-manifest.json").write_bytes(json.dumps({"mode": "gap-driven", "entries": [
+        _gap_entry("search", "signature-mismatch", "MODIFIED_EXPORT", gap_id="GAP-001", match=_found("pkg/api.py", 1)),
+        _gap_entry("fetch", "missing-export", "NEW_EXPORT", gap_id="GAP-002", citation={"file": "pkg/api.py", "line": 5}),
+    ]}).encode("utf-8"))
+    values = {"run_dir": str(run_dir), "provenance_map_path": str(provenance), "source_root": str(src),
+              "workspace_drift_status": "ok", "scope_type": "full-library"}
+    plan, record = _gap_calls()
+    code, out = _run_gap_records(plan, values, capsys, keep=("--source-root",))
+    assert code == 0 and out["status"] == "planned" and out["reextract"]["entries"] == [], out
+    assert out["reextract"]["signatures"] == [{"gap_id": "GAP-001", "name": "search", "file": "pkg/api.py", "line": 1},
+                                              {"gap_id": "GAP-002", "name": "fetch", "file": "pkg/api.py", "line": 5}]
+    assert json.loads((run_dir / "remediation-files.json").read_bytes()) == ["pkg/api.py"]
+    # §4a: the runner over the plan's files, then `records` over its output
+    runner = _fence(zero_a, "uv run {extractPublicApiHelper}")
+    proc = subprocess.run([sys.executable, str(EXTRACT_PUBLIC_API),
+                           *_argv_with(runner, "extractPublicApiHelper", values, keep=("--scope-type",))],
+                          capture_output=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    manifest = _module(BUILD_MANIFEST, "skf_build_change_manifest_signatures_prose")
+    records_call = _fence(zero_a, "uv run {buildChangeManifestHelper} records")
+    assert manifest.main(_argv_with(records_call, "buildChangeManifestHelper", values, keep=("--extraction",))) == 0
+    capsys.readouterr()
+    (run_dir / "gap-judgments.json").write_bytes(json.dumps({"GAP-002": {"reachability": "public"}}).encode("utf-8"))
+    code, out = _run_gap_records(record, values, capsys,
+                                 keep=("--source-root", "--judgments", "--remediation-records"))
+    assert code == 0 and out["status"] == "written", out
+    records = json.loads((run_dir / "reextract-records.json").read_bytes())
+    signatures = [(r["export_name"], r["export_type"], r["params"], r["return_type"], r["extraction_method"])
+                  for r in records["verification"]]
+    assert signatures == [("search", "function", ["query: str", "limit: int = 10"], "list", "ast-grep"),
+                          ("fetch", "function", ["key: str"], "bytes", "ast-grep")]
+    assert sorted(r["name"] for r in records["files"][0]["exports"]) == ["fetch", "search"]
+    # merge's prose for the cited export gives a part no record leaves null: the record wins
+    new_map, summary = manifest.apply_update(
+        update_type="gap-driven", provenance=json.loads(provenance.read_bytes()), skill_name="lib", records=records,
+        merge_records={"exports": [{"export_name": "fetch", "export_type": "function", "params": ["k"],
+                                    "return_type": "str"}]},
+        generation_date="2026-11-03T00:00:00Z", test_report_run_id="r1", confidence_tier="Forge",
+        manual_sections_preserved=0)
+    assert summary["status"] == "written", summary
+    search, fetch = new_map["entries"]
+    assert (search["params"], search["return_type"], search["source_line"], search["signature_source"]) == \
+        (["query: str", "limit: int = 10"], "list", 1, "T1")
+    assert (fetch["params"], fetch["return_type"], fetch["source_line"]) == (["key: str"], "bytes", 5)
+    assert (fetch["confidence"], fetch["extraction_method"], fetch["signature_source"]) == \
+        ("T1-low", "source-read", "T1-low")
+    stats = _module(STATS_HELPER, "skf_render_metadata_stats_signatures_prose")
+    assert stats.check_label_agreement(new_map) == []
 
 
 def _write_counts_call() -> str:
@@ -2566,7 +2653,7 @@ def test_blocking_gap_without_a_path_halts_in_gap_driven_before_merge(tmp_path, 
                   "Step 4 (merge) has not run; no partial writes", 'phase: "re-extract:targeted-reextraction"'):
         assert token in unresolved, token
     # run it: a citation that pins no line goes on to the routing as if it had none, so a blocking one with no
-    # path is unresolved, while a citation that pins a line is verified and never reaches §4a
+    # path is unresolved, while a citation that pins a line is verified and reaches §4a for its signature only
     src = tmp_path / "src tree"
     (src / "pkg").mkdir(parents=True)
     (src / "pkg" / "api.py").write_bytes(API_PY)
@@ -2588,8 +2675,11 @@ def test_blocking_gap_without_a_path_halts_in_gap_driven_before_merge(tmp_path, 
     plan, record = _gap_calls()
     code, out = _run_gap_records(plan, values, capsys, keep=("--source-root",))
     assert code == 0 and [e["gap_id"] for e in out["reextract"]["entries"]] == ["GAP-002"], out
-    assert out["reextract"]["files"] == []
-    code, out = _run_gap_records(record, values, capsys, keep=("--source-root",))
+    assert out["reextract"]["files"] == ["pkg/api.py"]
+    assert out["reextract"]["signatures"] == [{"gap_id": "GAP-001", "name": "search", "file": "pkg/api.py", "line": 5}]
+    (run_dir / "remediation-records.json").write_bytes(json.dumps({"mode": "normal", "files": [
+        {"file_path": "pkg/api.py", "exports": []}]}).encode("utf-8"))
+    code, out = _run_gap_records(record, values, capsys, keep=("--source-root", "--remediation-records"))
     assert code == 0 and out["status"] == "unresolved", out
     assert out["unresolved"] == [{"gap_id": "GAP-002", "name": "absent", "severity": "High",
                                   "remediation_paths": [], "files_scanned": 0, "exports_found_in_scan": 0,

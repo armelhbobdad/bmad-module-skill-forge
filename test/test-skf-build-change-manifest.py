@@ -1036,6 +1036,128 @@ class TestApplyGapDriven:
         assert doc["exports_affected"] == 10
         assert stats.check_label_agreement(doc) == []
 
+    # #804, #809: an export a spot-check located takes the signature §4a's record gives at its line
+
+    def _signed(self, name: str, outcome: str, category: str, **extra) -> dict:
+        return {"mode": "gap-driven", "verification": [_verification(name, outcome, category, **extra)], "files": []}
+
+    def test_a_verified_entry_takes_the_records_signature(self) -> None:
+        old = _old_map()
+        old["entries"][0]["params"] = ["x"]
+        records = self._signed("stable", "verified", "MODIFIED_EXPORT", in_map=True,
+                               map_entry={"source_file": "pkg/a.py", "source_line": 1}, export_type="function",
+                               params=["y"], return_type="int", extraction_method="ast-grep")
+        doc, summary = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                        test_report_run_id="r", **BLOCK)
+        stable = doc["entries"][0]
+        assert (stable["params"], stable["return_type"]) == (["y"], "int")
+        assert {k: stable[k] for k in ("confidence", "extraction_method", "ast_node_type", "signature_source")} == \
+            {"confidence": "T1", "extraction_method": "ast-grep", "ast_node_type": "function_definition",
+             "signature_source": "T1"}
+        assert summary["entries"]["updated"] == ["stable"] and doc["entries"][1:] == old["entries"][1:]
+        assert stats.check_label_agreement(doc) == []
+
+    def test_a_moved_entry_takes_its_new_line_and_the_records_signature(self) -> None:
+        old = _old_map()
+        records = self._signed("search", "moved", "MODIFIED_EXPORT", in_map=True,
+                               map_entry={"source_file": "pkg/a.py", "source_line": 10}, new_location="pkg/a.py:12",
+                               export_type="function", params=["q: str", "limit: int = 10"], return_type="list",
+                               extraction_method="ast-grep")
+        doc, _ = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                  test_report_run_id="r", **BLOCK)
+        search = doc["entries"][1]
+        assert (search["source_line"], search["params"], search["return_type"], search["notes"]) == \
+            (12, ["q: str", "limit: int = 10"], "list", "keep me")
+        assert (search["confidence"], search["extraction_method"]) == ("T1", "ast-grep")
+
+    def test_a_pinned_cited_export_takes_its_records_signature_over_merges(self) -> None:
+        records = self._signed("cited", "verified", "NEW_EXPORT", source_citation={"file": "pkg/c.py", "line": 8},
+                               reachability="public", export_type="function", params=["a: int"],
+                               extraction_method="ast-grep")
+        merge = {"exports": [{"export_name": "cited", "export_type": "class", "params": ["z"], "return_type": "str"}]}
+        doc, _ = mod.apply_update(update_type="gap-driven", provenance=_old_map(), skill_name="lib",
+                                  records=records, merge_records=merge, test_report_run_id="r", **BLOCK)
+        [cited] = [e for e in doc["entries"] if e["export_name"] == "cited"]
+        # with a record, every part is the record's, its null return type included: merge's prose gives none
+        assert (cited["export_type"], cited["params"]) == ("function", ["a: int"]) and "return_type" not in cited
+        # a pinned export keeps its source-read labels, whatever its record's tool
+        assert {k: cited[k] for k in ("source_line", "confidence", "extraction_method", "ast_node_type",
+                                      "signature_source")} == \
+            {"source_line": 8, "confidence": "T1-low", "extraction_method": "source-read", "ast_node_type": None,
+             "signature_source": "T1-low"}
+        assert stats.check_label_agreement(doc) == []
+
+    def test_a_source_read_entry_keeps_its_t1_low_signature_source(self) -> None:
+        old = _old_map()
+        old["entries"][0].update(params=["x"], confidence="T1-low", extraction_method="source-read",
+                                 ast_node_type=None, signature_source="T1-low")
+        records = self._signed("stable", "verified", "MODIFIED_EXPORT", in_map=True,
+                               map_entry={"source_file": "pkg/a.py", "source_line": 1}, export_type="function",
+                               params=["y"], extraction_method="ast-grep")
+        doc, _ = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                  test_report_run_id="r", **BLOCK)
+        stable = doc["entries"][0]
+        assert stable["params"] == ["y"]
+        assert {k: stable[k] for k in ("confidence", "extraction_method", "ast_node_type", "signature_source")} == \
+            {"confidence": "T1-low", "extraction_method": "source-read", "ast_node_type": None,
+             "signature_source": "T1-low"}
+        assert stats.check_label_agreement(doc) == []
+        # an ast-grep entry whose record was read by eye takes T1-low too
+        records["verification"][0]["extraction_method"] = "source-read"
+        doc, _ = mod.apply_update(update_type="gap-driven", provenance=_old_map(), skill_name="lib",
+                                  records=records, test_report_run_id="r", **BLOCK)
+        assert (doc["entries"][0]["signature_source"], doc["entries"][0]["confidence"]) == ("T1-low", "T1")
+        assert stats.check_label_agreement(doc) == []
+
+    def test_an_ast_bridge_entry_repaired_from_a_source_read_record_takes_t1_low(self) -> None:
+        old = _old_map()
+        old["entries"][0]["extraction_method"] = "ast_bridge"
+        records = self._signed("stable", "verified", "MODIFIED_EXPORT", in_map=True,
+                               map_entry={"source_file": "pkg/a.py", "source_line": 1}, export_type="function",
+                               params=["y"], extraction_method="source-read")
+        doc, summary = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                        test_report_run_id="r", **BLOCK)
+        stable = doc["entries"][0]
+        assert (stable["params"], stable["signature_source"], stable["extraction_method"]) == \
+            (["y"], "T1-low", "ast_bridge")
+        # the relabel is announced: apply lists it, and warns
+        assert summary["relabeled"] == [{"name": "stable", "file": "pkg/a.py", "from": "T1", "to": "T1-low"}]
+        assert summary["warnings"] == ["provenance: stable in pkg/a.py: signature_source T1 relabeled T1-low, from "
+                                       "the source-read record of its signature"]
+        assert stats.check_label_agreement(doc) == []
+
+    def test_a_null_record_part_clears_the_entrys_old_value(self) -> None:
+        old = _old_map()
+        old["entries"][0].update(params=["x"], return_type="int")
+        records = self._signed("stable", "verified", "MODIFIED_EXPORT", in_map=True,
+                               map_entry={"source_file": "pkg/a.py", "source_line": 1}, export_type="function",
+                               params=["y"], return_type=None, extraction_method="ast-grep")
+        doc, summary = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                        test_report_run_id="r", **BLOCK)
+        assert doc["entries"][0]["params"] == ["y"] and "return_type" not in doc["entries"][0]
+        assert summary["relabeled"] == []
+
+    def test_a_map_held_entry_with_no_record_keeps_its_signature(self) -> None:
+        old = _old_map()
+        old["entries"][0]["params"] = ["x"]
+        records = self._signed("stable", "verified", "MODIFIED_EXPORT", in_map=True,
+                               map_entry={"source_file": "pkg/a.py", "source_line": 1})
+        merge = {"exports": [{"export_name": "stable", "export_type": "class", "params": ["z"], "return_type": "str"}]}
+        doc, summary = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                        merge_records=merge, test_report_run_id="r", **BLOCK)
+        assert doc["entries"] == old["entries"] and summary["entries"]["updated"] == []
+
+    def test_a_record_of_another_kind_brings_its_node_kind(self) -> None:
+        old = _old_map()
+        old["entries"][0].update(export_type="variable", ast_node_type="assignment")
+        records = self._signed("stable", "verified", "MODIFIED_EXPORT", in_map=True,
+                               map_entry={"source_file": "pkg/a.py", "source_line": 1}, export_type="function",
+                               params=["y"], extraction_method="ast-grep", ast_node_type="function_definition")
+        doc, _ = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                  test_report_run_id="r", **BLOCK)
+        assert (doc["entries"][0]["export_type"], doc["entries"][0]["ast_node_type"]) == \
+            ("function", "function_definition")
+
     def test_every_warning_names_the_drift_under_the_override(self) -> None:
         records = {"mode": "gap-driven", "verification": [
             _verification("stable", "verified", "MOVED_EXPORT", in_map=True,
@@ -2261,7 +2383,12 @@ class TestGapRecords:
             _gap_entry("GAP-005", "nothing", "MODIFIED_EXPORT", match=_found("pkg/api.py", 1)),
             _gap_entry("GAP-006", "search", "MODIFIED_EXPORT", match={**NOT_FOUND, "status": "ambiguous"}),
         ]
-        records, summary = _records(entries, tmp_path)
+        # each located export (verified or moved) sends its file to §4a for its signature
+        _, summary = _records(entries, tmp_path, plan=True)
+        assert (summary["reextract"]["entries"], summary["reextract"]["files"]) == ([], ["pkg/api.py"])
+        assert [(s["gap_id"], s["file"], s["line"]) for s in summary["reextract"]["signatures"]] == [
+            ("GAP-001", "pkg/api.py", 5), ("GAP-002", "pkg/api.py", 5), ("GAP-004", "pkg/api.py", 1)]
+        records, summary = _records(entries, tmp_path, remediation=_remediation(("pkg/api.py", [])))
         assert summary["status"] == "written", summary
         assert [(r["verification"], r["new_location"], r["provenance_citation"]) for r in records["verification"]] \
             == [("verified", None, "pkg/api.py:5"), ("moved", "pkg/api.py:5", "pkg/api.py:4"),
@@ -2276,7 +2403,8 @@ class TestGapRecords:
         assert records is None and summary["needs_judgment"] == [
             {"gap_id": "GAP-001", "name": "add", "needs": ["declaring_line"], "file": "lib.rs", "line": 1}]
         for answer, outcome in ((1, ("verified", None)), (3, ("moved", "lib.rs:3")), (None, ("unknown", None))):
-            records, _ = _records([entry], tmp_path, judgments={"GAP-001": {"declaring_line": answer}})
+            records, _ = _records([entry], tmp_path, judgments={"GAP-001": {"declaring_line": answer}},
+                                  remediation=_remediation(("lib.rs", [])))
             [record] = records["verification"]
             assert (record["verification"], record["new_location"]) == outcome, answer
 
@@ -2301,7 +2429,7 @@ class TestGapRecords:
         records, summary = _records([
             _gap_entry("GAP-001", "broken", "MODIFIED_EXPORT", match=_found("pkg/api.py", 5)),
             _gap_entry("GAP-002", "search", "MODIFIED_EXPORT", match=_found("pkg/api.py", 5)),
-        ], tmp_path)
+        ], tmp_path, remediation=_remediation(("pkg/api.py", [("search", 5, "ast-grep")])))
         assert summary["status"] == "written", summary
         assert [r["verification"] for r in records["verification"]] == ["unknown", "verified"]
         assert summary["warnings"] == ["provenance: spot-check failed for broken: RuntimeError: cannot parse"]
@@ -2358,7 +2486,8 @@ class TestGapRecords:
         assert block == {"file_path": "pkg/b.py", "exports": [{**source[0], "docstring": "Fetch."}, source[1]]}
         assert records["files_extracted"] == 2 and records["exports_extracted"] == 3
         assert records["confidence_breakdown"] == {"T1": 1, "T1-low": 1, "unlabeled": 1, "T2": 0}
-        assert summary["targeted_reextraction"] == {"resolved_count": 2, "files_scanned": 2, "exports_matched": 2,
+        assert summary["targeted_reextraction"] == {"resolved_count": 2, "files_scanned": 2,
+                                                    "signature_files_scanned": 0, "exports_matched": 2,
                                                     "tier": "Forge"}
 
     def test_an_unmatched_blocking_entry_is_unresolved(self, tmp_path: Path) -> None:
@@ -2399,6 +2528,136 @@ class TestGapRecords:
                                   records=records, test_report_run_id="r", **BLOCK)
         assert [(e["export_name"], e["source_line"]) for e in doc["entries"]] == [("search", 5)]
 
+    # #804, #809: an export a spot-check located goes to §4a's runner for its signature
+
+    @pytest.mark.parametrize("entry", [
+        _gap_entry("GAP-001", "search", "MODIFIED_EXPORT", match=_found("pkg/api.py", 5)),
+        _gap_entry("GAP-001", "search", "NEW_EXPORT", category="missing-export",
+                   citation={"file": "pkg/api.py", "line": 5}),
+    ], ids=["in-map", "pinned"])
+    def test_the_plan_sends_a_located_export_to_4a_for_its_signature(self, tmp_path: Path, entry: dict) -> None:
+        _, summary = _records([entry], tmp_path, plan=True, judgments={"GAP-001": {"reachability": "public"}})
+        assert summary["status"] == "planned", summary
+        assert summary["reextract"] == {"entries": [], "files": ["pkg/api.py"], "signatures": [
+            {"gap_id": "GAP-001", "name": "search", "file": "pkg/api.py", "line": 5}]}
+
+    def test_a_located_export_takes_its_signature_from_the_record_at_its_line(self, tmp_path: Path) -> None:
+        entries = [_gap_entry("GAP-001", "search", "MODIFIED_EXPORT", match=_found("pkg/api.py", 5))]
+        remediation = _remediation(("pkg/api.py", [("search", 5, "ast-grep")]))
+        remediation["files"][0]["exports"][0].update(params=["q"], public=True)
+        records, summary = _records(entries, tmp_path, remediation=remediation)
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert {k: record[k] for k in ("verification", "export_type", "params", "return_type",
+                                       "extraction_method")} == \
+            {"verification": "verified", "export_type": "function", "params": ["q"], "return_type": None,
+             "extraction_method": "ast-grep"}
+        # merge documents it from its record, copied less the public mark and with no docstring asked
+        source = {k: v for k, v in remediation["files"][0]["exports"][0].items() if k != "public"}
+        assert records["files"] == [{"file_path": "pkg/api.py", "exports": [source]}]
+        # of several records of its name, the one at its line; an internal export takes none
+        remediation = _remediation(("pkg/api.py", [("search", 2, "ast-grep"), ("search", 5, "source-read")]))
+        records, _ = _records(entries, tmp_path, remediation=remediation)
+        assert records["verification"][0]["extraction_method"] == "source-read"
+        internal = [_gap_entry("GAP-001", "search", "NEW_EXPORT", category="missing-export",
+                               citation={"file": "pkg/api.py", "line": 5})]
+        records, summary = _records(internal, tmp_path, remediation=remediation,
+                                    judgments={"GAP-001": {"reachability": "internal-unreachable"}})
+        assert (records["verification"][0]["export_type"], records["files"]) == (None, [])
+        assert summary["reclassified"] == ["search"] and summary["warnings"] == []
+        # answered before the plan, it sends no file to §4a
+        _, plan = _records(internal, tmp_path, plan=True,
+                           judgments={"GAP-001": {"reachability": "internal-unreachable"}})
+        assert (plan["reextract"]["files"], plan["reextract"]["signatures"]) == ([], [])
+
+    def test_a_name_the_runner_did_not_report_keeps_a_null_signature(self, tmp_path: Path) -> None:
+        entries = [_gap_entry("GAP-001", "search", "NEW_EXPORT", category="missing-export",
+                              citation={"file": "pkg/api.py", "line": 5})]
+        records, summary = _records(entries, tmp_path, remediation=_remediation(("pkg/api.py", [("other", 9,
+                                                                                                    "ast-grep")])),
+                                    judgments={"GAP-001": {"reachability": "public"}})
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["export_type"], record.get("params")) == ("verified", None, None)
+        assert records["files"] == []
+        merge = {"exports": [{"export_name": "search", "export_type": "function", "params": ["z"]}]}
+        doc, _ = mod.apply_update(update_type="gap-driven", provenance={"entries": []}, skill_name="lib",
+                                  records=records, merge_records=merge, test_report_run_id="r", **BLOCK)
+        [entry] = doc["entries"]
+        assert (entry["export_type"], entry["params"], entry["source_line"], entry["signature_source"]) == \
+            ("function", ["z"], 5, "T1-low")
+
+    def test_a_citation_of_another_file_than_the_map_entry_takes_no_signature(self, tmp_path: Path) -> None:
+        old = {"entries": [_entry("search", "pkg/other.py", 3)]}
+        match = {"status": "not-found", "entry": None, "candidates": [
+            {"source_file": "pkg/other.py", "source_line": 3, "export_type": "function"}]}
+        entries = [_gap_entry("GAP-001", "search", "MODIFIED_EXPORT", match=match,
+                              citation={"file": "pkg/api.py", "line": 5})]
+        _, plan = _records(entries, tmp_path, provenance=old, plan=True)
+        assert (plan["reextract"]["files"], plan["reextract"].get("signatures", [])) == ([], [])
+        records, _ = _records(entries, tmp_path, provenance=old)
+        [record] = records["verification"]
+        assert (record["verification"], record["in_map"], record["export_type"]) == ("verified", True, None)
+        merge = {"exports": [{"export_name": "search", "params": ["z"]}]}
+        doc, summary = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                        merge_records=merge, test_report_run_id="r", **BLOCK)
+        assert doc["entries"] == old["entries"] and summary["warnings"] == ["provenance: search: verified"]
+
+    def test_a_record_off_its_line_is_not_taken(self, tmp_path: Path) -> None:
+        entries = [_gap_entry("GAP-001", "search", "MODIFIED_EXPORT", match=_found("pkg/api.py", 5))]
+        warning = "provenance: search: located at pkg/api.py:5, but no record of it there; signature not repaired"
+        # several records of its name, none at its line; and a lone one at another line (a branch, an overload)
+        for found in ([("search", 2, "ast-grep"), ("search", 9, "ast-grep")], [("search", 9, "ast-grep")]):
+            records, summary = _records(entries, tmp_path, remediation=_remediation(("pkg/api.py", found)))
+            assert (records["verification"][0]["export_type"], records["files"]) == (None, []), found
+            assert summary["warnings"] == [warning], found
+        # a record with no line is taken
+        remediation = _remediation(("pkg/api.py", [("search", 5, "ast-grep")]))
+        remediation["files"][0]["exports"][0]["location"] = None
+        records, summary = _records(entries, tmp_path, remediation=remediation)
+        assert records["verification"][0]["export_type"] == "function" and summary["warnings"] == []
+
+    def test_a_moved_export_takes_the_record_at_its_new_line(self, tmp_path: Path) -> None:
+        entries = [_gap_entry("GAP-001", "search", "MODIFIED_EXPORT", match=_found("pkg/api.py", 4))]
+        remediation = _remediation(("pkg/api.py", [("search", 4, "ast-grep"), ("search", 5, "ast-grep")]))
+        remediation["files"][0]["exports"][0]["params"] = ["old"]
+        remediation["files"][0]["exports"][1]["params"] = ["new"]
+        records, summary = _records(entries, tmp_path, remediation=remediation, tier="Forge")
+        [record] = records["verification"]
+        assert (record["verification"], record["new_location"], record["params"]) == ("moved", "pkg/api.py:5", ["new"])
+        # §4a's evidence counts the signature file apart from the targeted re-extraction's
+        assert summary["targeted_reextraction"] == {"resolved_count": 0, "files_scanned": 0,
+                                                    "signature_files_scanned": 1, "exports_matched": 0,
+                                                    "tier": "Forge"}
+
+    def test_two_entries_sharing_one_record_leave_one_copy(self, tmp_path: Path) -> None:
+        entries = [_gap_entry("GAP-001", "search", "MODIFIED_EXPORT", match=_found("pkg/api.py", 5)),
+                   _gap_entry("GAP-002", "search", "NEW_EXPORT", category="missing-export", resolved=["pkg/api.py"])]
+        remediation = _remediation(("pkg/api.py", [("search", 5, "ast-grep")]))
+        judgments = {"GAP-002": {"reachability": "public", "docstring": "Search."}}
+        records, summary = _records(entries, tmp_path, remediation=remediation, judgments=judgments)
+        assert [r["verification"] for r in records["verification"]] == ["verified", "re-extracted"], summary
+        assert records["files"] == [{"file_path": "pkg/api.py", "exports": [
+            {**remediation["files"][0]["exports"][0], "docstring": "Search."}]}]
+
+    def test_located_files_need_the_remediation_records(self, tmp_path: Path) -> None:
+        entry = _gap_entry("GAP-001", "search", "MODIFIED_EXPORT", match=_found("pkg/api.py", 5))
+        with pytest.raises(ValueError, match="a located export's signature\\): pass --remediation-records"):
+            _records([entry], tmp_path)
+
+    def test_an_out_of_root_citation_is_not_located(self, tmp_path: Path) -> None:
+        root = _tree(tmp_path)
+        (tmp_path / "outside.py").write_bytes(API_SOURCE)
+        for cited in ("../outside.py", str(tmp_path / "outside.py")):
+            entries = [_gap_entry("GAP-001", "search", "NEW_EXPORT", category="missing-export",
+                                  citation={"file": cited, "line": 5})]
+            _, plan = _records(entries, source_root=root, plan=True)
+            assert (plan["reextract"]["files"], plan["reextract"]["signatures"]) == ([], []), cited
+            records, _ = _records(entries, source_root=root, judgments={"GAP-001": {"reachability": "public"}})
+            # the verifier reads the file and verifies it; the root guard keeps it from being located
+            assert (records["verification"][0]["verification"], records["verification"][0]["export_type"]) == \
+                ("verified", None), cited
+
     def test_the_records_carry_every_documented_field(self, tmp_path: Path) -> None:
         remediation = ("Set the provenance `source_line` of `search` in `pkg/api.py` to its definition line (5) "
                        "and move its citations to that line.")
@@ -2412,7 +2671,8 @@ class TestGapRecords:
         [record] = records["verification"]
         assert list(record) == ["export_name", "gap_category", "severity", "verification", "in_map", "map_entry",
                                 "provenance_citation", "source_citation", "new_location", "unknown_reason",
-                                "pinned_definition_lines", "resolution_source", "reachability", "export_type"]
+                                "pinned_definition_lines", "resolution_source", "reachability", "export_type",
+                                "params", "return_type", "extraction_method", "ast_node_type"]
         assert (record["in_map"], record["map_entry"], record["pinned_definition_lines"]) == \
             (True, {"source_file": "pkg/api.py", "source_line": 4}, [5])
         assert summary["forwarded"] == [{"gap_id": "GAP-002", "change_category": "STRUCTURAL_FIX"}]
@@ -2460,7 +2720,8 @@ class TestGapRecordsCli:
         assert summary["status"] == "written" and summary["output"] == str(out)
         assert json.loads(out.read_bytes())["verification"][0]["verification"] == "re-extracted"
         assert json.loads(evidence.read_bytes()) == {"targeted_reextraction": {
-            "resolved_count": 1, "files_scanned": 1, "exports_matched": 1, "tier": "Forge+"}}
+            "resolved_count": 1, "files_scanned": 1, "signature_files_scanned": 0, "exports_matched": 1,
+            "tier": "Forge+"}}
 
     @pytest.mark.parametrize("severity", ["High", "Medium"])
     def test_a_file_a_still_incomplete_run_left_unread_resolves_once_read_by_eye(self, tmp_path: Path,
