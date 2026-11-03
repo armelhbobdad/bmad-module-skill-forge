@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill, skf-update-skill
+summary: |
+  An export bound by destructuring, such as storybook/test's `export const { fireEvent, within } = lib;`, is now defined on the line where its name appears, whether the names share the line or sit on lines of their own. Test Skill no longer reports such an export as a Critical `fabricated-signature` gap whose remediation deletes correct documentation, and Update Skill's provenance check now verifies its entry, or moves a wrong line to the name's line, instead of leaving it unverified. An overloaded Python function's entry at a line that does not define it now moves to the function's first `@overload` stub instead of staying a `several-definition-lines` warning.
+issues: [785, 806, 782]
