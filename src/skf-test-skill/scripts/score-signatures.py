@@ -20,15 +20,17 @@ ratios and the gap records of the wrong signatures.
          signature universe, grouped by source file, with the line that
          defines it in the source and the documented signature (with the
          entry's `signature_form` when it has one; of several entries of one
-         name, one that lists parameters before one that lists none, then a
-         full one before a partial one, else the first). The signature
+         name, one that lists parameters or gives a usage form before one
+         that does neither, then a full one before a partial one, then, of
+         two full or two partial forms, one that lists parameters before one
+         that gives only a usage form, else the first). The signature
          universe is the surface's `all` set plus every name on its export
          records, so the names of a Python sub-package load-coverage-inputs.py
-         keeps out of `all` (excluded.nestedEntries) keep their checks. A
-         check sits at the name's first surface record (one with a file
-         before one with none or a blank one). For a name the surface
-         records in more than one file, --skill-dir (the skill package)
-         picks the record whose file the skill cites on a line that names it
+         keeps out of `all` (excluded.nestedEntries) keep their checks. A check sits at the
+         name's first surface record (one with a file before one with none
+         or a blank one). For a name the surface records in more than one
+         file, --skill-dir (the skill package) picks the record whose file
+         the skill cites on a line that names it
          (validate-inventory.py's _skill_cited_files) when exactly one of
          those files is cited; otherwise the check stays at the first record
          and lists every record with a file as `candidates` for the judge to
@@ -348,19 +350,35 @@ def _lists_params(fields: dict) -> bool:
     return (isinstance(params, str) and bool(params.strip())) or (isinstance(params, list) and bool(params))
 
 
-def _rank(fields: dict) -> tuple[bool, bool]:
+def _gives_usage(fields: dict) -> bool:
+    """A non-blank `usage_signature` string, or a list holding one."""
+    usage = fields.get("usage_signature")
+    return any(isinstance(u, str) and bool(u.strip()) for u in (usage if isinstance(usage, list) else [usage]))
+
+
+def _lists_members(fields: dict) -> bool:
+    """A non-blank `params` string or non-empty list, or a non-blank
+    `usage_signature` string or a list holding one: an entry that says what
+    the name takes (a component's usage form names its props even when its
+    `params` is empty)."""
+    return _lists_params(fields) or _gives_usage(fields)
+
+
+def _rank(fields: dict) -> tuple[bool, bool, bool]:
     """How one of several entries of a name ranks, lowest compared first."""
-    return not _lists_params(fields), _partial(fields)
+    return not _lists_members(fields), _partial(fields), not _lists_params(fields)
 
 
 def documented_signatures(inventory: list[dict]) -> dict[str, dict]:
     """{name: its documented signature fields} for each documented export
     with one, with the entry's `signature_form` when it has one. Of several
-    entries of one name, one that lists parameters is compared before one
-    that lists none (empty or no `params`: it never hides one that lists
-    them), then a full one (no `signature_form`, or `full`) before a
-    partial one (a form the skill also gives in full is held to it), else
-    the first."""
+    entries of one name, one that lists parameters or gives a usage form
+    (_lists_members) is compared before one that does neither (empty or no
+    `params` and no usage form: it never hides one that says what the name
+    takes), then a full one (no `signature_form`, or `full`) before a
+    partial one (a form the skill also gives in full is held to it), then,
+    of two full or two partial forms, one that lists parameters is
+    compared before one that gives only a usage form, else the first."""
     out: dict[str, dict] = {}
     for entry in inventory:
         name = entry.get("name")

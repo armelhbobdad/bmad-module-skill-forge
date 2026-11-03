@@ -1875,6 +1875,18 @@ def test_the_fallback_scan_asks_each_file_for_the_names_it_defines():
     assert "the file's exported symbols" not in scan
 
 
+def test_the_fallback_scan_reads_an_overload_set_whole():
+    """#845: a fallback per-file subagent gets coverage-check.md §2's overload rule, so a documented signature that
+    matches an overload set's implementation or any of its overloads is no mismatch on that path either."""
+    scan = _flow(_slice(_read(COVERAGE_TIERS), "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
+    rule = ("declaration opening an overload set (Python `@overload` stubs, TS bodiless signatures) is read through "
+            "its implementation")
+    assert (f"Tell it the overload rule of coverage-check.md §2: a {rule}, and a documented signature matching the "
+            "implementation or any overload is no mismatch.") in scan
+    assert f"A {rule}: a documented signature matching the implementation or any overload is no mismatch." in _flow(
+        _read(COVERAGE)), "the rule the scan mirrors"
+
+
 def test_the_prose_state_4_surface_runs(tmp_path):
     """State 4 reads no tier branch, so its `surface` call is spelled in the States 2 to 4 section that
     coverage-check.md §2 loads: the names read remotely by eye, saved as a per-file result, are the surface, and

@@ -30,7 +30,7 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     no file never wins, and a mismatch found at a candidate names its `file`
   - compares a signature documented with no argument (#794): `params` of
     `""` or `[]` is a signature, and of a name listed twice the entry with
-    non-empty `params` is compared
+    non-empty `params` or a usage form (#826) is compared
 The surface fixture is load-coverage-inputs.py surface output built from a
 --mode full extraction, so a recipe's internal match is never compared.
 """
@@ -654,10 +654,49 @@ HELPER = {"name": "helper", "kind": "function", "params": "x: number", "return_t
 ], ids=["empty-then-full", "no-params-then-full", "empty-with-a-return-type-then-full", "full-then-empty-list", "empty-full-then-partial",
         "two-empty"])
 def test_a_name_listed_twice_is_compared_with_the_entry_that_lists_its_parameters(entries, compared):
-    """An entry with empty or no `params` never hides one with parameters, whichever comes first and whatever its
-    form; of two empty ones the first stands."""
+    """An entry with empty or no `params` and no usage form never hides one with parameters, whichever comes first
+    and whatever its form; of two empty ones the first stands."""
     expected = {f: compared[f] for f in ("params", "return_type", "signature_form") if f in compared}
     assert mod.documented_signatures(entries) == {"helper": expected}
+
+
+AVATAR_EMPTY = {"name": "Avatar", "kind": "function", "params": ""}
+AVATAR_USAGE = {"name": "Avatar", "kind": "function",
+                "usage_signature": "React.forwardRef<HTMLSpanElement, P>((props, ref) => ...)"}
+X_PARTIAL = {"name": "X", "kind": "function", "params": "a", "signature_form": "partial"}
+BLANK_USAGES = {"empty-list": {"name": "X", "kind": "hook", "usage_signature": []},
+                "blank-in-a-list": {"name": "X", "kind": "hook", "usage_signature": [""]},
+                "blank-string": {"name": "X", "kind": "function", "params": "", "usage_signature": "  "}}
+BLANK_ROWS = [(pair, {"params": "a", "signature_form": "partial"})
+              for blank in BLANK_USAGES.values() for pair in ([X_PARTIAL, blank], [blank, X_PARTIAL])]
+BLANK_IDS = [f"partial-params-and-{key}-usage-{order}" for key in BLANK_USAGES for order in ("after", "before")]
+
+
+@pytest.mark.parametrize("entries, compared", [
+    ([AVATAR_EMPTY, AVATAR_USAGE], {"usage_signature": AVATAR_USAGE["usage_signature"]}),
+    ([AVATAR_USAGE, AVATAR_EMPTY], {"usage_signature": AVATAR_USAGE["usage_signature"]}),
+    ([{"name": "X", "kind": "function", "params": "a, b"},
+      {"name": "X", "kind": "function", "usage_signature": "X(a)"}], {"params": "a, b"}),
+    ([{"name": "X", "kind": "function", "usage_signature": "X(a)"},
+      {"name": "X", "kind": "function", "params": "a, b"}], {"params": "a, b"}),
+    ([{"name": "X", "kind": "function", "params": "a", "signature_form": "partial"},
+      {"name": "X", "kind": "function", "usage_signature": "X(a, b)"}], {"usage_signature": "X(a, b)"}),
+    ([{"name": "X", "kind": "function", "params": ""},
+      {"name": "X", "kind": "function", "usage_signature": ["X(a)"]}], {"usage_signature": ["X(a)"]}),
+    *BLANK_ROWS,
+    ([{"name": "X", "kind": "function", "params": ""}], {"params": ""}),
+], ids=["empty-then-usage", "usage-then-empty", "params-then-usage", "usage-then-params",
+        "partial-params-then-full-usage", "empty-then-list-usage", *BLANK_IDS, "empty-alone"])
+def test_a_usage_form_ranks_with_an_entry_that_lists_its_parameters(entries, compared):
+    """#826: a forwardRef component the inventory records both with empty `params` and with its usage form is
+    planned with the usage form in either order, so `Avatar()` is never compared with a forwardRef that takes
+    props. Entries rank: one that lists parameters or gives a usage form (an empty or blank usage form gives none),
+    then a full form before a partial one, then, of two full or two partial forms, one that lists parameters before
+    one that gives only a usage form, then inventory order."""
+    name = entries[0]["name"]
+    assert mod.documented_signatures(entries) == {name: compared}
+    plan = mod.plan(entries, [name], [{"name": name, "kind": "function", "file": "src/avatar.tsx", "line": 1}])
+    assert [(c["name"], c["documented"]) for c in plan["files"][0]["checks"]] == [(name, compared)]
 
 
 @pytest.mark.parametrize("line, planned", [
