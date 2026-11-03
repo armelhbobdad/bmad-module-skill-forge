@@ -144,6 +144,40 @@ def test_all_kinds_accepted():
     assert r["rejectedCount"] == 0
 
 
+@pytest.mark.parametrize("form", ["short", "Partial", "", True, ["partial"]],
+                         ids=["short", "capitalized", "empty", "boolean", "list"])
+def test_a_signature_form_is_partial_or_full(form):
+    """#816: the optional `signature_form` says whether the skill labels its form partial. `partial` and `full`
+    pass (a null counts as absent), and score-signatures.py finds them in the inventory; any other value is a
+    violation naming the entry."""
+    for good in ("partial", "full", None):
+        entry = {"name": "Canvas", "kind": "function", "params": "{ of }", "return_type": "JSX.Element",
+                 "signature_form": good}
+        r = mod.validate_inventory(json.dumps({"exports": [entry], "cross_check_mismatches": []}))
+        assert r["valid"] is True and r["violations"] == [], good
+        assert r["inventory"]["exports"][0]["signature_form"] == good
+    raw = json.dumps({"exports": [{"name": "ok", "kind": "function"},
+                                  {"name": "Canvas", "kind": "function", "signature_form": form}],
+                      "cross_check_mismatches": []})
+    r = mod.validate_inventory(raw)
+    assert r["valid"] is False and r["inventory"] is None and r["rejectedCount"] == 0
+    assert r["violations"] == [f"exports[1] (`Canvas`): `signature_form` must be `partial` or `full` when present, "
+                               f"not {json.dumps(form)}"]
+
+
+def test_a_bad_signature_form_fails_the_cli_and_writes_no_inventory(tmp_path):
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(json.dumps({"exports": [{"name": "Canvas", "kind": "function", "signature_form": "short"}],
+                                     "cross_check_mismatches": []}).encode("utf-8"))
+    output = tmp_path / "inventory.json"
+    output.write_bytes(b"{}")
+    p = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--output", str(output)],
+                       capture_output=True, text=True)
+    assert p.returncode == 2
+    assert any("`signature_form`" in v for v in json.loads(p.stdout)["violations"])
+    assert not output.exists()
+
+
 def test_cross_check_missing_fields():
     raw = json.dumps(
         {

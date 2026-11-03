@@ -928,6 +928,74 @@ def test_render_gives_a_mismatch_outside_the_counted_set_its_own_fail_row():
     assert [line for line in text.splitlines() if line.startswith("| `") and "Client.run" not in line] == golden_rows
 
 
+def test_render_shows_a_signature_mismatch_graded_low_or_info_as_matching():
+    """#793, #816: score-signatures.py grades a caller-invisible difference Low (a renamed parameter in a TS
+    file) or Info (an optional member a partial form leaves out), and counts it as matching. Its row shows the
+    signature as matching and warns instead of failing, the summary counts only the Critical mismatches, and a
+    Critical mismatch of the same name still fails the row."""
+    coverage = reconcile({"denominatorSource": "barrel", "exports": RENDER_INVENTORY["exports"],
+                          "barrelSet": RENDER_SURFACE["sets"]["all"]})
+    [parse] = RENDER_SIGNATURES["mismatches"]
+    rename = {"name": "createClient", "file": "src/client.ts", "line": 12, "source_sig": "(options) => Client",
+              "documented_sig": "(opts) => Client", "issue": "the parameter is named 'options'",
+              "difference": "parameter-name", "severity": "Low"}
+    partial = {**parse, "difference": "omitted-optional", "severity": "Info"}
+    signatures = {**RENDER_SIGNATURES, "mismatches": [rename, partial]}
+    text = mod.render(coverage, RENDER_SURFACE, signatures)
+    assert "| `createClient` | function | yes | yes (Low) | src/client.ts:12 | WARN |" in text
+    assert "| `parse` | function | yes | yes (Info) | src/parse.ts:3 | WARN |" in text
+    assert "FAIL" not in text
+    assert "- **Signature Mismatches:** 0, plus 2 graded Low or Info and counted as matching" in text
+    critical = {**parse, "difference": None, "severity": "Critical"}
+    text = mod.render(coverage, RENDER_SURFACE, {**signatures, "mismatches": [rename, partial, critical]})
+    assert "| `parse` | function | yes | no | src/parse.ts:3 | FAIL |" in text
+    assert "| `createClient` | function | yes | yes (Low) | src/client.ts:12 | WARN |" in text
+    assert "- **Signature Mismatches:** 1, plus 2 graded Low or Info and counted as matching" in text
+
+
+def test_render_reads_the_grades_score_signatures_gives():
+    """The render's NON_BLOCKING_MISMATCH restates the grades score-signatures.py gives: score a Low, an Info and a
+    Critical mismatch with the real script, render its result, and each row and the summary agree with it."""
+    scorer_spec = importlib.util.spec_from_file_location(
+        "score_signatures_for_render", SCRIPT_PATH.parent / "score-signatures.py")
+    scorer = importlib.util.module_from_spec(scorer_spec)
+    scorer_spec.loader.exec_module(scorer)
+    inventory = [
+        {"name": "rename", "kind": "function", "params": "x: number", "return_type": "number", "description": "d"},
+        {"name": "Canvas", "kind": "function", "params": "{ of }", "return_type": "JSX.Element", "description": "d",
+         "signature_form": "partial"},
+        {"name": "broken", "kind": "function", "params": "", "return_type": "void", "description": "d"},
+        {"name": "fine", "kind": "function", "params": "", "return_type": "void", "description": "d"},
+    ]
+    surface = {"exports": [{"name": n, "kind": "function", "file": f, "line": 1, "origin": "extraction"}
+                           for n, f in (("Canvas", "src/Canvas.tsx"), ("broken", "src/broken.ts"),
+                                        ("fine", "src/fine.ts"), ("rename", "src/rename.ts"))],
+               "sets": {"all": ["Canvas", "broken", "fine", "rename"]}}
+    sig = {"line": 1, "source_sig": "(a)", "documented_sig": "(b)", "issue": "differs"}
+    results = [
+        {"file": "src/rename.ts", "signature_mismatches": [{**sig, "name": "rename", "difference": "parameter-name"}]},
+        {"file": "src/Canvas.tsx", "signature_mismatches": [{**sig, "name": "Canvas",
+                                                             "difference": "omitted-optional"}]},
+        {"file": "src/broken.ts", "signature_mismatches": [{**sig, "name": "broken"}]},
+    ]
+    signatures = scorer.score(inventory, surface["sets"]["all"], surface["exports"], results)
+    assert {m["name"]: m["severity"] for m in signatures["mismatches"]} == {
+        "rename": "Low", "Canvas": "Info", "broken": "Critical"}
+    assert set(mod.NON_BLOCKING_MISMATCH) == {"Low", "Info"} and "Critical" in scorer.GRADES
+    coverage = reconcile({"denominatorSource": "barrel", "exports": inventory, "barrelSet": surface["sets"]["all"]})
+    text = mod.render(coverage, surface, signatures)
+    rows = [line for line in text.splitlines() if line.startswith("| `")]
+    assert rows == [
+        "| `Canvas` | function | yes | yes (Info) | src/Canvas.tsx:1 | WARN |",
+        "| `broken` | function | yes | no | src/broken.ts:1 | FAIL |",
+        "| `fine` | function | yes | yes | src/fine.ts:1 | PASS |",
+        "| `rename` | function | yes | yes (Low) | src/rename.ts:1 | WARN |",
+    ]
+    assert "- **Signature Mismatches:** 1, plus 2 graded Low or Info and counted as matching" in text
+    assert (signatures["matchingSignatures"], signatures["totalDocumented"]) == (3, 4)
+    assert "| Signature Accuracy | 75% |" in text
+
+
 def test_render_lists_the_names_the_surface_leaves_out_or_puts_back():
     """coverage-check §2: the names a brief scoped out, a nested entry point's names and the names the stale-scope
     guard restored reach the Coverage Summary from surface.json, each line only when it names one."""

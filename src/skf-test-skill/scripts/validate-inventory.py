@@ -10,7 +10,8 @@ trust subagent output blindly: before any downstream step consumes the
 documented inventory, the shape is validated. That validation is pure
 structural checking — strip wrapping fences, parse JSON, assert required keys
 and types, assert each export entry is a dict with a non-empty `name` and a
-`kind` drawn from a fixed enum, and assert each cross-check mismatch carries its
+`kind` drawn from a fixed enum (and, when present, a `signature_form` of
+`partial` or `full`), and assert each cross-check mismatch carries its
 five fields — with exactly one correct pass/fail per input and no
 interpretation of meaning. It is therefore script work, not prompt work; the
 prompt reads this verdict and owns only the HALT decision.
@@ -25,6 +26,15 @@ fabricated export: the inventory is then invalid, each absent name is a
 violation, and the prompt re-dispatches the subagent with them, as it does
 for a schema violation. No grep runs in the prompt, so an export named
 `$state` or `a.b` is never a shell variable or a regex.
+
+An entry's optional `signature_form` says how the skill presents its
+signature: `partial` only when the skill labels the form partial (a
+simplified form, a key-parameter summary, a `...` that stands in for
+omitted members, not rest or variadic syntax), `full` otherwise.
+A JSON null counts as absent, and an absent one as `full`. Any other value
+is a violation naming the entry. score-signatures.py reads it: an optional
+member a partial form leaves out is an Info observation, not a wrong
+signature.
 
 Distinct from reconcile-coverage.py (coverage numerator arithmetic) and
 compute-score.py (weight tables): this script only validates the *shape* of the
@@ -73,7 +83,7 @@ Output (stdout, one object):
   {
     "valid": <bool>,             # true only when parse + every schema check pass
     "violations": [<str>, ...],  # human-readable failures; empty when valid
-    "rejectedCount": <int>,      # count of malformed exports[] entries
+    "rejectedCount": <int>,      # exports[] entries with no valid name or kind
     "exportsCount": <int>,       # len(exports) when parsed; 0 otherwise
     "inventory": {...} | null,   # fence-stripped parsed inventory when valid; null otherwise
     "completeness": {            # present when valid
@@ -125,6 +135,10 @@ VALID_KINDS = (
     "macro",
     "adapter",
 )
+
+# The optional exports[].signature_form: `partial` only when the skill labels
+# the documented form partial, else `full` (or the key left out).
+SIGNATURE_FORMS = ("partial", "full")
 
 REQUIRED_MISMATCH_FIELDS = (
     "export",
@@ -391,6 +405,16 @@ def validate_inventory(raw, skill_package_path=None):
             f"(each needs a non-empty string `name` and a `kind` in "
             f"{{{', '.join(VALID_KINDS)}}})"
         )
+
+    # The optional signature_form names one of two forms, or is left out.
+    for idx, entry in enumerate(exports):
+        if isinstance(entry, dict) and entry.get("signature_form") is not None \
+                and entry["signature_form"] not in SIGNATURE_FORMS:
+            label = f" (`{entry['name']}`)" if isinstance(entry.get("name"), str) and entry["name"] else ""
+            violations.append(
+                f"exports[{idx}]{label}: `signature_form` must be `partial` or `full` when present, "
+                f"not {json.dumps(entry['signature_form'])}"
+            )
 
     # Non-empty cross-check mismatch entries must carry all five fields.
     for idx, entry in enumerate(cross):

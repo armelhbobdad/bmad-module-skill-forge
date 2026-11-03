@@ -1,0 +1,5 @@
+type: added
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory now records `signature_form: "partial"` for a signature the skill labels partial (such as `Props (simplified)`, a summary of the key parameters, or a `...` that stands in for omitted members, not rest or variadic syntax), and an optional parameter or member such a form leaves out is an Info `observation` titled `Partial signature: {name}` instead of a Critical `signature-mismatch` gap: the run is not blocked, and Signature Accuracy counts the signature as matching. The signature judge tags that difference `"difference": "omitted-optional"`, and `score-signatures.py` lowers it only when the inventory marks the form partial, so a form the skill does not label partial is still held to every parameter the source declares. The split-body cross-check no longer reports such a form against the full one a reference file gives. `validate-inventory.py` accepts a `signature_form` of `partial` or `full` and refuses any other value. The Coverage Analysis table shows such a signature as matching (`yes (Info)`), rates its row WARN, not FAIL, and leaves it out of the Signature Mismatches count.
+issues: [816]

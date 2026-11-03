@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill now grades a renamed parameter that callers cannot see as a Low `signature-mismatch` gap instead of a Critical one, so it no longer stops a run at the hard gate, and Signature Accuracy counts the signature as matching. The signature judge tags a mismatch whose only difference is a parameter name with `"difference": "parameter-name"`, and `score-signatures.py` lowers it only when the file the surface records for the export is a `.ts`, `.tsx`, `.mts`, `.cts`, `.js`, `.jsx`, `.mjs`, `.cjs`, `.go`, `.rs`, `.java`, `.c`, `.h`, `.cc`, `.cpp`, `.cxx` or `.hpp` file, whose callers pass arguments by position, and the judge reported it there. A renamed Python parameter stays Critical, because the script cannot see which parameters a caller must pass by position, and so does every other difference. The Coverage Analysis table shows such a signature as matching (`yes (Low)`), rates its row WARN, not FAIL, and leaves it out of the Signature Mismatches count.
+issues: [793]

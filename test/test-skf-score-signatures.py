@@ -14,9 +14,15 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     surface) and Type Coverage (documented types over the interfaces, type
     aliases, enums and classes of the denominator set --surface-set picks),
     with compute-score.py's rounding
-  - writes each mismatch of a compared name as a Critical
-    `signature-mismatch` ledger record, which gap-ledger.py append accepts as
-    it is; a mismatch for any other name is a warning, never a gap
+  - writes each mismatch of a compared name as a ledger record, which
+    gap-ledger.py append accepts as it is; a mismatch for any other name is
+    a warning, never a gap
+  - grades each mismatch (#793, #816): Critical `signature-mismatch`, except
+    a judge's `parameter-name` difference in a TS/JS, Vue, Go or Rust file
+    (Low) and an `omitted-optional` difference on an inventory entry marked
+    `signature_form: "partial"` (an Info `observation`); both still match.
+    The script checks the extension and the inventory flag itself, so the
+    tag alone never lowers a grade
 The surface fixture is load-coverage-inputs.py surface output built from a
 --mode full extraction, so a recipe's internal match is never compared.
 """
@@ -35,6 +41,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPTS = REPO_ROOT / "src" / "skf-test-skill" / "scripts"
 SCRIPT = SCRIPTS / "score-signatures.py"
 GAP_LEDGER = SCRIPTS / "gap-ledger.py"
+HARD_GATE = SCRIPTS / "hard-gate.py"
 
 spec = importlib.util.spec_from_file_location("score_signatures", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
@@ -146,7 +153,8 @@ def test_scores_and_gap_records(tmp_path):
     # Types on the surface: Extra (class), Level (enum), Mode (type), Options (interface).
     assert (out["documentedTypes"], out["totalTypes"], out["typeCoverage"]) == (2, 4, 50.0)
     assert out["missingTypes"] == ["Extra", "Level"]
-    assert out["mismatches"] == [{**MISMATCH, "file": "src/helper.ts"}]
+    # #793: each mismatch carries the judge's difference (none here) and the severity the script graded
+    assert out["mismatches"] == [{**MISMATCH, "file": "src/helper.ts", "difference": None, "severity": "Critical"}]
     record = json.loads(gaps_path.read_text(encoding="utf-8"))
     assert record == out["gapRecords"] and len(record) == 1
     gap = record[0]
@@ -277,6 +285,207 @@ def test_rounding_matches_compute_score(tmp_path):
     assert out["signatureAccuracy"] == 66.67
 
 
+# --------------------------------------------------------------------------
+# grading a mismatch (#793, #816)
+# --------------------------------------------------------------------------
+
+RENAME = {"name": "helper", "line": 1, "source_sig": "(value: number) => number",
+          "documented_sig": "(x: number) => number", "issue": "the parameter is named 'value' in the source",
+          "difference": "parameter-name"}
+POSITIONAL = (".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".go", ".rs", ".java", ".c", ".h", ".cc",
+              ".cpp", ".cxx", ".hpp")
+
+
+def _append_and_gate(tmp_path: Path, gaps: Path) -> dict:
+    """Append the gap records to a ledger, as coverage-check §5b does, and run the hard gate on it."""
+    ledger = tmp_path / "test-findings-20260101T000000Z-abcdef12.json"
+    proc = subprocess.run([sys.executable, str(GAP_LEDGER), "append", "--ledger", str(ledger), "--stage",
+                           "coverage-check", "--input", str(gaps)], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout
+    proc = subprocess.run([sys.executable, str(HARD_GATE), "check", "--ledger", str(ledger), "--skill-name", "demo",
+                           "--report-path", str(tmp_path / "report.md"), "--require-stage", "coverage-check"],
+                          capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout
+    return json.loads(proc.stdout)
+
+
+def test_a_ts_parameter_rename_is_a_low_gap_that_still_matches(tmp_path):
+    """#793 (oms-uitripled GAP-001): a TS caller passes arguments by position, so a renamed parameter is a
+    Low gap: the hard gate lets the run through, and Signature Accuracy counts the signature as matching."""
+    inventory, surface = _files(tmp_path)
+    results = _write(tmp_path / "s.txt", json.dumps({"file": "src/helper.ts", "signature_mismatches": [RENAME]}))
+    gaps = tmp_path / "signature-gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--results", results,
+                "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (2, 2, 100.0)
+    assert out["mismatches"] == [{**RENAME, "file": "src/helper.ts", "severity": "Low"}]
+    [gap] = json.loads(gaps.read_text(encoding="utf-8"))
+    assert (gap["severity"], gap["category"], gap["title"], gap["source"], gap["export"]) == (
+        "Low", "signature-mismatch", "Signature mismatch: helper", "src/helper.ts:1", "helper")
+    assert "(value: number) => number" in gap["remediation"]
+    gate = _append_and_gate(tmp_path, gaps)
+    assert (gate["gate"], gate["blocking_count"], gate["counts"]["Low"]) == ("passed", 0, 1)
+
+
+@pytest.mark.parametrize("file, severity", [
+    *[(f"src/helper{ext}", "Low") for ext in POSITIONAL],
+    ("src\\Helper.TSX", "Low"),
+    # Python has keyword arguments, and the script cannot see which parameters a caller must pass by position
+    ("pkg/a.py", "Critical"),
+    ("pkg/a.pyi", "Critical"),
+    # a Vue component's documented parameters are props callers set by name
+    ("src/Helper.vue", "Critical"),
+    # these name arguments at the call
+    ("src/Helper.kt", "Critical"),
+    ("src/Helper.cs", "Critical"),
+    ("src/Helper.swift", "Critical"),
+    ("src/Helper.scala", "Critical"),
+    ("src/helper.ts.bak", "Critical"),
+], ids=lambda v: v if isinstance(v, str) and v not in ("Low", "Critical") else None)
+def test_a_rename_is_low_only_in_a_language_without_keyword_arguments(file, severity):
+    inventory = [{"name": "helper", "kind": "function", "params": "x: number", "return_type": "number"}]
+    surface = [{"name": "helper", "kind": "function", "file": file, "line": 1}]
+    out = mod.score(inventory, ["helper"], surface, [{"file": file, "signature_mismatches": [RENAME]}])
+    assert [(m["difference"], m["severity"]) for m in out["mismatches"]] == [("parameter-name", severity)]
+    assert [(g["severity"], g["category"]) for g in out["gapRecords"]] == [(severity, "signature-mismatch")]
+    assert out["matchingSignatures"] == (1 if severity == "Low" else 0)
+
+
+def test_a_rename_is_graded_at_the_file_the_surface_records():
+    """The extension is the planned file's, the one the surface records for the export: a Python export the judge
+    reports under a `.ts` path stays Critical, and so does a TS export reported at another file."""
+    inventory = [{"name": "helper", "kind": "function", "params": "x", "return_type": "int"}]
+    surface = [{"name": "helper", "kind": "function", "file": "pkg/helper.py", "line": 1}]
+    out = mod.score(inventory, ["helper"], surface, [{"file": "pkg/helper.ts", "signature_mismatches": [RENAME]}])
+    assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [("pkg/helper.ts", "Critical")]
+    assert out["matchingSignatures"] == 0
+    surface = [{"name": "helper", "kind": "function", "file": "src/helper.ts", "line": 1}]
+    out = mod.score(inventory, ["helper"], surface, [{"file": "src/other.ts", "signature_mismatches": [RENAME]}])
+    assert [m["severity"] for m in out["mismatches"]] == ["Critical"]
+    # the same path written with `\` is the planned file
+    out = mod.score(inventory, ["helper"], surface, [{"file": "src\\helper.ts", "signature_mismatches": [RENAME]}])
+    assert [m["severity"] for m in out["mismatches"]] == ["Low"]
+
+
+RETURN_TYPE = {"name": "helper", "line": 1, "source_sig": "(value: number) => string",
+               "documented_sig": "(x: number) => number", "issue": "the return type is string in the source"}
+
+
+@pytest.mark.parametrize("entries", [[RENAME, RETURN_TYPE], [RETURN_TYPE, RENAME]],
+                         ids=["tagged-first", "untagged-first"])
+def test_one_declaration_reported_twice_keeps_its_most_severe_grade(tmp_path, entries):
+    """A judge that reports a rename and a return-type difference of one declaration as two entries: every entry
+    is graded and the Critical one wins, whichever comes first and whether one result file or two holds them."""
+    inventory, surface = _files(tmp_path)
+    one = _write(tmp_path / "one.txt", json.dumps({"file": "src/helper.ts", "signature_mismatches": entries}))
+    first = _write(tmp_path / "first.txt", json.dumps({"file": "src/helper.ts", "signature_mismatches": entries[:1]}))
+    second = _write(tmp_path / "second.txt", json.dumps({"file": "src/helper.ts",
+                                                         "signature_mismatches": entries[1:]}))
+    for results in ([one], [first, second]):
+        args = [arg for path in results for arg in ("--results", path)]
+        out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, *args).stdout)
+        assert [(m["name"], m["severity"], m["difference"]) for m in out["mismatches"]] == [
+            ("helper", "Critical", None)]
+        assert (out["matchingSignatures"], out["signatureAccuracy"]) == (1, 50.0)
+        assert [g["severity"] for g in out["gapRecords"]] == ["Critical"]
+    # a Low and an Info entry of one declaration keep the Low one
+    partial = [{**e, "signature_form": "partial"} if e["name"] == "helper" else e for e in INVENTORY["exports"]]
+    omitted = {**RETURN_TYPE, "difference": "omitted-optional"}
+    for pair in ([omitted, RENAME], [RENAME, omitted]):
+        out = mod.score(partial, SURFACE["sets"]["all"], SURFACE["exports"],
+                        [{"file": "src/helper.ts", "signature_mismatches": pair}])
+        assert [m["severity"] for m in out["mismatches"]] == ["Low"]
+
+
+@pytest.mark.parametrize("mismatch", [
+    {k: v for k, v in RENAME.items() if k != "difference"},
+    {**RENAME, "difference": None},
+], ids=["absent", "null"])
+def test_a_mismatch_with_no_difference_stays_critical(mismatch):
+    """Without the judge's tag nothing is lowered: not in a TS file, not on a form the skill labels partial."""
+    inventory = [{"name": "helper", "kind": "function", "params": "x: number", "return_type": "number",
+                  "signature_form": "partial"}]
+    surface = [{"name": "helper", "kind": "function", "file": "src/helper.ts", "line": 1}]
+    out = mod.score(inventory, ["helper"], surface, [{"file": "src/helper.ts", "signature_mismatches": [mismatch]}])
+    assert [(m["difference"], m["severity"]) for m in out["mismatches"]] == [(None, "Critical")]
+    assert [g["severity"] for g in out["gapRecords"]] == ["Critical"]
+    assert (out["matchingSignatures"], out["signatureAccuracy"]) == (0, 0.0)
+
+
+CANVAS = {"name": "Canvas", "kind": "function", "params": "{ of, children }", "return_type": "JSX.Element",
+          "description": "Props (simplified)."}
+CANVAS_SURFACE = {"exports": [{"name": "Canvas", "kind": "function", "file": "code/blocks/Canvas.tsx", "line": 12,
+                               "signatureLine": "export const Canvas: FC<CanvasProps> = (props) => {",
+                               "origin": "extraction"}],
+                  "sets": {"all": ["Canvas"]}}
+OMITTED = {"name": "Canvas", "line": 12, "source_sig": "(props: { of?: Export; children?: ReactNode; layout?: Layout })"
+           " => JSX.Element", "documented_sig": "({ of, children }) => JSX.Element",
+           "issue": "the documented props leave out the optional 'layout'", "difference": "omitted-optional"}
+
+
+def test_an_optional_member_a_partial_form_leaves_out_is_an_info_observation(tmp_path):
+    """#816 (storybook GAP-002): the skill labels its form of Canvas's props partial, and the judge finds only
+    an optional prop left out: an Info observation, no Critical gap, and Signature Accuracy 100."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [{**CANVAS, "signature_form": "partial"}],
+                                                     "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", CANVAS_SURFACE)
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    assert plan["files"][0]["checks"][0]["documented"]["signature_form"] == "partial"
+    results = _write(tmp_path / "s.txt", json.dumps({"file": "code/blocks/Canvas.tsx",
+                                                     "signature_mismatches": [OMITTED]}))
+    gaps = tmp_path / "signature-gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--results", results,
+                "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (1, 1, 100.0)
+    assert [(m["difference"], m["severity"]) for m in out["mismatches"]] == [("omitted-optional", "Info")]
+    [gap] = json.loads(gaps.read_text(encoding="utf-8"))
+    assert (gap["severity"], gap["category"], gap["title"], gap["source"], gap["export"]) == (
+        "Info", "observation", "Partial signature: Canvas", "code/blocks/Canvas.tsx:12", "Canvas")
+    assert gap["remediation"].startswith("No change:")
+    gate = _append_and_gate(tmp_path, gaps)
+    assert (gate["gate"], gate["counts"]["Critical"], gate["counts"]["Info"]) == ("passed", 0, 1)
+
+
+@pytest.mark.parametrize("form", [{}, {"signature_form": "full"}], ids=["no-form", "full"])
+def test_an_optional_member_a_full_form_leaves_out_stays_critical(tmp_path, form):
+    """A form the skill does not label partial is held to the source: the same omission stays Critical,
+    whatever the judge tagged it."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [{**CANVAS, **form}], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", CANVAS_SURFACE)
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    assert plan["files"][0]["checks"][0]["documented"] == {"params": "{ of, children }",
+                                                           "return_type": "JSX.Element", **form}
+    results = _write(tmp_path / "s.txt", json.dumps({"file": "code/blocks/Canvas.tsx",
+                                                     "signature_mismatches": [OMITTED]}))
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
+    assert [(m["difference"], m["severity"]) for m in out["mismatches"]] == [("omitted-optional", "Critical")]
+    assert [(g["severity"], g["category"]) for g in out["gapRecords"]] == [("Critical", "signature-mismatch")]
+    assert (out["matchingSignatures"], out["signatureAccuracy"]) == (0, 0.0)
+
+
+@pytest.mark.parametrize("entries, compared", [
+    ([{**CANVAS, "signature_form": "partial", "params": "{ of }"}, CANVAS], CANVAS),
+    ([CANVAS, {**CANVAS, "signature_form": "partial", "params": "{ of }"}], CANVAS),
+    ([{**CANVAS, "signature_form": "partial", "params": "{ of }"}, {**CANVAS, "signature_form": "full"}],
+     {**CANVAS, "signature_form": "full"}),
+    ([{**CANVAS, "signature_form": "partial", "params": "{ of }"}, {**CANVAS, "signature_form": "partial"}],
+     {**CANVAS, "signature_form": "partial", "params": "{ of }"}),
+], ids=["partial-then-full", "full-then-partial", "partial-then-marked-full", "two-partial"])
+def test_a_name_with_several_entries_is_compared_with_its_full_form(entries, compared):
+    """The plan's `documented` prefers a full entry when a name has several, so a form the skill also gives
+    in full is held to it, and a partial one only stands when no full form exists."""
+    expected = {f: compared[f] for f in ("params", "return_type", "signature_form") if f in compared}
+    assert mod.documented_signatures(entries) == {"Canvas": expected}
+    out = mod.score(entries, ["Canvas"], CANVAS_SURFACE["exports"],
+                    [{"file": "code/blocks/Canvas.tsx", "signature_mismatches": [OMITTED]}])
+    assert [m["severity"] for m in out["mismatches"]] == ["Info" if expected.get("signature_form") == "partial"
+                                                           else "Critical"]
+
+
 @pytest.mark.parametrize("payload, needle", [
     ("not json", "not valid JSON"),
     ({"signature_mismatches": []}, "`file` must be a non-empty string"),
@@ -284,7 +493,12 @@ def test_rounding_matches_compute_score(tmp_path):
     ({"file": "a.ts", "signature_mismatches": [{"name": "x"}]}, "missing field(s)"),
     ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "line": "1"}]}, "`line` must be a line number"),
     ({"file": "a.ts", "exports_found": "x", "signature_mismatches": []}, "`exports_found` must be a list"),
-], ids=["not-json", "no-file", "no-mismatches", "missing-fields", "line-not-int", "exports-not-list"])
+    # #793: a difference outside the enum is refused, the field named
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "difference": "bogus"}]},
+     'signature_mismatches[0]: `difference` must be one of parameter-name, omitted-optional when present, '
+     'not "bogus"'),
+], ids=["not-json", "no-file", "no-mismatches", "missing-fields", "line-not-int", "exports-not-list",
+        "bad-difference"])
 def test_a_result_that_breaks_the_schema_exits_2(tmp_path, payload, needle):
     inventory, surface = _files(tmp_path)
     bad = _write(tmp_path / "bad.txt", payload)
