@@ -3,3 +3,4 @@ scope: skf-update-skill
 summary: |
   On a skill whose body was split into `references/`, Update Skill now applies a removed, moved, renamed, changed or new export to every file that documents it, `SKILL.md` and each `references/*.md` file alike, and a new export also corrects a reference line that called it not covered. A reference file a removal leaves documenting nothing is deleted, with the `> See` pointer to it. A [MANUAL] block in a reference file is left as it is, since only those in `SKILL.md` are verified. A `--from-test-report` repair now writes every reference file the merge changed or added, not only those its structural fixes touched. Before, the reference files kept the old text, so they could contradict `SKILL.md` after the update.
 issues: [800]
+prs: [854]
