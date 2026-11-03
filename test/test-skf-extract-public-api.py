@@ -19,6 +19,7 @@ it.
 from __future__ import annotations
 
 import argparse
+import ast
 import importlib.util
 import io
 import json
@@ -966,6 +967,15 @@ def _quick(capsys, *argv: str) -> tuple[int, dict | None]:
 
 
 class TestQuickFiles:
+    def test_a_destructuring_export_is_still_read_by_eye(self, tmp_path, capsys):
+        """#786: full mode reads the names a destructuring export binds; quick mode still leaves them to the eye."""
+        root = _stage(tmp_path, DESTRUCTURED)
+        code, out = _quick(capsys, "--language", "typescript", "--source-root", str(root),
+                           "--manifest-file", "package.json", "--entry-file", "src/index.ts")
+        assert (code, out["exports"]) == (0, [])
+        assert ("src/index.ts line 2: `export const` destructures, and quick mode does not read the names it binds: "
+                "read them by eye") in out["warnings"]
+
     def test_the_files_give_what_the_payload_gives(self, tmp_path, capsys, monkeypatch):
         root = _stage(tmp_path / "staged", {"Cargo.toml": CARGO, "src/lib.rs": RUST_LIB})
         monkeypatch.setattr(sys, "stdin", io.StringIO(""))  # never read
@@ -2010,6 +2020,77 @@ class TestTextReaders:
         assert declared == [("a", 1, False), ("b", 2, False), ("NS", 3, False), ("Def", 4, True), ("Q", 5, False)]
         assert defaults == [("Foo", 6)]
 
+    def test_js_text_names_read_destructuring(self) -> None:
+        """#786: each name a column-0 `export const|let|var` pattern binds, at the line it is on."""
+        text = ("export const { a, b: c, d = 1, ...e } = obj;\nexport let [x, , y] = pair;\n"
+                "export const {\n  f,\n} = lib;\n")
+        declared, defaults = mod._js_text_names(text)
+        # `b` is a key, not a binding; none is the default export
+        assert declared == [("a", 1, False), ("c", 1, False), ("d", 1, False), ("e", 1, False), ("x", 2, False),
+                            ("y", 2, False), ("f", 4, False)]
+        assert defaults == []
+
+    def test_js_text_names_skip_a_pattern_not_exported_at_column_0(self) -> None:
+        text = "const { local } = obj;\n  export const { inner } = o;\nexport var { outer } = o;\n"
+        assert mod._js_text_names(text) == ([("outer", 3, False)], [])
+
+    def test_js_text_names_skip_an_unclosed_pattern(self) -> None:
+        # the closed pattern before it still binds, and nothing raises
+        assert mod._js_text_names("export const { ok } = o;\nexport const { a,") == ([("ok", 1, False)], [])
+        assert mod._js_text_names("export let [x, { y\n") == ([], [])
+
+    def test_js_text_names_skip_a_pattern_nested_past_the_recursion_limit(self) -> None:
+        depth = sys.getrecursionlimit() + 10
+        text = "export const { ok } = o;\nexport const " + "[" * depth + "deep" + "]" * depth + " = x;\n"
+        assert mod._js_text_names(text) == ([("ok", 1, False)], [])
+
+    def test_the_pattern_binder_is_the_verifiers(self) -> None:
+        """The runner's `_js_pattern_bindings` is a pinned copy of skf-verify-provenance-completeness.py's."""
+        path = SCRIPTS / "skf-verify-provenance-completeness.py"
+        note = "# Keep identical to _js_pattern_bindings in skf-verify-provenance-completeness.py.\n"
+        text = SCRIPT.read_text(encoding="utf-8")
+        assert note + "def _js_pattern_bindings(" in text
+
+        def source(file: Path) -> str:
+            code = file.read_text(encoding="utf-8")
+            found = [n for n in ast.parse(code).body
+                     if isinstance(n, ast.FunctionDef) and n.name == "_js_pattern_bindings"]
+            assert len(found) == 1, file.name
+            return "".join(code.splitlines(keepends=True)[found[0].lineno - 1:found[0].end_lineno])
+
+        assert source(SCRIPT) == source(path)
+        pin = importlib.util.spec_from_file_location("skf_pin_verify_provenance_bindings", path)
+        verifier = importlib.util.module_from_spec(pin)
+        pin.loader.exec_module(verifier)
+        table = [
+            ("{ a, b }", ["a", "b"]),  # shorthand
+            ("{ a: b, c: d }", ["b", "d"]),  # renamed
+            ("{ a = 1, b: c = f(1, 2), d }", ["a", "c", "d"]),  # default
+            ("{ a, ...rest }", ["a", "rest"]),  # rest
+            ("[x, ...ys]", ["x", "ys"]),  # rest
+            ("[, a, , b]", ["a", "b"]),  # holes
+            ("{ a: { b, c: [d, e] }, f: [g = 1] }", ["b", "d", "e", "g"]),  # nested
+            ("{ a, b }: Props = obj", ["a", "b"]),  # a TS annotation after the pattern
+            ("{ [key]: value, ['x' + y]: z }", ["value", "z"]),  # computed keys
+            ("{ a = '}', b = \"]\", c = `,`, d }", ["a", "b", "c", "d"]),  # string defaults
+            ("{ 'a-b': c, 1: d }", ["c", "d"]),  # string and number keys
+            ("{}", []),  # closed, binding nothing
+            ("{\n  a,\n  b: [c,\n    d],\n}", ["a", "c", "d"]),  # over several lines
+            ("{ a, b", None),  # unclosed
+            ("[a, { b ]", None),  # a bracket that closes one it did not open
+        ]
+        for pattern, names in table:  # names None: the pattern does not close
+            text = f"export const {pattern};\n"
+            start = text.index(pattern)
+            ours = mod._js_pattern_bindings(text, start)
+            assert ours == verifier._js_pattern_bindings(text, start), pattern
+            if names is None:
+                assert ours == ([], None), pattern
+                continue
+            assert [name for name, _ in ours[0]] == names, pattern
+            assert all(text[offset:offset + len(name)] == name for name, offset in ours[0]), pattern
+            assert ours[1] is not None and text[ours[1] - 1] in "}]", pattern
+
     @pytest.mark.parametrize(
         ("spec", "wanted"),
         [("./x", "src/x.ts"), ("./x.js", "src/x.ts"), ("./dir", "src/dir/index.ts"), ("../top", "top.tsx"),
@@ -2125,8 +2206,53 @@ class TestEntryPointDiff:
 # --------------------------------------------------------------------------
 
 
+# #786: names bound by destructuring exports, which no recipe matches: one in
+# the entry point, two on lines of their own in a module `export *` reaches.
+DESTRUCTURED = {
+    "package.json": '{"name": "demo", "exports": {".": "./src/index.ts"}}\n',
+    "src/index.ts": "export * from './lib';\nexport const { expect } = make();\n",
+    "src/lib.ts": "export const {\n  fireEvent,\n  within,\n} = tl;\nexport function render(): void {}\n",
+}
+
+
 @needs_ast_grep
 class TestFullRuns:
+    def test_a_destructuring_export_in_an_entry_point(self, tmp_path, capsys) -> None:
+        code, out = _full(capsys, _tree(tmp_path, DESTRUCTURED), "--include", "src/**")
+        assert (code, out["status"]) == (0, "ok")
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert (public["expect"]["file"], public["expect"]["line"], public["expect"]["via"]) == (
+            "src/index.ts", 2, "declaration")
+        assert {"name": "expect", "language": "javascript", "entry": "src/index.ts", "file": "src/index.ts",
+                "line": 2} in diff["extraction_gaps"]
+
+    def test_a_destructuring_export_through_export_star(self, tmp_path, capsys) -> None:
+        code, out = _full(capsys, _tree(tmp_path, DESTRUCTURED), "--include", "src/**")
+        assert (code, out["status"]) == (0, "ok")
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert sorted(public) == ["expect", "fireEvent", "render", "within"]
+        assert [(public[n]["file"], public[n]["line"], public[n]["via"]) for n in ("fireEvent", "within")] == [
+            ("src/lib.ts", 2, "star"), ("src/lib.ts", 3, "star")]
+        # render, which a recipe matched, is no gap
+        assert [(g["name"], g["file"], g["line"]) for g in diff["extraction_gaps"]] == [
+            ("expect", "src/index.ts", 2), ("fireEvent", "src/lib.ts", 2), ("within", "src/lib.ts", 3)]
+        assert [e["export_name"] for e in out["exports"]] == ["render"]
+        assert (diff["internal"], out["counts"]["exports_public_api"], out["counts"]["effective_denominator"]) == (
+            [], 4, 4)
+
+    def test_a_destructuring_export_out_of_scope(self, tmp_path, capsys) -> None:
+        """A name a destructuring export binds in a file out of scope is an outside_scope row at its line."""
+        code, out = _full(capsys, _tree(tmp_path, DESTRUCTURED), "--include", "src/index.ts")
+        assert (code, out["status"]) == (0, "ok")
+        diff = out["entry_point_diff"]
+        assert [(g["name"], g["file"], g["line"]) for g in diff["extraction_gaps"]] == [("expect", "src/index.ts", 2)]
+        assert {"name": "fireEvent", "language": "javascript", "entry": "src/index.ts", "file": "src/lib.ts",
+                "line": 2} in diff["outside_scope"]
+        assert {"name": "within", "language": "javascript", "entry": "src/index.ts", "file": "src/lib.ts",
+                "line": 3} in diff["outside_scope"]
+
     def test_a_typescript_package(self, tmp_path, capsys) -> None:
         root = _tree(tmp_path, TS_PACKAGE)
         code, out = _full(capsys, root, "--include", "src/**", "--include", "macro/**")

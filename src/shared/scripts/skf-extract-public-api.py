@@ -434,7 +434,19 @@ no file by its name alone, as a public name is), and has no row of its
 own when a public name (or another namespace's member) has its name and
 file; one with null `members`, and a member that is such a module, is no
 gap. In a family with no entry point, or only empty ones, every name the
-recipes found is public.
+recipes found is public. A JS/TS module exports, besides the names the
+recipes match, those its column-0 `export` statements declare in a form
+no recipe matches, read from its text: `export let`, `export declare
+const`, `export namespace`, and each name a destructuring pattern that
+opens an `export const`, `let` or `var` statement binds (`export const
+{ a, b: c } = obj` exports a and c), at the line the name is on. Such a
+name that an entry point exports, or passes on through `export *`, is
+public and, no recipe having found it, an `extraction_gaps` row
+(`outside_scope`, in a file out of scope) at that line. A pattern after
+the statement's first declarator (`export const a = 1, { b } = o`), or
+one the reader cannot read (one that does not close, or a default
+holding a template literal over several lines), binds nothing here and
+no warning names it: read it by eye.
 
 Counts. `exports_public_api` counts the public names (the package's whole
 public API, `outside_scope` names included), each distinct name and file
@@ -2839,14 +2851,190 @@ _JS_DEFAULT_NAME_RE = re.compile(r"^export\s+default\s+([A-Za-z_$][\w$]*)\s*;?\s
 _JS_DEFAULT_EXPORT_RE = re.compile(r"export\s+default\b")
 
 
+# Keep identical to _js_pattern_bindings in skf-verify-provenance-completeness.py.
+def _js_pattern_bindings(
+    text: str, start: int
+) -> tuple[list[tuple[str, int]], int | None]:
+    """The names the destructuring pattern whose `{` or `[` is at
+    `text[start]` binds, each with its offset in `text`, and the offset
+    just past the pattern's closing bracket.
+
+    An object pattern's property is `...target`, a shorthand key or
+    `key: target` (a key is a name, a string, a number or a computed
+    `[...]`, and only a shorthand key binds itself); an array pattern's
+    element is `...target`, a target or a hole; a target is a name or a
+    nested pattern. A `= default` is skipped to the next comma at the
+    pattern's depth, and so is a property or element of any other shape,
+    which binds nothing. '...', "..." and `...` strings are skipped
+    whole, so no bracket or comma inside one counts. Whitespace, newlines
+    included, may sit anywhere between the parts.
+
+    Returns ([], None) when `text[start]` opens no pattern, the pattern
+    does not close in `text`, a string in it does not end, or a bracket in
+    it closes one it did not open. A pure function of its arguments (no
+    module state), so another script can carry a copy of it.
+    """
+    n = len(text)
+    names: list[tuple[str, int]] = []
+
+    def space(i: int) -> int:
+        while i < n and text[i].isspace():
+            i += 1
+        return i
+
+    def name_end(i: int) -> int:
+        """The end of the identifier at `i`, `i` itself when none starts there."""
+        if i < n and (text[i].isalpha() or text[i] in "_$"):
+            i += 1
+            while i < n and (text[i].isalnum() or text[i] in "_$"):
+                i += 1
+        return i
+
+    def string_end(i: int) -> int | None:
+        """The offset past the string whose quote is at `i`."""
+        quote = text[i]
+        i += 1
+        while i < n:
+            if text[i] == "\\":
+                i += 2
+            elif text[i] == quote:
+                return i + 1
+            else:
+                i += 1
+        return None
+
+    def skip(i: int, to_comma: bool = True) -> int | None:
+        """From `i`, the offset of the next comma (unless not `to_comma`)
+        or closing bracket at depth 0; with `to_comma` False, `text[i]`
+        opens a bracket and the offset past the one closing it."""
+        depth = 0
+        while i < n:
+            ch = text[i]
+            if ch in "'\"`":
+                end = string_end(i)
+                if end is None:
+                    return None
+                i = end
+                continue
+            if ch in "([{":
+                depth += 1
+            elif ch in ")]}":
+                if depth == 0:
+                    return i
+                depth -= 1
+                if depth == 0 and not to_comma:
+                    return i + 1
+            elif ch == "," and depth == 0 and to_comma:
+                return i
+            i += 1
+        return None
+
+    def default(i: int) -> int | None:
+        """After a target: past its `= default`, when it has one."""
+        i = space(i)
+        if i < n and text[i] == "=" and text[i + 1 : i + 2] not in ("=", ">"):
+            return skip(i + 1)
+        return i
+
+    def bind(i: int, end: int, close: str) -> int | None:
+        """The name `text[i:end]` is bound when its property or element
+        ends after it or takes a default (any other text: another shape)."""
+        after = space(end)
+        if after < n and (
+            text[after] in (",", close)
+            or text[after] == "=" and text[after + 1 : after + 2] not in ("=", ">")
+        ):
+            names.append((text[i:end], i))
+            return default(after)
+        return after
+
+    def target(i: int, close: str) -> int | None:
+        if i < n and text[i] in "{[":
+            end = pattern(i)
+            return None if end is None else default(end)
+        end = name_end(i)
+        return i if end == i else bind(i, end, close)
+
+    def element(i: int, close: str) -> int | None:
+        """One property or element at `i`: the offset after it."""
+        if text.startswith("...", i):
+            return target(space(i + 3), close)
+        if close == "]":
+            return target(i, close)
+        if text[i] in "'\"":
+            end = string_end(i)
+        elif text[i] == "[":
+            end = skip(i, to_comma=False)  # a computed key
+        else:
+            end = name_end(i)
+            if end > i:
+                after = space(end)
+                if after < n and text[after] == ":":
+                    return target(space(after + 1), close)
+                return bind(i, end, close)  # a shorthand key
+            while end < n and (text[end].isalnum() or text[end] in "._"):
+                end += 1  # a number key
+        if end is None:
+            return None
+        after = space(end)
+        if end > i and after < n and text[after] == ":":
+            return target(space(after + 1), close)
+        return after
+
+    def pattern(i: int) -> int | None:
+        """The pattern opening at `i`: the offset past its closing bracket."""
+        close = "}" if text[i] == "{" else "]"
+        i += 1
+        while True:
+            i = space(i)
+            if i >= n:
+                return None
+            if text[i] == close:
+                return i + 1
+            if text[i] in ")]}":
+                return None
+            if text[i] == ",":
+                i += 1  # a hole, or a stray comma
+                continue
+            end = element(i, close)
+            if end is None:
+                return None
+            end = space(end)
+            if end < n and text[end] not in (",", close):
+                end = skip(end)  # any other shape binds nothing
+                if end is None:
+                    return None
+            i = end + 1 if end < n and text[end] == "," else end
+
+    if not (0 <= start < n and text[start] in "{["):
+        return [], None
+    end = pattern(start)
+    return (names, end) if end is not None else ([], None)
+
+
 def _js_text_names(text: str) -> tuple[list[tuple[str, int, bool]], list[tuple[str, int]]]:
     """The names a JS/TS file's column-0 `export` declarations bind, read
     from its text for the forms no recipe matches (`export let`, `export
-    declare const`, `export namespace`), as (name, line, is the default
-    export), and its `export default <name>;` statements, as (name, line)."""
+    declare const`, `export namespace`, and each name a destructuring
+    pattern that opens an `export const`, `let` or `var` statement binds:
+    `export const { a, b: c, ...d } = obj` binds a, c and d), as (name,
+    line, is the default export), and its `export default <name>;`
+    statements, as (name, line).
+
+    A pattern is read from its `{` or `[` on (`_JS_DESTRUCTURE_RE`) with
+    `_js_pattern_bindings`, so it may span lines, and each name it binds
+    takes the line the name is on. A pattern after the first declarator
+    is not read, and one that does not close, or that nests deeper than
+    the interpreter's recursion limit, binds nothing."""
     code = _blank(text, "js")
     declared = [(m.group(2), _line_of(code, m.start(2)), bool(m.group(1)))
                 for rx in (_JS_DECLARATION_RE, _JS_IMPORT_EQUALS_RE) for m in rx.finditer(code)]
+    for m in _JS_DESTRUCTURE_RE.finditer(code):
+        try:
+            names, _ = _js_pattern_bindings(code, m.end() - 1)
+        except RecursionError:
+            continue  # patterns nested past the interpreter's limit: none bound
+        declared += [(name, _line_of(code, offset), False) for name, offset in names]
     defaults = [(m.group(1), _line_of(code, m.start(1))) for m in _JS_DEFAULT_NAME_RE.finditer(code)]
     return declared, defaults
 
