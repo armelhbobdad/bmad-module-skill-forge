@@ -244,14 +244,32 @@ Apply (update-skill write.md §3):
 
   Reads the provenance map the update started from (--provenance-map;
   without it, a degraded run's new map) and prints nothing but a summary:
-  the new map goes to -o. Every entry the run leaves alone keeps its exact
-  value; every entry it adds or rewrites carries signature_source, set
-  from the tool that produced the signature: ast-grep gives T1 (with
-  confidence T1 and the recipe's ast_node_type), a signature read by eye
-  (source-read) gives T1-low (confidence T1-low, ast_node_type null).
-  A rewritten entry keeps any key the update does not set (notes,
-  deprecated). New entries take source_library from the map's entries,
-  else --skill-name.
+  the new map goes to -o. Every entry it adds or rewrites carries
+  signature_source, set from the tool that produced the signature:
+  ast-grep gives T1 (with confidence T1 and the recipe's ast_node_type),
+  a signature read by eye (source-read) gives T1-low (confidence T1-low,
+  ast_node_type null). Every entry the run leaves alone keeps its exact
+  value, but for a signature_source it lacks or holds as a value other
+  than T1, T1-low, T2 or T3 (compared case-insensitively), as a map
+  written before the key existed does: once the mode's changes are made,
+  each such entry takes its confidence when that names T1-low, T2 or T3,
+  else T1 for an extraction_method of ast-grep or ast_bridge (compared
+  stripped and case-insensitively) and T1-low for any other (T1 needs an
+  ast-grep match). The summary's signature_source_backfilled counts these
+  fills by value ({"T1": 1, "T1-low": 2}, {} when none), with one warning
+  that lists each unrecognized value replaced (name: old -> new, the
+  first 10, then "and N more"); their names are not in its `updated`. A
+  rewritten entry keeps any key the update does not set (notes,
+  deprecated). A new entry's source_library is the map's library when its
+  entries name one (--skill-name when they name none). When they name
+  several, it is the library the entries of its file settle, else the one
+  the entries under the nearest folder above the file that holds entries
+  settle: the one library they name, or of several, the one that is a
+  path prefix of all the others (storybook beside storybook/test). The
+  record of a MOVED file, or of an export whose change names an old_file,
+  tries its new path, then its old. When neither settles it, or the entry
+  has no file, it is the map's first library, and one warning counts and
+  names those entries (the first 10, then "and N more").
 
   incremental (normal mode) reads --manifest (build's output), the renamed
   exports of --category-c and --ccc-pairs (or of --input, the category
@@ -277,9 +295,10 @@ Apply (update-skill write.md §3):
   MOVED_EXPORT whose fresh record is the runner's (ast-grep) also takes
   its confidence, extraction_method and ast_node_type (the entry's when
   the record's is null), and its signature_source when the record holds
-  each of params and return_type the entry holds (else the entry's),
-  never its export_type, params or return_type; one read by eye moves
-  the line and file only.
+  each of params and return_type the entry holds (else the entry's, or
+  T1-low when the entry has none it recognizes: the signature it keeps
+  was not the runner's), never its export_type, params or return_type;
+  one read by eye moves the line and file only.
 
   Public-api skills (incremental only): a NEW_EXPORT or MODIFIED_EXPORT
   the map does not hold, an ADDED file's record and a MOVED file's record
@@ -438,7 +457,8 @@ Metadata (update-skill write.md §2):
 
   Summary on stdout: {"status": "written", "map": <-o>, "entries":
   {"added", "updated", "removed"}, "not_public": [{name, file}],
-  "relabeled": [{name, file, from, to}] (gap-driven), "file_entries":
+  "relabeled": [{name, file, from, to}] (gap-driven),
+  "signature_source_backfilled": {tier: count}, "file_entries":
   {"added", "updated", "removed"}, "warnings": [...]},
   or {"status": "refused",
   "blocking_unresolved": [{export_name, severity}]} with exit 3.
@@ -1571,14 +1591,75 @@ class _Map:
             "provenance_version": "2.0", "skill_name": skill_name, "skill_type": "single", "entries": []}
         if not isinstance(self.doc.get("entries"), list):
             raise ValueError("provenance `entries` must be an array")
-        libraries = [e.get("source_library") for e in self.doc["entries"]
-                     if isinstance(e, dict) and isinstance(e.get("source_library"), str) and e["source_library"]]
-        self.library = libraries[0] if libraries else skill_name
+        # the map's libraries in entry order, and each file's, as the map stood before the run (#808)
+        self.libraries: list[str] = []
+        self.libraries_by_file: dict[str, set[str]] = {}
+        for entry in self.doc["entries"]:
+            library = entry.get("source_library") if isinstance(entry, dict) else None
+            if not (isinstance(library, str) and library):
+                continue
+            if library not in self.libraries:
+                self.libraries.append(library)
+            if _file_of(entry):
+                self.libraries_by_file.setdefault(_file_of(entry), set()).add(library)
+        self.library = self.libraries[0] if self.libraries else skill_name
+        # each folder's libraries (the entries under it, "" the root) and _library_at per path, built on first use
+        self._libraries_under: dict[str, set[str]] | None = None
+        self._library_of: dict[str, str | None] = {}
+        # (name, file) of each new entry library_for gave the first library for want of a better one
+        self.library_unresolved: list[tuple[str | None, str | None]] = []
         self.added: list[str] = []
         self.updated: list[str] = []
         self.removed: list[str] = []
         self.renamed: list[tuple[str, str]] = []  # (old name, new name)
         self.touched_files: set[str] = set()
+
+    def library_for(self, path: str | None, name: str | None = None, *, old: str | None = None) -> str:
+        """The source_library of a new entry for `name` in `path` (the record of a MOVED file, or of an export
+        whose change names an old_file, passes that old path as `old`, tried second). A map naming one library (or
+        none: --skill-name) gives it; in one naming several, the library of the file, else of the nearest folder
+        (see _library_at). With neither, or no path, the map's first library, and the entry goes to
+        `library_unresolved` for the summary's warning."""
+        if len(self.libraries) <= 1:
+            return self.library
+        for candidate in (path, old):
+            library = self._library_at(_norm_path(candidate))
+            if library is not None:
+                return library
+        self.library_unresolved.append((name, _norm_path(path) or _norm_path(old)))
+        return self.library
+
+    @staticmethod
+    def _root_library(libraries: set[str]) -> str | None:
+        """The one library of the set, or of several the one that is a path prefix of all the others (`storybook`
+        beside `storybook/test`); None when no library is."""
+        return next((library for library in sorted(libraries)
+                     if all(other == library or other.startswith(library + "/") for other in libraries)), None)
+
+    def _library_at(self, path: str | None) -> str | None:
+        """The library the map's entries of `path` settle (see _root_library), else the one the entries under the
+        nearest folder above it that holds entries settle; None when neither does. Memoized per path."""
+        if not path:
+            return None
+        if path in self._library_of:
+            return self._library_of[path]
+        if self._libraries_under is None:
+            self._libraries_under = {}
+            for file, libraries in self.libraries_by_file.items():
+                folders = file.split("/")[:-1]
+                for depth in range(len(folders) + 1):
+                    prefix = "/".join(folders[:depth]) + "/" if depth else ""
+                    self._libraries_under.setdefault(prefix, set()).update(libraries)
+        library = self._root_library(self.libraries_by_file.get(path, set()))
+        if library is None:
+            folders = path.split("/")[:-1]
+            for depth in range(len(folders), -1, -1):
+                under = self._libraries_under.get("/".join(folders[:depth]) + "/" if depth else "")
+                if under:
+                    library = self._root_library(under)
+                    break
+        self._library_of[path] = library
+        return library
 
     def find(self, name: str, path: str | None, line: int | None = None) -> int | None:
         """The index of the entry with this name (and file, and line when several share both)."""
@@ -1642,7 +1723,7 @@ def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fr
             not_public.append({"name": name, "file": path})
         return True
 
-    def refresh(index: int | None, name: str, path: str, *, add: bool) -> None:
+    def refresh(index: int | None, name: str, path: str, *, add: bool, old: str | None = None) -> None:
         record = fresh.record(name, path)
         if record is None:
             warnings.append(f"provenance: {name} in {path}: no extraction record, entry "
@@ -1650,7 +1731,7 @@ def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fr
             return
         if index is None:
             if add and not off_surface(name, path):
-                pmap.add(_new_entry(record, pmap.library))
+                pmap.add(_new_entry(record, pmap.library_for(path, name, old=old)))
             return
         pmap.update(index, _without_none(record, keep=("ast_node_type",)))
 
@@ -1672,7 +1753,7 @@ def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fr
                 if carried is None and off_surface(name, key_path):
                     continue
                 entry = _rewrite(carried, _without_none(record, keep=("ast_node_type",))) if carried \
-                    else _new_entry(record, pmap.library)
+                    else _new_entry(record, pmap.library_for(key_path, name, old=old))
                 pmap.add(entry)
             continue
         if status == "ADDED":
@@ -1705,9 +1786,13 @@ def _apply_normal(pmap: _Map, manifest: dict | None, categories: dict | None, fr
                         if all(record.get(part) is not None for part in ("params", "return_type")
                                if entry.get(part) is not None):
                             fields["signature_source"] = record["signature_source"]
+                        elif _tier(entry.get("signature_source")) is None:
+                            # the signature it keeps was read by eye: set that, or the backfill would derive T1
+                            # from the ast-grep label set here
+                            fields["signature_source"] = "T1-low"
                     pmap.update(index, fields)
             elif kind in ("NEW_EXPORT", "MODIFIED_EXPORT"):
-                refresh(index, name, path, add=True)
+                refresh(index, name, path, add=True, old=_norm_path(change.get("old_file")))
     for rename in _get_list(categories or {}, "category_c", "renamed_exports"):
         if not isinstance(rename, dict):
             continue
@@ -1744,7 +1829,7 @@ def _apply_docs_only(pmap: _Map, records: dict) -> tuple[int, int]:
                       "confidence": "T3", "signature_source": "T3"}
             carried = old.get(_name_of(record))
             entry = _rewrite(carried, _without_none(fields)) if carried else _new_entry(
-                _without_none(fields), pmap.library)
+                _without_none(fields), pmap.library_for(url, _name_of(record)))
             pmap.add(entry)
     return len(changed), len(exports)
 
@@ -1835,7 +1920,7 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
                 continue
             existing = pmap.find(name, path)
             if existing is None:
-                pmap.add(_new_entry(record, pmap.library))
+                pmap.add(_new_entry(record, pmap.library_for(path, name)))
             else:
                 pmap.update(existing, _without_none(record, keep=("ast_node_type",)))
         elif outcome in ("verified", "moved") and not in_map(r) and category in ("NEW_EXPORT", "MODIFIED_EXPORT"):
@@ -1850,11 +1935,11 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
             pmap.add(_new_entry(_without_none({
                 "export_name": name, **signature(r)[0],
                 "source_file": path, "source_line": line, **_labels("source-read", None)},
-                keep=("ast_node_type",)), pmap.library))
+                keep=("ast_node_type",)), pmap.library_for(path, name)))
         elif outcome == "unknown" and not in_map(r) and category in ("NEW_EXPORT", "MODIFIED_EXPORT"):
             pmap.add(_new_entry(_without_none({
                 "export_name": name, **signature(r)[0],
-                **_labels("source-read", None)}, keep=("ast_node_type",)), pmap.library))
+                **_labels("source-read", None)}, keep=("ast_node_type",)), pmap.library_for(None, name)))
         else:
             if r.get("unknown_reason") == "drift-override":
                 warnings.append(f"provenance: {name}: unknown ({note}; no line taken from HEAD{r5})")
@@ -2026,6 +2111,50 @@ def file_rows_after(metadata: dict, pmap: _Map, source_root: Path | None) -> dic
     return lists
 
 
+# the signature_source tiers skf-render-metadata-stats.py bins, in their spelling (it compares them case-insensitively)
+SIGNATURE_SOURCES = ("T1", "T1-low", "T2", "T3")
+WARNING_LIST_CAP = 10  # the items a warning lists before "and N more"
+
+
+def _capped(items: list[str]) -> str:
+    """The items joined with ", ", the first WARNING_LIST_CAP of them and "and N more" for the rest."""
+    more = len(items) - WARNING_LIST_CAP
+    return ", ".join(items[:WARNING_LIST_CAP] + ([f"and {more} more"] if more > 0 else []))
+
+
+def _tier(value: object) -> str | None:
+    """A signature_source or confidence tier in its SIGNATURE_SOURCES spelling; None for any other value."""
+    if not isinstance(value, str):
+        return None
+    return next((tier for tier in SIGNATURE_SOURCES if tier.upper() == value.strip().upper()), None)
+
+
+def _backfill_signature_source(pmap: _Map) -> tuple[dict[str, int], list[tuple[object, object, str]]]:
+    """Give each entry whose signature_source is missing or not a tier the stats helper bins (a map written before
+    the key existed, #802) the one its labels give: its confidence when that names T1-low, T2 or T3, else T1 for
+    an extraction_method of ast-grep or ast_bridge (compared stripped and case-insensitively) and T1-low for any
+    other (relabel-rule.md: T1 needs evidence an ast-grep rule matched). Returns (the fills counted by value, in
+    tier order; (name, old value, new value) of each unrecognized value replaced, which the map no longer holds);
+    the names are not listed as updated."""
+    counts: dict[str, int] = {}
+    replaced: list[tuple[object, object, str]] = []
+    for entry in pmap.doc["entries"]:
+        if not isinstance(entry, dict) or _tier(entry.get("signature_source")) is not None:
+            continue
+        confidence, method = _tier(entry.get("confidence")), entry.get("extraction_method")
+        if confidence in ("T1-low", "T2", "T3"):
+            value = confidence
+        elif isinstance(method, str) and method.strip().lower() in ("ast-grep", "ast_bridge"):
+            value = "T1"
+        else:
+            value = "T1-low"
+        if entry.get("signature_source") is not None:
+            replaced.append((entry.get("export_name"), entry["signature_source"], value))
+        entry["signature_source"] = value
+        counts[value] = counts.get(value, 0) + 1
+    return {tier: counts[tier] for tier in SIGNATURE_SOURCES if tier in counts}, replaced
+
+
 def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, manifest: dict | None = None,
                  categories: dict | None = None, extraction: dict | None = None, details: dict | None = None,
                  records: dict | None = None, merge_records: dict | None = None, compare: dict | None = None,
@@ -2064,7 +2193,7 @@ def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, 
                 index = pmap.find(name, path)
                 record = fresh.record(name, path)
                 if index is None:
-                    pmap.add(_new_entry(record, pmap.library))
+                    pmap.add(_new_entry(record, pmap.library_for(path, name)))
                 else:
                     pmap.update(index, _without_none(record, keep=("ast_node_type",)))
             files = len({path for _name, path in fresh.all_keys()})
@@ -2076,6 +2205,23 @@ def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, 
                                 f"({fresh.surface_problem}): every new export was added")
     if not_public:
         warnings.append(_not_public_warning(not_public))
+    if pmap.library_unresolved:
+        count = len(pmap.library_unresolved)
+        named = _capped([f"{name} in {path}" if path else f"{name} (no file)"
+                         for name, path in pmap.library_unresolved])
+        warnings.append(f"provenance: {count} new entr{'y' if count == 1 else 'ies'} took source_library "
+                        f"{pmap.library}, the map's first, as the map names several libraries "
+                        f"({', '.join(pmap.libraries)}) and each entry's file or folder does not settle which: "
+                        f"{named}; check each entry's source_library")
+    backfilled, replaced = _backfill_signature_source(pmap)
+    if backfilled:
+        count = sum(backfilled.values())
+        listed = [f"{name}: {old if isinstance(old, str) else json.dumps(old)} -> {new}" for name, old, new in replaced]
+        values = f"; unrecognized values replaced: {_capped(listed)}" if replaced else ""
+        warnings.append(f"provenance: backfilled signature_source on {count} entr{'y' if count == 1 else 'ies'} "
+                        f"that had none or an unrecognized value (a map written before the key existed), from each "
+                        f"one's confidence and extraction_method: "
+                        f"{', '.join(f'{n} {value}' for value, n in backfilled.items())}{values}")
     file_changes = _apply_files(pmap, compare, new_files, promoted, source_root)
     doc = pmap.doc
     for key, value in (("source_commit", source_commit), ("source_ref", source_ref)):
@@ -2097,6 +2243,7 @@ def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, 
         "entries": {"added": pmap.added, "updated": pmap.updated, "removed": pmap.removed},
         "not_public": not_public,
         "relabeled": relabeled,
+        "signature_source_backfilled": backfilled,
         "file_entries": file_changes,
         "warnings": warnings,
     }

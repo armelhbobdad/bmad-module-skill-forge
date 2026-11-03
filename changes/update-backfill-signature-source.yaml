@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Update Skill on a skill whose provenance map was written before entries carried a `signature_source` kept those entries without one, so the stats check reported a `confidence_distribution` violation that named no entry and that relabeling could not fix. The provenance write now gives each entry with no `signature_source`, or an unrecognized one, the tier its labels imply: its `confidence` when that is `T1-low`, `T2` or `T3`, else `T1` when its `extraction_method` is `ast-grep` or `ast_bridge`, else `T1-low`. Its summary counts these by tier in `signature_source_backfilled`, and the update report lists one warning for them, which names each unrecognized value it replaced.
+issues: [802]
