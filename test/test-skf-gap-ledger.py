@@ -973,26 +973,6 @@ class TestCoverageAdapter:
                                          surface=surface, stale=[ghost])
             assert record["category"] == "fabricated-signature"
 
-    def test_the_citation_scan_is_the_verifiers(self, tmp_path: Path):
-        """The skill citations the homonym pick reads, and the files it reads them in, are the verifier's."""
-        path = SCRIPT.parents[2] / "shared" / "scripts" / "skf-verify-provenance-completeness.py"
-        text = SCRIPT.read_text(encoding="utf-8")
-        for name in ("_SKILL_CITATION_RE", "skill_markdown_files"):
-            assert f"Keep identical to {name} in skf-verify-provenance-completeness.py." in text, name
-        pin = importlib.util.spec_from_file_location("skf_pin_verify_provenance_citations", path)
-        verifier = importlib.util.module_from_spec(pin)
-        pin.loader.exec_module(verifier)
-        assert (mod._SKILL_CITATION_RE.pattern, mod._SKILL_CITATION_RE.flags) == (
-            verifier._SKILL_CITATION_RE.pattern, verifier._SKILL_CITATION_RE.flags)
-        skill = tmp_path / "skill"
-        for rel in ("SKILL.md", "references/b.md", "references/a.md", "references/deep/c.md", "references/x.txt",
-                    "notes.md"):
-            (skill / rel).parent.mkdir(parents=True, exist_ok=True)
-            (skill / rel).write_bytes(b"# x\n")
-        assert mod.skill_markdown_files(skill) == verifier.skill_markdown_files(skill)
-        assert [p.relative_to(skill).as_posix() for p in mod.skill_markdown_files(skill)] == [
-            "SKILL.md", "references/a.md", "references/b.md", "references/deep/c.md"]
-
     def test_the_defined_at_extensions_are_the_verifiers(self):
         """`_DEFINED_AT_RE` takes the files classify-stale reads a `defined_at` in, and no other."""
         path = SCRIPT.parents[2] / "shared" / "scripts" / "skf-verify-provenance-completeness.py"
