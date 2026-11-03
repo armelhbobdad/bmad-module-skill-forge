@@ -430,3 +430,25 @@ def test_cli_a_package_without_skill_md_exits_1(tmp_path):
     proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package",
                            str(tmp_path / "missing")], capture_output=True, text=True, encoding="utf-8")
     assert proc.returncode == 1 and "--skill-package" in proc.stderr
+
+
+def test_the_citation_scan_is_the_verifiers(tmp_path):
+    """The skill citations gap-ledger.py's homonym pick and score-signatures.py's plan read (#781), and the files
+    they read them in, are the verifier's."""
+    path = SCRIPT.parents[2] / "shared" / "scripts" / "skf-verify-provenance-completeness.py"
+    text = SCRIPT.read_text(encoding="utf-8")
+    for name in ("_SKILL_CITATION_RE", "skill_markdown_files"):
+        assert f"Keep identical to {name} in skf-verify-provenance-completeness.py." in text, name
+    pin = importlib.util.spec_from_file_location("skf_pin_verify_provenance_citations", path)
+    verifier = importlib.util.module_from_spec(pin)
+    pin.loader.exec_module(verifier)
+    assert (mod._SKILL_CITATION_RE.pattern, mod._SKILL_CITATION_RE.flags) == (
+        verifier._SKILL_CITATION_RE.pattern, verifier._SKILL_CITATION_RE.flags)
+    skill = tmp_path / "skill"
+    for rel in ("SKILL.md", "references/b.md", "references/a.md", "references/deep/c.md", "references/x.txt",
+                "notes.md"):
+        (skill / rel).parent.mkdir(parents=True, exist_ok=True)
+        (skill / rel).write_bytes(b"# x\n")
+    assert mod.skill_markdown_files(skill) == verifier.skill_markdown_files(skill)
+    assert [p.relative_to(skill).as_posix() for p in mod.skill_markdown_files(skill)] == [
+        "SKILL.md", "references/a.md", "references/b.md", "references/deep/c.md"]

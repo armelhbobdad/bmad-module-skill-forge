@@ -23,6 +23,14 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     `signature_form: "partial"` (an Info `observation`); both still match.
     The script checks the extension and the inventory flag itself, so the
     tag alone never lowers a grade
+  - plans each check at the declaration the skill cites (#781): for a name
+    the surface records in several files, `plan --skill-dir` picks the one
+    file the skill cites on a line naming it, and hands the judge every
+    file as `candidates` when the citations do not settle it; a record with
+    no file never wins, and a mismatch found at a candidate names its `file`
+  - compares a signature documented with no argument (#794): `params` of
+    `""` or `[]` is a signature, and of a name listed twice the entry with
+    non-empty `params` is compared
 The surface fixture is load-coverage-inputs.py surface output built from a
 --mode full extraction, so a recipe's internal match is never compared.
 """
@@ -486,6 +494,272 @@ def test_a_name_with_several_entries_is_compared_with_its_full_form(entries, com
                                                            else "Critical"]
 
 
+# --------------------------------------------------------------------------
+# the declaration a check reads (#781) and zero-argument entries (#794)
+# --------------------------------------------------------------------------
+
+DEFINE_MAIN = {"name": "defineMain", "kind": "function", "params": "config: StorybookConfig",
+               "return_type": "StorybookConfig", "description": "Types the main config."}
+ANGULAR = "code/frameworks/angular/src/node/index.ts"
+REACT_VITE = "code/frameworks/react-vite/src/node/index.ts"
+NAMESAKES = {"exports": [
+    {"name": "defineMain", "kind": "function", "file": ANGULAR, "line": 3,
+     "signatureLine": "export function defineMain(config: AngularConfig): AngularConfig {", "origin": "extraction"},
+    {"name": "defineMain", "kind": "function", "file": REACT_VITE, "line": 3,
+     "signatureLine": "export function defineMain(config: StorybookConfig): StorybookConfig {",
+     "origin": "extraction"},
+], "sets": {"all": ["defineMain"]}}
+
+
+@pytest.mark.parametrize("tree", [
+    {"SKILL.md": f"# Demo\n\n`defineMain(config)` types the main config [AST:{REACT_VITE}:L3].\n"},
+    {"SKILL.md": "# Demo\n\nSee references.\n",
+     "references/deep/frameworks.md": f"## defineMain\n\n[SRC:./{REACT_VITE}:L3-L9]\n\nTypes the config.\n"},
+], ids=["skill-md", "a-heading-then-its-citation"])
+def test_the_check_is_planned_at_the_declaration_the_skill_cites(tmp_path, tree):
+    """#781 (storybook): the surface records `defineMain` in two framework packages, and angular's sorts first.
+    The skill cites react-vite's, so the judge reads react-vite's declaration and no other."""
+    for rel, text in tree.items():
+        _write(tmp_path / "skill" / rel, text)
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DEFINE_MAIN], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", NAMESAKES)
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", str(tmp_path / "skill"))
+    assert proc.returncode == 0, proc.stderr
+    plan = json.loads(proc.stdout)
+    assert plan["compared"] == 1
+    assert plan["files"] == [{"file": REACT_VITE, "checks": [{
+        "name": "defineMain", "line": 3,
+        "signatureLine": "export function defineMain(config: StorybookConfig): StorybookConfig {",
+        "documented": {"params": "config: StorybookConfig", "return_type": "StorybookConfig"}}]}]
+
+
+COMPOSE = {"name": "composeStories", "kind": "function", "params": "csfExports, projectAnnotations?",
+           "return_type": "ComposedStories"}
+REACT = "code/renderers/react/src/portable-stories.tsx"
+VUE = "code/renderers/vue3/src/portable-stories.ts"
+COMPOSE_RECORDS = [
+    {"name": "composeStories", "kind": "function", "file": VUE, "line": 12,
+     "signatureLine": "export function composeStories<T>(csfExports: T, projectAnnotations?: Annotations) {",
+     "origin": "extraction"},
+    {"name": "composeStories", "kind": "function", "file": REACT, "line": 40,
+     "signatureLine": "export function composeStories<T>(csfExports: T, projectAnnotations?: Annotations) {",
+     "origin": "extraction"},
+]
+CANDIDATES = [{"file": REACT, "line": 40, "signatureLine": COMPOSE_RECORDS[1]["signatureLine"]},
+              {"file": VUE, "line": 12, "signatureLine": COMPOSE_RECORDS[0]["signatureLine"]}]
+
+
+@pytest.mark.parametrize("skill_md", [
+    f"# Demo\n\n`composeStories` for React [AST:{REACT}:L40] and for Vue [AST:{VUE}:L12].\n",
+    f"# Demo\n\n`composeStories(csfExports)` composes.\n\nIt returns stories.\n\n`render` [AST:{REACT}:L40]\n",
+    None,
+], ids=["both-cited", "neither-cited", "no-skill-dir"])
+def test_a_check_the_citations_do_not_settle_hands_the_judge_every_candidate(tmp_path, skill_md):
+    """Two files cited, none, or no --skill-dir: the check stays at the first record and lists every record
+    with a file, for the judge to read each."""
+    args = []
+    if skill_md is not None:
+        _write(tmp_path / "skill" / "SKILL.md", skill_md)
+        args = ["--skill-dir", str(tmp_path / "skill")]
+    inventory = _write(tmp_path / "inventory.json", {"exports": [COMPOSE], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {"exports": COMPOSE_RECORDS, "sets": {"all": ["composeStories"]}})
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, *args)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["files"] == [{"file": REACT, "checks": [{
+        "name": "composeStories", "line": 40, "signatureLine": COMPOSE_RECORDS[1]["signatureLine"],
+        "documented": {"params": "csfExports, projectAnnotations?", "return_type": "ComposedStories"},
+        "candidates": CANDIDATES}]}]
+
+
+def test_a_record_with_no_file_never_wins_over_one_with_a_file():
+    """A by-eye record with no file (or a blank one) sorted first and sent the check, and its grade, nowhere: the
+    record with a file is the planned one, with no candidate, and a rename reported there is graded at it."""
+    inventory = [{"name": "helper", "kind": "function", "params": "x: number", "return_type": "number"}]
+    surface = [
+        {"name": "helper", "kind": "function", "file": None, "line": None, "signatureLine": None, "origin": "metadata"},
+        {"name": "helper", "kind": "function", "file": "  ", "line": None, "signatureLine": None, "origin": "per-file"},
+        {"name": "helper", "kind": "function", "file": "src/helper.ts", "line": 1,
+         "signatureLine": "export function helper(value: number): number {", "origin": "extraction"},
+    ]
+    assert mod.plan(inventory, ["helper"], surface)["files"] == [{"file": "src/helper.ts", "checks": [{
+        "name": "helper", "line": 1, "signatureLine": "export function helper(value: number): number {",
+        "documented": {"params": "x: number", "return_type": "number"}}]}]
+    out = mod.score(inventory, ["helper"], surface, [{"file": "src/helper.ts", "signature_mismatches": [RENAME]}])
+    assert [m["severity"] for m in out["mismatches"]] == ["Low"]
+
+
+def test_a_mismatch_found_at_a_candidate_is_recorded_there(tmp_path):
+    """The judge read both candidates of the check planned at React's file and matched neither: the mismatch it
+    gives Vue's `file` is recorded at Vue's declaration, the same one Vue's own result reports, and a rename
+    there is graded at Vue's file."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [COMPOSE], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {"exports": COMPOSE_RECORDS, "sets": {"all": ["composeStories"]}})
+    mismatch = {"name": "composeStories", "line": 12, "source_sig": "(csfExports: T, annotations?: Annotations)",
+                "documented_sig": "(csfExports, projectAnnotations?)", "issue": "the second parameter is renamed"}
+    at_react = _write(tmp_path / "s1.txt", json.dumps({"file": REACT, "signature_mismatches": [{**mismatch,
+                                                                                               "file": VUE}]}))
+    at_vue = _write(tmp_path / "s2.txt", json.dumps({"file": VUE, "signature_mismatches": [mismatch]}))
+    gaps = tmp_path / "signature-gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--results", at_react, "--results", at_vue,
+                "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(VUE, 12, "Critical")]
+    [gap] = json.loads(gaps.read_text(encoding="utf-8"))
+    assert (gap["source"], gap["export"]) == (f"{VUE}:12", "composeStories") and f"`{VUE}:12`" in gap["remediation"]
+    renamed = {**mismatch, "file": VUE, "difference": "parameter-name"}
+    out = mod.score([COMPOSE], ["composeStories"], COMPOSE_RECORDS,
+                    [{"file": REACT, "signature_mismatches": [renamed]}])
+    assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(VUE, "Low")]
+
+
+def test_an_export_documented_with_no_argument_is_compared(tmp_path):
+    """#794: `params` of `""` (the inventory contract's own form) or `[]` with no return type is a signature: both
+    are planned, counted and compared, so a component documented as taking nothing is held to its source."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [
+        {"name": "noArgs", "kind": "function", "params": "", "description": "Takes none."},
+        {"name": "noArgsList", "kind": "function", "params": [], "description": "Takes none."},
+    ], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {"exports": [
+        {"name": "noArgs", "kind": "function", "file": "src/a.tsx", "line": 1,
+         "signatureLine": "export function noArgs(props: Props) {", "origin": "extraction"},
+        {"name": "noArgsList", "kind": "function", "file": "src/a.tsx", "line": 5,
+         "signatureLine": "export function noArgsList() {", "origin": "extraction"},
+    ], "sets": {"all": ["noArgs", "noArgsList"]}})
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    assert plan["compared"] == 2
+    assert [(c["name"], c["documented"]) for c in plan["files"][0]["checks"]] == [
+        ("noArgs", {"params": ""}), ("noArgsList", {"params": []})]
+    results = _write(tmp_path / "s.txt", json.dumps({"file": "src/a.tsx", "signature_mismatches": [
+        {"name": "noArgs", "line": 1, "source_sig": "(props: Props)", "documented_sig": "()",
+         "issue": "the source takes props"}]}))
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
+    assert (out["matchingSignatures"], out["totalDocumented"], out["comparedNames"]) == (
+        1, 2, ["noArgs", "noArgsList"])
+    assert [(g["export"], g["severity"]) for g in out["gapRecords"]] == [("noArgs", "Critical")]
+
+
+HELPER = {"name": "helper", "kind": "function", "params": "x: number", "return_type": "number"}
+
+
+@pytest.mark.parametrize("entries, compared", [
+    ([{"name": "helper", "kind": "function", "params": ""}, HELPER], HELPER),
+    ([{"name": "helper", "kind": "function", "return_type": "number"}, HELPER], HELPER),
+    ([{"name": "helper", "kind": "function", "params": "", "return_type": "number"}, HELPER], HELPER),
+    ([HELPER, {"name": "helper", "kind": "function", "params": [], "return_type": "void"}], HELPER),
+    ([{"name": "helper", "kind": "function", "params": "", "signature_form": "full"},
+      {**HELPER, "signature_form": "partial"}], {**HELPER, "signature_form": "partial"}),
+    ([{"name": "helper", "kind": "function", "params": ""},
+      {"name": "helper", "kind": "function", "params": [], "return_type": "void"}], {"params": ""}),
+], ids=["empty-then-full", "no-params-then-full", "empty-with-a-return-type-then-full", "full-then-empty-list", "empty-full-then-partial",
+        "two-empty"])
+def test_a_name_listed_twice_is_compared_with_the_entry_that_lists_its_parameters(entries, compared):
+    """An entry with empty or no `params` never hides one with parameters, whichever comes first and whatever its
+    form; of two empty ones the first stands."""
+    expected = {f: compared[f] for f in ("params", "return_type", "signature_form") if f in compared}
+    assert mod.documented_signatures(entries) == {"helper": expected}
+
+
+@pytest.mark.parametrize("line, planned", [
+    # a citation of a file the surface does not record for the name settles nothing
+    ("`defineMain(config)` [AST:code/frameworks/vue3-vite/src/node/index.ts:L3]", None),
+    # a citation of the record file beside an unrelated one settles it
+    (f"`defineMain(config)` [AST:{REACT_VITE}:L3] [SRC:code/core/src/types.ts:L40]", REACT_VITE),
+], ids=["only-an-unrecorded-file", "the-record-file-and-an-unrelated-one"])
+def test_only_a_cited_file_the_surface_records_settles_the_check(tmp_path, line, planned):
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n{line}\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DEFINE_MAIN], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", NAMESAKES)
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", str(tmp_path / "skill"))
+    assert proc.returncode == 0, proc.stderr
+    [group] = json.loads(proc.stdout)["files"]
+    [check] = group["checks"]
+    if planned is None:
+        assert group["file"] == ANGULAR and [c["file"] for c in check["candidates"]] == [ANGULAR, REACT_VITE]
+    else:
+        assert group["file"] == planned and "candidates" not in check
+
+
+@pytest.mark.parametrize("skill_dir", ["missing", "", "no-skill-md"])
+def test_a_skill_dir_without_skill_md_exits_1(tmp_path, skill_dir):
+    """A --skill-dir that is empty, absent or holds no SKILL.md is refused, as validate-inventory.py refuses its
+    --skill-package: an empty one would read the working directory."""
+    (tmp_path / "no-skill-md").mkdir()
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DEFINE_MAIN], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", NAMESAKES)
+    target = str(tmp_path / skill_dir) if skill_dir else ""
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", target)
+    assert proc.returncode == 1 and "--skill-dir" in proc.stderr and proc.stdout == ""
+
+
+def test_a_mismatch_file_the_plan_did_not_offer_is_not_taken(tmp_path):
+    """The plan settled `defineMain` at react-vite's declaration, the one the skill cites. A mismatch the judge
+    names angular's file for (or a file nowhere on the surface) is a warning and stays at the result's file,
+    so no gap sits at a declaration the judge was never sent to, and a rename there is never Low at angular."""
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n`defineMain(config)` [AST:{REACT_VITE}:L3]\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DEFINE_MAIN], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", NAMESAKES)
+    plan = tmp_path / "signature-plan.json"
+    assert _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", str(tmp_path / "skill"),
+                "--output", str(plan)).returncode == 0
+    renamed = {"name": "defineMain", "line": 3, "source_sig": "(cfg: AngularConfig) => AngularConfig",
+               "documented_sig": "(config: StorybookConfig) => StorybookConfig", "issue": "the parameter is renamed",
+               "difference": "parameter-name"}
+    for named in (ANGULAR, "nowhere/else.ts"):
+        results = _write(tmp_path / "s.txt", json.dumps({"file": REACT_VITE, "signature_mismatches": [
+            {**renamed, "file": named}]}))
+        out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan),
+                              "--results", results).stdout)
+        assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(REACT_VITE, 3)]
+        assert any(f"`{named}`, no file the plan offered its check at" in w for w in out["warnings"])
+    # without the plan, the surface's records are the files offered: a file it lacks is still refused
+    out = mod.score([DEFINE_MAIN], ["defineMain"], NAMESAKES["exports"],
+                    [{"file": REACT_VITE, "signature_mismatches": [{**renamed, "file": "nowhere/else.ts"}]}])
+    assert [m["file"] for m in out["mismatches"]] == [REACT_VITE]
+    assert sum("no file the plan offered its check at" in w for w in out["warnings"]) == 1
+
+
+def test_a_mismatch_file_is_compared_however_it_is_written():
+    """`./code/...` and `code\\...` name the same candidate: one declaration, one gap, graded at that file."""
+    renamed = {"name": "composeStories", "line": 12, "source_sig": "(csfExports: T, annotations?: Annotations)",
+               "documented_sig": "(csfExports, projectAnnotations?)", "issue": "the second parameter is renamed",
+               "difference": "parameter-name"}
+    results = [{"file": REACT, "signature_mismatches": [{**renamed, "file": "./" + VUE}]},
+               {"file": VUE.replace("/", "\\"), "signature_mismatches": [renamed]}]
+    out = mod.score([COMPOSE], ["composeStories"], COMPOSE_RECORDS, results)
+    assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(VUE, 12, "Low")]
+    assert [g["source"] for g in out["gapRecords"]] == [f"{VUE}:12"]
+    assert not any("no file the plan offered" in w for w in out["warnings"])
+
+
+def test_one_mismatch_per_candidate_keeps_the_closest():
+    """A judge that reports the documented signature against each candidate gives one check one mismatch: the
+    least severe, the candidate it is closest to."""
+    far = {"name": "composeStories", "line": 40, "source_sig": "(csfExports: T, globalConfig: Config)",
+           "documented_sig": "(csfExports, projectAnnotations?)", "issue": "a required second parameter",
+           "file": REACT}
+    near = {"name": "composeStories", "line": 12, "source_sig": "(csfExports: T, annotations?: Annotations)",
+            "documented_sig": "(csfExports, projectAnnotations?)", "issue": "the second parameter is renamed",
+            "difference": "parameter-name", "file": VUE}
+    out = mod.score([COMPOSE], ["composeStories"], COMPOSE_RECORDS,
+                    [{"file": REACT, "signature_mismatches": [far, near]}])
+    assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(VUE, "Low")]
+    assert (out["matchingSignatures"], out["totalDocumented"]) == (1, 1)
+    out = mod.score([COMPOSE], ["composeStories"], COMPOSE_RECORDS,
+                    [{"file": REACT, "signature_mismatches": [far, {**near, "difference": None}]}])
+    assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(REACT, "Critical")], "first on a tie"
+
+
+def test_empty_params_on_a_kind_that_takes_none_is_no_signature():
+    """#794 is for a function documented as taking nothing: a `type` or `constant` entry with `params: ""` and no
+    other field documents no signature, so it is not planned."""
+    inventory = [{"name": "Mode", "kind": "type", "params": ""}, {"name": "VERSION", "kind": "constant", "params": ""}]
+    surface = [{"name": "Mode", "kind": "type", "file": "src/a.ts", "line": 1},
+               {"name": "VERSION", "kind": "constant", "file": "src/a.ts", "line": 2}]
+    assert mod.documented_signatures(inventory) == {}
+    assert mod.plan(inventory, ["Mode", "VERSION"], surface)["compared"] == 0
+
+
 @pytest.mark.parametrize("payload, needle", [
     ("not json", "not valid JSON"),
     ({"signature_mismatches": []}, "`file` must be a non-empty string"),
@@ -497,8 +771,13 @@ def test_a_name_with_several_entries_is_compared_with_its_full_form(entries, com
     ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "difference": "bogus"}]},
      'signature_mismatches[0]: `difference` must be one of parameter-name, omitted-optional when present, '
      'not "bogus"'),
+    # #781: a mismatch's candidate `file`, when given, is a path
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "file": ""}]},
+     'signature_mismatches[0]: `file` must be a non-empty string when present, not ""'),
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "file": 3}]},
+     "signature_mismatches[0]: `file` must be a non-empty string when present, not 3"),
 ], ids=["not-json", "no-file", "no-mismatches", "missing-fields", "line-not-int", "exports-not-list",
-        "bad-difference"])
+        "bad-difference", "empty-mismatch-file", "mismatch-file-not-a-string"])
 def test_a_result_that_breaks_the_schema_exits_2(tmp_path, payload, needle):
     inventory, surface = _files(tmp_path)
     bad = _write(tmp_path / "bad.txt", payload)

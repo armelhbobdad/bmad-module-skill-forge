@@ -237,7 +237,6 @@ import errno
 import importlib.util
 import json
 import os
-import posixpath
 import re
 import secrets
 import sys
@@ -730,7 +729,8 @@ _SIBLINGS: dict[str, object] = {}
 
 def _sibling(filename: str):
     """A script beside this one, loaded once: validate-inventory.py (the
-    documented-name match the stale-documentation Source uses)."""
+    documented-name match the stale-documentation Source uses, and the
+    skill-citation scan the homonym pick reads)."""
     module = _SIBLINGS.get(filename)
     if module is None:
         path = Path(__file__).resolve().parent / filename
@@ -877,59 +877,6 @@ _DEFINED_AT_RE = re.compile(
     r"^.+(?:" + "|".join(re.escape(e) for e in sorted(_DEFINED_AT_EXTENSIONS)) + r"):[1-9]\d*$", re.IGNORECASE)
 
 
-# A source citation the skill writes, `[AST:path:L12]`, `[SRC:path:L12-34]` or `[SRC:path:L12-L34]` (one with no
-# `:L<n>` part is ignored). Groups: prefix, path, first line, the `L` of a range's end, the range's end.
-# Keep identical to _SKILL_CITATION_RE in skf-verify-provenance-completeness.py.
-_SKILL_CITATION_RE = re.compile(
-    r"\[(AST|SRC):([^\[\]\n]+?):L(\d+)(?:-(L?)(\d+))?\]"
-)
-# Any bracketed citation (`[AST:...]`, `[SRC:...]`, `[EXT:...]`): a line names a documented name outside them.
-_ANY_CITATION_RE = re.compile(r"\[[A-Z]+:[^\[\]\n]*\]")
-
-
-def _cited_path(path: str) -> str:
-    """A cited or `declared_in` path as both compare: forward slashes, no `./`."""
-    path = path.strip().replace("\\", "/")
-    while path.startswith("./"):
-        path = path[2:]
-    return posixpath.normpath(path) if path else path
-
-
-def skill_markdown_files(skill_dir: Path) -> list[Path]:
-    """`SKILL.md` then every `references/**/*.md`, in a stable order.
-    Keep identical to skill_markdown_files in skf-verify-provenance-completeness.py."""
-    files: list[Path] = []
-    skill_md = skill_dir / "SKILL.md"
-    if skill_md.is_file():
-        files.append(skill_md)
-    refs = skill_dir / "references"
-    if refs.is_dir():
-        files.extend(sorted(p for p in refs.rglob("*.md") if p.is_file()))
-    return files
-
-
-def _skill_cited_files(skill_dir: Path, name: str) -> set[str]:
-    """The files the skill's `[AST:]` and `[SRC:]` citations name on a line of
-    SKILL.md or references/**/*.md that writes `name` outside its citations
-    (validate-inventory.py's match), or on the next non-blank line (a
-    heading, then its citation)."""
-    pattern = _sibling("validate-inventory.py").name_pattern(name)
-    cited: set[str] = set()
-    for path in skill_markdown_files(skill_dir):
-        try:
-            text = path.read_bytes().decode("utf-8-sig", errors="replace")
-        except OSError:
-            continue
-        lines = text.split("\n")
-        for number, line in enumerate(lines):
-            if not pattern.search(_ANY_CITATION_RE.sub(" ", line)):
-                continue
-            following = next((ln for ln in lines[number + 1:] if ln.strip()), "")
-            for cited_line in (line, following):
-                cited.update(_cited_path(m.group(2)) for m in _SKILL_CITATION_RE.finditer(cited_line))
-    return cited
-
-
 def _documented_extra_at(name: str, item: dict, outside: set[str] | None,
                          skill_dir: str | None = None) -> tuple[str, int] | None:
     """Where the source declares a stale name that is a documented extra, given
@@ -953,10 +900,12 @@ def _documented_extra_at(name: str, item: dict, outside: set[str] | None,
     if not skill_dir or not isinstance(declared_in, list) or not all(
             isinstance(d, str) and _DEFINED_AT_RE.match(d) for d in declared_in):
         return None
-    by_file = {_cited_path(d.rsplit(":", 1)[0]): d for d in declared_in}
+    # validate-inventory.py's skill-citation scan, which score-signatures.py's plan reads too.
+    citations = _sibling("validate-inventory.py")
+    by_file = {citations._cited_path(d.rsplit(":", 1)[0]): d for d in declared_in}
     if len(by_file) < 2:
         return None
-    cited = _skill_cited_files(Path(skill_dir), name)
+    cited = citations._skill_cited_files(Path(skill_dir), name)
     chosen = [d for f, d in sorted(by_file.items()) if f in cited]
     return (chosen[0], len(by_file)) if len(chosen) == 1 else None
 

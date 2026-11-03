@@ -1259,6 +1259,11 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     assert "`extraction.fallback.needed`" in forge and "`extraction.readByEye`" in forge
     assert "the recipes' internal matches are never part of it" in forge
     assert "reads the full declaration at `{file}:{line}`" in forge
+    # #781: a check the citations do not settle names each candidate; an overload set is judged whole
+    assert ("A check with `candidates` reads each and reports a mismatch only when the documented signature "
+            "matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the "
+            "result's `file` stays its `files[]` entry) and its `difference` tagged against it") in forge
+    assert "a documented signature matching the implementation or any overload is no mismatch" in forge
     for gone in ("exports_documented", "missing_docs"):
         assert gone not in forge, gone
 
@@ -1499,7 +1504,9 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     assert validated["valid"] is True and (run / "inventory.json").is_file()
     surface = _exec(_choose(_command(COVERAGE, "surface --extraction")), values, tmp_path)
     assert surface["sets"]["all"] == ["Options", "fetchData", "helper"]
-    plan = _exec(_command(COVERAGE, "uv run {scoreSignaturesScript} plan"), values, tmp_path)
+    command = _command(COVERAGE, "uv run {scoreSignaturesScript} plan")
+    assert '--skill-dir "{resolved_skill_package}"' in command, "#781: the skill's citations pick a declaration"
+    plan = _exec(command, values, tmp_path)
     assert [f["file"] for f in plan["files"]] == ["src/helper.ts", "src/index.ts"]
     (run / "signatures-1.txt").write_bytes(json.dumps({"file": "src/helper.ts", "signature_mismatches": [
         {"name": "helper", "line": 1, "source_sig": "(x: number, y?: number) => number",

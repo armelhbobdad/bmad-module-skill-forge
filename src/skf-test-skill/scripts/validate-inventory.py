@@ -60,6 +60,14 @@ skf-scan-skill-md-structure.py usage-scope): on a side where the name ends
 in a letter, digit, `_` or `$`, the next character may not be one of those.
 So `get` is found in `get(url)` but not in `target` or `getAll`.
 
+The skill-citation scan is shared too: `_skill_cited_files` (with
+`_cited_path`, `skill_markdown_files` and `_SKILL_CITATION_RE`) gives the
+files the skill's `[AST:]` and `[SRC:]` citations name on a line of SKILL.md
+or references/**/*.md that writes a name with the match above, or on the
+next non-blank line. gap-ledger.py reads it to pick the declaration of a
+stale homonym, score-signatures.py to plan a signature check at the
+declaration the skill cites.
+
 CLI usage (mirrors reconcile-coverage.py):
   uv run validate-inventory.py --input <response file> [--output <inventory file>]
       [--skill-package <package folder>]
@@ -112,6 +120,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import posixpath
 import re
 import sys
 from pathlib import Path
@@ -220,6 +229,69 @@ def names_present(names, doc_text):
     """Return the sorted, de-duplicated set of `names` the doc text writes."""
     present = {n for n in names if isinstance(n, str) and n and name_pattern(n).search(doc_text)}
     return sorted(present)
+
+
+# --- Skill citations ----------------------------------------------------------
+
+# A source citation the skill writes, `[AST:path:L12]`, `[SRC:path:L12-34]` or `[SRC:path:L12-L34]` (one with no
+# `:L<n>` part is ignored). Groups: prefix, path, first line, the `L` of a range's end, the range's end.
+# Keep identical to _SKILL_CITATION_RE in skf-verify-provenance-completeness.py.
+_SKILL_CITATION_RE = re.compile(
+    r"\[(AST|SRC):([^\[\]\n]+?):L(\d+)(?:-(L?)(\d+))?\]"
+)
+# Any bracketed citation (`[AST:...]`, `[SRC:...]`, `[EXT:...]`): a line names a documented name outside them.
+_ANY_CITATION_RE = re.compile(r"\[[A-Z]+:[^\[\]\n]*\]")
+
+
+def _cited_path(path: str) -> str:
+    """A cited, `declared_in` or surface path as each compares: forward slashes, no `./`."""
+    path = path.strip().replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return posixpath.normpath(path) if path else path
+
+
+def skill_markdown_files(skill_dir: Path) -> list[Path]:
+    """`SKILL.md` then every `references/**/*.md`, in a stable order.
+    Keep identical to skill_markdown_files in skf-verify-provenance-completeness.py."""
+    files: list[Path] = []
+    skill_md = skill_dir / "SKILL.md"
+    if skill_md.is_file():
+        files.append(skill_md)
+    refs = skill_dir / "references"
+    if refs.is_dir():
+        files.extend(sorted(p for p in refs.rglob("*.md") if p.is_file()))
+    return files
+
+
+def skill_markdown_lines(skill_dir: Path) -> list[list[str]]:
+    """The lines of each file skill_markdown_files lists (an unreadable one is
+    left out), read once for every name _skill_cited_files looks up."""
+    texts: list[list[str]] = []
+    for path in skill_markdown_files(skill_dir):
+        try:
+            texts.append(path.read_bytes().decode("utf-8-sig", errors="replace").split("\n"))
+        except OSError:
+            continue
+    return texts
+
+
+def _skill_cited_files(skill_dir: Path, name: str, texts: list[list[str]] | None = None) -> set[str]:
+    """The files the skill's `[AST:]` and `[SRC:]` citations name on a line of
+    SKILL.md or references/**/*.md that writes `name` outside its citations
+    (the documented-name match), or on the next non-blank line (a heading,
+    then its citation). `texts`, skill_markdown_lines(skill_dir) read once,
+    spares a caller that looks up many names reading the files again."""
+    pattern = name_pattern(name)
+    cited: set[str] = set()
+    for lines in skill_markdown_lines(skill_dir) if texts is None else texts:
+        for number, line in enumerate(lines):
+            if not pattern.search(_ANY_CITATION_RE.sub(" ", line)):
+                continue
+            following = next((ln for ln in lines[number + 1:] if ln.strip()), "")
+            for cited_line in (line, following):
+                cited.update(_cited_path(m.group(2)) for m in _SKILL_CITATION_RE.finditer(cited_line))
+    return cited
 
 
 # --- Spot-check -------------------------------------------------------------

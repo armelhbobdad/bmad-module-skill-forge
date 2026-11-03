@@ -769,6 +769,22 @@ GOLDEN_BARREL = """**Files Analyzed:** 4
 """
 
 
+def test_a_mismatched_row_sits_at_the_declaration_it_was_compared_with():
+    """#781: a name the surface records in two files is compared at the one the skill cites, so its row's Source
+    Location is its mismatch's `file:line`, its most severe one's, not the surface's first record."""
+    coverage = {"branch": "enumerated", "documentedNames": ["defineMain"], "missing": [], "stale": []}
+    surface = {"exports": [
+        {"name": "defineMain", "kind": "function", "file": "code/angular/index.ts", "line": 3, "origin": "extraction"},
+        {"name": "defineMain", "kind": "function", "file": "code/react-vite/index.ts", "line": 5,
+         "origin": "extraction"}], "sets": {"all": ["defineMain"]}}
+    mismatch = {"name": "defineMain", "file": "code/react-vite/index.ts", "line": 5, "source_sig": "(c: C) => C",
+                "documented_sig": "(config: C) => C", "issue": "renamed", "severity": "Low"}
+    critical = {**mismatch, "file": "code/angular/index.ts", "line": 3, "severity": "Critical"}
+    for mismatches, at in (([mismatch], "code/react-vite/index.ts:5"), ([mismatch, critical], "code/angular/index.ts:3")):
+        rows = mod._rows(coverage, surface, {"mismatches": mismatches, "comparedNames": ["defineMain"]})
+        assert rows[2].split(" | ")[4] == at, rows[2]
+
+
 def _run_render(*args):
     return subprocess.run([sys.executable, str(SCRIPT_PATH), "render", *args], capture_output=True, text=True,
                           encoding="utf-8")

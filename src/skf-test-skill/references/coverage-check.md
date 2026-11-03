@@ -148,7 +148,7 @@ The surface holds the names the entry points export, less those defined in a fil
 **Compare the signatures.** A script lists the comparisons; subagents judge them:
 
 ```bash
-uv run {scoreSignaturesScript} plan --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --output "{run_dir}/signature-plan.json"
+uv run {scoreSignaturesScript} plan --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --skill-dir "{resolved_skill_package}" --output "{run_dir}/signature-plan.json"
 ```
 
 For each `files[]` entry, delegate one subagent with its checks. For each check it reads the full declaration at `{file}:{line}` (all of it: `signatureLine` is one physical line, and a multi-line signature cut there reads as a mismatch), compares it with the check's `documented` signature (params: name, type, order, optionality; and the return type), and returns only this JSON, with no prose and no markdown fences:
@@ -158,6 +158,8 @@ For each `files[]` entry, delegate one subagent with its checks. For each check 
 ```
 
 A mismatch carries `difference` when the two differ only in one of these ways, else no key: `parameter-name` (only parameter names differ: types, order, optionality, defaults and return type equal; a destructured property is part of a type) or `omitted-optional` (the documented form leaves out only members the source marks optional). A parameter or field with a default or a `?`, or a TS/JS rest parameter, is optional; a Rust `Option<T>` field a struct literal still requires is not. Tag it in any language and form: `score` (§2b) checks the facts. The example above, tagged `omitted-optional`, stays Critical against a full form.
+
+A check with `candidates` reads each and reports a mismatch only when the documented signature matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the result's `file` stays its `files[]` entry) and its `difference` tagged against it. A declaration opening an overload set (Python `@overload` stubs, TS bodiless signatures) is read through its implementation: a documented signature matching the implementation or any overload is no mismatch.
 
 Save each response to `{run_dir}/signatures-<n>.txt` with the Write tool. Without subagents, compare in the main thread and save the same JSON.
 
@@ -202,10 +204,10 @@ Do not write the Coverage Analysis section or attach a score: this is an indeter
 **Score the signatures** (Forge, Forge+ and Deep tier at State 1, once §2 compared them). Give `{scoreSignaturesScript}` `denominator.surfaceSet` as `--surface-set`. Type Coverage then counts that set's types alone, so a type the clause leaves out (a stratified skill's deferred Tier B) lowers neither Export Coverage nor Type Coverage. Give it one `--results` per saved response (the fallback scan's `per-file-<n>.txt`, else the `signatures-<n>.txt`):
 
 ```bash
-uv run {scoreSignaturesScript} score --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --surface-set <set> --results "{run_dir}/signatures-<n>.txt" --output "{run_dir}/signatures.json" --gaps-output "{run_dir}/signature-gaps.json"
+uv run {scoreSignaturesScript} score --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --surface-set <set> --plan "{run_dir}/signature-plan.json" --results "{run_dir}/signatures-<n>.txt" --output "{run_dir}/signatures.json" --gaps-output "{run_dir}/signature-gaps.json"
 ```
 
-It grades each mismatch of a compared name from facts it checks, never a `difference` alone, into `signature-gaps.json`: a Low `signature-mismatch` gap for a `parameter-name` difference in the planned file when it is TS/JS, Go, Rust, Java, C or C++, an Info `observation` titled `Partial signature: {name}` for an `omitted-optional` one on a `partial` form, a Critical `signature-mismatch` gap otherwise (Python included). A signature gap is titled `Signature mismatch: {name}`, with `export` `{name}`, its Source at `{file}:{line}` and both signatures in its Issue; §5b appends that file to the ledger. A Low or Info one counts as matching, and §5 renders it so. §5's render lists its `warnings` (a mismatch for a name never compared, a category with nothing to compare).
+It grades each mismatch of a compared name from facts it checks, never a `difference` alone, into `signature-gaps.json`: a Low `signature-mismatch` gap for a `parameter-name` difference in a file the plan offered when it is TS/JS, Go, Rust, Java, C or C++, an Info `observation` titled `Partial signature: {name}` for an `omitted-optional` one on a `partial` form, a Critical `signature-mismatch` gap otherwise (Python included). A signature gap is titled `Signature mismatch: {name}`, with `export` `{name}`, its Source at `{file}:{line}` and both signatures in its Issue; §5b appends that file to the ledger. A Low or Info one counts as matching, and §5 renders it so. §5's render lists its `warnings` (a mismatch for a name never compared, a category with nothing to compare).
 
 ### 2c. Reconcile Documented vs Source Surface (Deterministic Intersection)
 

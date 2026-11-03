@@ -136,9 +136,12 @@ header lines, from the run files:
                        Low when it has both), yes for a compared name that
                        matches, unverified for a documented name when no
                        --signatures was given, - otherwise
-      Source Location  the file:line the surface records for the name, a
-                       record with a line preferred (gap-ledger.py's rule
-                       for a missing export's Source), else -
+      Source Location  for a name whose signature mismatches, the file:line
+                       of its most severe mismatch (the declaration it was
+                       compared with); else the file:line the surface
+                       records for the name, a record with a line preferred
+                       (gap-ledger.py's rule for a missing export's
+                       Source), else -
       Status           FAIL for a Critical signature mismatch (a mismatch
                        with no `severity`, from an older signatures.json,
                        counts as one), WARN for a missing or stale name or
@@ -521,7 +524,7 @@ def _rows(coverage, surface, signatures):
     documented = set(_string_list(coverage, "documentedNames", "--coverage"))
     missing = set(_string_list(coverage, "missing", "--coverage"))
     stale = set(_string_list(coverage, "stale", "--coverage"))
-    mismatched, critical, compared, graded = set(), set(), set(), {}
+    mismatched, critical, compared, graded, compared_at = set(), set(), set(), {}, {}
     if signatures is not None:
         named = [m for m in signatures.get("mismatches") or []
                  if isinstance(m, dict) and isinstance(m.get("name"), str)]
@@ -532,12 +535,19 @@ def _rows(coverage, surface, signatures):
         for severity in reversed(NON_BLOCKING_MISMATCH):
             graded.update({m["name"]: severity for m in named if m.get("severity") == severity})
         compared = set(_string_list(signatures, "comparedNames", "--signatures"))
+        # A mismatched name sits at the declaration its most severe mismatch was compared with, which the
+        # surface's first record of a name it records in several files need not be.
+        for m in sorted(named, key=lambda m: (NON_BLOCKING_MISMATCH.index(m["severity"]) + 1
+                                              if m.get("severity") in NON_BLOCKING_MISMATCH else 0)):
+            if isinstance(m.get("file"), str) and m["file"] and isinstance(m.get("line"), int):
+                compared_at.setdefault(m["name"], f"{m['file']}:{m['line']}")
     kinds, sources = {}, {}
     if surface is not None:
         for record in surface["exports"]:
             if isinstance(record, dict) and isinstance(record.get("name"), str) and record.get("kind"):
                 kinds.setdefault(record["name"], str(record["kind"]))
         sources = _gap_ledger()._surface_sources(surface)
+    sources.update(compared_at)
     rows = ["| Export | Type | Documented | Signature | Source Location | Status |",
             "|--------|------|------------|-----------|-----------------|--------|"]
     for name in sorted(documented | missing | stale | mismatched):
