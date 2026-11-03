@@ -1264,13 +1264,30 @@ class TestCountAdapters:
 
     def test_metadata_coherence(self):
         records = mod.from_metadata_coherence({"findings": [
-            {"severity": "Medium", "title": "metadata drift: barrel export counts diverge", "detail": "12 vs 9"},
+            {"severity": "Medium", "title": "metadata drift \u2014 barrel export counts diverge", "detail": "12 vs 9"},
+            {"severity": "Medium", "title": "metadata drift \u2014 documented-surface export counts diverge",
+             "detail": "stats.exports_documented=40, provenance named-exports=30"},
             {"severity": "Info", "title": "multi-denominator reporting: barrel vs documented surface",
              "detail": "barrel=9, documented=30"},
         ]}, "pkg/metadata.json")
         assert [(r["severity"], r["category"], r["source"], r["issue"]) for r in records] == [
             ("Medium", "metadata-drift", "pkg/metadata.json", "12 vs 9"),
+            ("Medium", "metadata-drift", "pkg/metadata.json",
+             "stats.exports_documented=40, provenance named-exports=30"),
             ("Info", "multi-denominator", "pkg/metadata.json", "barrel=9, documented=30")]
+        # #803: update-skill routes no metadata-drift gap (it recounts these counts each time it writes the skill),
+        # so the barrel fix names the workflow that rebuilds exports[] from the source
+        barrel, documented = records[0]["remediation"], records[1]["remediation"]
+        assert barrel.startswith("Re-run Create Skill, which rebuilds `exports[]` and `stats.exports_public_api` in "
+                                 "`pkg/metadata.json` from the source.")
+        assert "Update Skill does not repair this drift" in barrel and "adding or dropping only the names" in barrel
+        # a documented-surface divergence is the `Type::method` entries the named count leaves out: a re-run of
+        # Create Skill would reproduce it, so its fix says when no count is wrong
+        assert documented.startswith("No count in `pkg/metadata.json` needs a fix when `stats.exports_documented` "
+                                     "and the `confidence_distribution` sum agree")
+        assert "`Type::method` entries" in documented and "Re-run Create Skill" not in documented
+        for text in (barrel, documented):
+            assert "applies it" not in text and "metadata update" not in text
         assert mod.from_metadata_coherence({"skipped": True, "findings": []}) == []
         with pytest.raises(mod.AdapterError, match="neither Medium nor Info"):
             mod.from_metadata_coherence({"findings": [{"severity": "High", "title": "x"}]})

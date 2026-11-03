@@ -289,7 +289,7 @@ The report is final once §4c published it and wrote the result files: no later 
 **update-skill** — The skill scored above threshold, but `--allow-workspace-drift` was in effect: the test ran against workspace HEAD, not `metadata.source_commit`. A conditional PASS is not trustworthy enough to export. Re-sync the source tree to the pinned commit (or re-extract against current HEAD) and re-run test-skill without the drift override before exporting.
 
 {IF FAIL after scoring:}
-**update-skill `--from-test-report`**: This skill needs remediation. Review the Gap Report above, then run `@Ferris US {skill_name} --from-test-report`: Update Skill reads this report's gaps and repairs the skill at its pinned commit. Test it again afterwards.
+**update-skill `--from-test-report`**: This skill needs remediation. Review the Gap Report above, then run `@Ferris US {skill_name} --from-test-report`: Update Skill repairs the gaps it routes, at the skill's pinned commit, and lists each other gap as not repaired, with the reason. A `stale-documentation` or `metadata-drift` gap needs what its remediation names: a person, Create Skill or the skill brief. Test it again afterwards.
 
 {IF the hard gate blocked the run:}
 **update-skill `--from-test-report`**: The hard gate stopped this run before scoring on {blocking_gaps} Critical or High gap(s), listed first in the Gap Report. Run `@Ferris US {skill_name} --from-test-report` to repair them, then test again.

@@ -2230,7 +2230,7 @@ class TestGapRecords:
             _gap_entry("GAP-004", "search", "MODIFIED_EXPORT", match={**NOT_FOUND, "status": "ambiguous"}),
             _gap_entry("GAP-005", "search", "MOVED_EXPORT", category="provenance-line", match=_found("pkg/api.py", 4)),
             _gap_entry("GAP-006", None, "STRUCTURAL_FIX", category="structural"),
-            _gap_entry("GAP-007", None, "metadata update", category="metadata-drift"),
+            _gap_entry("GAP-007", None, "metadata update", category="metadata"),
         ]
         records, summary = _records(entries, tmp_path, drift_status="overridden", plan=True)
         assert records is None and summary["status"] == "drift-blocked"

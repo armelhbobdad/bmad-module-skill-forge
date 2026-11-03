@@ -145,7 +145,10 @@ cites (never read; default `metadata.json`):
             --input check-metadata-coherence.py's result; --metadata. Each
             `findings[]` entry, titled as it is and with its `detail` as the
             issue, at `{meta}`: Medium is a Medium `metadata-drift` gap, Info
-            an Info `multi-denominator` gap.
+            an Info `multi-denominator` gap. A `metadata-drift` gap whose
+            title names the documented surface explains the `Type::method`
+            entries its counts differ by; a barrel one sends the fix to
+            Create Skill, which rebuilds `exports[]` from the source.
   provenance-line
             --input skf-verify-provenance-completeness.py verify's result.
             Each `stale[]` item whose reason is `line-not-definition`, at
@@ -1198,11 +1201,24 @@ def from_metadata_coherence(result: object, metadata: str | None = None) -> list
         if not isinstance(finding, dict) or not isinstance(finding.get("title"), str):
             raise AdapterError(f"--input: findings[{index}] has no title")
         detail = finding.get("detail") if isinstance(finding.get("detail"), str) else None
-        if finding.get("severity") == "Medium":
+        if finding.get("severity") == "Medium" and "documented-surface" in finding["title"]:
+            # `stats.exports_documented` and the confidence_distribution sum count every provenance entry, while
+            # the named-export count leaves out `Type::method` entries: a re-run reproduces that difference
             records.append(_gap(
                 "Medium", "metadata-drift", finding["title"], meta,
-                f"Recount the exports and correct the diverging counts in `{meta}`; update-skill applies it as "
-                "a metadata update.",
+                f"No count in `{meta}` needs a fix when `stats.exports_documented` and the `confidence_distribution` "
+                "sum agree: both count every provenance map entry, while the named-export count leaves out the "
+                "`Type::method` entries, so the counts differ by the methods the skill documents. When those two "
+                "disagree, Update Skill or Create Skill recounts both from the provenance map the next time it "
+                "writes the skill; a hand edit does not hold.",
+                issue=detail))
+        elif finding.get("severity") == "Medium":
+            records.append(_gap(
+                "Medium", "metadata-drift", finding["title"], meta,
+                f"Re-run Create Skill, which rebuilds `exports[]` and `stats.exports_public_api` in `{meta}` from "
+                "the source. Update Skill does not repair this drift: each time it writes the skill it recounts "
+                "`stats.exports_public_api` from the source and keeps `exports[]`, adding or dropping only the "
+                "names its provenance map changes, so a metadata patch does not hold.",
                 issue=detail))
         elif finding.get("severity") == "Info":
             records.append(_gap(
