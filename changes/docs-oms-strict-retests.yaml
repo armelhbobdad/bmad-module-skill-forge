@@ -1,3 +1,4 @@
 type: docs
 summary: |
   Verifying a Skill now quotes strict SKF 4.0.0 re-tests of oh-my-skills' four reference skills, run against the version each one ships. The earlier passes (oms-cocoindex 100%, oms-cognee 99.00%, oms-uitripled 100%, oms-storybook-react-vite 95.17%) mostly read the signature rules leniently, and strict re-tests that apply the written rule blocked all four at first. After fixes, oms-cocoindex passes at 100% and oms-cognee at 99%, both on borderline calls their reports write down. oms-uitripled is blocked by one gap oh-my-skills judges to be a false positive, and oms-storybook-react-vite by two false positives and two older real errors that are not fixed yet. `docs/_data/pinned.yaml` records those scores (`test_score: null` for the two blocked skills). The worked example walks through how storybook's earlier score turned out to be too high, and the skill model's oms-cognee excerpt shows its new counts (t1 37, t1_low 49).
+prs: [851]
