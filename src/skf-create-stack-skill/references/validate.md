@@ -114,7 +114,7 @@ Take the first-line format, `|IMPORTANT:` second-line, and token-estimate checks
 
 Then verify the two stack-specific rows the generic validator does not cover:
 - [ ] Stack and integrations lines present
-- [ ] Token estimate lands near the ~80-120 design target from step 7 §5 (the validator flags only its wider <40 / >200 bounds; an ~80-150 snippet with an overflow-strategy `workflow_warning` is expected, not a defect)
+- [ ] Token estimate lands near the ~80-120 design target from step 7 §5 (the validator flags only its wider <40 / >300 bounds; an ~80-150 snippet with an overflow-strategy `workflow_warning` is expected, not a defect)
 
 Record format violations as **WARNING** findings.
 

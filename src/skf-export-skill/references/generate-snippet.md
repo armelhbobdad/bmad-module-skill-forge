@@ -18,7 +18,7 @@ To generate or update context-snippet.md for the skill in the Vercel-aligned ind
 
 - Focus only on generating the context-snippet.md content — T1-now only, no T2 annotations
 - If `passive_context: false` was detected in step 1, skip this step entirely
-- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), iterate sections 2 to 5 per skill. Each skill has its own prior-gotchas carry-forward state (§2.5): do not share state across skills. §2.7 resolves `{skill_root}`, the snippet's root only, and §2.8 creates the stage folder once for the run (neither depends on the skill). See step 1 §1c.
+- **Multi-skill mode:** when step 1 loaded more than one skill (`len(skill_batch) > 1`), iterate sections 2 to 5 per skill. Each skill has its own prior snippet state (§2.5: its `prior_gotchas` carry-forward and its `prior_api`): do not share state across skills. §2.7 resolves `{skill_root}`, the snippet's root only, and §2.8 creates the stage folder once for the run (neither depends on the skill). See step 1 §1c.
 - Every HALT names its exit code, `halt_reason` and phase; in headless mode it first emits its envelope as `references/result-envelope.md` states
 
 ## MANDATORY SEQUENCE
@@ -43,11 +43,12 @@ Before generating new snippet content, check for a prior snippet:
 
 1. Read `{resolved_skill_package}/context-snippet.md` if it exists (resolved in step 1 — see `knowledge/version-paths.md`)
 2. If it exists, extract the `|gotchas:` line (if any). Trim leading whitespace and the `|gotchas:` prefix, then capture the remaining content as `prior_gotchas_content`.
-3. **Detect the carry-forward marker:** If `prior_gotchas_content` starts with the token `[CARRIED]` (whitespace-insensitive), set `prior_gotchas_already_carried = true` and strip the marker before storing the remainder. Otherwise set `prior_gotchas_already_carried = false`.
+3. **Split it into pitfalls and detect the carry-forward marker:** split `prior_gotchas_content` on the pitfall separator {snippetFormatData} gives (`; `), and keep the pitfalls, in order, as `prior_gotchas`. A pitfall that starts with the token `[CARRIED]` (whitespace-insensitive) is **already carried**: strip the marker and record that. A line an older export marked once at its start (`[CARRIED] a, b`) reads as one pitfall, already carried.
 4. **Distinguish empty from absent:** If the `|gotchas:` line exists but has no non-whitespace content after the prefix, treat it as **absent** — set `prior_gotchas = null`. Only a non-empty value counts as a prior gotchas line worth carrying forward.
-5. If no prior snippet exists at all, set `prior_gotchas = null` and `prior_gotchas_already_carried = false`.
+5. **Capture the prior api names:** if the prior snippet has an `|api:` line, split its value on commas, drop each name's trailing `()` and surrounding spaces, and capture the names, in order, as `prior_api` (no `()`, no spaces), noting each name the line wrote with `()`. With no `|api:` line, `prior_api` is empty.
+6. If no prior snippet exists at all, set `prior_gotchas = null` and `prior_api` to an empty list.
 
-These values will be used as a fallback in §3a if new gotchas cannot be derived. The `[CARRIED]` marker provides a **hard one-cycle expiry**: gotchas that were already carried once will be dropped on the next carry-forward attempt rather than preserved indefinitely.
+§3a gives the gotchas line's free slots to the prior pitfalls no current source states, and §3b ranks the `prior_api` names first. The `[CARRIED]` marker provides a **hard one-cycle expiry**: a pitfall already carried once is dropped on the next export rather than preserved indefinitely.
 
 ### 2.7. Resolve Skill Root Path
 
@@ -71,28 +72,34 @@ python3 -c "import tempfile; print(tempfile.mkdtemp(prefix='skf-export-'))"
 
 #### 3a. Gotchas (Both Skill Types)
 
-Derive new gotchas from the T2-future annotations in the evidence report at `{forge_evidence_report}` (breaking changes), async requirements and version-specific behavior. Step 1 §2 bound that path; when it is null, the skill has no evidence report to read.
+Derive the gotchas (breaking changes, deprecations, async requirements and version-specific behavior) from the current sources. A gotcha is **derived** when a current source states it:
+
+1. **The evidence report:** a T2-future annotation in the evidence report at `{forge_evidence_report}`, when step 1 §2 bound that path (when it is null, the skill has no evidence report to read).
+2. **The current SKILL.md** (`{resolved_skill_package}/SKILL.md`, the published, test-verified artifact): a bullet of a section whose heading names gotchas, deprecations, migration, breaking changes or import corrections (such as `## Migration & Deprecation Warnings`), a `## Key API Summary` row whose purpose says deprecated or removed, and an async requirement its Quick Start shows (an API it calls with `await`).
+3. **A prior pitfall still stated:** a pitfall of `prior_gotchas` (§2.5) that source 1 or 2 still states, kept in its prior wording without the `[CARRIED]` marker.
+
+A gotcha the current SKILL.md states is therefore derived even when the evidence report records no T2-future annotation. `[CARRIED]` applies only to a prior pitfall no current source backs.
 
 **Detect first-export state before applying carry-forward logic.** The `[CARRIED]` one-cycle expiry is meaningful only on a *re-export*. On a first export, the prior `context-snippet.md` was written by the workflow that built or updated the skill (create-skill, create-stack-skill, quick-skill or update-skill) inside the same forge cycle: those gotchas are freshly derived, not "left over from a previous export." Treating them as carry-forward primes them for premature expiry on the second export.
 
 Read the skill's manifest entry: `python3 {manifestOpsHelper} {skills_output_folder} get {skill-name}`. When it returns `not_found`, or an `entry` none of whose `versions` records a `last_exported`, this is a first export: set `is_first_export = true`. Otherwise `is_first_export = false`. The helper returns the entry in the v2 shape whatever is on disk, so a v1 manifest reads the same here as in step 4.
 
-Resolve the gotchas line by this decision tree:
+Resolve the gotchas line by this decision tree. The line holds at most 3 pitfalls, joined by the separator {snippetFormatData} gives (`|gotchas: {pitfall-1}; {pitfall-2}; {pitfall-3}`). A prior pitfall no current source states is **unbacked**.
 
-- **If new gotchas are derived:** Use them (they supersede any prior gotchas). Write as `|gotchas: {pitfall-1}, {pitfall-2}` with no marker.
-- **If NO new gotchas are derived AND `is_first_export == true` AND `prior_gotchas` exists:** Treat the prior gotchas as **freshly derived** by the workflow that wrote them, and write them **without** the `[CARRIED]` marker. (The marker only applies to re-exports.) No warning needed; this is the normal first-export shape.
-- **If NO new gotchas are derived BUT `prior_gotchas` exists AND `is_first_export == false` AND `prior_gotchas_already_carried == false`:** First carry-forward cycle on a re-export: preserve the prior gotchas line, prefixing the value with `[CARRIED]` so the next export can detect that expiry has been reached. Write as `|gotchas: [CARRIED] {prior gotchas content}`. Emit warning: "**Gotchas preserved from prior export (one-cycle carry-forward).** These gotchas will be DROPPED on the next export unless new gotchas are derived or you manually refresh them. Review now if they are still applicable."
-- **If NO new gotchas are derived AND `prior_gotchas` exists AND `prior_gotchas_already_carried == true`:** Expiry reached (re-export only: the first-export branch above takes precedence). Drop the gotchas line entirely. Emit warning: "**Stale gotchas dropped:** the prior gotchas were already carried forward once and cannot be derived from the current evidence report. The snippet now has no gotchas line. If the prior gotchas are still relevant, re-add them to the evidence report's T2-future section and re-run export."
-- **If NO new gotchas derived AND no `prior_gotchas`:** Omit the gotchas line.
+- **If gotchas are derived:** Write them first, with no marker: the prior pitfalls a current source still states, in their prior order, then the new ones, in source order (source 1, then source 2 in SKILL.md order), the first 3 of them. Each slot left free goes to an unbacked prior pitfall, in prior order, by the next three branches; when no gotcha is derived, all 3 slots are free.
+- **If an unbacked prior pitfall gets a free slot AND `is_first_export == true`:** Treat it as **freshly derived** by the workflow that wrote it, and write it **without** the `[CARRIED]` marker. (The marker only applies to re-exports.) No warning needed; this is the normal first-export shape.
+- **If an unbacked prior pitfall gets a free slot AND `is_first_export == false` AND it is not already carried:** First carry-forward cycle on a re-export: write it as `[CARRIED] {pitfall}`, beside any derived ones, so the next export can detect that expiry has been reached. Emit warning: "**Gotchas preserved from prior export (one-cycle carry-forward):** {the pitfalls}. They will be DROPPED on the next export unless the current SKILL.md or evidence report states them. Review now if they are still applicable."
+- **If an unbacked prior pitfall is already carried (expiry reached; re-export only, as the first-export branch above takes precedence) or gets no free slot:** Drop it. Emit warning: "**Stale gotchas dropped:** {the pitfalls} no longer appear in the current SKILL.md or evidence report (each was already carried forward once, or the line's 3 slots went to current gotchas). If one is still relevant, re-forge the skill with update-skill so its SKILL.md states it, or add it to the evidence report's T2-future section, then re-run export."
+- **If no pitfall is written:** Omit the gotchas line.
 
 #### 3b. Single Skills (`skill_type: "single"`)
 
 1. Read metadata.json for `version`, `exports` array
-2. Select top exports (up to 10 for Deep tier, 5 otherwise). Append `()` to function names.
+2. **Rank the api names**, so the `|api:` line stays the same from export to export while the surface does: first the `prior_api` names (the prior snippet's `|api:` line, §2.5), in order; then the names of the rows of SKILL.md's `## Key API Summary` table, in row order (for a component library, the Key Components of its `## Component Catalog` rows; for a reference app, the surfaces of its `## Pattern Surface` rows); then the metadata.json `exports`, in order. Match a row's name to `exports` without backticks, `()`, a module qualifier (`cognee.add` is `add`) or generic parameters (`Meta<T = Args>` is `Meta`), and split a cell that names several on `/` (a Key Components cell on commas). Take each name once, only when metadata.json `exports` lists it, and never one the current SKILL.md marks deprecated or removed: a bullet of a section whose heading names deprecations, migration or breaking changes gives it as the deprecated, removed or renamed name (not as its replacement), or its `## Key API Summary` row's purpose says deprecated or removed. Keep the first 10 for the Deep tier, 5 for the other tiers. Append `()` to a name whose `export_type` in the provenance map at `{forge_provenance_map}` is a function; when that map is null or gives no kind for the name, keep the `()` the prior `|api:` line gave it.
 3. Read SKILL.md to extract: heading slugs for `#quick-start` and `#key-types`, inline summary of key types (~10 words)
-4. **Anchor verification (split-body awareness):** For each section anchor (`#quick-start`, `#key-types`), verify the heading exists in SKILL.md. If a `references/` directory exists and `## Full` headings in SKILL.md are absent or stubs (indicating split-body, not a stack skill's structural references), rewrite the anchor to point to the reference file path (e.g., `references/{file}.md#key-types`). If the heading cannot be resolved in either location, omit that anchor line from the snippet.
+4. **Anchor verification (split-body awareness):** For each section anchor (`#quick-start`, `#key-types`): when SKILL.md has the heading, keep `SKILL.md#{slug}`. Only when SKILL.md lacks the heading and the skill is split-body (a `references/` directory exists and the `## Full` headings in SKILL.md are absent or stubs; not a stack skill's structural references), point the anchor at the `references/{file}.md#{slug}` that holds the heading. When neither holds it, omit that anchor line from the snippet.
 
-Emit the single-skill template from {snippetFormatData} (loaded in §2), filling `api` from the exports selected above (list all if fewer than the limit; omit the line if there are none), `key-types` from the inline summary extracted above, and `gotchas` per the §3a decision tree (omit the line when it resolves to none).
+Emit the single-skill template from {snippetFormatData} (loaded in §2), filling `api` from the names ranked above (all of them when fewer than the limit; omit the line when there are none), `key-types` from the inline summary extracted above, and `gotchas` per the §3a decision tree (omit the line when it resolves to none).
 
 #### 3c. Stack Skills (`skill_type: "stack"`)
 
@@ -112,7 +119,7 @@ Bind `{count}` ← the `tokens` value of its `context-snippet.md` row (`len(text
 
 - Target: ~80-120 tokens per skill (aspirational for Quick/Forge tiers)
 - Hard ceiling: 300 tokens (Deep tier may legitimately exceed 120 when gotchas carry load-bearing breaking-change notices)
-- If `{count}` is above 300, trim the description, the exports list or the refs, write the draft again and measure it again, until `{count}` is 300 or below. **Do NOT drop gotchas to fit**: gotchas exist precisely to deliver the "do not rely on training data" signal and are the last thing to cut
+- If `{count}` is above 300, drop api names from the end of the §3b ranking, one at a time, writing the draft again and measuring it again after each, until `{count}` is 300 or below; only when the api line is gone and `{count}` is still above 300, shorten the key-types summary the same way. **Do NOT drop gotchas to fit**: gotchas exist precisely to deliver the "do not rely on training data" signal and are the last thing to cut
 
 When the helper exits non-zero, delete the `{export_stage_dir}` folder and HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `generate-snippet §4`): "SKF cannot measure the snippet: {the helper's error}. Re-install SKF and re-run the export."
 

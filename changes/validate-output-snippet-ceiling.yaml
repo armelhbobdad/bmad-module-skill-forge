@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-quick-skill, skf-create-stack-skill, skf-update-skill
+summary: |
+  The output validator (`skf-validate-output.py`) no longer warns about a context snippet of 201 to 300 tokens. Its long-snippet warning now uses the same 300-token ceiling as Export Skill, at every tier. A snippet above 300 tokens still gets a low-severity warning, and the warning now names the 300-token ceiling. Create Stack Skill's validation step now quotes the same bounds, 40 and 300 tokens.
+issues: [812]

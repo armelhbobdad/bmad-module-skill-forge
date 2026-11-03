@@ -34,9 +34,9 @@ The root path in context-snippet.md on disk uses the **`skill_root` of the first
 - **Line 1:** Skill name + version + platform-aware root path — version signals training data staleness
 - **Line 2 (IMPORTANT):** Retrieval instruction — always present
 - **Line 3 (quick-start):** Anchor pointer to Quick Start section
-- **Line 4 (api):** Top exports from metadata.json `exports` array (up to 10, with `()` for functions)
+- **Line 4 (api):** The ranked exports (see the api line rule below), with `()` for functions
 - **Line 5 (key-types):** Anchor pointer + inline summary of most important type/enum values
-- **Line 6 (gotchas):** 2-3 most critical pitfalls — derived from T2-future annotations, async requirements, breaking changes
+- **Line 6 (gotchas):** At most 3 pitfalls, separated by `; `, derived from the current sources (see the gotchas line rule below)
 
 ## Stack Skill Snippet Template
 
@@ -50,12 +50,12 @@ The root path in context-snippet.md on disk uses the **`skill_root` of the first
 
 ## Rules
 
-- **api line**: Top exports from metadata.json `exports` array (up to 10 for Deep tier, up to 5 for all other tiers). Append `()` to function names. Comma-separated.
+- **api line**: Ranked, so the line stays the same from export to export: the prior snippet's `|api:` names in order, then the names of SKILL.md's `## Key API Summary` rows in row order (a component library's `## Component Catalog` rows, a reference app's `## Pattern Surface` rows), then metadata.json `exports` in order. A row's name is matched without backticks, a module qualifier or generic parameters, and a cell naming several is split on `/`. Each name once, only when `exports` lists it, and never one the current SKILL.md marks deprecated or removed (a deprecation, migration or breaking-changes bullet gives it as the old name, or its Key API Summary row's purpose says deprecated or removed). The first 10 for Deep tier, 5 for all other tiers; above the 300-token ceiling, names drop from the end. Append `()` to a name whose provenance `export_type` is a function, or else when the prior `|api:` line wrote it with `()`. Comma-separated.
 - **key-types line**: Anchor to `#key-types` section + inline summary (~10 words) of the most important type values
-- **gotchas line**: Derived from: T2-future annotations (breaking changes), async requirements, version-specific behavior. If no gotchas available, omit the line.
+- **gotchas line**: At most 3 pitfalls, separated by `; ` (the separator step 3 splits a prior line on). Derived from the current sources: a T2-future annotation in the evidence report (breaking changes, async requirements, version-specific behavior); the current SKILL.md, through a bullet of a section whose heading names gotchas, deprecations, migration, breaking changes or import corrections, a `## Key API Summary` row whose purpose says deprecated or removed, and an async requirement its Quick Start shows; and a prior pitfall either of them still states, kept in its prior wording. The prior pitfalls still stated come first, in their prior order, then the new ones in source order. `[CARRIED]` marks only a prior pitfall no current source backs, which takes a free slot for one export (one-cycle expiry). If no gotchas are available, omit the line.
 - **stack line**: Component versions from metadata.json `components` for stack skills
 - **integrations line**: Co-import patterns from metadata.json `integrations` for stack skills
 - If fewer exports than the limit, list all available
 - If no exports data available, omit the api line
-- Section anchors must be verified against actual SKILL.md headings during generation. For split-body skills (where `references/` exists and `## Full` headings are stubs), if a heading is missing from SKILL.md, rewrite the anchor to point to the reference file path (preferred). Omit the anchor line only if the heading cannot be found in either SKILL.md or `references/*.md`
+- Section anchors must be verified against actual SKILL.md headings during generation. Keep `SKILL.md#{slug}` when SKILL.md has the heading. Only when SKILL.md lacks it and the skill is split-body (`references/` exists and the `## Full` headings are absent or stubs; not a stack skill's structural references), point the anchor at the `references/{file}.md#{slug}` that holds it. Omit the anchor line when neither SKILL.md nor `references/*.md` holds the heading
 - Skill path is relative to project root and uses the IDE's `skill_root` prefix (see **Skill Root Path** above, and the IDE → Context File Mapping table in `managed-section-format.md`)

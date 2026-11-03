@@ -146,6 +146,14 @@ def validate_body_structure(content):
     return issues
 
 
+# The context snippet's length bounds, in `len(text)//4` tokens. The ceiling is
+# the hard 300-token ceiling export-skill's generate-snippet.md §4 sets (a Deep
+# snippet may pass the ~80-120 target when its gotchas carry load-bearing
+# breaking-change notices), so a snippet that step accepts is never flagged.
+SNIPPET_TOKEN_FLOOR = 40
+SNIPPET_TOKEN_CEILING = 300
+
+
 def validate_context_snippet(content):
     """Validate context-snippet.md format. Returns list of issues."""
     issues = []
@@ -169,10 +177,11 @@ def validate_context_snippet(content):
 
     # Approximate token count (rough: ~4 chars per token)
     approx_tokens = len(content) // 4
-    if approx_tokens < 40:
+    if approx_tokens < SNIPPET_TOKEN_FLOOR:
         issues.append({"severity": "low", "field": "length", "message": f"Context snippet may be too short (~{approx_tokens} tokens)"})
-    elif approx_tokens > 200:
-        issues.append({"severity": "low", "field": "length", "message": f"Context snippet may be too long (~{approx_tokens} tokens)"})
+    elif approx_tokens > SNIPPET_TOKEN_CEILING:
+        issues.append({"severity": "low", "field": "length",
+                       "message": f"Context snippet is above the {SNIPPET_TOKEN_CEILING}-token ceiling (~{approx_tokens} tokens)"})
 
     return issues
 

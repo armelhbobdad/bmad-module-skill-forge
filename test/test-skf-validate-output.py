@@ -1512,3 +1512,58 @@ class TestExportGateRecommendedFields:
         if skill_type == "stack":
             keys = template_metadata_keys(templates[0])
             assert "description" not in keys and "source_repo" not in keys
+
+
+# --- Snippet length bounds (#812) -------------------------------------------
+
+STACK_VALIDATE_MD = Path(__file__).parent.parent / "src" / "skf-create-stack-skill" / "references" / "validate.md"
+GENERATE_SNIPPET_MD = Path(__file__).parent.parent / "src" / "skf-export-skill" / "references" / "generate-snippet.md"
+SNIPPET_FORMAT_MD = Path(__file__).parent.parent / "src" / "skf-export-skill" / "assets" / "snippet-format.md"
+
+
+def _two_line_snippet(tokens: int) -> str:
+    """A two-line context snippet whose `len(text)//4` estimate is exactly `tokens`."""
+    head = "[demo v1.0.0]|root: .claude/skills/demo/\n|IMPORTANT: demo v1.0.0: read SKILL.md before writing demo code. "
+    snippet = head + "x" * (tokens * 4 - len(head) - 1) + "\n"
+    assert snippet.count("\n") == 2 and len(snippet) // 4 == tokens
+    return snippet
+
+
+def _length_issues(tokens: int) -> list[dict]:
+    return [i for i in mod.validate_context_snippet(_two_line_snippet(tokens)) if i["field"] == "length"]
+
+
+class TestSnippetLengthBounds:
+    """The long-snippet warning is generate-snippet §4's 300-token ceiling, not 200."""
+
+    def test_a_250_token_snippet_is_not_flagged(self):
+        assert _length_issues(250) == []
+
+    def test_a_301_token_snippet_is_flagged_low_naming_the_ceiling(self):
+        assert mod.SNIPPET_TOKEN_CEILING == 300
+        assert _length_issues(300) == []
+        [issue] = _length_issues(301)
+        assert issue["severity"] == "low" and "300-token ceiling" in issue["message"]
+        # create-stack-skill's validate step quotes the validator's bounds.
+        text = STACK_VALIDATE_MD.read_text(encoding="utf-8")
+        assert "<40 / >300" in text and ">200" not in text
+
+    def test_a_39_token_snippet_is_still_too_short(self):
+        assert mod.SNIPPET_TOKEN_FLOOR == 40
+        assert _length_issues(40) == []
+        [issue] = _length_issues(39)
+        assert issue["severity"] == "low" and "too short" in issue["message"]
+
+    def test_generate_snippet_states_the_validator_ceiling(self):
+        text = GENERATE_SNIPPET_MD.read_text(encoding="utf-8")
+        [ceiling] = re.findall(r"^- Hard ceiling: (\d+) tokens", text, re.MULTILINE)
+        assert int(ceiling) == mod.SNIPPET_TOKEN_CEILING
+        [trim] = re.findall(r"^- If `\{count\}` is above (\d+),.*?until `\{count\}` is (\d+) or below", text, re.MULTILINE)
+        assert {int(n) for n in trim} == {mod.SNIPPET_TOKEN_CEILING}
+
+    def test_snippet_format_states_the_validator_ceiling(self):
+        text = SNIPPET_FORMAT_MD.read_text(encoding="utf-8")
+        [ceiling] = re.findall(r"the hard ceiling is (\d+) tokens", text)
+        assert int(ceiling) == mod.SNIPPET_TOKEN_CEILING
+        [api_rule] = re.findall(r"above the (\d+)-token ceiling, names drop from the end", text)
+        assert int(api_rule) == mod.SNIPPET_TOKEN_CEILING
