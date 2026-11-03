@@ -19,13 +19,13 @@
 
 ## Coherence Analysis — Naive Mode: Reference Consistency (split-body)
 
-Only rendered when `references/` directory exists alongside SKILL.md.
+Only rendered when `references/` directory exists alongside SKILL.md. Each row is a split-body gap coverage-check recorded, with its Source at `SKILL.md:{SKILL.md Line}` when the pinned source contradicts the body, else at `{Reference File}:{Reference Line}`. **Contradicted Side** is the side the source contradicts (`SKILL.md` or `reference`), `none` when both forms agree with it, or `not settled` when no source settled it.
 
 ```markdown
 ### Reference Consistency (split-body)
 
-| # | Reference File | Export | Issue | SKILL.md Line | Reference Line |
-|---|---------------|--------|-------|---------------|---------------|
+| # | Reference File | Export | Issue | SKILL.md Line | Reference Line | Contradicted Side |
+|---|---------------|--------|-------|---------------|---------------|-------------------|
 | {per-mismatch rows} |
 
 **Exports Cross-Checked:** {count}
@@ -78,7 +78,7 @@ Every gap a stage finds is one JSON record in the run's gap ledger, `{forge_vers
 ```
 
 - `severity` and `category` come from one row of the Gap Severity table in `references/scoring-rules.md`. The script refuses a category outside its vocabulary, which `uv run scripts/gap-ledger.py categories` lists.
-- `source` is a `file:line` pair whenever a line applies, with nothing after it: update-skill reads the pair as the gap's citation. A gap inside the skill package cites `SKILL.md:{line}` or `references/{file}.md:{line}`.
+- `source` is a `file:line` pair whenever a line applies, with nothing after it: update-skill reads the pair as the gap's citation. A gap inside the skill package cites `SKILL.md:{line}` or `references/{file}.md:{line}`. A split-body record, titled `Split-body mismatch: {export} ({reference_file})`, cites the side the pinned source contradicts: `SKILL.md:{skill_md_line}` when the reference agrees with the source declaration and the body does not, else `{reference_file}:{reference_line}`, also when no source settled it. Its remediation names the file to edit and the file and line whose form it takes, and update-skill changes only what it names as contradicting.
 - `remediation` follows the Remediation Quality Rules below and names each file it touches.
 - Leave out `id`, `group` and `stage`: the script assigns them (`GAP-{NNN}` in the order the gaps were recorded, the group from the category, the stage from `--stage`).
 

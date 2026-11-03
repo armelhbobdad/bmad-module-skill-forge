@@ -689,15 +689,54 @@ class TestStagesRecordTheirGaps:
             ("Low", "provenance-line", "Provenance line is not the definition of search", "src/api.py:25", "search"),
             ("Info", "provenance-unverified", "Provenance line not verified for fetch", "src/api.py:40", "fetch")]
 
-    def test_a_split_body_gap_cites_a_line_inside_the_package(self) -> None:
-        section = _flow(_slice(_read(COVERAGE_FILE), "### 1b. Cross-Check", "### 2. Analyze"))
-        assert "(`{reference_file}:{reference_line}`), inside the skill package" in section
+    def test_a_split_body_gap_cites_the_side_the_source_contradicts(self) -> None:
+        """#778: §1b no longer makes the body authoritative; §5b, where the pinned source can settle it, cites the
+        file the export's one declaration contradicts, inside the package in every case, and falls back to the
+        reference line when it cannot or neither side agrees. Each record names its reference file in its title, so
+        two references that disagree with one body are two gaps, and its remediation names both files."""
+        text = _read(COVERAGE_FILE)
+        section = _flow(_slice(text, "### 1b. Cross-Check", "### 2. Analyze"))
+        assert "The SKILL.md body is authoritative" not in section
+        assert "High `split-body-mismatch` gap" in section
+        assert ("§5b records it titled `Split-body mismatch: {export} ({reference_file})`, with its `export` and its "
+                "Source at the side the source contradicts (the reference file when no source settles it): "
+                "update-skill edits that file to match the other without reading the source") in section
+        side = _flow(_slice(text, "**A split-body mismatch's Source**", "Then write the records no script wrote"))
+        assert side.startswith("**A split-body mismatch's Source** is a line inside the skill package.")
+        for needle in (# only where the pinned source can settle it: no State 2 map strings, no Quick tier, no drift
+                       "At State 1 and the Forge tier or above, with `workspaceDrift` not `overridden`",
+                       "set the two forms its `issue` gives against the export's declaration at the `file` and "
+                       "`line` `surface.json` gives",
+                       "when that one declaration decides (no overload set, no second declaring file)",
+                       "when the reference agrees and the body does not, the Source is `SKILL.md:{skill_md_line}`, "
+                       "else `{reference_file}:{reference_line}`",
+                       "Its remediation names the file to edit and the file and line whose form it takes, citing "
+                       "the declaration's `file:line`",
+                       "when both forms agree with it, it says so and names what differs",
+                       "when neither does, or nothing decides, it says no source settled it"):
+            assert needle in side, needle
+        assert "State 2" not in side and "`signature_source`" not in side
+        assert text.index("**A split-body mismatch's Source**") > text.index("### 5b. Record the Coverage Gaps")
+        formats = _flow(_read(FORMATS_FILE))
+        assert ("Each row is a split-body gap coverage-check recorded, with its Source at "
+                "`SKILL.md:{SKILL.md Line}` when the pinned source contradicts the body, else at "
+                "`{Reference File}:{Reference Line}`") in formats
+        assert ("A split-body record, titled `Split-body mismatch: {export} ({reference_file})`, cites the side the "
+                "pinned source contradicts: `SKILL.md:{skill_md_line}` when the reference agrees with the source "
+                "declaration and the body does not, else `{reference_file}:{reference_line}`, also when no source "
+                "settled it. Its remediation names the file to edit and the file and line whose form it takes") \
+            in formats
+        # the table shows which side the source contradicts
+        assert ("| # | Reference File | Export | Issue | SKILL.md Line | Reference Line | Contradicted Side |"
+                in formats)
+        assert ("**Contradicted Side** is the side the source contradicts (`SKILL.md` or `reference`), `none` when "
+                "both forms agree with it, or `not settled` when no source settled it") in formats
 
     def test_each_per_export_record_names_its_export(self) -> None:
         """The hand-written split-body record and the script's per-export records name the export in
         `export` and in the title."""
         text = _flow(_body(COVERAGE_FILE))
-        assert "titled `Split-body mismatch: {export}`, with its `export`" in text
+        assert "titled `Split-body mismatch: {export} ({reference_file})`, with its `export`" in text
         assert "titled `Signature mismatch: {name}`, with `export` `{name}`" in text
         assert "§1b's split-body mismatches, in the Ledger Record Format" in text
         assert "each naming its export in `export` and in its title" in text

@@ -936,11 +936,26 @@ def test_translate_writes_each_entry_in_the_documented_shape():
 
 @pytest.mark.parametrize("path, inside", [
     ("SKILL.md", True), ("references/api.md", True), ("{skill_package}/references/api.md", True),
-    ("skills/lib/1.0.0/lib/SKILL.md", True), (".\\references\\api.md", True), ("src/api.ts", False),
-    ("docs/guide.md", False), ("references/nested/api.md", False),
-], ids=["skill-md", "reference", "through-skill-package", "package-path", "backslashes", "source", "other-md",
-        "nested-reference"])
+    (".\\references\\api.md", True), ("references/integrations/a-b.md", True),
+    ("{skill_package}/references/integrations/a-b.md", True),
+    # SKF's own package layouts, as a project-relative path: versioned and flat, with and without leading folders
+    ("skills/oms-cognee/0.5.8/oms-cognee/SKILL.md", True),
+    ("skills/oms-storybook-react-vite/10.3.5/oms-storybook-react-vite/references/api.md", True),
+    ("skills/oms-cognee/SKILL.md", True), ("skills/oms-cognee/references/integrations/a-b.md", True),
+    ("work/oh-my-skills/skills/oms-cognee/0.5.8/oms-cognee/SKILL.md", True),
+    ("work/skills/oms-cognee/references/api.md", True),
+    ("src/api.ts", False), ("docs/guide.md", False), ("docs/references/guide.md", False),
+    ("vendor/lib/1.0.0/lib/SKILL.md", False), ("skills/lib/1.0.0/other/SKILL.md", False),
+    ("references/../src/a.md", False), ("skills/lib/../../docs/SKILL.md", False),
+], ids=["skill-md", "reference", "through-skill-package", "backslashes", "nested-reference",
+        "nested-through-skill-package", "versioned-layout", "versioned-layout-reference", "flat-layout",
+        "flat-layout-nested-reference", "versioned-layout-leading-folders", "flat-layout-leading-folder", "source",
+        "other-md", "source-references-folder", "not-a-skills-folder", "versioned-layout-other-name",
+        "parent-segment", "parent-segment-in-layout"])
 def test_in_skill_package(path, inside):
+    """Only `SKILL.md` or a `.md` file under `references/`, after an optional `{skill_package}/` or the package
+    folder of SKF's layout (`skills/{name}/{version}/{name}/` or `skills/{name}/`, after any leading folders): a
+    source file in a folder named `references` is no file of the package, and a nested reference folder is one."""
     assert mod.in_skill_package({"file": path, "line": 4}) is inside
 
 
@@ -951,6 +966,71 @@ def test_translate_drops_a_citation_inside_the_skill_package():
     assert "source_citation" not in entry and entry["change_category"] == "STRUCTURAL_FIX"
     # the lookup keys on the name alone: two map entries share it
     assert entry["map_match"]["status"] == "ambiguous"
+
+
+@pytest.mark.parametrize("citation, package", [
+    ({"file": "SKILL.md", "line": 144}, {"file": "SKILL.md", "line": 144}),
+    ({"file": "{skill_package}/references/api.md", "line": 31}, {"file": "references/api.md", "line": 31}),
+    ({"file": "{skill_package}/references/integrations/a-b.md", "line": 9},
+     {"file": "references/integrations/a-b.md", "line": 9}),
+    ({"file": "skills/oms-cognee/0.5.8/oms-cognee/SKILL.md", "line": 144}, {"file": "SKILL.md", "line": 144}),
+    ({"file": "work/skills/oms-cognee/references/api.md", "line": 31}, {"file": "references/api.md", "line": 31}),
+], ids=["body-wrong", "reference-wrong", "nested-reference", "versioned-layout", "flat-layout-leading-folder"])
+def test_translate_keeps_a_split_body_gaps_package_citation(citation, package):
+    """#779: Test Skill cites the side of a split-body mismatch the pinned source contradicts, so translate keeps
+    that in-package citation as `package_citation`, relative to the package, for merge Priority 8 to edit. It
+    still leaves out `source_citation`: no source line is read."""
+    manifest, _ = _translate(_gap("GAP-001", "split-body-mismatch", export="parse", citation=citation))
+    [entry] = manifest["entries"]
+    assert entry["change_category"] == "STRUCTURAL_FIX" and "source_citation" not in entry
+    assert entry["package_citation"] == package
+    assert list(entry) == ["name", "gap_id", "category", "severity", "package_citation", "remediation_paths",
+                           "resolved_paths", "rejected_paths", "change_category", "remediation", "map_match"]
+
+
+def test_a_backticked_package_source_reaches_translate_as_a_package_citation():
+    """oh-my-skills reports cite a package file by its project-relative path, sometimes in backticks."""
+    citation = mod.source_citation("`skills/oms-storybook-react-vite/10.3.5/oms-storybook-react-vite/SKILL.md:88`")
+    assert citation == {"file": "skills/oms-storybook-react-vite/10.3.5/oms-storybook-react-vite/SKILL.md", "line": 88}
+    manifest, _ = _translate(_gap("GAP-001", "split-body-mismatch", export="parse", citation=citation))
+    [entry] = manifest["entries"]
+    assert entry["package_citation"] == {"file": "SKILL.md", "line": 88} and "source_citation" not in entry
+
+
+def test_translate_keeps_a_package_citation_for_split_body_gaps_alone():
+    """A split-body gap citing source keeps its `source_citation` and takes no `package_citation`, as before #779
+    (a file under a source folder named `references` included), and no other gap takes one: merge reads it only
+    for a split-body finding."""
+    manifest, _ = _translate(
+        _gap("GAP-001", "split-body-mismatch", export="parse", citation={"file": "src/a.ts", "line": 3}),
+        _gap("GAP-002", "signature-mismatch", export="search", citation={"file": "SKILL.md", "line": 12}),
+        _gap("GAP-003", "broken-reference", export=None, citation={"file": "references/api.md", "line": 7}),
+        _gap("GAP-004", "split-body-mismatch", export="parse",
+             citation={"file": "docs/references/guide.md", "line": 2}))
+    out, signature, structural, docs = manifest["entries"]
+    assert out["source_citation"] == {"file": "src/a.ts", "line": 3} and "package_citation" not in out
+    assert list(out) == ["name", "gap_id", "category", "severity", "source_citation", "remediation_paths",
+                         "resolved_paths", "rejected_paths", "change_category", "remediation", "map_match"]
+    assert out["map_match"] == mod.map_match(MAP_ENTRIES, "parse", {"file": "src/a.ts", "line": 3})
+    assert signature["change_category"] == "MODIFIED_EXPORT"
+    assert "source_citation" not in signature and "package_citation" not in signature
+    assert structural["change_category"] == "STRUCTURAL_FIX"
+    assert "source_citation" not in structural and "package_citation" not in structural
+    assert docs["source_citation"] == {"file": "docs/references/guide.md", "line": 2}
+    assert "package_citation" not in docs
+
+
+def test_translate_gives_a_judged_split_body_gap_no_package_citation():
+    """An older report's split-body gap, its category a judgment's answer, cited `SKILL.md` while the body was
+    still authoritative: a `package_citation` would send merge to overwrite the body it kept, so it takes none and
+    merge edits the file its remediation names."""
+    gap = _gap("GAP-001", None, export="parse", citation={"file": "SKILL.md", "line": 42},
+               remediation="Update references/api.md:18 to match SKILL.md:42.")
+    manifest, summary = _translate(gap, judgments={"GAP-001": {"category": "split-body-mismatch"}})
+    assert summary["status"] == "written", summary
+    [entry] = manifest["entries"]
+    assert (entry["category"], entry["change_category"]) == ("split-body-mismatch", "STRUCTURAL_FIX")
+    assert "package_citation" not in entry and "source_citation" not in entry
 
 
 def test_translate_asks_what_it_cannot_decide():

@@ -157,8 +157,19 @@ key order:
                             answered one), `severity`
   severity
   source_citation           the gap's, left out when it is null or names a
-                            line inside the skill package (`SKILL.md` or a
-                            `references/*.md` file, under any folder)
+                            line inside the skill package: `SKILL.md` or a
+                            `.md` file under `references/`, written relative
+                            to the package, after `{skill_package}/`, or
+                            after the package folder of SKF's layout
+                            (`skills/{name}/{version}/{name}/` or
+                            `skills/{name}/`, after any leading folders)
+  package_citation          a `split-body-mismatch` gap's in-package
+                            citation, {"file", "line"}, its file relative to
+                            the package (`{skill_package}/` dropped): the
+                            file merge Priority 8 edits. Left out for any
+                            other gap, and for one whose category is a
+                            judgment's answer: an older report's Source may
+                            name the body it kept
   remediation_paths, resolved_paths, rejected_paths
                             the gap's ([] when parse had no --source-root);
                             a `provenance-completeness` gap with no
@@ -1036,8 +1047,14 @@ _LEDGER_REMEDIATION = re.compile(
     r"|Find the \d+ exports the denominator counts that SKILL\.md and references/ do not name "
     r"\(`[^`\n]+` lists the exports\) and document each with its signature\."
 )
-# A citation of generated markdown: the skill's SKILL.md or a references/*.md file.
-_PACKAGE_FILE = re.compile(r"(?:^|/)(?:SKILL\.md|references/[^/]+\.md)$")
+# A citation of generated markdown: the skill's SKILL.md or a .md file under its references/, relative to the
+# package, after `{skill_package}/`, or after the package folder of SKF's layout as a project-relative path
+# (`skills/{name}/{version}/{name}/`, or the flat `skills/{name}/`, after any leading folders). A path under any
+# other folder (`docs/references/guide.md`) is source.
+_PACKAGE_FILE = re.compile(
+    r"(?:\{skill_package\}/|(?:[^/]+/)*skills/(?P<name>[^/]+)/(?:[^/]+/(?P=name)/)?)?"
+    r"(?P<file>SKILL\.md|references/(?:[^/]+/)*[^/]+\.md)")
+SPLIT_BODY = "split-body-mismatch"
 # The answers translate reads, with the JSON types each takes.
 _ANSWER_TYPES = {"category": (str, type(None)), "name": (str, type(None)), "rescope": (bool,),
                  "source_file": (str, type(None))}
@@ -1045,14 +1062,38 @@ _IS_WINDOWS = os.name == "nt"
 _REPLACE_WAIT_SECONDS = 5.0
 
 
+def _package_path(citation: dict | None) -> str | None:
+    """The citation's file relative to the skill package, or None when it names no file of the package."""
+    path = _norm_file(citation.get("file")) if isinstance(citation, dict) else None
+    path = path.strip("`") if path else None
+    found = _PACKAGE_FILE.fullmatch(path) if path and ".." not in path.split("/") else None
+    return found.group("file") if found else None
+
+
 def in_skill_package(citation: dict | None) -> bool:
     """True when a citation names a line of generated markdown, not source.
 
-    >>> [in_skill_package({"file": f, "line": 1}) for f in ("SKILL.md", "{skill_package}/references/api.md", "src/a.ts")]
-    [True, True, False]
+    >>> [in_skill_package({"file": f, "line": 1}) for f in ("SKILL.md", "{skill_package}/references/api.md",
+    ...                                                     "references/integrations/a-b.md", "src/a.ts",
+    ...                                                     "skills/oms-cognee/0.5.8/oms-cognee/SKILL.md",
+    ...                                                     "docs/references/guide.md")]
+    [True, True, True, False, True, False]
     """
-    path = _norm_file(citation.get("file")) if isinstance(citation, dict) else None
-    return bool(path and _PACKAGE_FILE.search(path))
+    return _package_path(citation) is not None
+
+
+def package_citation(citation: dict | None) -> dict | None:
+    """An in-package citation with its file relative to the package, else None.
+
+    >>> for f in ("{skill_package}/references/api.md", "SKILL.md", "skills/lib/references/api.md", "src/a.ts"):
+    ...     print(package_citation({"file": f, "line": 3}))
+    {'file': 'references/api.md', 'line': 3}
+    {'file': 'SKILL.md', 'line': 3}
+    {'file': 'references/api.md', 'line': 3}
+    None
+    """
+    path = _package_path(citation)
+    return {"file": path, "line": citation.get("line")} if path else None
 
 
 def written_remediation(text: object) -> bool:
@@ -1136,6 +1177,9 @@ def translate_gaps(parsed: dict, map_entries: list, judgments: dict, *, read_onl
                 ask(gap, category, ["name"])
             continue
         citation = gap.get("source_citation")
+        # the gap's own category, which the ledger recorded: a judged one is an older report's, whose Source may
+        # name the body that report still kept
+        package = package_citation(citation) if gap.get("category") == SPLIT_BODY else None
         if in_skill_package(citation):
             citation = None
         match = map_match(map_entries, name, citation) if name else None
@@ -1175,6 +1219,8 @@ def translate_gaps(parsed: dict, map_entries: list, judgments: dict, *, read_onl
         entry = {"name": name, "gap_id": gap["id"], "category": category, "severity": gap.get("severity")}
         if citation:
             entry["source_citation"] = citation
+        if package:
+            entry["package_citation"] = package
         entry["remediation_paths"] = list(gap.get("remediation_paths") or [])
         entry["resolved_paths"] = resolved
         entry["rejected_paths"] = rejected

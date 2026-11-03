@@ -28,7 +28,8 @@ They also pin how a gap-driven run routes a test report's gaps and records
 what it did:
 
 - a split-body consistency finding (a `Source:` inside the skill package) is
-  a structural fix that edits the reference file, never a modified export;
+  a structural fix that edits the file its `package_citation` names, never a
+  modified export;
 - a blocking gap with no citation that pins a line and no path to scan halts
   in gap-driven.md with `halted-for-remediation-path`, `--dry-run` included,
   one severity rule holds in gap-driven.md and write, and write's defensive
@@ -2934,24 +2935,46 @@ def test_split_body_findings_route_to_a_structural_fix(tmp_path, capsys):
                   "a High signature gap whose `Source:` points into the source tree, or that has no `Source:`, "
                   "stays `MODIFIED_EXPORT`",
                   "routes to merge Priority 8",
-                  "it never adds, modifies, or removes a provenance `entries[]` row"):
+                  "it never adds, modifies, or removes a provenance `entries[]` row",
+                  # #779: the side the pinned source contradicts, kept for merge, the body only as the fallback
+                  "its `Source:` names the side the pinned source contradicts (test-skill coverage-check §5b), "
+                  "which bullet 3's helper keeps as the entry's `package_citation` when the ledger recorded its "
+                  "category, and merge Priority 8 says which file it edits"):
         assert token in r2, token
+    # the fallback chain lives in merge Priority 8 alone
+    for gone in ("merge Priority 8 edits the `references/*.md` file to match the body.",
+                 "the file the remediation names to change", "when neither names one"):
+        assert gone not in r2, gone
     assert "\u2014" not in r2
-    assert ("source_citation the gap's, left out when it is null or names a line inside the skill package "
-            "(`SKILL.md` or a `references/*.md` file, under any folder)") in _translate_doc()
+    assert ("source_citation the gap's, left out when it is null or names a line inside the skill package: "
+            "`SKILL.md` or a `.md` file under `references/`, written relative to the package, after "
+            "`{skill_package}/`, or after the package folder of SKF's layout (`skills/{name}/{version}/{name}/` or "
+            "`skills/{name}/`, after any leading folders)") in _translate_doc()
+    assert ("package_citation a `split-body-mismatch` gap's in-package citation, {\"file\", \"line\"}, its file "
+            "relative to the package (`{skill_package}/` dropped): the file merge Priority 8 edits. Left out for any "
+            "other gap, and for one whose category is a judgment's answer: an older report's Source may name the "
+            "body it kept") in _translate_doc()
     # a STRUCTURAL_FIX needs nothing from the tree: forwarded as is, and the drift gate lets it through
     written = _slice(_read(GAP), "   - **`written`:** keep its `counts` for §5", "\n")
     assert "with no spot-check, no provenance lookup and no `entries[]` change" in written
     assert "a `STRUCTURAL_FIX` (a split-body consistency finding among them)" in _drift_gate()
-    # run it: translate drops the in-package citation and routes the finding, gap-records forwards it as it is
+    # run it: translate keeps the in-package citation as `package_citation` alone and routes the finding (#779),
+    # and gap-records forwards it as it is
     translate = _module(PARSE_GAPS, "skf_parse_gaps_split_body_prose")
     gap = {"id": "GAP-001", "title": "Split-body mismatch: search", "severity": "High",
            "category": "split-body-mismatch", "source_citation": {"file": "{skill_package}/references/api.md",
                                                                    "line": 12},
            "export": "search", "remediation": "Edit references/api.md to match the body."}
-    manifest, _ = translate.translate_gaps({"status": "ok", "gaps": [gap]}, [], {}, today="2026-10-03")
-    [entry] = manifest["entries"]
+    body = {"id": "GAP-002", "title": "Split-body mismatch: fetch", "severity": "High",
+            "category": "split-body-mismatch", "source_citation": {"file": "SKILL.md", "line": 144},
+            "export": "fetch", "remediation": "Edit SKILL.md line 144 to match references/api.md and the "
+                                              "declaration at `src/fetch.ts:9`."}
+    manifest, _ = translate.translate_gaps({"status": "ok", "gaps": [gap, body]}, [], {}, today="2026-10-03")
+    entry, wrong_body = manifest["entries"]
     assert entry["change_category"] == "STRUCTURAL_FIX" and "source_citation" not in entry
+    assert entry["package_citation"] == {"file": "references/api.md", "line": 12}
+    assert wrong_body["change_category"] == "STRUCTURAL_FIX" and "source_citation" not in wrong_body
+    assert wrong_body["package_citation"] == {"file": "SKILL.md", "line": 144}
     run_dir = tmp_path / "run"
     run_dir.mkdir()
     (run_dir / "change-manifest.json").write_bytes(json.dumps(manifest).encode("utf-8"))
@@ -2960,18 +2983,34 @@ def test_split_body_findings_route_to_a_structural_fix(tmp_path, capsys):
     values = {"run_dir": str(run_dir), "provenance_map_path": str(provenance), "workspace_drift_status": "overridden"}
     code, out = _run_gap_records(_gap_calls()[1], values, capsys)
     assert code == 0 and out["status"] == "written", out
-    assert out["forwarded"] == [{"gap_id": "GAP-001", "change_category": "STRUCTURAL_FIX"}]
+    assert out["forwarded"] == [{"gap_id": "GAP-001", "change_category": "STRUCTURAL_FIX"},
+                                {"gap_id": "GAP-002", "change_category": "STRUCTURAL_FIX"}]
     assert json.loads((run_dir / "reextract-records.json").read_bytes())["verification"] == []
 
 
-def test_merge_edits_the_reference_file_of_a_split_body_finding():
-    """The SKILL.md body is authoritative (test-skill coverage-check §1b): merge edits the reference file (#547)."""
+def test_merge_edits_the_file_a_split_body_finding_cites():
+    """#778, #779: merge edits the file `package_citation` names, the side the pinned source contradicts, so a
+    wrong body is repaired too; the body is the side kept only when nothing names a side (#547's rule before)."""
     priority8 = _slice(_read(MERGE), "**Priority 8:", "**Priority 8b")
     split = _slice(priority8, "- **A split-body consistency finding**", "\n")
-    for token in ("edit the `references/*.md` file so it documents the export as the SKILL.md body does",
-                  "whichever of the two files the gap's `Source:` names",
-                  "never change the body to match the reference file"):
+    for token in ("edit the file the entry's `package_citation` names, the side the pinned source contradicts "
+                  "(test-skill coverage-check §5b), so it documents the export as the other file does",
+                  "Without a `package_citation`, edit the file the remediation names to change",
+                  "when neither names one, edit the `references/*.md` file to match the SKILL.md body",
+                  # only the contradicting parts, at each file's level of detail: the split stays a split
+                  "Change only what the remediation names as contradicting (a parameter, a type, the return type), "
+                  "taking it from the other file, and nothing more when it says both forms agree with the source",
+                  "Keep each file's level of detail: the body keeps its brief form",
+                  "a `|` the change puts inside a table cell is escaped (`\\|`)",
+                  "Read no source",
+                  # a wrong body also gets a signature gap: Priority 4 rewrites it, so Priority 8 leaves it
+                  "When the manifest also holds a `MODIFIED_EXPORT` for the same export, Priority 4's rewrite settles "
+                  "the body: skip this edit of SKILL.md for that export"):
         assert token in split, token
+    for gone in ("never change the body", "The body is authoritative", "whichever of the two files",
+                 "Copy the other file's text"):
+        assert gone not in split, gone
+    assert "\u2014" not in split
     assert "Do **not** add, modify, or remove any provenance `entries[]` row" in priority8
 
 
