@@ -160,6 +160,26 @@ skf-recommend-scope-type.py reads (registry.ts, components.ts and their .tsx
 forms, at any depth), found by that script's own rule (the sibling in this
 folder, which must sit beside this script).
 
+Brief scope (scoped_tree)
+-------------------------
+
+scoped_tree(tree, excludes, glob_match) is the tree a skill brief's
+scope.exclude globs leave, as workspace detection reads it (#780): a
+workspace member counts only through the files the brief keeps. It holds
+each file no exclude glob matches, but a manifest (a MEMBER_MANIFESTS name);
+each root manifest (a file at the root named in MEMBER_MANIFESTS,
+CONTENT_MANIFESTS or nx.json), always; and each member manifest (a
+MEMBER_MANIFESTS name below the root) whose folder still holds, at any
+depth, a non-manifest file no exclude glob matches, whether or not a glob
+matches the manifest itself. A member manifest whose folder holds no
+non-manifest file at all stays unless a glob matches it. So `rust/**`,
+`rust/**/*.rs` or `rust/*/src/**` drops the members under rust/,
+`**/Cargo.toml` alone drops none, and a workspace with no member left is
+no workspace, while one with a member left still is. With no exclude glob
+the tree is returned as given. Callers (test-skill's stage-helper-payload.py
+and skf-extract-public-api.py's monorepo arm) pass the glob rule of
+skf-resolve-authoritative-files.py, which this script does not load.
+
 Exit codes:
 
   0  success (regardless of is_monorepo value)
@@ -181,6 +201,7 @@ import posixpath
 import re
 import sys
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
@@ -200,6 +221,11 @@ RECOGNISED_MANIFESTS = (
 # in the tree alone): --manifest-files lists them, --manifest-dir reads them,
 # and a warning names each one the tree lists that was not supplied.
 CONTENT_MANIFESTS = ("package.json", "pnpm-workspace.yaml", "lerna.json", "rush.json", "Cargo.toml")
+# The manifest a workspace member is found by: a recognised one, or an Nx
+# project's project.json. scoped_tree keeps one while its folder keeps a file.
+MEMBER_MANIFESTS = RECOGNISED_MANIFESTS + ("project.json",)
+# The root files scoped_tree keeps whatever the brief excludes.
+ROOT_MANIFESTS = frozenset(MEMBER_MANIFESTS + CONTENT_MANIFESTS + ("nx.json",))
 MAX_MANIFEST_BYTES = 1024 * 1024
 # Folders a snapshot's module root is never followed down through (names
 # matched in lower case): tests, test helpers and fixtures, docs and sites,
@@ -696,6 +722,47 @@ def detect(payload: dict) -> dict:
         "workspaces":    [],
         "warnings":      warnings,
     }
+
+
+# --------------------------------------------------------------------------
+# Brief scope
+# --------------------------------------------------------------------------
+
+
+def scoped_tree(tree: list[str], excludes: list[str], glob_match: Callable[[str, str], bool]) -> list[str]:
+    """The paths of `tree` workspace detection reads under a brief whose
+    scope.exclude globs are `excludes`, in their order: see "Brief scope" in
+    the module docstring. `glob_match(path, glob)` is the brief's glob rule."""
+    if not excludes:
+        return list(tree)
+
+    def manifest(path: str) -> bool:
+        return posixpath.basename(path) in MEMBER_MANIFESTS
+
+    excluded = {path for path in tree if any(glob_match(path, glob) for glob in excludes)}
+    holding: set[str] = set()  # folders holding a non-manifest file
+    kept_holding: set[str] = set()  # folders holding one no exclude glob matches
+    for path in tree:
+        if manifest(path):
+            continue
+        parts = path.split("/")
+        for depth in range(1, len(parts)):
+            folder = "/".join(parts[:depth])
+            holding.add(folder)
+            if path not in excluded:
+                kept_holding.add(folder)
+    kept = []
+    for path in tree:
+        if "/" not in path and path in ROOT_MANIFESTS:
+            keep = True
+        elif not manifest(path):
+            keep = path not in excluded
+        else:
+            folder = posixpath.dirname(path)
+            keep = folder in kept_holding or (folder not in holding and path not in excluded)
+        if keep:
+            kept.append(path)
+    return kept
 
 
 # --------------------------------------------------------------------------

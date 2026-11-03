@@ -43,8 +43,9 @@ take, and run each prose command against the real helper:
   §2 loads coverage-check-tiers.md at Quick tier, which runs
   skf-extract-public-api.py --mode quick on the files by path (for a skill
   quick-skill built); coverage-check.md pipes the payload
-  stage-helper-payload.py reads from disk into skf-detect-workspaces.py, and
-  the source access protocol's monorepo tests read the detector's answer.
+  stage-helper-payload.py reads from disk into skf-detect-workspaces.py (the
+  tree less what the brief's scope.exclude drops, #780), and the source
+  access protocol's monorepo tests read the detector's answer.
 
 They keep the scoring inputs scripted (#613, #540, #596): every script of
 the coverage and score steps reads the run files the one before it wrote,
@@ -859,8 +860,11 @@ def test_the_drift_guard_checks_the_tree_the_producer_records(tmp_path, producer
 
 QUICK_CMD = ('uv run {extractPublicApiHelper} --mode quick --language <language> --source-root "{source_path}" '
              '--manifest-file <manifest path> --entry-file <entry path>')
+# #780: the brief's scope.exclude leaves its paths out of the tree, so a workspace whose members it drops is
+# no workspace; the flag is left out when the skill has no brief.
+WORKSPACES_BRIEF = '--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"'
 WORKSPACES_CMD = ('uv run {stageHelperPayloadScript} detect-workspaces --source-root "{source_path}" '
-                  '| uv run {detectWorkspacesHelper}')
+                  f'{WORKSPACES_BRIEF} | uv run {{detectWorkspacesHelper}}')
 
 
 def _quick_tier() -> str:
@@ -1028,6 +1032,8 @@ def test_workspace_layout_comes_from_the_detector():
     flow = _flow(layout)
     assert "Bind `{source_is_monorepo}` ← `is_monorepo` and `{source_workspace_kind}` ← `manifest_kind`" in flow
     assert "bind `{source_is_monorepo}` ← false" in flow
+    assert "leave `--brief` out with no brief" in flow
+    assert "A workspace whose members `scope.exclude` drops is no workspace." in flow
     # The detector keeps the list of manifests it reads; the prose repeats none.
     for name in ("`lerna.json`", "`rush.json`", "`build.gradle.kts`"):
         assert name not in layout, name
@@ -1082,16 +1088,36 @@ def test_the_flags_left_to_the_model_are_stated_once():
     assert "When `denominator.ladderStep` is set" not in section4
 
 
-@pytest.mark.parametrize("files, expected", [
-    ({"package.json": '{"name": "root", "workspaces": ["packages/*"]}\n',
-      "packages/a/package.json": "{}\n", "packages/b/package.json": "{}\n"}, (True, "npm-workspaces")),
-    ({"apps/web/package.json": "{}\n", "libs/ui/package.json": "{}\n"}, (True, "generic-folders")),
-    ({"package.json": '{"name": "single"}\n', "node_modules/a/package.json": "{}\n",
-      "node_modules/b/package.json": "{}\n"}, (False, None)),
-], ids=["npm-workspaces", "generic-folders", "single-package"])
-def test_the_prose_workspace_command_runs(tmp_path, files, expected):
+# #780: the workspace layouts and briefs Test Skill's detection and the recipe runner's monorepo arm read
+# alike, among them a Rust workspace beside the Python package a skill documents.
+SCOPE_EXCLUDE = json.loads((REPO_ROOT / "test" / "fixtures" / "workspace-scope-exclude.json").read_text("utf-8"))
+
+
+@pytest.mark.parametrize("files, excludes, expected", [
+    pytest.param({"package.json": '{"name": "root", "workspaces": ["packages/*"]}\n',
+                  "packages/a/package.json": "{}\n", "packages/b/package.json": "{}\n"}, None,
+                 (True, "npm-workspaces"), id="npm-workspaces"),
+    pytest.param({"apps/web/package.json": "{}\n", "libs/ui/package.json": "{}\n"}, None,
+                 (True, "generic-folders"), id="generic-folders"),
+    pytest.param({"package.json": '{"name": "single"}\n', "node_modules/a/package.json": "{}\n",
+                  "node_modules/b/package.json": "{}\n"}, None, (False, None), id="single-package"),
+    *[pytest.param(SCOPE_EXCLUDE["trees"][c["tree"]], c["exclude"], (c["is_monorepo"], c["manifest_kind"]),
+                   id=c["id"]) for c in SCOPE_EXCLUDE["cases"]],
+])
+def test_the_prose_workspace_command_runs(tmp_path, files, excludes, expected):
+    """With no brief the command runs without `--brief`; with one, a workspace member counts only through
+    the files the brief's scope.exclude keeps, so a workspace with no member left is no workspace (#780)."""
     source = _write_tree(tmp_path / "src", files)
-    proc = _run(WORKSPACES_CMD, {"{source_path}": source.as_posix()}, tmp_path)
+    values = {"{source_path}": source.as_posix()}
+    command = WORKSPACES_CMD
+    if excludes is None:
+        assert command.count(" " + WORKSPACES_BRIEF) == 1
+        command = command.replace(" " + WORKSPACES_BRIEF, "")
+    else:
+        forge = _write_tree(tmp_path / "forge", {"pkg/skill-brief.yaml": "name: pkg\nscope:\n  exclude:\n"
+                                                 + "".join(f"    - '{g}'\n" for g in excludes)})
+        values.update({"{forge_data_folder}": forge.as_posix(), "{skill_name}": "pkg"})
+    proc = _run(command, values, tmp_path)
     assert proc.returncode == 0, proc.stderr
     out = json.loads(proc.stdout)
     assert (out["is_monorepo"], out["manifest_kind"]) == expected

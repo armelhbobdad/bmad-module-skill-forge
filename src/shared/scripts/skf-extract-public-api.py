@@ -478,7 +478,11 @@ on a run that counted a public name and read every file (no `errors`
 item): the count falls back to scope.include (else every file), with a
 warning.
 `arms` gives compile's effective_denominator arms:
-(a) `monorepo` from skf-detect-workspaces.py, (b) `specific_modules`
+(a) `monorepo` from skf-detect-workspaces.py over the tree the brief
+keeps (its scoped_tree: a member counts only through the files no
+scope.exclude glob matches, so excluding its sources drops it, excluding
+only its manifest does not, root manifests always stay, and a workspace
+with no member left is none), (b) `specific_modules`
 (scope type specific-modules on a repository that is not a monorepo) and
 (c) `multi_subpath_exports` (an in-scope package.json whose `exports` map
 has more than one non-root subpath without a `*`, on a repository that is
@@ -488,20 +492,21 @@ Store or not. `curated_subset` is true when the files the count's basis
 globs list (scope.include's, else every file; a tier A count's, those
 among them a tier A glob matches too; under arm (b), less those a
 scope.exclude glob matches) leave out a file that defines a counted public
-name (an `outside_scope` name's included) or, in a monorepo, every source
-file of a skf-detect-workspaces.py workspace; a basis of `all-files` lists
+name (an `outside_scope` name's included) or every source file of a
+workspace skf-detect-workspaces.py finds over the whole tree
+(scope.exclude aside, unlike arm (a): a member the brief drops is still
+part of the repository it chose a subset of); a basis of `all-files` lists
 none. `effective_denominator_decision` says whether create-skill and
 update-skill store `effective_denominator` as stats.effective_denominator,
 the brief's scope.notes aside (documenting the stratification is the one
-judgment left to them): `store` is true only when none of these holds,
-and `reason` names the first that does, else `curated-subset`:
-`reference-app` (scope type reference-app: pattern_surfaces_documented is
-its basis), `incomplete-run` (an `errors` item: a file a failed call left
-unread can hide a public name, so the count can be 0 or partial),
-`no-arm` (no arm is true), `full-library` (scope type full-library),
-`all-files` (the basis), `not-curated` (`curated_subset` false) and
-`zero-count` (a stored 0 is no denominator: Test Skill reads it as
-deflation).
+judgment left to them): `store` is true only when none of these holds, and
+`reason` names the first that does, else `curated-subset`: `reference-app`
+(scope type reference-app: pattern_surfaces_documented is its basis),
+`incomplete-run` (an `errors` item: a file a failed call left unread can
+hide a public name, so the count can be 0 or partial), `no-arm` (no arm is
+true), `full-library` (scope type full-library), `all-files` (the basis),
+`not-curated` (`curated_subset` false) and `zero-count` (a stored 0 is no
+denominator: Test Skill reads it as deflation).
 
 Output JSON (stdout, or -o):
 
@@ -4452,7 +4457,10 @@ def _head_cap(value: int | None, tier: str | None, scope_type: str | None) -> in
 
 
 def _workspaces(root: Path, tree: list[str], tree_set: set[str]) -> dict:
-    """skf-detect-workspaces.py's verdict on the source root."""
+    """skf-detect-workspaces.py's result over `tree` (its workspaces
+    resolved against those paths), with the content of each root manifest
+    of WORKSPACE_MANIFESTS that `tree_set` lists. No brief scope applies:
+    the monorepo arm reads it through _monorepo."""
     manifests = {}
     for name in WORKSPACE_MANIFESTS:
         if name in tree_set:
@@ -4462,15 +4470,24 @@ def _workspaces(root: Path, tree: list[str], tree_set: set[str]) -> dict:
     return _sibling("skf-detect-workspaces.py").detect({"tree": tree, "manifests": manifests})
 
 
-def _monorepo(root: Path, tree: list[str], tree_set: set[str]) -> tuple[bool, str | None]:
-    """skf-detect-workspaces.py's verdict on the source root: (is it a monorepo, its manifest kind)."""
-    result = _workspaces(root, tree, tree_set)
+def _monorepo(root: Path, tree: list[str], excludes: list[str],
+              glob_match: Callable[[str, str], bool]) -> tuple[bool, str | None]:
+    """Arm (a): (is the source a monorepo, its manifest kind), from
+    skf-detect-workspaces.py over the tree the brief keeps, its
+    scoped_tree: a workspace member counts only through the files no
+    scope.exclude glob matches, every root manifest stays, and a workspace
+    with no member left is none (#780)."""
+    kept = _sibling("skf-detect-workspaces.py").scoped_tree(tree, excludes, glob_match)
+    result = _workspaces(root, kept, set(kept))
     return bool(result.get("is_monorepo")), result.get("manifest_kind")
 
 
 def _workspace_sources(result: dict, tree: list[str], wanted: set[str]) -> list[set[str]]:
-    """The source files (of a language --language selects) of each workspace
-    skf-detect-workspaces.py found, one set per workspace that holds any."""
+    """The source files (of a language --language selects) under each
+    workspace of `result`, one set per workspace that holds any. _scope_facts
+    passes the workspaces skf-detect-workspaces.py finds over the whole
+    tree, scope.exclude aside (unlike arm (a)): a member the brief drops is
+    still part of the repository the brief chose a subset of."""
     sources = []
     for workspace in result.get("workspaces") or [] if result.get("is_monorepo") else []:
         folder = _norm(workspace.get("path") if isinstance(workspace, dict) else "").strip("/")
@@ -4517,8 +4534,10 @@ def curated_subset(counted: set[tuple[str, str, str | None]], basis: str, tree: 
     whole workspace (in a single-package repository, the whole package): the
     files the basis globs list (a tier A list's, among those scope.include
     lists; under arm (b), less those scope.exclude drops) leave out a file
-    that defines a counted public name or, in a monorepo, every source file
-    of a workspace. A basis of all-files lists none."""
+    that defines a counted public name or every source file of one of
+    `workspace_sources` (the workspaces found over the whole tree,
+    scope.exclude aside, so excluding a member the include globs leave out
+    anyway changes nothing). A basis of all-files lists none."""
     if basis == "all-files":
         return False
     files = {f for f in tree if not includes or any(glob_match(f, g) for g in includes)}
@@ -4657,11 +4676,10 @@ def _scope_facts(args: argparse.Namespace, root: Path) -> dict:
                             f"{entry['package']}) is outside the files in scope: widen scope.include to document "
                             "the names it exports (entry_point_diff.outside_scope), which effective_denominator "
                             "leaves out")
-    workspaces = _workspaces(root, tree, tree_set)
-    monorepo = bool(workspaces.get("is_monorepo"))
+    monorepo, monorepo_kind = _monorepo(root, tree, excludes, glob_match)
     arms = {
         "monorepo": monorepo,
-        "monorepo_kind": workspaces.get("manifest_kind"),
+        "monorepo_kind": monorepo_kind,
         "specific_modules": scope_type == "specific-modules" and not monorepo,
         "multi_subpath_exports": not monorepo and any(m["non_root_subpaths"] > 1 for m in maps),
     }
@@ -4671,7 +4689,8 @@ def _scope_facts(args: argparse.Namespace, root: Path) -> dict:
         "in_scope": in_scope, "without_recipes": without_recipes, "unmatched_include": unmatched_include,
         "unmatched_tier_a": unmatched_tier_a, "surfaces": surfaces, "js_entries": js_entries, "maps": maps,
         "unresolved_subpaths": unresolved_subpaths, "py_entries": py_entries, "rust_entries": rust_entries,
-        "entries": entries, "arms": arms, "workspace_sources": _workspace_sources(workspaces, tree, wanted),
+        "entries": entries, "arms": arms,
+        "workspace_sources": _workspace_sources(_workspaces(root, tree, tree_set), tree, wanted),
     }
 
 
