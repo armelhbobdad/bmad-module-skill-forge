@@ -5,3 +5,4 @@ summary: |
 migration: |
   For a skill that now stops at the hard gate on such a gap, run `@Ferris US <skill> --from-test-report` on that test report, or document the parameters by hand, then run Test Skill again.
 issues: [794]
+prs: [850]
