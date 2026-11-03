@@ -31,7 +31,7 @@ answer per input and judges no meaning. For each export name it lists:
   as data or output (`json`, `yaml`, `text`, `console` ...) holds none.
 
 A call is `awaited` when `await` stands before it (through its receiver:
-`await client.fetchData(...)`), `.await` follows it (Rust), an asynchronous
+`await client.fetchData(...)`), `.await` or `?.await` follows it (Rust), an asynchronous
 loop or context manager consumes it (`async for row in stream(...)`, `async
 with session(...)`, `for await (const row of stream(...))`), or it sits in
 the arguments of a call that is itself awaited or is an event-loop runner
@@ -39,6 +39,26 @@ the arguments of a call that is itself awaited or is an event-loop runner
 crossing into a function body. `chainedMember` names the member read or
 called on its result right after it (`then`, `catch`, `join`, `get`), else
 null: whether that waits for the result is the caller's call.
+
+`awaitedVia` says how an awaited call is awaited, null when it is not:
+
+- "direct": the await applies to the call itself (`directlyAwaited`):
+  `.await` follows it, or `await` stands before it with nothing applied to
+  its result (`await client.fetchData(...)`) but a member that waits for an
+  awaitable (`then`, `catch`, `finally`, `ConfigureAwait`), or it alone
+  fills the groups that `await` stands before (`await ((fetchData(x)))`,
+  `await (fetchData(x) as T)`) and nothing follows them but the end of the
+  statement, of a list or of a bracket.
+- "chain": the await applies to an expression the call starts or sits in:
+  a member, subscript or call applied to its result
+  (`await use_context(e).embed(t)`, `await fetchData(x)[0]`) or a group
+  around it (`await (fetchData(x) or other())`).
+- "consumer": an asynchronous loop or context manager consumes it.
+- "argument" or "runner": it sits in the arguments of an awaited call, or of
+  an event-loop runner; `enclosingCallee` names that callee, whitespace
+  removed (`asyncio.gather`, `Promise.all`, `asyncio.run`), else null.
+
+A backslash continuation counts as whitespace throughout.
 
 Name match: the name as a fixed string, case-sensitive, never inside a
 longer identifier (the Export match rule of skf-scan-skill-md-structure.py
@@ -74,9 +94,11 @@ Output (stdout, one object):
         "name": "fetchData",
         "descriptionCount": 3,                    # all found; descriptions[] holds the first 12
         "descriptions": [{"file", "line", "endLine", "kind", "section", "header", "text", "truncated"}],
-        "calls": [{"file", "line", "fence", "language", "awaited", "chainedMember", "text"}],
+        "calls": [{"file", "line", "fence", "language", "awaited", "directlyAwaited", "awaitedVia",
+                   "enclosingCallee", "chainedMember", "text"}],
         "callCount": 2,
-        "awaitedCount": 1
+        "awaitedCount": 1,                        # calls whose `awaited` is true
+        "directlyAwaitedCount": 1                 # calls whose `directlyAwaited` is true
       }
     ],
     "notCalled": ["parseConfig"],                 # names no example calls
@@ -126,9 +148,20 @@ LIST_ITEM_RE = re.compile(r"^\s*(?:[-*+]|\d{1,9}[.)])(?:[ \t]+|$)")
 TABLE_ROW_RE = re.compile(r"^\s*\|")
 TABLE_SEPARATOR_RE = re.compile(r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$")
 GENERIC_OR_PATH = r"(?:[ \t]*::)?(?:[ \t]*<[^<>()\n]*(?:<[^<>()\n]*>[^<>()\n]*)*>)?"
-AFTER_CALL_RE = re.compile(f"\\s*\\??\\.\\s*((?:[^\\W\\d]|\\$)[{IDENT_CHARS}]*)")
+# Whitespace, a Python backslash continuation included; LINE_SPACE stays on its line.
+SPACE = r"(?:\s|\\\n)*"
+LINE_SPACE = r"(?:[ \t]|\\\n)*"
+AFTER_CALL_RE = re.compile(f"{SPACE}[?!]?\\.{SPACE}((?:[^\\W\\d]|\\$)[{IDENT_CHARS}]*)")
 AWAIT_BEFORE_RE = re.compile(f"(?<![{IDENT_CHARS}])await$")
-AWAIT_AFTER_RE = re.compile(f"\\s*\\.\\s*await(?![{IDENT_CHARS}])")
+AWAIT_AFTER_RE = re.compile(f"{SPACE}\\??\\.{SPACE}await(?![{IDENT_CHARS}])")
+# A subscript or call applied to a call's result: `f(x)[0]`, `f(x)(y)`, `f(x)?.[0]`, `f(x)!(y)`.
+APPLIED_RE = re.compile(f"{LINE_SPACE}(?:\\?\\.|!)?[\\[(]")
+# What may close a group that holds only the call (`(f(x) as T)`, `(f(x)!)`), and what may follow
+# the outermost group: the end of the statement, of a list or of a bracket.
+GROUP_TAIL_RE = re.compile(f"{SPACE}(?:!|as(?![{IDENT_CHARS}])[^()]*)?{SPACE}")
+GROUP_END_RE = re.compile(f"{LINE_SPACE}(?:[;,)\\]}}]|\\Z|\\n\\s*(?:[^\\s.?\\[(]|\\Z))")
+# Members whose call waits for an awaitable: under `await`, the export returns one.
+WAIT_MEMBERS = frozenset({"then", "catch", "finally", "ConfigureAwait"})
 # An expression an asynchronous loop or context manager consumes: `async for
 # x in NAME(...)`, `async with NAME(...)`, `for await (const x of NAME(...))`,
 # `await foreach (var x in NAME(...))`. Matched against its line up to it.
@@ -515,7 +548,8 @@ def _matching_open(text, close_idx):
 
 
 def _skip_space_back(text, i):
-    while i > 0 and text[i - 1] in " \t\n":
+    """Back over whitespace, a Python backslash continuation included."""
+    while i > 0 and (text[i - 1] in " \t\n" or (text[i - 1] == "\\" and text.startswith("\n", i))):
         i -= 1
     return i
 
@@ -543,12 +577,35 @@ def _chain_start(text, pos):
         i = start
 
 
+def _await_before(text, start):
+    """True when `await` stands right before the expression that starts at `start`."""
+    return bool(AWAIT_BEFORE_RE.search(text, 0, _skip_space_back(text, start)))
+
+
 def _awaited_at(text, start):
     """True when `await` stands right before the expression that starts at `start`, or an
     asynchronous loop or context manager consumes it."""
-    if AWAIT_BEFORE_RE.search(text, 0, _skip_space_back(text, start)):
+    if _await_before(text, start):
         return True
     return bool(ASYNC_CONSUMER_RE.search(text[text.rfind("\n", 0, start) + 1:start]))
+
+
+def _grouped_await(text, chain, close):
+    """True for `await (call(...))` and `await ((call(...) as T))`: the call alone fills each group
+    around it (a trailing `as T` or `!` allowed), `await` stands before the outermost one, and
+    nothing but the end of the statement, of a list or of a bracket follows it."""
+    start, end = chain, close
+    while end is not None:
+        group = _skip_space_back(text, start) - 1
+        if group < 0 or text[group] != "(":
+            return False
+        end_group = _matching_close(text, group)
+        if end_group is None or not GROUP_TAIL_RE.fullmatch(text, end + 1, end_group):
+            return False
+        if _await_before(text, group):
+            return bool(GROUP_END_RE.match(text, end_group + 1))
+        start, end = group, end_group
+    return False
 
 
 def _is_runner(callee):
@@ -568,7 +625,12 @@ def _opens_body(text, brace_idx):
 
 
 def _enclosing_awaits(text, start):
-    """True when a call around the expression at `start` is awaited or runs it, within one function body."""
+    """How a call or group around the expression at `start` awaits it, within one function body.
+
+    ("runner", callee) for a runner it is an argument of, ("argument", callee) for an awaited or
+    consumed call it is an argument of, ("chain", None) for an awaited group around it and
+    ("consumer", None) for a consumed one; None when nothing around it awaits it.
+    """
     i, depth = start, 0
     while i > 0:
         i -= 1
@@ -583,17 +645,39 @@ def _enclosing_awaits(text, start):
             elif c == "(":
                 k = _skip_space_back(text, i)
                 word = WORD_BEFORE_RE.search(text, 0, k)
+                callee = None
                 if word and word.group(1) not in EXPRESSION_WORDS:
                     expr = _chain_start(text, word.start())
-                    if _is_runner(re.sub(r"\s+", "", text[expr:k])):
-                        return True
+                    callee = re.sub(r"(?:\s|\\\n)+", "", text[expr:k])
+                    if _is_runner(callee):
+                        return "runner", callee
                 else:
                     expr = i  # a grouping `(`: `await (fetch())`
                 close = _matching_close(text, i)
-                if _awaited_at(text, expr) or (close is not None and AWAIT_AFTER_RE.match(text, close + 1)):
-                    return True
+                awaits = _await_before(text, expr) or (close is not None and AWAIT_AFTER_RE.match(text, close + 1))
+                if awaits or _awaited_at(text, expr):
+                    return ("argument", callee) if callee else ("chain" if awaits else "consumer", None)
                 i = expr
-    return False
+    return None
+
+
+def _how_awaited(text, chain, close):
+    """(awaitedVia, enclosingCallee, chainedMember) of the call whose expression starts at `chain`
+    and whose argument list closes at `close`."""
+    before = _await_before(text, chain)
+    member = AFTER_CALL_RE.match(text, close + 1) if close is not None else None
+    chained = member.group(1) if member else None
+    if close is not None and AWAIT_AFTER_RE.match(text, close + 1):
+        return "direct", None, None
+    if member or (close is not None and APPLIED_RE.match(text, close + 1)):
+        if before:
+            return ("direct" if chained in WAIT_MEMBERS else "chain"), None, chained
+    elif before or _grouped_await(text, chain, close):
+        return "direct", None, None
+    if _awaited_at(text, chain):
+        return "consumer", None, chained
+    via, callee = _enclosing_awaits(text, chain) or (None, None)
+    return via, callee, chained
 
 
 def _closes_generic(tail):
@@ -670,15 +754,11 @@ def scan_block(rel, lines, opening, closing, info, patterns):
                     continue
                 if regex is not call_re:
                     continue  # the last part of a qualified name counts only as a declaration
-                awaited, chained = _awaited_at(text, chain), None
-                if close is not None:
-                    if AWAIT_AFTER_RE.match(text, close + 1):
-                        awaited = True
-                    elif member := AFTER_CALL_RE.match(text, close + 1):
-                        chained = member.group(1)
+                via, callee, chained = _how_awaited(text, chain, close)
                 found[name]["calls"].append({
                     "file": rel, "line": opening + row + 2, "fence": opening + 1, "language": language or None,
-                    "awaited": awaited or _enclosing_awaits(text, chain), "chainedMember": chained,
+                    "awaited": via is not None, "directlyAwaited": via == "direct", "awaitedVia": via,
+                    "enclosingCallee": callee, "chainedMember": chained,
                     "text": _cap(body[row].strip(), LINE_TEXT_CAP)[0],
                 })
     return found
@@ -734,6 +814,7 @@ def locate(inp):
         "calls": calls[name],
         "callCount": len(calls[name]),
         "awaitedCount": sum(1 for c in calls[name] if c["awaited"]),
+        "directlyAwaitedCount": sum(1 for c in calls[name] if c["directlyAwaited"]),
     } for name in names if calls[name]]
     not_called = [name for name in names if not calls[name]]
     return {

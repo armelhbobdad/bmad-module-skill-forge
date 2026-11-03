@@ -12,6 +12,10 @@ describes an export, qualified names, line numbers, and the CLI contract.
 The --inventory input reads the validated inventory file coverage-check
 writes and keeps its function and method names. The last section pins the
 §2.5 prose that calls it.
+
+#783: a call's `directlyAwaited` holds only when the await applies to the
+call itself, so §2.5's sync rule no longer raises a High finding for a sync
+export used as an argument of an awaited call or under a chained member.
 """
 
 from __future__ import annotations
@@ -38,8 +42,10 @@ spec.loader.exec_module(mod)
 locate = mod.locate
 
 FRONTMATTER = "---\nname: demo\ndescription: Demo skill. Use when testing.\n---\n\n# demo\n\n"
-EXPORT_KEYS = {"name", "descriptionCount", "descriptions", "calls", "callCount", "awaitedCount"}
-CALL_KEYS = {"file", "line", "fence", "language", "awaited", "chainedMember", "text"}
+EXPORT_KEYS = {"name", "descriptionCount", "descriptions", "calls", "callCount", "awaitedCount",
+               "directlyAwaitedCount"}
+CALL_KEYS = {"file", "line", "fence", "language", "awaited", "directlyAwaited", "awaitedVia", "enclosingCallee",
+             "chainedMember", "text"}
 DESCRIPTION_KEYS = {"file", "line", "endLine", "kind", "section", "header", "text", "truncated"}
 
 
@@ -58,7 +64,19 @@ def _skill(tmp_path: Path, body: str, refs: dict[str, str] | None = None) -> Pat
 def _run(root: Path, names: list[str]) -> dict:
     out = locate({"names": names, "skillPackagePath": str(root)})
     assert "error" not in out, out
+    for export in out["exports"]:
+        for call in export["calls"]:
+            _assert_await_facts_agree(call)
     return out
+
+
+def _assert_await_facts_agree(call: dict) -> None:
+    """#783's invariant, held on every call each fixture of this suite produces: a direct await is an
+    await, `awaitedVia` agrees with both flags, and only an argument or a runner names an enclosing callee."""
+    assert not call["directlyAwaited"] or call["awaited"], call
+    assert call["awaited"] == (call["awaitedVia"] is not None), call
+    assert call["directlyAwaited"] == (call["awaitedVia"] == "direct"), call
+    assert (call["enclosingCallee"] is not None) == (call["awaitedVia"] in ("argument", "runner")), call
 
 
 def _export(out: dict, name: str) -> dict:
@@ -188,6 +206,117 @@ def test_awaited_count_counts_each_call(tmp_path):
     # FRONTMATTER fills lines 1 to 7, so the fence is line 8.
     assert [c["line"] for c in export["calls"]] == [9, 10, 11]
     assert {c["fence"] for c in export["calls"]} == {8}
+
+
+# --------------------------------------------------------------------------
+# #783: directlyAwaited and awaitedVia, how a call is awaited
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("language, code, name, via, callee", [
+    ("python", 'await coco.mount(coco.component_subpath("p", f), g)', "component_subpath", "argument", "coco.mount"),
+    ("python", "d = await other(fetchData(a))", "fetchData", "argument", "other"),
+    ("python", "rows = await asyncio.gather(fetchData(a))", "fetchData", "argument", "asyncio.gather"),
+    ("python", "rows = await asyncio.gather(\n    fetchData(a),\n    other(b),\n)", "fetchData", "argument",
+     "asyncio.gather"),
+    ("python", "rows = await asyncio \\\n    .gather(fetchData(a))", "fetchData", "argument", "asyncio.gather"),
+    ("python", "done, _ = await asyncio.wait([fetchData(a)])", "fetchData", "argument", "asyncio.wait"),
+    ("ts", "await Promise.all([fetchData(a), other(b)]);", "fetchData", "argument", "Promise.all"),
+    ("python", "asyncio.run(fetchData(url))", "fetchData", "runner", "asyncio.run"),
+    ("python", "loop.run_until_complete(\n    fetchData(url)\n)", "fetchData", "runner", "loop.run_until_complete"),
+    ("rust", "rt.block_on(fetchData(url));", "fetchData", "runner", "rt.block_on"),
+    ("python", "async with fetchData(url) as stream:\n    pass", "fetchData", "consumer", None),
+], ids=["argument-of-awaited-call", "argument", "gather", "gather-multiline", "gather-backslash", "wait",
+        "promise-all", "asyncio-run", "run-until-complete-multiline", "block-on", "async-consumer"])
+def test_awaited_through_another_call_is_not_direct(tmp_path, language, code, name, via, callee):
+    """A call in the arguments of an awaited call or of a runner, and one an async loop or context manager
+    consumes, is awaited but never directly; `enclosingCallee` names the call around an argument, on any line,
+    so §2.5 can tell `asyncio.gather` from `Promise.all` (#783)."""
+    out = _run(_skill(tmp_path, _block(language, code)), [name])
+    export = _export(out, name)
+    assert [(c["awaited"], c["directlyAwaited"], c["awaitedVia"], c["enclosingCallee"])
+            for c in export["calls"]] == [(True, False, via, callee)]
+    assert (export["awaitedCount"], export["directlyAwaitedCount"]) == (1, 0)
+
+
+@pytest.mark.parametrize("language, code, name, member", [
+    ("python", "v = await coco.use_context(E).embed(t)", "use_context", "embed"),
+    ("ts", 'const docs = await db.collection("x").find({}).toArray();', "collection", "find"),
+    ("python", "v = await (use_context(E).embed(t))", "use_context", "embed"),
+    ("ts", "const v = await use_context(e)!.embed(t);", "use_context", "embed"),
+    ("python", "v = await coco.use_context(E) \\\n    .embed(t)", "use_context", "embed"),
+    ("python", "v = await \\\n    coco.use_context(E).embed(t)", "use_context", "embed"),
+    ("ts", "const v = await fetchData(x)[0];", "fetchData", None),
+    ("ts", "const v = await fetchData(c)(r);", "fetchData", None),
+    ("ts", "const v = await fetchData(x)?.[0];", "fetchData", None),
+    ("ts", "const v = await fetchData(x)?.(r);", "fetchData", None),
+    ("python", "v = await fetchData(x) \\\n    [0]", "fetchData", None),
+    ("ts", "const v = await (fetchData(x))[0];", "fetchData", None),
+    ("ts", "const v = await (fetchData(x))(y);", "fetchData", None),
+    ("ts", "const v = await (fetchData(x))\n  .embed(t);", "fetchData", None),
+    ("python", "d = await (fetchData(url)).value", "fetchData", None),
+    ("python", "d = await (fetchData(a) or other(b))", "fetchData", None),
+], ids=["python-chain", "ts-chain", "grouped-chain", "ts-non-null-member", "backslash-before-member",
+        "backslash-after-await", "subscript", "call", "optional-subscript", "optional-call", "backslash-subscript",
+        "grouped-subscript", "grouped-call", "grouped-member-newline", "grouped-member", "grouped-with-other"])
+def test_awaited_through_a_chain_is_not_direct(tmp_path, language, code, name, member):
+    """The await applies to a member, subscript or call applied to the call's result, or to a group around the
+    call, so it is not the call's own (#783)."""
+    calls = _calls(tmp_path, language, code, name)
+    assert [(c["awaited"], c["directlyAwaited"], c["awaitedVia"], c["chainedMember"]) for c in calls] == [
+        (True, False, "chain", member)]
+
+
+@pytest.mark.parametrize("language, code", [
+    ("ts", "const d = await fetchData(url);"),
+    ("ts", "const d = await client.api.fetchData(url);"),
+    ("ts", "const d = await client\n  .fetchData(url);"),
+    ("python", "d = await \\\n    fetchData(url)"),
+    ("python", "d = await (fetchData(url))"),
+    ("python", "d = await ( fetchData(url) )\nprint(d)"),
+    ("ts", "const d = await ((fetchData(url)));"),
+    ("ts", "const d = await (fetchData(url) as Data);"),
+    ("ts", "const d = await (fetchData(url)!);"),
+    ("ts", "use(await (fetchData(url)), 1);"),
+    ("rust", "let d = fetchData(url).await?;"),
+    ("rust", "let d = client.fetchData(url)\n    .await;"),
+    ("rust", "let d = fetchData(url)?.await;"),
+    ("swift", "let d = try await fetchData(url)"),
+    ("ts", "await fetchData(url).then((d) => use(d));"),
+    ("ts", "await fetchData(url).catch(report);"),
+    ("ts", "await fetchData(url).finally(done);"),
+    ("cs", "var d = await FetchData(url).ConfigureAwait(false);"),
+], ids=["await", "await-receiver", "await-fluent-newline", "await-backslash", "await-grouping",
+        "await-grouping-spaced", "await-nested-groups", "await-group-as", "await-group-non-null",
+        "await-group-in-arguments", "rust-postfix", "rust-postfix-newline", "rust-try-postfix", "swift-try-await",
+        "then", "catch", "finally", "configure-await"])
+def test_directly_awaited_calls(tmp_path, language, code):
+    """A member that waits for an awaitable (`then`, `ConfigureAwait`) under `await` shows the call returns
+    one, so the await counts as the call's own."""
+    name = "FetchData" if language == "cs" else "fetchData"
+    calls = _calls(tmp_path, language, code, name)
+    assert [(c["awaited"], c["directlyAwaited"], c["awaitedVia"], c["enclosingCallee"]) for c in calls] == [
+        (True, True, "direct", None)]
+
+
+@pytest.mark.parametrize("language, code", [
+    ("ts", "const d = fetchData(url);"),
+    ("ts", "return fetchData(url).then((d) => use(d));"),
+    ("cs", "var t = FetchData(url).ConfigureAwait(false);"),
+    ("python", "task = asyncio.create_task(fetchData(url))"),
+], ids=["plain", "then-unawaited", "configure-await-unawaited", "create-task"])
+def test_unawaited_calls_have_no_via(tmp_path, language, code):
+    name = "FetchData" if language == "cs" else "fetchData"
+    calls = _calls(tmp_path, language, code, name)
+    assert [(c["awaited"], c["directlyAwaited"], c["awaitedVia"], c["enclosingCallee"]) for c in calls] == [
+        (False, False, None, None)]
+
+
+def test_directly_awaited_count_counts_only_direct_calls(tmp_path):
+    code = "a = await fetchData(1)\nb = await asyncio.gather(fetchData(2))\nc = fetchData(3)"
+    export = _export(_run(_skill(tmp_path, _block("python", code)), ["fetchData"]), "fetchData")
+    assert [c["directlyAwaited"] for c in export["calls"]] == [True, False, False]
+    assert (export["callCount"], export["awaitedCount"], export["directlyAwaitedCount"]) == (3, 2, 1)
 
 
 # --------------------------------------------------------------------------
@@ -524,7 +653,8 @@ def test_async_check_runs_the_script_on_function_and_method_names():
     call = 'uv run {locateExportSegmentsScript} --inventory "{run_dir}/inventory.json" --skill-dir "{resolved_skill_package}"'
     assert call in section
     assert "echo '" not in section
-    for field in ("`descriptions[]`", "`awaitedCount`", "`chainedMember`", "`notCalled[]`"):
+    for field in ("`descriptions[]`", "`awaitedCount`", "`directlyAwaitedCount`", "`awaitedVia`",
+                  "`enclosingCallee`", "`chainedMember`", "`notCalled[]`"):
         assert field in section, field
 
 
@@ -543,13 +673,37 @@ def test_async_check_findings():
     assert ("**async**, no call is awaited (`awaitedCount` is 0) and no unawaited call hands its result on "
             "→ **High severity** finding: `naive-coherence: \\`{name}\\` described as async but example lacks "
             "\\`await\\``") in section
-    assert ("**sync** and `awaitedCount` is above 0 → **High severity** finding: `naive-coherence: "
-            "\\`{name}\\` described as sync but example awaits it`") in section
+    # #783: a direct await of a sync export is a High finding, and so is an argument of a call that needs
+    # awaitables, its own bullet so it fires when no call is directly awaited; JS's combinators raise nothing.
+    assert ("- **sync** and `directlyAwaitedCount` is above 0 → **High severity** finding: `naive-coherence: "
+            "\\`{name}\\` described as sync but example awaits it` (cite the first directly awaited call). "
+            "- **sync**, `directlyAwaitedCount` is 0 and a call sits in the arguments of a call that needs "
+            "awaitable arguments → the same **High severity** finding (cite the first such call's `file` and "
+            "`line`): its `awaitedVia` is `runner` (a runner such as Python `asyncio.run` or "
+            "`loop.run_until_complete`, Rust `block_on`), or `argument` with an `enclosingCallee` of Python "
+            "`asyncio.gather`, `asyncio.wait` or `asyncio.wait_for`. JavaScript `Promise.all`, `Promise.race` and "
+            "`Promise.allSettled` accept plain values, so a call in their arguments raises nothing, and neither "
+            "does any other call that is `awaited` but not `directlyAwaited` (`awaitedVia` `chain`, `consumer`, "
+            "or `argument` of another callee).") in section
+    assert "**sync** and `awaitedCount`" not in section
+    # The intro names each way a call is awaited, so the model can read the fields the bullets use.
+    for via in ("`direct`", "`chain`", "`consumer`", "`argument`", "`runner`"):
+        assert via in section[:section.index("```bash")], via
     # An unawaited call still hands its result on when it is chained, returned or stored.
     start = section.index("A call hands its result on when")
     handed_on = section[start:section.index("read the call lines", start)]
     for way in ("`chainedMember`", "the example returns it", "stores it and awaits it later"):
         assert way in handed_on, way
+
+
+def test_async_check_findings_cite_the_calls_own_file():
+    """#783: the cited call can sit in a references/*.md file, so a §2.5 finding's Source is its file."""
+    text = _flow(COHERENCE.read_text(encoding="utf-8"))
+    record = text[text.index("Then write the records no script wrote"):]
+    record = record[:record.index("each §5 incomplete integration pattern")]
+    assert ("the §2.5 findings, titled with their `naive-coherence:` text and with their Source at the cited "
+            "call's `{file}:{line}`;") in record
+    assert "`SKILL.md:{line}`" not in record
 
 
 def test_every_naive_finding_title_uses_one_separator():

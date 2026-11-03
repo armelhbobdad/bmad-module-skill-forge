@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill no longer raises a High finding that blocks the hard gate when an example awaits a function the skill describes as sync only through another call: as an argument of an awaited call (`await coco.mount(coco.component_subpath("p", f), g)`), or under a member chained after it (`await coco.use_context(E).embed(t)`). `locate-export-segments.py` now reports for each call whether the await applies to the call itself (`directlyAwaited`) and how it is awaited (`awaitedVia`, with the `enclosingCallee` of an enclosing call), and the sync check raises its finding only for a call awaited directly, or for one in the arguments of an awaited `asyncio.gather`, `asyncio.wait` or `asyncio.wait_for` or of a runner such as `asyncio.run`, `loop.run_until_complete` or Rust's `block_on`. The finding's Source now cites the file of the call it names, which can be a `references/*.md` file, instead of always `SKILL.md`.
+issues: [783]
