@@ -91,10 +91,13 @@ provenance map): for a gap with an `export` (null for one with none),
    "candidates": [{"source_file", "source_line", "export_type"}, ...]}
 
 `candidates` holds every entries[] row whose export_name is the export, in
-the map's order. With a `source_citation`, only the rows whose source_file
-is the citation's file count (both compared stripped, with backslashes read
-as `/` and no leading `./`), and of several such rows the one whose
-source_line is the citation's line. Without one, every candidate counts.
+the map's order; when no row has that export_name, every row whose
+`reexported_as` is the export (one the map holds under its declared name,
+which a gap names by the public name a re-export gives it), each view then
+adding the row's own `export_name`. With a `source_citation`, only the
+rows whose source_file is the citation's file count (both compared
+stripped, with backslashes read as `/` and no leading `./`), and of
+several such rows the one whose source_line is the citation's line. Without one, every candidate counts.
 One row left is `found` (its `entry`), several are `ambiguous` (a spot-check
 of the wrong one would move another export's line) and none is `not-found`.
 `match` prints {"status": "ok", "name", "citation", "map_match"} for a name
@@ -889,10 +892,16 @@ def _line_number(value: object) -> int | None:
 def map_match(entries: list, name: str, citation: dict | None) -> dict:
     """The provenance map entry an export names, keyed on its citation (see "Map match" in the module docstring)."""
     def view(entry: dict) -> dict:
-        return {key: entry.get(key) for key in ("source_file", "source_line", "export_type")}
+        out = {key: entry.get(key) for key in ("source_file", "source_line", "export_type")}
+        if entry["export_name"].strip() != name.strip():  # matched by its reexported_as: the name to check
+            out["export_name"] = entry["export_name"]
+        return out
 
-    named = [e for e in entries if isinstance(e, dict) and isinstance(e.get("export_name"), str)
-             and e["export_name"].strip() == name.strip()]
+    def named_by(key: str) -> list[dict]:
+        return [e for e in entries if isinstance(e, dict) and isinstance(e.get("export_name"), str)
+                and isinstance(e.get(key), str) and e[key].strip() == name.strip()]
+
+    named = named_by("export_name") or named_by("reexported_as")
     left = named
     if citation:
         cited = _norm_file(citation.get("file"))

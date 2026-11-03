@@ -763,6 +763,22 @@ def test_map_match(name, citation, status, entry):
     assert match["candidates"] == [_view(e) for e in MAP_ENTRIES if e["export_name"] == name]
 
 
+def test_map_match_finds_a_renamed_reexport_by_its_public_name():
+    """#807: update-skill maps a renamed re-export under its declared name, `reexported_as` its public one, which a
+    gap names; the lookup finds that entry and gives the name a spot-check reads."""
+    public = "experimental_MockUniversalStore"
+    entries = [*MAP_ENTRIES, {**_entry("MockUniversalStore", "store/mock.ts", 3, "class"), "reexported_as": public}]
+    view = {**_view(entries[-1]), "export_name": "MockUniversalStore"}
+    assert mod.map_match(entries, public, None) == {"status": "found", "entry": view, "candidates": [view]}
+    # a citation keys it as any other
+    assert mod.map_match(entries, public, {"file": "store/other.ts", "line": 3})["status"] == "not-found"
+    # the declared name finds its own entry, with no export_name; an entry of the exact name wins
+    assert mod.map_match(entries, "MockUniversalStore", None)["entry"] == _view(entries[-1])
+    entries.append(_entry(public, "store/index.ts", 1))
+    assert mod.map_match(entries, public, None) == {"status": "found", "entry": _view(entries[-1]),
+                                                    "candidates": [_view(entries[-1])]}
+
+
 def test_parse_adds_each_gap_its_map_match(tmp_path: Path):
     ledger = write_ledger(tmp_path / "findings.json", "coverage-check", LEDGER_RECORDS)
     prov = tmp_path / "provenance-map.json"

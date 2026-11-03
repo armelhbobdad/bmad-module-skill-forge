@@ -67,7 +67,7 @@ From the [MANUAL] inventory captured in step 1:
 
 ### 3. Apply Merge by Priority Order
 
-Read this step's inputs from disk, never from memory: the change manifest from `{run_dir}/change-manifest.json` (step 2, or gap-driven.md §1 in gap-driven mode), the extraction or verification records from `{run_dir}/reextract-records.json` (step 3, or gap-driven.md §4), and the documents step 2 §1b promoted from `{run_dir}/promoted-docs.json` when it wrote that file. A compacted context still merges what those steps found.
+Read this step's inputs from disk, never from memory: the change manifest from `{run_dir}/change-manifest.json` (step 2, or gap-driven.md §1 in gap-driven mode), the extraction or verification records from `{run_dir}/reextract-records.json` (step 3, or gap-driven.md §4), and the documents step 2 §1b promoted from `{run_dir}/promoted-docs.json` when it wrote that file. A compacted context still merges what those steps found. A gap-driven record in `files` that carries a `local` name was matched by its public name (a renamed re-export): document it under that public name, its `name`, saying it re-exports the declared `local` name.
 
 Apply merge in the following priority order.
 

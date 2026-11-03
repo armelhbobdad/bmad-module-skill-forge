@@ -321,14 +321,16 @@ Apply (update-skill write.md §3):
   gap-driven reads --reextract-records ({"mode": "gap-driven",
   "verification": [...], "files": [...]}) and --merge-records ({"exports":
   [{export_name, export_type, params, return_type}]}, merge's output for
-  an export no record covers). Each verification record names
+  an export no record covers). Each verification record names gap_id,
   export_name, gap_category, severity, verification, in_map (the map holds
   an entry of that name), map_entry ({source_file, source_line} of the one
   entry the spot-check took, else null), source_citation, new_location,
   unknown_reason, pinned_definition_lines, reachability, and the located
   export's export_type, params, return_type, extraction_method and
   ast_node_type (from §4a's record at its line, see "Gap records"; null
-  when none holds it):
+  when none holds it). It finds an export's entry by its name, else by the
+  entry's reexported_as (a renamed re-export the map holds under its
+  declared name, which the gap names by its public one):
     verified (map_entry)    unchanged, but a NEW_EXPORT's or
                             MODIFIED_EXPORT's signature (below) when its
                             record was found
@@ -336,7 +338,11 @@ Apply (update-skill write.md §3):
                             and a NEW_EXPORT's or MODIFIED_EXPORT's
                             signature (below) when its record was found
     re-extracted            the entry from its `files` record (gap-driven.md §4a);
-                            none when its reachability is internal-unreachable
+                            none when its reachability is internal-unreachable;
+                            a record with a `local` name (matched by the
+                            public name a re-export gives it) writes
+                            export_name the declared `local` name, at its
+                            line, and reexported_as the public one
     verified/moved, not in_map, a NEW_EXPORT or MODIFIED_EXPORT whose
     reachability is not internal-unreachable
                             one source-read entry at the citation's line
@@ -350,7 +356,20 @@ Apply (update-skill write.md §3):
     unknown, not in_map, any other severity (a missing one included)
                             refused: exit 3, nothing written
     missing, unknown in_map, unknown on a MOVED_EXPORT
-                            unchanged, with a warning for a person
+                            unchanged, with a warning for a person that
+                            names an unknown's unknown_reason and its
+                            words (UNKNOWN_REASONS); for a NEW_EXPORT or
+                            MODIFIED_EXPORT whose severity is not Medium,
+                            Low or Info (a missing one included), the
+                            warning also names its gap_id and the one
+                            fix a re-run acts on: for an ambiguous one,
+                            fix its entries by hand, or give the gap a
+                            `file:line` Source at its definition when
+                            that file holds only one of them (the
+                            re-run's map_match then finds that one); for
+                            any other, fix the entry by hand (its
+                            source_file and source_line), since the
+                            re-run checks the same entry again
     rescoped                the entry removed
   The signature: when §4a found the export's record (its verification
   record has an extraction_method), every part from it, a params or
@@ -365,7 +384,7 @@ Apply (update-skill write.md §3):
   it changes is listed in `relabeled`, {name, file, from, to}, each with a
   warning. An internal-unreachable NEW_EXPORT takes none.
   Under the drift override (--drift-head and --drift-pinned) each warning
-  names the drift.
+  names the drift, after the outcome's cause.
 
   full (degraded mode) makes every fresh record an entry.
 
@@ -393,8 +412,9 @@ Apply (update-skill write.md §3):
   --metadata-in exports[] less each name whose entry this run removed (a
   DELETED_EXPORT, a DELETED file's or a MOVED file's old path's, a
   rescoped one, a changed URL's) or renamed, unless an entry of the new
-  map still holds it, then each name it added an entry for or renamed an
-  entry to, each once; a renamed name takes its old name's place. A name
+  map still holds it, then each name it added an entry for (the entry's
+  reexported_as when it has one, the public name) or renamed an entry to,
+  each once; a renamed name takes its old name's place. A name
   left out as off the public surface (the summary's not_public) has no
   entry, so it is not added. A full update, which rebuilds the map, also
   drops each name the new map does not hold, and a reference app
@@ -487,6 +507,16 @@ it scans):
   no seed holds is not added, with a warning. confidence_breakdown counts
   the exports by confidence, and T2 the exports with a qmd_evidence.
 
+  Aliases. Each --extraction entry_point_diff `public` item, and each
+  member of a namespace item, whose `local` differs from its `name` gives
+  its name to the record of its `local` name and file, when one is seeded:
+  that record's `aliases` lists each such public name once, sorted (an
+  export re-exported under another name, `export { MockUniversalStore as
+  experimental_MockUniversalStore }`, keeps its declared name and carries
+  the public one). A record no item renames has no `aliases`, and with
+  no entry_point_diff (Quick tier, a runner exit 3, an export read by
+  eye) no record has any.
+
   Public surface. When --extraction's scope.type is public-api (in any
   case) and it has an entry_point_diff, each export of a language family
   whose entry_points.by_language status is `barrel` is marked `public`:
@@ -539,7 +569,8 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
                               its remediation's "definition line(s) (...)"
        NEW_EXPORT, MODIFIED_EXPORT
          map_match found      checked at the map entry (its export_type)
-         ambiguous            unknown
+         ambiguous            unknown, unknown_reason ambiguous (several
+                              map entries of its name: no check runs)
          not-found            checked at its source_citation (no export
                               type) when it has one; when that pins no
                               line (unknown or missing), or with no
@@ -552,14 +583,24 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
      A check gives `verified` (the line is a definition line, or a module
      or package entry whose file exists), `moved` (one definition line,
      not the recorded one: new_location), `missing` (no such file) or
-     `unknown` (several definition lines, none the recorded one, or
-     none). A file the rules cover no language of
-     takes the answered `declaring_line`: the recorded line is verified,
-     another is moved, null is unknown. With no verifier every check is
-     unknown, with a `provenance: spot-checks not run` warning; a check
-     the verifier fails on (a file it cannot read, or any error) is
-     unknown, with a `provenance: spot-check failed for {name}: {error}`
-     warning.
+     `unknown`, its unknown_reason `several-definitions` (several
+     definition lines, none the recorded one) or `no-definition` (none).
+     A file the rules cover no language of takes the answered
+     `declaring_line`: the recorded line is verified, another is moved,
+     null is unknown (`unchecked-language`). With no --source-root every
+     check is unknown (`no-source-root`); with no verifier every check is
+     unknown (`verifier-missing`), with a `provenance: spot-checks not
+     run` warning; a check the verifier fails on (a file it cannot read,
+     or any error) is unknown (`spot-check-failed`), with a `provenance:
+     spot-check failed for {name}: {error}` warning; a map entry with no
+     file or line is unknown (`no-line`). UNKNOWN_REASONS gives each its
+     words. Every other outcome has a null unknown_reason. A map_match
+     whose entry carries its own export_name (skf-parse-gaps matched it
+     by its reexported_as) is checked under that name.
+     A NEW_EXPORT or MODIFIED_EXPORT whose map_match is found or
+     ambiguous never goes to targeted re-extraction, whatever its
+     severity: one that ends missing or unknown keeps its map entry
+     unchanged, and apply warns (see "Apply").
      A NEW_EXPORT or MODIFIED_EXPORT a check gives verified or moved, at
      its map entry or at a citation the map holds no entry of its name
      for, is located: its signature_at is the checked file and the
@@ -577,18 +618,27 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
   4. Targeted re-extraction (--remediation-records, `records`' output
      over those files): each routed entry with resolved_paths takes the
      first export of its name in the blocks of those files, in their
-     order: `re-extracted`, new_location its record's location,
+     order, else the first whose `aliases` hold it (matched by name, or
+     by the public name the runner gives its local name in that file,
+     see "Records"): `re-extracted`, new_location its record's location,
      resolution_source remediation-paths, and the record copied into
      `files` as `records` wrote it, less its `public` mark (a normal
-     update's), with the answered `docstring` added.
+     update's) and its `aliases`, with the answered `docstring` added. A
+     record matched by an alias is copied with `name` the public name and
+     `local` its own name. The aliases come from the runner's
+     entry_point_diff, so at Forge tier and above only: at Quick tier, or
+     when the runner exits 3 and §4a reads the files by eye, a gap naming
+     a renamed re-export by its public name matches no record.
      An entry with no match, or no path to scan, is unresolved, except a
      missing-export or missing-type one that is not blocking, which is
      unknown. Any unresolved entry: {"status": "unresolved",
      "unresolved": [{gap_id, name, severity, remediation_paths,
      rejected_paths, files_scanned, exports_found_in_scan}]}.
-     Each located export takes the one record of its name in the block
-     of its file at its line, else the one with no line: the record
-     copied into `files` less its `public` mark, with no docstring asked
+     Each located export takes the one record of its name (or of its map
+     entry's own export_name) in the block of its file at its line, else
+     the one with no line: the record copied into `files` as above, under
+     the gap's name, less its `public` mark and `aliases`, with no
+     docstring asked
      (one copy per name and location, or per record with no location),
      and its type, params, return_type, extraction_method and
      ast_node_type on the verification record. One with no such record
@@ -614,13 +664,13 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
   "unlabeled", "T2": 0} (each manifest entry by the extraction_method of
   its re-extracted record or, in the map, of its map entry; a pinned cited
   export the map lacks and the gate passed is T1-low), "verification":
-  [one record per export-bearing entry: export_name, gap_category,
-  severity, verification, in_map, map_entry, provenance_citation,
-  source_citation, new_location, unknown_reason, pinned_definition_lines,
-  resolution_source, reachability, and export_type, params, return_type,
-  extraction_method and ast_node_type (a located export's record's, step
-  4; else null, and apply takes the signature of an entry it adds from
-  merge.md's merge-records.json)],
+  [one record per export-bearing entry: gap_id, export_name,
+  gap_category, severity, verification, in_map, map_entry,
+  provenance_citation, source_citation, new_location, unknown_reason,
+  pinned_definition_lines, resolution_source, reachability, and
+  export_type, params, return_type, extraction_method and ast_node_type
+  (a located export's record's, step 4; else null, and apply takes the
+  signature of an entry it adds from merge.md's merge-records.json)],
   "files": [...]}, and prints {"status": "written",
   "output", "gap_count", "files_extracted", "exports_extracted",
   "confidence_breakdown", "counts" (per verification outcome, and
@@ -1557,7 +1607,7 @@ def _without_none(fields: dict, keep: tuple = ()) -> dict:
 
 def _new_entry(fields: dict, library: str) -> dict:
     """An entry in create-skill's key order, from the fields a record gives."""
-    order = ("export_name", "export_type", "source_library", "params", "return_type", "source_file",
+    order = ("export_name", "reexported_as", "export_type", "source_library", "params", "return_type", "source_file",
              "source_line", "confidence", "extraction_method", "ast_node_type", "signature_source")
     merged = {**fields, "source_library": fields.get("source_library") or library}
     out = {k: merged[k] for k in order if k in merged and (merged[k] is not None or k == "ast_node_type")}
@@ -1661,10 +1711,17 @@ class _Map:
         self._library_of[path] = library
         return library
 
-    def find(self, name: str, path: str | None, line: int | None = None) -> int | None:
-        """The index of the entry with this name (and file, and line when several share both)."""
-        hits = [i for i, e in enumerate(self.doc["entries"]) if isinstance(e, dict) and _name_of(e) == name
-                and (path is None or _file_of(e) == path)]
+    def find(self, name: str, path: str | None, line: int | None = None, *, reexport: bool = False) -> int | None:
+        """The index of the entry with this name (and file, and line when several share both); with `reexport`,
+        when no entry has the name, of the entry whose reexported_as is the name (a gap names a renamed re-export
+        by its public name)."""
+        def hits_of(key) -> list[int]:
+            return [i for i, e in enumerate(self.doc["entries"]) if isinstance(e, dict) and key(e) == name
+                    and (path is None or _file_of(e) == path)]
+
+        hits = hits_of(_name_of)
+        if not hits and reexport:
+            hits = hits_of(lambda e: e.get("reexported_as"))
         if len(hits) > 1 and line is not None:
             hits = [i for i in hits if _line_of(self.doc["entries"][i].get("source_line")) == line]
         return hits[0] if len(hits) == 1 else None
@@ -1886,18 +1943,44 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
                                     f"{new}, from the {method} record of its signature")
         pmap.update(index, fields, drop)
 
+    note = _drift_note(drift)
+
+    def why(r: dict) -> str:
+        """The cause of an `unknown` outcome its record gives, `<unknown_reason>: <words>`, else ''."""
+        reason = r.get("unknown_reason")
+        return f"{reason}: {UNKNOWN_REASONS[reason]}" if r.get("verification") == "unknown" \
+            and reason in UNKNOWN_REASONS else ""
+
+    def unchecked(r: dict) -> str | None:
+        """The warning for a blocking NEW_EXPORT or MODIFIED_EXPORT the map holds that its spot-check could not
+        locate (missing, or unknown for a cause its unknown_reason names), which stays unchanged: the gap, the
+        export, the outcome, its cause and the one fix a re-run acts on; None for any other record."""
+        outcome = r.get("verification")
+        if outcome not in ("missing", "unknown") or not in_map(r) or not _blocking(r.get("severity")) \
+                or r.get("gap_category") not in ("NEW_EXPORT", "MODIFIED_EXPORT"):
+            return None
+        name, gap = _name_of(r), r.get("gap_id")
+        path = _location(r.get("map_entry"))[0]
+        cause = f"its map entry's file{f' {path}' if path else ''} is gone" if outcome == "missing" else why(r)
+        detail = "; ".join(part for part in (cause, note) if part)
+        if r.get("unknown_reason") == "ambiguous":  # a Source at the definition lets the re-run's lookup pick one
+            fix = ("its entries are left unchanged. Fix its entries by hand, or give the gap a `file:line` Source at "
+                   "its definition when that file holds only one of them, then re-run update-skill")
+        else:  # the re-run checks the same map entry again: only a hand fix changes it
+            fix = ("its entry is left unchanged. Fix the entry by hand (set its source_file and source_line to the "
+                   "line that defines it), then re-run update-skill")
+        return f"provenance: {name}{f' ({gap})' if gap else ''}: {outcome}{f' ({detail})' if detail else ''}; {fix}"
+
     blocking = [{"export_name": _name_of(r), "severity": r.get("severity")} for r in verification
                 if r.get("verification") == "unknown" and not in_map(r)
-                and r.get("gap_category") in ("NEW_EXPORT", "MODIFIED_EXPORT")
-                and str(r.get("severity") or "").strip().lower() not in NON_BLOCKING]
+                and r.get("gap_category") in ("NEW_EXPORT", "MODIFIED_EXPORT") and _blocking(r.get("severity"))]
     if blocking:
         return blocking
-    note = _drift_note(drift)
     pinned_keys: set[tuple] = set()
     for r in verification:
         name, outcome, category = _name_of(r), r.get("verification"), r.get("gap_category")
         entry_file, entry_line = _location(r.get("map_entry"))
-        index = pmap.find(name, entry_file, entry_line) if r.get("map_entry") else None
+        index = pmap.find(name, entry_file, entry_line, reexport=True) if r.get("map_entry") else None
         lines = r.get("pinned_definition_lines")
         r5 = f"; definition lines per the test report: {lines}" if category == "MOVED_EXPORT" else ""
         if outcome == "rescoped":
@@ -1918,7 +2001,11 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
             if record is None:
                 warnings.append(f"provenance: {name}: re-extracted, but no record of it in the run's files")
                 continue
-            existing = pmap.find(name, path)
+            local = (reextracted.worker.get((name, path)) or {}).get("local")
+            if isinstance(local, str) and local and local != name:
+                # matched by the public name a re-export gives it: the entry keeps its declared name
+                record = {**record, "export_name": local, "reexported_as": name}
+            existing = pmap.find(name, path, reexport=True)
             if existing is None:
                 pmap.add(_new_entry(record, pmap.library_for(path, name)))
             else:
@@ -1928,7 +2015,8 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
                 continue
             where = r.get("source_citation") if outcome == "verified" else r.get("new_location")
             path, line = _location(where)
-            if not path or line is None or (name, path) in pinned_keys or pmap.find(name, path) is not None:
+            if not path or line is None or (name, path) in pinned_keys \
+                    or pmap.find(name, path, reexport=True) is not None:
                 continue
             pinned_keys.add((name, path))
             # the signature its record gives, else merge's; the source-read labels whatever the record's tool
@@ -1943,10 +2031,12 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
         else:
             if r.get("unknown_reason") == "drift-override":
                 warnings.append(f"provenance: {name}: unknown ({note}; no line taken from HEAD{r5})")
+            elif (warning := unchecked(r)) is not None:
+                warnings.append(warning)
             elif drift:
-                warnings.append(f"provenance: {name}: {outcome} ({note}{r5})")
+                warnings.append(f"provenance: {name}: {outcome} ({why(r) + '; ' if why(r) else ''}{note}{r5})")
             else:
-                warnings.append(f"provenance: {name}: {outcome}{r5}")
+                warnings.append(f"provenance: {name}: {outcome}{f' ({why(r)})' if why(r) else ''}{r5}")
     return len(pmap.touched_files), len(verification)
 
 
@@ -2027,6 +2117,9 @@ def exports_after(metadata: object, pmap: _Map, update_type: str) -> list:
         return []
     current = metadata.get("exports") if isinstance(metadata.get("exports"), list) else []
     held = {_name_of(e) for e in pmap.doc["entries"] if isinstance(e, dict)} - {None}
+    # an entry added under its declared name, re-exported under a public one: exports[] lists the public name
+    public = {_name_of(e): e["reexported_as"] for e in pmap.doc["entries"]
+              if isinstance(e, dict) and isinstance(e.get("reexported_as"), str) and e["reexported_as"]}
     renamed = dict(pmap.renamed)
     gone = ({n for n in pmap.removed if n} | set(renamed)) - held
     if update_type == "full":
@@ -2046,8 +2139,8 @@ def exports_after(metadata: object, pmap: _Map, update_type: str) -> list:
             put(new, new if new in held else None)
         else:
             put(item, name)
-    for name in pmap.added + [new for _old, new in pmap.renamed]:
-        put(name, name if name in held else None)
+    for name in [public.get(n, n) for n in pmap.added] + [new for _old, new in pmap.renamed]:
+        put(name, name if name in held or name in public.values() else None)
     return out
 
 
@@ -2528,6 +2621,19 @@ def build_records(extraction: dict | None, details: dict | None, files: list | N
                 if patch.get(field) is not None:
                     seeded[key][field] = patch[field]
             fill_if_null(key, patch)
+    diff = extraction.get("entry_point_diff") if isinstance(extraction, dict) else None
+    aliases: dict[tuple, set] = {}
+    for item in (diff.get("public") if isinstance(diff, dict) else None) or []:
+        members = item.get("members") if isinstance(item, dict) and item.get("via") == "namespace" else None
+        for named in [item, *(members if isinstance(members, list) else [])]:
+            if not isinstance(named, dict):
+                continue
+            name, local = named.get("name"), named.get("local")
+            key = (local, _norm_path(named.get("file")))
+            if isinstance(name, str) and name and isinstance(local, str) and local != name and key in seeded:
+                aliases.setdefault(key, set()).add(name)  # the public name the runner gives `local` in that file
+    for key, names in aliases.items():
+        seeded[key]["aliases"] = sorted(names)
     surface, _problem = public_surface(extraction)  # apply warns when a public-api run gives no surface
     for key in seeded if surface is not None else ():
         mark = surface.public(key[0], key[1], languages.get(key))
@@ -2568,6 +2674,19 @@ DRIFT_IN_MAP = "a signature from the tree"
 REACHABILITY = ("public", "internal-unreachable")
 VERIFIER_MISSING = "provenance: spot-checks not run: skf-verify-provenance-completeness.py is missing; re-install SKF"
 OUTCOMES = ("verified", "moved", "missing", "re-extracted", "rescoped", "unknown")
+# Why an entry ends `unknown` (its unknown_reason, see "Gap records"), with the words apply's warning gives it.
+UNKNOWN_REASONS = {
+    "ambiguous": "several map entries of its name",
+    "no-definition": "no line of its file defines it, by the definition-line rules",
+    "several-definitions": "several lines of its file define it, none the recorded one",
+    "unchecked-language": "the definition-line rules cover no language of its file, and no line was answered as "
+                          "declaring it",
+    "no-line": "its map entry gives no file or line to check",
+    "spot-check-failed": "the spot-check failed",
+    "verifier-missing": "skf-verify-provenance-completeness.py is missing",
+    "no-source-root": "no source tree to check",
+    "drift-override": "the drift override kept its line from being moved",
+}
 _DEFINITION_LINES = re.compile(r"definition lines?\s*\(([\d,\s]+)\)", re.IGNORECASE)
 _VERIFIER = None
 
@@ -2624,35 +2743,39 @@ def _drift_reason(entry: dict) -> str | None:
 
 
 def _spot_check(root: Path | None, path: str | None, name: str, line: int | None, export_type: object,
-                answers: dict) -> tuple[str, int | None, bool, str | None]:
+                answers: dict) -> tuple[str, int | None, bool, str | None, str | None]:
     """(outcome, the line a `moved` export moves to, whether it waits on a `declaring_line` answer, why the
-    check failed)."""
+    check failed, why it is `unknown`: an UNKNOWN_REASONS key)."""
+    if root is None:
+        return "unknown", None, False, None, "no-source-root"
     verifier = _verifier()
-    if verifier is None or root is None or not path or line is None:
-        return "unknown", None, False, None
+    if verifier is None:
+        return "unknown", None, False, None, "verifier-missing"
+    if not path or line is None:
+        return "unknown", None, False, None, "no-line"
     try:
         report = verifier.definition_lines_report(path, name, root, line,
                                                   export_type if isinstance(export_type, str) else None)
     except Exception as exc:  # noqa: BLE001 - a file it cannot read, or any verifier failure: this entry only
-        return "unknown", None, False, f"{type(exc).__name__}: {exc}"
+        return "unknown", None, False, f"{type(exc).__name__}: {exc}", "spot-check-failed"
     check = report.get("line_check")
     if check == "file-missing":
-        return "missing", None, False, None
+        return "missing", None, False, None, None
     if check == "skipped-export-type":
-        return "verified", None, False, None
+        return "verified", None, False, None, None
     if check == "skipped-language":
         if "declaring_line" not in answers:
-            return "unknown", None, True, None
+            return "unknown", None, True, None, None
         declared = answers["declaring_line"]
         if declared is None:
-            return "unknown", None, False, None
-        return ("verified", None, False, None) if declared == line else ("moved", declared, False, None)
+            return "unknown", None, False, None, "unchecked-language"
+        return ("verified", None, False, None, None) if declared == line else ("moved", declared, False, None, None)
     if report.get("line_is_definition"):
-        return "verified", None, False, None
+        return "verified", None, False, None, None
     defs = report.get("definition_lines") or []
     if len(defs) == 1 and defs[0] != line:
-        return "moved", defs[0], False, None
-    return "unknown", None, False, None
+        return "moved", defs[0], False, None, None
+    return "unknown", None, False, None, "several-definitions" if defs else "no-definition"
 
 
 def _pinned_lines(remediation: object) -> list[int] | None:
@@ -2693,6 +2816,8 @@ class _GapEntry:
         self.map_entry = {"source_file": found.get("source_file"), "source_line": found.get("source_line")} \
             if found else None
         self.map_export_type = found.get("export_type") if found else None
+        # the map entry's own name when skf-parse-gaps matched it by its reexported_as (the gap names the public one)
+        self.declared = _name_of(found) if found and _name_of(found) else self.name
         self.in_map = bool(match.get("candidates"))
         citation = entry.get("source_citation")
         self.citation = citation if isinstance(citation, dict) else None
@@ -2717,8 +2842,8 @@ class _GapEntry:
 
     def check(self, root: Path | None, path: object, line: object, export_type: object) -> None:
         self.recorded = (_norm_path(path), _line_of(line))
-        self.outcome, self.new_line, self.waits, self.failure = _spot_check(
-            root, self.recorded[0], self.name, self.recorded[1], export_type, self.answers)
+        self.outcome, self.new_line, self.waits, self.failure, self.unknown_reason = _spot_check(
+            root, self.recorded[0], self.declared, self.recorded[1], export_type, self.answers)
 
     def locate(self, root: Path | None) -> None:
         """Record where a check located the export (the checked file, at the recorded line or the one it moved
@@ -2731,7 +2856,7 @@ class _GapEntry:
         """Take the one record of the entry's name in the block of the file it was located in that is at its line,
         else the one with no line; none otherwise."""
         path, line = self.signature_at
-        named = [r for r in blocks.get(path, []) if _name_of(r) == self.name]
+        named = [r for r in blocks.get(path, []) if _name_of(r) in (self.name, self.declared)]
         at = [r for r in named if _line_of(r.get("location")) == line] \
             or [r for r in named if _line_of(r.get("location")) is None]
         if len(at) == 1:
@@ -2756,8 +2881,8 @@ class _GapEntry:
             self.check(root, self.map_entry["source_file"], self.map_entry["source_line"], self.map_export_type)
             self.locate(root)
             return
-        if self.match_status == "ambiguous":
-            self.outcome = "unknown"
+        if self.match_status == "ambiguous":  # several map entries of its name: no check, apply warns
+            self.outcome, self.unknown_reason = "unknown", "ambiguous"
             return
         if self.citation:
             self.check(root, self.citation.get("file"), self.citation.get("line"), None)
@@ -2775,14 +2900,20 @@ class _GapEntry:
             self.outcome = "unknown"
 
     def match(self, blocks: dict[str, list[dict]]) -> tuple[int, int]:
-        """Take the first export of the entry's name in the blocks of its resolved files; (files scanned, exports
-        found in them)."""
+        """Take the first export of the entry's name in the blocks of its resolved files, else the first whose
+        `aliases` hold its name (the public name the runner gives its local name in that file); (files scanned,
+        exports found in them)."""
         exports = 0
+        aliased: tuple[dict, str] | None = None
         for path in self.paths:
             for record in blocks.get(path, []):
                 exports += 1
                 if self.record is None and _name_of(record) == self.name:
                     self.record, self.record_path = record, path
+                elif aliased is None and isinstance(record.get("aliases"), list) and self.name in record["aliases"]:
+                    aliased = (record, path)
+        if self.record is None and aliased is not None:
+            self.record, self.record_path = aliased
         if self.record is not None:
             self.outcome = "re-extracted"
         return len(self.paths), exports
@@ -2834,7 +2965,7 @@ class _GapEntry:
             "provenance_citation": citation,
             "source_citation": self.citation,
             "new_location": self.new_location(),
-            "unknown_reason": self.unknown_reason,
+            "unknown_reason": self.unknown_reason if self.outcome == "unknown" else None,
             "pinned_definition_lines": _pinned_lines(self.entry.get("remediation"))
             if self.category == "MOVED_EXPORT" else None,
             "resolution_source": "remediation-paths" if self.outcome == "re-extracted" else None,
@@ -2857,7 +2988,7 @@ class _GapEntry:
         elif self.map_entry is not None:
             file, line = _norm_path(self.map_entry["source_file"]), _line_of(self.map_entry["source_line"])
             for entry in provenance:
-                if (_name_of(entry) == self.name and _file_of(entry) == file
+                if (_name_of(entry) == self.declared and _file_of(entry) == file
                         and _line_of(entry.get("source_line")) == line):
                     method = entry.get("extraction_method")
                     break
@@ -2959,6 +3090,10 @@ def gap_records(manifest: dict, provenance: dict | None, *, source_root: Path | 
             continue
         record = dict(g.record)
         record.pop("public", None)  # a repair documents and maps every record: the mark is a normal update's
+        record.pop("aliases", None)  # the match is made: the copy names the one it took
+        if _name_of(record) != g.name:  # matched by its public name: documented under it, its own name as `local`
+            record = {"name": g.name, "local": _name_of(record),
+                      **{k: v for k, v in record.items() if k not in ("name", "export_name", "local")}}
         if g.outcome == "re-extracted" and g.answers.get("docstring") is not None:
             record["docstring"] = g.answers["docstring"]  # a located export's signature record asks none
         block = kept.setdefault(g.record_path, [])
@@ -2979,7 +3114,7 @@ def gap_records(manifest: dict, provenance: dict | None, *, source_root: Path | 
         "files_extracted": scanned,
         "exports_extracted": len(entries),
         "confidence_breakdown": breakdown,
-        "verification": [g.verification() for g in routed],
+        "verification": [{"gap_id": g.entry.get("gap_id"), **g.verification()} for g in routed],
         "files": [{"file_path": path, "exports": exports} for path, exports in kept.items()],
     }
     matched = [g for g in to_scan if g.record is not None]
