@@ -27,11 +27,27 @@ Load this file only from the coverage-check.md sentence that names one of its se
 
 ## Scalar and Stack Branches
 
-**A surplus is a signal, not a pass.** The scalar and stack branches count the numerator and denominator from independent sets, so `documented` can exceed `denominator`: it then reports `numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. A large surplus is the deflated-denominator signature: check `guards.deflation`, whose `basis` names the set it measured the stored count against, before accepting the 100.
+Run the command of the branch §2b picked; §2c's exits apply to it:
+
+- **Scalar**, over the `coverage-inputs.json` scalar and §2b's set (`denominator.surfaceSet`); `--verified` makes §2b's `verified` count the numerator when the count was inflated and the branch counts no set:
+
+  ```bash
+  uv run {reconcileScript} --denominator-source scalar --coverage-inputs "{run_dir}/coverage-inputs.json" --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --surface-set <set> --skill-dir "{resolved_skill_package}" --verified "{run_dir}/numerator.json" --output "{run_dir}/coverage.json"
+  ```
+
+- **Stack** (`metadata.json.skill_type == "stack"`):
+
+  ```bash
+  uv run {reconcileScript} --denominator-source stack --coverage-inputs "{run_dir}/coverage-inputs.json" --skill-dir "{resolved_skill_package}" --output "{run_dir}/coverage.json"
+  ```
+
+**The scalar branch counts §2b's set** only when `surface.json` `denominator.setCounted` is true: a scope set (not `all`) whose every name sits at the file that defines it (a complete runner extraction, the fallback scan, or quick output that traces each name), read whole. Then `numeratorSource` is `surface`: `documented` counts the documented names the set holds (`documentedNames`), so a documented name the set lacks never offsets an undocumented one; `missing` lists the set's undocumented names; §5's render draws the per-export table; and the denominator stays the stored count, so when the set's size (`surfaceSetSize`) differs from it, `warnings` names both. Otherwise (`all`, a set read by eye or from an incomplete extraction, or an empty set, which warns) the branch looks each documented name up in the skill, `--verified` applies, and `missing` lists no name. On any surface read from the source (`guards.deflation.applicable` true), `stale` lists the documented names the whole surface (the set and the `all` set) lacks, with `staleApplicable` true, so §2c's Stale names bullet applies: a documented name outside the set that the source still exports is neither counted nor stale. §5's render lists each `warnings` entry.
+
+**A surplus is a signal, not a pass.** Where the numerator and denominator count independent sets (the stack branch, and the scalar branch when it counts no set), `documented` can exceed `denominator`, as it can when a counted set holds more names than the stored count: `coverage.json` then reports `numeratorSurplus` above 0 and `coverageCapped: true`, holds `exportCoverage` at 100 and keeps the raw ratio in `coverageUncapped`, and §5's render states the surplus beside both counts. A large surplus is the deflated-denominator signature: check `guards.deflation`, whose `basis` names the set it measured the stored count against, before accepting the 100.
 
 coverage-check.md §5b records this gap from the run files:
 
-- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium `missing-export` gap for the count. When §2b's numerator check found the count inflated, its `absent[]` names replace this gap, one each: update-skill documents a named export, not a count.
+- **Missing count** (scalar or stack branch, `missingCount` above 0): one Medium `missing-export` gap for the count. A scalar result that counts its set records its `missing` names as §2c's Missing names bullet says instead, plus one gap for the rest when `missingCount` exceeds them. When §2b's numerator check found the count inflated and the scalar branch counted no set, its `absent[]` names replace this gap, one each: update-skill documents a named export, not a count.
 
 ## Denominator Candidates
 

@@ -1192,6 +1192,124 @@ class TestCoverageAdapter:
         with pytest.raises(mod.AdapterError, match="--numerator"):
             mod.from_coverage(cov)
 
+    # #791, #792: reconcile-coverage.py's scalar result over a named surface set lists its missing and stale names.
+    SCALAR_OVER_SET = {"branch": "scalar", "denominator": 5, "documented": 3, "missing": [], "missingCount": 0,
+                       "stale": ["phantomOne"], "staleCount": 1, "staleApplicable": True,
+                       "numeratorSource": "surface", "surfaceSet": "tier_a_include"}
+
+    def test_a_scalar_stale_name_is_classified_as_the_barrel_branchs(self, ledger: Path, tmp_path: Path):
+        coverage = write_json(tmp_path / "coverage.json", self.SCALAR_OVER_SET)
+        stale = write_json(tmp_path / "stale.json", [{"name": "phantomOne", "fabricated": True,
+                                                       "source": "src/phantom.ts:3", "reason": "not-defined"}])
+        proc = from_file(ledger, "coverage-check", "coverage", coverage, stale=stale)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert brief(ledger_records(ledger)) == [
+            ("Critical", "fabricated-signature", "Fabricated signature: phantomOne", "src/phantom.ts:3", "phantomOne")]
+        other = tmp_path / "2.0.0" / f"test-findings-{RUN_ID}.json"
+        proc = from_file(other, "coverage-check", "coverage", coverage)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert brief(ledger_records(other)) == [
+            ("Medium", "stale-documentation", "Stale documentation: phantomOne", "SKILL.md", "phantomOne")]
+
+    def test_a_scalar_missing_name_is_one_gap_at_its_surface_file(self):
+        cov = self.SCALAR_OVER_SET | {"missing": ["delta"], "missingCount": 1, "stale": [], "staleCount": 0}
+        surface = {"exports": [{"name": "delta", "kind": "function", "file": "src/index.ts", "line": 4}]}
+        records = mod.from_coverage(cov, surface=surface, metadata="pkg/metadata.json")
+        assert brief(records) == [("Medium", "missing-export", "Missing export: delta", "src/index.ts:4", "delta")]
+
+    def test_a_scalar_lookup_over_all_keeps_the_count_gap_beside_its_stale_names(self):
+        """Over `all` (or a set the surface does not trust) the lookup counts: the count gap, or the verified
+        numerator's absent names, and the stale names still classified against `all`."""
+        cov = self.SCALAR_OVER_SET | {"missingCount": 2, "numeratorSource": "lookup"}
+        cov.pop("surfaceSet")
+        records = mod.from_coverage(cov, metadata="pkg/metadata.json")
+        assert brief(records) == [
+            ("Medium", "missing-export", "2 of 5 exports not documented", "pkg/metadata.json", None),
+            ("Medium", "stale-documentation", "Stale documentation: phantomOne", "SKILL.md", "phantomOne")]
+        verified = cov | {"numeratorSource": "verified"}
+        records = mod.from_coverage(verified, numerator={"inflated": True, "absent": ["alpha"]},
+                                    metadata="pkg/metadata.json")
+        assert brief(records) == [
+            ("Medium", "missing-export", "Missing export: alpha", "pkg/metadata.json", "alpha"),
+            ("Medium", "stale-documentation", "Stale documentation: phantomOne", "SKILL.md", "phantomOne")]
+
+    @pytest.mark.parametrize("missing, missing_count, residual", [
+        (["delta"], 3, ["2 of 5 exports not documented beyond the tier_a_include set"]),
+        (["delta", "epsilon"], 1, []),
+        (["delta"], 1, []),
+    ], ids=["count-above-the-names", "count-below-the-names", "count-equal"])
+    def test_a_counted_set_adds_a_residual_count_gap_only_above_its_names(self, missing, missing_count, residual):
+        """A stored count larger than the set leaves exports no name lists: one count gap for the rest. A set
+        larger than the stored count lists more names than the count: no residual."""
+        cov = self.SCALAR_OVER_SET | {"missing": missing, "missingCount": missing_count, "stale": [],
+                                      "surfaceSetSize": 3}
+        records = mod.from_coverage(cov, metadata="pkg/metadata.json")
+        assert [r["title"] for r in records] == [f"Missing export: {n}" for n in missing] + residual
+        if residual:
+            [gap] = records[len(missing):]
+            assert (gap["severity"], gap["category"], gap["source"]) == ("Medium", "missing-export",
+                                                                         "pkg/metadata.json")
+            assert "beyond the 3 names of the `tier_a_include` set" in gap["remediation"]
+            assert "the other 2 are exports the count holds beyond the set's names" in gap["issue"]
+
+    @pytest.mark.parametrize("clause, summarized", [("stratified-scope", True), ("multi-entry", True),
+                                                    ("specific-modules", False)])
+    def test_a_counted_set_over_an_inflated_union_takes_the_barrel_branchs_summary(self, clause, summarized):
+        """#795's gate is the surface's, whichever branch counts the set: a counted `scope.include` set the
+        inflation guard measured, on a clause a tier A list corrects, is one summary gap at the brief in place of
+        a gap per name, and the residual count gap still covers the names the set does not list."""
+        surface = self.INFLATED_SURFACE | {"denominator": {"clause": clause, "branch": "scalar",
+                                                           "surfaceSet": "scope.include", "setCounted": True}}
+        cov = self.SCALAR_OVER_SET | {"missing": ["fetchData", "Options"], "missingCount": 3, "stale": [],
+                                      "surfaceSet": "scope.include", "surfaceSetSize": 4}
+        records = mod.from_coverage(cov, surface=surface, signatures={"missingTypes": ["Options"]},
+                                    metadata="pkg/metadata.json")
+        if summarized:
+            assert [(r["category"], r["title"], r["source"]) for r in records] == [
+                ("denominator-inflation", "undocumented names in the inflated scope.include union",
+                 "data/skill-brief.yaml"),
+                ("missing-export", "1 of 5 exports not documented beyond the scope.include set", "pkg/metadata.json")]
+        else:
+            assert [r["title"] for r in records] == ["Missing export: fetchData", "Missing type: Options",
+                                                     "1 of 5 exports not documented beyond the scope.include set"]
+
+    def test_a_scalar_stale_name_the_brief_scopes_out_points_at_the_brief(self):
+        """#796's wording holds on the scalar branch too."""
+        surface = self.BRIEFED_SURFACE | {"excluded": {"outsideScope": [
+            {"name": "Rescoped", "file": "pkg/old/r.py", "line": 2, "entry": "pkg/__init__.py",
+             "excludeGlob": "pkg/old/**", "outsideInclude": False}], "nestedEntries": []}}
+        [record] = mod.from_coverage(self.SCALAR_OVER_SET | {"stale": ["Rescoped"]}, surface=surface,
+                                     stale=self.RESCOPED)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: Rescoped", "SKILL.md",
+                                    "Rescoped")]
+        assert record["remediation"].startswith(
+            "Decide whether `Rescoped` belongs on the surface: `data/skill-brief.yaml` scopes out `pkg/old/r.py:2`")
+
+    def test_a_counted_set_records_through_the_coverage_call(self, ledger: Path, tmp_path: Path):
+        """§5b's coverage call on a scalar run: --surface gives each missing name its file, --signatures turns a
+        missing type into `missing-type`, and a classify-stale item the source still declares is a documented
+        extra."""
+        cov = self.SCALAR_OVER_SET | {"missing": ["delta", "Options"], "missingCount": 2,
+                                      "stale": ["phantomOne", "Task"], "staleCount": 2}
+        surface = {"exports": [{"name": "delta", "kind": "function", "file": "src/index.ts", "line": 4},
+                               {"name": "Options", "kind": "interface", "file": "src/types.ts", "line": 2}],
+                   "extraction": {"status": "ok"}, "excluded": {"outsideScope": [], "nestedEntries": []}}
+        stale = [{"name": "phantomOne", "fabricated": True, "source": "src/phantom.ts:3", "reason": "not-defined"},
+                 {"name": "Task", "fabricated": False, "source": None, "defined_at": "src/tasks/task.ts:12",
+                  "reason": "no-entry"}]
+        proc = from_file(ledger, "coverage-check", "coverage", write_json(tmp_path / "coverage.json", cov),
+                         surface=write_json(tmp_path / "surface.json", surface),
+                         signatures=write_json(tmp_path / "signatures.json",
+                                               {"missingTypes": ["Options"], "comparedNames": []}),
+                         stale=write_json(tmp_path / "stale.json", stale), metadata="pkg/metadata.json")
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert brief(ledger_records(ledger)) == [
+            ("Medium", "missing-export", "Missing export: delta", "src/index.ts:4", "delta"),
+            ("Medium", "missing-type", "Missing type: Options", "src/types.ts:2", "Options"),
+            ("Critical", "fabricated-signature", "Fabricated signature: phantomOne", "src/phantom.ts:3", "phantomOne"),
+            ("Info", "observation", "Documented extra: Task", "src/tasks/task.ts:12", "Task"),
+        ]
+
     def test_nothing_to_record(self):
         assert mod.from_coverage({"branch": "docsOnly", "missing": [], "stale": [], "incomplete": [{}]}) == []
         assert mod.from_coverage({"branch": "scalar", "missingCount": 0, "denominator": 3}) == []

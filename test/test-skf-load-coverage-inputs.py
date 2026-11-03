@@ -1235,6 +1235,44 @@ def _fx_quick(tmp_path: Path) -> list[str]:
         {"name": n, "type": "function", "source_file": "src/index.ts"} for n in ("alpha", "beta", "gamma")]})]
 
 
+
+def _fx_names(tmp_path: Path, source: str) -> list[str]:
+    """The three names of src/index.ts, read as `source` gives them."""
+    names = ("alpha", "beta", "gamma")
+    if source.startswith("quick"):
+        traced = {"defined_in": "src/index.ts"} if source == "quick-traced" else {}
+        return ["--quick", _write(tmp_path / "quick-1.json", {"exports": [
+            {"name": n, "type": "function", "source_file": "src/index.ts", **traced} for n in names]})]
+    per_file = _write(tmp_path / "per-file-1.json", {"file": "src/index.ts", "exports_found": list(names),
+                                                     "signature_mismatches": []})
+    return ["--per-file", per_file] + (["--fallback-scan"] if source == "fallback-scan" else [])
+
+
+@pytest.mark.parametrize(("source", "counted"), [
+    ("quick-traced", True), ("fallback-scan", True), ("quick", False), ("per-file", False)])
+def test_the_scalar_branch_counts_its_set_only_from_names_at_their_defining_files(tmp_path, source, counted):
+    """#791, #792: the scalar branch counts its scope set as the numerator's set only when each name sits at the
+    file that defines it, the tier A basis's rule (quick output whose every name carries its defined_in, the
+    fallback scan); a name read by eye (State 4) or a quick name with no defined_in sits at its entry file, and
+    the branch keeps its looked-up numerator."""
+    meta = _write(tmp_path / "metadata.json", {**METADATA, "stats": {"effective_denominator": 3}})
+    out = _surface(tmp_path, *_fx_names(tmp_path, source), "--brief", _write(tmp_path / "skill-brief.yaml", FX_BRIEF),
+                   "--metadata", meta)
+    assert out["sets"]["scope.include"] == ["alpha", "beta", "gamma"]
+    assert out["denominator"] == {"clause": "specific-modules", "branch": "scalar", "surfaceSet": "scope.include",
+                                  "ladderStep": 1, "absentSet": None, "rebuild": None,
+                                  "barrel": out["denominator"]["barrel"], "setCounted": counted}
+
+
+def test_the_scalar_branch_counts_no_set_from_a_truncated_extraction_or_over_all(tmp_path):
+    """#791, #792: a truncated extraction can miss names, and `all` is the whole surface, not a scope set."""
+    truncated = _extraction("specific-modules")
+    truncated["truncated"] = True
+    assert _clause(tmp_path, truncated, STORED) == _scalar("specific-modules", "scope.include", counted=False)
+    over_all = _extraction("specific-modules")
+    over_all["scope"]["include"] = []
+    assert _clause(tmp_path, over_all, STORED) == _scalar("specific-modules", "all", counted=False)
+
 @pytest.mark.parametrize(("tier_a", "include", "apart"), [
     ("gen/**", "src/**", True),
     ("packages/core/src/util/**", "packages/api/**", True),
@@ -1900,12 +1938,13 @@ def _extraction(scope_type: str = "full-library", status: str = "barrel", **arms
 def _barrel(clause: str, surface_set: str, step: int | None = None, absent: str | None = None,
             rebuild: str | None = None, barrel: str | None = "barrel") -> dict:
     return {"clause": clause, "branch": "barrel", "surfaceSet": surface_set, "ladderStep": step,
-            "absentSet": absent, "rebuild": rebuild, "barrel": barrel}
+            "absentSet": absent, "rebuild": rebuild, "barrel": barrel, "setCounted": None}
 
 
-def _scalar(clause: str, surface_set: str) -> dict:
+def _scalar(clause: str, surface_set: str, counted: bool = True) -> dict:
+    """The scalar branch; `counted`: it counts its scope set (#791, #792), as a complete runner extraction allows."""
     return {"clause": clause, "branch": "scalar", "surfaceSet": surface_set, "ladderStep": 1, "absentSet": None,
-            "rebuild": None, "barrel": "barrel"}
+            "rebuild": None, "barrel": "barrel", "setCounted": counted}
 
 
 STORED = {"exports_public_api": 7, "exports_documented": 5, "effective_denominator": 7}
@@ -1989,7 +2028,7 @@ def test_a_stack_takes_the_stack_branch(tmp_path):
     meta = dict(METADATA, skill_type="stack")
     assert _clause(tmp_path, None, None, meta=meta) == {
         "clause": "stack", "branch": "stack", "surfaceSet": None, "ladderStep": None, "absentSet": None,
-        "rebuild": None, "barrel": None}
+        "rebuild": None, "barrel": None, "setCounted": None}
 
 
 def test_an_absent_set_falls_back_to_all(tmp_path):
@@ -2196,12 +2235,13 @@ def test_a_clause_with_no_stored_count_takes_no_drift_gap(tmp_path, extraction, 
 
 
 @pytest.mark.parametrize(("stored", "expected"), [
-    (7, _scalar("stratified-scope", "tier_a_include")),
+    (7, _scalar("stratified-scope", "tier_a_include", counted=False)),
     (2, _barrel("stratified-scope", "tier_a_include", 1)),
 ], ids=["below-keeps-the-stored-count", "above-takes-the-set"])
 def test_an_incomplete_extraction_reports_a_downward_drift_without_taking_the_set(tmp_path, stored, expected):
     """#813: an incomplete extraction can miss tier A names, so a tier A set below the stored count is drift to
-    report, not a denominator to take; a set above the stored count still counts."""
+    report, not a denominator to take; a set above the stored count still counts. #791, #792: nor does the scalar
+    branch count that set as its numerator's (`setCounted` false): it keeps the looked-up numerator."""
     out = _tier_a_clause(tmp_path, "stratified-scope", stored, status="incomplete")
     assert out["extraction"]["status"] == "incomplete"
     assert out["guards"]["deflation"]["fires"] is True
