@@ -3027,6 +3027,71 @@ def test_merge_edits_the_file_a_split_body_finding_cites():
     assert "Do **not** add, modify, or remove any provenance `entries[]` row" in priority8
 
 
+def test_merge_keeps_the_reference_files_in_step_with_the_body():
+    """In a split-body skill an export's text also lives in references/*.md: Priorities 1 to 5 change it in every
+    file that documents the export, Priority 1 deletes a reference file it leaves empty with its pointer, Priority 5
+    corrects a statement that calls a new export not covered, a [MANUAL] block in a reference file stays as it is
+    (nothing verifies one there yet), and both modes of §6b write each reference file the merge changed or added,
+    whatever the priority, and delete each one it removed (#800)."""
+    merge = _read(MERGE)
+    goal = _slice(merge, "## STEP GOAL:", "## Rules")
+    assert "Merge freshly extracted export data into the existing SKILL.md and its references/*.md" in goal
+    three = _slice(merge, "### 3. Apply Merge by Priority Order", "**Priority 1")
+    rule = _slice(three, "**A split-body skill**", "\n")
+    for token in ("Priorities 1 to 5 apply their change to every file that documents the export, SKILL.md and each "
+                  "`references/*.md` alike.",
+                  "Priority 1 removes the export's content from each file, and deletes a reference file it leaves "
+                  "documenting nothing and holding no `[MANUAL]` block, with SKILL.md's `> See` pointer to that file",
+                  "Priority 2 moves its citations (`[AST:]` and `[SRC:]` alike) in each",
+                  "Priority 3 renames it in each", "Priority 4 replaces its content in each",
+                  "Priority 5 adds a new export where the skill documents that kind of export",
+                  "corrects any statement, in SKILL.md or a `references/*.md` file, that calls the new export not "
+                  "covered",
+                  "[MANUAL] blocks are inventoried and verified in SKILL.md only: nothing re-checks one in a "
+                  "`references/*.md` file yet, so the merge leaves such a block untouched",
+                  "§6b writes each `references/*.md` file this changes or adds, and deletes each one it removes."):
+        assert token in rule, token
+    six_b = _slice(merge, "### 6b. Write Merged Files to Disk", "### 7.")
+    staged = _slice(six_b, "4. **Write and verify the merged SKILL.md in the staged package**", "\n")
+    assert ("each `references/*.md` the merge changed or added, at any priority, into "
+            "`{version_staging}/{skill_name}/references/`, and delete from there each one the merge removed") in staged
+    in_place = _slice(six_b, "**Write the merged files in place**", "**Do NOT write here:**")
+    for token in ("each `references/*.md` the merge changed or added, at any priority, to `{run_dir}/references/`",
+                  "list each one it removed, one `references/<name>.md` path a line, in "
+                  "`{run_dir}/references-removed.txt`",
+                  "and each file in `{run_dir}/references/`, every `references/*.md` the merge changed or added at "
+                  "any priority, into `{skill_package}/references/`, and delete from the package each path "
+                  "`{run_dir}/references-removed.txt` lists"):
+        assert token in in_place, token
+    assert "(merge Priority 8)" not in merge
+
+
+def test_the_result_line_names_the_references_the_run_wrote():
+    """report §5b lists `references` in `files_written` when the run wrote, added or removed a references/*.md file
+    (merge, write.md §6's provenance fixes, §7's body split), read from the files on disk and from this run's own
+    evidence-report section, and the payload names exactly the schema's values (#799)."""
+    five_b = _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
+    payload = _heredoc(_fence(five_b, 'cat > "{run_dir}/result-context.json"'))
+    names = re.search(r'"files_written": \[<each artifact write\.md wrote and verified: ([^>]*)>\]', payload).group(1)
+    assert "references (when this run wrote, added or removed a references/*.md file, as the files on disk show)" in names
+    enum = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["files_written"]
+    assert re.sub(r" \([^)]*\)", "", names).split(", ") == enum["items"]["enum"]
+    for token in ("'references' stands for one or more references/*.md files of the skill package written, added or "
+                  "removed", "write.md §6's provenance fixes", "write.md §7's body split"):
+        assert token in enum["description"], token
+    rule = _slice(five_b, "- `files_written[]`:", "\n")
+    for token in ("`references` stands for every `references/*.md` file of the package this run wrote, added or "
+                  "removed, one value however many",
+                  "Read it from the files on disk, never from memory",
+                  "a `references/` path in the `files_written[]` write.md §6's provenance `fix` printed",
+                  "a file the `Body split` row lists in this run's `## Update Operation` section of "
+                  "`{forge_version}/evidence-report.md`, the one write.md §4 appended, never an earlier update's",
+                  "(`{skill_group}/{baseline_version}/{skill_name}/references/`) do not hold alike",
+                  "a file in `{run_dir}/references/`, where merge.md §6b staged each one it wrote",
+                  "a path `{run_dir}/references-removed.txt` lists"):
+        assert token in rule, token
+
+
 # --------------------------------------------------------------------------
 # Write bookkeeping and reference-app stats
 # --------------------------------------------------------------------------
@@ -4714,13 +4779,19 @@ def test_the_stage_chain_has_no_validate_stage():
             assert gone not in text, (rel, gone)
 
 
-def test_skill_check_runs_once_in_write():
-    """One skill-check check call per update, in write.md §7, guarded and followed by the [MANUAL] re-check (#599)."""
+def test_skill_check_runs_in_write_once_and_again_after_a_split():
+    """Two skill-check check calls per update, both in write.md §7: the guarded --fix run, followed by the [MANUAL]
+    re-check (#599), and a read-only re-run after a body split for the score the split left (#797)."""
     calls = [(rel, line) for rel, text in _update_markdown().items() for line in text.splitlines()
              if "skill-check check " in line and "npx" in line]
-    assert [rel for rel, _ in calls] == ["references/write.md"], calls
+    assert [rel for rel, _ in calls] == ["references/write.md"] * 2, calls
+    assert calls[0][1].startswith('- Run `npx skill-check check "{skill_package}" --fix --format json`')
+    assert calls[1][1].startswith("  After a split (the helper's `sections_extracted` is not empty")
+    assert re.findall(r"`npx skill-check check [^`]*`", calls[1][1]) == [
+        '`npx skill-check check "{skill_package}" --format json --no-security-scan`']
     seven = _slice(_read(WRITE), "### 7. Run Post-Write Validation", "### 8.")
-    assert "skill-check runs once per update, here" in seven
+    assert "skill-check runs once per update, here, against the written package, and once more after a body " \
+           "split (below)" in seven
     assert "`npx skill-check check \"{skill_package}\" --fix --format json` **inside the §0 guard**" in seven
     assert "--no-security-scan` is passed" in seven and "--no-security-scan --" not in seven
     assert "`npx skill-check -h`" in seven
@@ -4756,9 +4827,11 @@ def test_write_rechecks_the_manual_blocks_after_skill_check():
                   '`phase: "write:verify-manual-integrity"`', '`path: "{skill_package}/SKILL.md"`',
                   "[MANUAL] blocks changed after skill-check"):
         assert token in recheck, token
-    split = _slice(seven, "If `body.max_lines` is reported", "\n")
+    split = _slice(seven, "- If `body.max_lines` or `body.max_tokens` is reported", "- When a previous version")
     assert "**Never move a section that holds a `[MANUAL]` block:**" in split
-    assert "only when SKILL.md holds no `[MANUAL]` block" in split
+    assert "`--skip-manual` keeps the helper off every section a block reaches into" in split
+    assert "when `body.max_lines` is reported and SKILL.md holds no `[MANUAL]` block (§1's verdict lists none), " \
+           "fall back to `npx skill-check split-body" in split
     rules = _slice(write, "## Rules", "## Steps")
     assert "§7's `skill-check check --fix` edits and body split, which moves no section that holds a `[MANUAL]` " \
            "block; §7 re-checks the [MANUAL] blocks after them" in rules
@@ -4767,6 +4840,112 @@ def test_write_rechecks_the_manual_blocks_after_skill_check():
     assert "Until §10 closes the window" in _halt_procedure(WRITE)
     assert "write.md §10 already dropped the snapshot" in _read(HEALTH)
     assert "Update-skill does not run the optional post-restore" not in write
+
+
+SHARD_HELPER = SRC / "shared" / "scripts" / "skf-shard-body.py"
+
+
+def _filler(lines: int, words: int) -> str:
+    return "".join(" ".join(f"w{i}x{j}" for j in range(words)) + "\n" for i in range(lines))
+
+
+def _run_split_call(call: str, package: Path, budget: str | None = None) -> dict:
+    """The documented helper call, run against `package`, with `--budget` set to `budget` when given."""
+    argv = _argv(call, "shardBodyHelper", {"skill_package": package.as_posix()})
+    if budget is not None:
+        argv[argv.index("--budget") + 1] = budget
+    proc = subprocess.run([sys.executable, str(SHARD_HELPER), *argv], capture_output=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+def test_write_splits_the_body_on_tokens_as_well_as_lines(tmp_path):
+    """skill-check's body.max_tokens warning gets the selective split body.max_lines gets, with the shard helper's
+    word budget (4,500, the headroom under 5,000 that 400 lines leave under 500) and its [MANUAL] guard; a body with
+    no Tier 2 section left to move stops at a WARN rather than a trimmed Tier 1, split-body runs only when the
+    helper is missing, and a helper failure halts naming what it wrote (#797)."""
+    write = _read(WRITE)
+    assert yaml.safe_load(_frontmatter(write))["shardBodyProbeOrder"] == _probe("skf-shard-body.py")
+    seven = _slice(write, "### 7. Run Post-Write Validation", "### 8.")
+    split = _slice(seven, "- If `body.max_lines` or `body.max_tokens` is reported", "- When a previous version")
+    call = re.search(r"`(uv run \{shardBodyHelper\} [^`]+)`", split).group(1)
+    assert call == ('uv run {shardBodyHelper} "{skill_package}/SKILL.md" --budget 400 --word-budget 4500 '
+                    "--skip-manual")
+    for token in ("(resolve it ← first existing path in `{shardBodyProbeOrder}`), **inside the §0 guard**",
+                  "with `--budget 500` in place of `--budget 400` when only `body.max_tokens` is reported",
+                  "within that many lines and 4,500 words, the same headroom under skill-check's 5,000 that 400 "
+                  "lines leave under its 500",
+                  "No Tier 1 content is trimmed, and `split-body` never runs after the helper.",
+                  "Add each WARN below to `warnings[]` as well.",
+                  # a helper failure halts and names what it already wrote
+                  "- **Exit 1 or 2, or no JSON:** HALT with status `blocked` (halt procedure: "
+                  '`phase: "write:body-split"`, `path: "{skill_package}/SKILL.md"`, '
+                  '`reason: "body split failed: {its stderr line}"`). On exit 2 that line ends '
+                  "`already written: {each references/*.md file it wrote before the failure, or none}`: name each of "
+                  "those files in the halt message.",
+                  "- **`tier1_preserved` false (it then wrote nothing) or `xref_ok` false:** HALT with status "
+                  "`blocked`",
+                  # one WARN per budget the helper could not meet, and one per missing helper
+                  "- **`under_budget` false:** record `Spec compliance: WARN (body.max_lines: no Tier 2 section "
+                  "without a [MANUAL] block left to move)`.",
+                  "- **`under_word_budget` false:** record `Spec compliance: WARN (body.max_tokens: no Tier 2 section "
+                  "without a [MANUAL] block left to move)`.",
+                  "- **No `{shardBodyProbeOrder}` candidate resolves:** when `body.max_lines` is reported and "
+                  "SKILL.md holds no `[MANUAL]` block (§1's verdict lists none), fall back to "
+                  '`npx skill-check split-body "{skill_package}" --write`, **inside the §0 guard**',
+                  "record `Spec compliance: WARN (body.max_lines: skf-shard-body.py missing)`",
+                  "when only `body.max_tokens` is reported, split nothing and record `Spec compliance: WARN "
+                  "(body.max_tokens: skf-shard-body.py missing)`",
+                  # after a split: re-read, re-score, report
+                  "re-read SKILL.md and each new `references/*.md` file into the in-context copy, as after `--fix`",
+                  're-run `npx skill-check check "{skill_package}" --format json --no-security-scan` and take the '
+                  "quality score and the remaining `diagnostics[]` from it",
+                  "list in the Validation Summary's `Body split` row each section moved and the `references/` file "
+                  "it added"):
+        assert token in split, token
+    assert split.count("split-body") == 2  # the fallback call and the never-after rule
+    # every halt there validates: the phase is a blocked one the schema names
+    status = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["status"]["description"]
+    assert "error.phase 'write:body-split'" in status
+    # the guard covers the helper's split, and the [MANUAL] re-check runs after it
+    guard = _slice(seven, "**Description Guard Protocol:**", "```")
+    assert "the `{shardBodyHelper}` body split" in guard
+    assert "once `--fix` and any split have run" in seven
+    summary = _slice(write, "### Validation Summary", "### Description Guard")
+    assert "- Body split: {each section §7 moved and the references/ file it added, or none}" in summary
+    assert "and `Body split` (`none` when no split ran)" in _slice(write, "**Validation Summary population:**", "\n")
+    slot = _slice(_read(SRC / "skf-create-skill" / "assets" / "skill-sections.md"), "**Description Guard slot:**",
+                  "\n")
+    assert "the `skf-shard-body.py` body split, which create-skill and update-skill both run; update-skill runs " \
+           "`split-body` only as its fallback when that helper is missing" in slot
+    # the documented call, run as a tokens-only warning runs it: about 280 lines and 6,000 words, whose largest
+    # Tier 2 section holds a [MANUAL] block, so only the other one moves
+    package = tmp_path / "skills" / "lib" / "1.0.1" / "lib"
+    package.mkdir(parents=True)
+    (package / "SKILL.md").write_text(
+        "---\nname: lib\ndescription: A library.\n---\n\n## Overview\n" + _filler(20, 10)
+        + "## Full API Reference\n" + _filler(100, 30)
+        + "## Full Integration Notes\n<!-- [MANUAL:notes] -->\n" + _filler(150, 20) + "<!-- [/MANUAL:notes] -->\n",
+        encoding="utf-8")
+    out = _run_split_call(call, package, budget="500")
+    assert out["body_words_before"] > 4500 >= out["body_words_after"] and out["body_lines_before"] < 500
+    assert (out["budget"], out["word_budget"]) == (500, 4500)
+    assert [s["heading"] for s in out["sections_extracted"]] == ["Full API Reference"]
+    assert out["under_word_budget"] and out["under_budget"] and out["tier1_preserved"] and out["xref_ok"]
+    assert (package / "references" / "full-api-reference.md").is_file()
+    assert "<!-- [MANUAL:notes] -->" in (package / "SKILL.md").read_text(encoding="utf-8")
+    # the call as written, for body.max_lines: about 560 lines of few words; the largest Tier 2 section moves
+    lines_package = tmp_path / "skills" / "long" / "1.0.1" / "long"
+    lines_package.mkdir(parents=True)
+    (lines_package / "SKILL.md").write_text(
+        "---\nname: long\ndescription: A library.\n---\n\n## Overview\n" + _filler(10, 5)
+        + "## Full API Reference\n" + _filler(450, 2) + "## Full Type Definitions\n" + _filler(100, 2),
+        encoding="utf-8")
+    out = _run_split_call(call, lines_package)
+    assert out["body_lines_before"] > 400 >= out["body_lines_after"] and out["body_words_before"] < 4500
+    assert (out["budget"], out["word_budget"]) == (400, 4500)
+    assert [s["heading"] for s in out["sections_extracted"]] == ["Full API Reference"]
+    assert out["under_budget"] and out["under_word_budget"] and out["xref_ok"]
 
 
 def test_write_makes_the_version_live_after_the_last_check():

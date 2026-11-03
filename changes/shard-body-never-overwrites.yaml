@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill, skf-update-skill
+summary: |
+  The body split (`skf-shard-body.py`) no longer overwrites a reference file. When `references/<name>.md` already holds other content, or two moved sections take the same name, the section goes to the next free `<name>-2.md`, `<name>-3.md` and so on, as `skill-check split-body` names them, and the `> See` pointer in `SKILL.md` names that file. Before, the second section replaced the first one's file, and its content was lost.
+prs: [854]

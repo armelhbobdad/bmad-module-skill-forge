@@ -28,7 +28,7 @@ hashContentProbeOrder:
 
 ## STEP GOAL:
 
-Merge freshly extracted export data into the existing SKILL.md content while preserving all [MANUAL] sections. Detect and resolve conflicts where regenerated content overlaps developer-authored content.
+Merge freshly extracted export data into the existing SKILL.md and its references/*.md while preserving all [MANUAL] sections. Detect and resolve conflicts where regenerated content overlaps developer-authored content.
 
 ## Rules
 
@@ -69,7 +69,9 @@ From the [MANUAL] inventory captured in step 1:
 
 Read this step's inputs from disk, never from memory: the change manifest from `{run_dir}/change-manifest.json` (step 2, or gap-driven.md §1 in gap-driven mode), the extraction or verification records from `{run_dir}/reextract-records.json` (step 3, or gap-driven.md §4), and the documents step 2 §1b promoted from `{run_dir}/promoted-docs.json` when it wrote that file. A compacted context still merges what those steps found.
 
-Apply merge in the following priority order:
+Apply merge in the following priority order.
+
+**A split-body skill** (one whose `references/*.md` files document exports, the `## Full` sections a body split moved among them): Priorities 1 to 5 apply their change to every file that documents the export, SKILL.md and each `references/*.md` alike. Priority 1 removes the export's content from each file, and deletes a reference file it leaves documenting nothing and holding no `[MANUAL]` block, with SKILL.md's `> See` pointer to that file; Priority 2 moves its citations (`[AST:]` and `[SRC:]` alike) in each, Priority 3 renames it in each, Priority 4 replaces its content in each, and Priority 5 adds a new export where the skill documents that kind of export (a `references/*.md` file when the skill keeps that kind there) and corrects any statement, in SKILL.md or a `references/*.md` file, that calls the new export not covered. [MANUAL] blocks are inventoried and verified in SKILL.md only: nothing re-checks one in a `references/*.md` file yet, so the merge leaves such a block untouched, as it never edits inside one in SKILL.md without the user's §4 decision. §6b writes each `references/*.md` file this changes or adds, and deletes each one it removes.
 
 **Priority 1 — Process DELETED exports:**
 - Remove generated content for deleted exports
@@ -280,7 +282,7 @@ uv run {runLockHelper} acquire \
 
    Bind `{version_staging}` ← `staging`: the empty folder `{skill_group}/{new_version}.skf-tmp` it created (it clears one an interrupted run left).
 3. **Copy the current package** `{skill_package}` to `{version_staging}/{skill_name}`, naming both without a trailing `/` — equivalent to `cp -a "{skill_package}" "{version_staging}/{skill_name}"`: SKILL.md, metadata.json, context-snippet.md, `references/`, `scripts/`, `assets/` and every other entry, each link copied as a link and never followed. The files this update does not rewrite carry over to the new version this way.
-4. **Write and verify the merged SKILL.md in the staged package**, before anything is published. Use the `Edit` or `Write` tool to write the merged SKILL.md content (UTF-8) to `{version_staging}/{skill_name}/SKILL.md`, and any `references/*.md` the merge changed into `{version_staging}/{skill_name}/references/`. Then, from `{project-root}`, check the [MANUAL] blocks against the inventory §4 amended:
+4. **Write and verify the merged SKILL.md in the staged package**, before anything is published. Use the `Edit` or `Write` tool to write the merged SKILL.md content (UTF-8) to `{version_staging}/{skill_name}/SKILL.md`, and each `references/*.md` the merge changed or added, at any priority, into `{version_staging}/{skill_name}/references/`, and delete from there each one the merge removed. Then, from `{project-root}`, check the [MANUAL] blocks against the inventory §4 amended:
 
    ```bash
    uv run {hashContentHelper} manual-verify "{version_staging}/{skill_name}/SKILL.md" \
@@ -303,7 +305,7 @@ If no `{atomicWriteProbeOrder}` candidate resolves, or the stage, copy, write, p
 **Write the merged files in place** (gap-driven mode only; every other mode wrote them in step 4 above):
 
 1. **The rescopes' brief amendments.** For each manifest entry with a `rescope` (rule R1), append its `scope.amendments[]` entry and add its path to `scope.exclude` in `{forge_data_folder}/{skill_name}/skill-brief.yaml`, preserving every other field; skip an amendment the brief already holds (same `action`, `category` and `path`) and a path `scope.exclude` already lists, so a re-run never adds them twice.
-2. **Stage and verify SKILL.md in the run folder.** Write the merged SKILL.md (UTF-8) to `{run_dir}/SKILL.md`, then, from `{project-root}`:
+2. **Stage and verify SKILL.md in the run folder.** Write the merged SKILL.md (UTF-8) to `{run_dir}/SKILL.md`, and each `references/*.md` the merge changed or added, at any priority, to `{run_dir}/references/`, and list each one it removed, one `references/<name>.md` path a line, in `{run_dir}/references-removed.txt`, then, from `{project-root}`:
 
    ```bash
    uv run {hashContentHelper} manual-verify "{run_dir}/SKILL.md" \
@@ -311,7 +313,7 @@ If no `{atomicWriteProbeOrder}` candidate resolves, or the stage, copy, write, p
    ```
 
    On `ok` false, or a failing command: HALT with status `halted-for-manual-mismatch` before the package changes (halt procedure: `phase: "merge:verify-manual-integrity"`, `path: "{run_dir}/SKILL.md"`, `reason: "[MANUAL] blocks differ from the approved inventory: modified {modified}; missing {missing}"`); its rollback restores the brief step 1 amended.
-3. **Copy it over the package.** Copy `{run_dir}/SKILL.md` to `{skill_package}/SKILL.md`, and write any `references/*.md` the merge changed (merge Priority 8) into `{skill_package}/references/`.
+3. **Copy it over the package.** Copy `{run_dir}/SKILL.md` to `{skill_package}/SKILL.md`, and each file in `{run_dir}/references/`, every `references/*.md` the merge changed or added at any priority, into `{skill_package}/references/`, and delete from the package each path `{run_dir}/references-removed.txt` lists.
 
 **Do NOT write here:**
 - `metadata.json`, `provenance-map.json`, `evidence-report.md`: derived from the merge output, written by step 5 sections 2–4 (the version folder above only copies the previous version's files, which step 5 then rewrites)
