@@ -1,8 +1,8 @@
 type: breaking
 scope: skf-test-skill
 summary: |
-  Test Skill now compares the signature of a function the skill documents as taking no argument with `params: ""` (the form the inventory gives a function that takes none) and no return type. Such an entry was left out of Signature Accuracy, so a skill that documents a component as `X()` while its source takes props passed unchecked; an entry with `params: []` was already compared. The entry is now planned, counted and compared, which can raise new Critical `signature-mismatch` gaps, so a skill that passed Test Skill can now stop at its hard gate. Only a function's empty `params` counts: a type or a constant with `params: ""` is still not compared. When the inventory lists a name twice, the entry that lists its parameters is compared, not one with empty or no `params`.
+  Test Skill now compares the signature of a function the skill documents as taking no argument with `params: ""` (the form the inventory gives a function that takes none) and no return type. Such an entry was left out of Signature Accuracy, so a skill that documents a component as `X()` while its source takes props passed unchecked; an entry with `params: []` was already compared. The entry is now planned, counted and compared, which can raise new Critical `signature-mismatch` gaps, so a skill that passed Test Skill can now stop at its hard gate. Only a function's empty `params` counts: a type or a constant with `params: ""` is still not compared. When the inventory lists a name more than once, an entry that lists its parameters or gives a usage form is compared before one that gives neither, then a full form before a partial one, then one that lists its parameters before one that gives only a usage form. On a skill whose zero-argument entries match the source, those entries now count toward Signature Accuracy and raise no gap.
 migration: |
-  For a skill that now stops at the hard gate on such a gap, run `@Ferris US <skill> --from-test-report` on that test report, or document the parameters by hand, then run Test Skill again.
+  For a skill that now stops at the hard gate on such a gap, run `@Ferris US <skill> --from-test-report` on that test report, or document by hand the parameters the source declares (for a component, its props), then run Test Skill again.
 issues: [794]
-prs: [850]
+prs: [850, 862]
