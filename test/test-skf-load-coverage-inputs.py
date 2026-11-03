@@ -5,7 +5,8 @@ coverage-check.md decides whether a bookkeeping variant is a real export and
 the two judgments the denominator clause needs; the script picks the clause
 and makes every count, the
 surfaces of the Quick-tier and fallback per-file scans included (the
-branches coverage-check.md §2 loads from coverage-check-tiers.md):
+branches coverage-check.md §2 loads from coverage-check-tiers.md), and
+State 2's (the States 2 to 4 section it loads from coverage-check-branches.md):
   - census: the docs-only verdict from the citation forms a skill writes
   - metadata: Cluster A and B under check-metadata-coherence.py's keys,
     the named-export count, the inflation signature and the declared names,
@@ -14,7 +15,8 @@ branches coverage-check.md §2 loads from coverage-check-tiers.md):
     less those outside scope, never the recipes' internal matches), quick
     output, per-file results, names read by eye, or the provenance map and
     metadata (State 2 union and counts, the canonical fold over both), with
-    the name sets, the Denominator Candidates, the guards and the fallback
+    the name sets, the Denominator Candidates (the block coverage-check.md
+    §4 appends from coverage-check-branches.md), the guards and the fallback
     verdict; a brief gives the scope when no extraction recorded one, so a
     Quick-tier surface has its scope sets and guards too
   - surface, #677: an include glob that matches no file restores the root
