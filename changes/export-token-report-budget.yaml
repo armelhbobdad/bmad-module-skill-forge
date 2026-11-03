@@ -3,3 +3,4 @@ scope: skf-export-skill
 summary: |
   The token report's Context Budget Impact now reads each value from the token helper (`skf-count-tokens.py`), which emits them as `context_budget` (`always_on`, `on_trigger`, `full_disclosure` and `snippet`), with the managed section's skill count (`managed_section.skills`) and the target files that hold it (`managed_section.target_files`). The full disclosure cost is SKILL.md plus `references/`, never the package total, which also counts the snippet and metadata.json, so two runs on the same skill report the same cost. The always-on cost names the context file it was measured in, and reads N/A when no context file holds the managed section. In a multi-skill export, the report gives the always-on cost once and each skill's budget on its own line.
 issues: [819]
+prs: [840]
