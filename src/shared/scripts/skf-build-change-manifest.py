@@ -64,11 +64,13 @@ Subcommands:
 
   metadata --metadata <metadata.json> --lists <file> --stats <file>
            --version <version> --generation-date <iso>
-           [--source-commit <sha>] [--source-ref <ref>]
+           [--source-commit <sha>] [--source-ref <ref>] [--skf-root <dir>]
+           [--extraction <file>] [--qmd-version <version>]
       The skill's metadata.json an update leaves (see "Metadata" below),
       written over --metadata through a temporary file and a rename.
       Prints {"status": "written", "metadata": <path>, "version",
-      "exports": N, "scripts": N, "assets": N}.
+      "exports": N, "scripts": N, "assets": N, "tool_versions": {...},
+      "dropped_stats": [...], "warnings": [...]}.
 
   records [--extraction <file>] [--export-details <file>]
           [--files-from <file>] [--patches <dir>] -o <file>
@@ -400,11 +402,39 @@ Metadata (update-skill write.md §2):
   component library's own counts, a reference app's notes, a field a
   gap-driven patch added), the stats helper's fields an earlier run wrote
   that this run's does not (effective_denominator,
-  pattern_surfaces_documented) dropped. It removes last_update and
-  update_type, which the provenance map's update block records, and keeps
-  every other field. It refuses (exit 1, nothing written) a --stats whose
-  scripts_count or assets_count is not the length of --lists' scripts or
-  assets, a --generation-date of another form, and a file it cannot read.
+  pattern_surfaces_documented) dropped and listed in `dropped_stats`,
+  each with a warning. When this run's effective_denominator differs
+  from the old one (one of them absent included), it also drops each old
+  stats key named effective_denominator_* (an explanation of the old
+  count), listed in `dropped_stats` with the warning "metadata:
+  stats.<key> dropped: it explained an effective_denominator this run
+  changed or removed"; when the two are the same, such a key stays with
+  no warning, since it still describes the denominator. Each other old
+  stats key it keeps adds the warning "metadata: stats.<key> kept from an
+  earlier run; check it still describes this run's counts", unless
+  create-skill writes it for the skill's scope_type (STATS_CREATE_FIELDS:
+  a component-library's Component Library stats of
+  compile-assembly-rules.md, a reference-app's notes).
+
+  tool_versions names the tools this run used: the old tool_versions
+  ({"ast_grep": null, "qmd": null} when absent, or when it is not an
+  object, which adds a warning), with skf set to the version
+  skf-render-quick-metadata.py's probe_skf_version reads under
+  --skf-root (package.json, else VERSION), never the old value, or to
+  "unknown" with a warning, one when no --skf-root is given and another
+  naming the folder when it holds no version; ast_grep set to the
+  ast_grep.version of --extraction (the recipe runner's output), or to
+  "unknown" with a warning when that is null but an export of it has
+  extraction_method ast-grep; qmd set to --qmd-version, a leading "qmd "
+  (as `qmd --version` prints it) removed. A tool this run did not use
+  (no --qmd-version, no --extraction, or one with no export ast-grep
+  matched) keeps its old value. It removes last_update and update_type,
+  which the provenance map's update block records, and keeps every
+  other field. It refuses (exit 1, nothing written, one stderr line) a
+  --stats whose scripts_count or assets_count is not the length of
+  --lists' scripts or assets, a --generation-date of another form, an
+  --extraction that is not a JSON object, a file it cannot read, and a
+  skf-render-quick-metadata.py beside it that cannot be loaded.
 
   Summary on stdout: {"status": "written", "map": <-o>, "entries":
   {"added", "updated", "removed"}, "not_public": [{name, file}],
@@ -2081,11 +2111,98 @@ GENERATION_DATE_RE = re.compile(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ")
 STATS_HELPER_FIELDS = ("exports_documented", "exports_public_api", "exports_internal", "exports_total",
                        "public_api_coverage", "total_coverage", "scripts_count", "assets_count",
                        "pattern_surfaces_documented", "effective_denominator")
+# the other stats fields create-skill writes, by the skill's scope_type: a component library's own counts (the
+# Component Library stats of compile-assembly-rules.md, its stats_extra) and a reference app's notes
+STATS_CREATE_FIELDS = {
+    "component-library": ("components_registered", "components_documented", "props_interfaces_extracted",
+                          "components_unique", "demo_files_excluded", "design_variants"),
+    "reference-app": ("notes",),
+}
+# a stats key that explains effective_denominator, dropped when this run's denominator differs from the old one
+DENOMINATOR_NOTE_PREFIX = "effective_denominator_"
+SKF_NO_ROOT = ("metadata: tool_versions.skf is unknown: no --skf-root was given; pass the installed SKF's folder "
+               "({project-root}/_bmad/skf)")
+AST_GREP_UNKNOWN = ("metadata: tool_versions.ast_grep is unknown: --extraction holds exports ast-grep matched but no "
+                    "ast_grep.version")
+_QMD_PREFIX = re.compile(r"^qmd\s+", re.IGNORECASE)  # what `qmd --version` prints first
+
+
+def _tool_version(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _skf_unknown(skf_root: str | Path) -> str:
+    return (f"metadata: tool_versions.skf is unknown: {Path(skf_root).as_posix()} holds no package.json or VERSION "
+            f"file with a version")
+
+
+def _kept_warning(key: str) -> str:
+    return f"metadata: stats.{key} kept from an earlier run; check it still describes this run's counts"
+
+
+def tool_versions_after(old: object, *, skf_version: str | None, skf_root: str | Path | None,
+                        ast_grep_version: str | None, qmd_version: str | None) -> tuple[dict, list[str]]:
+    """(the tool_versions an update leaves, its warnings) (see "Metadata" in the module docstring)."""
+    warnings: list[str] = []
+    if isinstance(old, dict):
+        tools = dict(old)
+    else:
+        tools = {"ast_grep": None, "qmd": None}
+        if old is not None:
+            kind = {bool: "a boolean", str: "a string", list: "an array"}.get(type(old), "a number")
+            warnings.append(f"metadata: tool_versions was {kind}, not an object; replaced with the versions this run "
+                            f"records")
+    ast_grep = _tool_version(ast_grep_version)
+    if ast_grep is not None:
+        tools["ast_grep"] = ast_grep
+        if ast_grep == "unknown":
+            warnings.append(AST_GREP_UNKNOWN)
+    qmd = _tool_version(qmd_version)
+    if qmd is not None:
+        qmd = _tool_version(_QMD_PREFIX.sub("", qmd, count=1))
+    if qmd is not None:
+        tools["qmd"] = qmd
+    skf = _tool_version(skf_version)
+    if skf is None or skf == "unknown":
+        skf = "unknown"
+        warnings.append(SKF_NO_ROOT if skf_root is None else _skf_unknown(skf_root))
+    tools["skf"] = skf
+    return tools, warnings
+
+
+def stats_after(old_stats: dict, new_stats: dict, scope_type: object) -> tuple[dict, list[str], list[str]]:
+    """(the stats an update leaves, dropped_stats, their warnings) (see "Metadata" in the module docstring)."""
+    exempt = STATS_CREATE_FIELDS.get(scope_type, ()) if isinstance(scope_type, str) else ()
+    denominator = new_stats.get("effective_denominator")
+    recounted = old_stats.get("effective_denominator") != denominator
+    kept: dict = {}
+    dropped: list[str] = []
+    warnings: list[str] = []
+    for key, value in old_stats.items():
+        if key in new_stats:
+            continue
+        if key in STATS_HELPER_FIELDS:
+            dropped.append(key)
+            warnings.append(f"metadata: stats.{key} dropped: this run's stats helper did not write it")
+            continue
+        if key.startswith(DENOMINATOR_NOTE_PREFIX) and recounted:
+            dropped.append(key)
+            warnings.append(f"metadata: stats.{key} dropped: it explained an effective_denominator this run changed "
+                            f"or removed")
+            continue
+        kept[key] = value
+        # an explanation of a denominator this run left as it was still describes it
+        if key not in exempt and not (key.startswith(DENOMINATOR_NOTE_PREFIX) and denominator is not None):
+            warnings.append(_kept_warning(key))
+    return {**new_stats, **kept}, dropped, warnings
 
 
 def update_metadata(metadata: object, lists: object, stats: object, *, version: str, generation_date: str,
-                    source_commit: str | None = None, source_ref: str | None = None) -> dict:
-    """The metadata.json an update leaves (see "Metadata" in the module docstring). Raises ValueError."""
+                    source_commit: str | None = None, source_ref: str | None = None,
+                    skf_version: str | None = None, skf_root: str | Path | None = None,
+                    ast_grep_version: str | None = None, qmd_version: str | None = None) -> tuple[dict, dict]:
+    """(the metadata.json an update leaves, {"dropped_stats": [...], "warnings": [...]}) (see "Metadata" in the
+    module docstring). Raises ValueError."""
     if not isinstance(metadata, dict):
         raise ValueError("--metadata file must hold a JSON object (the skill's metadata.json)")
     if not isinstance(lists, dict) or not all(isinstance(lists.get(k), list) for k in ("exports", "scripts",
@@ -2117,11 +2234,14 @@ def update_metadata(metadata: object, lists: object, stats: object, *, version: 
             out[kind] = lists[kind]
         else:
             out.pop(kind, None)
+    out["tool_versions"], warnings = tool_versions_after(
+        metadata.get("tool_versions"), skf_version=skf_version, skf_root=skf_root,
+        ast_grep_version=ast_grep_version, qmd_version=qmd_version)
     old_stats = metadata.get("stats") if isinstance(metadata.get("stats"), dict) else {}
-    kept = {k: v for k, v in old_stats.items() if k not in STATS_HELPER_FIELDS and k not in stats["stats"]}
-    out["stats"] = {**stats["stats"], **kept}
+    out["stats"], dropped, stats_warnings = stats_after(old_stats, stats["stats"], metadata.get("scope_type"))
+    warnings += stats_warnings
     out["confidence_distribution"] = stats["confidence_distribution"]
-    return out
+    return out, {"dropped_stats": dropped, "warnings": warnings}
 
 
 NOT_PUBLIC_NAMED = 10  # the names the not_public warning spells out; the summary lists them all
@@ -2910,13 +3030,62 @@ def _metadata_in(path: str | None) -> dict | None:
     return metadata
 
 
+_QUICK_METADATA = None
+
+
+def _quick_metadata():
+    """skf-render-quick-metadata.py, loaded once from this folder as skf-extraction-inventory.py loads it: its
+    probe_skf_version reads the installed SKF's version, so create-skill and update-skill read it one way. Raises
+    ValueError, one line, when it cannot be loaded."""
+    global _QUICK_METADATA
+    if _QUICK_METADATA is None:
+        path = Path(__file__).resolve().parent / "skf-render-quick-metadata.py"
+        cannot = f"cannot load {path.name} beside {Path(__file__).name}"
+        if not path.is_file():
+            raise ValueError(f"{cannot}: it is missing; re-install SKF")
+        spec = importlib.util.spec_from_file_location("skf_render_quick_metadata", path)
+        if spec is None or spec.loader is None:
+            raise ValueError(f"{cannot}: re-install SKF")
+        module = importlib.util.module_from_spec(spec)
+        try:
+            spec.loader.exec_module(module)
+        except (ImportError, SyntaxError, OSError) as exc:
+            raise ValueError(f"{cannot} ({type(exc).__name__}: {' '.join(str(exc).split())}): re-install "
+                             f"SKF") from exc
+        if not callable(getattr(module, "probe_skf_version", None)):
+            raise ValueError(f"{cannot}: it has no probe_skf_version; re-install SKF")
+        _QUICK_METADATA = module
+    return _QUICK_METADATA
+
+
+def _runner_ast_grep(path: str | None) -> str | None:
+    """The ast-grep version the recipe runner's output (--extraction) records: "unknown" when it records none but
+    holds an export ast-grep matched, and None when ast-grep did not run (no export it matched, as in the
+    {"exports": []} step 2 writes when the runner cannot run)."""
+    if not path:
+        return None
+    extraction = _load_json_file(Path(path), "--extraction file")
+    if not isinstance(extraction, dict):
+        raise ValueError("--extraction file must hold a JSON object (the recipe runner's output)")
+    ast_grep = extraction.get("ast_grep")
+    version = _tool_version(ast_grep.get("version")) if isinstance(ast_grep, dict) else None
+    if version is not None:
+        return version
+    exports = extraction.get("exports") if isinstance(extraction.get("exports"), list) else []
+    matched = any(isinstance(e, dict) and e.get("extraction_method") == "ast-grep" for e in exports)
+    return "unknown" if matched else None
+
+
 def _cmd_metadata(args: argparse.Namespace) -> int:
     target = Path(args.metadata)
     try:
-        metadata = update_metadata(
+        skf_version = _quick_metadata().probe_skf_version(args.skf_root) if args.skf_root else None
+        metadata, summary = update_metadata(
             _load_json_file(target, "--metadata file"), _load_json_file(Path(args.lists), "--lists file"),
             _load_json_file(Path(args.stats), "--stats file"), version=args.version,
-            generation_date=args.generation_date, source_commit=args.source_commit, source_ref=args.source_ref)
+            generation_date=args.generation_date, source_commit=args.source_commit, source_ref=args.source_ref,
+            skf_version=skf_version, skf_root=args.skf_root, ast_grep_version=_runner_ast_grep(args.extraction),
+            qmd_version=args.qmd_version)
         _write_json_atomic(target, metadata)
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -2926,7 +3095,8 @@ def _cmd_metadata(args: argparse.Namespace) -> int:
         return 1
     print(json.dumps({"status": "written", "metadata": target.as_posix(), "version": metadata["version"],
                       "exports": len(metadata["exports"]), "scripts": len(metadata.get("scripts") or []),
-                      "assets": len(metadata.get("assets") or [])}))
+                      "assets": len(metadata.get("assets") or []), "tool_versions": metadata["tool_versions"],
+                      **summary}))
     return 0
 
 
@@ -3205,9 +3375,15 @@ def _build_parser() -> argparse.ArgumentParser:
         description="Rewrite the skill's metadata.json in place. It sets version and generation_date, "
                     "source_commit and source_ref when given, exports, scripts and assets from --lists (a script "
                     "or asset list left out when empty), confidence_distribution from --stats and the stats "
-                    "helper's stats fields, dropping one an earlier run wrote that --stats lacks; it removes "
-                    "last_update and update_type and keeps every other field, a patched one included. It refuses "
-                    "a --stats whose scripts_count or assets_count is not the length of --lists' scripts or assets.")
+                    "helper's stats fields, dropping one an earlier run wrote that --stats lacks; tool_versions.skf "
+                    "from --skf-root (unknown, with a warning, when it gives no version), and tool_versions.ast_grep "
+                    "and tool_versions.qmd from --extraction and --qmd-version when this run used them, else as "
+                    "they stand. When --stats' effective_denominator differs from the old one (or one is absent), it "
+                    "drops each old stats key named effective_denominator_*; each dropped key is in dropped_stats, "
+                    "with a warning. It keeps every other old stats key, with a warning for each one create-skill "
+                    "does not write for the skill's scope_type. It removes last_update and "
+                    "update_type and keeps every other field, a patched one included. It refuses a --stats whose "
+                    "scripts_count or assets_count is not the length of --lists' scripts or assets.")
     p_meta.add_argument("--metadata", required=True, metavar="FILE",
                         help="the skill's metadata.json, rewritten in place")
     p_meta.add_argument("--lists", required=True, metavar="FILE", help="the lists apply wrote (--lists-out)")
@@ -3217,6 +3393,14 @@ def _build_parser() -> argparse.ArgumentParser:
     p_meta.add_argument("--generation-date", required=True, help="the clock's UTC time, YYYY-MM-DDTHH:MM:SSZ")
     p_meta.add_argument("--source-commit", default=None, help="the commit this update read (an empty one: null)")
     p_meta.add_argument("--source-ref", default=None, help="the ref this update read (an empty one: null)")
+    p_meta.add_argument("--skf-root", metavar="DIR",
+                        help="the installed SKF ({project-root}/_bmad/skf): tool_versions.skf, from its package.json "
+                             "or VERSION file")
+    p_meta.add_argument("--extraction", metavar="FILE",
+                        help="the recipe runner's output this run wrote: tool_versions.ast_grep, its ast_grep.version")
+    p_meta.add_argument("--qmd-version", default=None,
+                        help="what qmd --version printed, when this run queried QMD: tool_versions.qmd (a leading "
+                             "\"qmd \" removed)")
     p_meta.set_defaults(func=_cmd_metadata)
 
     p_records = sub.add_parser("records", help="write step 3's re-extraction records from the runner's and the "

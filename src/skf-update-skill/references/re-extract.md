@@ -116,6 +116,8 @@ Launch a subprocess that loads qmd_bridge and for each changed export:
 2. Searches for usage patterns, documentation references, temporal history
 3. Returns T2 evidence per export (usage frequency, context snippets, related concepts), as patches §4 merges: write one `{"file_path", "exports": [{"name", "qmd_evidence"}]}` block per file to its own file in `{run_dir}/reextract-patches/`
 
+Then bind `{qmd_version}` ← the version `qmd --version` prints (`qmd 2.0.1` gives `2.0.1`): write.md §2 records it as `tool_versions.qmd`.
+
 **If no matching collection found in registry:**
 Log: "No QMD extraction collection found for {skill_name}. T2 enrichment skipped. Re-run [CS] Create Skill to generate the collection."
 Continue without T2 enrichment: extraction still produces its structural results, labeled by tool.
