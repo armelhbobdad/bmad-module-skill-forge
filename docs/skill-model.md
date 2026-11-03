@@ -232,8 +232,8 @@ This is a trimmed excerpt from the real [`oms-cognee/1.6.2/metadata.json`](https
   "language": "python",
   "ast_node_count": 42,
   "confidence_distribution": {
-    "t1": 42,
-    "t1_low": 44,
+    "t1": 37,
+    "t1_low": 49,
     "t2": 0,
     "t3": 0
   },
@@ -252,9 +252,9 @@ This is a trimmed excerpt from the real [`oms-cognee/1.6.2/metadata.json`](https
 
 Fields omitted from this excerpt for brevity: `source_root`, `description`, `exports[]`, `tool_versions`, `dependencies`, `compatibility` and `generated_by`. Update Skill records `last_update` and `update_type` at the top level of `provenance-map.json` in `forge-data/{name}/{version}/`, and an update removes both from `metadata.json`, which marks an update only in `generation_date`. The full 146-line file lives at [`oh-my-skills/skills/oms-cognee/1.6.2/oms-cognee/metadata.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.6.2/oms-cognee/metadata.json).
 
-Two fields are easy to mix up. `confidence_tier` holds the forge tier a single skill like this one was compiled at (Quick, Forge, Forge+ or Deep). A stack skill records there the dominant confidence tier of its libraries (T1, T1-low, T2 or T3) and keeps its forge tier in `forge_tier`; Export Skill still accepts a forge tier from a stack made by an earlier SKF version, with a warning that running Stack Skill again records the dominant tier. `confidence_distribution` counts the claims at each confidence tier (T1, T1-low, T2, T3). In a stack it counts each library once, by the library's tier, so its bins sum to `library_count`.
+Two fields are easy to mix up. `confidence_tier` holds the forge tier a single skill like this one was compiled at (Quick, Forge, Forge+ or Deep). A stack skill records there the dominant confidence tier of its libraries (T1, T1-low, T2 or T3) and keeps its forge tier in `forge_tier`; Export Skill still accepts a forge tier from a stack made by an earlier SKF version, with a warning that running Stack Skill again records the dominant tier. `confidence_distribution` counts each claim by the tier of its signature (`signature_source`: T1, T1-low, T2 or T3), which can be lower than the entry's `confidence` label. In a stack it counts each library once, by the library's tier, so its bins sum to `library_count`.
 
-Its counts follow the tool that read each export: 42 exports an ast-grep rule matched count as `t1` (and `ast_node_count` counts only those), and 44 read by eye (`source-read`), such as aliases, module namespaces and the names gap-driven repairs added, count as `t1_low`. The skill's 1.0.0 metadata, written by an SKF version that labeled exports by the forge tier, counted all 34 of its exports as `t1`. `exports_documented` (86) is below `exports_public_api` (102): the brief leaves some top-level names out of scope, and the skill's test report lists them and logs the remaining difference as a Medium `metadata-drift` gap.
+Its counts follow the tool that read each export's signature: 37 exports whose signature an ast-grep rule matched count as `t1`, and 49 count as `t1_low`. Of those 49, 44 were read by eye (`source-read`), such as aliases, module namespaces and the names gap-driven repairs added. The other 5 were located by an ast-grep rule, but their signatures were read by eye, such as the methods of the `config` class. `ast_node_count` (42) counts every export an ast-grep rule matched. The skill's 1.0.0 metadata, written by an SKF version that labeled exports by the forge tier, counted all 34 of its exports as `t1`. `exports_documented` (86) is below `exports_public_api` (102): the brief leaves some top-level names out of scope, and the skill's test report lists them and logs the remaining difference as a Medium `metadata-drift` gap.
 
 `scripts` and `assets` arrays are optional: SKF leaves them out entirely, rather than writing empty arrays, when the source has no scripts or assets.
 
