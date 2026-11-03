@@ -115,7 +115,7 @@ Each workflow is also a skill you can run directly, without Ferris: `/skf-setup`
 
 **Note:** QS ignores your forge tier. Every Quick Skill is built the Quick-tier way (its `metadata.json` records `confidence_tier: "Quick"` and `source_authority: "community"`) and uses none of ast-grep, CCC or QMD, even when your forge is set to Forge+ or Deep. For a skill built at your forge tier, use `BS → CS`, `forge`, or `forge-auto`. See [Skill Model](/docs/skill-model.md).
 
-**When to Use:** When you need a skill quickly, with no brief. Accepts package names, a package's npm, PyPI or crates.io page, or GitHub URLs. Append `@version` to target a specific version (for example `@Ferris QS cognee@1.0.0`).
+**When to Use:** When you need a skill quickly, with no brief. Accepts package names, a package's npm, PyPI or crates.io page, or GitHub URLs. Append `@version` to target a specific version (for example `@Ferris QS cognee@1.6.2`).
 
 **Package names:** QS looks a package name up on every registry of npm, PyPI and crates.io; a JavaScript, TypeScript, Python or Rust language hint asks only that language's registry. When more than one registry answers, an interactive run lists every candidate and asks which project to build, or takes another GitHub URL. A headless run keeps the first registry's pick (npm, then PyPI, then crates.io) and records an `also_found_in` warning in its result envelope. To build another candidate, pass its GitHub URL, its registry page URL or a language hint (`language=` on a batch line).
 

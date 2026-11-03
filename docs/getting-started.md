@@ -8,7 +8,7 @@ description: Install Skill Forge and generate your first verified skill in under
 One command. One verified skill. Here's what an instruction in a cognee skill looks like:
 
 ```python
-await cognee.search(  # [AST:cognee/api/v1/search/search.py:L27]
+await cognee.search(  # [AST:cognee/api/v1/search/search.py:L41]
     query_text="What does Cognee do?"
 )
 ```
@@ -129,7 +129,7 @@ Ferris reads the repository, extracts the public API, and generates a skill in u
 
 **Targeting a specific version:** Append `@version` to pin the skill to a library version:
 ```
-@Ferris QS cognee@1.0.0
+@Ferris QS cognee@1.6.2
 ```
 
 **Full quality path (pipeline mode):**

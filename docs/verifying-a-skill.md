@@ -29,12 +29,12 @@ Provenance maps live in `forge-data/{skill}/{version}/provenance-map.json` in th
 ```json
 {
   "export_name": "search",
-  "export_type": "async_function",
+  "export_type": "function",
   "source_library": "cognee",
-  "params": ["query_text: str", "query_type: SearchType = SearchType.GRAPH_COMPLETION"],
-  "return_type": "List[SearchResult]",
+  "params": ["query_text: str", "query_type: SearchType = SearchType.HYBRID_COMPLETION"],
+  "return_type": "list[SearchResult]",
   "source_file": "cognee/api/v1/search/search.py",
-  "source_line": 27,
+  "source_line": 41,
   "confidence": "T1",
   "extraction_method": "ast-grep",
   "ast_node_type": "function_definition",
@@ -42,9 +42,9 @@ Provenance maps live in `forge-data/{skill}/{version}/provenance-map.json` in th
 }
 ```
 
-This is the entry SKF 3.0.0 writes for cognee's `search` when ast-grep matches it, shortened to its first two parameters (`search` takes 20). It points at line 27, where `search` is defined at cognee v1.0.0's commit (`3c048aa4`), and its labels follow the tool that read it: an ast-grep match gives `T1`, `ast-grep`, the node kind its rule matched and an `[AST:]` citation. An export read by eye instead, because ast-grep could not parse its file, an ast-grep call that failed or timed out left its file unread, or no rule matched it, gets `T1-low`, `source-read`, no node kind and an `[SRC:]` citation, at every forge tier.
+This is the published entry for cognee's `search` in oh-my-skills' [`forge-data/oms-cognee/1.6.2/provenance-map.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-cognee/1.6.2/provenance-map.json), shortened to its first two parameters (`search` takes 27). It points at line 41, where `async def search(` is defined at cognee v1.6.2's commit (`ba3631f2`), and the skill's `SKILL.md` cites `[AST:cognee/api/v1/search/search.py:L41]`. Its labels follow the tool that read it: an ast-grep match gives `T1`, `ast-grep`, the node kind its rule matched and an `[AST:]` citation. An export read by eye instead, because ast-grep could not parse its file, an ast-grep call that failed or timed out left its file unread, or no rule matched it, gets `T1-low`, `source-read`, no node kind and an `[SRC:]` citation, at every forge tier.
 
-The published entry in oh-my-skills' [`forge-data/oms-cognee/1.0.0/provenance-map.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-cognee/1.0.0/provenance-map.json) is a good one to check by hand, because it was compiled before labels followed the tool. It records `search` as `source-read` but labels it `T1`, and it points at line 26, the blank line above the definition, while the skill's `SKILL.md` cites `[AST:cognee/api/v1/search/search.py:L27]`. SKF 3.0.0's [line, label and citation checks](#workflow-time-enforcement) flag all three when Create Skill or Update Skill writes such a map: a source read is `T1-low` with an `[SRC:]` citation, and its line is 27, the `def` line.
+The 1.6.2 map passes the [line, label and citation checks](#workflow-time-enforcement) that SKF 3.0.0 added, and SKF 4.0.0's Test Skill passed the skill at 99.00%. The older map next to it, [`forge-data/oms-cognee/1.0.0/provenance-map.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-cognee/1.0.0/provenance-map.json), was compiled before labels followed the tool and still shows what those checks catch. It records `search` as `source-read` but labels it `T1`, and it points at line 26, the blank line above the definition, while that version's `SKILL.md` cites `[AST:cognee/api/v1/search/search.py:L27]`. A source read is `T1-low` with an `[SRC:]` citation, and its line is 27, the `def` line at v1.0.0.
 
 ### 3. Visit the upstream repo at the pinned commit
 
@@ -74,7 +74,7 @@ Every file in the per-skill output carries a specific job. Here's the lookup tab
 | Which symbols are documented and where did each come from? | `forge-data/{name}/{version}/provenance-map.json` |
 | What AST patterns were used for extraction? | `forge-data/{name}/{version}/extraction-rules.yaml` |
 | What signatures, types, and examples did the extractor actually capture? | `forge-data/{name}/{version}/evidence-report.md` |
-| How was the skill scored? Show me the math. | `forge-data/{name}/{version}/test-report-{name}-{run_id}.md` (one report per run, named with the run ID; the newest one counts. Test Skill gives a report this name only once its checks pass, so a run that halts leaves just its hidden in-progress file, `.skf-test-report-{name}-{run_id}.md`, and the last finished report still counts. Older reports, like the oh-my-skills ones linked below, are named `test-report-{name}.md`) |
+| How was the skill scored? Show me the math. | `forge-data/{name}/{version}/test-report-{name}-{run_id}.md` (one report per run, named with the run ID; the newest one counts. Test Skill gives a report this name only once its checks pass, so a run that halts leaves just its hidden in-progress file, `.skf-test-report-{name}-{run_id}.md`, and the last finished report still counts. Reports from SKF 2.x and earlier are named `test-report-{name}.md`) |
 | How was the skill scoped, and what was deliberately left out? | `forge-data/{name}/skill-brief.yaml` |
 
 Everything a reader needs to reconstruct the compilation is in the two sibling directories: `skills/` ships to consumers, `forge-data/` is the audit trail.
@@ -85,20 +85,20 @@ Everything a reader needs to reconstruct the compilation is in the two sibling d
 
 The [scoring formula](#how-the-score-is-computed) is deterministic and the pass threshold is **80%**. Every test report also logs the specific edges where a skill falls short, so the numbers aren't marketing.
 
-Take oh-my-skills' four reference skills as an example. Their scores range from **99.0% to 99.49%**. None is perfect, and every test report names the specific drift it found:
+Take oh-my-skills' four reference skills as an example. Under SKF 4.0.0 their scores range from **95.17% to 100%**. Each first failed the [hard gate](#hard-gate) on SKF 4.0.0's stricter checks, was repaired by Update Skill with `--from-test-report`, and passed on a re-test; every report, the failing ones included, stays in the skill's `forge-data/` folder. Even a 100% report names the drift it found:
 
 | Skill | Score | What the report discloses |
 |---|---|---|
-| [oms-cocoindex](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-cocoindex/0.3.37/test-report-oms-cocoindex.md) | **99.0%** | 114/114 provenance entries; 55 public-API denominator from `__init__.py` `__all__`; 20/20 sampled signatures matched. Two denominators (barrel vs. full surface) both disclosed with rationale. |
-| [oms-cognee](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-cognee/1.0.0/test-report-oms-cognee.md) | **99.0%** | 34/34 exports documented; denominator is the `cognee/__init__.py` barrel (61 lines, 34 public re-exports) at pinned commit `3c048aa4` (v1.0.0). |
-| [oms-storybook-react-vite](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-storybook-react-vite/10.3.5/test-report-oms-storybook-react-vite.md) | **99.49%** | 215/216 documented. **GAP-004** logs the one-count gap openly: all 215 exports in the provenance map are documented, and the 216th is a stale count in `metadata.json`, not a missing export. |
-| [oms-uitripled](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-uitripled/0.1.0/test-report-oms-uitripled.md) | **99.45%** | 34-entry denominator (not 11, not 25) with the full reconciliation reasoning in the report. |
+| [oms-cocoindex](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-cocoindex/1.0.0/test-report-oms-cocoindex-20261102T201851Z-bf06d70f.md) | **100%** | 79/79 exports on the brief's `scope.include` union (95 files), disclosed as a stratified scope with its candidates; 27/27 signatures match. Left open: a brief glob that matches no file and a barrel count in `metadata.json` that differs from `exports[]` (both Medium, no points lost). |
+| [oms-cognee](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-cognee/1.6.2/test-report-oms-cognee-20261102T194852Z-d56413cb.md) | **99.00%** | 92/92 exports of the `cognee/__init__.py` barrel at pinned commit `ba3631f2` (v1.6.2); 54 signature checks, 0 mismatches. External Validation is 90%: skill-check finds the `SKILL.md` body over its 5,000-token budget. |
+| [oms-storybook-react-vite](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-storybook-react-vite/10.3.5/test-report-oms-storybook-react-vite-20261102T231406Z-a5890950.md) | **95.17%** | 280 public names on the brief's `scope.tier_a_include`, the story-authoring entry points; 83/83 signatures match. Type Coverage is 91/120. Export Coverage reads 100% only because the count credits every documented name ([#792](https://github.com/armelhbobdad/bmad-module-skill-forge/issues/792)); 207 of the 280 names are documented. |
+| [oms-uitripled](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-uitripled/0.1.0/test-report-oms-uitripled-20261102T194714Z-aff41a98.md) | **100%** | 327/327 on the `stats.effective_denominator` of the brief's `scope.include` union; 127/127 signatures match. Left open: a stale brief glob and a barrel count (both Medium, no points lost). |
 
 Perfection is suspicious. Visible fallibility is trustworthy. SKF writes down the edges it can't score cleanly, so you can read them and decide for yourself whether the remaining coverage is enough for your use case.
 
-### GAP-004: a worked example of a logged gap
+### oms-storybook-react-vite: a worked example of a logged gap
 
-The [`oms-storybook-react-vite` test report](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-storybook-react-vite/10.3.5/test-report-oms-storybook-react-vite.md) scores Export Coverage at **215/216**, not 216/216. The report logs the gap as **GAP-004**: once duplicate entries are folded, the provenance map holds 215 unique exports, all documented, while `metadata.json` still states a denominator of 216. The report names the gap, shows the math, and leaves the drift visible for the next recompilation pass. Nothing was hidden.
+The [`oms-storybook-react-vite` test report](https://github.com/armelhbobdad/oh-my-skills/blob/main/forge-data/oms-storybook-react-vite/10.3.5/test-report-oms-storybook-react-vite-20261102T231406Z-a5890950.md) scores the skill at **95.17%**, not 100%. Its brief once counted every public name under Storybook's `code/core`, 985 of them, most of them plumbing a story author never imports, and a first repair passed at 99.93% by documenting them. That repair was reverted: the brief now names the story-authoring entry points in `scope.tier_a_include` (280 names), and the skill is measured on those. The report shows the cost: 91 of the tier's 120 types are documented, so Type Coverage is 75.83%, and it lists the 29 that are not. It also says why Export Coverage still reads 100%: the scalar count credits every documented name, while 207 of the 280 authored names are documented. Nothing was hidden.
 
 That's the pattern SKF asks you to trust: when scoring can't reach 100%, the report says so, cites the line, and leaves a fingerprint for the next audit.
 

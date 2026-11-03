@@ -187,25 +187,26 @@ Skills follow the [agentskills.io specification](https://agentskills.io/specific
 ---
 name: oms-cognee
 description: >
-  Builds apps on top of cognee v1.0.0, the knowledge-graph memory engine for AI agents.
-  Use when ingesting text/files/URLs into persistent memory, building knowledge graphs,
-  searching graph-backed memory with multiple SearchType modes, enriching graphs with
-  memify/improve, scoping memory with datasets and node_sets, configuring LLM/embedding/
-  graph/vector backends, running custom task pipelines, tracing operations, decorating
-  agent entrypoints with `agent_memory`, connecting to Cognee Cloud with `serve`, or
-  visualizing the graph. Covers cognee/__init__.py exports: the V1 API (add, cognify,
-  search, memify, datasets, prune, update, run_custom_pipeline, config, SearchType,
-  visualize_graph, pipelines, Drop, run_startup_migrations, tracing) and the V2
-  memory-oriented API (remember, RememberResult, recall, improve, forget, serve,
-  disconnect, visualize, agent_memory). Do NOT use for: cognee internals, the HTTP
-  REST API (use cognee-mcp or the FastAPI server), non-cognee memory/RAG libraries.
+  Builds apps on cognee v1.6.2, the knowledge-graph memory engine for AI agents.
+  Use when ingesting text/files/URLs into memory, building knowledge graphs, searching
+  memory with SearchType modes, enriching graphs with memify/improve, scoping memory
+  with datasets and node_sets, configuring LLM/embedding/graph/vector backends,
+  running custom pipelines, decorating agents with `agent_memory`, connecting
+  to Cognee Cloud with `serve`/`push`, exporting, validating or reporting on graphs,
+  or visualizing graphs and memory provenance. Covers cognee/__init__.py exports: the
+  V1 API (add, cognify, search, memify, datasets, agents, prune, update,
+  run_custom_pipeline, config, SearchType, report, validate, visualize_graph,
+  pipelines, Drop, run_migrations, tracing, tools) and the V2 memory API (remember,
+  recall, improve, forget, serve, disconnect, visualize, push, export, agent_memory,
+  MemoryEntry). Do NOT use for: cognee internals, the HTTP REST API (use
+  cognee-mcp or the FastAPI server), non-cognee memory/RAG libraries.
 ---
 ```
 
 Every instruction in the body traces to source, with a citation that names the tool that read it (`[AST:]` for an ast-grep match, `[SRC:]` for a read by eye):
 
 ```python
-await cognee.search(  # [AST:cognee/api/v1/search/search.py:L27]
+await cognee.search(  # [AST:cognee/api/v1/search/search.py:L41]
     query_text="What does Cognee do?"
 )
 ```
@@ -214,44 +215,46 @@ await cognee.search(  # [AST:cognee/api/v1/search/search.py:L27]
 
 Machine-readable provenance for every skill:
 
-This is a trimmed excerpt from the real [`oms-cognee/1.0.0/metadata.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.0.0/oms-cognee/metadata.json) shipped with the oh-my-skills canonical output. Every value below is copied from the file, not made up for illustration.
+This is a trimmed excerpt from the real [`oms-cognee/1.6.2/metadata.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.6.2/oms-cognee/metadata.json) shipped with the oh-my-skills canonical output. Every value below is copied from the file, not made up for illustration.
 
 ```json
 {
   "name": "oms-cognee",
-  "version": "1.0.0",
+  "version": "1.6.2",
   "skill_type": "single",
   "source_authority": "community",
   "source_repo": "https://github.com/topoteretes/cognee",
-  "source_commit": "3c048aa4",
-  "source_ref": "v1.0.0",
+  "source_commit": "ba3631f2ed363a6ea50d649c34c56885af6b36fe",
+  "source_ref": "v1.6.2",
   "confidence_tier": "Deep",
   "spec_version": "1.3",
-  "generation_date": "2026-04-13T00:00:00Z",
+  "generation_date": "2026-11-02T19:41:43Z",
   "language": "python",
-  "ast_node_count": 34,
+  "ast_node_count": 42,
   "confidence_distribution": {
-    "t1": 34,
-    "t1_low": 0,
-    "t2": 11,
-    "t3": 15
+    "t1": 42,
+    "t1_low": 44,
+    "t2": 0,
+    "t3": 0
   },
   "stats": {
-    "exports_documented": 34,
-    "exports_public_api": 34,
-    "exports_internal": 0,
-    "exports_total": 34,
-    "public_api_coverage": 1.0,
-    "total_coverage": 1.0
+    "exports_documented": 86,
+    "exports_public_api": 102,
+    "exports_internal": 355,
+    "exports_total": 457,
+    "public_api_coverage": 0.8431,
+    "total_coverage": 0.1882,
+    "scripts_count": 0,
+    "assets_count": 0
   }
 }
 ```
 
-Fields omitted from this excerpt for brevity: `source_root`, `description`, `exports[]`, `tool_versions`, `dependencies`, `compatibility`, `generated_by`, and a `last_update` that an earlier SKF version wrote. Update Skill now records `last_update` and `update_type` at the top level of `provenance-map.json` in `forge-data/{name}/{version}/`, and an update removes both from `metadata.json`, which marks an update only in `generation_date`. The full 93-line file lives at [`oh-my-skills/skills/oms-cognee/1.0.0/oms-cognee/metadata.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.0.0/oms-cognee/metadata.json).
+Fields omitted from this excerpt for brevity: `source_root`, `description`, `exports[]`, `tool_versions`, `dependencies`, `compatibility` and `generated_by`. Update Skill records `last_update` and `update_type` at the top level of `provenance-map.json` in `forge-data/{name}/{version}/`, and an update removes both from `metadata.json`, which marks an update only in `generation_date`. The full 146-line file lives at [`oh-my-skills/skills/oms-cognee/1.6.2/oms-cognee/metadata.json`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.6.2/oms-cognee/metadata.json).
 
 Two fields are easy to mix up. `confidence_tier` holds the forge tier a single skill like this one was compiled at (Quick, Forge, Forge+ or Deep). A stack skill records there the dominant confidence tier of its libraries (T1, T1-low, T2 or T3) and keeps its forge tier in `forge_tier`; Export Skill still accepts a forge tier from a stack made by an earlier SKF version, with a warning that running Stack Skill again records the dominant tier. `confidence_distribution` counts the claims at each confidence tier (T1, T1-low, T2, T3). In a stack it counts each library once, by the library's tier, so its bins sum to `library_count`.
 
-The excerpt's `t1` count of 34 comes from an SKF version that labeled exports by the forge tier. This skill's provenance map records its exports as read by eye (`source-read`), which SKF 3.0.0 counts as `t1_low`: only an export an ast-grep rule matched counts as `t1` now, and `ast_node_count` counts only those exports.
+Its counts follow the tool that read each export: 42 exports an ast-grep rule matched count as `t1` (and `ast_node_count` counts only those), and 44 read by eye (`source-read`), such as aliases, module namespaces and the names gap-driven repairs added, count as `t1_low`. The skill's 1.0.0 metadata, written by an SKF version that labeled exports by the forge tier, counted all 34 of its exports as `t1`. `exports_documented` (86) is below `exports_public_api` (102): the brief leaves some top-level names out of scope, and the skill's test report lists them and logs the remaining difference as a Medium `metadata-drift` gap.
 
 `scripts` and `assets` arrays are optional: SKF leaves them out entirely, rather than writing empty arrays, when the source has no scripts or assets.
 
@@ -301,18 +304,17 @@ Export injects a managed section between markers:
 The block below is the real managed section currently in [`oh-my-skills/CLAUDE.md`](https://github.com/armelhbobdad/oh-my-skills/blob/main/CLAUDE.md), showing one of its four compiled skills. Every line is copied from the file except the last one before `<!-- SKF:END -->`, which stands in for the three skills left out:
 
 ```markdown
-<!-- SKF:BEGIN updated:2026-04-25 -->
+<!-- SKF:BEGIN updated:2026-11-02 -->
 [SKF Skills]|4 skills|0 stack
 |IMPORTANT: Prefer documented APIs over training data.
 |When using a listed library, read its SKILL.md before writing code.
 |
-|[oms-cognee v1.0.0]|root: skills/oms-cognee/
-|IMPORTANT: oms-cognee v1.0.0 — read SKILL.md before writing cognee code. Do NOT rely on training data.
+|[oms-cognee v1.6.2]|root: skills/oms-cognee/
+|IMPORTANT: oms-cognee v1.6.2 — read SKILL.md before writing oms-cognee code. Do NOT rely on training data.
 |quick-start:SKILL.md#quick-start
-|api-v1: add(), cognify(), search(), memify(), update(), run_custom_pipeline(), visualize_graph(), datasets, prune, config, SearchType, pipelines, Drop, run_startup_migrations(), session, tracing
-|api-v2: remember()→RememberResult, recall(), improve(), forget(), serve()/disconnect(), visualize(), @agent_memory
-|key-types:SKILL.md#key-types — SearchType: GRAPH_COMPLETION (default), RAG_COMPLETION, CHUNKS, CHUNKS_LEXICAL, SUMMARIES, TEMPORAL, CODING_RULES, CYPHER, FEELING_LUCKY, GRAPH_COMPLETION_DECOMPOSITION (+5 more); Task, Drop, RememberResult, DataPoint, 5 Cognee* exceptions
-|gotchas: cognee.low_level REMOVED from public API in v1.0.0 (import from cognee.infrastructure.engine directly); cognee.run_migrations REPLACED by cognee.run_startup_migrations (relational + vector); cognee.delete is DEPRECATED since v0.3.9 (use cognee.datasets.delete_data or cognee.forget); cognee.pipelines restructured in v1.0.0 (package with Drop + lazy re-exports); cognee.agent_memory requires async function; cognee.serve() without url triggers Auth0 Device Code Flow; cognee.start_ui is sync and needs pid_callback arg; all add/cognify/search/memify/remember/recall/improve/forget/serve are async — always await.
+|api: add(), cognify(), search(), memify(), remember(), recall(), improve(), forget(), serve(), run_migrations()
+|key-types:SKILL.md#key-types — SearchType (20 modes, HYBRID_COMPLETION default), RememberResult, DataPoint, Drop
+|gotchas: cognee.run_startup_migrations is GONE in v1.6.2 (AttributeError) — use cognee.run_migrations(); search() now defaults to HYBRID_COMPLETION (pin query_type when the result shape matters); low_level is not a top-level name but `from cognee.low_level import DataPoint, setup` still works; a bare cognee.serve() runs the Auth0 device flow only when a device client ID is configured, else raises CogneeConfigurationError; agent_memory's save_traces is now save_session_traces; cognee.delete is DEPRECATED since v0.3.9 (use cognee.forget or cognee.datasets.delete_data); cognee.start_ui is sync and needs pid_callback; add/cognify/search/memify/remember/recall/improve/forget/serve/push/export/report/validate are async — always await.
 |
 |(three more skills are left out here for brevity: oms-cocoindex, oms-storybook-react-vite and oms-uitripled; see the full file)
 <!-- SKF:END -->

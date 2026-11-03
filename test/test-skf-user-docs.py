@@ -310,8 +310,7 @@ def test_skill_model_says_where_an_update_records_itself():
     excerpt = _slice(doc, "```json\n{\n  \"name\": \"oms-cognee\"", "\n```\n")
     assert "last_update" not in excerpt and "update_type" not in excerpt
     omitted = _paragraph(doc, "Fields omitted from this excerpt for brevity:")
-    for token in ("a `last_update` that an earlier SKF version wrote",
-                  "records `last_update` and `update_type` at the top level of `provenance-map.json`",
+    for token in ("records `last_update` and `update_type` at the top level of `provenance-map.json`",
                   "an update removes both from `metadata.json`", "`generation_date`"):
         assert token in omitted, token
 
@@ -836,7 +835,7 @@ METADATA_STATS = SRC / "shared" / "scripts" / "skf-render-metadata-stats.py"
 COMPUTE_SCORE = TEST_SKILL / "scripts" / "compute-score.py"
 CAMPAIGN = SRC / "skf-campaign"
 LABEL_TABLE = "Provenance label differences (not drift)"
-AST_RECEIPT = "[AST:cognee/api/v1/search/search.py:L27]"
+AST_RECEIPT = "[AST:cognee/api/v1/search/search.py:L41]"
 SCORE_CATEGORIES = ("exportCoverage", "signatureAccuracy", "typeCoverage", "coherence", "externalValidation")
 
 
@@ -856,14 +855,14 @@ def _score(threshold: int, score: int, tooling: str = "ok") -> dict:
 
 
 def test_verifying_example_entry_carries_the_labels_its_tool_implies():
-    """The step 2 entry passes the label check; the published entry the page describes is flagged by it.
+    """The step 2 entry (oms-cognee 1.6.2) passes the label check; the 1.0.0 entry the page contrasts is flagged by it.
 
     The checks bullet the step links to describes that label check and the relabel Create Skill applies.
     """
     step = _slice(_read(VERIFYING), "### 2. Open the skill's `provenance-map.json`", "### 3. ")
     entry = json.loads(_slice(step, "```json\n", "```\n")[len("```json\n"):])
     check = _script(METADATA_STATS).check_label_agreement
-    assert (entry["extraction_method"], entry["confidence"], entry["source_line"]) == ("ast-grep", "T1", 27)
+    assert (entry["extraction_method"], entry["confidence"], entry["source_line"]) == ("ast-grep", "T1", 41)
     assert check({"entries": [entry]}) == []
     assert [v["expected"] for v in check({"entries": [{**entry, "ast_node_type": None}]})] == ["non-null"]
     published = {**entry, "extraction_method": "source-read", "source_line": 26}
@@ -873,7 +872,8 @@ def test_verifying_example_entry_carries_the_labels_its_tool_implies():
                   "gets `T1-low`, `source-read`, no node kind and an `[SRC:]` citation, at every forge tier",
                   "It records `search` as `source-read` but labels it `T1`",
                   "points at line 26, the blank line above the definition", f"cites `{AST_RECEIPT}`",
-                  "a source read is `T1-low` with an `[SRC:]` citation, and its line is 27, the `def` line",
+                  "cites `[AST:cognee/api/v1/search/search.py:L27]`", "forge-data/oms-cognee/1.6.2/provenance-map.json",
+                  "A source read is `T1-low` with an `[SRC:]` citation, and its line is 27, the `def` line",
                   "[line, label and citation checks](#workflow-time-enforcement)"):
         assert token in step, token
     relabel = _read(SRC / "skf-create-skill" / "references" / "relabel-rule.md")
@@ -912,12 +912,12 @@ def test_docs_say_labels_follow_the_tool_and_t1_counts_drop():
         assert token in model, token
     drift = _paragraph(_read(CONCEPTS), "Audit Skill also checks the documentation pages")
     assert f'(T1 to T1-low, or back): Audit Skill lists it under "{LABEL_TABLE}"' in drift
-    excerpt = _paragraph(_read(SKILL_MODEL), "The excerpt's `t1` count of 34")
-    assert '"t1": 34' in _read(SKILL_MODEL) and "which SKF 3.0.0 counts as `t1_low`" in excerpt
+    excerpt = _paragraph(_read(SKILL_MODEL), "Its counts follow the tool that read each export")
+    assert '"t1": 42' in _read(SKILL_MODEL) and "read by eye (`source-read`)" in excerpt and "count as `t1_low`" in excerpt
     # compile.md §4's `metadata` writes it: the inventory helper's rule (v4.0.0 quality gate run 1)
     assert "ast_node_count and tool_versions.ast_grep, only when ast-grep ran:" in " ".join(_read(
         SRC / "shared" / "scripts" / "skf-extraction-inventory.py").split())
-    assert '"ast_node_count": 34' in _read(SKILL_MODEL) and "`ast_node_count` counts only those exports" in excerpt
+    assert '"ast_node_count": 42' in _read(SKILL_MODEL) and "`ast_node_count` counts only those" in excerpt
 
 
 def test_tier_text_promises_t1_only_for_an_ast_grep_match():
@@ -946,11 +946,11 @@ def test_tier_text_promises_t1_only_for_an_ast_grep_match():
 def test_receipt_pages_say_ast_means_an_ast_grep_match():
     """Each page that shows the `search` receipt says `[AST:]` is an ast-grep match and `[SRC:]` a read by eye."""
     pages = {
-        README: "its provenance map records `search` as read by eye, which SKF 3.0.0 cites as `[SRC:...]`",
+        README: "Its provenance map records `search` as an ast-grep match at that line",
         GETTING_STARTED: "an export SKF read by eye instead carries an `[SRC:...]` receipt",
         HOW_IT_WORKS: "An export ast-grep cannot match is read by eye and carries an `[SRC:...]` receipt instead",
         INDEX: "the receipt says so: `[SRC:...]`",
-        EXAMPLES: "that record lists these functions as read by eye (`source-read`)",
+        EXAMPLES: "that record lists the five functions as ast-grep matches (`T1`)",
     }
     for page, token in pages.items():
         text = _read(page)

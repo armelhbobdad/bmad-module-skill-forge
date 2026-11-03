@@ -26,7 +26,7 @@ Skill Forge reads a library's source code and docs and writes a skill: an instru
 
 <div class="receipt-sample">
   <span class="receipt-sample__label">An ast-grep receipt looks like</span>
-  <code class="receipt-sample__chip">[AST:cognee/api/v1/search/search.py:L27]</code>
+  <code class="receipt-sample__chip">[AST:cognee/api/v1/search/search.py:L41]</code>
   <span class="receipt-sample__check" aria-label="verified">✓</span>
 </div>
 

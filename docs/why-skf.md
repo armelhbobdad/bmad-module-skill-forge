@@ -11,7 +11,7 @@ Skill Forge compiles AI skills where each claim your agent reads points back to 
 
 Your AI agents read your codebase through the lens of whatever happened to be in their training data. When that training data is wrong, stale, or incomplete, your agent invents: function names that don't exist, parameter types that don't match, config options removed two versions ago. You catch some of it in review. You ship some of it by accident. Every sprint, your team spends hours untangling code that only compiles in the AI's imagination.
 
-SKF treats this as a citation problem, not a model problem. If a skill claims `cognee.search()` takes `query_text` as its first parameter, SKF points to `cognee/api/v1/search/search.py:L27` at commit `3c048aa4` in the upstream repo. That's the whole pitch: **nothing is made up, and everything is falsifiable in 60 seconds.**
+SKF treats this as a citation problem, not a model problem. If a skill claims `cognee.search()` takes `query_text` as its first parameter, SKF points to `cognee/api/v1/search/search.py:L41` at commit `ba3631f2` in the upstream repo. That's the whole pitch: **nothing is made up, and everything is falsifiable in 60 seconds.**
 
 ---
 
