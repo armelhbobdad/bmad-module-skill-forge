@@ -22,7 +22,10 @@ helper:
     export (no citation, several same-name entries, a `./` or backslash
     path); `match`: the same lookup for a name a step takes elsewhere
   - `translate`: gap-driven.md §1's change manifest, every routed ledger
-    category through the table, an unrouted one warned, a citation inside
+    category through the table, an unrouted one warned with its reason (a
+    stale name and metadata drift among them, the stale name through
+    gap-records and apply too, which then write no entry and no export), a
+    `metadata` gap still routed to rule R4, a citation inside
     the skill package dropped, the answers it asks for (category, name,
     rescope, source file) with the gap's text to judge from and how it reads
     them, rescope asked of every remediation a person wrote and never of the
@@ -46,6 +49,7 @@ import pytest
 REPO = Path(__file__).resolve().parent.parent
 SCRIPT = REPO / "src" / "shared" / "scripts" / "skf-parse-gaps.py"
 LEDGER_SCRIPT = REPO / "src" / "skf-test-skill" / "scripts" / "gap-ledger.py"
+BUILD_SCRIPT = REPO / "src" / "shared" / "scripts" / "skf-build-change-manifest.py"
 
 spec = importlib.util.spec_from_file_location("skf_parse_gaps", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
@@ -863,8 +867,59 @@ def test_translate_leaves_any_other_category_unrouted():
     manifest, summary = _translate(_gap("GAP-001", "observation", title="style"),
                                    _gap("GAP-002", "missing-export", export="search"))
     assert [e["gap_id"] for e in manifest["entries"]] == ["GAP-002"]
-    assert summary["not_routed"] == [{"id": "GAP-001", "title": "style", "category": "observation"}]
-    assert "test-report: not routed: GAP-001 (observation)" in summary["warnings"]
+    reason = mod.NOT_ROUTED_REASONS["observation"]
+    assert summary["not_routed"] == [{"id": "GAP-001", "title": "style", "category": "observation",
+                                      "reason": reason}]
+    assert f"test-report: not routed: GAP-001 (observation): {reason}" in summary["warnings"]
+
+
+def test_every_ledger_category_is_routed_or_has_a_reason():
+    """gap-driven.md §1's Not routed paragraph in the helper: each category the table leaves gets a reason."""
+    assert set(mod.NOT_ROUTED_REASONS) == _ledger_categories() - set(mod.CHANGE_CATEGORIES)
+    # each reason stands alone in a warning and says who repairs the gap, or that no one needs to
+    for reason in [*mod.NOT_ROUTED_REASONS.values(), mod.NO_REPAIR, mod.NO_EXPORT]:
+        assert any(who in reason for who in ("a person", "Create Skill", "no fix is needed")), reason
+        assert "these counts" not in reason and "those stats" not in reason, reason
+
+
+def test_translate_leaves_a_stale_name_unrouted_with_its_reason():
+    """#798: no source line to repair a stale name from, and removing its documentation could delete a name the
+    surface missed: a person decides, so translate writes no entry for it."""
+    manifest, summary = _translate(_gap("GAP-001", "stale-documentation", export="RegistryItemType",
+                                        severity="Medium", citation={"file": "SKILL.md", "line": 139},
+                                        title="Stale documentation: RegistryItemType"))
+    assert (manifest["entries"], summary["gap_count"]) == ([], 0)
+    [item] = summary["not_routed"]
+    assert item["category"] == "stale-documentation" and "no line to repair the name from" in item["reason"]
+    assert "a person removes its documentation" in item["reason"] and "brief's scope" in item["reason"]
+    # a name the source still declares, when classify-stale did not run: keep the documentation and test again
+    assert ("when the source still declares the name, keeps the documentation and re-runs Test Skill at a tier "
+            "that classifies it") in item["reason"]
+    assert f"test-report: not routed: GAP-001 (stale-documentation): {item['reason']}" in summary["warnings"]
+
+
+def test_translate_leaves_barrel_drift_unrouted_with_its_reason():
+    """#803: write.md §2's `metadata` call recounts the counts a `metadata-drift` gap compares and builds
+    exports[] from the provenance map, so a metadata patch never holds and the gap came back each round."""
+    gap = _gap("GAP-001", "metadata-drift", export=None, severity="Medium",
+               title="metadata drift: barrel export counts diverge",
+               issue="stats.exports_public_api=1335, exports[].length=887")
+    manifest, summary = _translate(gap)
+    assert (manifest["entries"], summary["gap_count"]) == ([], 0)
+    [item] = summary["not_routed"]
+    assert item["category"] == "metadata-drift" and item["reason"] == mod.NOT_ROUTED_REASONS["metadata-drift"]
+    assert "recounts `stats.exports_public_api`" in item["reason"] and "a metadata patch to them does not hold" \
+        in item["reason"]
+    assert "Create Skill rebuilds diverging barrel counts" in item["reason"]
+    assert "builds `exports[]` from the provenance map" not in item["reason"]
+    assert f"test-report: not routed: GAP-001 (metadata-drift): {item['reason']}" in summary["warnings"]
+
+
+def test_translate_still_routes_a_metadata_gap_to_rule_r4():
+    manifest, summary = _translate(_gap("GAP-001", "metadata", export=None, severity="Low",
+                                        title="metadata.json has no examples"))
+    assert summary["not_routed"] == [] and summary["gap_count"] == 1
+    assert [(e["category"], e["change_category"]) for e in manifest["entries"]] == [("metadata", "metadata update")]
 
 
 def test_translate_writes_each_entry_in_the_documented_shape():
@@ -931,13 +986,19 @@ def test_translate_asks_what_it_cannot_decide():
                       "GAP-005": (None, "broken-reference", "STRUCTURAL_FIX")}
 
 
-@pytest.mark.parametrize("answers", [
-    {"category": None}, {"category": "observation"}, {"category": "missing-export", "name": None},
-], ids=["no-row", "a-row-update-skill-does-not-route", "no-export-name"])
-def test_translate_leaves_a_gap_the_answers_do_not_route(answers):
+@pytest.mark.parametrize("answers, reason", [
+    ({"category": None}, mod.NO_REPAIR),
+    ({"category": "observation"}, mod.NOT_ROUTED_REASONS["observation"]),
+    ({"category": "stale-documentation"}, mod.NOT_ROUTED_REASONS["stale-documentation"]),
+    ({"category": "metadata-drift"}, mod.NOT_ROUTED_REASONS["metadata-drift"]),
+    ({"category": "missing-export", "name": None}, mod.NO_EXPORT),
+], ids=["no-row", "a-row-update-skill-does-not-route", "stale-documentation", "metadata-drift", "no-export-name"])
+def test_translate_leaves_a_gap_the_answers_do_not_route(answers, reason):
+    """An older report's gap answered a Not routed slug takes that category's reason (gap-driven.md §1 bullet 3)."""
     manifest, summary = _translate(_gap("GAP-001", None, export=None), judgments={"GAP-001": answers})
     assert summary["status"] == "written" and manifest["entries"] == []
-    assert summary["not_routed"][0]["id"] == "GAP-001"
+    assert (summary["not_routed"][0]["id"], summary["not_routed"][0]["reason"]) == ("GAP-001", reason)
+    assert summary["warnings"][-1].endswith(f"): {reason}")
 
 
 @pytest.mark.parametrize("remediation", [
@@ -1081,3 +1142,55 @@ def test_translate_cli_reads_the_parse_output_it_follows(tmp_path: Path):
     assert code == 0 and out["gap_count"] == 3, out
     assert [e["change_category"] for e in json.loads(path.read_bytes())["entries"]] == [
         "MODIFIED_EXPORT", "STRUCTURAL_FIX", "NEW_EXPORT"]
+
+
+def test_a_stale_name_adds_no_provenance_entry_and_no_export(tmp_path: Path):
+    """#798: a stale name has no line in the source to repair it from. translate leaves its gap unrouted, with the
+    reason, so gap-records and apply, chained as gap-driven.md and write.md run them, add no provenance entry for the
+    name and no exports[] name, and leave its documentation for a person."""
+    root = tmp_path / "source"
+    (root / "src").mkdir(parents=True)
+    (root / "src" / "index.ts").write_text("export function realFn(): void {}\n", encoding="utf-8")
+    prov = tmp_path / "provenance-map.json"
+    prov.write_bytes(json.dumps({"provenance_version": "2.0", "skill_name": "lib", "entries": [{
+        "export_name": "realFn", "export_type": "function", "source_library": "lib", "params": [],
+        "return_type": "void", "source_file": "src/index.ts", "source_line": 1, "confidence": "T1",
+        "extraction_method": "ast-grep", "ast_node_type": "function_declaration",
+        "signature_source": "T1"}]}).encode("utf-8"))
+    metadata = tmp_path / "metadata.json"
+    metadata.write_bytes(json.dumps({"name": "lib", "exports": ["realFn"]}).encode("utf-8"))
+    ledger = write_ledger(tmp_path / "findings.json", "coverage-check", [{
+        "severity": "Medium", "category": "stale-documentation", "title": "Stale documentation: RegistryItemType",
+        "source": "SKILL.md:139", "export": "RegistryItemType",
+        "issue": "SKILL.md documents `RegistryItemType`, which the enumerated source API surface lacks",
+        "remediation": "Check `RegistryItemType` against the source and update or remove its documentation at "
+                       "SKILL.md:139: the enumerated source surface does not export it."}])
+    proc = run(SCRIPT, "parse", "--ledger", str(ledger), "--source-root", str(root), "--provenance-map", str(prov))
+    assert proc.returncode == 0, proc.stdout
+    gaps = tmp_path / "gaps.json"
+    gaps.write_text(proc.stdout, encoding="utf-8")
+    manifest = tmp_path / "change-manifest.json"
+    proc = run(SCRIPT, "translate", "--gaps", str(gaps), "--provenance-map", str(prov), "-o", str(manifest))
+    assert proc.returncode == 0, proc.stdout
+    summary = json.loads(proc.stdout)
+    assert (summary["status"], summary["gap_count"]) == ("written", 0), summary
+    reason = mod.NOT_ROUTED_REASONS["stale-documentation"]
+    assert summary["not_routed"] == [{"id": "GAP-001", "title": "Stale documentation: RegistryItemType",
+                                      "category": "stale-documentation", "reason": reason}]
+    assert f"test-report: not routed: GAP-001 (stale-documentation): {reason}" in summary["warnings"]
+    assert json.loads(manifest.read_bytes())["entries"] == []
+    records = tmp_path / "reextract-records.json"
+    proc = run(BUILD_SCRIPT, "gap-records", "--manifest", str(manifest), "--provenance-map", str(prov),
+               "--source-root", str(root), "-o", str(records))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(records.read_bytes())["verification"] == []
+    new_map, lists = tmp_path / "new-map.json", tmp_path / "metadata-lists.json"
+    proc = run(BUILD_SCRIPT, "apply", "--update-type", "gap-driven", "--provenance-map", str(prov),
+               "--reextract-records", str(records), "--skill-name", "lib", "--generation-date",
+               "2026-11-03T10:00:00Z", "--confidence-tier", "Forge", "--manual-sections-preserved", "0",
+               "--metadata-in", str(metadata), "--lists-out", str(lists), "-o", str(new_map))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["entries"]["added"] == []
+    assert [(e["export_name"], e["source_file"]) for e in json.loads(new_map.read_bytes())["entries"]] == [
+        ("realFn", "src/index.ts")]
+    assert json.loads(lists.read_bytes())["exports"] == ["realFn"]

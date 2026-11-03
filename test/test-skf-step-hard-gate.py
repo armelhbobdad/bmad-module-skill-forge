@@ -1083,6 +1083,11 @@ class TestReportTerminalSequence:
         for branch in ("{IF FAIL after scoring:}", "{IF the hard gate blocked the run:}"):
             follow = present[present.index(branch):].split("\n\n", 1)[0]
             assert "`@Ferris US {skill_name} --from-test-report`" in follow, branch
+        # #798, #803: Update Skill repairs only the gaps it routes; the two it cannot repair go elsewhere
+        follow = present[present.index("{IF FAIL after scoring:}"):].split("\n\n", 1)[0]
+        assert "Update Skill repairs the gaps it routes" in follow and "reads this report's gaps and repairs" not in follow
+        assert ("A `stale-documentation` or `metadata-drift` gap needs what its remediation names: a person, Create "
+                "Skill or the skill brief.") in follow
 
     def test_counts_come_from_the_ledger(self, text: str) -> None:
         contract = _flow(_slice(text, "### 4c. Result Contract", "### 5."))

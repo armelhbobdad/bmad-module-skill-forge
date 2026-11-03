@@ -142,8 +142,15 @@ Translate (update-skill gap-driven.md §1): `translate` turns the gaps
 `parse` wrote (--gaps) into the change manifest, written to -o as
 {"mode": "gap-driven", "entries": [...]}. Each gap is routed by its
 `category` through CHANGE_CATEGORIES (gap-driven.md §1's table), never by
-its severity; a category the table does not hold is not routed. Each
-entry, in this key order:
+its severity; a category the table does not hold is not routed, and takes
+no entry, so nothing is written for it. A `stale-documentation` gap is not
+routed: the source has no line to repair the name from, and removing its
+documentation unchecked could delete a name the surface missed or one the
+source still declares. Nor is a `metadata-drift` gap: write.md §2's
+`metadata` call recounts the counts a patch would set (except under the
+drift override and for a docs-only skill, where it passes the counts
+metadata.json records), so no metadata patch holds. Each entry, in this
+key order:
 
   name                      the gap's `export`, else the answered `name`
   gap_id, category          the gap's `id`, its `category` (else the
@@ -193,14 +200,20 @@ the gap's own text to judge from, each need one of:
                `provenance-completeness` gap with no path to scan
 
 --judgments answers them: a JSON object keyed by gap id, each value an
-object of `category` (a slug, or null: not routed), `name` (a string, or
+object of `category` (a slug, one the table does not route giving that
+category's reason, or null: not routed), `name` (a string, or
 null: not routed), `rescope` (true or false; given for any `missing-export`
 or `missing-type` gap, it is honoured) and `source_file` (a path relative
 to the source root, or null). Other keys are left for gap-records. With
 every need answered it writes the manifest and prints {"status":
 "written", "output", "gap_count", "not_routed": [{"id", "title",
-"category"}], "warnings": [...]}. `warnings` holds parse's warnings as
-`test-report: <warning>`, `test-report: not routed: <id> (<category>)` for
+"category", "reason"}], "warnings": [...]}. A not-routed gap's `reason`
+says why update-skill does not repair it and who does: NOT_ROUTED_REASONS
+gives one for each ledger category the table does not route (gap-driven.md
+§1's Not routed list), NO_REPAIR is the reason of a gap with no
+category or one no table holds, and NO_EXPORT that of a gap whose export
+is answered null. `warnings` holds parse's warnings as `test-report:
+<warning>`, `test-report: not routed: <id> (<category>): <reason>` for
 each gap not routed, and, with --read-only, `proposed-amendment: excluded
 <path> (scope-expansion); not written: --<mode>` for each rescope.
 
@@ -959,7 +972,6 @@ CHANGE_CATEGORIES = {
     "provenance-completeness": "NEW_EXPORT",
     "signature-mismatch": "MODIFIED_EXPORT",
     "fabricated-signature": "MODIFIED_EXPORT",
-    "stale-documentation": "MODIFIED_EXPORT",
     "provenance-line": "MOVED_EXPORT",
     "split-body-mismatch": "STRUCTURAL_FIX",
     "structural": "STRUCTURAL_FIX",
@@ -969,9 +981,48 @@ CHANGE_CATEGORIES = {
     "integration-pattern": "STRUCTURAL_FIX",
     "migration-section": "STRUCTURAL_FIX",
     "scripts-assets": "STRUCTURAL_FIX",
-    "metadata-drift": "metadata update",
     "metadata": "metadata update",
 }
+# gap-driven.md §1's Not routed list, word for word: why update-skill repairs no gap of each other ledger category,
+# and who does. A gap takes NO_REPAIR when it has no category or one no table holds, and NO_EXPORT when its export
+# is answered null.
+NOT_ROUTED_REASONS = {
+    "stale-documentation": (
+        "the source has no line to repair the name from, so a person removes its documentation when the name is "
+        "gone from the source, fixes the brief's scope when the surface missed it, or, when the source still "
+        "declares the name, keeps the documentation and re-runs Test Skill at a tier that classifies it"),
+    "metadata-drift": (
+        "update-skill recounts `stats.exports_public_api`, `stats.exports_documented` and "
+        "`stats.effective_denominator` each time it writes metadata.json, so a metadata patch to them does not hold "
+        "(under `--allow-workspace-drift` and for a docs-only skill it keeps the recorded public API counts and "
+        "`stats.effective_denominator` instead); Create Skill rebuilds diverging barrel counts from the source, a "
+        "person fixes denominator deflation in the brief's `scope.tier_a_include`, and documented-surface counts "
+        "that differ by the `Type::method` entries the named-export count leaves out need no fix"),
+    "provenance-unverified": (
+        "the line-check rules could not verify the line, so a person checks by hand that it defines the export and, "
+        "when another line does, sets its provenance `source_line` to that line"),
+    "denominator-inflation": (
+        "it concerns the brief's scope and the count design, which a person decides in the skill brief, as the "
+        "gap's remediation says"),
+    "brief-scope-stale": (
+        "a person edits the brief's scope globs by hand so each matches the files it meant, since update-skill "
+        "does not rewrite them"),
+    "multi-denominator": (
+        "no fix is needed, since the barrel and the documented surface measure different sets by design and the "
+        "report records both counts"),
+    "numerator-inflation": "a person documents the absent exports in SKILL.md or references/, reading each from "
+                           "the source",
+    "scripts-assets-provenance": "a person adds the file's row to the provenance map's `file_entries`, or removes "
+                                 "the file from the skill",
+    "observation": "a person applies it only when they agree, since it is advisory, and a documented extra needs no "
+                   "change",
+    "discovery": "a person improves the skill's description so realistic prompts route to it, or runs the discovery "
+                 "test Test Skill skipped",
+    "description": "a person edits the description in the SKILL.md frontmatter as the gap suggests",
+    "external-validator": "a person applies the skill-check diagnostic or Tessl Review suggestion to SKILL.md",
+}
+NO_REPAIR = "update-skill has no repair for this category, so a person follows the gap's remediation"
+NO_EXPORT = "it names no export for update-skill to repair, so a person follows the gap's remediation"
 EXPORT_CATEGORIES = ("NEW_EXPORT", "MODIFIED_EXPORT", "MOVED_EXPORT", "DELETED_EXPORT")
 RESCOPE_CATEGORIES = ("missing-export", "missing-type")  # rule R1
 COMPLETENESS = "provenance-completeness"  # rule R3
@@ -1051,9 +1102,10 @@ def translate_gaps(parsed: dict, map_entries: list, judgments: dict, *, read_onl
     entries: list[dict] = []
     not_routed: list[dict] = []
 
-    def skip(gap: dict, category: str | None) -> None:
-        not_routed.append({"id": gap["id"], "title": gap.get("title"), "category": category})
-        warnings.append(f"test-report: not routed: {gap['id']} ({category or 'no category'})")
+    def skip(gap: dict, category: str | None, reason: str | None = None) -> None:
+        reason = reason or NOT_ROUTED_REASONS.get(category or "", NO_REPAIR)
+        not_routed.append({"id": gap["id"], "title": gap.get("title"), "category": category, "reason": reason})
+        warnings.append(f"test-report: not routed: {gap['id']} ({category or 'no category'}): {reason}")
 
     def ask(gap: dict, category: str | None, want: list[str]) -> None:
         needs.append({"gap_id": gap["id"], "title": gap.get("title"), "category": category,
@@ -1079,7 +1131,7 @@ def translate_gaps(parsed: dict, map_entries: list, judgments: dict, *, read_onl
         name = export or _answer_text(answers.get("name"))
         if change in EXPORT_CATEGORIES and name is None:
             if "name" in answers:  # answered null: no export to repair
-                skip(gap, category)
+                skip(gap, category, NO_EXPORT)
             else:
                 ask(gap, category, ["name"])
             continue

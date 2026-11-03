@@ -1,0 +1,6 @@
+type: changed
+scope: skf-update-skill, skf-test-skill
+summary: |
+  Update Skill's `--from-test-report` repair no longer repairs a `stale-documentation` or a `metadata-drift` gap. A `stale-documentation` gap (documentation for a name the source surface lacks), which Update Skill used to route, is now listed under "Not repaired by this run" with its reason, and the repair writes nothing for it; before, it gained a provenance entry with no `source_file` and a place in `exports[]`. A `metadata-drift` gap is listed the same way: the update recounts those counts each time it writes the skill, so its metadata patch never held and the gap came back on every test. Every gap the repair leaves now carries a reason that says who repairs it: the `test-report: not routed:` warning ends with it, and each `not_routed[]` item gains a `reason` key. Test Skill's `metadata-drift` remediation now sends diverging barrel counts to Create Skill, which rebuilds `exports[]` from the source, explains diverging documented-surface counts by the `Type::method` entries they differ by, and no longer says Update Skill applies either; its FAIL recommendation says which gaps Update Skill repairs.
+issues: [798, 803]
+prs: [833]

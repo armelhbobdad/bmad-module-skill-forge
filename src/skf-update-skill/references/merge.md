@@ -150,7 +150,7 @@ For each `STRUCTURAL_FIX` entry gap-driven.md §4 forwarded:
 
 For each `metadata update` entry gap-driven.md §4 forwarded:
 
-- Queue the surgical metadata patch described in the entry's `remediation` (e.g., reconcile a divergent `stats` count, add an explanatory stat) in workflow context as `metadata_patches[]` for write.md §2 to apply **before** its automatic stat recount.
+- Queue the surgical metadata patch described in the entry's `remediation` (e.g., add an explanatory stat) in workflow context as `metadata_patches[]` for write.md §2 to apply **before** its automatic stat recount.
 - Touch no provenance `entries[]` row and no generated markdown — this priority only stages the patch; write.md §2 applies it.
 - Record in the update report: `"Metadata patch queued: {remediation summary}"`.
 

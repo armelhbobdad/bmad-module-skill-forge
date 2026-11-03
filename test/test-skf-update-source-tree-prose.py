@@ -2151,7 +2151,7 @@ def test_every_change_category_halts_or_passes_the_drift_gate(tmp_path, capsys):
         _gap_entry("search", "signature-mismatch", "MODIFIED_EXPORT", gap_id="GAP-004", match=_found("pkg/a.py", 5)),
         _gap_entry("moved", "provenance-line", "MOVED_EXPORT", gap_id="GAP-005", match=_found("pkg/a.py", 9)),
         _gap_entry(None, "structural", "STRUCTURAL_FIX", gap_id="GAP-006"),
-        _gap_entry(None, "metadata-drift", "metadata update", gap_id="GAP-007"),
+        _gap_entry(None, "metadata", "metadata update", gap_id="GAP-007"),
     ]
     (run_dir / "change-manifest.json").write_bytes(json.dumps({"mode": "gap-driven", "entries": entries}).encode())
     provenance = tmp_path / "provenance-map.json"
@@ -3142,17 +3142,45 @@ def _routing_table() -> dict[str, str]:
     return routes
 
 
+def _not_routed_section() -> str:
+    """gap-driven.md §1's Not routed paragraph and the list of reasons under it."""
+    return _slice(_zero(), "**Not routed:**", "**Translation rules")
+
+
+def test_the_not_routed_list_gives_the_helpers_reasons():
+    """Each slug the Not routed list names carries, word for word, the reason the helper warns with."""
+    helper = _module(PARSE_GAPS, "skf_parse_gaps_reasons_prose")
+    section = _not_routed_section()
+    items = dict(re.findall(r"^- `([a-z][a-z0-9-]*)`(?: \([^\n]*?\))?: (.+)\.$", section, re.M))
+    assert set(items) == set(helper.NOT_ROUTED_REASONS), set(items) ^ set(helper.NOT_ROUTED_REASONS)
+    for slug, reason in items.items():
+        assert reason == helper.NOT_ROUTED_REASONS[slug], slug
+    for reason in (helper.NO_REPAIR, helper.NO_EXPORT):
+        assert f'"{reason}"' in section, reason
+    # an older report's gap may be answered with a Not routed slug, which keeps that category's reason
+    needs = _slice(_zero(), "     - `category` (a report older than the ledger):", "\n")
+    assert "else the Not routed slug that names it" in needs and "so the gap takes that category's reason" in needs
+
+
 def test_gap_routing_keys_on_the_ledger_category():
     """Every ledger category is routed by one row or listed as not routed, never both (#583)."""
     ledger = _module(GAP_LEDGER, "skf_gap_ledger_prose")
     routes = _routing_table()
-    not_routed = set(re.findall(r"`([a-z][a-z0-9-]*)`", _slice(_zero(), "**Not routed:**", "\n")))
+    not_routed = set(re.findall(r"`([a-z][a-z0-9-]*)`", _not_routed_section()))
     assert set(routes) | not_routed == set(ledger.CATEGORIES), set(ledger.CATEGORIES) ^ (set(routes) | not_routed)
     assert not set(routes) & not_routed
     assert routes["missing-export"] == routes["missing-type"] == routes["provenance-completeness"] == "NEW_EXPORT"
     assert routes["signature-mismatch"] == routes["fabricated-signature"] == "MODIFIED_EXPORT"
     assert routes["split-body-mismatch"] == routes["broken-reference"] == "STRUCTURAL_FIX"
-    assert routes["provenance-line"] == "MOVED_EXPORT" and routes["metadata-drift"] == "metadata update"
+    assert routes["provenance-line"] == "MOVED_EXPORT" and routes["metadata"] == "metadata update"
+    # #798, #803: a stale name has no source line to repair from, and the metadata call recounts what a
+    # metadata-drift gap compares, so neither is routed
+    assert {"stale-documentation", "metadata-drift"} <= not_routed
+    assert "no provenance entry, no `exports[]` name and no documentation removed" in _not_routed_section()
+    r4 = _slice(_zero(), "- **R4: metadata update.**", "\n")
+    assert "never a count that call recounts or `exports[]`" in r4 and "reconcile a divergent" not in r4
+    for name in (MERGE, WRITE):
+        assert "reconcile a divergent" not in _read(name), name
     translate = _slice(_zero(), "2. **Translate each gap by its `category`**", "\n")
     assert "never by its severity: bullet 3's helper routes each one through the table below" in translate
     # the table the prose shows is the one the helper applies (step 5b gate run 2 determinism-3)
@@ -3170,9 +3198,14 @@ def test_gap_routing_keys_on_the_ledger_category():
     assert "missing export or type" not in zero_a
     # a gap no row routes is reported, headless included
     written = _slice(_zero(), "   - **`written`:** set `gap_count`", "\n")
-    assert "`test-report: not routed: {id} ({category})` for each gap not routed" in written
-    assert "`test-report: not routed: {id} ({category})`" in _slice(_read(REPORT), "### 5b.", "### 6.")
-    assert "**Not repaired by this run:**" in _slice(_read(REPORT), "### 2. Present Change Summary", "### 3.")
+    assert "`test-report: not routed: {id} ({category}): {reason}` for each gap not routed" in written
+    assert "the `id`, `title`, `category` and `reason` of each gap the table does not route" in written
+    assert "`test-report: not routed: {id} ({category}): {reason}`" in _slice(_read(REPORT), "### 5b.", "### 6.")
+    summary = _slice(_read(REPORT), "### 2. Present Change Summary", "### 3.")
+    assert "**Not repaired by this run:** each `{id}: {title} ({category}): {reason}`" in summary
+    # a run that translated no gap reports there instead, each gap with its reason too
+    no_change = _slice(_read(REPORT), "In gap-driven mode (gap-driven.md §1 translated none", "\n")
+    assert "followed by each gap it did not route (`{id}: {title} ({category}): {reason}`" in no_change
     warnings = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["warnings"]["description"]
     assert "test-report: not routed:" in warnings
 
