@@ -3766,7 +3766,7 @@ def test_category_b_reads_the_baseline_gaps(tmp_path, capsys):
     category_b = _slice(detect, "**Category B: export-level changes.**", "**Category C")
     step_1 = _slice(category_b, "1. **The recipe runner.**", "2. **What the recipes do not record.**")
     for token in ("Then, at every tier (in degraded mode there is no map: skip it)",
-                  "a dunder such as `__version__` or another underscore name",
+                  "a dunder such as `__version__` or another Python or Rust underscore name",
                   "a `skf-verify-provenance-completeness.py` beside it that cannot be loaded",
                   'phase: "detect-changes:category-b"', "Never add a gap or drop one by eye",
                   '"unchecked": [{name, file, export_type}]', "which step 2 reads by eye"):

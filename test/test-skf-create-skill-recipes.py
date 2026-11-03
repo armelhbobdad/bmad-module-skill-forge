@@ -1892,14 +1892,15 @@ def _runner():
 def _expected_exports(recipe_set: str) -> list[tuple[str, int, str, str]]:
     """The exports the recipes of `recipe_set` give the fixtures: each name
     of each file once, at its first line, with the kind the recipes that
-    match that line declare (a name starting with `_` is never an export)."""
+    match that line declare (a Python or Rust name starting with `_` is
+    never an export; #817: a TS/JS one is)."""
     ids = {doc["id"] for doc in DATA_RECIPES if recipe_set in doc["metadata"]["sets"]}
     lines: dict[tuple[str, str], dict[int, set[str]]] = {}
-    for (recipe_id, _), matches in EXPECTED.items():
+    for (recipe_id, language), matches in EXPECTED.items():
         if recipe_id not in ids:
             continue
         for file, line, name in matches:
-            if not name.startswith("_"):
+            if not (language in ("python", "rust") and name.startswith("_")):
                 lines.setdefault((file, name), {}).setdefault(line, set()).add(KINDS[recipe_id])
     expected = []
     for (file, name), kinds_by_line in lines.items():
@@ -1924,8 +1925,9 @@ def test_runner_output_on_fixtures(recipe_set: str, fixture_dir: Path, capsys: p
     assert got == _expected_exports(recipe_set)
     counts = {r["id"]: r["matches"] for r in out["recipes"]}
     for recipe_id, count in counts.items():
-        assert count == sum(1 for (i, _), matches in EXPECTED.items() if i == recipe_id
-                            for _, _, name in matches if not name.startswith("_")), recipe_id
+        assert count == sum(1 for (i, language), matches in EXPECTED.items() if i == recipe_id
+                            for _, _, name in matches
+                            if not (language in ("python", "rust") and name.startswith("_"))), recipe_id
     assert out["files_in_scope"] == len(FIXTURES)
     recipes = {(e["source_file"], e["export_name"]): e["ast_recipe"] for e in out["exports"]}
     if recipe_set == "standard":

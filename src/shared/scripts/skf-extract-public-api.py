@@ -350,7 +350,11 @@ scope.type and language; --include, --exclude, --tier-a-include,
 Which recipes. --recipe-set picks the recipes whose metadata.sets lists it:
 `component-library` when the scope type is component-library, else
 `standard`. Each recipe runs in the languages its metadata.languages
-lists. A match whose name starts with `_` is never an export. --head-cap
+lists. A Python or Rust match whose name starts with `_` is never an
+export, nor public anywhere below: Python's by the Source API Surface
+Definition's rule, Rust's because a `_` item is hidden or unnamed (a
+`#[doc(hidden)] pub mod __private`, which the runner cannot read, or a
+`pub const _`); a TS/JS `_` name is an export like any other. --head-cap
 keeps at most N matches of each recipe, in file and line order (0: no
 cap); without it the cap is 200, or at Forge+ and Deep tiers 500 for a
 full-library scope and 300 for a component-library one. `truncated` is
@@ -423,11 +427,17 @@ module names.
 A chain the trace cannot follow (a module no file here holds, a `#[path]`
 module) is listed in `unresolved`. The diff against the recipe inventory,
 one language family at a time (JavaScript/TypeScript, Python, Rust, Go):
-`public` (the entry points' names), `internal` (names the recipes found
-that no entry point exports or makes reachable), `extraction_gaps` (names
-an entry point exports that no recipe found, defined in a file in scope or
-in none the trace reached: read them by eye) and `outside_scope` (such
-names defined in a file out of scope: widen scope.include to document
+`public` (the entry points' names, each at the file and line the first
+entry point naming it gives, in path order, a JS/TS entry point's own and
+named exports all coming before any `export *`, unless that file is out
+of scope, or it gives none, and another entry point gives a file in
+scope),
+`internal` (names the recipes found that no entry point exports or makes
+reachable), `extraction_gaps` (names an entry point exports that no
+recipe found, defined in a file in scope or in none the trace reached:
+read them by eye) and `outside_scope` (names an entry point exports that
+a file out of scope defines, even when a recipe found the name in another
+file, which is another definition: widen scope.include to document
 them). A namespace with `members` is diffed as its members: each is found
 when a recipe found its name, or its `local` one, in its file (one with
 no file by its name alone, as a public name is), and has no row of its
@@ -631,8 +641,9 @@ passes on), each export of a --quick output at its `defined_in` (else its
 `source_file`), and the --extraction runner's `entry_point_diff.public`;
 a payload name replaces a --quick or runner one of its family and name.
 `exports_internal` counts the names of the payload's `exports` (the
-exports extraction found; `_` names left out) and of the runner's
-`internal` that no public name or member has. `effective_denominator`,
+exports extraction found; Python, Rust and Dart `_` names left out, those
+of every other language counted) and of the runner's `internal` that no
+public name or member has. `effective_denominator`,
 its basis, `curated_subset` and `effective_denominator_decision` follow
 full mode's rules, over the tree under --source-root, with the scope and
 arms full mode works out there; an --extraction that is `incomplete` is
@@ -2639,11 +2650,22 @@ def _preferred(at_line: list[dict], forms: dict, order: dict[str, int]) -> dict:
     return min(left, key=lambda m: (order[m["rule"]], m["language"]))
 
 
+def _private(family: str | None, name: str) -> bool:
+    """A name full mode and denominator mode never count: one that starts
+    with `_` in Python (the Source API Surface Definition leaves it out),
+    Rust (a `#[doc(hidden)] pub mod __private`, which the runner cannot
+    read, or a `pub const _`) or Dart (private to its library). A TS/JS `_`
+    name is exported like any other, and Go's recipe reads only a
+    capitalized name. Quick mode drops only Python's `_` names."""
+    return family in ("python", "rust", "dart") and name.startswith("_")
+
+
 def merge_exports(matches: list[dict], recipes: list[dict], recipe_set: str,
                   head_cap: int | None) -> tuple[list[dict], list[dict]]:
     """(exports, per-recipe stats) from the matches of one recipe set: at
     most `head_cap` matches of each recipe, in file and line order, merged
-    by (file, name) at the first line that names it."""
+    by (file, name) at the first line that names it. A Python or Rust `_`
+    name is no export."""
     forms = _forms(recipes)
     order: dict[str, int] = {}
     languages: dict[str, list[str]] = {}
@@ -2654,7 +2676,8 @@ def merge_exports(matches: list[dict], recipes: list[dict], recipe_set: str,
             langs.extend(lang for lang in recipe["metadata"]["languages"] if lang not in langs)
     per_recipe: dict[str, list[dict]] = {rid: [] for rid in order}
     for m in matches:
-        if m["rule"] in per_recipe and m["name"] and not m["name"].startswith("_") and (m["rule"], m["language"]) in forms:
+        if (m["rule"] in per_recipe and m["name"] and not _private(FAMILY_OF.get(m["language"]), m["name"])
+                and (m["rule"], m["language"]) in forms):
             per_recipe[m["rule"]].append(m)
     stats, kept = [], []
     for rid, found in per_recipe.items():
@@ -3272,12 +3295,13 @@ def _member(name: str, local: str | None, file: str | None, line: int | None) ->
     return {"name": name, "local": local if local and local != name else None, "file": file, "line": line}
 
 
-def _flatten(start, direct: Callable[[object], list[tuple[str, str, object]]]) -> list[dict]:
-    """The members of the namespace module `start`: what `direct` says it
-    passes on, (name, "member", member) or (name, "module", the module),
-    each nested namespace module's members spliced in its place (each
-    module once, so a cycle is cut), each (name, file) once, and no name
-    that starts with `_`, which is never public."""
+def _flatten(start, direct: Callable[[object], list[tuple[str, str, object]]], family: str) -> list[dict]:
+    """The members of the namespace module `start`, of language family
+    `family`: what `direct` says it passes on, (name, "member", member) or
+    (name, "module", the module), each nested namespace module's members
+    spliced in its place (each module once, so a cycle is cut), each
+    (name, file) once, and no Python or Rust name that starts with `_`,
+    which is never public."""
     out: list[dict] = []
     seen: set[tuple[str, str | None]] = set()
     visited: set = set()
@@ -3285,7 +3309,7 @@ def _flatten(start, direct: Callable[[object], list[tuple[str, str, object]]]) -
     def walk(module) -> None:
         visited.add(module)
         for name, kind, value in direct(module):
-            if not name or name.startswith("_"):
+            if not name or _private(family, name):
                 continue
             if kind == "module":
                 if value not in visited:
@@ -3299,16 +3323,24 @@ def _flatten(start, direct: Callable[[object], list[tuple[str, str, object]]]) -
 
 
 class _Surface:
-    """The public names one language family's entry points declare:
-    {name: info}, the first entry point naming it wins; the names, and the
-    files, a namespace export (a module) makes reachable, which are not
+    """The public names the entry points of language family `family`
+    declare: {name: info}, the first `add` of a name wins (the JS/TS trace
+    adds every entry point's own and named exports before any `export *`),
+    unless the file it gives is out of scope (or it gives none) and another
+    entry point gives a file in `in_scope`, which then replaces it (one
+    entry point never replaces its own: an explicit export shadows a star
+    or a glob; with no `in_scope`, the first always wins); the names, and
+    the files, a namespace export (a module) makes reachable, which are not
     internal; and the re-exports the trace could not follow. A namespace
     item also carries its `members`, the names its module passes on (None
     when the trace cannot read that module); `opaque` holds the (name,
     file) of each member that is itself a module the trace cannot read,
-    which, as such a namespace, is no recipe's target."""
+    which, as such a namespace, is no recipe's target. A Python or Rust `_`
+    name is never added."""
 
-    def __init__(self) -> None:
+    def __init__(self, family: str, in_scope: set[str] | None = None) -> None:
+        self.family = family
+        self.in_scope = in_scope
         self.names: dict[str, dict] = {}
         self.reachable: set[str] = set()
         self.reachable_files: set[str] = set()
@@ -3318,9 +3350,11 @@ class _Surface:
     def add(self, name: str, entry: str, via: str, file: str | None, line: int | None,
             source: str | None = None, local: str | None = None,
             members: list[dict] | None = None) -> dict | None:
-        if not name or name.startswith("_"):
+        if not name or _private(self.family, name):
             return None
-        if name not in self.names:
+        held = self.names.get(name)
+        if held is None or (self.in_scope is not None and file in self.in_scope and entry != held["entry"]
+                            and (held["file"] is None or held["file"] not in self.in_scope)):
             self.names[name] = {"name": name, "entry": entry, "via": via, "from": source,
                                 "local": local if local and local != name else None,
                                 "file": file, "line": line}
@@ -3529,7 +3563,7 @@ def _js_surface(root: Path, entries: list[dict], tree_set: set[str], forms: dict
 
     def members(file: str) -> list[dict]:
         if file not in member_lists:
-            member_lists[file] = _flatten(file, direct)
+            member_lists[file] = _flatten(file, direct, "javascript")
         return member_lists[file]
 
     def publish(entry: str, name: str, via: str, module: str, source: str | None) -> None:
@@ -3900,7 +3934,7 @@ def _py_surface(root: Path, entries: list[dict], tree_set: set[str], surface: _S
 
     def members(rel: str, top: str) -> list[dict]:
         if (rel, top) not in member_lists:
-            member_lists[(rel, top)] = _flatten(rel, lambda module: direct(module, top))
+            member_lists[(rel, top)] = _flatten(rel, lambda module: direct(module, top), "python")
         return member_lists[(rel, top)]
 
     for entry in [e["file"] for e in entries]:
@@ -4218,7 +4252,7 @@ def _rust_surface(root: Path, entries: list[dict], tree_set: set[str], surface: 
             return None
         key = (lib, tuple(here))
         if key not in member_lists:
-            member_lists[key] = _flatten(tuple(here), lambda path: direct(lib, path))
+            member_lists[key] = _flatten(tuple(here), lambda path: direct(lib, path), "rust")
         return member_lists[key]
 
     def publish(lib: str, here: list[str], name: str, via: str, source: str | None,
@@ -4325,12 +4359,15 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
     scope). A family whose entry points declare names diffs them with its
     exports: an export no entry point names, nor traces back to, nor makes
     reachable (a name, or any export of a reachable file), is internal. A
-    declared name no recipe found is a gap when a file in scope defines it
-    (or the trace found no file), and is outside scope when a file out of
-    scope does; a module is no recipe's target, so neither: a namespace
-    with `members` has each member diffed in its place, found when a
-    recipe found its name, or its `local` one, in its file, and given no
-    row of its own when a declared name has its name and file (or another
+    declared name, at the file `_Surface` kept for it (not always the first
+    entry point's in path order), is outside scope when a file out of scope
+    defines it, even when a recipe found its name in another file (another
+    definition: no recipe reads a file out of scope), and a gap when no
+    recipe found it and a file in scope defines it (or the trace found no
+    file); a module is no recipe's target, so neither: a namespace with
+    `members` has each member diffed in its place, found when a recipe
+    found its name, or its `local` one, in its file, and given no row of
+    its own when a declared name has its name and file (or another
     namespace gave it one); one whose members are unknown (None), or a
     member that is such a module (`opaque`), is no gap. In a family with
     no entry point, or only empty ones, every export is public."""
@@ -4364,9 +4401,13 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
                 seen.add(name)
                 internal.append(e)
         for name, info in declared.items():
-            if name in names or (info["local"] or name) in names or info["via"] == "namespace":
+            if info["via"] == "namespace":
                 continue
-            (gaps if info["file"] is None or info["file"] in in_scope else outside).append((family, info))
+            # A recipe never reads a file out of scope: a name it found elsewhere is another definition.
+            if info["file"] is not None and info["file"] not in in_scope:
+                outside.append((family, info))
+            elif name not in names and (info["local"] or name) not in names:
+                gaps.append((family, info))
         # A namespace's members, each by its name (or `local`) and file, or
         # by name alone when it has no file, as a declared name is: a name
         # at a file a declared name already gives counts once.
@@ -4601,7 +4642,7 @@ def _scope_facts(args: argparse.Namespace, root: Path) -> dict:
 
     # The entry points and the arms need no ast-grep.
     in_scope_set = set(in_scope)
-    surfaces = {family: _Surface() for family in FAMILIES}
+    surfaces = {family: _Surface(family, in_scope_set) for family in FAMILIES}
     js_entries, maps, unresolved_subpaths = _js_entries(root, in_scope, tree, tree_set, warnings)
     py_entries = _py_entries(in_scope, tree_set)
     rust_entries = _rust_entries(root, in_scope, tree, tree_set)
@@ -4955,7 +4996,7 @@ def run_denominator(args: argparse.Namespace, payload: dict) -> dict:
     for item in _payload_names(payload.get("exports"), "exports"):
         key = (_name_family(item["language"], item["file"]), item["name"])
         found.setdefault(key, item["file"])
-        if not item["name"].startswith("_"):
+        if not _private(key[0], item["name"]):
             internal.add(key)
     named = set(public) | {(family, m["name"]) for (family, _), info in public.items() if _has_members(info)
                            for m in info["members"]}
@@ -5774,7 +5815,7 @@ def _py_defined_in(root: Path, tree: set[str]) -> Callable[[str, str], str | Non
 
     def resolve(file: str, name: str) -> str | None:
         if file not in traced:
-            surface = _Surface()
+            surface = _Surface("python")
             _py_surface(root, [{"file": file}], tree, surface, [])
             traced[file] = {n: info["file"] for n, info in surface.names.items()}
         return traced[file].get(name)
