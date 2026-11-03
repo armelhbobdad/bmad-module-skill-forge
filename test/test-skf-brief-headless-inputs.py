@@ -387,9 +387,11 @@ def test_the_public_api_default_is_the_files_that_define_the_public_names(tmp_pa
         {"name": "sub", "via": "namespace", "file": "src/sub/index.ts", "members": [
             {"name": "deep", "local": None, "file": "src/sub/deep.ts", "line": 1},
             {"name": "ext", "local": None, "file": None, "line": None}]},
-        {"name": "remote", "via": "namespace", "file": None, "members": None}]}}).encode("utf-8"))
+        {"name": "remote", "via": "namespace", "file": None, "members": None}],
+        # #830: another in-scope file that defines foo, which another entry point passes on
+        "other_definitions": [{"name": "foo", "via": "star", "file": "src/web/foo.ts"}]}}).encode("utf-8"))
     assert _public_api_files(result) == ["src/index.ts", "src/lib/bar.ts", "src/lib/foo.ts", "src/sub/deep.ts",
-                                         "src/sub/index.ts"]
+                                         "src/sub/index.ts", "src/web/foo.ts"]
 
 
 @pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")

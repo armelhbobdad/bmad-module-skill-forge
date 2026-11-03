@@ -431,7 +431,18 @@ one language family at a time (JavaScript/TypeScript, Python, Rust, Go):
 entry point naming it gives, in path order, a JS/TS entry point's own and
 named exports all coming before any `export *`, unless that file is out
 of scope, or it gives none, and another entry point gives a file in
-scope),
+scope, other than through a star or glob its own export of the name
+shadows),
+`other_definitions` (each other definition of a public name in a file in
+scope, one row per file and `local` name: the file and line an entry
+point gives, never a namespace nor one beside a public row that is a
+namespace, nor a star or glob through which an entry point passes on a
+name it already exports (its own export shadows it), while two exports
+of the name by one entry point, such as Rust `pub use` items a `cfg`
+gates, are both kept; in every language family, so a name each
+framework package of a monorepo defines keeps
+each package's file, while a gap and an outside_scope row still go by
+name, from `public` alone),
 `internal` (names the recipes found that no entry point exports or makes
 reachable), `extraction_gaps` (names an entry point exports that no
 recipe found, defined in a file in scope or in none the trace reached:
@@ -460,23 +471,25 @@ no warning names it: read it by eye.
 
 Counts. `exports_public_api` counts the public names (the package's whole
 public API, `outside_scope` names included), each distinct name and file
-once: a namespace with `members` counts as its members (none for an empty
-list, and a member that is also a public name, or another namespace's
-member, once), one with null `members` as one. `exports_internal` counts
-the internal names. `effective_denominator` counts those public names
-whose definition file matches scope.include (any file when it has no
-glob), scope.tier_a_include when given, and no scope.exclude glob: each
-name once, so a type counts once whatever its methods, a barrel that
-only re-exports adds nothing of its own, and a name the entry points
-pass on from two files (a namespace member named like another public
-name, or like another namespace's member, at another file) or in two
-languages counts once, when any one of its files matches, as Test
-Skill's sets count it. A tier A list that counts no public name (each
-glob matches no file, or only files scope.exclude drops, that
-scope.include leaves out or that define no public name) narrows nothing
-on a run that counted a public name and read every file (no `errors`
-item): the count falls back to scope.include (else every file), with a
-warning.
+`public` gives once (`other_definitions` adds none): a namespace with
+`members` counts as its members (none for an empty list, and a member
+that is also a public name, or another namespace's member, once), one
+with null `members` as one. `exports_internal` counts the internal names.
+`effective_denominator` counts those public names with a definition file
+(the `public` row's, or one of its `other_definitions`') that matches
+scope.include (any file when it has no glob), scope.tier_a_include when
+given, and no scope.exclude glob: each name once, however many in-scope
+files define it, so a type counts once whatever its methods, a barrel
+that only re-exports adds nothing of its own, and a name the entry points
+pass on from two files (two packages' entry points that each define it,
+or a namespace member named like another public name, or like another
+namespace's member, at another file) or in two languages counts once,
+when any one of its files matches, as Test Skill's sets count it. A tier
+A list that counts no public name (each glob matches no file, or only
+files scope.exclude drops, that scope.include leaves out or that define
+no public name) narrows nothing on a run that counted a public name and
+read every file (no `errors` item): the count falls back to scope.include
+(else every file), with a warning.
 `arms` gives compile's effective_denominator arms:
 (a) `monorepo` from skf-detect-workspaces.py over the tree the brief
 keeps (its scoped_tree: a member counts only through the files no
@@ -492,7 +505,8 @@ Store or not. `curated_subset` is true when the files the count's basis
 globs list (scope.include's, else every file; a tier A count's, those
 among them a tier A glob matches too; under arm (b), less those a
 scope.exclude glob matches) leave out a file that defines a counted public
-name (an `outside_scope` name's included) or every source file of a
+name (an `outside_scope` name's file and an `other_definitions` file
+included) or every source file of a
 workspace skf-detect-workspaces.py finds over the whole tree
 (scope.exclude aside, unlike arm (a): a member the brief drops is still
 part of the repository it chose a subset of); a basis of `all-files` lists
@@ -557,6 +571,8 @@ Output JSON (stdout, or -o):
                     "file", "line",
                     "members": [{"name", "local", "file", "line"}, ...]
                                | null}, ...],  # members: via namespace only
+        "other_definitions": [{"name", "language", "entry", "via", "from",
+                               "local", "file", "line"}, ...],  # by name, then file
         "internal": [{"name", "language", "source_file", "source_line"}, ...],
         "extraction_gaps": [{"name", "language", "entry", "file", "line"}, ...],
         "outside_scope": [{"name", "language", "entry", "file", "line"}, ...]},
@@ -645,6 +661,12 @@ the entry points export by name, which counts as the names its module
 passes on), each export of a --quick output at its `defined_in` (else its
 `source_file`), and the --extraction runner's `entry_point_diff.public`;
 a payload name replaces a --quick or runner one of its family and name.
+The runner's `other_definitions` count in `effective_denominator` and
+`curated_subset` as full mode counts them, never in `exports_public_api`,
+each only while the record kept for its name names the file of the
+runner's `public` row (a row whose name has no runner row, or one a
+payload or --quick name moves to another file, adds nothing), and none
+beside a namespace with members, as in full mode.
 `exports_internal` counts the names of the payload's `exports` (the
 exports extraction found; Python, Rust and Dart `_` names left out, those
 of every other language counted) and of the runner's `internal` that no
@@ -666,10 +688,12 @@ and `arms`.
 
 `entry_point_diff` replaces a compare by eye, each item {"name",
 "language", "file"}: `public`, the names `exports_public_api` counts (a
-namespace as its `members`); `internal`, the exports `exports_internal`
-counts; `extraction_gaps`, the public names the payload and --quick give
-that no export found has (the payload's `exports`, the --extraction
-runner's names), to trace (the runner lists its own gaps).
+namespace as its `members`); `other_definitions`, the runner's other
+definitions the counts read, by name then file; `internal`, the exports
+`exports_internal` counts; `extraction_gaps`, the public names the
+payload and --quick give that no export found has (the payload's
+`exports`, the --extraction runner's names), to trace (the runner lists
+its own gaps).
 
 Output JSON: `mode` "denominator", `source_root`, `scope` (as full mode
 writes it), `files_in_scope`, `files_without_recipes`, `entry_points`,
@@ -3333,20 +3357,30 @@ class _Surface:
     adds every entry point's own and named exports before any `export *`),
     unless the file it gives is out of scope (or it gives none) and another
     entry point gives a file in `in_scope`, which then replaces it (one
-    entry point never replaces its own: an explicit export shadows a star
-    or a glob; with no `in_scope`, the first always wins); the names, and
-    the files, a namespace export (a module) makes reachable, which are not
-    internal; and the re-exports the trace could not follow. A namespace
-    item also carries its `members`, the names its module passes on (None
-    when the trace cannot read that module); `opaque` holds the (name,
-    file) of each member that is itself a module the trace cannot read,
-    which, as such a namespace, is no recipe's target. A Python or Rust `_`
-    name is never added."""
+    entry point never replaces its own, and a star or glob that passes on a
+    name its entry point already exports replaces none: an explicit export
+    shadows it; with no `in_scope`, the first always wins); `others`,
+    {name: [info]}, the other definitions of a held name in files in
+    `in_scope` (#830), each an add that does not become the held record,
+    is no such shadowed star or glob, is no namespace, beside a held record
+    that is none, and gives a file in scope whose (file, `local` or name)
+    neither the held record nor an earlier one of `others` gives; the
+    names, and the files, a namespace export (a module) makes reachable,
+    which are not internal; and the re-exports the trace could not follow.
+    A namespace item also carries its `members`, the names its module
+    passes on (None when the trace cannot read that module); `opaque` holds
+    the (name, file) of each member that is itself a module the trace
+    cannot read, which, as such a namespace, is no recipe's target. A
+    Python or Rust `_` name is never added."""
 
     def __init__(self, family: str, in_scope: set[str] | None = None) -> None:
         self.family = family
         self.in_scope = in_scope
         self.names: dict[str, dict] = {}
+        self.others: dict[str, list[dict]] = {}
+        self._other_at: dict[str, set[tuple[str, str]]] = {}  # name: the (file, local or name) of its others
+        # (entry, name) of each add: a star or glob an entry point passes an exported name on through is shadowed
+        self._added: set[tuple[str, str]] = set()
         self.reachable: set[str] = set()
         self.reachable_files: set[str] = set()
         self.unresolved: list[dict] = []
@@ -3358,13 +3392,22 @@ class _Surface:
         if not name or _private(self.family, name):
             return None
         held = self.names.get(name)
-        if held is None or (self.in_scope is not None and file in self.in_scope and entry != held["entry"]
+        shadowed = via == "star" and (entry, name) in self._added
+        self._added.add((entry, name))
+        info = {"name": name, "entry": entry, "via": via, "from": source,
+                "local": local if local and local != name else None, "file": file, "line": line}
+        at = (file, info["local"] or name)
+        if held is None or (not shadowed and self.in_scope is not None and file in self.in_scope
+                            and entry != held["entry"]
                             and (held["file"] is None or held["file"] not in self.in_scope)):
-            self.names[name] = {"name": name, "entry": entry, "via": via, "from": source,
-                                "local": local if local and local != name else None,
-                                "file": file, "line": line}
+            self.names[name] = info
             if via == "namespace":
                 self.names[name]["members"] = [dict(m) for m in members] if members is not None else None
+        elif (not shadowed and via != "namespace" and held["via"] != "namespace" and self.in_scope is not None
+              and file in self.in_scope and at != (held["file"], held["local"] or name)
+              and at not in self._other_at.get(name, ())):
+            self.others.setdefault(name, []).append(info)
+            self._other_at.setdefault(name, set()).add(at)
         return self.names[name]
 
     def unresolve(self, entry: str, name: str, source: str | None, file: str) -> None:
@@ -4357,11 +4400,14 @@ def _go_surface(root: Path, files: list[str], surface: _Surface, entries: list[d
 
 def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries: list[dict],
                      in_scope: set[str]) -> tuple[dict[str, str], dict[tuple[str, str], dict], list[dict],
-                                                  list[tuple[str, dict]], list[tuple[str, dict]]]:
+                                                  list[tuple[str, dict]], list[tuple[str, dict]],
+                                                  list[tuple[str, dict]]]:
     """The entry-point diff, one language family at a time: (status by
     family, public names {(family, name): info}, internal export records,
-    and (family, info) of the extraction gaps and of the names outside
-    scope). A family whose entry points declare names diffs them with its
+    and (family, info) of the extraction gaps, of the names outside scope
+    and of the other in-scope definitions of public names, `_Surface`'s
+    `others`, which no gap or outside_scope row reads: those go by name).
+    A family whose entry points declare names diffs them with its
     exports: an export no entry point names, nor traces back to, nor makes
     reachable (a name, or any export of a reachable file), is internal. A
     declared name, at the file `_Surface` kept for it (not always the first
@@ -4381,6 +4427,7 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
     internal: list[dict] = []
     gaps: list[tuple[str, dict]] = []
     outside: list[tuple[str, dict]] = []
+    others: list[tuple[str, dict]] = []
     entry_families = {FAMILY_OF[e["language"]] for e in entries}
     families = {FAMILY_OF[e["language"]] for e in exports} | entry_families
     for family in sorted(families | {f for f, s in surfaces.items() if s.names}):
@@ -4398,6 +4445,7 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
         names = {e["export_name"] for e in records}
         traced = {info["local"] for info in declared.values() if info["local"]} | surface.reachable
         public.update(((family, name), info) for name, info in declared.items())
+        others.extend((family, dict(info)) for name in sorted(surface.others) for info in surface.others[name])
         seen: set[str] = set()
         for e in records:
             name = e["export_name"]
@@ -4429,7 +4477,7 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
                 row = {"name": member["name"], "entry": info["entry"], "file": member["file"],
                        "line": member["line"]}
                 (gaps if member["file"] is None or member["file"] in in_scope else outside).append((family, row))
-    return statuses, public, internal, gaps, outside
+    return statuses, public, internal, gaps, outside, others
 
 
 def _has_members(info: dict) -> bool:
@@ -4438,9 +4486,9 @@ def _has_members(info: dict) -> bool:
 
 
 def _public_keys(public: dict[tuple[str, str], dict]) -> set[tuple[str, str, str | None]]:
-    """The (family, name, file) the counts count: each public name but a
-    namespace with members, in its place each member, and so a member that
-    is also a declared name (or another namespace's member) once."""
+    """The (family, name, file) exports_public_api counts: each public name
+    but a namespace with members, in its place each member, and so a member
+    that is also a declared name (or another namespace's member) once."""
     keys: set[tuple[str, str, str | None]] = set()
     for (family, _), info in public.items():
         if _has_members(info):
@@ -4448,6 +4496,16 @@ def _public_keys(public: dict[tuple[str, str], dict]) -> set[tuple[str, str, str
         else:
             keys.add((family, info["name"], info["file"]))
     return keys
+
+
+def _other_keys(others: list[tuple[str, dict]]) -> set[tuple[str, str, str | None]]:
+    """The (family, name, file) of the other in-scope definitions of public
+    names (#830), which join the public keys in the set effective_denominator
+    and curated_subset read, never exports_public_api: a name still counts
+    once, when any of its files matches."""
+    return {(family, info["name"], info["file"]) for family, info in others
+            if isinstance(info.get("name"), str) and info["name"] and isinstance(info.get("file"), str)
+            and info["file"]}
 
 
 def _head_cap(value: int | None, tier: str | None, scope_type: str | None) -> int | None:
@@ -4834,7 +4892,7 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
     for record in exports:
         if record["from"] and record["language"] in JS_FAMILY:
             record["from_file"] = resolve_js_module(record["from"], record["source_file"], tree_set)
-    statuses, public, internal, gaps, outside = entry_point_diff(exports, surfaces, entries, in_scope_set)
+    statuses, public, internal, gaps, outside, others = entry_point_diff(exports, surfaces, entries, in_scope_set)
     if "barrel" in statuses.values():
         status = "barrel"
     else:
@@ -4844,8 +4902,10 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
     # only files an exclude drops, that scope.include leaves out or that
     # define no public name) narrows nothing, once the run counted a name
     # and read every file (no error).
-    counted = _public_keys(public)
-    counts = _denominator_counts(facts, counted, len(counted), len(internal), bool(errors), warnings)
+    # Each other in-scope definition of a public name counts its name where any of its files is counted (#830).
+    public_keys = _public_keys(public)
+    counted = public_keys | _other_keys(others)
+    counts = _denominator_counts(facts, counted, len(public_keys), len(internal), bool(errors), warnings)
 
     by_type: Counter = Counter(e["export_type"] for e in exports)
     ordered = sorted(public.items(), key=lambda item: (item[0][1], item[0][0]))
@@ -4859,6 +4919,8 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
                          "unresolved": unresolved_subpaths + [u for s in surfaces.values() for u in s.unresolved]},
         "entry_point_diff": {
             "public": [dict(info, language=family) for (family, _), info in ordered],
+            "other_definitions": [dict(info, language=family) for family, info in
+                                  sorted(others, key=lambda o: (o[1]["name"], o[1]["file"], o[0]))],
             "internal": [{"name": e["export_name"], "language": FAMILY_OF[e["language"]],
                           "source_file": e["source_file"], "source_line": e["source_line"]} for e in internal],
             "extraction_gaps": [{"name": info["name"], "language": family, "entry": info["entry"],
@@ -4978,6 +5040,8 @@ def run_denominator(args: argparse.Namespace, payload: dict) -> dict:
     # The exports found, each key at its file: the payload's and the runner's.
     found: dict[tuple[str, str], str | None] = {}
     internal: set[tuple[str, str]] = set()
+    # The runner's other in-scope definitions of its public names (#830), counted where the names are.
+    others: list[tuple[str, dict]] = []
     incomplete = False
     runner_status = None
     if args.extraction:
@@ -4992,6 +5056,8 @@ def run_denominator(args: argparse.Namespace, payload: dict) -> dict:
                 key = (str(info.get("language") or ""), info["name"])
                 public[key] = runner_public[key] = info
                 found[key] = info.get("file")
+        others = [(str(info.get("language") or ""), info) for info in diff.get("other_definitions") or []
+                  if isinstance(info, dict)]
         for item in diff.get("internal") or []:
             if isinstance(item, dict) and isinstance(item.get("name"), str):
                 internal.add((str(item.get("language") or ""), item["name"]))
@@ -5019,7 +5085,23 @@ def run_denominator(args: argparse.Namespace, payload: dict) -> dict:
             internal.add(key)
     named = set(public) | {(family, m["name"]) for (family, _), info in public.items() if _has_members(info)
                            for m in info["members"]}
-    counted = _public_keys(public)
+    public_keys = _public_keys(public)
+    def still_held(key: tuple[str, str]) -> bool:
+        """Whether the record kept for the runner's public name `key` still names the runner row's file, a
+        namespace with members in neither (full mode keeps no other definition beside one)."""
+        runner_row, kept = runner_public.get(key), public.get(key)
+        if runner_row is None or kept is None or _has_members(runner_row) or _has_members(kept):
+            return False
+        files = [_norm(row["file"]) if isinstance(row.get("file"), str) and row["file"] else None
+                 for row in (runner_row, kept)]
+        return files[0] == files[1]
+
+    # A runner row counts only while the record kept for its name names the runner's file: an orphan row, or
+    # one of a name a payload or --quick record moved to another file, adds nothing.
+    others = [(family, info) for family, info in others
+              if isinstance(info.get("name"), str) and still_held((family, info["name"]))]
+    other_keys = _other_keys(others)
+    counted = public_keys | other_keys
 
     if args.source_root:
         root = Path(args.source_root)
@@ -5055,7 +5137,7 @@ def run_denominator(args: argparse.Namespace, payload: dict) -> dict:
     outside_tree = sorted((name, file) for _, name, file in counted if file and file not in tree_set)
     warnings += [f"public name {name} is defined in {file}, which is not in the tree: effective_denominator "
                  "and curated_subset leave it out" for name, file in outside_tree]
-    counts = _denominator_counts(facts, counted, len(counted), len(internal - named), incomplete, warnings)
+    counts = _denominator_counts(facts, counted, len(public_keys), len(internal - named), incomplete, warnings)
     if not args.source_root and counts["effective_denominator_decision"]["reason"] not in ("reference-app",
                                                                                          "incomplete-run"):
         counts["effective_denominator_decision"] = {"store": False, "reason": "no-source-tree"}
@@ -5086,7 +5168,9 @@ def run_denominator(args: argparse.Namespace, payload: dict) -> dict:
         "counts": counts,
         "entry_point_diff": {
             "public": [row((family, name), file)
-                       for family, name, file in sorted(counted, key=lambda k: (k[1], k[0], k[2] or ""))],
+                       for family, name, file in sorted(public_keys, key=lambda k: (k[1], k[0], k[2] or ""))],
+            "other_definitions": [row((family, name), file)
+                                  for family, name, file in sorted(other_keys, key=lambda k: (k[1], k[2], k[0]))],
             "internal": [row(key, found.get(key)) for key in by_name(internal - named)],
             "extraction_gaps": [row(key, given[key]) for key in by_name(given) if key not in found],
         },

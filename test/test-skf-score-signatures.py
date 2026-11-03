@@ -27,7 +27,9 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     the surface records in several files, `plan --skill-dir` picks the one
     file the skill cites on a line naming it, and hands the judge every
     file as `candidates` when the citations do not settle it; a record with
-    no file never wins, and a mismatch found at a candidate names its `file`
+    no file never wins, and a mismatch found at a candidate names its `file`;
+    end to end (#830), the runner and the surface give a name two monorepo
+    packages define one record per file, so the cited one is compared
   - compares a signature documented with no argument (#794): `params` of
     `""` or `[]` is a signature, and of a name listed twice the entry with
     non-empty `params` or a usage form (#826) is compared
@@ -39,6 +41,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -50,6 +53,8 @@ SCRIPTS = REPO_ROOT / "src" / "skf-test-skill" / "scripts"
 SCRIPT = SCRIPTS / "score-signatures.py"
 GAP_LEDGER = SCRIPTS / "gap-ledger.py"
 HARD_GATE = SCRIPTS / "hard-gate.py"
+LOADER = SCRIPTS / "load-coverage-inputs.py"
+EXTRACTOR = REPO_ROOT / "src" / "shared" / "scripts" / "skf-extract-public-api.py"
 
 spec = importlib.util.spec_from_file_location("score_signatures", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
@@ -717,6 +722,55 @@ def test_only_a_cited_file_the_surface_records_settles_the_check(tmp_path, line,
         assert group["file"] == ANGULAR and [c["file"] for c in check["candidates"]] == [ANGULAR, REACT_VITE]
     else:
         assert group["file"] == planned and "candidates" not in check
+
+
+# #830: two monorepo packages that define composeStories, both in scope. Core's `./preview-api` subpath re-exports
+# its own by name, so the runner's public row is core's; react's root entry point passes react's on through
+# `export *`, an other definition.
+CORE_PORTABLE = "code/core/src/preview-api/portable.ts"
+REACT_PORTABLE = "code/renderers/react/src/portable.ts"
+REACT_SIG = "export function composeStories(csfExports: ReactExports, projectAnnotations?: ReactAnnotations) {"
+STORYBOOK_TREE = {
+    "code/core/package.json": '{"name": "@sb/core", "exports": {"./preview-api": "./src/preview-api/index.ts"}}\n',
+    "code/core/src/preview-api/index.ts": "export { composeStories } from './portable';\n",
+    CORE_PORTABLE: ("export function composeStories(csfExports: CoreExports, projectAnnotations?: CoreAnnotations) {\n"
+                    "  return csfExports;\n}\n"),
+    "code/renderers/react/package.json": '{"name": "@sb/react", "exports": {".": "./src/index.ts"}}\n',
+    "code/renderers/react/src/index.ts": "export * from './portable';\nexport type StoryObj = { args: object };\n",
+    REACT_PORTABLE: REACT_SIG + "\n  return csfExports;\n}\n",
+}
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+def test_a_name_two_monorepo_packages_define_is_compared_with_the_cited_declaration(tmp_path):
+    """#830 (oms-storybook composeStories): the runner holds core's composeStories as the public row and react's
+    as an other definition, the surface gives each a record, and the plan compares the skill's react form with
+    the react declaration it cites, not with core's, which sorts first."""
+    source = tmp_path / "src"
+    for rel, text in STORYBOOK_TREE.items():
+        _write(source / rel, text)
+    extraction, surface = tmp_path / "extract-full.json", tmp_path / "surface.json"
+    proc = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source),
+                           "--include", "code/core/**", "--include", "code/renderers/react/**", "--tier", "Forge",
+                           "--head-cap", "0", "--output", str(extraction)], capture_output=True, text=True,
+                          timeout=600)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    proc = subprocess.run([sys.executable, str(LOADER), "surface", "--extraction", str(extraction), "--output",
+                           str(surface)], capture_output=True, text=True, timeout=600)
+    assert proc.returncode == 0, proc.stderr
+    records = [r for r in json.loads(surface.read_text(encoding="utf-8"))["exports"] if r["name"] == "composeStories"]
+    assert [r["file"] for r in records] == [CORE_PORTABLE, REACT_PORTABLE]
+    _write(tmp_path / "skill" / "SKILL.md",
+           f"# Demo\n\n`composeStories(csfExports, projectAnnotations?)` composes the stories "
+           f"[AST:{REACT_PORTABLE}:L1].\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [COMPOSE], "cross_check_mismatches": []})
+    proc = _run("plan", "--inventory", inventory, "--surface", str(surface), "--skill-dir", str(tmp_path / "skill"))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["files"] == [{"file": REACT_PORTABLE, "checks": [{
+        "name": "composeStories", "line": 1, "signatureLine": REACT_SIG,
+        "documented": {"params": "csfExports, projectAnnotations?", "return_type": "ComposedStories"}}]}]
 
 
 @pytest.mark.parametrize("skill_dir", ["missing", "", "no-skill-md"])

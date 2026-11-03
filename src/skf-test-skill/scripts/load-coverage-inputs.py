@@ -39,7 +39,10 @@ reading files and writing one JSON object:
   surface   the enumerated source surface, from every input given (their
             union):
               --extraction  skf-extract-public-api.py --mode full output:
-                            the names in entry_point_diff.public, a
+                            the names in entry_point_diff.public, each
+                            other in-scope definition of one
+                            (entry_point_diff.other_definitions, #830) a
+                            record of its own at its file, a
                             namespace with a `members` list given as its
                             members (the names its module passes on, each
                             at its file, once with a public name of the
@@ -117,10 +120,11 @@ reading files and writing one JSON object:
 Name sets (surface `sets`, each sorted): `all` (the union above, less a
 nested Python top's names);
 `scope.include` and `tier_a_include` when the scope has those globs and a
-record names a file: the names whose file (an extraction's definition file,
+record names a file: the names with a file (any of the name's records: an
+extraction's definition file, each other in-scope definition's included,
 the quick output's defined_in, else its source_file, a per-file result's
-file, a provenance entry's source_file) matches a glob of the list and no
-scope.exclude glob,
+file, a provenance entry's source_file) that matches a glob of the list
+and no scope.exclude glob,
 and for `tier_a_include` a scope.include glob too when the scope has one,
 so a name with no file is in `all` only and a restored name is in no
 tier_a_include set (a tier_a_include glob an extraction lists as matching
@@ -132,7 +136,8 @@ exclude of `src/gen/**`; a list that counts no name, each glob left out
 or matching only excluded files, files scope.include leaves out or files
 no record names, gives no tier_a_include set); and, from an
 extraction only, `subpaths` (the names a non-root `exports` map subpath
-without `*` reaches) and `root` (the names the root entry points reach).
+without `*` reaches) and `root` (the names the root entry points reach),
+each through the entry point of any of the name's definitions.
 reconcile-coverage.py and score-signatures.py --surface-set pick one.
 
 Candidates and guards (with an extraction, --brief or --metadata): each
@@ -162,7 +167,8 @@ tier_a_include globs ([] when it has none) for gap-ledger.py's wording;
 the umbrella ratio (an
 extraction only) is the share of the root entry points' names that are
 re-exports (a namespace with `members` counting as its members there
-too, each a re-export), and above UMBRELLA_RATIO the barrel is an
+too, each a re-export, and an other in-scope definition left out), and
+above UMBRELLA_RATIO the barrel is an
 umbrella; the
 stale-scope guard (an extraction with scope.include or tier_a_include only)
 fires when the runner lists an include or tier_a_include glob that matches
@@ -732,8 +738,12 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
                 "extraction": extraction}
 
     diff = data.get("entry_point_diff") if isinstance(data.get("entry_point_diff"), dict) else {}
-    public = _members_in_place([p for p in diff.get("public") or []
-                                if isinstance(p, dict) and isinstance(p.get("name"), str)])
+    # Each in-scope definition of a public name is a record of its own (#830): the runner's other
+    # definitions join the public rows, so a set holds a name when any of its files matches, and
+    # the signature plan reads every declaration.
+    rows = {key: [p for p in diff.get(key) or [] if isinstance(p, dict) and isinstance(p.get("name"), str)]
+            for key in ("public", "other_definitions")}
+    public = _members_in_place(rows["public"] + rows["other_definitions"])
     outside = [o for o in diff.get("outside_scope") or [] if isinstance(o, dict)]
     gaps = [g for g in diff.get("extraction_gaps") or [] if isinstance(g, dict)]
 
@@ -744,7 +754,7 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
     # records (so the scope sets a specific-modules or stratified brief
     # counts) and their outside_scope and extraction_gaps rows.
     nested = _nested_tops(entry_files, set(scope["include"]) | set(scope["tier_a_include"]),
-                          {p.get("entry") for p in public})
+                          {p.get("entry") for p in rows["public"]})
     nested_names = {top: sorted({p["name"] for p in public if p.get("entry") == top}) for top in nested}
 
     subpath_files = {e.get("file") for e in entry_files
@@ -785,14 +795,15 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
                     found.get("source_line") if found else info.get("line"),
                     found.get("signature_line") if found else None, "extraction"))
 
-    root_names = [p for p in public if p.get("entry") in root_files]
+    # The umbrella ratio reads the public rows alone: an other definition is no root barrel name there.
+    root_names = [p for p in _members_in_place(rows["public"]) if p.get("entry") in root_files]
     reexported = [p for p in root_names if p.get("via") not in (None, "declaration")]
 
     sets = {}
     if subpath_files:
         sets["subpaths"] = sorted({p["name"] for p in public if p.get("entry") in subpath_files})
     if root_files:
-        sets["root"] = sorted({p["name"] for p in root_names})
+        sets["root"] = sorted({p["name"] for p in public if p.get("entry") in root_files})
 
     return {
         "records": records,

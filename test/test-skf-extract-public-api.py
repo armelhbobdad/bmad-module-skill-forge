@@ -2178,7 +2178,7 @@ class TestEntryPointDiff:
         exports = [{"export_name": "helper", "language": "typescript", "source_file": "a.ts", "source_line": 1},
                    {"export_name": "Other", "language": "go", "source_file": "b.go", "source_line": 2}]
         entries = [{"language": "go", "file": ".", "package": ".", "subpath": None, "resolution": "package"}]
-        statuses, public, internal, gaps, outside = mod.entry_point_diff(exports, surfaces, entries, {"api.go"})
+        statuses, public, internal, gaps, outside, _ = mod.entry_point_diff(exports, surfaces, entries, {"api.go"})
         assert statuses == {"go": "barrel", "javascript": "no-entry-point"}
         assert sorted(public) == [("go", "Exported"), ("javascript", "helper")]
         assert [e["export_name"] for e in internal] == ["Other"]
@@ -2198,7 +2198,7 @@ class TestEntryPointDiff:
         exports = [{"export_name": name, "language": "rust", "source_file": file, "source_line": 1}
                    for name, file in (("build", "src/client/builder.rs"), ("helper", "src/private.rs"))]
         entries = [{"language": "rust", "file": "src/lib.rs", "package": ".", "subpath": None, "resolution": "file"}]
-        _, _, internal, gaps, outside = mod.entry_point_diff(
+        _, _, internal, gaps, outside, _ = mod.entry_point_diff(
             exports, surfaces, entries, {"src/lib.rs", "src/client/mod.rs", "src/client/builder.rs", "src/private.rs"})
         assert [e["export_name"] for e in internal] == ["helper"]
         assert [info["name"] for _, info in gaps] == ["LIMIT"]
@@ -2236,6 +2236,113 @@ class TestEntryPointDiff:
         surface.add("Button", "src/index.ts", "star", "src/components/index.ts", 1, "./components")
         assert (surface.names["Button"]["file"], surface.names["Button"]["via"]) == ("src/legacy/button.ts",
                                                                                      "re-export")
+        # #830: the shadowed star is no other definition either
+        assert surface.others == {}
+
+    def test_every_other_in_scope_definition_is_kept_beside_the_held_one(self) -> None:
+        """#830: the first add of a name stays its record, and each later entry point's first add of it at
+        another file in scope is kept in `others`, once per file: never a file out of scope, the held file, a
+        namespace, or an entry point's later add (a star its own export shadows)."""
+        core, react, vue = "core/portable.ts", "react/portable.ts", "vue/portable.ts"
+        surface = mod._Surface("javascript", {core, react, "react/other.ts", "react/ns/index.ts", "core/index.ts"})
+        surface.add("composeStories", "core/index.ts", "re-export", core, 1, "./portable")
+        surface.add("composeStories", "react/index.ts", "star", react, 3, "./portable")
+        surface.add("composeStories", "react/index.ts", "star", "react/other.ts", 1, "./other")  # shadowed
+        surface.add("composeStories", "vue/index.ts", "star", vue, 1, "./portable")  # out of scope
+        surface.add("composeStories", "preview/index.ts", "re-export", react, 3, "./react")  # react's file again
+        surface.add("composeStories", "addons/index.ts", "re-export", core, 1, "./core")  # the held file
+        surface.add("composeStories", "ns/index.ts", "namespace", "react/ns/index.ts", None, "./ns", members=[])
+        assert (surface.names["composeStories"]["entry"], surface.names["composeStories"]["file"]) == (
+            "core/index.ts", core)
+        assert surface.others == {"composeStories": [
+            {"name": "composeStories", "entry": "react/index.ts", "via": "star", "from": "./portable",
+             "local": None, "file": react, "line": 3}]}
+        exports = [{"export_name": "composeStories", "language": "typescript", "source_file": f, "source_line": 1}
+                   for f in (core, react)]
+        entries = [{"language": "typescript", "file": f, "package": f.split("/")[0], "subpath": ".",
+                    "resolution": "file"} for f in ("core/index.ts", "react/index.ts")]
+        surfaces = {family: mod._Surface(family) for family in mod.FAMILIES}
+        surfaces["javascript"] = surface
+        _, public, _, gaps, outside, others = mod.entry_point_diff(exports, surfaces, entries, surface.in_scope)
+        assert [(family, info["file"]) for family, info in others] == [("javascript", react)]
+        assert (gaps, outside) == ([], [])
+        assert mod._public_keys(public) == {("javascript", "composeStories", core)}
+        assert mod._other_keys(others) == {("javascript", "composeStories", react)}
+        # with no in-scope set (quick mode's trace), nothing is kept
+        quick = mod._Surface("python")
+        quick.add("z", "p/__init__.py", "declaration", "p/__init__.py", 1)
+        quick.add("z", "q/__init__.py", "declaration", "q/__init__.py", 1)
+        assert quick.others == {}
+
+    def test_no_other_definition_is_kept_beside_a_held_namespace(self) -> None:
+        """#830 review: a name held as a namespace counts as its members, so another entry point's plain
+        definition of the name is no other definition (it would count a name the public keys never hold)."""
+        surface = mod._Surface("javascript", {"a/ns/index.ts", "a/ns/x.ts", "b/utils.ts"})
+        surface.add("utils", "a/index.ts", "namespace", "a/ns/index.ts", None, "./ns",
+                    members=[{"name": "x", "local": None, "file": "a/ns/x.ts", "line": 1}])
+        surface.add("utils", "b/index.ts", "re-export", "b/utils.ts", 1, "./utils")
+        assert surface.names["utils"]["via"] == "namespace" and surface.others == {}
+
+    def test_a_shadowed_add_replaces_no_held_record(self) -> None:
+        """#830 review: an entry point's later add of a name, a star its own export shadows, replaces no
+        out-of-scope held record either, and is no other definition."""
+        surface = mod._Surface("javascript", {"in/button.ts"})
+        surface.add("Button", "a/index.ts", "re-export", "out/a.ts", 1, "./a")
+        surface.add("Button", "b/index.ts", "re-export", "out/b.ts", 1, "./b")
+        surface.add("Button", "b/index.ts", "star", "in/button.ts", 1, "./in")  # shadowed by b's own export
+        assert (surface.names["Button"]["entry"], surface.names["Button"]["file"]) == ("a/index.ts", "out/a.ts")
+        assert surface.others == {}
+
+    def test_an_out_of_scope_held_record_replaced_then_another_definition_kept(self) -> None:
+        """#830 review: an in-scope definition replaces an out-of-scope held record, and a later entry point's
+        definition at another in-scope file is then an other definition; the replaced record is none."""
+        surface = mod._Surface("javascript", {"in/a.ts", "in/b.ts"})
+        surface.add("x", "out/index.ts", "declaration", "out/index.ts", 1)
+        surface.add("x", "in/a-entry.ts", "re-export", "in/a.ts", 2, "./a")
+        surface.add("x", "in/b-entry.ts", "re-export", "in/b.ts", 3, "./b")
+        surface.add("x", "in/c-entry.ts", "re-export", "in/b.ts", 3, "./b")  # in/b.ts is kept once
+        assert surface.names["x"]["file"] == "in/a.ts"
+        assert [(o["entry"], o["file"]) for o in surface.others["x"]] == [("in/b-entry.ts", "in/b.ts")]
+
+    def test_only_a_star_or_glob_after_an_entry_points_own_export_is_shadowed(self) -> None:
+        """#830 review 2: two explicit exports of one name by one entry point (Rust `pub use` items a `cfg`
+        gates) are both definitions, kept, and one in scope replaces an out-of-scope held record of another entry
+        point; a glob passing the name on after them is shadowed. (The Rust trace itself resolves a name to its
+        first `pub use`, so a full run gives this pair one file: this is the rule `add` applies.)"""
+        surface = mod._Surface("rust", {"src/lib.rs", "src/unix.rs", "src/windows.rs", "src/posix.rs"})
+        surface.add("Handle", "src/lib.rs", "re-export", "src/unix.rs", 1, "unix")
+        surface.add("Handle", "src/lib.rs", "re-export", "src/windows.rs", 1, "windows")
+        surface.add("Handle", "src/lib.rs", "star", "src/posix.rs", 1, "posix")  # shadowed
+        assert surface.names["Handle"]["file"] == "src/unix.rs"
+        assert [o["file"] for o in surface.others["Handle"]] == ["src/windows.rs"]
+        replaced = mod._Surface("rust", {"b/src/unix.rs"})
+        replaced.add("Handle", "a/src/lib.rs", "re-export", "a/src/handle.rs", 1, "handle")
+        replaced.add("Handle", "b/src/lib.rs", "re-export", "b/src/other.rs", 1, "other")
+        replaced.add("Handle", "b/src/lib.rs", "re-export", "b/src/unix.rs", 1, "unix")
+        assert (replaced.names["Handle"]["entry"], replaced.names["Handle"]["file"]) == (
+            "b/src/lib.rs", "b/src/unix.rs")
+
+    def test_another_local_of_the_held_file_is_an_other_definition(self) -> None:
+        """#830 review 2: a second entry point that re-exports another declaration of the held file under the same
+        public name gives another definition (its `local` differs); the held one restated is none."""
+        surface = mod._Surface("javascript", {"core/portable.ts"})
+        surface.add("composeStories", "core/index.ts", "re-export", "core/portable.ts", 1, "./portable")
+        surface.add("composeStories", "legacy/index.ts", "re-export", "core/portable.ts", 9, "../core/portable",
+                    "composeLegacy")
+        surface.add("composeStories", "preview/index.ts", "re-export", "core/portable.ts", 1, "../core/portable")
+        assert [(o["entry"], o["local"], o["line"]) for o in surface.others["composeStories"]] == [
+            ("legacy/index.ts", "composeLegacy", 9)]
+
+    def test_an_aliased_other_definition_keeps_its_local_name(self) -> None:
+        """#830 review: `export { composeReact as composeStories }` keeps the name its file gives it, `local`,
+        as a public row does, so Test Skill finds its kind and line by that name."""
+        surface = mod._Surface("javascript", {"core/portable.ts", "react/portable.ts"})
+        surface.add("composeStories", "core/index.ts", "re-export", "core/portable.ts", 1, "./portable")
+        surface.add("composeStories", "react/index.ts", "re-export", "react/portable.ts", 4, "./portable",
+                    "composeReact")
+        assert surface.others["composeStories"] == [
+            {"name": "composeStories", "entry": "react/index.ts", "via": "re-export", "from": "./portable",
+             "local": "composeReact", "file": "react/portable.ts", "line": 4}]
 
 
 # --------------------------------------------------------------------------
@@ -2267,6 +2374,35 @@ FRAMEWORKS = {
         "export function defineMain(config: ViteConfig) {\n  return config;\n}\n"),
 }
 FRAMEWORKS_SCOPE = ("--include", "code/frameworks/react-vite/**", "--include", "code/frameworks/angular/src/client/**")
+
+# #830: two workspace packages that each define composeStories, both in scope. Core's `./preview-api` subpath
+# re-exports its own by name, so its row is public (a named export comes before any `export *`); react's root
+# entry point passes react's on through `export *`, beside its own StoryObj.
+CORE_PORTABLE = "code/core/src/preview-api/portable.ts"
+REACT_INDEX = "code/renderers/react/src/index.ts"
+REACT_PORTABLE = "code/renderers/react/src/portable.ts"
+STORYBOOK = {
+    "code/core/package.json": '{"name": "@sb/core", "exports": {"./preview-api": "./src/preview-api/index.ts"}}\n',
+    "code/core/src/preview-api/index.ts": "export { composeStories } from './portable';\n",
+    CORE_PORTABLE: ("export function composeStories(csfExports: CoreExports, annotations?: CoreAnnotations) {\n"
+                    "  return csfExports;\n}\n"),
+    "code/renderers/react/package.json": '{"name": "@sb/react", "exports": {".": "./src/index.ts"}}\n',
+    REACT_INDEX: "export * from './portable';\nexport type StoryObj = { args: object };\n",
+    REACT_PORTABLE: ("export function composeStories(csfExports: ReactExports, annotations?: ReactAnnotations) {\n"
+                     "  return csfExports;\n}\n"),
+}
+STORYBOOK_SCOPE = ("--include", "code/core/**", "--include", "code/renderers/react/**")
+STORYBOOK_TIER_A = ("--tier-a-include", "code/renderers/react/src/**")
+# #830 review: react's root entry point passes on only react's composeStories, and a tier A list of core's sources
+# leaves react's file out, though it defines a counted name.
+STORYBOOK_REACT_STAR_ONLY = {**STORYBOOK, REACT_INDEX: "export * from './portable';\n"}
+CORE_TIER_A = ("--tier-a-include", "code/core/**")
+# #830 review: two Go packages that each declare New; the second also declares Option.
+GO_PACKAGES = {
+    "go.mod": "module example.com/m\n\ngo 1.21\n",
+    "pkg/a/a.go": "package a\n\nfunc New() int {\n\treturn 1\n}\n",
+    "pkg/b/b.go": "package b\n\nfunc New() int {\n\treturn 2\n}\n\nfunc Option() int {\n\treturn 3\n}\n",
+}
 
 # #817: `_` names a TS/JS barrel exports, and those a Rust crate root and a
 # Python package bind, which stay private (a Rust one hidden or unnamed).
@@ -2343,6 +2479,8 @@ class TestFullRuns:
                 if e["export_name"] == "defineMain"] == [(vite, 3, "function")]
         assert (diff["extraction_gaps"], diff["outside_scope"], _names(diff["internal"])) == ([], [], ["render"])
         assert out["counts"]["effective_denominator"] == 1
+        # #830: angular's defineMain, out of scope, is no other definition
+        assert diff["other_definitions"] == []
 
     def test_a_name_found_in_another_file_is_still_outside_scope(self, tmp_path, capsys) -> None:
         """#787: the entry point (out of scope) re-exports Button from a file out of scope; the Button a recipe
@@ -2384,6 +2522,8 @@ class TestFullRuns:
         assert diff["outside_scope"] == [{"name": "Button", "language": "javascript", "entry": "src/index.ts",
                                           "file": "src/legacy/button.ts", "line": 1}]
         assert (public["Card"]["file"], diff["extraction_gaps"]) == ("src/components/index.ts", [])
+        # #830: the Button the shadowed star passes on is no other definition, so the name stays uncounted
+        assert (diff["other_definitions"], out["counts"]["effective_denominator"]) == ([], 1)
 
     def test_a_name_one_entry_point_in_scope_exports(self, tmp_path, capsys) -> None:
         """#787: with the angular package out of the brief, react-vite's entry point alone gives defineMain,
@@ -2395,6 +2535,96 @@ class TestFullRuns:
         assert [(p["name"], p["file"], p["line"]) for p in diff["public"]] == [("defineMain", vite, 3)]
         assert (diff["extraction_gaps"], diff["outside_scope"], diff["internal"]) == ([], [], [])
         assert out["counts"]["effective_denominator"] == 1
+        # #830: a name defined once has no other definition
+        assert diff["other_definitions"] == []
+
+    def test_every_in_scope_definition_of_a_name_is_kept(self, tmp_path, capsys) -> None:
+        """#830: core's `./preview-api` and react's root entry point both give composeStories, each at its own
+        file in scope. The public row stays core's; react's definition is an other definition, which no gap or
+        outside_scope row reads, and exports_public_api still counts the public rows alone."""
+        code, out = _full(capsys, _tree(tmp_path, STORYBOOK), *STORYBOOK_SCOPE)
+        assert (code, out["status"]) == (0, "ok")
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert (public["composeStories"]["file"], public["composeStories"]["via"]) == (CORE_PORTABLE, "re-export")
+        assert diff["other_definitions"] == [
+            {"name": "composeStories", "entry": REACT_INDEX, "via": "star", "from": "./portable", "local": None,
+             "file": REACT_PORTABLE, "line": 1, "language": "javascript"}]
+        assert (diff["extraction_gaps"], diff["outside_scope"], diff["internal"]) == ([], [], [])
+        assert (out["counts"]["exports_public_api"], out["counts"]["effective_denominator"]) == (2, 2)
+
+    def test_a_tier_a_list_counts_a_name_through_its_other_definition(self, tmp_path, capsys) -> None:
+        """#830 (storybook composeStories): a tier A list of react's sources counts composeStories, once,
+        through react's definition, though its public row sits at core's file."""
+        code, out = _full(capsys, _tree(tmp_path, STORYBOOK), *STORYBOOK_SCOPE, *STORYBOOK_TIER_A)
+        assert (code, out["warnings"]) == (0, [])
+        counts = out["counts"]
+        assert (counts["effective_denominator_basis"], counts["effective_denominator"],
+                counts["exports_public_api"]) == ("tier_a_include", 2, 2)
+
+    def test_a_shadowed_star_replaces_no_out_of_scope_public_row(self, tmp_path, capsys) -> None:
+        """#830 review 2: pa's entry point re-exports Button from out/a.ts (out of scope, the public row); pb's,
+        itself out of scope, re-exports its own from out/b.ts and passes pb/src/in.ts's on through `export *`,
+        which that explicit export shadows. The star gives no row, so Button stays outside_scope at out/a.ts
+        (main: the star replaced the row with pb/src/in.ts)."""
+        root = _tree(tmp_path, {
+            "pa/package.json": '{"name": "pa", "exports": {".": "./src/index.ts"}}\n',
+            "pa/src/index.ts": "export { Button } from '../../out/a';\n",
+            "pb/package.json": '{"name": "pb", "exports": {".": "./src/index.ts"}}\n',
+            "pb/src/index.ts": "export { Button } from '../../out/b';\nexport * from './in';\n",
+            "pb/src/in.ts": "export function Button(): void {}\n",
+            "out/a.ts": "export function Button(): void {}\n",
+            "out/b.ts": "export function Button(): void {}\n",
+        })
+        _, out = _full(capsys, root, "--include", "pa/**", "--include", "pb/**", "--exclude", "pb/src/index.ts")
+        diff = out["entry_point_diff"]
+        assert [(p["name"], p["entry"], p["file"]) for p in diff["public"]] == [
+            ("Button", "pa/src/index.ts", "out/a.ts")]
+        assert diff["outside_scope"] == [{"name": "Button", "language": "javascript", "entry": "pa/src/index.ts",
+                                          "file": "out/a.ts", "line": 1}]
+        assert (diff["other_definitions"], out["counts"]["effective_denominator"]) == ([], 0)
+
+    def test_a_basis_that_leaves_out_another_packages_definition_is_a_curated_subset(self, tmp_path, capsys,
+                                                                                     monkeypatch) -> None:
+        """#830 review: a tier A list of core's sources leaves out react's portable.ts, which defines the counted
+        composeStories, so the count is a curated subset, in full mode and in denominator mode through
+        --extraction (main: not curated, react's file counting nothing)."""
+        root = _tree(tmp_path, STORYBOOK_REACT_STAR_ONLY)
+        code, full = _full(capsys, root, *STORYBOOK_SCOPE, *CORE_TIER_A)
+        assert code == 0
+        assert [(o["name"], o["file"]) for o in full["entry_point_diff"]["other_definitions"]] == [
+            ("composeStories", REACT_PORTABLE)]
+        assert (full["counts"]["effective_denominator"], full["counts"]["curated_subset"]) == (1, True)
+        runner = _tree(tmp_path / "out", {"full.json": json.dumps(full)}) / "full.json"
+        _, hand = _denominator(capsys, monkeypatch, root, {}, *STORYBOOK_SCOPE, *CORE_TIER_A, "--extraction",
+                               runner.as_posix())
+        assert (hand["counts"]["effective_denominator"], hand["counts"]["curated_subset"]) == (1, True)
+
+    def test_another_language_family_keeps_its_other_definitions(self, tmp_path, capsys) -> None:
+        """#830 review: two Go packages each declare New; the first by path holds the public row, and a tier A
+        list of the second counts New once, through its other definition, beside Option (main: Option alone)."""
+        code, out = _full(capsys, _tree(tmp_path, GO_PACKAGES), "--tier-a-include", "pkg/b/**")
+        assert code == 0
+        diff = out["entry_point_diff"]
+        assert [(p["name"], p["file"]) for p in diff["public"]] == [("New", "pkg/a/a.go"), ("Option", "pkg/b/b.go")]
+        assert diff["other_definitions"] == [{"name": "New", "entry": "pkg/b/b.go", "via": "declaration",
+                                              "from": None, "local": None, "file": "pkg/b/b.go", "line": 3,
+                                              "language": "go"}]
+        counts = out["counts"]
+        assert (counts["effective_denominator_basis"], counts["effective_denominator"],
+                counts["exports_public_api"]) == ("tier_a_include", 2, 2)
+
+    def test_a_definition_in_a_file_out_of_scope_is_not_kept(self, tmp_path, capsys) -> None:
+        """#830: with react's portable.ts out of scope (its entry point in scope), react's definition is not
+        kept, so the tier A list counts StoryObj alone."""
+        _, out = _full(capsys, _tree(tmp_path, STORYBOOK), "--include", "code/core/**", "--include", REACT_INDEX,
+                       *STORYBOOK_TIER_A)
+        diff = out["entry_point_diff"]
+        assert diff["other_definitions"] == []
+        assert [(p["name"], p["file"]) for p in diff["public"]] == [("StoryObj", REACT_INDEX),
+                                                                   ("composeStories", CORE_PORTABLE)]
+        assert (out["counts"]["effective_denominator_basis"], out["counts"]["effective_denominator"]) == (
+            "tier_a_include", 1)
 
     def test_typescript_underscore_exports(self, tmp_path, capsys) -> None:
         """#817: a `_` name a TS entry point exports, through `export *` or a named re-export, is an export
@@ -3172,8 +3402,8 @@ class TestMemberDiff:
                    for name, file in (("real", "p/b.py"), ("same", "p/x.py"), ("top", "p/a.py"))]
         entries = [{"language": "python", "file": "p/__init__.py", "package": "p", "subpath": None,
                     "resolution": "file"}]
-        _, public, _, gaps, outside = mod.entry_point_diff(exports, surfaces, entries,
-                                                           {"p/__init__.py", "p/a.py", "p/b.py", "p/c.py", "p/x.py"})
+        _, public, _, gaps, outside, _ = mod.entry_point_diff(
+            exports, surfaces, entries, {"p/__init__.py", "p/a.py", "p/b.py", "p/c.py", "p/x.py"})
         assert [(info["name"], info["file"], info["entry"]) for _, info in gaps] == [
             ("same", "p/c.py", "p/__init__.py"), ("ext", None, "p/__init__.py")]
         assert [(info["name"], info["file"]) for _, info in outside] == [("far", "vendor/d.py")]
@@ -3711,6 +3941,80 @@ class TestDenominatorDecision:
         assert {k: out["counts"][k] for k in ("exports_public_api", "exports_internal", "effective_denominator")} \
             == {"exports_public_api": 2, "exports_internal": 2, "effective_denominator": 2}
 
+    def test_the_runners_other_definitions_count_as_in_full_mode(self, tmp_path, capsys, monkeypatch) -> None:
+        """#830: denominator mode reads the runner's other_definitions, so the tier A list counts composeStories
+        through react's definition as full mode does, while exports_public_api and the `public` rows stay the
+        runner's public rows."""
+        root = _tree(tmp_path, STORYBOOK)
+        runner = _tree(tmp_path / "out", {"full.json": json.dumps({
+            "mode": "full", "status": "ok", "errors": [],
+            "entry_point_diff": {
+                "public": [{"name": "StoryObj", "language": "javascript", "file": REACT_INDEX, "via": "declaration"},
+                           {"name": "composeStories", "language": "javascript", "file": CORE_PORTABLE,
+                            "via": "re-export"}],
+                "other_definitions": [{"name": "composeStories", "language": "javascript", "file": REACT_PORTABLE,
+                                       "via": "star"}],
+                "internal": []}})}) / "full.json"
+        _, out = _denominator(capsys, monkeypatch, root, {}, *STORYBOOK_SCOPE, *STORYBOOK_TIER_A, "--extraction",
+                              runner.as_posix())
+        assert {k: out["counts"][k] for k in ("exports_public_api", "effective_denominator",
+                                              "effective_denominator_basis")} == {
+            "exports_public_api": 2, "effective_denominator": 2, "effective_denominator_basis": "tier_a_include"}
+        assert [(p["name"], p["file"]) for p in out["entry_point_diff"]["public"]] == [
+            ("StoryObj", REACT_INDEX), ("composeStories", CORE_PORTABLE)]
+        assert out["entry_point_diff"]["other_definitions"] == [
+            {"name": "composeStories", "language": "javascript", "file": REACT_PORTABLE}]
+
+    def test_only_the_rows_of_a_kept_runner_name_count(self, tmp_path, capsys, monkeypatch) -> None:
+        """#830 review: a row whose name has no runner public row, and one of a name a payload replaced, add
+        nothing; the rows counted are written as entry_point_diff.other_definitions."""
+        root = _tree(tmp_path, {**STORYBOOK, "code/renderers/react/src/extra.ts": "export function orphan() {}\n"})
+        runner = _tree(tmp_path / "out", {"full.json": json.dumps({
+            "mode": "full", "status": "ok", "errors": [],
+            "entry_point_diff": {
+                "public": [{"name": "StoryObj", "language": "javascript", "file": REACT_INDEX, "via": "declaration"},
+                           {"name": "composeStories", "language": "javascript", "file": CORE_PORTABLE,
+                            "via": "re-export"}],
+                "other_definitions": [
+                    {"name": "StoryObj", "language": "javascript", "file": "code/renderers/react/src/extra.ts"},
+                    {"name": "composeStories", "language": "javascript", "file": REACT_PORTABLE},
+                    {"name": "orphan", "language": "javascript", "file": "code/renderers/react/src/extra.ts"}],
+                "internal": []}})}) / "full.json"
+        payload = {"public": [{"name": "StoryObj", "file": "code/core/src/types.ts", "language": "javascript"}]}
+        _, out = _denominator(capsys, monkeypatch, root, payload, *STORYBOOK_SCOPE, *STORYBOOK_TIER_A,
+                              "--extraction", runner.as_posix())
+        assert out["entry_point_diff"]["other_definitions"] == [
+            {"name": "composeStories", "language": "javascript", "file": REACT_PORTABLE}]
+        # composeStories alone counts through react's file: StoryObj's runner row was replaced, orphan has none
+        assert (out["counts"]["exports_public_api"], out["counts"]["effective_denominator"]) == (2, 1)
+
+    def test_a_record_restating_the_runner_file_keeps_its_other_definitions(self, tmp_path, capsys,
+                                                                            monkeypatch) -> None:
+        """#830 review 2: a payload that restates composeStories at the runner's file keeps the runner's other
+        definition (tier A 2, as full mode counts); one beside a runner namespace with members is skipped."""
+        root = _tree(tmp_path, STORYBOOK)
+        public = [{"name": "StoryObj", "language": "javascript", "file": REACT_INDEX, "via": "declaration"},
+                  {"name": "composeStories", "language": "javascript", "file": "./" + CORE_PORTABLE,
+                   "via": "re-export"}]
+        others = [{"name": "composeStories", "language": "javascript", "file": REACT_PORTABLE}]
+        runner = _tree(tmp_path / "out", {"full.json": json.dumps({
+            "mode": "full", "status": "ok", "errors": [],
+            "entry_point_diff": {"public": public, "other_definitions": others, "internal": []}})}) / "full.json"
+        payload = {"public": [{"name": "composeStories", "file": CORE_PORTABLE, "language": "javascript"}]}
+        _, out = _denominator(capsys, monkeypatch, root, payload, *STORYBOOK_SCOPE, *STORYBOOK_TIER_A,
+                              "--extraction", runner.as_posix())
+        assert out["counts"]["effective_denominator"] == 2
+        assert out["entry_point_diff"]["other_definitions"] == [
+            {"name": "composeStories", "language": "javascript", "file": REACT_PORTABLE}]
+        namespace = [public[0], {"name": "composeStories", "language": "javascript", "file": CORE_PORTABLE,
+                                 "via": "namespace", "members": [{"name": "run", "file": CORE_PORTABLE}]}]
+        runner = _tree(tmp_path / "ns", {"full.json": json.dumps({
+            "mode": "full", "status": "ok", "errors": [],
+            "entry_point_diff": {"public": namespace, "other_definitions": others, "internal": []}})}) / "full.json"
+        _, out = _denominator(capsys, monkeypatch, root, {}, *STORYBOOK_SCOPE, *STORYBOOK_TIER_A, "--extraction",
+                              runner.as_posix())
+        assert (out["counts"]["effective_denominator"], out["entry_point_diff"]["other_definitions"]) == (1, [])
+
     def test_a_hand_count_counts_a_name_in_two_languages_once(self, tmp_path, capsys, monkeypatch) -> None:
         """72325733: a name the entry points pass on in two languages counts once in effective_denominator,
         and once per file in exports_public_api."""
@@ -3942,6 +4246,7 @@ class TestDenominatorDiff:
             "public": [{"name": "A", "language": "java", "file": "src/A.java"},
                        {"name": "c", "language": "javascript", "file": "src/c.ts"},
                        {"name": "gone", "language": "javascript", "file": "src/d.ts"}],
+            "other_definitions": [],
             "internal": [{"name": "B", "language": "java", "file": "src/B.java"},
                          {"name": "_private", "language": "javascript", "file": "src/c.ts"}],
             "extraction_gaps": [{"name": "gone", "language": "javascript", "file": "src/d.ts"}]}

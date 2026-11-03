@@ -1166,6 +1166,23 @@ def test_the_tier_a_candidates_take_a_namespaces_member_files(tmp_path):
     assert _tier_a_candidates(section, result) == ["pkg/a.py", "pkg/sub/__init__.py", "pkg/sub/impl.py"]
 
 
+def test_the_tier_a_candidates_take_each_other_definitions_file(tmp_path):
+    """#830: a name two packages each define has one `reexport_targets` row, at the file the runner keeps for it;
+    the other package's file is in `entry_point_diff.other_definitions`, and is a candidate too."""
+    section = _section(_read(SCOPE_DEFINITION), "### 3c. Tier-A Authoring Surface (coarse-glob monorepo subsets)")
+    result = tmp_path / "tier-a.json"
+    result.write_bytes(json.dumps({
+        "entry_points": {"files": [{"file": "code/core/src/index.ts"}, {"file": "code/react/src/index.ts"}]},
+        "reexport_targets": [{"name": "compose", "file": "code/core/src/portable.ts"}],
+        "entry_point_diff": {"public": [{"name": "compose", "via": "re-export", "file": "code/core/src/portable.ts"}],
+                             "other_definitions": [{"name": "compose", "via": "star",
+                                                    "file": "code/react/src/portable.ts"},
+                                                   {"name": "own", "via": "declaration",
+                                                    "file": "code/react/src/index.ts"}]},
+    }).encode("utf-8"))
+    assert _tier_a_candidates(section, result) == ["code/core/src/portable.ts", "code/react/src/portable.ts"]
+
+
 def test_the_tier_a_candidates_leave_out_the_files_scope_include_leaves_out(tmp_path):
     """#725: a tier A name counts only in a file scope.include matches, so the file of a name an entry point
     passes on from outside the scope (`entry_point_diff.outside_scope`) is no candidate."""

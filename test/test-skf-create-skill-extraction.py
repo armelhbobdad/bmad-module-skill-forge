@@ -1317,6 +1317,7 @@ def test_the_documented_hand_count_calls_run(tmp_path: Path) -> None:
     assert written["entry_point_diff"] == {
         "public": [{"name": "s", "language": "python", "file": "pkg/sub.py"},
                    {"name": "x", "language": "python", "file": "pkg/a.py"}],
+        "other_definitions": [],
         "internal": [{"name": "hidden", "language": "python", "file": "pkg/a.py"}],
         "extraction_gaps": []}
 

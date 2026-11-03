@@ -641,6 +641,128 @@ def test_an_aliased_reexport_takes_the_kind_of_its_definition(tmp_path):
         "interface", 3, "export interface Settings {")
 
 
+# #830: the runner's storybook shape. Core's `./preview-api` subpath re-exports its composeStories by name (the
+# public row); react's root entry point passes react's own on through `export *` (an other definition, in scope
+# too) beside StoryObj. This is skf-extract-public-api.py's output for the STORYBOOK_TREE below, trimmed.
+CORE_INDEX = "code/core/src/preview-api/index.ts"
+CORE_PORTABLE = "code/core/src/preview-api/portable.ts"
+REACT_INDEX = "code/renderers/react/src/index.ts"
+REACT_PORTABLE = "code/renderers/react/src/portable.ts"
+CORE_SIG = "export function composeStories(csfExports: CoreExports, annotations?: CoreAnnotations) {"
+REACT_SIG = "export function composeStories(csfExports: ReactExports, annotations?: ReactAnnotations) {"
+STORYBOOK_TREE = {
+    "code/core/package.json": '{"name": "@sb/core", "exports": {"./preview-api": "./src/preview-api/index.ts"}}\n',
+    CORE_INDEX: "export { composeStories } from './portable';\n",
+    CORE_PORTABLE: CORE_SIG + "\n  return csfExports;\n}\n",
+    "code/renderers/react/package.json": '{"name": "@sb/react", "exports": {".": "./src/index.ts"}}\n',
+    REACT_INDEX: "export * from './portable';\nexport type StoryObj = { args: object };\n",
+    REACT_PORTABLE: REACT_SIG + "\n  return csfExports;\n}\n",
+}
+STORYBOOK = {
+    "mode": "full", "status": "ok", "files_in_scope": 4, "truncated": False, "files_without_recipes": {},
+    "file_issues": [], "errors": [],
+    "scope": {"include": ["code/core/**", "code/renderers/react/**"], "exclude": [],
+              "tier_a_include": ["code/renderers/react/src/**"], "type": None, "languages": ["typescript"],
+              "files_from": None, "unmatched_include": [], "unmatched_tier_a_include": []},
+    "exports": [
+        {"export_name": "composeStories", "export_type": "re-export", "source_file": CORE_INDEX, "source_line": 1,
+         "signature_line": "export { composeStories } from './portable';"},
+        {"export_name": "composeStories", "export_type": "function", "source_file": CORE_PORTABLE, "source_line": 1,
+         "signature_line": CORE_SIG},
+        {"export_name": "StoryObj", "export_type": "type", "source_file": REACT_INDEX, "source_line": 2,
+         "signature_line": "export type StoryObj = { args: object };"},
+        {"export_name": "composeStories", "export_type": "function", "source_file": REACT_PORTABLE,
+         "source_line": 1, "signature_line": REACT_SIG},
+    ],
+    "entry_points": {
+        "status": "barrel",
+        "files": [{"language": "typescript", "file": CORE_INDEX, "package": "code/core", "subpath": "./preview-api",
+                   "resolution": "file", "in_scope": True},
+                  {"language": "typescript", "file": REACT_INDEX, "package": "code/renderers/react", "subpath": ".",
+                   "resolution": "file", "in_scope": True}],
+        "exports_maps": [], "unresolved": [],
+    },
+    "entry_point_diff": {
+        "public": [{"name": "StoryObj", "entry": REACT_INDEX, "via": "declaration", "from": None, "local": None,
+                    "file": REACT_INDEX, "line": 2, "language": "javascript"},
+                   {"name": "composeStories", "entry": CORE_INDEX, "via": "re-export", "from": "./portable",
+                    "local": None, "file": CORE_PORTABLE, "line": 1, "language": "javascript"}],
+        "other_definitions": [{"name": "composeStories", "entry": REACT_INDEX, "via": "star", "from": "./portable",
+                               "local": None, "file": REACT_PORTABLE, "line": 1, "language": "javascript"}],
+        "internal": [], "extraction_gaps": [], "outside_scope": [],
+    },
+    "counts": {"exports_public_api": 2, "exports_internal": 0, "effective_denominator": 2,
+               "effective_denominator_basis": "tier_a_include", "denominator_files": 2, "curated_subset": True},
+    "arms": {"monorepo": False, "monorepo_kind": None, "specific_modules": False, "multi_subpath_exports": False},
+}
+
+
+def test_each_in_scope_definition_of_a_name_is_a_surface_record(tmp_path):
+    """#830: the runner's other definition of composeStories is a record of its own, with the kind, line and
+    signature line react's file gives it, so the tier A set holds the name through react's file and the root
+    set through react's entry point, though its public row is core's; the count matches the runner's."""
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", STORYBOOK))
+    assert [(e["name"], e["kind"], e["file"], e["line"], e["signatureLine"]) for e in out["exports"]] == [
+        ("StoryObj", "type", REACT_INDEX, 2, "export type StoryObj = { args: object };"),
+        ("composeStories", "function", CORE_PORTABLE, 1, CORE_SIG),
+        ("composeStories", "function", REACT_PORTABLE, 1, REACT_SIG)]
+    assert out["sets"] == {"all": ["StoryObj", "composeStories"], "root": ["StoryObj", "composeStories"],
+                           "subpaths": ["composeStories"], "scope.include": ["StoryObj", "composeStories"],
+                           "tier_a_include": ["StoryObj", "composeStories"]}
+    candidates = out["candidates"]
+    assert candidates["tierAIncludeUnion"] == candidates["extractorEffectiveDenominator"] == 2
+    # the umbrella ratio reads the public rows alone, as on main: react's root barrel gives StoryObj, its own
+    assert out["guards"]["umbrella"] == {"entries": [REACT_INDEX], "names": 1, "reexported": 0, "ratio": 0.0,
+                                         "umbrella": False}
+
+
+def test_a_name_reaches_the_subpaths_set_through_an_other_definition(tmp_path):
+    """#830 review 2: with react's root entry point holding composeStories and core's `./preview-api` subpath
+    giving it only as an other definition, the subpaths set holds the name through that definition."""
+    data = json.loads(json.dumps(STORYBOOK))
+    data["entry_point_diff"]["public"][1] = {**data["entry_point_diff"]["other_definitions"][0]}
+    data["entry_point_diff"]["other_definitions"] = [
+        {"name": "composeStories", "entry": CORE_INDEX, "via": "re-export", "from": "./portable", "local": None,
+         "file": CORE_PORTABLE, "line": 1, "language": "javascript"}]
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", data))
+    assert (out["sets"]["subpaths"], out["sets"]["root"]) == (["composeStories"], ["StoryObj", "composeStories"])
+    assert out["candidates"]["subpathUnion"] == 1
+
+
+def test_an_extraction_with_no_other_definition_gives_the_same_surface(tmp_path):
+    """#830: a name defined once has no other definition, and an empty list changes no record, set or guard."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["entry_point_diff"]["other_definitions"] = []
+    before = _surface(tmp_path / "before", "--extraction", _write(tmp_path / "before" / "e.json", EXTRACTION))
+    after = _surface(tmp_path / "after", "--extraction", _write(tmp_path / "after" / "e.json", data))
+    assert {k: v for k, v in after.items() if k != "inputs"} == {k: v for k, v in before.items() if k != "inputs"}
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+def test_a_real_monorepo_name_counts_through_its_other_definition(tmp_path):
+    """#830 end to end: the runner over STORYBOOK_TREE, then the surface. The runner's tier A count and the
+    surface's tier A set both hold composeStories through react's file, and the surface gives one record per
+    file."""
+    source = tmp_path / "src"
+    for rel, text in STORYBOOK_TREE.items():
+        _write(source / rel, text)
+    extraction = tmp_path / "run" / "extract-full.json"
+    extraction.parent.mkdir()
+    proc = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source),
+                           "--include", "code/core/**", "--include", "code/renderers/react/**",
+                           "--tier-a-include", "code/renderers/react/src/**", "--tier", "Forge", "--head-cap", "0",
+                           "--output", str(extraction)], capture_output=True, text=True, timeout=600)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(extraction.read_text(encoding="utf-8"))
+    assert data["entry_point_diff"]["other_definitions"] == STORYBOOK["entry_point_diff"]["other_definitions"]
+    out = _surface(tmp_path, "--extraction", str(extraction))
+    assert [(e["name"], e["file"]) for e in out["exports"]] == [
+        ("StoryObj", REACT_INDEX), ("composeStories", CORE_PORTABLE), ("composeStories", REACT_PORTABLE)]
+    assert data["counts"]["effective_denominator"] == out["candidates"]["tierAIncludeUnion"] == 2
+
+
 @pytest.mark.parametrize("patch, reason", [
     ({"status": "no-ast-grep", "exports": []}, "no ast-grep the runner can run"),
     ({"files_in_scope": 0}, "no file in scope"),
@@ -807,6 +929,7 @@ COGNEE = {
             _public("run_pipeline", "cognee/__init__.py", ".pipelines", "cognee/pipelines/run.py", 4),
             _public("test_helper", "cognee/__init__.py", ".tests.helper", "cognee/tests/helper.py"),
         ],
+        "other_definitions": [],
         "internal": [],
         "extraction_gaps": [],
         "outside_scope": [_outside("Task", "cognee/pipelines/task.py", 2),

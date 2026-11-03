@@ -797,6 +797,7 @@ def test_a_public_api_map_holds_only_the_public_surface(tmp_path):
         "public": [{"name": "foo", "language": "python", "file": "pkg/a.py", "local": None, "via": "re-export"},
                    {"name": "sub", "language": "python", "file": "pkg/sub.py", "local": None, "via": "namespace",
                     "members": [{"name": "baz", "local": None, "file": "pkg/sub.py"}]}],
+        "other_definitions": [],
         "extraction_gaps": []}
     assert data["warnings"] == [NOT_PUBLIC_WARNING.format(n=2, names="bar (pkg/a.py), helper (pkg/helpers.py)")]
     summary = _ok(_run("summary", "--inventory", str(path)))
@@ -813,6 +814,75 @@ def test_a_public_api_map_holds_only_the_public_surface(tmp_path):
     assert (derived["stats"]["exports_documented"], derived["stats"]["public_api_coverage"]) == (2, 1.0)
     assert derived["confidence_distribution"] == {"t1": 2, "t1_low": 0, "t2": 0, "t3": 0}
     assert _barrel_findings(extraction, entries) == []
+
+
+# #830: two monorepo packages that define composeStories, both in scope. Core's `./preview-api` subpath re-exports
+# its own by name (the public row); react's root entry point passes react's on through `export *` (an other
+# definition), beside StoryObj.
+CORE_PORTABLE = "code/core/src/preview-api/portable.ts"
+REACT_PORTABLE = "code/renderers/react/src/portable.ts"
+STORYBOOK_TREE = {
+    "code/core/package.json": '{"name": "@sb/core", "exports": {"./preview-api": "./src/preview-api/index.ts"}}\n',
+    "code/core/src/preview-api/index.ts": "export { composeStories } from './portable';\n",
+    CORE_PORTABLE: ("export function composeStories(csfExports: CoreExports, annotations?: CoreAnnotations) {\n"
+                    "  return csfExports;\n}\n"),
+    "code/renderers/react/package.json": '{"name": "@sb/react", "exports": {".": "./src/index.ts"}}\n',
+    "code/renderers/react/src/index.ts": "export * from './portable';\nexport type StoryObj = { args: object };\n",
+    REACT_PORTABLE: ("export function composeStories(csfExports: ReactExports, annotations?: ReactAnnotations) {\n"
+                     "  return csfExports;\n}\n"),
+}
+
+
+@pytest.mark.skipif(not _pinned_ast_grep(), reason="no ast-grep of the version package.json pins")
+def test_a_public_api_skill_keeps_every_in_scope_definition_of_a_name(tmp_path):
+    """#830: on a public-api run of the two packages, react's composeStories, an other definition, is marked
+    public as core's is, for create (init) and for update's records alike, as Test Skill counts it."""
+    source = tmp_path / "src"
+    for rel, text in STORYBOOK_TREE.items():
+        (source / rel).parent.mkdir(parents=True, exist_ok=True)
+        (source / rel).write_bytes(text.encode("utf-8"))
+    runner_json = tmp_path / "demo.extraction.json"
+    ran = subprocess.run([sys.executable, str(RUNNER), "--mode", "full", "--source-root", str(source),
+                          "--include", "code/core/**", "--include", "code/renderers/react/**", "--scope-type",
+                          "public-api", "--tier", "Forge", "-o", str(runner_json)],
+                         capture_output=True, text=True, encoding="utf-8", timeout=600, check=False)
+    assert ran.returncode == 0, ran.stderr
+    extraction = _load(runner_json)
+    assert [(o["name"], o["file"]) for o in extraction["entry_point_diff"]["other_definitions"]] == [
+        ("composeStories", REACT_PORTABLE)]
+    (tmp_path / "inventory").mkdir()
+    data = _load(_init_from(tmp_path / "inventory", extraction))
+    marks = {(e["export_name"], e["source_file"]): e.get("public") for e in data["exports"]}
+    assert marks[("composeStories", CORE_PORTABLE)] is True
+    assert marks[("composeStories", REACT_PORTABLE)] is True
+    assert data["public_surface"]["other_definitions"] == [
+        {"name": "composeStories", "language": "javascript", "file": REACT_PORTABLE, "local": None}]
+    assert {("composeStories", CORE_PORTABLE), ("composeStories", REACT_PORTABLE)} <= _update_marks_public(extraction)
+
+
+def test_an_aliased_other_definition_is_public_by_its_local_name(tmp_path):
+    """#830 review 2: react's root entry point re-exports `composeReact as composeStories`, an other definition
+    of the name core's entry point holds: init marks composeReact public at react's file by its `local` name,
+    and leaves react's helper off the surface."""
+    def export(name: str, path: str, line: int) -> dict:
+        return {**_fixture_export(name, path, line), "language": "typescript", "ast_recipe": "js-exported-functions"}
+
+    extraction = {**_fixture_run(), "exports": [export("composeStories", CORE_PORTABLE, 1),
+                                                export("composeReact", REACT_PORTABLE, 4),
+                                                export("helper", REACT_PORTABLE, 9)],
+                  "entry_points": {"status": "barrel", "by_language": {"javascript": "barrel"}, "files": [],
+                                   "unresolved": []},
+                  "entry_point_diff": {
+                      "public": [{"name": "composeStories", "entry": "code/core/src/preview-api/index.ts",
+                                  "via": "re-export", "local": None, "file": CORE_PORTABLE, "language": "javascript"}],
+                      "other_definitions": [{"name": "composeStories", "entry": "code/renderers/react/src/index.ts",
+                                             "via": "re-export", "local": "composeReact", "file": REACT_PORTABLE,
+                                             "language": "javascript"}],
+                      "internal": [], "extraction_gaps": [], "outside_scope": []}}
+    data = _load(_init_from(tmp_path, extraction))
+    assert {(e["export_name"], e["source_file"]): e.get("public") for e in data["exports"]} == {
+        ("composeStories", CORE_PORTABLE): True, ("composeReact", REACT_PORTABLE): True,
+        ("helper", REACT_PORTABLE): False}
 
 
 def test_another_scope_type_maps_every_export_as_before(tmp_path):

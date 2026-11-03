@@ -1734,6 +1734,21 @@ class TestRecords:
         assert "aliases" not in by_key[("plain", "store/mock.ts")]
         assert summary["exports_extracted"] == 3 and summary["warnings"] == []
 
+    def test_an_aliased_other_definition_gives_its_public_name_to_the_record(self) -> None:
+        """#830: react's root entry point re-exports `composeReact as composeStories`, an other definition of a name
+        core's entry point holds: react's record carries the public name in `aliases`, as a public row's does."""
+        extraction = {"exports": [
+            _runner("composeStories", "core/portable.ts", 1, language="typescript"),
+            _runner("composeReact", "react/portable.ts", 4, language="typescript")],
+            "entry_point_diff": {
+                "public": [{"name": "composeStories", "local": None, "file": "core/portable.ts", "via": "re-export"}],
+                "other_definitions": [{"name": "composeStories", "local": "composeReact", "file": "react/portable.ts",
+                                       "via": "re-export", "language": "javascript"}]}}
+        records, _ = mod.build_records(extraction, None, None, [])
+        by_key = {(r["name"], b["file_path"]): r for b in records["files"] for r in b["exports"]}
+        assert by_key[("composeReact", "react/portable.ts")]["aliases"] == ["composeStories"]
+        assert "aliases" not in by_key[("composeStories", "core/portable.ts")]
+
     def test_apply_writes_the_records_into_the_map(self) -> None:
         """The records reach the map through apply, with the labels the stats helper accepts."""
         extraction, details = self._inputs()
