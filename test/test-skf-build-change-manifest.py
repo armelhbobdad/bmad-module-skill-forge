@@ -994,7 +994,7 @@ class TestApplyGapDriven:
                           reachability="internal-unreachable"),
             _verification("doc_only", "unknown", "NEW_EXPORT", severity="Medium"),
             _verification("gone", "missing", "MODIFIED_EXPORT", in_map=True,
-                          map_entry={"source_file": "pkg/gone.py", "source_line": 1}),
+                          map_entry={"source_file": "pkg/gone.py", "source_line": 1}, gap_id="GAP-009"),
             _verification("shifted", "unknown", "MOVED_EXPORT", in_map=True,
                           pinned_definition_lines=[31]),
         ], "files": [{"file_path": "pkg/deep.py", "exports": [
@@ -1029,11 +1029,15 @@ class TestApplyGapDriven:
         doc_only = entries[("doc_only", None)]
         assert "source_file" not in doc_only and "source_line" not in doc_only
         assert doc_only["export_type"] == "class" and doc_only["signature_source"] == "T1-low"
-        # missing and an unknown MOVED_EXPORT: left as they were, for a person
+        # missing and an unknown MOVED_EXPORT: left as they were, for a person; a blocking export the map holds
+        # says what to fix (#805)
         assert entries[("gone_a", "pkg/gone.py")] == old["entries"][4]
         assert entries[("shifted", "pkg/a.py")] == old["entries"][3]
-        assert summary["warnings"] == ["provenance: gone: missing",
-                                       "provenance: shifted: unknown; definition lines per the test report: [31]"]
+        assert summary["warnings"] == [
+            "provenance: gone (GAP-009): missing (its map entry's file pkg/gone.py is gone); its entry is left "
+            "unchanged. Fix the entry by hand (set its source_file and source_line to the line that defines it), "
+            "then re-run update-skill",
+            "provenance: shifted: unknown; definition lines per the test report: [31]"]
         assert doc["update_type"] == "gap-driven" and doc["test_report_run_id"] == "20260930T101010Z-2-bbbb"
         assert doc["exports_affected"] == 10
         assert stats.check_label_agreement(doc) == []
@@ -1166,7 +1170,9 @@ class TestApplyGapDriven:
                           map_entry={"source_file": "pkg/a.py", "source_line": 1}, pinned_definition_lines=[2]),
             _verification("search", "unknown", "MOVED_EXPORT", in_map=True, unknown_reason="drift-override",
                           pinned_definition_lines=[11]),
-            _verification("gone", "missing", "MODIFIED_EXPORT", in_map=True)]}
+            _verification("gone", "missing", "MODIFIED_EXPORT", in_map=True, severity="Medium"),
+            _verification("multi", "unknown", "MOVED_EXPORT", in_map=True, unknown_reason="several-definitions",
+                          pinned_definition_lines=[7])]}
         _doc, summary = mod.apply_update(update_type="gap-driven", provenance=_old_map(), skill_name="lib",
                                          records=records, test_report_run_id="r", drift=("abc1234", "def5678"),
                                          **BLOCK)
@@ -1175,7 +1181,10 @@ class TestApplyGapDriven:
             f"provenance: stable: verified at HEAD only ({note}; definition lines per the test report: [2])",
             f"provenance: search: unknown ({note}; no line taken from HEAD; definition lines per the test report: "
             "[11])",
-            f"provenance: gone: missing ({note})"]
+            f"provenance: gone: missing ({note})",
+            # the drift note comes after the cause of an unknown
+            "provenance: multi: unknown (several-definitions: several lines of its file define it, none the "
+            f"recorded one; {note}; definition lines per the test report: [7])"]
 
     @pytest.mark.parametrize("severity", ["High", "Critical", None, "urgent"],
                              ids=["high", "critical", "none", "unrecognized"])
@@ -1695,6 +1704,35 @@ class TestRecords:
         assert summary["warnings"] == ["re-extract: a patch names ghost in pkg/api.py, which neither the runner nor "
                                        "step 2 recorded; not added"]
         assert summary["confidence_breakdown"]["T2"] == 1
+
+    def test_a_renamed_reexport_gives_its_public_name_to_the_record(self) -> None:
+        """#807: the runner names a record after its declaration; the entry-point diff's `local` pairs it with the
+        public name a re-export gives it in that file, which the record carries in `aliases`."""
+        extraction = {"exports": [
+            _runner("MockUniversalStore", "store/mock.ts", 3, language="typescript", export_type="class",
+                    node="class_declaration"),
+            _runner("Channel", "./channel/index.ts", 7, language="typescript", export_type="class",
+                    node="class_declaration"),
+            _runner("plain", "store/mock.ts", 9, language="typescript", node="function_declaration")],
+            "entry_point_diff": {"public": [
+                {"name": "experimental_MockUniversalStore", "local": "MockUniversalStore", "file": "store/mock.ts",
+                 "via": "re-export"},
+                # a second public name for one declaration, once each, sorted
+                {"name": "MockStore", "local": "MockUniversalStore", "file": "./store/mock.ts", "via": "re-export"},
+                {"name": "MockStore", "local": "MockUniversalStore", "file": "store/mock.ts", "via": "re-export"},
+                # a namespace's members rename too
+                {"name": "channels", "local": None, "file": "channel/index.ts", "via": "namespace", "members": [
+                    {"name": "UniversalChannel", "local": "Channel", "file": "channel/index.ts", "line": 7}]},
+                # no rename, and a rename of a name the runner did not record there
+                {"name": "plain", "local": None, "file": "store/mock.ts", "via": "re-export"},
+                {"name": "Other", "local": "plain", "file": "store/other.ts", "via": "re-export"}]}}
+        records, summary = mod.build_records(extraction, None, None, [])
+        by_key = {(r["name"], b["file_path"]): r for b in records["files"] for r in b["exports"]}
+        assert by_key[("MockUniversalStore", "store/mock.ts")]["aliases"] == \
+            ["MockStore", "experimental_MockUniversalStore"]
+        assert by_key[("Channel", "channel/index.ts")]["aliases"] == ["UniversalChannel"]
+        assert "aliases" not in by_key[("plain", "store/mock.ts")]
+        assert summary["exports_extracted"] == 3 and summary["warnings"] == []
 
     def test_apply_writes_the_records_into_the_map(self) -> None:
         """The records reach the map through apply, with the labels the stats helper accepts."""
@@ -2840,6 +2878,12 @@ def _found(path: str, line: int, export_type: str = "function") -> dict:
 
 NOT_FOUND = {"status": "not-found", "entry": None, "candidates": []}
 
+_parse_gaps_spec = importlib.util.spec_from_file_location(
+    "skf_parse_gaps_for_manifest", REPO_ROOT / "src" / "shared" / "scripts" / "skf-parse-gaps.py")
+parse_gaps = importlib.util.module_from_spec(_parse_gaps_spec)
+assert _parse_gaps_spec.loader is not None
+_parse_gaps_spec.loader.exec_module(parse_gaps)
+
 
 def _gap_entry(gid: str, name: str | None, change: str, *, category: str = "signature-mismatch",
                severity: str | None = "High", match: dict | None = None, citation: dict | None = None,
@@ -3196,6 +3240,189 @@ class TestGapRecords:
             assert (records["verification"][0]["verification"], records["verification"][0]["export_type"]) == \
                 ("verified", None), cited
 
+    # #805: a blocking export the map holds whose entry the rules cannot check stays unchanged, and says what to fix
+
+    HAND_FIX = ("its entry is left unchanged. Fix the entry by hand (set its source_file and source_line to the line "
+                "that defines it), then re-run update-skill")
+    AMBIGUOUS_FIX = ("its entries are left unchanged. Fix its entries by hand, or give the gap a `file:line` Source at "
+                     "its definition when that file holds only one of them, then re-run update-skill")
+
+    @pytest.mark.parametrize("match, outcome, blocking, medium", [
+        (_found("pkg/api.py", 1), "unknown",
+         f"unknown (no-definition: no line of its file defines it, by the definition-line rules); {HAND_FIX}",
+         "unknown (no-definition: no line of its file defines it, by the definition-line rules)"),
+        ({"status": "ambiguous", "entry": None, "candidates": [
+            {"source_file": "pkg/api.py", "source_line": 1, "export_type": "function"},
+            {"source_file": "pkg/other.py", "source_line": 2, "export_type": "function"}]}, "unknown",
+         f"unknown (ambiguous: several map entries of its name); {AMBIGUOUS_FIX}",
+         "unknown (ambiguous: several map entries of its name)"),
+        (_found("pkg/gone.py", 5), "missing", f"missing (its map entry's file pkg/gone.py is gone); {HAND_FIX}",
+         "missing"),
+    ], ids=["unknown", "ambiguous", "missing"])
+    def test_a_blocking_entry_the_rules_cannot_check_is_left_with_what_to_fix(
+            self, tmp_path: Path, match: dict, outcome: str, blocking: str, medium: str) -> None:
+        old = {"entries": [_entry("nothing", c["source_file"], c["source_line"]) for c in match["candidates"]]}
+        entry = _gap_entry("GAP-007", "nothing", "MODIFIED_EXPORT", match=match)
+        # no targeted re-extraction and no halt: gap-records writes its outcome and warns nothing itself
+        _, plan = _records([entry], tmp_path, provenance=old, plan=True)
+        assert plan["reextract"] == {"entries": [], "files": [], "signatures": []}
+        records, summary = _records([entry], tmp_path, provenance=old)
+        assert (summary["status"], summary["warnings"]) == ("written", [])
+        [record] = records["verification"]
+        assert (record["gap_id"], record["verification"]) == ("GAP-007", outcome)
+        # apply leaves the map as it was, with one warning: the gap, the export, the outcome, its cause, the fix
+        doc, applied = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                        test_report_run_id="r", **BLOCK)
+        assert doc["entries"] == old["entries"] and applied["entries"]["updated"] == []
+        assert applied["warnings"] == [f"provenance: nothing (GAP-007): {blocking}"]
+        # a Medium gap may stay unknown or missing: its warning names the cause, and no fix
+        records, _ = _records([{**entry, "severity": "Medium"}], tmp_path, provenance=old)
+        _doc, applied = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                         test_report_run_id="r", **BLOCK)
+        assert applied["warnings"] == [f"provenance: nothing: {medium}"]
+
+    def test_each_unknown_records_its_reason(self, tmp_path: Path, monkeypatch) -> None:
+        root = _tree(tmp_path)
+        (root / "pkg" / "dup.py").write_bytes(b"import os\ndef dup():\n    pass\ndef dup():\n    pass\n")
+        no_line = {"status": "found", "entry": {"source_file": "pkg/api.py", "source_line": None,
+                                                "export_type": "function"}, "candidates": [{}]}
+        entries = [
+            _gap_entry("GAP-001", "nothing", "MODIFIED_EXPORT", match=_found("pkg/api.py", 1)),
+            _gap_entry("GAP-002", "dup", "MODIFIED_EXPORT", match=_found("pkg/dup.py", 1)),
+            _gap_entry("GAP-003", "add", "MODIFIED_EXPORT", match=_found("lib.rs", 3)),
+            _gap_entry("GAP-004", "search", "MODIFIED_EXPORT", match=no_line),
+            _gap_entry("GAP-005", "search", "MODIFIED_EXPORT", match={**NOT_FOUND, "status": "ambiguous"}),
+            _gap_entry("GAP-006", "search", "MODIFIED_EXPORT", match=_found("pkg/api.py", 5)),
+        ]
+        records, _ = _records(entries, source_root=root, judgments={"GAP-003": {"declaring_line": None}},
+                              remediation=_remediation(("pkg/api.py", [("search", 5, "ast-grep")])))
+        assert [(r["verification"], r["unknown_reason"]) for r in records["verification"]] == [
+            ("unknown", "no-definition"), ("unknown", "several-definitions"), ("unknown", "unchecked-language"),
+            ("unknown", "no-line"), ("unknown", "ambiguous"), ("verified", None)]
+        records, _ = _records(entries[:1], source_root=None)
+        assert records["verification"][0]["unknown_reason"] == "no-source-root"
+        monkeypatch.setattr(mod, "_VERIFIER", False)
+        records, _ = _records(entries[:1], source_root=root)
+        assert records["verification"][0]["unknown_reason"] == "verifier-missing"
+        monkeypatch.setattr(mod, "_VERIFIER", None)
+        verifier = mod._verifier()
+        real = verifier.definition_lines_report
+
+        def broken(*args):
+            raise RuntimeError("cannot parse")
+
+        monkeypatch.setattr(verifier, "definition_lines_report", broken)
+        records, _ = _records(entries[:1], source_root=root)
+        assert records["verification"][0]["unknown_reason"] == "spot-check-failed"
+        # a citation check that pins no line routes on: the reason of an outcome it did not keep is not recorded
+        monkeypatch.setattr(verifier, "definition_lines_report", real)
+        cited = _gap_entry("GAP-007", "fetch", "MODIFIED_EXPORT", citation={"file": "pkg/api.py", "line": 2},
+                           resolved=["pkg/b.py"])
+        records, _ = _records([cited], source_root=root, judgments={"GAP-007": {"docstring": None}},
+                              remediation=_remediation(("pkg/b.py", [("fetch", 4, "ast-grep")])))
+        assert (records["verification"][0]["verification"], records["verification"][0]["unknown_reason"]) == \
+            ("re-extracted", None)
+        assert set(mod.UNKNOWN_REASONS) == {"ambiguous", "no-definition", "several-definitions", "unchecked-language",
+                                            "no-line", "spot-check-failed", "verifier-missing", "no-source-root",
+                                            "drift-override"}
+
+    def test_a_source_at_the_definition_picks_one_of_ambiguous_entries_only_in_a_file_holding_one(
+            self, tmp_path: Path) -> None:
+        """The ambiguous advice is what a re-run acts on: a `file:line` Source keys skf-parse-gaps' lookup on that
+        file, so it picks the one entry the file holds, which the re-run then checks and moves to its definition."""
+        old = {"entries": [_entry("search", "pkg/api.py", 1), _entry("search", "pkg/other.py", 2)]}
+        cited = {"file": "pkg/api.py", "line": 5}  # API_SOURCE defines search at line 5
+        match = parse_gaps.map_match(old["entries"], "search", cited)
+        assert match["status"] == "found"
+        entry = _gap_entry("GAP-001", "search", "MODIFIED_EXPORT", match=match, citation=cited)
+        records, summary = _records([entry], tmp_path, provenance=old,
+                                    remediation=_remediation(("pkg/api.py", [("search", 5, "ast-grep")])))
+        assert summary["status"] == "written", summary
+        assert (records["verification"][0]["verification"], records["verification"][0]["new_location"]) == \
+            ("moved", "pkg/api.py:5")
+        doc, _ = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                  test_report_run_id="r", **BLOCK)
+        assert [(e["source_file"], e["source_line"]) for e in doc["entries"]] == [("pkg/api.py", 5), ("pkg/other.py", 2)]
+        # two entries in the cited file, neither at its line: still ambiguous, so only a hand fix helps
+        same_file = [_entry("search", "pkg/api.py", 1), _entry("search", "pkg/api.py", 3)]
+        assert parse_gaps.map_match(same_file, "search", cited)["status"] == "ambiguous"
+
+    # #807: a gap naming a renamed re-export by its public name matches the record of its declaration, and the map
+    # holds it under its declared name, re-exported as the public one
+
+    def test_a_gap_naming_a_renamed_reexport_matches_its_declaration(self, tmp_path: Path) -> None:
+        root = _tree(tmp_path)
+        (root / "store").mkdir()
+        (root / "store" / "mock.ts").write_bytes(b"// a store for tests\n\nexport class MockUniversalStore {}\n")
+        extraction = {"exports": [_runner("MockUniversalStore", "store/mock.ts", 3, language="typescript",
+                                          export_type="class", node="class_declaration")],
+                      "entry_point_diff": {"public": [
+                          {"name": "experimental_MockUniversalStore", "local": "MockUniversalStore",
+                           "file": "store/mock.ts", "via": "re-export"}]}}
+        remediation, _ = mod.build_records(extraction, None, ["store/mock.ts"], [])
+        [declared] = remediation["files"][0]["exports"]
+        assert (declared["name"], declared["aliases"]) == ("MockUniversalStore", ["experimental_MockUniversalStore"])
+        public = "experimental_MockUniversalStore"
+        entries = [_gap_entry("GAP-001", public, "NEW_EXPORT", category="missing-type", resolved=["store/mock.ts"])]
+        records, summary = _records(entries, source_root=root, remediation=remediation,
+                                    judgments={"GAP-001": {"reachability": "public", "docstring": None}})
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["export_name"], record["verification"], record["new_location"]) == \
+            (public, "re-extracted", "store/mock.ts:3")
+        # the copy is documented under the public name, its declared one as `local`, and carries no aliases
+        [block] = records["files"]
+        assert block["file_path"] == "store/mock.ts"
+        [copied] = block["exports"]
+        assert copied == {"name": public, "local": "MockUniversalStore",
+                          **{k: v for k, v in declared.items() if k not in ("name", "aliases")}}
+        assert list(copied)[:2] == ["name", "local"]
+        # apply maps it as the project records a barrel rename: its declared name at its line, re-exported as the
+        # public one, which metadata.json's exports[] lists
+        doc, applied = mod.apply_update(update_type="gap-driven", provenance={"entries": []}, skill_name="lib",
+                                        records=records, test_report_run_id="r", metadata={"exports": []}, **BLOCK)
+        [entry] = doc["entries"]
+        assert {k: entry[k] for k in ("export_name", "reexported_as", "export_type", "source_file", "source_line")} \
+            == {"export_name": "MockUniversalStore", "reexported_as": public, "export_type": "class",
+                "source_file": "store/mock.ts", "source_line": 3}
+        assert list(entry)[:2] == ["export_name", "reexported_as"]
+        assert applied["lists"]["exports"] == [public] and applied["warnings"] == []
+        assert stats.check_label_agreement(doc) == []
+        # Check D passes on the written entry: its line defines its name, and exports[] and the map name one export
+        verifier = mod._verifier()
+        report = verifier.verify({"exports": [public]}, doc, root)
+        assert (report["status"], report["missing"], report["orphaned"], report["stale"]) == ("pass", [], [], [])
+        # a second repair of the same gap finds the entry through its reexported_as and checks it `verified`
+        match = parse_gaps.map_match(doc["entries"], public, None)
+        assert (match["status"], match["entry"]["export_name"]) == ("found", "MockUniversalStore")
+        again = [_gap_entry("GAP-001", public, "NEW_EXPORT", category="missing-type", match=match,
+                            resolved=["store/mock.ts"])]
+        records, summary = _records(again, source_root=root, provenance=doc, remediation=remediation,
+                                    judgments={"GAP-001": {"reachability": "public"}})
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["map_entry"], record["export_type"]) == \
+            ("verified", {"source_file": "store/mock.ts", "source_line": 3}, "class")
+        assert records["confidence_breakdown"]["T1"] == 1
+        redone, applied = mod.apply_update(update_type="gap-driven", provenance=doc, skill_name="lib",
+                                           records=records, test_report_run_id="r", **BLOCK)
+        assert redone["entries"] == doc["entries"] and applied["warnings"] == []
+
+    def test_an_export_of_the_exact_name_wins_over_an_alias(self, tmp_path: Path) -> None:
+        remediation = _remediation(("pkg/a.py", [("Foo", 2, "ast-grep")]),
+                                   ("pkg/b.py", [("Baz", 3, "ast-grep"), ("Bar", 4, "ast-grep")]))
+        for block in remediation["files"]:
+            block["exports"][0]["aliases"] = ["Bar"]  # Foo and Baz are re-exported as Bar, ahead of Bar itself
+        remediation["files"][1]["exports"][1]["aliases"] = ["Qux"]
+        entries = [_gap_entry("GAP-001", "Bar", "MODIFIED_EXPORT", resolved=["pkg/a.py", "pkg/b.py"])]
+        records, summary = _records(entries, tmp_path, remediation=remediation,
+                                    judgments={"GAP-001": {"docstring": None}})
+        assert summary["status"] == "written", summary
+        assert records["verification"][0]["new_location"] == "pkg/b.py:4"
+        # the copy of an exact match carries no aliases either
+        exact = {k: v for k, v in remediation["files"][1]["exports"][1].items() if k != "aliases"}
+        assert records["files"] == [{"file_path": "pkg/b.py", "exports": [exact]}]
+
     def test_the_records_carry_every_documented_field(self, tmp_path: Path) -> None:
         remediation = ("Set the provenance `source_line` of `search` in `pkg/api.py` to its definition line (5) "
                        "and move its citations to that line.")
@@ -3207,10 +3434,11 @@ class TestGapRecords:
         assert list(records) == ["mode", "files_extracted", "exports_extracted", "confidence_breakdown",
                                  "verification", "files"]
         [record] = records["verification"]
-        assert list(record) == ["export_name", "gap_category", "severity", "verification", "in_map", "map_entry",
-                                "provenance_citation", "source_citation", "new_location", "unknown_reason",
-                                "pinned_definition_lines", "resolution_source", "reachability", "export_type",
-                                "params", "return_type", "extraction_method", "ast_node_type"]
+        assert list(record) == ["gap_id", "export_name", "gap_category", "severity", "verification", "in_map",
+                                "map_entry", "provenance_citation", "source_citation", "new_location",
+                                "unknown_reason", "pinned_definition_lines", "resolution_source", "reachability",
+                                "export_type", "params", "return_type", "extraction_method", "ast_node_type"]
+        assert record["gap_id"] == "GAP-001"
         assert (record["in_map"], record["map_entry"], record["pinned_definition_lines"]) == \
             (True, {"source_file": "pkg/api.py", "source_line": 4}, [5])
         assert summary["forwarded"] == [{"gap_id": "GAP-002", "change_category": "STRUCTURAL_FIX"}]

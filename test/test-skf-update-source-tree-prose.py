@@ -1271,8 +1271,9 @@ def test_spot_check_reads_definition_lines_from_the_verifier(tmp_path, capsys):
     assert "is the one statement of that routing and of each record's `verification` outcome" in four
     outcome = _gap_records_doc()
     for token in ("`verified` (the line is a definition line", "`moved` (one definition line, not the recorded one: "
-                  "new_location)", "`missing` (no such file)", "`unknown` (several definition lines, none the recorded "
-                  "one, or none)", "a check the verifier fails on (a file it cannot read, or any error) is unknown"):
+                  "new_location)", "`missing` (no such file)", "`unknown`, its unknown_reason `several-definitions` "
+                  "(several definition lines, none the recorded one) or `no-definition` (none)",
+                  "a check the verifier fails on (a file it cannot read, or any error) is unknown"):
         assert token in outcome, token
     assert "never call it gone" in four
     assert "found that line by the verifier's text rules" in _slice(_read(MERGE), "**Priority 5", "**Priority 6")
@@ -1766,8 +1767,21 @@ def test_gap_driven_reextracted_records_are_built_by_script(tmp_path, capsys):
     # (step 5b round 2: no numbered step in §4a describes the helper's work)
     assert "4. **Match by name:**" not in zero_a and "6. **Success summary:**" not in zero_a
     four = _slice(text, "2. **Write the gap-driven records**", "Act on its `status`")
-    assert ("in `files` each record of `{run_dir}/remediation-records.json` it matched by name to an entry §4a "
-            "scanned for, within that entry's own `resolved_paths[]`, copied as `records` wrote it") in four
+    assert ("in `files` each record of `{run_dir}/remediation-records.json` it matched by name, or by the public name "
+            "the runner gives its local name in that file, to an entry §4a scanned for, within that entry's own "
+            "`resolved_paths[]`, copied as `records` wrote it (one matched by that public name is copied under it, "
+            "with its own name as `local`)") in four
+    # the match by that public name is gap-records' (#807): `records` gives each record the public names it carries
+    doc = _gap_records_doc()
+    assert ("else the first whose `aliases` hold it (matched by name, or by the public name the runner gives its "
+            "local name in that file, see \"Records\")") in doc
+    assert "less its `public` mark (a normal update's) and its `aliases`" in doc
+    assert "A record matched by an alias is copied with `name` the public name and `local` its own name." in doc
+    # it reads the runner's entry-point diff: at Quick tier, or after a runner exit 3, a renamed re-export is unmatched
+    for text_ in (doc, four):
+        assert "Forge tier and above" in text_ and "exits 3" in text_
+    assert "(nor one the runner re-exports under that name there)" in _slice(text, "   - **`unresolved`:**", "\n")
+    assert "re-exports the declared `local` name" in _read(MERGE)
     # the hand-typed record shape and labels are gone from §4 and §4a, and the hand match with
     # them (step 5b gate run 2 determinism-4)
     for gone in ('"ast_recipe": "<id of the recipe that matched', "`provenance_citation: {file}:{start_line}` from the "
@@ -2619,6 +2633,42 @@ def test_one_severity_rule_in_gap_driven_and_write(tmp_path, capsys):
     assert code == 0 and out["status"] == "unresolved", out
     assert [item["gap_id"] for item in out["unresolved"]] == ["GAP-001", "GAP-002", "GAP-003"]
     assert {item["files_scanned"] for item in out["unresolved"]} == {0}
+
+
+def test_a_blocking_entry_the_map_holds_stays_unchanged_with_what_to_fix():
+    """#805: a blocking gap whose export the map holds is never re-extracted and never halts; when the rules cannot
+    check its entry (`ambiguous`, `unknown`, `missing`), gap-driven.md, write.md and the docstring say it stays
+    unchanged, and apply's warning names the cause and the one fix a re-run acts on, never a Remediation file."""
+    text = _read(GAP)
+    two = _slice(text, "1. **Spot-check and route.**", "2. **Write the gap-driven records**")
+    assert ("A blocking gap whose export the map does not hold must produce provenance read from the source or halt "
+            "in this file before merge: for such an export, only a `Medium`, `Low` or `Info` gap may degrade to "
+            "`unknown`.") in two
+    held = _slice(two, "A `NEW_EXPORT` or `MODIFIED_EXPORT` whose export the map holds", "\n")
+    for token in ("(its `map_match` is `found` or `ambiguous`) never goes to §4a's targeted re-extraction "
+                  "(`reextract.entries`), whatever its severity", "its entry stays unchanged",
+                  "naming the cause of an `unknown`", "give the gap a `file:line` Source at the definition when that "
+                  "file holds only one of them", "fix the entry by hand (set its `source_file` and `source_line` to "
+                  "the line that defines it), since the re-run checks the same entry again"):
+        assert token in held, token
+    zero = _slice(_write_3(), "- **0:**", "\n")
+    assert ("a `NEW_EXPORT` or `MODIFIED_EXPORT` the map holds whose spot-check ended `missing` or `unknown` keeps its "
+            "entry unchanged") in zero
+    assert "it also names the gap and the one fix a re-run acts on (gap-driven.md §4 bullet 1)" in zero
+    for doc_text in (held, zero):
+        assert "Remediation" not in doc_text  # a remediation path is never read for an export the map holds
+    summary = _slice(text, '"**Gap-driven re-extraction.**', "\n")
+    assert "Missing (entry left unchanged): {missing_count}." in summary and "several map entries of its name" in summary
+    assert ("A `NEW_EXPORT` or `MODIFIED_EXPORT` the provenance map holds that ends `missing` or `unknown` keeps its "
+            "entry unchanged") in _slice(text, "### 5. Display the Repair Summary", "This step asks")
+    doc = _gap_records_doc()
+    assert ("A NEW_EXPORT or MODIFIED_EXPORT whose map_match is found or ambiguous never goes to targeted "
+            "re-extraction, whatever its severity") in doc
+    assert "UNKNOWN_REASONS gives each its words" in doc
+    apply_doc = _docstring(BUILD_MANIFEST, "Apply (update-skill write.md §3):", "Metadata (update-skill write.md")
+    for token in ("names an unknown's unknown_reason and its words (UNKNOWN_REASONS)",
+                  "the one fix a re-run acts on", "names the drift, after the outcome's cause"):
+        assert token in apply_doc, token
 
 
 def test_blocking_gap_without_a_path_halts_in_gap_driven_before_merge(tmp_path, capsys):
