@@ -130,12 +130,12 @@ build
   recipe found (the runner's `entry_point_diff.extraction_gaps`), less the
   ones an export of the snapshot now holds, then, with --provenance-map,
   the baseline gaps: each entry of the map the snapshot lacks whose file
-  still declares it (the runner leaves out an underscore name such as
-  `__version__`, and a module), which would otherwise read as removed. A
-  baseline gap gives the line that declares the name, `entry` null and,
-  when the entry has one, its `export_type`. It is checked only for an
-  entry whose file is `extracted` or `read-by-eye`, whose name is not
-  dotted, and that the snapshot holds neither under its name nor under
+  still declares it (the runner leaves out a Python or Rust underscore
+  name such as `__version__`, and a module), which would otherwise read as
+  removed. A baseline gap gives the line that declares the name, `entry`
+  null and, when the entry has one, its `export_type`. It is checked only
+  for an entry whose file is `extracted` or `read-by-eye`, whose name is
+  not dotted, and that the snapshot holds neither under its name nor under
   its `reexported_as` target at that file. The selection and the
   declaration are skf-verify-provenance-completeness.py's (`baseline_gaps`,
   by `declared_line`), loaded from beside this script, the rule

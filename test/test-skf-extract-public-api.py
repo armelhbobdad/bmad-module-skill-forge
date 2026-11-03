@@ -1817,11 +1817,15 @@ class TestMerge:
 
     def test_private_names_and_the_head_cap(self) -> None:
         m = self._match
-        matches = [m("js-exported-constants", "a.ts", n, name) for n, name in enumerate(["_p", "c", "a", "b"], 1)]
+        matches = [m("python-public-functions", "a.py", n, name, "python")
+                   for n, name in enumerate(["_p", "c", "a", "b"], 1)]
         exports, stats = mod.merge_exports(matches, self.RECIPES, "standard", 2)
         assert [e["export_name"] for e in exports] == ["c", "a"]
-        (stat,) = [s for s in stats if s["id"] == "js-exported-constants"]
+        (stat,) = [s for s in stats if s["id"] == "python-public-functions"]
         assert (stat["matches"], stat["truncated"]) == (3, True)
+        # #817: only a Python `_` name is private; a TS/JS one is an export like any other
+        exports, _ = mod.merge_exports([m("js-exported-constants", "a.ts", 1, "_p")], self.RECIPES, "standard", None)
+        assert [e["export_name"] for e in exports] == ["_p"]
 
     def test_other_recipe_sets_are_left_out(self) -> None:
         matches = [self._match("react-props-interfaces", "a.ts", 1, "XProps")]
@@ -2169,7 +2173,7 @@ class TestTextReaders:
 class TestEntryPointDiff:
     def test_each_language_family_on_its_own(self) -> None:
         """A Go package's entry points never make TypeScript exports internal."""
-        surfaces = {family: mod._Surface() for family in mod.FAMILIES}
+        surfaces = {family: mod._Surface(family) for family in mod.FAMILIES}
         surfaces["go"].add("Exported", "api.go", "declaration", "api.go", 3)
         exports = [{"export_name": "helper", "language": "typescript", "source_file": "a.ts", "source_line": 1},
                    {"export_name": "Other", "language": "go", "source_file": "b.go", "source_line": 2}]
@@ -2185,7 +2189,7 @@ class TestEntryPointDiff:
         """An export of a reachable file is not internal, and a declared
         name no recipe found is outside scope when a file out of scope
         defines it."""
-        surfaces = {family: mod._Surface() for family in mod.FAMILIES}
+        surfaces = {family: mod._Surface(family) for family in mod.FAMILIES}
         rust = surfaces["rust"]
         rust.add("client", "src/lib.rs", "namespace", "src/client/mod.rs", None)
         rust.add("LIMIT", "src/lib.rs", "declaration", "src/lib.rs", 3)
@@ -2200,6 +2204,39 @@ class TestEntryPointDiff:
         assert [info["name"] for _, info in gaps] == ["LIMIT"]
         assert [info["name"] for _, info in outside] == ["Gen"]
 
+    def test_an_in_scope_definition_replaces_one_out_of_scope(self) -> None:
+        """#787: the first entry point naming a name wins, unless the file it gives is out of scope (or it gives
+        none) and a later one gives a file in scope."""
+        surface = mod._Surface("javascript", {"in/a.ts", "in/b.ts"})
+        surface.add("x", "out/index.ts", "declaration", "out/index.ts", 1)
+        surface.add("x", "out/other.ts", "declaration", "out/other.ts", 2)
+        assert surface.names["x"]["file"] == "out/index.ts"  # out of scope for out of scope: the first stays
+        surface.add("x", "in/a.ts", "declaration", "in/a.ts", 3)
+        surface.add("x", "in/b.ts", "declaration", "in/b.ts", 4)
+        assert (surface.names["x"]["entry"], surface.names["x"]["line"]) == ("in/a.ts", 3)
+        surface.add("y", "out/index.ts", "re-export", None, None, "pkg", "y")
+        surface.add("y", "in/b.ts", "star", "in/b.ts", 5, "./b")
+        assert (surface.names["y"]["file"], surface.names["y"]["via"], surface.names["y"]["from"]) == (
+            "in/b.ts", "star", "./b")
+        # with no in-scope set (quick mode's trace), the first always wins
+        first = mod._Surface("python")
+        first.add("z", "p/__init__.py", "declaration", None, None)
+        first.add("z", "q/__init__.py", "declaration", "q/__init__.py", 1)
+        assert first.names["z"]["file"] is None
+        # the Python and Rust families drop a `_` name, the JS/TS one keeps it
+        assert first.add("_z", "p/__init__.py", "declaration", "p/a.py", 1) is None
+        assert mod._Surface("rust").add("_z", "src/lib.rs", "declaration", "src/lib.rs", 1) is None
+        assert surface.add("_z", "in/a.ts", "declaration", "in/a.ts", 6)["name"] == "_z"
+
+    def test_one_entry_point_never_replaces_its_own_name(self) -> None:
+        """#787 review: an entry point's explicit export shadows its own star or glob, so a second add from
+        the same entry point keeps the first record even when only the second's file is in scope."""
+        surface = mod._Surface("javascript", {"src/components/index.ts"})
+        surface.add("Button", "src/index.ts", "re-export", "src/legacy/button.ts", 1, "./legacy/button")
+        surface.add("Button", "src/index.ts", "star", "src/components/index.ts", 1, "./components")
+        assert (surface.names["Button"]["file"], surface.names["Button"]["via"]) == ("src/legacy/button.ts",
+                                                                                     "re-export")
+
 
 # --------------------------------------------------------------------------
 # Full mode: runs over source trees
@@ -2212,6 +2249,44 @@ DESTRUCTURED = {
     "package.json": '{"name": "demo", "exports": {".": "./src/index.ts"}}\n',
     "src/index.ts": "export * from './lib';\nexport const { expect } = make();\n",
     "src/lib.ts": "export const {\n  fireEvent,\n  within,\n} = tl;\nexport function render(): void {}\n",
+}
+
+
+# #787: two workspace packages whose entry points both define defineMain, the
+# angular one first by path. Scoping in react-vite and one angular file
+# beside its entry point keeps the angular package's entry point listed, out
+# of scope.
+FRAMEWORKS = {
+    "code/frameworks/angular/package.json": '{"name": "@sb/angular", "exports": {".": "./src/index.ts"}}\n',
+    "code/frameworks/angular/src/index.ts": (
+        "export function defineMain(config: AngularConfig) {\n  return config;\n}\n"),
+    "code/frameworks/angular/src/client/render.ts": "export function render(): void {}\n",
+    "code/frameworks/react-vite/package.json": '{"name": "@sb/react-vite", "exports": {".": "./src/index.ts"}}\n',
+    "code/frameworks/react-vite/src/index.ts": (
+        "import type { ViteConfig } from './types';\n\n"
+        "export function defineMain(config: ViteConfig) {\n  return config;\n}\n"),
+}
+FRAMEWORKS_SCOPE = ("--include", "code/frameworks/react-vite/**", "--include", "code/frameworks/angular/src/client/**")
+
+# #817: `_` names a TS/JS barrel exports, and those a Rust crate root and a
+# Python package bind, which stay private (a Rust one hidden or unnamed).
+TS_UNDERSCORE = {
+    "package.json": '{"name": "r", "exports": {".": "./src/index.ts"}}\n',
+    "src/index.ts": "export * from './preview';\nexport { _helper } from './helper';\n",
+    "src/preview.ts": (
+        "export function __definePreview(input: PreviewInput): ReactPreview {\n  return make(input);\n}\n"),
+    "src/helper.ts": "export function _helper(): void {}\n",
+}
+RUST_UNDERSCORE = {
+    "Cargo.toml": '[package]\nname = "u"\nversion = "0.1.0"\n',
+    "src/lib.rs": "pub mod m;\npub fn _x() {}\n#[doc(hidden)]\npub mod __private;\npub const _: () = ();\n",
+    "src/m.rs": "pub fn _inner() {}\npub fn shown() {}\n",
+    "src/__private.rs": "pub fn hidden() {}\n",
+}
+PY_UNDERSCORE = {
+    "pkg/__init__.py": (
+        'from .core import public, _private\nfrom . import core\n__all__ = ["core", "public", "_private"]\n'),
+    "pkg/core.py": "def public():\n    pass\n\n\ndef _private():\n    pass\n",
 }
 
 
@@ -2252,6 +2327,144 @@ class TestFullRuns:
                 "line": 2} in diff["outside_scope"]
         assert {"name": "within", "language": "javascript", "entry": "src/index.ts", "file": "src/lib.ts",
                 "line": 3} in diff["outside_scope"]
+
+    def test_the_in_scope_entry_point_gives_a_name_several_export(self, tmp_path, capsys) -> None:
+        """#787: a name the angular entry point (out of scope, first by path) and the react-vite one (in scope)
+        both export is recorded at react-vite's file and line, where a recipe found it with its kind."""
+        code, out = _full(capsys, _tree(tmp_path, FRAMEWORKS), *FRAMEWORKS_SCOPE)
+        assert (code, out["status"]) == (0, "ok")
+        assert [(e["file"], e["in_scope"]) for e in out["entry_points"]["files"]] == [
+            ("code/frameworks/angular/src/index.ts", False), ("code/frameworks/react-vite/src/index.ts", True)]
+        diff = out["entry_point_diff"]
+        (define,) = [p for p in diff["public"] if p["name"] == "defineMain"]
+        vite = "code/frameworks/react-vite/src/index.ts"
+        assert (define["entry"], define["file"], define["line"], define["via"]) == (vite, vite, 3, "declaration")
+        assert [(e["source_file"], e["source_line"], e["export_type"]) for e in out["exports"]
+                if e["export_name"] == "defineMain"] == [(vite, 3, "function")]
+        assert (diff["extraction_gaps"], diff["outside_scope"], _names(diff["internal"])) == ([], [], ["render"])
+        assert out["counts"]["effective_denominator"] == 1
+
+    def test_a_name_found_in_another_file_is_still_outside_scope(self, tmp_path, capsys) -> None:
+        """#787: the entry point (out of scope) re-exports Button from a file out of scope; the Button a recipe
+        found in a file in scope that no entry point exports is another definition, so the name is outside
+        scope rather than nowhere."""
+        root = _tree(tmp_path, {
+            "package.json": '{"name": "ui", "exports": {".": "./src/index.ts"}}\n',
+            "src/index.ts": "export { Button } from './button';\n",
+            "src/button.ts": "export function Button(): void {}\n",
+            "src/legacy/button.ts": "export function Button(): void {}\n",
+        })
+        _, out = _full(capsys, root, "--include", "src/legacy/**")
+        assert [(e["file"], e["in_scope"]) for e in out["entry_points"]["files"]] == [("src/index.ts", False)]
+        assert [(e["source_file"], e["export_name"]) for e in out["exports"]] == [("src/legacy/button.ts", "Button")]
+        diff = out["entry_point_diff"]
+        assert diff["outside_scope"] == [{"name": "Button", "language": "javascript", "entry": "src/index.ts",
+                                          "file": "src/button.ts", "line": 1}]
+        assert diff["extraction_gaps"] == []
+        assert [(p["name"], p["file"], p["via"]) for p in diff["public"]] == [("Button", "src/button.ts", "re-export")]
+        # the in-scope Button bears the public name, so it is not internal; the denominator leaves the name out
+        assert diff["internal"] == []
+        assert (out["counts"]["exports_public_api"], out["counts"]["exports_internal"],
+                out["counts"]["effective_denominator"]) == (1, 0, 0)
+
+    def test_an_entry_points_own_export_shadows_its_star(self, tmp_path, capsys) -> None:
+        """#787 review: an entry point's explicit re-export of Button wins over the Button its own `export *`
+        passes on, in scope or not, as in JavaScript: the name stays an outside_scope row at the file the
+        explicit export names."""
+        root = _tree(tmp_path, {
+            "package.json": '{"name": "ui", "exports": {".": "./src/index.ts"}}\n',
+            "src/index.ts": "export { Button } from './legacy/button';\nexport * from './components';\n",
+            "src/legacy/button.ts": "export function Button(): void {}\n",
+            "src/components/index.ts": "export function Button(): void {}\nexport function Card(): void {}\n",
+        })
+        _, out = _full(capsys, root, "--include", "src/components/**")
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert (public["Button"]["file"], public["Button"]["via"]) == ("src/legacy/button.ts", "re-export")
+        assert diff["outside_scope"] == [{"name": "Button", "language": "javascript", "entry": "src/index.ts",
+                                          "file": "src/legacy/button.ts", "line": 1}]
+        assert (public["Card"]["file"], diff["extraction_gaps"]) == ("src/components/index.ts", [])
+
+    def test_a_name_one_entry_point_in_scope_exports(self, tmp_path, capsys) -> None:
+        """#787: with the angular package out of the brief, react-vite's entry point alone gives defineMain,
+        as before."""
+        _, out = _full(capsys, _tree(tmp_path, FRAMEWORKS), "--include", "code/frameworks/react-vite/**")
+        vite = "code/frameworks/react-vite/src/index.ts"
+        assert [(e["file"], e["in_scope"]) for e in out["entry_points"]["files"]] == [(vite, True)]
+        diff = out["entry_point_diff"]
+        assert [(p["name"], p["file"], p["line"]) for p in diff["public"]] == [("defineMain", vite, 3)]
+        assert (diff["extraction_gaps"], diff["outside_scope"], diff["internal"]) == ([], [], [])
+        assert out["counts"]["effective_denominator"] == 1
+
+    def test_typescript_underscore_exports(self, tmp_path, capsys) -> None:
+        """#817: a `_` name a TS entry point exports, through `export *` or a named re-export, is an export
+        and a public name, as the Source API Surface Definition and quick mode count it."""
+        code, out = _full(capsys, _tree(tmp_path, TS_UNDERSCORE))
+        assert (code, out["status"]) == (0, "ok")
+        assert sorted((e["source_file"], e["export_name"]) for e in out["exports"]) == [
+            ("src/helper.ts", "_helper"), ("src/index.ts", "_helper"), ("src/preview.ts", "__definePreview")]
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert sorted(public) == ["__definePreview", "_helper"]
+        assert (public["__definePreview"]["file"], public["__definePreview"]["line"], public["__definePreview"]["via"]
+                ) == ("src/preview.ts", 1, "star")
+        assert (public["_helper"]["file"], public["_helper"]["line"]) == ("src/helper.ts", 1)
+        assert (diff["extraction_gaps"], diff["internal"]) == ([], [])
+        assert (out["counts"]["exports_public_api"], out["counts"]["effective_denominator"]) == (2, 2)
+
+    def test_rust_underscore_names_stay_private(self, tmp_path, capsys) -> None:
+        """#817: a Rust `_` item is hidden or unnamed (a `#[doc(hidden)] pub mod __private`, which the runner
+        cannot read, or a `pub const _`), so neither `pub fn _x` in lib.rs, one a `pub mod` passes on, nor
+        either of those is an export, a public name or a gap."""
+        code, out = _full(capsys, _tree(tmp_path, RUST_UNDERSCORE))
+        assert (code, out["status"]) == (0, "ok")
+        assert sorted((e["source_file"], e["export_name"]) for e in out["exports"]) == [
+            ("src/__private.rs", "hidden"), ("src/m.rs", "shown")]
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert sorted(public) == ["m"]
+        assert public["m"]["members"] == [_member("shown", "src/m.rs", 2)]
+        assert diff["extraction_gaps"] == [] and out["counts"]["exports_public_api"] == 1
+
+    def test_a_python_underscore_member_stays_private(self, tmp_path, capsys) -> None:
+        """#817: a `_` name a Python submodule's `__all__` lists is no member of the namespace the package
+        exports, no gap and no count."""
+        root = _tree(tmp_path, {
+            "pkg/__init__.py": 'from . import core\n__all__ = ["core"]\n',
+            "pkg/core.py": ('__all__ = ["public", "_private"]\n\n\n'
+                            "def public():\n    pass\n\n\ndef _private():\n    pass\n"),
+        })
+        code, out = _full(capsys, root)
+        assert (code, out["status"]) == (0, "ok")
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert public["core"]["members"] == [_member("public", "pkg/core.py", 4)]
+        assert (diff["extraction_gaps"], diff["outside_scope"]) == ([], [])
+        assert out["counts"]["exports_public_api"] == 1
+
+    def test_quick_mode_keeps_its_underscore_rule(self, tmp_path, capsys) -> None:
+        """#817: quick mode is unchanged: on the TS underscore fixture it gives what it gave before."""
+        root = _tree(tmp_path, TS_UNDERSCORE)
+        code, out = _quick(capsys, "--language", "typescript", "--source-root", root.as_posix(), "--entry-file",
+                           "src/index.ts", "--follow-file", "src/preview.ts")
+        assert code == 0
+        assert out["exports"] == [
+            {"name": "_helper", "type": "re-export", "source_file": "src/index.ts", "defined_in": "src/helper.ts"},
+            {"name": "__definePreview", "type": "function", "source_file": "src/preview.ts",
+             "defined_in": "src/preview.ts"}]
+        assert (out["warnings"], out["unlisted"]) == (["no manifest content provided; metadata will be empty"], [])
+
+    def test_python_underscore_names_stay_private(self, tmp_path, capsys) -> None:
+        """#817: a Python `_` name is still no export, no public name and no member, even listed in
+        `__all__`."""
+        code, out = _full(capsys, _tree(tmp_path, PY_UNDERSCORE))
+        assert (code, out["status"]) == (0, "ok")
+        assert [e["export_name"] for e in out["exports"]] == ["public"]
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert sorted(public) == ["core", "public"]
+        assert public["core"]["members"] == [_member("public", "pkg/core.py", 1)]
+        assert (diff["extraction_gaps"], diff["outside_scope"], diff["internal"]) == ([], [], [])
 
     def test_a_typescript_package(self, tmp_path, capsys) -> None:
         root = _tree(tmp_path, TS_PACKAGE)
@@ -2794,7 +3007,7 @@ PY_SUBMODULE_FORMS = {
 }
 
 # Namespace modules: one that passes on a namespace of its own, one that
-# re-exports a name from another package, and one with a private name.
+# re-exports a name from another package, and one with a `_` name.
 JS_MEMBER_FORMS = {
     "package.json": json.dumps({"name": "m"}),
     "src/index.ts": "export * as ns from './ns';\nexport * as remote from './remote';\nexport * as priv from './priv';\n",
@@ -2905,10 +3118,10 @@ class TestNamespaceMembers:
         # in an entry point, no unresolved item, which would turn a public-api run's surface off
         assert public["remote"]["members"] == [_member("x", None, None)]
         assert out["entry_points"]["unresolved"] == []
-        # a private name is no member
-        assert public["priv"]["members"] == [_member("shown", "src/priv.ts", 2)]
+        # #817: a TS/JS `_` name is a member like any other (only a Python one is private)
+        assert public["priv"]["members"] == [_member("_hidden", "src/priv.ts", 1), _member("shown", "src/priv.ts", 2)]
         assert diff["extraction_gaps"] == [] and diff["outside_scope"] == []
-        assert out["counts"]["exports_public_api"] == 4  # deep, a, x and shown
+        assert out["counts"]["exports_public_api"] == 5  # deep, a, x, _hidden and shown
         # a public-api run still reads a surface, and marks the external member public by its name
         _, out = _full(capsys, _tree(tmp_path, JS_MEMBER_FORMS), "--scope-type", "public-api")
         inventory_spec = importlib.util.spec_from_file_location("skf_extraction_inventory_for_members",
@@ -2945,7 +3158,7 @@ class TestNamespaceMembers:
 
 class TestMemberDiff:
     def test_members_are_diffed_by_name_or_local_and_file(self) -> None:
-        surfaces = {family: mod._Surface() for family in mod.FAMILIES}
+        surfaces = {family: mod._Surface(family) for family in mod.FAMILIES}
         python = surfaces["python"]
         python.add("top", "p/__init__.py", "re-export", "p/a.py", 1, ".a")
         python.add("ns", "p/__init__.py", "namespace", "p/ns.py", None, ".", members=[
@@ -3653,23 +3866,28 @@ class TestDenominatorDiff:
     extraction gap is told apart by eye."""
 
     def test_the_names_and_the_exports_are_diffed(self, tmp_path, capsys, monkeypatch) -> None:
-        root = _tree(tmp_path, {"src/A.java": "", "src/B.java": "", "src/c.ts": "", "src/d.ts": ""})
+        root = _tree(tmp_path, {"src/A.java": "", "src/B.java": "", "src/c.ts": "", "src/d.ts": "", "src/e.py": "",
+                                "lib/f.dart": ""})
         payload = {"public": [{"name": "A", "file": "src/A.java", "language": "java"},
                               {"name": "ns", "file": "src/c.ts",
                                "members": [{"name": "c", "file": "src/c.ts"}, {"name": "gone", "file": "src/d.ts"}]}],
                    "exports": [{"name": "A", "file": "src/A.java", "language": "java"},
                                {"name": "B", "file": "src/B.java", "language": "java"},
                                {"name": "c", "file": "src/c.ts", "language": "typescript"},
-                               {"name": "_private", "file": "src/c.ts", "language": "typescript"}]}
+                               {"name": "_private", "file": "src/c.ts", "language": "typescript"},
+                               {"name": "_hidden", "file": "src/e.py", "language": "python"},
+                               {"name": "_x", "file": "lib/f.dart", "language": "dart"}]}
         code, out = _denominator(capsys, monkeypatch, root, payload, "--include", "src/**")
         assert code == 0
+        # #817: a TS `_private` export no public name has is internal; a Python or Dart `_` name is left out
         assert out["entry_point_diff"] == {
             "public": [{"name": "A", "language": "java", "file": "src/A.java"},
                        {"name": "c", "language": "javascript", "file": "src/c.ts"},
                        {"name": "gone", "language": "javascript", "file": "src/d.ts"}],
-            "internal": [{"name": "B", "language": "java", "file": "src/B.java"}],
+            "internal": [{"name": "B", "language": "java", "file": "src/B.java"},
+                         {"name": "_private", "language": "javascript", "file": "src/c.ts"}],
             "extraction_gaps": [{"name": "gone", "language": "javascript", "file": "src/d.ts"}]}
-        assert (out["counts"]["exports_public_api"], out["counts"]["exports_internal"]) == (3, 1)
+        assert (out["counts"]["exports_public_api"], out["counts"]["exports_internal"]) == (3, 2)
 
     def test_the_runner_names_are_found_and_its_gaps_stay_its_own(self, tmp_path, capsys, monkeypatch) -> None:
         """For the files no recipe reads the runner's names join yours: a payload name the runner found is no

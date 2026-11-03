@@ -538,10 +538,10 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
 Baseline gaps (update-skill detect-changes Category B, step 1):
 
   The recipe runner never reports a module, an alias that renames, a
-  dunder such as `__version__` or another underscore name, so the diff
-  would read each such map entry as a deleted export. baseline-gaps lists,
-  for step 2 to read by eye, each entry of a file --files lists (the
-  modified files, Category A's modified-files.json) whose name and file
+  dunder such as `__version__` or another Python or Rust `_` name, so the
+  diff would read each such map entry as a deleted export. baseline-gaps
+  lists, for step 2 to read by eye, each entry of a file --files lists
+  (the modified files, Category A's modified-files.json) whose name and file
   no export of --extraction (the runner's JSON, or {"exports": []} when
   it could not run) holds, under its name or its re-export target, and
   whose file still declares it. The selection and the declaration rule

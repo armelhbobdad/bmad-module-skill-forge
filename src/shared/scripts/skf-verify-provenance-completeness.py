@@ -2593,8 +2593,8 @@ def baseline_gaps(
 ) -> tuple[list[dict], list[dict]]:
     """The provenance entries an extraction left out whose cited file still
     declares them: the recipe runner never reports a module, an alias that
-    renames, a dunder such as `__version__` or another underscore name, so
-    a diff would read each as removed.
+    renames, a dunder such as `__version__` or another Python or Rust
+    underscore name, so a diff would read each as removed.
 
     `held` holds the (name, file) of every export the extraction found,
     `files` the files whose entries are checked (the ones read), and
