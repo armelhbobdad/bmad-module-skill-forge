@@ -2314,8 +2314,11 @@ def test_name_lookup_filters_by_the_citation_file(tmp_path):
     assert "(each entry with its `map_match`), never from memory" in _slice(text, "### 4. Spot-Check", "1. **")
     gate = _drift_gate()
     assert "read from the entry's `map_match` (§1)" in gate
-    assert "- `a line and a signature from the tree`: an export whose `map_match` is `not-found`;" in gate
-    assert "- `a signature from the tree`: an export the map holds (`found` or `ambiguous`)." in gate
+    assert ("- `a line and a signature from the tree`: an export whose `map_match` is `not-found` with no candidate "
+            "that has a `source_file`;") in gate
+    assert ("- `a signature from the tree`: an export the map holds (`found` or `ambiguous`, or `not-found` with a "
+            "candidate that has a `source_file`: a citation of another file than the map's entries of its name).") \
+        in gate
     assert "map_match the `match` lookup of `name` with the kept citation" in _translate_doc()
     # translate's lookup: the citation's file and line tell two same-name entries apart, a name the title gives
     # (answered `name`) is looked up too, and a citation inside the skill package keys nothing
@@ -2645,7 +2648,9 @@ def test_a_blocking_entry_the_map_holds_stays_unchanged_with_what_to_fix():
             "in this file before merge: for such an export, only a `Medium`, `Low` or `Info` gap may degrade to "
             "`unknown`.") in two
     held = _slice(two, "A `NEW_EXPORT` or `MODIFIED_EXPORT` whose export the map holds", "\n")
-    for token in ("(its `map_match` is `found` or `ambiguous`) never goes to §4a's targeted re-extraction "
+    for token in ("(its `map_match` is `found` or `ambiguous`, or `not-found` with a candidate that has a "
+                  "`source_file`: the gap cites another file than the map's entries of its name) never goes to §4a's "
+                  "targeted re-extraction "
                   "(`reextract.entries`), whatever its severity", "its entry stays unchanged",
                   "naming the cause of an `unknown`", "give the gap a `file:line` Source at the definition when that "
                   "file holds only one of them", "fix the entry by hand (set its `source_file` and `source_line` to "
@@ -2662,13 +2667,63 @@ def test_a_blocking_entry_the_map_holds_stays_unchanged_with_what_to_fix():
     assert ("A `NEW_EXPORT` or `MODIFIED_EXPORT` the provenance map holds that ends `missing` or `unknown` keeps its "
             "entry unchanged") in _slice(text, "### 5. Display the Repair Summary", "This step asks")
     doc = _gap_records_doc()
-    assert ("A NEW_EXPORT or MODIFIED_EXPORT whose map_match is found or ambiguous never goes to targeted "
-            "re-extraction, whatever its severity") in doc
+    assert ("A NEW_EXPORT or MODIFIED_EXPORT the map holds entries of its name for (its map_match found or "
+            "ambiguous, or not-found with a candidate that has a source_file) never goes to targeted re-extraction, "
+            "whatever its severity") in doc
     assert "UNKNOWN_REASONS gives each its words" in doc
     apply_doc = _docstring(BUILD_MANIFEST, "Apply (update-skill write.md §3):", "Metadata (update-skill write.md")
     for token in ("names an unknown's unknown_reason and its words (UNKNOWN_REASONS)",
                   "the one fix a re-run acts on", "names the drift, after the outcome's cause"):
         assert token in apply_doc, token
+
+
+def test_a_gap_citing_another_file_than_the_map_is_never_reextracted():
+    """#824: a gap whose citation names another file than the map's entries of its name, and pins no line there, is
+    `unknown` (`cited-elsewhere`) whatever its severity, never re-extracted; apply's warning gives the fix for each
+    side, write.md points to it, and merge keeps the export's documented content."""
+    text = _read(GAP)
+    held = _slice(text, "A `NEW_EXPORT` or `MODIFIED_EXPORT` whose export the map holds", "\n")
+    for token in ("or the check at a citation of another file pins no line (`unknown`, `cited-elsewhere`: that file's "
+                  "declaration may be another package's, so it is never re-extracted), its entry stays unchanged",
+                  "For a `cited-elsewhere` gap, whatever its severity, the warning names the gap, the cited file and "
+                  "its check's cause (such as `missing` or `no-definition`), and where the map holds the name",
+                  "when the map is right, re-run Test Skill, since the test compared another file's declaration, and "
+                  "if the gap comes back, exclude the cited file in the brief's scope when the skill does not cover "
+                  "it (not when the cited file is gone); when an export moved, fix that map entry by hand, then "
+                  "re-run update-skill.", "When its check read nothing at the cited file (no source tree, the "
+                  "verifier missing, a failed check), the warning says instead to give update-skill the source tree, "
+                  "re-install SKF, or fix what the check failed on, then re-run update-skill."):
+        assert token in held, token
+    assert "a citation of another file than the map's entries of its name, no single definition line" in \
+        _slice(text, '"**Gap-driven re-extraction.**', "\n")
+    assert "(`cited-elsewhere`) is never re-extracted," in \
+        _slice(text, "### 5. Display the Repair Summary", "This step asks")
+    zero = _slice(_write_3(), "- **0:**", "\n")
+    assert "a failed or skipped check, a citation of another file than the map's entries of its name)" in zero
+    assert ("A `cited-elsewhere` gap, whatever its severity, takes its own warning and fix in their place "
+            "(gap-driven.md §4 bullet 1).") in zero
+    r3 = _slice(text, "- **R3: provenance-completeness.**", "\n")
+    assert ("The one exception: when the map holds the name at another file than the gap cites (`map_match` "
+            "`not-found` with a candidate that has a `source_file`), its provenance is not absent, so §4 records it "
+            "`unknown` (`cited-elsewhere`) and never re-extracts it (§4 bullet 1).") in r3
+    merge = _read(MERGE)
+    four = _slice(merge, "**Priority 4", "**Priority 5")
+    assert ("- **Gap-driven `MODIFIED_EXPORT` recorded `unknown` or `missing`** (gap-driven.md §4 located no line for "
+            "it, and step 5's `apply` warns with the cause, `cited-elsewhere` among them): keep its documented content "
+            "as it stands. Never rewrite it from the gap's text") in four
+    assert ("- **Gap-driven `NEW_EXPORT` recorded `unknown` with `cited-elsewhere`** (gap-driven.md §4: the "
+            "provenance map already holds its name at another file than the gap cites): add nothing for it, and never "
+            "document it from the gap's text") in _slice(merge, "**Priority 5", "**Priority 6")
+    doc = _gap_records_doc()
+    assert ("When the map holds entries of its name (in_map, which a not-found has only for a citation of another "
+            "file than theirs), one of them with a source_file, and no check pins a line (unknown or missing): "
+            "unknown, unknown_reason cited-elsewhere, whatever its severity (a provenance_completeness one too), and "
+            "never re-extracted") in doc
+    assert "Candidates with no source_file (placeholders) do not count." in doc
+    apply_doc = _docstring(BUILD_MANIFEST, "Apply (update-skill write.md §3):", "Metadata (update-skill write.md")
+    assert "A cited-elsewhere one, whatever its severity, takes in their place a warning" in apply_doc
+    assert _module(BUILD_MANIFEST, "skf_build_change_manifest_cited").UNKNOWN_REASONS["cited-elsewhere"] == \
+        "the gap cites another file than the provenance map's entries of its name"
 
 
 def test_blocking_gap_without_a_path_halts_in_gap_driven_before_merge(tmp_path, capsys):

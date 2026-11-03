@@ -325,7 +325,8 @@ Apply (update-skill write.md §3):
   export_name, gap_category, severity, verification, in_map (the map holds
   an entry of that name), map_entry ({source_file, source_line} of the one
   entry the spot-check took, else null), source_citation, new_location,
-  unknown_reason, pinned_definition_lines, reachability, and the located
+  unknown_reason, citation_check, map_locations (see "Gap records"),
+  pinned_definition_lines, reachability, and the located
   export's export_type, params, return_type, extraction_method and
   ast_node_type (from §4a's record at its line, see "Gap records"; null
   when none holds it). It finds an export's entry by its name, else by the
@@ -369,7 +370,27 @@ Apply (update-skill write.md §3):
                             re-run's map_match then finds that one); for
                             any other, fix the entry by hand (its
                             source_file and source_line), since the
-                            re-run checks the same entry again
+                            re-run checks the same entry again. A
+                            cited-elsewhere one, whatever its severity,
+                            takes in their place a warning that names
+                            its gap_id, its source_citation, its
+                            citation_check (with its words), its
+                            map_locations and the fix for each side
+                            that may be wrong: when the map is right,
+                            re-run Test Skill (the test compared
+                            another file's declaration), and if the gap
+                            comes back (not for a missing one), exclude
+                            the cited file in the brief's scope when the
+                            skill does not cover it; when the export
+                            moved, fix the entry by hand (with several
+                            map_locations, whichever of those entries
+                            moved), then re-run update-skill. A
+                            citation_check that read nothing (UNREAD:
+                            no-source-root, verifier-missing,
+                            spot-check-failed) takes its own fix in
+                            their place: give update-skill the source
+                            tree, re-install SKF, or fix what the check
+                            failed on, then re-run update-skill
     rescoped                the entry removed
   The signature: when §4a found the export's record (its verification
   record has an extraction_method), every part from it, a params or
@@ -552,8 +573,11 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
      but a MOVED_EXPORT needs the tree, with the first reason that fits:
      a DELETED_EXPORT "a public API recount from the tree (rule R1)", a
      provenance_completeness entry "a line from the tree (rule R3)", one
-     whose map_match is not-found "a line and a signature from the tree",
-     any other "a signature from the tree". Any such entry: {"status":
+     whose map_match is not-found with no candidate that has a
+     source_file "a line and a signature from the tree", any other (a
+     not-found with such a candidate, a citation of another file than
+     the map's entries, among them) "a signature from the tree". Any
+     such entry: {"status":
      "drift-blocked", "drift_blocked": [{gap_id, name, change_category,
      severity, reason}]}, and no spot-check runs.
   2. A DELETED_EXPORT without a `rescope` that holds its `amendment` and
@@ -572,8 +596,25 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
          ambiguous            unknown, unknown_reason ambiguous (several
                               map entries of its name: no check runs)
          not-found            checked at its source_citation (no export
-                              type) when it has one; when that pins no
-                              line (unknown or missing), or with no
+                              type) when it has one. When the map holds
+                              entries of its name (in_map, which a
+                              not-found has only for a citation of
+                              another file than theirs), one of them
+                              with a source_file, and no check pins a
+                              line (unknown or missing): unknown,
+                              unknown_reason cited-elsewhere, whatever
+                              its severity (a provenance_completeness
+                              one too), and never re-extracted, so no
+                              other file's declaration is read for it;
+                              its record's citation_check keeps the
+                              check's cause (missing, or its
+                              unknown_reason) and its map_locations the
+                              `file:line` (or file) of each candidate
+                              with a source_file, both null on any other
+                              record. Candidates with no source_file
+                              (placeholders) do not count. Otherwise,
+                              when that pins no line
+                              (unknown or missing), or with no
                               citation: targeted re-extraction (§4a) for a
                               provenance_completeness entry with a source
                               root, for a blocking one whatever its
@@ -597,10 +638,12 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
      words. Every other outcome has a null unknown_reason. A map_match
      whose entry carries its own export_name (skf-parse-gaps matched it
      by its reexported_as) is checked under that name.
-     A NEW_EXPORT or MODIFIED_EXPORT whose map_match is found or
-     ambiguous never goes to targeted re-extraction, whatever its
-     severity: one that ends missing or unknown keeps its map entry
-     unchanged, and apply warns (see "Apply").
+     A NEW_EXPORT or MODIFIED_EXPORT the map holds entries of its name
+     for (its map_match found or ambiguous, or not-found with a
+     candidate that has a source_file) never goes to targeted
+     re-extraction, whatever its severity: one that ends missing or
+     unknown keeps its map entries unchanged and adds none, and apply
+     warns (see "Apply").
      A NEW_EXPORT or MODIFIED_EXPORT a check gives verified or moved, at
      its map entry or at a citation the map holds no entry of its name
      for, is located: its signature_at is the checked file and the
@@ -667,7 +710,8 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
   [one record per export-bearing entry: gap_id, export_name,
   gap_category, severity, verification, in_map, map_entry,
   provenance_citation, source_citation, new_location, unknown_reason,
-  pinned_definition_lines, resolution_source, reachability, and
+  citation_check, map_locations, pinned_definition_lines,
+  resolution_source, reachability, and
   export_type, params, return_type, extraction_method and ast_node_type
   (a located export's record's, step 4; else null, and apply takes the
   signature of an entry it adds from merge.md's merge-records.json)],
@@ -1971,6 +2015,36 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
                    "line that defines it), then re-run update-skill")
         return f"provenance: {name}{f' ({gap})' if gap else ''}: {outcome}{f' ({detail})' if detail else ''}; {fix}"
 
+    def elsewhere(r: dict) -> str | None:
+        """The warning for a NEW_EXPORT or MODIFIED_EXPORT whose gap cites another file than the map's entries of its
+        name (unknown, cited-elsewhere), whatever its severity: the gap, the export, the cited file and its check's
+        cause, the record's map_locations and the fix for each side that may be wrong; None for any other record."""
+        if r.get("verification") != "unknown" or r.get("unknown_reason") != "cited-elsewhere":
+            return None
+        name, gap = _name_of(r), r.get("gap_id")
+        cited_file, cited_line = _location(r.get("source_citation"))
+        cited = _where(cited_file, cited_line) or cited_file
+        check = r.get("citation_check") if isinstance(r.get("citation_check"), str) else None
+        words = "no such file" if check == "missing" else UNKNOWN_REASONS.get(check or "")
+        where = [w for w in r.get("map_locations") or [] if isinstance(w, str) and w]
+        detail = "; ".join(part for part in (
+            why(r), f"it cites {cited}" if cited else "",
+            f"its check there: {check}{f' ({words})' if words else ''}" if check else "",
+            f"the map holds it at {', '.join(where)}" if where else "", note) if part)
+        several = len(where) > 1
+        kept = "its entries are left unchanged" if several else "its entry is left unchanged"
+        head = f"provenance: {name}{f' ({gap})' if gap else ''}: unknown ({detail}); {kept}, and nothing is " \
+            "re-extracted for it."
+        if check in UNREAD:  # nothing was read at the cited file: make the check read it first
+            return f"{head} Nothing was read at the cited file: {UNREAD[check]}, then re-run update-skill"
+        moved = "when an export moved, fix by hand whichever of those entries moved" if several \
+            else "when the export moved, fix the map entry by hand"
+        scope = "" if check == "missing" else (", and if the gap comes back, exclude the cited file in the brief's "
+                                               "scope when the skill does not cover it")
+        return (f"{head} When the map is right, re-run Test Skill, since the test compared another file's "
+                f"declaration{scope}; {moved} (set its source_file and source_line to the line that defines it), "
+                f"then re-run update-skill")
+
     blocking = [{"export_name": _name_of(r), "severity": r.get("severity")} for r in verification
                 if r.get("verification") == "unknown" and not in_map(r)
                 and r.get("gap_category") in ("NEW_EXPORT", "MODIFIED_EXPORT") and _blocking(r.get("severity"))]
@@ -2031,7 +2105,7 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
         else:
             if r.get("unknown_reason") == "drift-override":
                 warnings.append(f"provenance: {name}: unknown ({note}; no line taken from HEAD{r5})")
-            elif (warning := unchecked(r)) is not None:
+            elif (warning := elsewhere(r) or unchecked(r)) is not None:
                 warnings.append(warning)
             elif drift:
                 warnings.append(f"provenance: {name}: {outcome} ({why(r) + '; ' if why(r) else ''}{note}{r5})")
@@ -2686,6 +2760,13 @@ UNKNOWN_REASONS = {
     "verifier-missing": "skf-verify-provenance-completeness.py is missing",
     "no-source-root": "no source tree to check",
     "drift-override": "the drift override kept its line from being moved",
+    "cited-elsewhere": "the gap cites another file than the provenance map's entries of its name",
+}
+# A cited-elsewhere entry's citation_check that read nothing at the cited file, with the fix that lets a re-run read it.
+UNREAD = {
+    "no-source-root": "give update-skill the source tree",
+    "verifier-missing": "re-install SKF",
+    "spot-check-failed": "fix what its spot-check failed on, which the `spot-check failed` warning names",
 }
 _DEFINITION_LINES = re.compile(r"definition lines?\s*\(([\d,\s]+)\)", re.IGNORECASE)
 _VERIFIER = None
@@ -2738,8 +2819,12 @@ def _drift_reason(entry: dict) -> str | None:
         return None
     if entry.get("provenance_completeness"):
         return DRIFT_COMPLETENESS
-    status = (entry.get("map_match") or {}).get("status")
-    return DRIFT_IN_MAP if status in ("found", "ambiguous") else DRIFT_NOT_IN_MAP
+    match = entry.get("map_match") if isinstance(entry.get("map_match"), dict) else {}
+    status = match.get("status")
+    # a not-found with a candidate that has a file is a citation of another file than the map's entries: held (#824)
+    held = status in ("found", "ambiguous") or status == "not-found" and any(
+        isinstance(c, dict) and _norm_path(c.get("source_file")) for c in match.get("candidates") or [])
+    return DRIFT_IN_MAP if held else DRIFT_NOT_IN_MAP
 
 
 def _spot_check(root: Path | None, path: str | None, name: str, line: int | None, export_type: object,
@@ -2819,6 +2904,11 @@ class _GapEntry:
         # the map entry's own name when skf-parse-gaps matched it by its reexported_as (the gap names the public one)
         self.declared = _name_of(found) if found and _name_of(found) else self.name
         self.in_map = bool(match.get("candidates"))
+        # where map_match's candidates sit, `file:line` (or the file); a placeholder with no file names none
+        self.map_locations = list(dict.fromkeys(
+            _where(c.get("source_file"), c.get("source_line")) or _norm_path(c.get("source_file"))
+            for c in match.get("candidates") or [] if isinstance(c, dict) and _norm_path(c.get("source_file"))))
+        self.citation_check: str | None = None  # a cited-elsewhere entry's citation check: missing, or its reason
         citation = entry.get("source_citation")
         self.citation = citation if isinstance(citation, dict) else None
         self.recorded: tuple[str | None, int | None] = (None, None)  # the file and line a check read
@@ -2890,6 +2980,12 @@ class _GapEntry:
                 if not self.in_map:  # a citation of another file than the map's entries of its name takes none
                     self.locate(root)
                 return
+        if self.match_status == "not-found" and self.map_locations:
+            # the map holds its name at other files: the cited file's declaration may be another package's, so it is
+            # never re-extracted there (#824); the record keeps the check's cause, and apply warns with what to fix
+            self.citation_check = "missing" if self.outcome == "missing" else self.unknown_reason
+            self.outcome, self.unknown_reason = "unknown", "cited-elsewhere"
+            return
         if self.entry.get("provenance_completeness") and root is not None:
             self.reextract = True
         elif self.blocking:
@@ -2949,6 +3045,7 @@ class _GapEntry:
     def verification(self) -> dict:
         signed = self.signature() or {}
         recorded = _where(*self.recorded)
+        elsewhere = self.outcome == "unknown" and self.unknown_reason == "cited-elsewhere"
         if self.outcome == "re-extracted":
             citation = self.new_location()
         elif self.outcome in ("verified", "moved", "missing", "rescoped") and recorded:
@@ -2966,6 +3063,8 @@ class _GapEntry:
             "source_citation": self.citation,
             "new_location": self.new_location(),
             "unknown_reason": self.unknown_reason if self.outcome == "unknown" else None,
+            "citation_check": self.citation_check if elsewhere else None,
+            "map_locations": self.map_locations if elsewhere else None,
             "pinned_definition_lines": _pinned_lines(self.entry.get("remediation"))
             if self.category == "MOVED_EXPORT" else None,
             "resolution_source": "remediation-paths" if self.outcome == "re-extracted" else None,

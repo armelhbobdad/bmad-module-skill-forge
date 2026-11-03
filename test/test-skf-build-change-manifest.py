@@ -3324,7 +3324,7 @@ class TestGapRecords:
             ("re-extracted", None)
         assert set(mod.UNKNOWN_REASONS) == {"ambiguous", "no-definition", "several-definitions", "unchecked-language",
                                             "no-line", "spot-check-failed", "verifier-missing", "no-source-root",
-                                            "drift-override"}
+                                            "drift-override", "cited-elsewhere"}
 
     def test_a_source_at_the_definition_picks_one_of_ambiguous_entries_only_in_a_file_holding_one(
             self, tmp_path: Path) -> None:
@@ -3423,6 +3423,230 @@ class TestGapRecords:
         exact = {k: v for k, v in remediation["files"][1]["exports"][1].items() if k != "aliases"}
         assert records["files"] == [{"file_path": "pkg/b.py", "exports": [exact]}]
 
+    # #824: oms-storybook's GAP-002 cites Angular's `__definePreview`, which its entry points re-export as
+    # `definePreview`, while the map holds `definePreview` at react-vite's file: the cited file is another package's,
+    # so the gap is never re-extracted there and apply says what to fix
+
+    ANGULAR = "angular/src/client/preview.ts"
+    REACT_VITE = "react-vite/src/index.ts"
+
+    def _storybook(self, tmp_path: Path) -> tuple[Path, dict, dict]:
+        """(the source root, `records`' output over Angular's file, the citation of its line 45)."""
+        root = tmp_path / "storybook"
+        (root / "angular" / "src" / "client").mkdir(parents=True)
+        (root / "angular" / "src" / "client" / "preview.ts").write_bytes(
+            ("// Angular's preview annotations\n" + "\n" * 43
+             + "export function __definePreview(input: AngularInput): AngularPreview {\n  return input;\n}\n").encode())
+        (root / "react-vite" / "src").mkdir(parents=True)
+        (root / "react-vite" / "src" / "index.ts").write_bytes(
+            b"// @storybook/react-vite\nexport function definePreview(input: ReactInput): ReactPreview {\n"
+            b"  return input;\n}\n")
+        extraction = {"exports": [_runner("__definePreview", self.ANGULAR, 45, language="typescript",
+                                          node="function_declaration", return_type="AngularPreview")],
+                      "entry_point_diff": {"public": [
+                          {"name": "definePreview", "local": "__definePreview", "file": self.ANGULAR,
+                           "via": "re-export"}]}}
+        remediation, _ = mod.build_records(extraction, None, [self.ANGULAR], [])
+        assert remediation["files"][0]["exports"][0]["aliases"] == ["definePreview"]
+        return root, remediation, {"file": self.ANGULAR, "line": 45}
+
+    def _elsewhere(self, name: str = "definePreview", change: str = "MODIFIED_EXPORT", **extra) -> dict:
+        """GAP-002 as translate writes it, its map_match looked up in `old` at `cited`."""
+        old, cited = extra.pop("old"), extra.pop("cited")
+        return _gap_entry("GAP-002", name, change, match=parse_gaps.map_match(old["entries"], name, cited),
+                          citation=cited, **extra)
+
+    FIX = ("When the map is right, re-run Test Skill, since the test compared another file's declaration, and if the "
+           "gap comes back, exclude the cited file in the brief's scope when the skill does not cover it; ")
+
+    @pytest.mark.parametrize("severity", ["Critical", "Medium"], ids=["blocking", "non-blocking"])
+    @pytest.mark.parametrize("change, category", [("MODIFIED_EXPORT", "signature-mismatch"),
+                                                  ("NEW_EXPORT", "missing-export")], ids=["modified", "missing-export"])
+    def test_a_gap_citing_another_file_than_the_map_is_never_reextracted(self, tmp_path: Path, change: str,
+                                                                         category: str, severity: str) -> None:
+        root, remediation, cited = self._storybook(tmp_path)
+        old = {"entries": [_entry("definePreview", self.REACT_VITE, 2)]}
+        match = parse_gaps.map_match(old["entries"], "definePreview", cited)
+        assert (match["status"], [c["source_file"] for c in match["candidates"]]) == ("not-found", [self.REACT_VITE])
+        entries = [self._elsewhere(change=change, old=old, cited=cited, category=category, severity=severity,
+                                   resolved=[self.ANGULAR])]
+        # the plan sends nothing to §4a: no entry, no file and no signature
+        _, plan = _records(entries, source_root=root, provenance=old, plan=True)
+        assert plan["reextract"] == {"entries": [], "files": [], "signatures": []}
+        # the record is unknown for that cause, keeps its check's own and where the map holds the name, and copies no
+        # record of Angular's declaration for merge to document
+        records, summary = _records(entries, source_root=root, provenance=old, remediation=remediation,
+                                    judgments={"GAP-002": {"docstring": None, "reachability": "public"}})
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["unknown_reason"], record["in_map"], record["new_location"]) == \
+            ("unknown", "cited-elsewhere", True, None)
+        assert (record["citation_check"], record["map_locations"]) == ("no-definition", [f"{self.REACT_VITE}:2"])
+        assert (record["export_type"], record["params"], record["extraction_method"]) == (None, None, None)
+        assert records["files"] == [] and summary["targeted_reextraction"] is None
+        # apply adds no entry and changes none, whatever the severity: it warns with the gap, the cited file and its
+        # check's cause, the map's location and the fix for each side that may be wrong
+        doc, applied = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                        test_report_run_id="r", **BLOCK)
+        assert doc["entries"] == old["entries"]
+        assert (applied["entries"]["added"], applied["entries"]["updated"]) == ([], [])
+        assert applied["warnings"] == [
+            "provenance: definePreview (GAP-002): unknown (cited-elsewhere: the gap cites another file than the "
+            "provenance map's entries of its name; it cites angular/src/client/preview.ts:45; its check there: "
+            "no-definition (no line of its file defines it, by the definition-line rules); the map holds it at "
+            "react-vite/src/index.ts:2); its entry is left unchanged, and nothing is re-extracted for it. "
+            f"{self.FIX}when the export moved, fix the map entry by hand (set its source_file and source_line to the "
+            "line that defines it), then re-run update-skill"]
+
+    def test_a_gap_citing_a_gone_file_names_its_check(self, tmp_path: Path) -> None:
+        root, _, _ = self._storybook(tmp_path)
+        old = {"entries": [_entry("definePreview", self.REACT_VITE, 2)]}
+        entries = [self._elsewhere(old=old, cited={"file": "angular/src/client/gone.ts", "line": 45},
+                                   severity="Critical")]
+        records, _ = _records(entries, source_root=root, provenance=old)
+        [record] = records["verification"]
+        assert (record["verification"], record["unknown_reason"], record["citation_check"]) == \
+            ("unknown", "cited-elsewhere", "missing")
+        _, applied = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                      test_report_run_id="r", **BLOCK)
+        [warning] = applied["warnings"]
+        assert "; it cites angular/src/client/gone.ts:45; its check there: missing (no such file); " in warning
+        # a file that is gone takes no scope advice: there is nothing to exclude
+        assert "since the test compared another file's declaration; when the export moved" in warning
+        assert "exclude the cited file" not in warning
+
+    def test_a_name_the_map_reexports_from_two_files_lists_both(self, tmp_path: Path) -> None:
+        root, _, cited = self._storybook(tmp_path)
+        old = {"entries": [_entry("__x", self.REACT_VITE, 2, reexported_as="definePreview"),
+                           _entry("__x", "vue3-vite/src/index.ts", 7, reexported_as="definePreview")]}
+        entries = [self._elsewhere(old=old, cited=cited, severity="Critical", resolved=[self.ANGULAR])]
+        _, plan = _records(entries, source_root=root, provenance=old, plan=True)
+        assert plan["reextract"] == {"entries": [], "files": [], "signatures": []}
+        records, _ = _records(entries, source_root=root, provenance=old)
+        [record] = records["verification"]
+        assert record["map_locations"] == [f"{self.REACT_VITE}:2", "vue3-vite/src/index.ts:7"]
+        doc, applied = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                        test_report_run_id="r", **BLOCK)
+        assert doc["entries"] == old["entries"]
+        [warning] = applied["warnings"]
+        assert "; the map holds it at react-vite/src/index.ts:2, vue3-vite/src/index.ts:7); its entries are left " \
+            f"unchanged, and nothing is re-extracted for it. {self.FIX}when an export moved, fix by " \
+            "hand whichever of those entries moved (" in warning
+
+    def test_a_placeholder_entry_of_the_name_routes_as_before(self, tmp_path: Path) -> None:
+        """A merge-records entry with no file holds the name nowhere: the gap is re-extracted, as before #824."""
+        root, remediation, cited = self._storybook(tmp_path)
+        old = {"entries": [{"export_name": "definePreview", "export_type": "function", "source_library": "lib",
+                            "confidence": "T1-low", "extraction_method": "source-read", "signature_source": "T1-low"}]}
+        entries = [self._elsewhere(old=old, cited=cited, severity="Critical", resolved=[self.ANGULAR])]
+        assert (entries[0]["map_match"]["status"], len(entries[0]["map_match"]["candidates"])) == ("not-found", 1)
+        _, plan = _records(entries, source_root=root, provenance=old, plan=True)
+        assert [e["gap_id"] for e in plan["reextract"]["entries"]] == ["GAP-002"]
+        records, _ = _records(entries, source_root=root, provenance=old, remediation=remediation,
+                              judgments={"GAP-002": {"docstring": None}})
+        [record] = records["verification"]
+        assert (record["verification"], record.get("citation_check"), record.get("map_locations")) == \
+            ("re-extracted", None, None)
+
+    def test_a_map_entry_with_a_file_and_no_line_holds_the_name_at_its_file(self, tmp_path: Path) -> None:
+        root, _, cited = self._storybook(tmp_path)
+        old = {"entries": [_entry("definePreview", self.REACT_VITE, None)]}
+        entries = [self._elsewhere(old=old, cited=cited, severity="Critical", resolved=[self.ANGULAR])]
+        _, plan = _records(entries, source_root=root, provenance=old, plan=True)
+        assert plan["reextract"] == {"entries": [], "files": [], "signatures": []}
+        records, _ = _records(entries, source_root=root, provenance=old)
+        [record] = records["verification"]
+        assert record["map_locations"] == [self.REACT_VITE]
+        _, applied = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                      test_report_run_id="r", **BLOCK)
+        [warning] = applied["warnings"]
+        assert "; the map holds it at react-vite/src/index.ts); its entry is left unchanged" in warning
+
+    def test_a_third_remediation_file_is_not_scanned_either(self, tmp_path: Path) -> None:
+        """Re-extraction reads the Remediation's resolved_paths, not the cited file: neither is scanned."""
+        root, _, cited = self._storybook(tmp_path)
+        old = {"entries": [_entry("definePreview", self.REACT_VITE, 2)]}
+        entries = [self._elsewhere(old=old, cited=cited, severity="Critical", resolved=["shared/src/preview.ts"])]
+        _, plan = _records(entries, source_root=root, provenance=old, plan=True)
+        assert plan["reextract"] == {"entries": [], "files": [], "signatures": []}
+
+    def test_a_check_that_read_nothing_says_how_to_read_it(self, tmp_path: Path) -> None:
+        """With no source tree nothing was read at the cited file, so the test's comparison is not in question."""
+        _, _, cited = self._storybook(tmp_path)
+        old = {"entries": [_entry("definePreview", self.REACT_VITE, 2)]}
+        entries = [self._elsewhere(old=old, cited=cited, severity="Critical", resolved=[self.ANGULAR])]
+        records, _ = _records(entries, source_root=None, provenance=old)
+        [record] = records["verification"]
+        assert (record["unknown_reason"], record["citation_check"]) == ("cited-elsewhere", "no-source-root")
+        _, applied = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                      test_report_run_id="r", **BLOCK)
+        [warning] = applied["warnings"]
+        assert warning.endswith("its entry is left unchanged, and nothing is re-extracted for it. Nothing was read at "
+                                "the cited file: give update-skill the source tree, then re-run update-skill")
+        assert "another file's declaration" not in warning
+
+    def test_the_drift_gate_counts_a_citation_of_another_file_as_held(self, tmp_path: Path) -> None:
+        root, _, cited = self._storybook(tmp_path)
+        held = {"entries": [_entry("definePreview", self.REACT_VITE, 2)]}
+        placeholder = {"entries": [{"export_name": "definePreview", "export_type": "function"}]}
+        entries = [self._elsewhere(old=held, cited=cited, severity="Critical"),
+                   {**self._elsewhere(old=placeholder, cited=cited, severity="Critical"), "gap_id": "GAP-003"}]
+        records, summary = _records(entries, source_root=root, provenance=held, drift_status="overridden", plan=True)
+        assert records is None and summary["status"] == "drift-blocked"
+        assert [(b["gap_id"], b["reason"]) for b in summary["drift_blocked"]] == [
+            ("GAP-002", mod.DRIFT_IN_MAP), ("GAP-003", mod.DRIFT_NOT_IN_MAP)]
+
+    def test_a_provenance_completeness_gap_citing_another_file_is_not_reextracted(self, tmp_path: Path) -> None:
+        """Rule R3's exception: the map holds the name at another file, so its provenance is not absent."""
+        root, remediation, cited = self._storybook(tmp_path)
+        old = {"entries": [_entry("definePreview", self.REACT_VITE, 2)]}
+        entries = [self._elsewhere(change="NEW_EXPORT", old=old, cited=cited, category="provenance-completeness",
+                                   severity="Info", provenance_completeness=True, resolved=[self.ANGULAR])]
+        _, plan = _records(entries, source_root=root, provenance=old, plan=True)
+        assert plan["reextract"] == {"entries": [], "files": [], "signatures": []}
+        records, _ = _records(entries, source_root=root, provenance=old, remediation=remediation)
+        [record] = records["verification"]
+        assert (record["verification"], record["unknown_reason"]) == ("unknown", "cited-elsewhere")
+
+    def test_a_gap_citing_a_file_when_the_map_lacks_its_name_is_still_reextracted(self, tmp_path: Path) -> None:
+        root, remediation, cited = self._storybook(tmp_path)
+        match = parse_gaps.map_match([], "definePreview", cited)
+        assert (match["status"], match["candidates"]) == ("not-found", [])
+        entries = [_gap_entry("GAP-002", "definePreview", "MODIFIED_EXPORT", severity="Critical", match=match,
+                              citation=cited, resolved=[self.ANGULAR])]
+        _, plan = _records(entries, source_root=root, plan=True)
+        assert ([e["gap_id"] for e in plan["reextract"]["entries"]], plan["reextract"]["files"]) == \
+            (["GAP-002"], [self.ANGULAR])
+        records, summary = _records(entries, source_root=root, remediation=remediation,
+                                    judgments={"GAP-002": {"docstring": None}})
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["in_map"], record["new_location"]) == \
+            ("re-extracted", False, f"{self.ANGULAR}:45")
+        doc, _ = mod.apply_update(update_type="gap-driven", provenance={"entries": []}, skill_name="lib",
+                                  records=records, test_report_run_id="r", **BLOCK)
+        [entry] = doc["entries"]
+        assert (entry["export_name"], entry["reexported_as"], entry["source_file"], entry["source_line"]) == \
+            ("__definePreview", "definePreview", self.ANGULAR, 45)
+
+    def test_a_gap_citing_the_maps_own_line_is_checked_there(self, tmp_path: Path) -> None:
+        root, _, _ = self._storybook(tmp_path)
+        old = {"entries": [_entry("definePreview", self.REACT_VITE, 2)]}
+        cited = {"file": self.REACT_VITE, "line": 2}
+        match = parse_gaps.map_match(old["entries"], "definePreview", cited)
+        assert match["status"] == "found"
+        entries = [_gap_entry("GAP-002", "definePreview", "MODIFIED_EXPORT", severity="Critical", match=match,
+                              citation=cited, resolved=[self.ANGULAR])]
+        _, plan = _records(entries, source_root=root, provenance=old, plan=True)
+        assert plan["reextract"] == {"entries": [], "files": [self.REACT_VITE], "signatures": [
+            {"gap_id": "GAP-002", "name": "definePreview", "file": self.REACT_VITE, "line": 2}]}
+        records, summary = _records(entries, source_root=root, provenance=old, remediation=_remediation(
+            (self.REACT_VITE, [("definePreview", 2, "ast-grep")])))
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["unknown_reason"], record["map_entry"], record["extraction_method"]) \
+            == ("verified", None, {"source_file": self.REACT_VITE, "source_line": 2}, "ast-grep")
+
     def test_the_records_carry_every_documented_field(self, tmp_path: Path) -> None:
         remediation = ("Set the provenance `source_line` of `search` in `pkg/api.py` to its definition line (5) "
                        "and move its citations to that line.")
@@ -3436,7 +3660,8 @@ class TestGapRecords:
         [record] = records["verification"]
         assert list(record) == ["gap_id", "export_name", "gap_category", "severity", "verification", "in_map",
                                 "map_entry", "provenance_citation", "source_citation", "new_location",
-                                "unknown_reason", "pinned_definition_lines", "resolution_source", "reachability",
+                                "unknown_reason", "citation_check", "map_locations", "pinned_definition_lines",
+                                "resolution_source", "reachability",
                                 "export_type", "params", "return_type", "extraction_method", "ast_node_type"]
         assert record["gap_id"] == "GAP-001"
         assert (record["in_map"], record["map_entry"], record["pinned_definition_lines"]) == \
