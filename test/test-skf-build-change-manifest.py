@@ -1946,13 +1946,61 @@ def _skill_metadata() -> dict:
                       "notes": "patched"},
             "confidence_distribution": {"t1": 9, "t1_low": 0, "t2": 0, "t3": 0},
             "assets": [{"file": "assets/gone.json", "purpose": "gone", "source_file": "gone.json"}],
+            "tool_versions": {"ast_grep": "0.40.0", "qmd": "2.0.1", "skf": "3.0.0"},
             "last_update": "2026-01-01", "update_type": "incremental"}
+
+
+def _kept_warning(key: str) -> str:
+    return f"metadata: stats.{key} kept from an earlier run; check it still describes this run's counts"
+
+
+def _helper_dropped(key: str) -> str:
+    return f"metadata: stats.{key} dropped: this run's stats helper did not write it"
+
+
+def _note_dropped(key: str) -> str:
+    return f"metadata: stats.{key} dropped: it explained an effective_denominator this run changed or removed"
+
+
+def _metadata_files(tmp_path: Path, metadata: dict | None = None) -> tuple:
+    """metadata.json, the lists and the stats a `metadata` call reads, and its argv."""
+    target, lists, stats_file = tmp_path / "metadata.json", tmp_path / "lists.json", tmp_path / "stats.json"
+    target.write_bytes(json.dumps(metadata or _skill_metadata()).encode("utf-8"))
+    lists.write_bytes(json.dumps(LISTS).encode("utf-8"))
+    stats_file.write_bytes(json.dumps(STATS_OUT).encode("utf-8"))
+    return target, ("metadata", "--metadata", str(target), "--lists", str(lists), "--stats", str(stats_file),
+                    "--version", "1.1.0", "--generation-date", "2026-10-01T10:00:00Z")
+
+
+def _tools_after(tmp_path: Path, extraction: object) -> subprocess.CompletedProcess:
+    """A `metadata` call with this --extraction, over a skill whose tool_versions name ast-grep 0.40.0."""
+    path = tmp_path / "extraction.json"
+    path.write_bytes(json.dumps(extraction).encode("utf-8"))
+    _, argv = _metadata_files(tmp_path)
+    return _run_cli(*argv, "--extraction", str(path))
+
+
+# the old stats #815 found: an explanation of an earlier denominator beside a component library's own count and
+# a note
+DENOMINATED = {"exports_documented": 9, "effective_denominator": 320,
+               "effective_denominator_source": "x", "reconciliation_note": "y",
+               "components_registered": 3, "notes": "patched"}
+
+
+def _recount(denominator: int | None, old: dict | None = None) -> tuple[dict, dict]:
+    """update_metadata over a component library's `old` stats (DENOMINATED), with this run's stats holding
+    `denominator` (None: no denominator)."""
+    stats = {**STATS_OUT["stats"], **({} if denominator is None else {"effective_denominator": denominator})}
+    return mod.update_metadata({**_skill_metadata(), "stats": DENOMINATED if old is None else old}, LISTS,
+                               {**STATS_OUT, "stats": stats}, version="1.1.0",
+                               generation_date="2026-10-01T10:00:00Z", skf_version="4.0.0")
 
 
 class TestUpdateMetadata:
     def test_it_sets_what_the_update_owns_and_keeps_the_rest(self) -> None:
-        out = mod.update_metadata(_skill_metadata(), LISTS, STATS_OUT, version="1.1.0",
-                                  generation_date="2026-10-01T10:00:00Z", source_commit="bbb")
+        out, summary = mod.update_metadata(_skill_metadata(), LISTS, STATS_OUT, version="1.1.0",
+                                           generation_date="2026-10-01T10:00:00Z", source_commit="bbb",
+                                           skf_version="4.0.0")
         assert out == {
             "name": "lib", "version": "1.1.0", "skill_type": "single", "scope_type": "component-library",
             "source_root": "https://github.com/o/lib", "source_commit": "bbb", "source_ref": "v1",
@@ -1962,13 +2010,174 @@ class TestUpdateMetadata:
             # effective_denominator this run's stats leave out is gone
             "stats": {**STATS_OUT["stats"], "components_registered": 3, "notes": "patched"},
             "confidence_distribution": STATS_OUT["confidence_distribution"],
+            # the running SKF, and the tools this run did not use as they stand
+            "tool_versions": {"ast_grep": "0.40.0", "qmd": "2.0.1", "skf": "4.0.0"},
             "scripts": LISTS["scripts"]}
         assert "last_update" not in out and "update_type" not in out and "assets" not in out
+        # create-skill writes a component library's own count, not a note
+        assert summary == {"dropped_stats": ["effective_denominator"],
+                           "warnings": [_helper_dropped("effective_denominator"), _kept_warning("notes")]}
 
     def test_an_empty_ref_clears_it_and_no_flag_keeps_it(self) -> None:
-        out = mod.update_metadata(_skill_metadata(), LISTS, STATS_OUT, version="1.0.0",
-                                  generation_date="2026-10-01T10:00:00Z", source_ref="")
+        out, _ = mod.update_metadata(_skill_metadata(), LISTS, STATS_OUT, version="1.0.0",
+                                     generation_date="2026-10-01T10:00:00Z", source_ref="")
         assert (out["source_commit"], out["source_ref"]) == ("aaa", None)
+
+    def test_the_cli_stamps_the_tool_versions_this_run_used(self, tmp_path: Path) -> None:
+        """#801: tool_versions named the toolchain of the run that created the skill, however many updates later."""
+        skf_root, extraction = tmp_path / "skf", tmp_path / "extraction.json"
+        skf_root.mkdir()
+        (skf_root / "package.json").write_bytes(json.dumps({"name": "skf", "version": "4.0.0"}).encode("utf-8"))
+        extraction.write_bytes(json.dumps({"status": "ok", "ast_grep": {"path": "/bin/ast-grep",
+                                                                        "version": "0.45.3"},
+                                           "exports": []}).encode("utf-8"))
+        target, argv = _metadata_files(tmp_path)
+        result = _run_cli(*argv, "--skf-root", str(skf_root), "--extraction", str(extraction))
+        assert result.returncode == 0, result.stderr
+        stamped = {"ast_grep": "0.45.3", "qmd": "2.0.1", "skf": "4.0.0"}
+        assert json.loads(target.read_bytes())["tool_versions"] == stamped
+        summary = json.loads(result.stdout)
+        assert summary["tool_versions"] == stamped
+        assert not [w for w in summary["warnings"] if "tool_versions" in w], summary["warnings"]
+
+    def test_an_skf_root_with_no_version_stamps_unknown_never_the_old_one(self, tmp_path: Path) -> None:
+        (tmp_path / "skf").mkdir()
+        target, argv = _metadata_files(tmp_path)
+        result = _run_cli(*argv, "--skf-root", str(tmp_path / "skf"))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(target.read_bytes())["tool_versions"]["skf"] == "unknown"
+        warning = json.loads(result.stdout)["warnings"][0]
+        # the folder it read, so the user can see which install holds no version
+        assert warning == mod._skf_unknown(tmp_path / "skf") and (tmp_path / "skf").as_posix() in warning
+
+    def test_no_skf_root_says_so(self, tmp_path: Path) -> None:
+        target, argv = _metadata_files(tmp_path)
+        result = _run_cli(*argv)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(target.read_bytes())["tool_versions"]["skf"] == "unknown"
+        assert json.loads(result.stdout)["warnings"][0] == mod.SKF_NO_ROOT
+        assert "no --skf-root was given" in mod.SKF_NO_ROOT and mod.SKF_NO_ROOT != mod._skf_unknown("x")
+
+    @pytest.mark.parametrize("ast_grep,qmd,expected", [
+        (None, "2.1.0", {"ast_grep": "0.40.0", "qmd": "2.1.0", "skf": "4.0.0"}),
+        ("0.45.3", None, {"ast_grep": "0.45.3", "qmd": "2.0.1", "skf": "4.0.0"}),
+        (" ", "", {"ast_grep": "0.40.0", "qmd": "2.0.1", "skf": "4.0.0"}),
+        (None, "qmd 2.1.0", {"ast_grep": "0.40.0", "qmd": "2.1.0", "skf": "4.0.0"}),
+    ], ids=["qmd-only", "ast-grep-only", "blank-keeps-old", "qmd-prefix-stripped"])
+    def test_a_tool_this_run_did_not_use_keeps_its_old_version(self, ast_grep, qmd, expected) -> None:
+        out, _ = mod.update_metadata(_skill_metadata(), LISTS, STATS_OUT, version="1.1.0",
+                                     generation_date="2026-10-01T10:00:00Z", skf_version="4.0.0",
+                                     ast_grep_version=ast_grep, qmd_version=qmd)
+        assert out["tool_versions"] == expected
+
+    def test_the_cli_stores_qmd_as_its_bare_version(self, tmp_path: Path) -> None:
+        target, argv = _metadata_files(tmp_path)
+        result = _run_cli(*argv, "--qmd-version", "qmd 2.1.0")
+        assert result.returncode == 0, result.stderr
+        assert json.loads(target.read_bytes())["tool_versions"]["qmd"] == "2.1.0"
+
+    @pytest.mark.parametrize("old,warned", [(None, False), ("3.0.0", True), (["skf"], True)],
+                             ids=["absent", "a-string", "an-array"])
+    def test_a_skill_with_no_tool_versions_object_starts_as_create_skill_does(self, old, warned) -> None:
+        metadata = {k: v for k, v in _skill_metadata().items() if k != "tool_versions"}
+        if old is not None:
+            metadata["tool_versions"] = old
+        out, summary = mod.update_metadata(metadata, LISTS, STATS_OUT, version="1.1.0",
+                                           generation_date="2026-10-01T10:00:00Z", skf_version="4.0.0",
+                                           qmd_version="2.0.1")
+        assert out["tool_versions"] == {"ast_grep": None, "qmd": "2.0.1", "skf": "4.0.0"}
+        replaced = [w for w in summary["warnings"] if w.startswith("metadata: tool_versions was ")]
+        assert len(replaced) == warned and all("not an object; replaced" in w for w in replaced)
+
+    def test_an_extraction_with_no_ast_grep_keeps_the_old_version(self, tmp_path: Path) -> None:
+        """What step 2 writes when the runner cannot run: ast-grep did not run, so its old version stands."""
+        result = _tools_after(tmp_path, {"exports": [], "scope": {"type": "public-api"}})
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["tool_versions"]["ast_grep"] == "0.40.0"
+
+    def test_an_extraction_ast_grep_matched_with_no_version_stamps_unknown(self, tmp_path: Path) -> None:
+        result = _tools_after(tmp_path, {"ast_grep": {"path": None, "version": None},
+                                         "exports": [{"name": "search", "extraction_method": "ast-grep"}]})
+        assert result.returncode == 0, result.stderr
+        summary = json.loads(result.stdout)
+        assert summary["tool_versions"]["ast_grep"] == "unknown" and mod.AST_GREP_UNKNOWN in summary["warnings"]
+
+    def test_an_extraction_that_is_not_an_object_is_refused(self, tmp_path: Path) -> None:
+        result = _tools_after(tmp_path, [])
+        assert result.returncode == 1 and result.stdout == ""
+        assert result.stderr.strip() == ("error: --extraction file must hold a JSON object (the recipe runner's "
+                                         "output)")
+        assert json.loads((tmp_path / "metadata.json").read_bytes()) == _skill_metadata()
+
+    @pytest.mark.parametrize("sibling", [None, b"def probe_skf_version(:\n", b"import skf_no_such_module\n"],
+                             ids=["missing", "syntax-error", "import-error"])
+    def test_a_probe_it_cannot_load_exits_1_with_one_line(self, tmp_path: Path, sibling) -> None:
+        scripts = tmp_path / "scripts"
+        scripts.mkdir()
+        shutil.copy(SCRIPT_PATH, scripts / SCRIPT_PATH.name)
+        if sibling is not None:
+            (scripts / "skf-render-quick-metadata.py").write_bytes(sibling)
+        target, argv = _metadata_files(tmp_path)
+        result = subprocess.run([sys.executable, str(scripts / SCRIPT_PATH.name), *argv, "--skf-root",
+                                 str(tmp_path)], capture_output=True, text=True, check=False)
+        assert result.returncode == 1 and result.stdout == ""
+        lines = result.stderr.splitlines()
+        assert len(lines) == 1 and lines[0].startswith("error: cannot load skf-render-quick-metadata.py beside "), \
+            result.stderr
+        assert "Traceback" not in result.stderr and "cannot write" not in result.stderr
+        assert json.loads(target.read_bytes()) == _skill_metadata()
+
+    def test_a_changed_denominator_drops_its_old_explanation_and_flags_the_rest(self) -> None:
+        """#815: a recount to 280 kept the explanation of the old 320 without a word."""
+        out, summary = _recount(280)
+        assert out["stats"] == {**STATS_OUT["stats"], "effective_denominator": 280, "reconciliation_note": "y",
+                                "components_registered": 3, "notes": "patched"}
+        assert summary == {"dropped_stats": ["effective_denominator_source"],
+                           "warnings": [_note_dropped("effective_denominator_source"),
+                                        _kept_warning("reconciliation_note"), _kept_warning("notes")]}
+
+    def test_a_dropped_denominator_drops_its_old_explanation(self) -> None:
+        out, summary = _recount(None)
+        assert "effective_denominator" not in out["stats"] and "effective_denominator_source" not in out["stats"]
+        assert summary == {"dropped_stats": ["effective_denominator", "effective_denominator_source"],
+                           "warnings": [_helper_dropped("effective_denominator"),
+                                        _note_dropped("effective_denominator_source"),
+                                        _kept_warning("reconciliation_note"), _kept_warning("notes")]}
+
+    def test_an_added_denominator_drops_an_explanation_of_none(self) -> None:
+        old = {k: v for k, v in DENOMINATED.items() if k != "effective_denominator"}
+        out, summary = _recount(280, old)
+        assert out["stats"]["effective_denominator"] == 280 and "effective_denominator_source" not in out["stats"]
+        assert summary["dropped_stats"] == ["effective_denominator_source"]
+        assert _note_dropped("effective_denominator_source") in summary["warnings"]
+
+    def test_an_unchanged_denominator_keeps_its_explanation_silently(self) -> None:
+        out, summary = _recount(320)
+        assert out["stats"]["effective_denominator_source"] == "x"
+        assert summary == {"dropped_stats": [], "warnings": [_kept_warning("reconciliation_note"),
+                                                             _kept_warning("notes")]}
+
+    def test_an_explanation_with_no_denominator_on_either_side_is_flagged(self) -> None:
+        old = {k: v for k, v in DENOMINATED.items() if k != "effective_denominator"}
+        out, summary = _recount(None, old)
+        assert out["stats"]["effective_denominator_source"] == "x" and summary["dropped_stats"] == []
+        assert _kept_warning("effective_denominator_source") in summary["warnings"]
+
+    @pytest.mark.parametrize("scope_type,warned", [
+        ("component-library", ["notes"]),
+        ("reference-app", ["components_registered"]),
+        ("full-library", ["components_registered", "notes"]),
+        (None, ["components_registered", "notes"]),
+    ], ids=["component-library", "reference-app", "library", "no-scope-type"])
+    def test_the_keys_create_skill_writes_follow_the_scope_type(self, scope_type, warned) -> None:
+        """create-skill writes a component library's own counts and a reference app's notes, each only for its
+        scope: a library skill's patched notes or component count warns."""
+        metadata = {**_skill_metadata(), "scope_type": scope_type,
+                    "stats": {"components_registered": 3, "notes": "patched"}}
+        out, summary = mod.update_metadata(metadata, LISTS, STATS_OUT, version="1.1.0",
+                                           generation_date="2026-10-01T10:00:00Z", skf_version="4.0.0")
+        assert out["stats"] == {**STATS_OUT["stats"], "components_registered": 3, "notes": "patched"}
+        assert summary == {"dropped_stats": [], "warnings": [_kept_warning(key) for key in warned]}
 
     @pytest.mark.parametrize("change,needle", [
         ({"stats": {**STATS_OUT, "stats": {**STATS_OUT["stats"], "scripts_count": 0}}},
@@ -2002,8 +2211,26 @@ class TestUpdateMetadata:
         result = _run_cli(*argv)
         assert result.returncode == 0, result.stderr
         assert json.loads(result.stdout) == {"status": "written", "metadata": target.as_posix(), "version": "1.1.0",
-                                             "exports": 2, "scripts": 1, "assets": 0}
+                                             "exports": 2, "scripts": 1, "assets": 0,
+                                             "tool_versions": {"ast_grep": "0.40.0", "qmd": "2.0.1",
+                                                               "skf": "unknown"},
+                                             "dropped_stats": ["effective_denominator"],
+                                             "warnings": [mod.SKF_NO_ROOT, _helper_dropped("effective_denominator"),
+                                                          _kept_warning("notes")]}
         assert json.loads(target.read_bytes())["source_commit"] == "bbb"
+
+
+def test_the_component_library_exemption_is_create_skills_block() -> None:
+    """The component-library keys the `metadata` call keeps silently are the ones compile-assembly-rules.md tells
+    create-skill to add, so the two cannot drift apart."""
+    rules = (REPO_ROOT / "src" / "skf-create-skill" / "assets" / "compile-assembly-rules.md").read_text(
+        encoding="utf-8")
+    block = rules[rules.index("Component Library stats:**"):]
+    block = block[block.index("```json") + len("```json"):]
+    block = json.loads(block[:block.index("```")])
+    assert set(block["stats"]) == set(mod.STATS_CREATE_FIELDS["component-library"])
+    assert len(mod.STATS_CREATE_FIELDS["component-library"]) == len(block["stats"])
+    assert mod.STATS_CREATE_FIELDS["reference-app"] == ("notes",)
 
 
 def test_write_sets_metadata_through_the_helper() -> None:
@@ -2019,8 +2246,40 @@ def test_write_sets_metadata_through_the_helper() -> None:
     meta = meta[:meta.index("```")]
     for flag in ('--metadata "{skill_package}/metadata.json"', '--lists "{run_dir}/metadata-lists.json"',
                  '--stats "{run_dir}/stats.json"', '--version "{new_version}"',
-                 '--generation-date "{generation_date}"'):
+                 '--generation-date "{generation_date}"',
+                 # #801: the toolchain this run used, the installed SKF's version always
+                 '\n      --skf-root "{project-root}/_bmad/skf" \\\n',
+                 '[--extraction "{run_dir}/extraction.json"]', '[--qmd-version "{qmd_version}"]'):
         assert flag in meta, flag
+    after = two[two.index("uv run {buildChangeManifestHelper} metadata"):]
+    after = after[after.index("```") + 3:after.index("On exit 1, fix the input its stderr names")]
+    for token in ("Pass `--extraction` when step 2 wrote `{run_dir}/extraction.json`",
+                  "and `--qmd-version` when re-extract.md §3 queried QMD and bound `{qmd_version}`",
+                  "a tool this run did not use keeps the version metadata.json records",
+                  "`dropped_stats` lists each key it drops, a stats helper field this run's stats left out included",
+                  "On exit 0, add each of its `warnings` to `warnings[]`",
+                  "Leave out only a warning that a stats key was `kept from an earlier run` when this run's "
+                  "`metadata_patches[]` wrote that key; a dropped key's warning always goes to `warnings[]`"):
+        assert token in after, token
+    # #815: a patch adds no explanatory stat the next recount would leave standing beside another count, in write,
+    # in merge's Priority 8b, which queues it, and in gap-driven's rule R4, which routes it
+    assert "add an explanatory stat" not in two
+    assert "Log each patch the call overwrites, drops (its `dropped_stats`) or you leave out" in two
+    priority_8b = (UPDATE_REFS / "merge.md").read_text(encoding="utf-8")
+    priority_8b = priority_8b[priority_8b.index("**Priority 8b:"):]
+    priority_8b = priority_8b[:priority_8b.index("**If no metadata-update entries:**")]
+    assert "explanatory stat" not in priority_8b and "`metadata_patches[]`" in priority_8b
+    gap = (UPDATE_REFS / "gap-driven.md").read_text(encoding="utf-8")
+    r4 = gap[gap.index("- **R4: metadata update.**"):]
+    r4 = r4[:r4.index("\n")]
+    assert "explanatory stat" not in r4
+    assert ("Add no `effective_denominator_*` stats key: the recount drops each one when the denominator changes."
+            in r4)
+    # #801: the QMD version write passes has a source
+    reextract = (UPDATE_REFS / "re-extract.md").read_text(encoding="utf-8")
+    qmd = reextract[reextract.index("### 3. Deep Tier QMD Enrichment"):reextract.index("### 4. ")]
+    assert "bind `{qmd_version}` ← the version `qmd --version` prints (`qmd 2.0.1` gives `2.0.1`)" in qmd
+    assert qmd.index("bind `{qmd_version}`") < qmd.index("**If no matching collection found in registry:**")
     assert two.count('-o "{run_dir}/stats.json"') == 2
     for gone in ("Update `exports` array to reflect current export list", "add no name whose record",
                  "Set `exports` to the list", "into `metadata.json` **verbatim**", "Update `generation_date`",
@@ -2032,6 +2291,16 @@ def test_write_sets_metadata_through_the_helper() -> None:
     merge = (UPDATE_REFS / "merge.md").read_text(encoding="utf-8")
     assert "`metadata.json` `scripts[]`/`assets[]`" not in merge
     assert "and `stats.scripts_count`/`stats.assets_count`" not in merge
+
+
+def test_test_skill_claims_no_denominator_source_create_skill_never_writes() -> None:
+    """#815: create-skill writes no stats.effective_denominator_source, so test-skill's fold convention stands on its
+    own."""
+    protocol = (REPO_ROOT / "src" / "skf-test-skill" / "references" / "source-access-protocol.md").read_text(
+        encoding="utf-8")
+    assert "effective_denominator_source" not in protocol
+    assert ("Test-skill defines this fold convention: the base form is authoritative, and the variant is a sibling "
+            "record." in protocol)
 
 
 TRACE = "cognee/modules/observability/trace_context.py"

@@ -2886,14 +2886,27 @@ def test_write_writes_metadata_json_through_its_documented_calls(tmp_path, monke
     monkeypatch.setattr(sys, "stdin", io.StringIO(payload))
     assert stats.main(argv) == 0, capsys.readouterr()
     meta_call = _fence(two, "uv run {buildChangeManifestHelper} metadata")
+    # the installed SKF and step 2's runner output name the toolchain this run used (#801)
+    (tmp_path / "_bmad" / "skf").mkdir(parents=True)
+    (tmp_path / "_bmad" / "skf" / "package.json").write_bytes(b'{"version": "4.0.0"}')
+    (run_dir / "extraction.json").write_bytes(b'{"ast_grep": {"path": "ast-grep", "version": "0.45.3"}, "exports": []}')
+    values.update({"project-root": str(tmp_path), "qmd_version": "2.0.1"})
     code, out = _run_script(BUILD_MANIFEST, _argv_with(meta_call, "buildChangeManifestHelper", values,
-                                                       keep=("--source-commit",)))
+                                                       keep=("--source-commit", "--extraction", "--qmd-version")))
+    tools = {"ast_grep": "0.45.3", "qmd": "2.0.1", "skf": "4.0.0"}
     assert code == 0 and out == {"status": "written", "metadata": (skill_package / "metadata.json").as_posix(),
-                                 "version": "1.1.0", "exports": 1, "scripts": 2, "assets": 0}, out
+                                 "version": "1.1.0", "exports": 1, "scripts": 2, "assets": 0, "tool_versions": tools,
+                                 "dropped_stats": ["effective_denominator"],
+                                 "warnings": ["metadata: stats.effective_denominator dropped: this run's stats helper "
+                                              "did not write it",
+                                              # create-skill writes no notes for a component library
+                                              "metadata: stats.notes kept from an earlier run; check it still "
+                                              "describes this run's counts"]}, out
     written = json.loads((skill_package / "metadata.json").read_bytes())
     assert (written["version"], written["generation_date"], written["source_commit"], written["source_ref"]) == \
         ("1.1.0", "2026-10-01T10:00:00Z", "bbb", "v1")
     assert written["scripts"] == [kept_row, new_row] and "last_update" not in written and "update_type" not in written
+    assert written["tool_versions"] == tools
     assert written["stats"]["components_registered"] == 1 and written["stats"]["notes"] == "patched"
     assert written["stats"]["scripts_count"] == 2 and "effective_denominator" not in written["stats"]
     check = subprocess.run([sys.executable, str(STATS_HELPER), str(forge_version / "provenance-map.json"), "--check",
@@ -3029,7 +3042,7 @@ def test_update_bookkeeping_has_one_home():
     # a copy an older SKF version left in metadata.json goes, or it keeps an earlier update's date: the `metadata`
     # call removes it (v4.0.0 quality gate run 1, skf-update-skill determinism-1)
     assert "the `metadata` call removes either key an older SKF version left in metadata.json" in generation
-    kept = _module(BUILD_MANIFEST, "skf_build_change_manifest_bookkeeping_prose").update_metadata(
+    kept, _ = _module(BUILD_MANIFEST, "skf_build_change_manifest_bookkeeping_prose").update_metadata(
         {"last_update": "2026-01-01", "update_type": "incremental", "exports": []},
         {"exports": [], "scripts": [], "assets": []},
         {"stats": {"scripts_count": 0, "assets_count": 0}, "confidence_distribution": {}},

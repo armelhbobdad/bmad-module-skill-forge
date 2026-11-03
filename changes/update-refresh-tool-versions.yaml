@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Update Skill now records in `metadata.json` `tool_versions` the toolchain that last wrote the skill, as Create Skill does: `skf` names the installed SKF version (`unknown`, with a warning, when it cannot be read), and `ast_grep` and `qmd` name the versions this update ran. A tool the update did not use keeps the version recorded before. Until now every update kept the versions of the run that created the skill, so a skill an SKF 4.0.0 update rewrote still named SKF 3.0.0.
+issues: [801]
