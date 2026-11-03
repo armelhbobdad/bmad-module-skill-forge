@@ -89,6 +89,14 @@ compareDocHashesProbeOrder:
 validateOutputProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py'
   - '{project-root}/src/shared/scripts/skf-validate-output.py'
+# Resolve `{shardBodyHelper}` to the first existing path. §7 splits an
+# oversized body with it when skill-check reports `body.max_lines` or
+# `body.max_tokens`. If neither exists, §7 falls back to `skill-check
+# split-body` for `body.max_lines` when SKILL.md holds no [MANUAL] block,
+# and otherwise splits nothing and records a WARN.
+shardBodyProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-shard-body.py'
+  - '{project-root}/src/shared/scripts/skf-shard-body.py'
 # `{extractPublicApiHelper}`: §2's public API counts, the runner's or those
 # `{entryPointsByHandData}` has it make; if neither exists, §2 halts.
 extractPublicApiProbeOrder:
@@ -135,7 +143,7 @@ A `Write` or `Edit` call in §2 to §5 that errors (permission denied, disk full
 
 ### 0. Description Guard Protocol
 
-**Used by:** §7 (`skill-check check --fix` and `skill-check split-body --write`).
+**Used by:** §7 (`skill-check check --fix`, the `{shardBodyHelper}` body split and `skill-check split-body --write`).
 
 The deterministic phases are executed via `{descriptionGuardHelper}`: §7 invokes the helper at the capture and verify-restore points around every `skill-check` call.
 
@@ -324,6 +332,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 ### Validation Summary
 - Spec compliance: {PASS/WARN/FAIL/SKIP} (quality score {score}/100)
+- Body split: {each section §7 moved and the references/ file it added, or none}
 - [MANUAL] integrity: {PASS/FAIL}
 - Confidence tiers: {PASS/WARN}
 - Provenance: {PASS/WARN}
@@ -344,7 +353,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **Scope and Targeted Re-Extraction population:** read `{run_dir}/evidence-records.jsonl`, where step 2 (§1b, §1c and §2.2) and gap-driven.md §4 appended their records, one JSON line each. Write each record under its key as it was recorded, and `none` for a key no line holds (or when the file does not exist), so a headless decision such as a deletion-ratio continue stays visible after the run.
 
-**Validation Summary population:** §4 writes `[MANUAL] integrity` from §1's `manual-verify` verdict (`PASS` when `ok`) and `Confidence tiers` from §2 (`PASS` when the stats helper reported no label violation, else `WARN` naming `{provenance_relabels}`), with placeholders for the rest. §6 fills `Provenance`, and §7 fills `Spec compliance`, `Diff` and `Security`, each in the on-disk report, as §5 fills the Context Snippet sub-block.
+**Validation Summary population:** §4 writes `[MANUAL] integrity` from §1's `manual-verify` verdict (`PASS` when `ok`) and `Confidence tiers` from §2 (`PASS` when the stats helper reported no label violation, else `WARN` naming `{provenance_relabels}`), with placeholders for the rest. §6 fills `Provenance`, and §7 fills `Spec compliance`, `Diff` and `Security`, and `Body split` (`none` when no split ran), each in the on-disk report, as §5 fills the Context Snippet sub-block.
 
 **Description Guard population** (used by §7 Post-Write Validation when the §0 protocol fires): fill all four fields from context when `description_guard_restored == true` (triggering tool, whether restore succeeded, and what changed, based on the recorded `description_guard_diff_kind`). When `Restored: false`, the other three fields are `—` — this is the clean-run expected state — except when `description_guard_refused == "empty-capture"` (§0's empty-snapshot rule): then set `Triggering tool` to the recorded tool name, `Original description preserved: false`, and `Notes: guard refused — empty captured snapshot (empty-capture)`, so a refused restore is distinguishable from a run where the guard never fired. Same field semantics and populator logic as create-skill step 6 §8.
 
@@ -431,16 +440,16 @@ Map the re-run's `status` to the `Provenance:` line of the §4 evidence report's
 
 ### 7. Run Post-Write Validation
 
-skill-check runs once per update, here, against the written package. Check that it is available, never assume it: run `npx skill-check -h`.
+skill-check runs once per update, here, against the written package, and once more after a body split (below) to read the score the split left. Check that it is available, never assume it: run `npx skill-check -h`.
 
-**Description Guard Protocol:** every invocation below that may modify SKILL.md (`skill-check check --fix` and any `split-body` write) must run inside the four-phase guard defined in §0. Invoke `{descriptionGuardHelper}` at the capture and verify-restore points around each call:
+**Description Guard Protocol:** every invocation below that may modify SKILL.md (`skill-check check --fix`, the `{shardBodyHelper}` body split and any `split-body` write) must run inside the four-phase guard defined in §0. Invoke `{descriptionGuardHelper}` at the capture and verify-restore points around each call:
 
 ```bash
 # Phase 1: capture before any frontmatter-touching tool call
 uv run {descriptionGuardHelper} capture "{skill_package}/SKILL.md"
 # stash returned `description` as `guarded_description`
 
-# Phase 2: run the tool (skill-check --fix, split-body --write)
+# Phase 2: run the tool (skill-check --fix, the body split, split-body --write)
 
 # Phases 3+4: verify and restore after the tool call
 uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" \
@@ -453,7 +462,14 @@ Do not rely on per-call ad-hoc preservation logic: use the helper.
 
 - Run `npx skill-check check "{skill_package}" --fix --format json` **inside the §0 guard**. One call validates the package against the spec, scores it, fixes what has one answer and runs the security scan (on unless `--no-security-scan` is passed). Read the JSON, not the exit code: the quality score (`scores[].score`, the entry matching the skill, or a top-level `qualityScore` on an older skill-check), the remaining `diagnostics[]`, `fixed[]` and the security findings. When the scan could not run (no `SNYK_TOKEN`), record `Security: SKIP (SNYK_TOKEN not configured)`.
 - **Context sync after --fix:** if `fixed[]` is non-empty, re-read the SKILL.md `--fix` changed into the in-context copy, so the report does not work from a copy that differs from the file on disk. The §0 guard has already restored `description` if it diverged.
-- If `body.max_lines` is reported, prefer a selective split: extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). **Never move a section that holds a `[MANUAL]` block:** init.md §5 inventories SKILL.md only, so a block moved to `references/` would leave the next update's inventory. Fall back to `npx skill-check split-body "{skill_package}" --write`, **inside the §0 guard** (it can also touch frontmatter), only when SKILL.md holds no `[MANUAL]` block (§1's verdict lists none): it moves every section. Verify anchors resolve after a split.
+- If `body.max_lines` or `body.max_tokens` is reported, split the body selectively with `{shardBodyHelper}` (resolve it ← first existing path in `{shardBodyProbeOrder}`), **inside the §0 guard**: from `{project-root}`, run `uv run {shardBodyHelper} "{skill_package}/SKILL.md" --budget 400 --word-budget 4500 --skip-manual`, with `--budget 500` in place of `--budget 400` when only `body.max_tokens` is reported. It moves the largest Tier 2 (`## Full`) sections to `references/`, each replaced by a `> See` pointer to a file it never overwrites, until the body is within that many lines and 4,500 words, the same headroom under skill-check's 5,000 that 400 lines leave under its 500, and keeps Tier 1 inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). **Never move a section that holds a `[MANUAL]` block:** init.md §5 inventories SKILL.md only, so a block moved to `references/` would leave the next update's inventory; `--skip-manual` keeps the helper off every section a block reaches into. No Tier 1 content is trimmed, and `split-body` never runs after the helper. Add each WARN below to `warnings[]` as well. Act on its report:
+  - **Exit 1 or 2, or no JSON:** HALT with status `blocked` (halt procedure: `phase: "write:body-split"`, `path: "{skill_package}/SKILL.md"`, `reason: "body split failed: {its stderr line}"`). On exit 2 that line ends `already written: {each references/*.md file it wrote before the failure, or none}`: name each of those files in the halt message.
+  - **`tier1_preserved` false (it then wrote nothing) or `xref_ok` false:** HALT with status `blocked` (halt procedure: `phase: "write:body-split"`, `path: "{skill_package}/SKILL.md"`, `reason: "body split: tier1_missing {tier1_missing}; xref_ok {xref_ok}"`).
+  - **`under_budget` false:** record `Spec compliance: WARN (body.max_lines: no Tier 2 section without a [MANUAL] block left to move)`.
+  - **`under_word_budget` false:** record `Spec compliance: WARN (body.max_tokens: no Tier 2 section without a [MANUAL] block left to move)`.
+  - **No `{shardBodyProbeOrder}` candidate resolves:** when `body.max_lines` is reported and SKILL.md holds no `[MANUAL]` block (§1's verdict lists none), fall back to `npx skill-check split-body "{skill_package}" --write`, **inside the §0 guard** (it can also touch frontmatter): it moves every section. When `body.max_lines` is reported and SKILL.md holds a `[MANUAL]` block, split nothing and record `Spec compliance: WARN (body.max_lines: skf-shard-body.py missing)`; when only `body.max_tokens` is reported, split nothing and record `Spec compliance: WARN (body.max_tokens: skf-shard-body.py missing)`.
+
+  After a split (the helper's `sections_extracted` is not empty, or the fallback ran), re-read SKILL.md and each new `references/*.md` file into the in-context copy, as after `--fix`; re-run `npx skill-check check "{skill_package}" --format json --no-security-scan` and take the quality score and the remaining `diagnostics[]` from it; list in the Validation Summary's `Body split` row each section moved and the `references/` file it added; and verify anchors resolve.
 - When a previous version is on disk (outside gap-driven mode), run `npx skill-check diff "{skill_group}/{baseline_version}/{skill_name}" "{skill_package}"` and record its new and fixed issues as informational; otherwise record `Diff: SKIP`.
 
 **Re-check the [MANUAL] blocks** once `--fix` and any split have run, from `{project-root}`:

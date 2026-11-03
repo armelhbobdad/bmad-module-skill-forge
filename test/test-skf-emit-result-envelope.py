@@ -1351,6 +1351,24 @@ def test_cli_update_halt_carries_the_wrapper_and_the_sink(tmp_path):
     assert _cli("validate", "--workflow", "skf-update-skill", payload=env).returncode == 0
 
 
+def test_cli_update_line_names_the_references_it_wrote():
+    """A merge or body split that wrote references/*.md files reports them as one `references` value: the
+    emitter takes the payload instead of refusing it (#799)."""
+    payload = {"status": "success", "skill_name": "demo", "version": "1.0.1", "previous_version": "1.0.0",
+               "update_mode": "gap-driven", "files_written": ["SKILL.md", "references", "metadata.json"],
+               "error": None}
+    proc = _cli("emit", "--workflow", "skf-update-skill", payload=payload)
+    assert proc.returncode == 0, proc.stderr
+    [line] = proc.stdout.splitlines()
+    env = json.loads(line[len("SKF_UPDATE_RESULT_JSON: "):])
+    assert env["skf_update"]["files_written"] == ["SKILL.md", "references", "metadata.json"]
+    assert _cli("validate", "--workflow", "skf-update-skill", payload=env).returncode == 0
+    # a value the enum does not hold is still refused
+    proc = _cli("emit", "--workflow", "skf-update-skill",
+                payload={**payload, "files_written": ["SKILL.md", "references/api.md"]})
+    assert proc.returncode == 1 and "references/api.md" in proc.stderr
+
+
 # str.splitlines() breaks a line at each of these, and json.dumps leaves them
 # raw when it keeps non-ASCII text.
 LINE_BREAKS = "one\u2028two\x85three\u2029four"

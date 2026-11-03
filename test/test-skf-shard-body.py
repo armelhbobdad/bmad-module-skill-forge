@@ -14,6 +14,14 @@ surgery in skf-create-skill's step-auto-shard.md §1–§5 and validate.md §4:
   - --dry-run reports the same plan with no filesystem mutation
   - the Tier-1 preservation guard flags a pulled Tier-1 heading
   - frontmatter is never modified; writes route through skf-atomic-write.py
+  - --word-budget splits on body words as well (update-skill's measure for
+    skill-check's body.max_tokens), counted as JavaScript's /\s+/ splits;
+    whichever budget is exceeded picks the next section; a body with no
+    section left to move reports under_word_budget:false
+  - --skip-manual keeps every section a [MANUAL] block reaches into, a block
+    spanning sections and a marker split across lines included
+  - a reference file is never overwritten: a `-2`, `-3` suffix, in document
+    order, and the pointer names it; a failed write names what was written
 """
 
 from __future__ import annotations
@@ -287,6 +295,360 @@ class TestTier1Guard:
             if h in tier1_before and h not in tier1_after
         ]
         assert missing == []
+
+
+# --------------------------------------------------------------------------
+# (5) The word budget and the [MANUAL] guard (update-skill write.md §7 runs
+#     the split on skill-check's body.max_tokens warning as well, #797)
+# --------------------------------------------------------------------------
+
+
+def _wordy(heading: str, lines: int, words: int) -> str:
+    """`## <heading>` plus `lines` filler lines of `words` words each."""
+    filler = "\n".join(" ".join(f"w{i}x{j}" for j in range(words)) for i in range(lines))
+    return f"## {heading}\n{filler}\n"
+
+
+def _manual(heading: str, lines: int, words: int) -> str:
+    """A `## <heading>` section whose filler sits inside a [MANUAL] block."""
+    head, filler = _wordy(heading, lines, words).split("\n", 1)
+    return f"{head}\n<!-- [MANUAL:notes] -->\n{filler}<!-- [/MANUAL:notes] -->\n"
+
+
+WORD_FLAGS = ("--budget", "500", "--word-budget", "5000", "--skip-manual")
+
+
+class TestWordBudget:
+    def _build(self, tmp_path: Path) -> Path:
+        # About 320 lines (under the 500-line budget) and about 5,600 words.
+        # The [MANUAL] section is the largest, so without the guard it would
+        # move first and the API reference would stay.
+        body = (
+            _wordy("Overview", 20, 10)
+            + _wordy("Quick Start", 20, 10)
+            + _wordy("Key API Summary", 20, 10)
+            + _wordy("Full API Reference", 100, 12)
+            + _manual("Full Integration Notes", 150, 25)
+        )
+        return _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+
+    def test_only_the_section_without_manual_moves(self, tmp_path: Path) -> None:
+        skill_md = self._build(tmp_path)
+        body = skill_md.read_text(encoding="utf-8").split("---\n", 2)[2]
+        assert len(body.splitlines()) < 500
+
+        result = _run(skill_md, *WORD_FLAGS)
+
+        assert result["action"] == "shard"
+        # words as skill-check counts them: whitespace-split
+        assert result["body_words_before"] == len(body.split()) > 5000
+        assert result["body_words_after"] <= 5000
+        assert result["under_word_budget"] is True
+        assert result["under_budget"] is True
+        assert [s["heading"] for s in result["sections_extracted"]] == ["Full API Reference"]
+        assert result["tier1_preserved"] is True and result["xref_ok"] is True
+        rewritten = skill_md.read_text(encoding="utf-8")
+        assert "> See [Full API Reference](references/full-api-reference.md)" in rewritten
+        # the [MANUAL] block stays inline, whole
+        assert "## Full Integration Notes\n<!-- [MANUAL:notes] -->\n" in rewritten
+        assert "<!-- [/MANUAL:notes] -->" in rewritten
+        assert not (skill_md.parent / "references" / "full-integration-notes.md").exists()
+        assert result["body_words_after"] == len(rewritten.split("---\n", 2)[2].split())
+
+    def test_without_the_guard_the_manual_section_would_move(self, tmp_path: Path) -> None:
+        # the fixture above is a real test of --skip-manual: largest-first
+        # alone takes the [MANUAL] section and stops
+        skill_md = self._build(tmp_path)
+        result = _run(skill_md, "--budget", "500", "--word-budget", "5000", "--dry-run")
+        assert [s["heading"] for s in result["sections_extracted"]] == ["Full Integration Notes"]
+
+    def test_nothing_to_move_reports_over_the_word_budget(self, tmp_path: Path) -> None:
+        # Tier 1 alone runs past 5,000 words and there is no `## Full` section
+        body = _wordy("Overview", 100, 30) + _wordy("Quick Start", 100, 30)
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+        before = skill_md.read_text(encoding="utf-8")
+
+        result = _run(skill_md, *WORD_FLAGS)
+
+        assert result["action"] == "shard"
+        assert result["sections_extracted"] == []
+        assert result["under_word_budget"] is False
+        assert result["body_words_after"] == result["body_words_before"] > 5000
+        assert skill_md.read_text(encoding="utf-8") == before
+        assert not (skill_md.parent / "references").exists()
+
+    def test_only_manual_sections_left_reports_over_the_word_budget(self, tmp_path: Path) -> None:
+        body = _wordy("Overview", 10, 10) + _manual("Full API Reference", 200, 30)
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+        before = skill_md.read_text(encoding="utf-8")
+
+        result = _run(skill_md, *WORD_FLAGS)
+
+        assert result["sections_extracted"] == []
+        assert result["under_word_budget"] is False
+        assert skill_md.read_text(encoding="utf-8") == before
+
+    def test_within_both_budgets_skips(self, tmp_path: Path) -> None:
+        body = _wordy("Overview", 10, 10) + _wordy("Full API Reference", 40, 10)
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+
+        result = _run(skill_md, *WORD_FLAGS)
+
+        assert result["action"] == "skip"
+        assert result["under_word_budget"] is True
+        assert result["body_words_before"] == result["body_words_after"]
+
+    def test_word_budget_off_by_default(self, tmp_path: Path) -> None:
+        # without --word-budget only lines count: create-skill's calls are unchanged
+        body = _wordy("Overview", 10, 10) + _wordy("Full API Reference", 40, 200)
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+
+        result = _run(skill_md, "--budget", "400")
+
+        assert result["action"] == "skip"
+        assert result["body_words_before"] > 5000
+        assert result["under_word_budget"] is True
+
+    def test_holds_manual_reads_open_and_close_markers(self) -> None:
+        body = ["## Full A", "x", "## Full B", "<!--  [MANUAL:n] -->", "## Full C", "<!-- [/MANUAL:n] -->"]
+        secs = mod.find_full_sections(body)
+        assert [mod.holds_manual(body, s) for s in secs] == [False, True, True]
+
+    def test_new_keys_reach_the_output_file(self, tmp_path: Path) -> None:
+        skill_md = self._build(tmp_path)
+        out = tmp_path / "report.json"
+        proc = subprocess.run(
+            [sys.executable, str(SCRIPT_PATH), str(skill_md), "--budget", "400", "--word-budget", "4500",
+             "--skip-manual", "-o", str(out)],
+            capture_output=True, text=True,
+        )
+        assert proc.returncode == 0 and proc.stdout == "", proc.stderr
+        report = json.loads(out.read_text(encoding="utf-8"))
+        assert report["word_budget"] == 4500 and report["budget"] == 400
+        assert report["body_words_before"] > 4500 >= report["body_words_after"]
+        assert report["under_word_budget"] is True
+        # off by default, and echoed as 0 on the skip path too
+        small = _write(tmp_path / "small" / "SKILL.md", FRONTMATTER + "\n" + _wordy("Overview", 3, 3))
+        assert _run(small)["word_budget"] == 0
+
+
+# --------------------------------------------------------------------------
+# (6) The [MANUAL] guard reads whole blocks over the whole body
+# --------------------------------------------------------------------------
+
+
+HASH_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-hash-content.py"
+
+
+def _hash_blocks(text: str) -> list[dict]:
+    hspec = importlib.util.spec_from_file_location("skf_hash_content", HASH_PATH)
+    hmod = importlib.util.module_from_spec(hspec)
+    assert hspec.loader is not None
+    hspec.loader.exec_module(hmod)
+    return hmod.find_manual_blocks(text.encode("utf-8"))
+
+
+class TestManualGuard:
+    def test_a_block_spanning_sections_stays(self, tmp_path: Path) -> None:
+        # the block opens in Overview and closes inside the second `## Full`
+        # section: the first `## Full` section holds no marker but sits
+        # inside the block, so neither moves; the third is free
+        body = (
+            _wordy("Overview", 5, 5).rstrip("\n") + "\n<!-- [MANUAL:span] -->\n"
+            + _wordy("Full API Reference", 300, 3)
+            + "## Full Integration Notes\n<!-- [/MANUAL:span] -->\n" + _wordy("x", 150, 3).split("\n", 1)[1]
+            + _wordy("Full Extra", 100, 3)
+        )
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+        assert len(_hash_blocks(body)) == 1
+
+        result = _run(skill_md, "--budget", "400", "--skip-manual")
+
+        assert [s["heading"] for s in result["sections_extracted"]] == ["Full Extra"]
+        assert result["under_budget"] is False
+        rewritten = skill_md.read_text(encoding="utf-8")
+        assert len(_hash_blocks(rewritten)) == 1
+        assert _hash_blocks(rewritten)[0]["content_hash"] == _hash_blocks(body)[0]["content_hash"]
+
+    def test_a_marker_split_across_lines_is_found(self, tmp_path: Path) -> None:
+        # skf-hash-content.py reads `<!--` / `[MANUAL:notes]` / `-->` on three
+        # lines as one marker, so the largest section must stay
+        manual = (
+            "## Full API Reference\n<!--\n[MANUAL:notes]\n-->\n" + _wordy("x", 300, 3).split("\n", 1)[1]
+            + "<!-- [/MANUAL:notes]\n-->\n"
+        )
+        body = _wordy("Overview", 5, 5) + manual + _wordy("Full Type Definitions", 150, 3)
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+        assert [b["name"] for b in _hash_blocks(body)] == ["notes"]
+
+        result = _run(skill_md, "--budget", "400", "--skip-manual")
+
+        assert [s["heading"] for s in result["sections_extracted"]] == ["Full Type Definitions"]
+        assert "<!--\n[MANUAL:notes]\n-->" in skill_md.read_text(encoding="utf-8")
+
+    def test_skip_manual_with_the_line_budget_alone(self, tmp_path: Path) -> None:
+        body = (
+            _wordy("Overview", 5, 5)
+            + _manual("Full Integration Notes", 300, 2)
+            + _wordy("Full API Reference", 150, 2)
+        )
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+
+        result = _run(skill_md, "--budget", "400", "--skip-manual")
+
+        assert [s["heading"] for s in result["sections_extracted"]] == ["Full API Reference"]
+        assert result["under_budget"] is True
+        assert result["under_word_budget"] is True and result["word_budget"] == 0
+        assert "<!-- [MANUAL:notes] -->" in skill_md.read_text(encoding="utf-8")
+
+
+# --------------------------------------------------------------------------
+# (7) Reference files are never overwritten
+# --------------------------------------------------------------------------
+
+
+class TestNeverOverwrite:
+    def _body(self) -> str:
+        return _wordy("Overview", 5, 5) + _wordy("Full API Reference", 450, 3)
+
+    def test_an_existing_reference_file_gets_a_suffix(self, tmp_path: Path) -> None:
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + self._body())
+        existing = _write(skill_md.parent / "references" / "full-api-reference.md", "## Full API Reference\nkept\n")
+
+        result = _run(skill_md, "--budget", "400")
+
+        assert result["sections_extracted"][0]["file"] == "references/full-api-reference-2.md"
+        assert result["xref_ok"] is True
+        assert existing.read_text(encoding="utf-8") == "## Full API Reference\nkept\n"
+        rewritten = skill_md.read_text(encoding="utf-8")
+        assert "> See [Full API Reference](references/full-api-reference-2.md)" in rewritten
+        assert "w449x0" not in rewritten
+        moved = (skill_md.parent / "references" / "full-api-reference-2.md").read_text(encoding="utf-8")
+        assert moved.startswith("## Full API Reference\n")
+
+    def test_a_file_with_the_same_content_is_reused(self, tmp_path: Path) -> None:
+        first = _write(tmp_path / "a" / "SKILL.md", FRONTMATTER + "\n" + self._body())
+        _run(first, "--budget", "400")
+        second = _write(tmp_path / "b" / "SKILL.md", FRONTMATTER + "\n" + self._body())
+        same = (first.parent / "references" / "full-api-reference.md").read_text(encoding="utf-8")
+        _write(second.parent / "references" / "full-api-reference.md", same)
+
+        result = _run(second, "--budget", "400")
+
+        assert result["sections_extracted"][0]["file"] == "references/full-api-reference.md"
+        assert sorted(p.name for p in (second.parent / "references").iterdir()) == ["full-api-reference.md"]
+
+    def test_a_failed_write_names_the_references_already_written(self, tmp_path: Path) -> None:
+        # a folder where the atomic writer puts SKILL.md's temporary file makes
+        # the last write fail after the reference file was written
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + self._body())
+        before = skill_md.read_text(encoding="utf-8")
+        (skill_md.parent / "SKILL.md.skf-tmp").mkdir()
+
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), str(skill_md), "--budget", "400"],
+                              capture_output=True, text=True)
+
+        assert proc.returncode == 2 and proc.stdout == ""
+        [line] = proc.stderr.strip().splitlines()
+        assert line.startswith("error: atomic write failed for ") and "SKILL.md" in line
+        assert line.endswith("; already written: references/full-api-reference.md")
+        assert skill_md.read_text(encoding="utf-8") == before
+
+    def test_two_headings_with_one_kebab_name(self, tmp_path: Path) -> None:
+        body = _wordy("Overview", 5, 5) + _wordy("Full API Reference", 250, 3) + _wordy("Full API: Reference", 300, 3)
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+
+        result = _run(skill_md, "--budget", "100")
+
+        files = {s["heading"]: s["file"] for s in result["sections_extracted"]}
+        # names go in document order, whatever order the sections moved in
+        assert files == {"Full API Reference": "references/full-api-reference.md",
+                         "Full API: Reference": "references/full-api-reference-2.md"}
+        assert result["xref_ok"] is True
+        rewritten = skill_md.read_text(encoding="utf-8")
+        assert "> See [Full API Reference](references/full-api-reference.md)" in rewritten
+        assert "> See [Full API: Reference](references/full-api-reference-2.md)" in rewritten
+        refs = skill_md.parent / "references"
+        assert (refs / "full-api-reference.md").read_text(encoding="utf-8").startswith("## Full API Reference\n")
+        assert (refs / "full-api-reference-2.md").read_text(encoding="utf-8").startswith("## Full API: Reference\n")
+
+
+# --------------------------------------------------------------------------
+# (8) Which budget is exceeded picks the next section
+# --------------------------------------------------------------------------
+
+
+UPDATE_FLAGS = ("--budget", "400", "--word-budget", "4500", "--skip-manual")
+
+
+class TestSelectionOrder:
+    def test_the_loop_goes_on_for_words_after_the_lines_fit(self, tmp_path: Path) -> None:
+        # the largest section by lines holds few words; once it moves the lines
+        # fit, the words do not, and the wordy section moves too
+        body = (
+            _wordy("Overview", 10, 5)
+            + _wordy("Full Type Definitions", 400, 1)
+            + _wordy("Full API Reference", 50, 100)
+        )
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+
+        result = _run(skill_md, *UPDATE_FLAGS)
+
+        assert [s["heading"] for s in result["sections_extracted"]] == ["Full Type Definitions", "Full API Reference"]
+        assert result["under_budget"] is True and result["under_word_budget"] is True
+
+    def test_words_pick_first_when_the_lines_fit(self, tmp_path: Path) -> None:
+        # by lines the first section is larger; only words are over, so the
+        # wordy one moves alone
+        body = (
+            _wordy("Overview", 10, 5)
+            + _wordy("Full Type Definitions", 200, 2)
+            + _wordy("Full API Reference", 50, 100)
+        )
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+
+        result = _run(skill_md, *UPDATE_FLAGS)
+
+        assert result["body_lines_before"] < 400 and result["body_words_before"] > 4500
+        assert [s["heading"] for s in result["sections_extracted"]] == ["Full API Reference"]
+        assert result["under_word_budget"] is True
+
+    def test_update_flags_on_a_long_body_of_few_words(self, tmp_path: Path) -> None:
+        body = (
+            _wordy("Overview", 10, 5)
+            + _wordy("Full API Reference", 450, 2)
+            + _wordy("Full Type Definitions", 100, 2)
+        )
+        skill_md = _write(tmp_path / "demo-skill" / "SKILL.md", FRONTMATTER + "\n" + body)
+
+        result = _run(skill_md, *UPDATE_FLAGS)
+
+        assert result["body_lines_before"] > 400 and result["body_words_before"] < 4500
+        assert [s["heading"] for s in result["sections_extracted"]] == ["Full API Reference"]
+        assert result["under_budget"] is True and result["under_word_budget"] is True
+        assert result["word_budget"] == 4500
+
+
+# --------------------------------------------------------------------------
+# (9) Words are counted as JavaScript's /\s+/ splits them
+# --------------------------------------------------------------------------
+
+
+class TestWordCount:
+    def test_js_whitespace(self) -> None:
+        assert mod.count_words("") == 0
+        assert mod.count_words("  a \t\n b  ") == 2
+        # JavaScript's \s holds NBSP, the ideographic space and the BOM ...
+        assert mod.count_words("a b　c﻿d") == 4
+        assert mod.count_words("a b c d e f g h") == 8
+        # ... and not U+0085 or the U+001C-U+001F separators, where str.split() differs
+        for sep in ("\x85", "\x1c", "\x1d", "\x1e", "\x1f"):
+            assert mod.count_words(f"a{sep}b") == 1, repr(sep)
+            assert len(f"a{sep}b".split()) == 2, repr(sep)
+        assert len("a﻿b".split()) == 1
+
+    def test_body_words_use_the_js_count(self) -> None:
+        assert mod.count_body_words(["a b", "c\x85d"]) == 3
 
 
 # --------------------------------------------------------------------------

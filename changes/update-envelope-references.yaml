@@ -1,0 +1,5 @@
+type: added
+scope: skf-update-skill
+summary: |
+  The `SKF_UPDATE_RESULT_JSON` line's `files_written` can now name `references`, listed when the run wrote, added or removed one or more `references/*.md` files (the merge, the provenance fixes or a body split). Before, the emitter refused a payload that named a reference file, so a pipeline could not see that `references/` changed, which can be the only content change of a `--from-test-report` repair.
+issues: [799]
