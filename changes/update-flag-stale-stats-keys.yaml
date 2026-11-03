@@ -3,3 +3,4 @@ scope: skf-update-skill
 summary: |
   When Update Skill recounts a skill's `stats.effective_denominator` to another value, or drops it, it now removes the `effective_denominator_*` stats keys that explained the old count (such as `effective_denominator_source`), with a warning that names each one, instead of keeping them beside the new count. Every other stats key an earlier run added that Create Skill does not write for the skill's scope type (such as a `reconciliation_note` a gap-driven repair added) stays, with a warning that names it, so a note that no longer matches the new counts gets reviewed instead of carried silently.
 issues: [815]
+prs: [852]
