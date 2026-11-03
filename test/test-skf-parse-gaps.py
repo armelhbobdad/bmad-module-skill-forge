@@ -23,8 +23,9 @@ helper:
     path); `match`: the same lookup for a name a step takes elsewhere
   - `translate`: gap-driven.md §1's change manifest, every routed ledger
     category through the table, an unrouted one warned with its reason (a
-    stale name and metadata drift among them, the stale name through
-    gap-records and apply too, which then write no entry and no export), a
+    stale name, metadata drift and an inflated union's summary gap among
+    them, the stale name through gap-records and apply too, which then
+    write no entry and no export), a
     `metadata` gap still routed to rule R4, a citation inside
     the skill package dropped, the answers it asks for (category, name,
     rescope, source file) with the gap's text to judge from and how it reads
@@ -912,6 +913,27 @@ def test_translate_leaves_a_stale_name_unrouted_with_its_reason():
     assert ("when the source still declares the name, keeps the documentation and re-runs Test Skill at a tier "
             "that classifies it") in item["reason"]
     assert f"test-report: not routed: GAP-001 (stale-documentation): {item['reason']}" in summary["warnings"]
+
+
+def test_an_inflated_unions_summary_gap_routes_no_export(tmp_path: Path):
+    """#795: when the inflation guard fires on the `scope.include` set the barrel branch counts, gap-ledger.py writes
+    one `denominator-inflation` gap at the brief instead of a missing export per name, so translate documents none
+    of the swept-in names: the gap is unrouted, with its reason."""
+    surface = {"inputs": {"brief": "data/skill-brief.yaml"}, "exports": [],
+               "guards": {"inflation": {"applicable": True, "fires": True, "pct": 140.0}},
+               "denominator": {"clause": "stratified-scope", "branch": "barrel", "surfaceSet": "scope.include",
+                               "ladderStep": 1, "absentSet": None, "rebuild": None}}
+    records = _ledger().from_coverage({"branch": "enumerated", "missing": ["infraHelper", "testFixture"],
+                                       "stale": []}, surface=surface)
+    ledger = write_ledger(tmp_path / "findings.json", "coverage-check", records)
+    proc = run(SCRIPT, "parse", "--ledger", str(ledger))
+    assert proc.returncode == 0, proc.stdout
+    manifest, summary = mod.translate_gaps(json.loads(proc.stdout), MAP_ENTRIES, {}, today="2026-10-03")
+    assert (summary["status"], manifest["entries"], summary["gap_count"]) == ("written", [], 0), summary
+    reason = mod.NOT_ROUTED_REASONS["denominator-inflation"]
+    assert summary["not_routed"] == [{"id": "GAP-001", "title": "undocumented names in the inflated scope.include "
+                                      "union", "category": "denominator-inflation", "reason": reason}]
+    assert not any(e.get("change_category") == "NEW_EXPORT" for e in manifest["entries"])
 
 
 def test_translate_leaves_barrel_drift_unrouted_with_its_reason():

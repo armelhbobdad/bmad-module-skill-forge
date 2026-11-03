@@ -12,7 +12,9 @@ State 2's (the States 2 to 4 section it loads from coverage-check-branches.md):
     the named-export count, the inflation signature and the declared names,
     and a stack's composition surface
   - surface: the source surface from a --mode full extraction (public names
-    less those outside scope, never the recipes' internal matches), quick
+    less those outside scope, each listed with its line, entry point and
+    the brief's exclude glob or missing include glob that scopes it out,
+    never the recipes' internal matches), quick
     output, per-file results, names read by eye, or the provenance map and
     metadata (State 2 union and counts, the canonical fold over both), with
     the name sets, the Denominator Candidates (the block coverage-check.md
@@ -360,7 +362,10 @@ def test_the_extraction_surface_is_the_public_names_less_outside_scope(tmp_path)
     out = _surface(tmp_path, "--extraction", extraction)
     assert out["sets"]["all"] == ["Extra", "Level", "Mode", "Options", "fetchData", "gapFn", "helper"]
     assert "internalThing" not in out["sets"]["all"], "a recipe match no entry point exports is internal"
-    assert out["excluded"]["outsideScope"] == [{"name": "legacy", "file": "lib/legacy.ts"}]
+    # #796: each row keeps its line and entry point, and says why the brief scopes its file out: no include glob
+    assert out["excluded"]["outsideScope"] == [{"name": "legacy", "file": "lib/legacy.ts", "line": 3,
+                                                "entry": "src/index.ts", "excludeGlob": None,
+                                                "outsideInclude": True}]
     assert out["extractionGaps"] == [{"name": "gapFn", "file": "src/gap.ts", "line": 7}]
     kinds = {e["name"]: e["kind"] for e in out["exports"]}
     # A re-export takes the kind recorded at the file that defines it.
@@ -592,7 +597,8 @@ def test_a_namespace_gives_its_members_in_its_place(tmp_path):
     assert [(e["kind"], e["file"], e["line"], e["signatureLine"]) for e in fmt] == [
         ("function", "src/ns/fmt.ts", 2, "export function realFmt(): string {")]
     assert [e["file"] for e in out["exports"] if e["name"] == "helper"] == ["src/helper.ts"]
-    assert {"name": "old", "file": "lib/old.ts"} in out["excluded"]["outsideScope"]
+    assert {"name": "old", "file": "lib/old.ts", "line": 9, "entry": "src/index.ts", "excludeGlob": None,
+            "outsideInclude": True} in out["excluded"]["outsideScope"]
     # the umbrella ratio counts the members too, each a re-export: the root's six names (gapFn, helper and legacy
     # re-exported) plus fmt and old, and remote, a namespace the runner could not read
     umbrella = out["guards"]["umbrella"]
@@ -801,7 +807,9 @@ def test_a_stale_glob_restores_the_root_exports_it_dropped(tmp_path):
     assert out["sets"]["all"] == ["Task", "add", "run_pipeline"]
     assert out["sets"]["scope.include"] == ["add", *ROUTER_NAMES], "a restored file matches no include glob"
     assert out["sets"]["root"] == ["Task", "add", "run_pipeline", "test_helper"]
-    assert out["excluded"]["outsideScope"] == [{"name": "test_helper", "file": "cognee/tests/helper.py"}]
+    assert out["excluded"]["outsideScope"] == [{"name": "test_helper", "file": "cognee/tests/helper.py", "line": 1,
+                                                "entry": "cognee/__init__.py", "excludeGlob": "cognee/tests/**",
+                                                "outsideInclude": True}]
     assert out["guards"]["staleScope"] == {"applicable": True, "fires": True,
                                            "unmatchedInclude": ["cognee/pipelines.py"], "unmatchedTierAInclude": [],
                                            "restored": RESTORED}
@@ -929,8 +937,9 @@ def test_a_nested_top_keeps_its_outside_scope_and_extraction_gap_rows(tmp_path):
     for rows in ("public", "outside_scope"):
         diff[rows].sort(key=lambda row: row["name"])  # the runner's order
     out = _cognee(tmp_path, data=data)
-    assert out["excluded"]["outsideScope"] == [{"name": "RouterConfig", "file": "cognee/shared/config.py"},
-                                               {"name": "test_helper", "file": "cognee/tests/helper.py"}]
+    assert [(o["name"], o["file"], o["line"], o["entry"]) for o in out["excluded"]["outsideScope"]] == [
+        ("RouterConfig", "cognee/shared/config.py", 3, ROUTERS), ("test_helper", "cognee/tests/helper.py", 1,
+                                                                 "cognee/__init__.py")]
     assert out["guards"]["staleScope"]["restored"] == RESTORED, "a nested top is no root entry point"
     assert out["extractionGaps"] == [{"name": "get_admin_router", "file": "cognee/api/v1/routers/admin.py",
                                       "line": 5}]
@@ -974,6 +983,26 @@ def test_an_excluded_file_stays_outside_scope(tmp_path):
     assert "Task" not in out["sets"]["all"]
 
 
+@pytest.mark.parametrize("file, exclude, why", [
+    ("lib/legacy.ts", [], (None, True)),
+    ("src/vendor/legacy.ts", ["src/gen/**", "src/vendor/**"], ("src/vendor/**", False)),
+    ("lib/vendor/legacy.ts", ["lib/vendor/**"], ("lib/vendor/**", True)),
+    # a file the include glob covers and no exclude glob matches, such as one no recipe reads
+    ("src/legacy.c", ["src/vendor/**"], (None, False)),
+    (None, ["src/vendor/**"], (None, False)),
+], ids=["no-include-glob", "an-exclude-glob", "both", "not-the-briefs-doing", "no-file"])
+def test_an_outside_scope_row_says_why_the_brief_scopes_its_file_out(tmp_path, file, exclude, why):
+    """#796: the first scope.exclude glob that matches the row's file (`excludeGlob`), and whether no
+    scope.include glob covers it (`outsideInclude`), so gap-ledger.py blames the brief only when it is the cause."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["scope"]["exclude"] = exclude
+    data["entry_point_diff"]["outside_scope"][0]["file"] = file
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", data))
+    [row] = out["excluded"]["outsideScope"]
+    assert (row["name"], row["file"], row["line"], row["entry"]) == ("legacy", file, 3, "src/index.ts")
+    assert (row["excludeGlob"], row["outsideInclude"]) == why
+
+
 def test_a_stale_glob_restores_root_exports_only(tmp_path):
     """A non-root `exports` subpath is no standard barrel: its outside_scope
     name stays out under a stale glob, while the root entry's comes back."""
@@ -986,7 +1015,7 @@ def test_a_stale_glob_restores_root_exports_only(tmp_path):
          "line": 5})
     out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", data))
     assert out["guards"]["staleScope"]["restored"] == [{"name": "legacy", "file": "lib/legacy.ts", "line": 3}]
-    assert out["excluded"]["outsideScope"] == [{"name": "oldExtra", "file": "lib/old-extra.ts"}]
+    assert [(o["name"], o["file"]) for o in out["excluded"]["outsideScope"]] == [("oldExtra", "lib/old-extra.ts")]
     assert "legacy" in out["sets"]["all"] and "oldExtra" not in out["sets"]["all"]
 
 

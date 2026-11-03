@@ -81,7 +81,21 @@ cites (never read; default `metadata.json`):
             gap `Missing export: {name}`, or a Medium `missing-type` gap
             `Missing type: {name}` when the --signatures result lists it in
             `missingTypes`; its Source is the file and line the --surface
-            result's `exports[]` records for it, else `{meta}`. Each `stale`
+            result's `exports[]` records for it, else `{meta}`. When the
+            --surface result's `guards.inflation.fires`, its
+            `denominator.surfaceSet` is `scope.include` and its
+            `denominator.clause` is one whose ladder has a tier A rung
+            (stratified-scope, multi-entry), the `missing` names are
+            instead one Medium `denominator-inflation` gap `undocumented
+            names in the inflated scope.include union` at its
+            `inputs.brief` (else `skill-brief.yaml`), beside the guards
+            kind's gap at that brief: its issue gives the union's size
+            (`guards.inflation.scopeIncludeUnion`) and lists the first 50
+            names, each marked a type when the --signatures result lists
+            it in `missingTypes` and with the file and line `exports[]`
+            records for it, then how many more, and its remediation
+            corrects the denominator as the guard's gap says, then re-runs
+            Test Skill. Each `stale`
             name the --stale result (classify-stale) marks `fabricated` is a
             Critical `fabricated-signature` gap `Fabricated signature:
             {name}` at its `source` (one with no `source` is INVALID_INPUT,
@@ -111,7 +125,15 @@ cites (never read; default `metadata.json`):
             `Stale documentation: {name}` at the first line of SKILL.md,
             then of references/*.md in path order, that writes the name
             (validate-inventory.py's match, with --skill-dir), else
-            `SKILL.md`. Scalar and stack branches: a
+            `SKILL.md`. One whose `excluded.outsideScope` row says the brief
+            scopes its file out (`excludeGlob`, the `scope.exclude` glob
+            that matches it, or `outsideInclude`, no `scope.include` glob
+            covering it) has its own issue, naming the entry point and the
+            file and line, and remediation: to keep the documentation,
+            narrow that exclude glob (a removal needs a `demoted-exclude`
+            amendment) or widen `scope.include`, else remove it. A row the
+            brief does not explain keeps the wording above. Scalar and
+            stack branches: a
             `missingCount` above 0 is one Medium `missing-export` gap
             `{missingCount} of {denominator} exports not documented` at
             `{meta}`, except that a scalar count taken from the verified
@@ -842,13 +864,25 @@ def _documenting_line(skill_dir: Path, name: str) -> str | None:
     return None
 
 
-def _outside_scope(surface: dict | None) -> set[str] | None:
+def _scoped_out_by(row: dict) -> bool:
+    """Whether an `excluded.outsideScope` row says the brief scopes its file
+    out: a file, with the `scope.exclude` glob that matches it
+    (`excludeGlob`) or no `scope.include` glob covering it
+    (`outsideInclude`)."""
+    return (isinstance(row.get("file"), str) and bool(row["file"])
+            and ((isinstance(row.get("excludeGlob"), str) and bool(row["excludeGlob"]))
+                 or row.get("outsideInclude") is True))
+
+
+def _outside_scope(surface: dict | None) -> dict[str, dict] | None:
     """The names a surface result's `excluded.outsideScope` lists (defined in
-    a file the brief scopes out). None with no surface, no such list, or a
-    surface built without an extraction (no `extraction` object) or from
-    one that did not read the whole scope (a `no-ast-grep` status, a
-    `truncated` run, or `fallback.needed`): only an extraction fills that
-    list, so the names a brief scoped out are then unknown."""
+    a file out of scope), each with its row: the first the brief explains
+    (`_scoped_out_by`), else the first with a file, else its first. None
+    with no surface, no such list, or a surface built without an extraction
+    (no `extraction` object) or from one that did not read the whole scope
+    (a `no-ast-grep` status, a `truncated` run, or `fallback.needed`): only
+    an extraction fills that list, so the names a brief scoped out are then
+    unknown."""
     excluded = (surface or {}).get("excluded")
     if excluded is None:
         return None
@@ -866,7 +900,16 @@ def _outside_scope(surface: dict | None) -> set[str] | None:
     if (extraction.get("status") == "no-ast-grep" or extraction.get("truncated")
             or (isinstance(fallback, dict) and fallback.get("needed"))):
         return None
-    return {row["name"] for row in rows if isinstance(row, dict) and isinstance(row.get("name"), str)}
+    def rank(row: dict) -> tuple[bool, bool]:
+        return _scoped_out_by(row), isinstance(row.get("file"), str) and bool(row["file"])
+
+    outside: dict[str, dict] = {}
+    for row in rows:
+        if isinstance(row, dict) and isinstance(row.get("name"), str):
+            known = outside.get(row["name"])
+            if known is None or rank(row) > rank(known):
+                outside[row["name"]] = row
+    return outside
 
 
 # The extensions classify-stale reads a `defined_at` in.
@@ -877,7 +920,7 @@ _DEFINED_AT_RE = re.compile(
     r"^.+(?:" + "|".join(re.escape(e) for e in sorted(_DEFINED_AT_EXTENSIONS)) + r"):[1-9]\d*$", re.IGNORECASE)
 
 
-def _documented_extra_at(name: str, item: dict, outside: set[str] | None,
+def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
                          skill_dir: str | None = None) -> tuple[str, int] | None:
     """Where the source declares a stale name that is a documented extra, given
     a surface built from an extraction whose `excluded.outsideScope` does not
@@ -927,6 +970,85 @@ def _missing_export(name: str, where: str | None, meta: str, kind: str = "export
                 export=name)
 
 
+def _brief_of(surface: dict | None) -> str:
+    """The brief a surface result read: its `inputs.brief`, else skill-brief.yaml."""
+    inputs = (surface or {}).get("inputs")
+    brief = inputs.get("brief") if isinstance(inputs, dict) else None
+    return brief if isinstance(brief, str) and brief else _DEFAULT_BRIEF
+
+
+# The most names the issue of the inflated-union summary gap lists (#795).
+_INFLATED_NAMES_LISTED = 50
+# The clauses whose ladder has a tier A rung, so that a brief's `scope.tier_a_include` corrects the
+# denominator an inflated `scope.include` union gave them (#795).
+# Keep identical to the CLAUSE_LADDERS clauses with a `tier_a_include` rung in load-coverage-inputs.py.
+_TIER_A_CLAUSES = frozenset({"stratified-scope", "multi-entry"})
+
+
+def _inflated_union(surface: dict | None) -> bool:
+    """Whether the barrel branch counts an inflated `scope.include` union a
+    tier A list corrects: the surface's inflation guard fires, its
+    `denominator.surfaceSet` is `scope.include` and its `denominator.clause`
+    has a tier A rung. A set the surface lacked (`absentSet`) counted `all`
+    in its place, and the specific-modules and empty-barrel clauses count
+    `scope.include` whatever tier A list the brief has: each name there
+    stays its own gap."""
+    guards = (surface or {}).get("guards")
+    inflation = guards.get("inflation") if isinstance(guards, dict) else None
+    denominator = (surface or {}).get("denominator")
+    return (isinstance(inflation, dict) and inflation.get("fires") is True and isinstance(denominator, dict)
+            and denominator.get("surfaceSet") == "scope.include" and denominator.get("clause") in _TIER_A_CLAUSES)
+
+
+def _inflated_union_gap(names: list[str], where: dict[str, str], types: set[str], brief: str,
+                        union: object) -> dict:
+    """One gap at the brief for the names an inflated `scope.include` union
+    counts and the skill does not document, in place of a gap per name: the
+    union sweeps in infrastructure, so most of them belong to no authored
+    surface (#795). It sits beside the guard's own `denominator-inflation`
+    gap at that brief, whose fix it defers to."""
+    def label(name: str) -> str:
+        notes = (["a type"] if name in types else []) + ([f"`{where[name]}`"] if where.get(name) else [])
+        return f"`{name}` ({', '.join(notes)})" if notes else f"`{name}`"
+
+    listed = [label(n) for n in names[:_INFLATED_NAMES_LISTED]]
+    more = len(names) - len(listed)
+    named = ", ".join(listed) + (f", and {more} more" if more else "")
+    size = f" ({union} names)" if _count(union) is not None else ""
+    return _gap(
+        "Medium", "denominator-inflation", "undocumented names in the inflated scope.include union", brief,
+        f"Correct the denominator first, as the denominator-inflation gap for `{brief}` says; then re-run Test "
+        "Skill, and the names the corrected denominator counts that the skill does not document come back as gaps.",
+        issue=f"the inflation guard fired: the `scope.include` union the denominator counts{size} sweeps in names "
+              f"outside the authored surface, and SKILL.md and references/ do not document {len(names)} of them: "
+              f"{named}")
+
+
+def _scoped_out_gap(name: str, row: dict, doc: str | None, brief: str) -> dict:
+    """The Medium `stale-documentation` gap of a documented name an entry
+    point exports from a file the brief scopes out (#796): its row names
+    the `scope.exclude` glob that matches the file, or says no
+    `scope.include` glob covers it, or both."""
+    file, line, entry = row["file"], _count(row.get("line")), row.get("entry")
+    at = f"{file}:{line}" if line else file
+    glob = row.get("excludeGlob") if isinstance(row.get("excludeGlob"), str) and row.get("excludeGlob") else None
+    uncovered = row.get("outsideInclude") is True
+    causes = (["no `scope.include` glob covers that file"] if uncovered else []) + (
+        [f"its `scope.exclude` glob `{glob}` matches {'it' if uncovered else 'that file'}"] if glob else [])
+    fixes = (["widen `scope.include` to cover that file"] if uncovered else []) + (
+        [f"narrow `{glob}` so it no longer matches that file (to remove the glob instead, record a `demoted-exclude` "
+         "scope-expansion amendment in the brief)"] if glob else [])
+    who = f"the entry point `{entry}`" if isinstance(entry, str) and entry else "an entry point"
+    return _gap(
+        "Medium", "stale-documentation", f"Stale documentation: {name}", doc or "SKILL.md",
+        f"Decide whether `{name}` belongs on the surface: `{brief}` scopes out `{at}`, where it is defined, since "
+        f"{' and '.join(causes)}. To keep its documentation, {' and '.join(fixes)}; else remove the documentation "
+        f"of `{name}` at {doc or 'SKILL.md'}.",
+        issue=f"{f'`{doc}`' if doc else 'SKILL.md'} documents `{name}`, which {who} exports and `{at}` defines, a "
+              f"file `{brief}` scopes out (`excluded.outsideScope`)",
+        export=name)
+
+
 def from_coverage(cov: object, surface: object = None, signatures: object = None, numerator: object = None,
                   stale: object = None, provenance: object = None, skill_dir: str | None = None,
                   metadata: str | None = None) -> list[dict]:
@@ -947,10 +1069,15 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
             surface = _object(surface, "--surface (load-coverage-inputs.py surface)", "exports")
         where = _surface_sources(surface)
         # `excluded` is read once a stale name may be a documented extra
-        outside: set[str] | None = None
+        outside: dict[str, dict] | None = None
         outside_read = False
-        for name in _names(cov, "missing", "--input"):
-            records.append(_missing_export(name, where.get(name), meta, "type" if name in types else "export"))
+        missing = _names(cov, "missing", "--input")
+        if missing and _inflated_union(surface):
+            union = ((surface.get("guards") or {}).get("inflation") or {}).get("scopeIncludeUnion")
+            records.append(_inflated_union_gap(missing, where, types, _brief_of(surface), union))
+        else:
+            for name in missing:
+                records.append(_missing_export(name, where.get(name), meta, "type" if name in types else "export"))
         classified: dict[str, dict] = {}
         if stale is not None:
             if not isinstance(stale, list):
@@ -992,6 +1119,10 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
                     issue=f"{f'`{doc}`' if doc else 'the skill'} documents `{name}`, which the enumerated source API "
                           f"surface lacks and the source still declares{picked}",
                     export=name))
+                continue
+            if outside is not None and name in outside and _scoped_out_by(outside[name]):
+                # an entry point exports it from a file the brief scopes out (#796)
+                records.append(_scoped_out_gap(name, outside[name], doc, _brief_of(surface)))
                 continue
             records.append(_gap(
                 "Medium", "stale-documentation", f"Stale documentation: {name}", doc or "SKILL.md",

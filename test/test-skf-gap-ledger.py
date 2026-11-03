@@ -38,6 +38,11 @@ counts and the Gap Report is rendered from:
     citations on a line naming it cite exactly one of those files, and
     stays Medium when they cite two or none, without --skill-dir, or with
     a `declared_in` that is not a list of several `file:line` items
+  - an inflated `scope.include` union (#795): when the inflation guard
+    fires on the set the barrel branch counts, its undocumented names are
+    one Medium `denominator-inflation` gap at the brief listing at most 50
+    of them; a stale name the brief scopes out (#796) is a Medium
+    `stale-documentation` gap naming its file and the brief
 """
 
 from __future__ import annotations
@@ -787,6 +792,100 @@ class TestCoverageAdapter:
         assert "`src/fetch.ts:12`" in records[0]["remediation"]
         assert "`pkg/metadata.json` lists it" in records[2]["remediation"]
 
+    # #795: the inflation guard fired and the barrel branch counts the `scope.include` union it measured.
+    INFLATED_SURFACE = SURFACE | {
+        "inputs": {"metadata": "pkg/metadata.json", "brief": "data/skill-brief.yaml"},
+        "guards": {"inflation": {"applicable": True, "fires": True, "pct": 140.0, "scopeIncludeUnion": 120,
+                                 "provenanceEntries": 50}},
+        "denominator": {"clause": "stratified-scope", "branch": "barrel", "surfaceSet": "scope.include",
+                        "ladderStep": 1, "absentSet": None, "rebuild": None}}
+
+    @pytest.mark.parametrize("clause", ["stratified-scope", "multi-entry"])
+    def test_an_inflated_union_is_one_summary_gap_at_the_brief(self, clause: str):
+        surface = self.INFLATED_SURFACE | {"denominator": self.INFLATED_SURFACE["denominator"] | {"clause": clause}}
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": ["fetchData", "Options", "fromMeta"],
+                                      "stale": []},
+                                     surface=surface, signatures={"missingTypes": ["Options"]},
+                                     metadata="pkg/metadata.json")
+        assert brief([record]) == [("Medium", "denominator-inflation",
+                                    "undocumented names in the inflated scope.include union",
+                                    "data/skill-brief.yaml", None)]
+        # the union's size, and each name with the file and line the surface records for it, a type marked so
+        assert record["issue"] == (
+            "the inflation guard fired: the `scope.include` union the denominator counts (120 names) sweeps in names "
+            "outside the authored surface, and SKILL.md and references/ do not document 3 of them: `fetchData` "
+            "(`src/fetch.ts:12`), `Options` (a type, `src/types.ts:3`), `fromMeta`")
+        # it defers to the guard's own gap at the same brief, which says how to correct the denominator
+        assert record["remediation"] == (
+            "Correct the denominator first, as the denominator-inflation gap for `data/skill-brief.yaml` says; then "
+            "re-run Test Skill, and the names the corrected denominator counts that the skill does not document "
+            "come back as gaps.")
+        # with no brief named, the default one; with no union count, no size
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": ["fetchData"], "stale": []},
+                                     surface=surface | {"inputs": {}, "guards": {"inflation": {"fires": True}}})
+        assert record["source"] == "skill-brief.yaml"
+        assert record["issue"].startswith("the inflation guard fired: the `scope.include` union the denominator "
+                                          "counts sweeps in names")
+
+    @pytest.mark.parametrize("change", [
+        {"guards": {"inflation": {"applicable": True, "fires": False, "pct": 10.0}}},
+        {"guards": None},
+        {"denominator": {"clause": "standard-barrel", "branch": "barrel", "surfaceSet": "all", "absentSet": None}},
+        # a set the surface lacked: the barrel counts `all` in its place
+        {"denominator": {"clause": "stratified-scope", "branch": "barrel", "surfaceSet": "all",
+                         "absentSet": "scope.include"}},
+        # no tier A rung: these clauses count `scope.include` whatever tier A list the brief has
+        {"denominator": {"clause": "specific-modules", "branch": "barrel", "surfaceSet": "scope.include",
+                         "ladderStep": 2, "absentSet": None}},
+        {"denominator": {"clause": "empty-barrel", "branch": "barrel", "surfaceSet": "scope.include",
+                         "ladderStep": None, "absentSet": None}},
+    ], ids=["not-fired", "no-guards", "another-set", "absent-set", "specific-modules", "empty-barrel"])
+    def test_without_an_inflated_union_each_missing_name_is_its_own_gap(self, change: dict):
+        records = mod.from_coverage({"branch": "enumerated", "missing": ["fetchData", "Options"], "stale": []},
+                                    surface=self.INFLATED_SURFACE | change, metadata="pkg/metadata.json")
+        assert brief(records) == [
+            ("Medium", "missing-export", "Missing export: fetchData", "src/fetch.ts:12", "fetchData"),
+            ("Medium", "missing-export", "Missing export: Options", "src/types.ts:3", "Options"),
+        ]
+        # nothing missing: no summary gap either
+        assert mod.from_coverage({"branch": "enumerated", "missing": [], "stale": []},
+                                 surface=self.INFLATED_SURFACE) == []
+
+    def test_the_tier_a_clauses_are_the_loaders(self):
+        """`_TIER_A_CLAUSES` holds the clauses whose ladder in load-coverage-inputs.py has a tier A rung."""
+        note = ("# Keep identical to the CLAUSE_LADDERS clauses with a `tier_a_include` rung in "
+                "load-coverage-inputs.py.")
+        assert note in SCRIPT.read_text(encoding="utf-8")
+        pin = importlib.util.spec_from_file_location("skf_pin_load_coverage_inputs",
+                                                     SCRIPT.parent / "load-coverage-inputs.py")
+        loader = importlib.util.module_from_spec(pin)
+        pin.loader.exec_module(loader)
+        assert mod._TIER_A_CLAUSES == {c for c, ladder in loader.CLAUSE_LADDERS.items() if "tier_a_include" in ladder}
+
+    def test_the_summary_gap_lists_at_most_fifty_names(self):
+        names = [f"name{i:02d}" for i in range(60)]
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": names, "stale": []},
+                                     surface=self.INFLATED_SURFACE)
+        listed = re.findall(r"`(name\d\d)`", record["issue"])
+        assert listed == names[:50]
+        assert "do not document 60 of them: `name00`, " in record["issue"]
+        assert record["issue"].endswith("`name49`, and 10 more")
+
+    def test_the_append_cli_records_the_summary_gap(self, ledger: Path, tmp_path: Path):
+        cov = write_json(tmp_path / "run" / "coverage.json",
+                         {"branch": "enumerated", "missing": ["fetchData", "Options"], "stale": []})
+        surface = write_json(tmp_path / "run" / "surface.json", self.INFLATED_SURFACE)
+        signatures = write_json(tmp_path / "run" / "signatures.json", {"missingTypes": ["Options"]})
+        for _ in range(2):  # a rerun records it once
+            proc = from_file(ledger, "coverage-check", "coverage", cov, surface=surface, signatures=signatures,
+                             metadata="pkg/metadata.json")
+            assert proc.returncode == 0, proc.stdout
+        assert brief(ledger_records(ledger)) == [("Medium", "denominator-inflation",
+                                                  "undocumented names in the inflated scope.include union",
+                                                  "data/skill-brief.yaml", None)]
+        assert ledger_records(ledger)[0]["issue"].endswith(
+            "do not document 2 of them: `fetchData` (`src/fetch.ts:12`), `Options` (a type, `src/types.ts:3`)")
+
     def test_stale_names_fabricated_or_stale_documentation(self, tmp_path: Path):
         skill = tmp_path / "skill"
         (skill / "references").mkdir(parents=True)
@@ -810,7 +909,9 @@ class TestCoverageAdapter:
 
     # #678: a stale name classify-stale finds declared is a documented extra, given a surface built from an
     # extraction (the only input that fills `excluded.outsideScope`).
-    EXCLUDED = {"outsideScope": [{"name": "Rescoped", "file": "pkg/old/r.py"}], "nestedEntries": []}
+    # A row as load-coverage-inputs.py writes it: the brief's exclude glob scopes the file out (#796).
+    EXCLUDED = {"outsideScope": [{"name": "Rescoped", "file": "pkg/old/r.py", "line": 2, "entry": "pkg/__init__.py",
+                                  "excludeGlob": "pkg/old/**", "outsideInclude": False}], "nestedEntries": []}
     EXCLUDED_SURFACE = SURFACE | {"extraction": {"status": "ok"}, "excluded": EXCLUDED}
 
     @pytest.mark.parametrize("defined_at", ["pkg/tasks/task.py:4", "src/tasks/task.ts:12", "lib/task.MJS:1"])
@@ -884,6 +985,92 @@ class TestCoverageAdapter:
                                     surface=surface, stale=stale)
         assert brief(records) == [("Medium", "stale-documentation", f"Stale documentation: {name}", "SKILL.md",
                                    name)]
+
+    BRIEFED_SURFACE = EXCLUDED_SURFACE | {"inputs": {"metadata": "pkg/metadata.json",
+                                                 "brief": "data/skill-brief.yaml"}}
+    RESCOPED = [{"name": "Rescoped", "fabricated": False, "source": None, "defined_at": "pkg/old/r.py:2"}]
+    NARROW = ("narrow `pkg/old/**` so it no longer matches that file (to remove the glob instead, record a "
+              "`demoted-exclude` scope-expansion amendment in the brief)")
+
+    def _rescoped(self, *rows: dict, skill_dir: str | None = None) -> dict:
+        surface = self.BRIEFED_SURFACE | {"excluded": {"outsideScope": list(rows), "nestedEntries": []}}
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Rescoped"]},
+                                     surface=surface, stale=self.RESCOPED, skill_dir=skill_dir)
+        return record
+
+    def test_a_name_an_exclude_glob_scopes_out_points_at_the_brief(self, tmp_path: Path):
+        """#796: an entry point exports it from a file the brief's exclude glob matches: the gap names that file,
+        the glob and the brief, not a source that lacks the name."""
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Rescoped"]},
+                                     surface=self.BRIEFED_SURFACE, stale=self.RESCOPED)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: Rescoped", "SKILL.md",
+                                    "Rescoped")]
+        assert record["issue"] == ("SKILL.md documents `Rescoped`, which the entry point `pkg/__init__.py` exports "
+                                   "and `pkg/old/r.py:2` defines, a file `data/skill-brief.yaml` scopes out "
+                                   "(`excluded.outsideScope`)")
+        assert record["remediation"] == (
+            "Decide whether `Rescoped` belongs on the surface: `data/skill-brief.yaml` scopes out `pkg/old/r.py:2`, "
+            "where it is defined, since its `scope.exclude` glob `pkg/old/**` matches that file. To keep its "
+            f"documentation, {self.NARROW}; else remove the documentation of `Rescoped` at SKILL.md.")
+        assert "the enumerated source surface does not export it" not in record["remediation"]
+        # with the skill package, the line that documents it; with no brief named, the default one
+        skill = tmp_path / "skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(b"# demo\n\n`Rescoped()` runs.\n")
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Rescoped"]},
+                                     surface=self.EXCLUDED_SURFACE, stale=self.RESCOPED, skill_dir=str(skill))
+        assert record["source"] == "SKILL.md:3" and record["issue"].startswith("`SKILL.md:3` documents `Rescoped`")
+        assert "`skill-brief.yaml` scopes out" in record["remediation"]
+        assert record["remediation"].endswith("remove the documentation of `Rescoped` at SKILL.md:3.")
+
+    def test_a_name_no_include_glob_covers_points_at_the_brief(self):
+        row = {"name": "Rescoped", "file": "lib/r.py", "line": None, "entry": None, "excludeGlob": None,
+               "outsideInclude": True}
+        record = self._rescoped(row)
+        # no line: the file alone; no entry point named: any
+        assert record["issue"] == ("SKILL.md documents `Rescoped`, which an entry point exports and `lib/r.py` "
+                                   "defines, a file `data/skill-brief.yaml` scopes out (`excluded.outsideScope`)")
+        assert record["remediation"] == (
+            "Decide whether `Rescoped` belongs on the surface: `data/skill-brief.yaml` scopes out `lib/r.py`, where "
+            "it is defined, since no `scope.include` glob covers that file. To keep its documentation, widen "
+            "`scope.include` to cover that file; else remove the documentation of `Rescoped` at SKILL.md.")
+        # both: the include glob and the exclude glob
+        record = self._rescoped(row | {"file": "pkg/old/r.py", "line": 2, "excludeGlob": "pkg/old/**"})
+        assert record["remediation"] == (
+            "Decide whether `Rescoped` belongs on the surface: `data/skill-brief.yaml` scopes out `pkg/old/r.py:2`, "
+            "where it is defined, since no `scope.include` glob covers that file and its `scope.exclude` glob "
+            "`pkg/old/**` matches it. To keep its documentation, widen `scope.include` to cover that file and "
+            f"{self.NARROW}; else remove the documentation of `Rescoped` at SKILL.md.")
+
+    @pytest.mark.parametrize("row", [
+        # a file no recipe reads, or one a --files-from list leaves out: the brief covers it
+        {"name": "Rescoped", "file": "pkg/old/r.py", "line": 2, "entry": None, "excludeGlob": None,
+         "outsideInclude": False},
+        # an older surface's row, which says nothing of the brief
+        {"name": "Rescoped", "file": "pkg/old/r.py"},
+        {"name": "Rescoped", "file": None, "line": None, "entry": None, "excludeGlob": "pkg/old/**",
+         "outsideInclude": True},
+        {"name": "Rescoped", "file": "", "excludeGlob": "pkg/old/**"},
+    ], ids=["not-the-briefs-doing", "an-older-row", "no-file", "an-empty-file"])
+    def test_a_scoped_out_row_the_brief_does_not_explain_keeps_the_generic_gap(self, row: dict):
+        record = self._rescoped(row)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: Rescoped", "SKILL.md",
+                                    "Rescoped")]
+        assert record["remediation"] == ("Check `Rescoped` against the source and update or remove its "
+                                         "documentation at SKILL.md: the enumerated source surface does not export "
+                                         "it.")
+
+    def test_a_later_duplicate_row_that_names_the_file_wins(self):
+        record = self._rescoped({"name": "Rescoped", "file": None, "excludeGlob": None, "outsideInclude": False},
+                                {"name": "Rescoped", "file": "pkg/old/r.py", "line": None, "excludeGlob": None,
+                                 "outsideInclude": False},
+                                {"name": "Rescoped", "file": "pkg/old/r.py", "line": 2, "excludeGlob": "pkg/old/**",
+                                 "outsideInclude": False},
+                                {"name": "Rescoped", "file": "pkg/other.py", "line": 9, "excludeGlob": "pkg/other.py",
+                                 "outsideInclude": False})
+        assert "scopes out `pkg/old/r.py:2`, where it is defined" in record["remediation"]
+        assert record["issue"].endswith("`pkg/old/r.py:2` defines, a file `data/skill-brief.yaml` scopes out "
+                                        "(`excluded.outsideScope`)")
 
     def test_a_fabricated_name_stays_critical_whatever_its_defined_at(self):
         stale = [{"name": "ghost", "fabricated": True, "source": "src/a.py:3", "defined_at": "src/b.py:1"}]

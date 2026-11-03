@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  A name the skill documents that an entry point exports, but from a file the brief scopes out, is still a Medium `stale-documentation` gap, and when the brief is the cause the gap now says so. Its issue names the entry point and the file and line that define the name, and its remediation names the skill brief and the fix: to keep the documentation, narrow the `scope.exclude` glob that matches the file (removing it takes a `demoted-exclude` amendment in the brief) or, when no `scope.include` glob covers the file, widen `scope.include`; otherwise remove the documentation. Before, the gap said the source does not export the name and never mentioned the brief. A file out of scope for another reason, such as one no recipe reads, keeps the old wording. Each `excluded.outsideScope` row in `surface.json` now carries the name's `line` and `entry`, with `excludeGlob` and `outsideInclude` saying why the brief scopes the file out, and the Coverage Summary's "Scoped Out by the Brief" line now gives each file with its line.
+issues: [796]
+prs: [856]
