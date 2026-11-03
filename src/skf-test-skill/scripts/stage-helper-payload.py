@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = []
+# dependencies = ["pyyaml"]
 # ///
 """Print the stdin payload of a shared SKF helper, read from the files on disk.
 
@@ -13,7 +13,7 @@ This script reads the files and prints the payload, and the step pipes it
 into the helper:
 
   uv run stage-helper-payload.py detect-workspaces --source-root <dir> \\
-      | uv run skf-detect-workspaces.py
+      [--brief <skill-brief.yaml>] | uv run skf-detect-workspaces.py
 
 (The Quick-tier export scan needs no payload: skf-extract-public-api.py
 --mode quick reads its files itself, with --manifest-file and --entry-file.)
@@ -24,28 +24,48 @@ detect-workspaces prints {"tree": [...], "manifests": {...}}:
              it, sorted. Folders named in SKIPPED_DIRS (installed
              dependencies, virtual environments, build output, caches) and
              hidden folders (a name that starts with ".") are not read, and a
-             linked folder is not followed.
+             linked folder is not followed. With --brief, the tree is the
+             detector's scoped_tree of it under the brief's scope.exclude
+             globs (#780): a workspace member counts only through the files
+             the brief keeps, so excluding a member's source files drops it,
+             excluding only its manifest does not, every root manifest
+             stays, and a workspace with no member left is no workspace.
   manifests  the text of each file directly in --source-root that is not
              hidden, holds at most MAX_ROOT_FILE_BYTES and reads as UTF-8, by
-             its name. The detector reads the root manifests it knows
-             (package.json, pnpm-workspace.yaml, lerna.json, Cargo.toml ...)
-             and ignores the rest, so this script keeps no list of their
-             names to fall out of step with the detector's.
+             its name, whatever the brief excludes. The detector reads the
+             root manifests it knows (package.json, pnpm-workspace.yaml,
+             lerna.json, Cargo.toml ...) and ignores the rest, so this script
+             keeps no list of their names to fall out of step with the
+             detector's.
+
+--brief reads the brief with load-coverage-inputs.py's read_brief (the
+script beside this one, which loads skf-resolve-authoritative-files.py's
+parse_brief_yaml from the shared scripts folder), and matches each
+scope.exclude glob by its glob_match, skf-resolve-authoritative-files.py's
+rule (`**` spans any number of path segments, none included; `*` and `?`
+stay inside one), the rule skf-extract-public-api.py applies to the same
+brief. skf-detect-workspaces.py's scoped_tree, loaded from the shared
+scripts folder (SHARED_SCRIPTS), keeps the paths: the monorepo arm of
+skf-extract-public-api.py reads the same function.
 
 The payload is one line of ASCII JSON on stdout, so a pipe carries the same
 bytes on every platform.
 
 Exit codes:
   0  the payload is printed
-  1  --source-root is not a folder; one JSON line {"status": "error",
-     "error": ...} goes to stderr and nothing to stdout, so the helper the
-     payload was piped into reads no input and fails too
+  1  --source-root is not a folder, or --brief cannot be read (missing, not
+     UTF-8, not YAML, a value YAML cannot build such as an invalid date, not
+     a mapping, PyYAML not installed) or a script it loads is missing; one
+     JSON line {"status": "error", "error": ...} goes to stderr and nothing
+     to stdout, so the helper the payload was piped into reads no input and
+     fails too
   2  bad arguments (argparse: a missing or unknown argument, usage on stderr)
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import sys
@@ -57,6 +77,9 @@ SKIPPED_DIRS = frozenset({
     "venv", "site-packages", "__pycache__", "target",
 })
 MAX_ROOT_FILE_BYTES = 1024 * 1024
+SCRIPTS = Path(__file__).resolve().parent
+# skf-detect-workspaces.py's folder, installed and in src/ alike.
+SHARED_SCRIPTS = SCRIPTS.parent.parent / "shared" / "scripts"
 
 
 class StageError(Exception):
@@ -68,6 +91,29 @@ def _source_root(value: str) -> Path:
     if not root.is_dir():
         raise StageError(f"--source-root is not a folder: {value}")
     return root
+
+
+def _load(folder: Path, filename: str):
+    """A script in `folder`, loaded as a module, as load-coverage-inputs.py loads its siblings."""
+    path = folder / filename
+    spec = importlib.util.spec_from_file_location("skf_" + filename[:-3].replace("-", "_"), path)
+    if spec is None or spec.loader is None or not path.is_file():
+        raise StageError(f"{filename} not found in {folder}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def scoped_tree(tree: list[str], brief: str) -> list[str]:
+    """The paths of `tree` workspace detection reads under the brief at `brief`."""
+    inputs = _load(SCRIPTS, "load-coverage-inputs.py")
+    try:
+        excludes = inputs.read_brief(brief)["scope"]["exclude"]
+    except inputs.InputError as exc:
+        raise StageError(str(exc)) from exc
+    except ValueError as exc:  # a value YAML cannot build, such as an invalid date
+        raise StageError(f"--brief {brief} is not valid YAML: {' '.join(str(exc).split())}") from exc
+    return _load(SHARED_SCRIPTS, "skf-detect-workspaces.py").scoped_tree(tree, excludes, inputs.glob_match)
 
 
 # --------------------------------------------------------------------------
@@ -105,9 +151,13 @@ def root_texts(root: Path) -> dict[str, str]:
     return texts
 
 
-def workspaces_payload(source_root: str) -> dict:
+def workspaces_payload(source_root: str, brief: str | None = None) -> dict:
+    """The tree (with `brief`, the part of it the brief keeps) and the root files."""
     root = _source_root(source_root)
-    return {"tree": list_tree(root), "manifests": root_texts(root)}
+    tree = list_tree(root)
+    if brief is not None:
+        tree = scoped_tree(tree, brief)
+    return {"tree": tree, "manifests": root_texts(root)}
 
 
 # --------------------------------------------------------------------------
@@ -116,7 +166,7 @@ def workspaces_payload(source_root: str) -> dict:
 
 
 def _cmd_detect_workspaces(args: argparse.Namespace) -> dict:
-    return workspaces_payload(args.source_root)
+    return workspaces_payload(args.source_root, args.brief)
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -128,6 +178,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("detect-workspaces", help="the tree and root files for skf-detect-workspaces.py")
     p.add_argument("--source-root", required=True, help="the local source folder")
+    p.add_argument("--brief", help="the skill brief, whose scope.exclude globs leave paths out of the tree")
     p.set_defaults(func=_cmd_detect_workspaces)
 
     return parser

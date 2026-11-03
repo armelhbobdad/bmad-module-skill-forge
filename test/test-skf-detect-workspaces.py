@@ -1343,3 +1343,48 @@ class TestSnapshot:
         proc = subprocess.run([*installed, "--snapshot", "--json", payload], capture_output=True, timeout=60)
         assert proc.returncode == 2
         assert b"cannot load skf-detect-language.py" in proc.stderr
+
+
+# --------------------------------------------------------------------------
+# scoped_tree: the tree a brief's scope.exclude leaves (#780)
+# --------------------------------------------------------------------------
+
+
+_resolver_spec = importlib.util.spec_from_file_location(
+    "skf_resolve_authoritative_files_for_scope", SCRIPT_PATH.parent / "skf-resolve-authoritative-files.py")
+_resolver = importlib.util.module_from_spec(_resolver_spec)
+_resolver_spec.loader.exec_module(_resolver)
+SCOPE_TREE = [
+    "Cargo.toml", "README.md", "pyproject.toml", "python/pkg/__init__.py",
+    "rust/a/Cargo.toml", "rust/a/src/lib.rs", "rust/b/Cargo.toml", "rust/b/src/lib.rs",
+    "rust/c/Cargo.toml",  # a member with no file but its manifest
+    "apps/web/project.json", "apps/web/src/main.ts",  # an Nx project
+]
+
+
+class TestScopedTree:
+    @pytest.mark.parametrize("excludes, dropped", [
+        ([], []),
+        (["rust/**"], ["rust/a/Cargo.toml", "rust/a/src/lib.rs", "rust/b/Cargo.toml", "rust/b/src/lib.rs",
+                       "rust/c/Cargo.toml"]),
+        (["rust/**/*.rs"], ["rust/a/Cargo.toml", "rust/a/src/lib.rs", "rust/b/Cargo.toml", "rust/b/src/lib.rs"]),
+        (["rust/*/src/**"], ["rust/a/Cargo.toml", "rust/a/src/lib.rs", "rust/b/Cargo.toml", "rust/b/src/lib.rs"]),
+        (["**/Cargo.toml"], ["rust/c/Cargo.toml"]),
+        (["Cargo.toml", "pyproject.toml", "README.md"], ["README.md"]),
+        (["apps/web/src/**"], ["apps/web/project.json", "apps/web/src/main.ts"]),
+        (["**/project.json"], []),
+    ], ids=["no-glob", "member-folders", "member-sources", "member-src", "manifests-only", "root-files",
+            "nx-sources", "nx-manifest-only"])
+    def test_a_member_counts_only_through_its_kept_files(self, excludes, dropped):
+        """A member manifest stays while its folder keeps a non-manifest file, whatever a glob says of the
+        manifest; one whose folder holds no other file stays unless a glob matches it; root manifests
+        always stay; any other file goes when a glob matches it."""
+        kept = mod.scoped_tree(SCOPE_TREE, excludes, _resolver.glob_match)
+        assert kept == [p for p in SCOPE_TREE if p not in dropped]
+
+    def test_a_workspace_with_no_member_left_is_none(self):
+        manifests = {"Cargo.toml": '[workspace]\nmembers = ["rust/*"]\n'}
+        tree = mod.scoped_tree(SCOPE_TREE, ["rust/**/*.rs"], _resolver.glob_match)
+        assert [w["path"] for w in mod.detect({"tree": tree, "manifests": manifests})["workspaces"]] == ["rust/c"]
+        tree = mod.scoped_tree(SCOPE_TREE, ["rust/**"], _resolver.glob_match)
+        assert mod.detect({"tree": tree, "manifests": manifests})["is_monorepo"] is False

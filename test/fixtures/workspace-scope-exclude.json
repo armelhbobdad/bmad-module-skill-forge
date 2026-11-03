@@ -1,0 +1,119 @@
+{
+  "description": "#780: workspace layouts and skill briefs that coverage-check's workspace detection (stage-helper-payload.py piped to skf-detect-workspaces.py) and the recipe runner's monorepo arm (skf-extract-public-api.py arms) read alike. A case's exclude is the brief's scope.exclude, null for no brief; is_monorepo and manifest_kind are the verdict both give.",
+  "trees": {
+    "rust-beside-python": {
+      "Cargo.toml": "[workspace]\nmembers = [\"rust/a\", \"rust/b\"]\n",
+      "rust/a/Cargo.toml": "[package]\nname = \"a\"\n",
+      "rust/a/src/lib.rs": "pub fn a() {}\n",
+      "rust/b/Cargo.toml": "[package]\nname = \"b\"\n",
+      "rust/b/src/lib.rs": "pub fn b() {}\n",
+      "pyproject.toml": "[project]\nname = \"pkg\"\n",
+      "python/pkg/__init__.py": "def f():\n    pass\n"
+    },
+    "rust-manifests-only": {
+      "Cargo.toml": "[workspace]\nmembers = [\"rust/a\", \"rust/b\"]\n",
+      "rust/a/Cargo.toml": "[package]\nname = \"a\"\n",
+      "rust/b/Cargo.toml": "[package]\nname = \"b\"\n",
+      "pyproject.toml": "[project]\nname = \"pkg\"\n",
+      "python/pkg/__init__.py": "def f():\n    pass\n"
+    },
+    "npm-two-packages": {
+      "package.json": "{\"name\": \"root\", \"workspaces\": [\"packages/*\"]}\n",
+      "packages/a/package.json": "{\"name\": \"a\"}\n",
+      "packages/a/src/index.ts": "export function fa(): void {}\n",
+      "packages/b/package.json": "{\"name\": \"b\"}\n",
+      "packages/b/src/index.ts": "export function fb(): void {}\n"
+    }
+  },
+  "cases": [
+    {
+      "id": "no-brief",
+      "tree": "rust-beside-python",
+      "exclude": null,
+      "is_monorepo": true,
+      "manifest_kind": "cargo-workspace"
+    },
+    {
+      "id": "excluded-workspace",
+      "tree": "rust-beside-python",
+      "exclude": [
+        "rust/**"
+      ],
+      "is_monorepo": false,
+      "manifest_kind": null
+    },
+    {
+      "id": "excluded-sources",
+      "tree": "rust-beside-python",
+      "exclude": [
+        "rust/**/*.rs"
+      ],
+      "is_monorepo": false,
+      "manifest_kind": null
+    },
+    {
+      "id": "excluded-member-src",
+      "tree": "rust-beside-python",
+      "exclude": [
+        "rust/*/src/**"
+      ],
+      "is_monorepo": false,
+      "manifest_kind": null
+    },
+    {
+      "id": "each-member-its-own-glob",
+      "tree": "rust-beside-python",
+      "exclude": [
+        "./rust/a/**",
+        "rust/b/src/lib.rs"
+      ],
+      "is_monorepo": false,
+      "manifest_kind": null
+    },
+    {
+      "id": "member-manifests-only",
+      "tree": "rust-beside-python",
+      "exclude": [
+        "**/Cargo.toml"
+      ],
+      "is_monorepo": true,
+      "manifest_kind": "cargo-workspace"
+    },
+    {
+      "id": "root-manifest-only",
+      "tree": "rust-beside-python",
+      "exclude": [
+        "Cargo.toml"
+      ],
+      "is_monorepo": true,
+      "manifest_kind": "cargo-workspace"
+    },
+    {
+      "id": "one-member-excluded",
+      "tree": "npm-two-packages",
+      "exclude": [
+        "packages/b/**"
+      ],
+      "is_monorepo": true,
+      "manifest_kind": "npm-workspaces"
+    },
+    {
+      "id": "manifest-only-members-excluded",
+      "tree": "rust-manifests-only",
+      "exclude": [
+        "rust/**"
+      ],
+      "is_monorepo": false,
+      "manifest_kind": null
+    },
+    {
+      "id": "manifest-only-members-root-manifest",
+      "tree": "rust-manifests-only",
+      "exclude": [
+        "Cargo.toml"
+      ],
+      "is_monorepo": true,
+      "manifest_kind": "cargo-workspace"
+    }
+  ]
+}

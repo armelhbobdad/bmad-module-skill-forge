@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill, skf-create-skill, skf-update-skill
+summary: |
+  Test Skill no longer treats a skill's source as a monorepo because of a workspace whose members the skill brief's `scope.exclude` drops, such as a Rust workspace beside the Python package the skill documents, and so no longer picks the stratified-scope coverage denominator for it. A workspace member now counts only through the files the brief keeps: excluding its source files is enough to drop it (`rust/**`, `rust/**/*.rs` or `rust/*/src/**`), excluding only its manifest (`**/Cargo.toml`, or the root `Cargo.toml`) changes nothing, and a workspace with no member left is no workspace, while one with a member left still is. The recipe runner's monorepo arm (`arms.monorepo`) follows the same rule, so a skill whose only workspace the brief excludes stops storing `stats.effective_denominator` on its next Create Skill or Update Skill run. Whether `scope.include` lists a curated subset is decided as before, over every workspace of the source.
+issues: [780]

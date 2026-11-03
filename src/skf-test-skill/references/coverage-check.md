@@ -66,13 +66,13 @@ A source-based skill continues with §0b.
 
 Load `{sourceAccessProtocol}` and follow both sections: **Source API Surface Definition** (the denominator clause §2b picks) and **Source Access Resolution** (the 5-state waterfall that decides how the source is read and sets `analysis_confidence`; State 5 makes the run docs-only).
 
-**Workspace layout.** The Source API Surface Definition's monorepo tests read `{source_is_monorepo}`, which `{detectWorkspacesHelper}` decides. At State 1 (local source), resolve `{detectWorkspacesHelper}` ← first existing path in `{detectWorkspacesProbeOrder}` and run (`{stageHelperPayloadScript}` pipes it the source tree and the root manifests from disk):
+**Workspace layout.** The Source API Surface Definition's monorepo tests read `{source_is_monorepo}`. At State 1 (local source), resolve `{detectWorkspacesHelper}` ← first existing path in `{detectWorkspacesProbeOrder}` and run (`{stageHelperPayloadScript}` pipes it the tree and root manifests from disk; leave `--brief` out with no brief):
 
 ```bash
-uv run {stageHelperPayloadScript} detect-workspaces --source-root "{source_path}" | uv run {detectWorkspacesHelper}
+uv run {stageHelperPayloadScript} detect-workspaces --source-root "{source_path}" --brief "{forge_data_folder}/{skill_name}/skill-brief.yaml" | uv run {detectWorkspacesHelper}
 ```
 
-Bind `{source_is_monorepo}` ← `is_monorepo` and `{source_workspace_kind}` ← `manifest_kind`. At States 2 to 5, or when the helper does not resolve or the command exits non-zero, the layout is unknown: bind `{source_is_monorepo}` ← false. §5 records the layout.
+A workspace whose members `scope.exclude` drops is no workspace. Bind `{source_is_monorepo}` ← `is_monorepo` and `{source_workspace_kind}` ← `manifest_kind`. At States 2 to 5, or when the helper does not resolve or the command exits non-zero, the layout is unknown: bind `{source_is_monorepo}` ← false. §5 records the layout.
 
 **Clause flags.** Every `surface` command, in §2 or in a branch file it loads, takes `--monorepo` when `{source_is_monorepo}` is true, and the flags the Source API Surface Definition leaves to you.
 

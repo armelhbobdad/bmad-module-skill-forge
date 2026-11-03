@@ -3573,6 +3573,17 @@ WORKSPACE_TREE = {
     "packages/b/package.json": '{"name": "b"}\n',
     "packages/b/src/index.ts": "export function fb(): void {}\n",
 }
+# #780: the workspace layouts and briefs the monorepo arm and Test Skill's workspace detection read alike
+# (test-skf-stage-helper-payload.py runs both paths on them), among them a Rust workspace beside the Python
+# package a skill documents.
+SCOPE_EXCLUDE = json.loads((REPO / "test" / "fixtures" / "workspace-scope-exclude.json").read_text("utf-8"))
+RUST_BESIDE_PYTHON = SCOPE_EXCLUDE["trees"]["rust-beside-python"]
+
+
+def _scope_brief(folder: Path, excludes: list[str]) -> Path:
+    """A skill brief whose scope.exclude lists `excludes`."""
+    lines = "".join(f"    - '{g}'\n" for g in excludes)
+    return _tree(folder, {"skill-brief.yaml": f"language: python\nscope:\n  exclude:\n{lines}"}) / "skill-brief.yaml"
 
 
 def _denominator(capsys, monkeypatch, root: Path | None, payload: dict | str | None, *flags: str
@@ -3804,6 +3815,53 @@ class TestScopeFacts:
         # past every field a run with the recipes reads
         assert (out["files_without_recipes"], out["files_without_recipes_list"]) == ({".java": 1}, ["src/E.java"])
         assert list(out)[-2:] == ["files_in_scope_list", "files_without_recipes_list"]
+
+    @pytest.mark.parametrize("files, excludes, arms", [
+        *[pytest.param(SCOPE_EXCLUDE["trees"][c["tree"]], c["exclude"], (c["is_monorepo"], c["manifest_kind"]),
+                       id=c["id"]) for c in SCOPE_EXCLUDE["cases"]],
+        pytest.param(WORKSPACE_TREE, ["packages/b/**"], (True, "pnpm-workspaces"), id="pnpm-one-member-excluded"),
+        pytest.param(WORKSPACE_TREE, ["packages/*/src/**"], (False, None), id="pnpm-every-member-src-excluded"),
+    ])
+    def test_the_monorepo_arm_reads_the_members_the_brief_keeps(self, tmp_path, capsys, no_ast_grep, files,
+                                                                 excludes, arms) -> None:
+        """#780: a workspace member counts only through the files the brief keeps. A Rust workspace beside
+        the Python package the skill documents, its members' sources excluded (`rust/**`, `rust/**/*.rs`,
+        `rust/*/src/**`), is no workspace, so the monorepo arm stays off; excluding only manifests
+        (`**/Cargo.toml`, the root `Cargo.toml`), or one member of two, changes no verdict."""
+        root = _tree(tmp_path / "src", files)
+        flags = ["--brief", str(_scope_brief(tmp_path, excludes))] if excludes is not None else []
+        code, out = _full(capsys, root, *flags)
+        assert code == 3
+        assert (out["arms"]["monorepo"], out["arms"]["monorepo_kind"]) == arms
+
+    def test_curated_subset_reads_every_workspace_whatever_the_brief_excludes(self, tmp_path, capsys,
+                                                                             monkeypatch) -> None:
+        """#780 review: `scope.include: packages/a/**` decides the same with or without `scope.exclude:
+        packages/b/**`: a member the brief drops is still part of the repository the brief chose a subset
+        of, so `curated_subset` reads the workspaces of the whole tree; only the monorepo arm reads the
+        tree the brief keeps."""
+        root = _tree(tmp_path, WORKSPACE_TREE)
+        names = {"public": [{"name": "fa", "file": "packages/a/src/index.ts"}]}
+        _, alone = _denominator(capsys, monkeypatch, root, names, "--include", "packages/a/**")
+        _, excluded = _denominator(capsys, monkeypatch, root, names, "--include", "packages/a/**", "--exclude",
+                                   "packages/b/**")
+        for out in (alone, excluded):
+            assert out["arms"]["monorepo"] is True
+            assert (out["counts"]["curated_subset"], _decision(out)) == (True, (True, "curated-subset"))
+
+    def test_a_skill_whose_only_workspace_the_brief_excludes_stores_no_count(self, tmp_path, capsys,
+                                                                             monkeypatch) -> None:
+        """#780: the Python package beside an excluded Rust workspace is no monorepo subset any more: the
+        count is still curated, but no arm holds, so Create and Update Skill store no
+        stats.effective_denominator."""
+        root = _tree(tmp_path, RUST_BESIDE_PYTHON)
+        names = {"public": [{"name": "f", "file": "python/pkg/__init__.py"}]}
+        _, before = _denominator(capsys, monkeypatch, root, names, "--include", "python/**")
+        _, after = _denominator(capsys, monkeypatch, root, names, "--include", "python/**", "--exclude", "rust/**")
+        assert (before["arms"]["monorepo"], before["counts"]["curated_subset"], _decision(before)) == (
+            True, True, (True, "curated-subset"))
+        assert (after["arms"]["monorepo"], after["counts"]["curated_subset"], _decision(after)) == (
+            False, True, (False, "no-arm"))
 
     def test_denominator_mode_with_no_payload_gives_the_scope_facts(self, tmp_path, capsys, monkeypatch,
                                                                     no_ast_grep) -> None:
