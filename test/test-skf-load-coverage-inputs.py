@@ -692,6 +692,39 @@ def test_an_incomplete_run_reads_by_eye_every_file_a_failed_call_lists_unread(tm
     assert out["extraction"]["readByEye"] == ["a.py", "b.py", "c.py"]
 
 
+@pytest.mark.parametrize("issue", ["syntax-errors", "not-utf8"])
+def test_a_complete_run_names_the_files_it_could_not_parse_to_read_by_eye(tmp_path, issue):
+    """#789: the runner keeps status `ok` when a file fails to parse or decode and lists the file in `file_issues`,
+    and `readByEye` names it all the same: coverage-check.md keys its read-by-eye pass on a non-empty `readByEye`,
+    not on an `incomplete` status, so such a file is read whatever the status."""
+    record = {"file": "src/broken.ts", "issue": issue}
+    if issue == "syntax-errors":
+        record |= {"count": 2, "line": 9}
+    patch = {"file_issues": [record, {"file": "src/style.css", "issue": "no-recipes"}]}
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "e.json", {**EXTRACTION, **patch}))
+    assert out["extraction"]["status"] == "ok"
+    assert out["extraction"]["readByEye"] == ["src/broken.ts"]
+    assert out["extraction"]["unread"] == []
+    assert out["extraction"]["fallback"]["needed"] is False
+
+
+@pytest.mark.parametrize("status", ["ok", "incomplete"])
+def test_a_file_no_one_can_open_is_unread_not_read_by_eye(tmp_path, status):
+    """#789: a `missing` or `unreadable` file issue names a file the runner could not open, which no one can read by
+    eye either: it goes to `extraction.unread`, while a file that failed to parse or decode stays in `readByEye`
+    and a `no-recipes` file is in neither list."""
+    patch = {"status": status, "file_issues": [
+        {"file": "src/gone.ts", "issue": "missing"},
+        {"file": "src/locked.ts", "issue": "unreadable"},
+        {"file": "src/broken.ts", "issue": "syntax-errors", "count": 1, "line": 3},
+        {"file": "src/latin1.ts", "issue": "not-utf8"},
+        {"file": "src/style.css", "issue": "no-recipes"},
+    ]}
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "e.json", {**EXTRACTION, **patch}))
+    assert out["extraction"]["readByEye"] == ["src/broken.ts", "src/latin1.ts"]
+    assert out["extraction"]["unread"] == ["src/gone.ts", "src/locked.ts"]
+
+
 def test_quick_mode_output_is_not_an_extraction(tmp_path):
     proc = _run("surface", "--extraction", _write(tmp_path / "q.json", {"exports": []}))
     assert proc.returncode == 1 and "--mode full" in proc.stderr

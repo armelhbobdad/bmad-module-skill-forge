@@ -364,6 +364,46 @@ def test_awk_detection_contract_reads_the_bound_report():
     assert "the detection contract below reads it" in _flow(_slice(text, "## Gate Check", "## Scope of Section 4b"))
 
 
+def test_case_4_is_an_evidence_report_without_the_pinned_count():
+    """#784: Case 4 is reached only when the evidence report exists and pins no usable `t2_future_count` (absent,
+    not a non-negative integer, or no frontmatter at all, as in every create-stack-skill report), so its note says
+    that and points only a create-skill skill at create-skill, never that the file was not found; a missing report
+    stops at the gate with no note, and Case 4 raises no gap."""
+    text = _read(MIGRATION)
+    case4 = _flow(re.sub(r"^> ?", "", _slice(text, "### Case 4", "## Output"), flags=re.M))
+    assert case4.startswith("### Case 4: evidence report has no pinned count ")
+    assert "absent or not a non-negative integer, or the report has no frontmatter at all" in case4
+    assert "Skip the Case Rules and raise no gap." in case4
+    assert ('"Section 4b verification skipped: evidence-report.md pins no `t2_future_count`. For a skill '
+            'create-skill made, re-run create-skill to regenerate the report with the field (create-stack-skill '
+            'does not write it)."') in case4
+    for gone in ("not found", "Skip silently", "skip silently", "predates the field"):
+        assert gone not in case4, gone
+    bullet = _flow(_slice(text, "- **Frontmatter missing, OR `t2_future_count` absent or not a non-negative",
+                          "- **`t2_future_count` a non-negative integer**"))
+    assert "(empty, `null`, quoted) → treat as Case 4 (see below)" in bullet and "skip silently" not in bullet
+    assert "every stack skill: create-stack-skill's evidence report has no frontmatter" in _flow(text)
+    gate = _flow(_slice(text, "## Gate Check", "## Scope of Section 4b"))
+    assert ("If either condition fails, skip the check with no note and proceed to the next section: a missing "
+            "evidence report is not Case 4.") in gate
+    assert "Case 4" not in _read(COHERENCE), "coherence-check records a gap for Cases 1 to 3 only"
+
+
+def test_the_case_4_note_has_a_line_in_each_coherence_format():
+    """#784: the note Case 4 records lands on the Coherence Analysis section's **Migration Section:** line, which
+    both the naive and the contextual format give, as an optional line."""
+    formats = _read(REFS.parent / "assets" / "output-section-formats.md")
+    line = ("**Migration Section:** {the note migration-section-rules.md Case 4 records; leave this line out when it "
+            "records none}")
+    for mode in ("**Mode:** Naive", "**Mode:** Contextual"):
+        block = _fence(formats, mode)
+        assert block.startswith("## Coherence Analysis\n") and block.count(line) == 1, mode
+    case4 = _flow(_slice(_read(MIGRATION), "### Case 4", "## Output"))
+    assert ("Record this note on the Coherence Analysis section's **Migration Section:** line (`{outputFormatsFile}` "
+            "gives it in both formats)") in case4
+    assert _frontmatter(COHERENCE)["outputFormatsFile"] == "assets/output-section-formats.md"
+
+
 def _awk_program() -> str:
     block = _fence(_read(MIGRATION), "awk '")
     match = re.search(r"awk '([^']+)' \\\n\s*\{forge_evidence_report\}", block)
@@ -379,16 +419,24 @@ def _awk_program() -> str:
     ("# Evidence\n\nt2_future_count: 5\n", ""),
     # Frontmatter without the pinned field: Case 4 as well.
     ("---\nskill_name: demo\n---\nt2_future_count: 2\n", ""),
-], ids=["pinned", "pinned-zero", "no-frontmatter", "field-absent"])
+    # #784: a CRLF report reads the same, since the command strips a trailing CR before it matches.
+    ("---\r\nskill_name: demo\r\nt2_future_count: 4\r\n---\r\n", "4"),
+    # #784: a value that is not a non-negative integer reaches the rule as printed, and Case 4 takes it.
+    ("---\nt2_future_count:\n---\n", ""),
+    ("---\nt2_future_count: null\n---\n", "null"),
+    ("---\nt2_future_count: '3'\n---\n", "'3'"),
+], ids=["pinned", "pinned-zero", "no-frontmatter", "field-absent", "crlf", "empty", "null", "quoted"])
 def test_awk_detection_contract_extracts_the_pinned_count(tmp_path, report, expected):
     path = tmp_path / "1.2.0" / EVIDENCE
     path.parent.mkdir()
-    # LF bytes, as SKF's atomic writer leaves them on every OS. write_text
-    # would write CRLF on Windows, where Git's MSYS awk reads bytes as they
-    # are, so `---\r` would never match /^---$/ and every count would read "".
+    # The bytes as written: write_text would write CRLF on Windows, and the
+    # crlf case writes CRLF on every OS. Git's MSYS awk reads bytes as they
+    # are, so the command strips each line's trailing CR before `---` can match.
     path.write_bytes(report.encode("utf-8"))
     result = subprocess.run(["awk", _awk_program(), str(path)], capture_output=True, text=True, check=True)
     assert result.stdout.strip() == expected
+    # Only digits are a pinned count; anything else is Case 4.
+    assert bool(re.fullmatch(r"[0-9]+", expected)) is (expected in ("3", "0", "4"))
 
 
 def test_version_paths_knowledge_is_probed_and_loaded_only_to_migrate():
@@ -1229,10 +1277,78 @@ def test_the_inventory_contract_lists_the_validators_kinds():
     assert "every entry carries the `description`" in section
 
 
+def test_the_inventory_subagent_writes_its_own_response():
+    """#814: the §1 subagent writes its JSON to the run file with the Write tool, never through a shell, and returns
+    the path, or returns the JSON itself when it cannot write files; the parent saves the response with the Write
+    tool only when the subagent returned the JSON or the file is absent or empty afterwards. Before the one
+    re-dispatch the refused file is deleted, so a stale response is never validated twice. The signature subagents'
+    responses are still the parent's to save."""
+    text = _read(COVERAGE)
+    section1 = _flow(_slice(text, "### 1. Extract Documented Exports", "#### 1a."))
+    assert "Delegate the reading of the skill under test to a subagent, given `{run_dir}` and the path" in section1
+    # The subagent's side: the Write tool, or the JSON returned.
+    assert ("It writes only this JSON, with no prose and no commentary, to `{run_dir}/inventory-response.txt` with "
+            "the Write tool, never a shell, and returns that path, or returns the JSON itself when it cannot write "
+            "files:") in section1
+    # The parent's side: a save only when there is no file to validate.
+    assert ("When the subagent returned the JSON rather than the path, or the file is absent or empty afterwards, "
+            "save its response, as it came back, to `{run_dir}/inventory-response.txt` with the Write tool.") in section1
+    assert "Save the subagent's response" not in section1 and "Save the response of a subagent" not in section1
+    branches = _read(COVERAGE_BRANCHES)
+    rm = 'rm -f "{run_dir}/inventory-response.txt"'
+    assert rm in _fence(_slice(branches, "## Inventory Failures", "## States 2 to 4"), rm)
+    failures = _flow(_slice(branches, "## Inventory Failures", "## States 2 to 4"))
+    assert "delete the response `{validateInventoryScript}` refused, so a stale one is never validated twice" in failures
+    assert failures.index(rm) < failures.index("Re-dispatch the §1 subagent once")
+    assert ("it writes its new response to that file, or returns it for you to save there, as §1 says. Run the §1a "
+            "command again.") in failures
+    run_files = _flow(_slice(text, "**Run files.**", "### 0."))
+    assert ("A subagent's response is saved there exactly as it came back, fence and all (the subagent writes it to "
+            "the path it is given, or the parent saves it, with the Write tool), and passed by path") in run_files
+    assert "`{run_dir}/signatures-<n>.txt` with the Write tool" in _flow(text)
+    doc = _flow(runpy_module(SCRIPTS_DIR / "validate-inventory.py").__doc__)
+    assert ("the coverage-check.md §1 subagent writes its response to the path it is given with the Write tool, and "
+            "the parent saves it there with the Write tool when the subagent returned it instead or left the file "
+            "absent or empty") in doc
+
+
+@pytest.mark.parametrize("left", ["absent", "empty"])
+def test_an_inventory_file_left_absent_or_empty_is_saved_before_it_is_validated(tmp_path, left):
+    """#814: a subagent that returned the JSON, or wrote nothing, leaves no response to validate: the §1a command
+    exits 1 on that file and writes no inventory, so the parent's save comes first, and the response saved as it
+    came back, fence and all, then validates."""
+    skill = _write_tree(tmp_path / "skill", {
+        "SKILL.md": "---\nname: demo\ndescription: Demo. Use when testing.\n---\n# Demo\n\n`fetchData(url)` fetches.\n",
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    response = run / "inventory-response.txt"
+    if left == "empty":
+        response.write_bytes(b"")
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix()}
+    command = _command(COVERAGE, "uv run {validateInventoryScript}")
+    rest = command.split("uv run {validateInventoryScript} ", 1)[1]
+    for key, value in values.items():
+        rest = rest.replace(key, value)
+    proc = subprocess.run([sys.executable, str(PROSE_SCRIPTS["{validateInventoryScript}"]), *shlex.split(rest)],
+                          cwd=tmp_path, capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert not (run / "inventory.json").exists()
+    response.write_bytes(("```json\n" + json.dumps({"exports": [
+        {"name": "fetchData", "kind": "function", "params": "url: string", "return_type": "string",
+         "description": "Fetches."}], "cross_check_mismatches": []}) + "\n```\n").encode("utf-8"))
+    assert _exec(command, values, tmp_path)["valid"] is True
+    assert (run / "inventory.json").is_file()
+
+
 def test_an_invalid_inventory_is_redispatched_once_then_halts_with_its_reason():
     section = _flow(_slice(_read(COVERAGE), "#### 1a. Parent-Side Schema Validation", "### 1b."))
-    assert "re-dispatch the §1 subagent once, with the script's `violations[]` appended" in section
-    assert "(an absent name as a name the skill does not write)" in section
+    # The failures are a rare branch, carved into the branch file; the halt stays in the step.
+    assert ("- `valid` false (exit 2), or exit 1: load `{coverageBranchesFile}` and follow its **Inventory Failures** "
+            "section. Invalid a second time: HALT") in section
+    failures = _flow(_slice(_read(COVERAGE_BRANCHES), "## Inventory Failures", "## States 2 to 4"))
+    assert "Re-dispatch the §1 subagent once, with the script's `violations[]` appended" in failures
+    assert "(an absent name as a name the skill does not write)" in failures
     assert 'HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`)' in section
     assert "SKF_TEST_RESULT_JSON" not in _read(COVERAGE), "the emitter prints the line"
     table = _flow(_slice(_read(CONTRACT), "| `halt_reason` | Raised by |", "When the emitter itself"))
@@ -1266,6 +1382,27 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     assert "a documented signature matching the implementation or any overload is no mismatch" in forge
     for gone in ("exports_documented", "missing_docs"):
         assert gone not in forge, gone
+
+
+def test_the_forge_tier_reads_by_eye_every_file_the_surface_names():
+    """#789: an `ok` run lists its syntax-error and non-UTF-8 files in `extraction.readByEye` too, so the read-by-eye
+    pass keys on that list being non-empty, not on an `incomplete` status. It runs once; its files are listed in the
+    Coverage Analysis section as Quick tier and the fallback list theirs, and so are the `extraction.unread` files no
+    one could open, whether or not anything is read by eye. The fallback stays the first branch."""
+    section = _slice(_read(COVERAGE), "Decide what to do from the JSON, not from the exit code:",
+                     "**Compare the signatures.**")
+    bullets = [line for line in section.splitlines() if line.startswith("- ")]
+    assert bullets[0].startswith("- `extraction.fallback.needed` is true")
+    assert bullets[1] == ("- `extraction.readByEye` is non-empty (a file the run could not parse or decode, or a "
+                          "failed call left unread): keep the surface, read by eye only the files it names, save a "
+                          "per-file result for each, and run `surface` again with them, once (the second call starts "
+                          "no new pass).")
+    # Whatever the branch, each file read by eye and each file no one could open is listed, never dropped silently.
+    assert bullets[2] == ("- In the Coverage Analysis section, list each `readByEye` file as read by eye, each "
+                          "`extraction.unread` file as unread.")
+    assert "`extraction.status` is `incomplete`" not in section
+    # Quick tier and the fallback per-file scan list theirs the same way.
+    assert _flow(_read(COVERAGE_TIERS)).count("in the Coverage Analysis section as read by eye") == 2
 
 
 def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
@@ -1657,9 +1794,23 @@ def test_the_prose_state_4_surface_runs(tmp_path):
 COVERAGE_CHAR_BUDGET = 36_000
 
 # The text coverage-check.md carved into coverage-check-branches.md, byte for byte as the step held it at
-# 3ac917ef (the surplus paragraph's guard sentence as #788 and #813 rewrote it): each section's blocks, which the
-# step no longer holds.
+# 3ac917ef (the surplus paragraph's guard sentence as #788 and #813 rewrote it; §1a's failures as #814 rewrote
+# them, the refused file deleted before the re-dispatch): each section's blocks, which the step no longer holds.
 CARVED_TO_BRANCHES = {
+    "Inventory Failures": [(
+        "- **`valid` false (exit 2):** delete the response `{validateInventoryScript}` refused, so a stale one is "
+        "never validated twice:\n"
+        "\n"
+        "  ```bash\n"
+        "  rm -f \"{run_dir}/inventory-response.txt\"\n"
+        "  ```\n"
+        "\n"
+        "  Re-dispatch the §1 subagent once, with the script's `violations[]` appended to its instructions (an "
+        "absent name as a name the skill does not write): it writes its new response to that file, or returns it "
+        "for you to save there, as §1 says. Run the §1a command again.\n"
+        "- **Exit 1** (no input, a file that cannot be read, or a package with no readable SKILL.md): correct the "
+        "file and run it again."
+    )],
     "States 2 to 4": [(
         "- **State 2** (`{forge_provenance_map}`, the provenance map init.md §2 bound): the union of its "
         "named exports and the `metadata.json` `exports[]` names, with `--fold`, `--keep` and "
@@ -1746,6 +1897,7 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
     assert "§2 **Exits** apply here unchanged" in opening, "State 2, 3 and 4's `surface` calls exit as §2 says"
     # Each section, and the coverage-check.md sections whose branch sentence loads it.
     loads = {
+        "Inventory Failures": ["#### 1a. Parent-Side Schema Validation"],
         "States 2 to 4": ["### 2. Analyze Source Code", "### 2b."],
         "Scalar and Stack Branches": ["### 2c."],
         "Denominator Candidates": ["### 4. The Denominator Record"],

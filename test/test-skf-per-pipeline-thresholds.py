@@ -23,6 +23,7 @@ import pytest
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 TS_DIR = REPO_ROOT / "src" / "skf-test-skill"
 INIT_FILE = TS_DIR / "references" / "init.md"
+TEMPLATE_FILE = TS_DIR / "templates" / "test-report-template.md"
 SCORE_FILE = TS_DIR / "references" / "score.md"
 HARD_GATE_FILE = TS_DIR / "references" / "step-hard-gate.md"
 SKILL_MD = TS_DIR / "SKILL.md"
@@ -261,6 +262,22 @@ class TestReportFrontmatter:
         assert threshold_idx < ts_idx < confidence_idx, (
             "thresholdSource must appear after threshold and before analysisConfidence"
         )
+
+    def test_the_template_and_the_initial_frontmatter_hold_the_same_keys(self, text: str) -> None:
+        """#777: §6c's block replaces the template's frontmatter, so the two list the same keys in the same
+        order, and §6c says which one the report keeps."""
+        template = re.match(r"^---\n(.*?)\n---\n", _read(TEMPLATE_FILE), re.S)
+        assert template, "the template has no frontmatter"
+        block = re.search(r"```yaml\n---\n(workflowType: 'test-skill'\n.*?)\n---\n```", text, re.S)
+        assert block, "init.md §6c has no initial frontmatter block"
+
+        def keys(body: str) -> list[str]:
+            return re.findall(r"^([A-Za-z_][A-Za-z0-9_]*):", body, re.M)
+
+        assert keys(block.group(1)) == keys(template.group(1))
+        assert "health_check_dispatched: false" in block.group(1), "report.md §4c sets it when it publishes"
+        section = re.sub(r"\s+", " ", text[text.index("**6c. Create `{outputFile}`"):text.index("### 7. ")])
+        assert "Replace the template's frontmatter with this block (the two hold the same keys)." in section
 
 
 # ---------------------------------------------------------------------------

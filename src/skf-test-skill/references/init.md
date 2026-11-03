@@ -313,13 +313,14 @@ thresholdSource: '{threshold_source}'
 analysisConfidence: ''
 toolingStatus: '{ok|frontmatter-validator-timeout}'
 workspaceDrift: '{not-checked|ok|overridden}'
+health_check_dispatched: false
 testDate: '{run_id timestamp ISO-8601 UTC}'
 stepsCompleted: ['init']
 nextWorkflow: ''
 ---
 ```
 
-`toolingStatus` is the `tooling_status` §3b set: score.md §3a reads it back for Cap 1. `threshold` and `thresholdSource` are the pass threshold §1b resolved and its source: score.md §1 reads them back, and score.md §7 rewrites `threshold` with the threshold the verdict was settled against. `analysisConfidence` stays empty until score.md §7 writes the source access coverage-check resolved: `full`, `provenance-map`, `metadata-only`, `remote-only` or `docs-only`.
+Replace the template's frontmatter with this block (the two hold the same keys). `toolingStatus` is the `tooling_status` §3b set: score.md §3a reads it back for Cap 1. `threshold` and `thresholdSource` are the pass threshold §1b resolved and its source: score.md §1 reads them back, and score.md §7 rewrites `threshold` with the threshold the verdict was settled against. `analysisConfidence` stays empty until score.md §7 writes the source access coverage-check resolved: `full`, `provenance-map`, `metadata-only`, `remote-only` or `docs-only`.
 
 ### 7. Report Initialization Status
 
