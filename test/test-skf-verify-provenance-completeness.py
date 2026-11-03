@@ -53,6 +53,30 @@ Covers:
     generic's type parameters or JSX on a declarator line, a destructuring
     default, a decorator argument, a line after the statement ended) and
     the column-0 rule for a split name and a later declarator
+  - destructured bindings (#785, #806): the names a `const` / `let` /
+    `var` pattern binds, on one line or over several (each on its own
+    line), with a type annotation after it (whose keys bind nothing), every
+    binding shape (shorthand, `key: target`, default, rest, holes, nested,
+    number and string keys) and what binds nothing (a renamed or computed
+    key, a default value, a string, a comment), an import value under
+    classify-stale's lookup (its `=` on a later line, `=>` in the
+    annotation) while verify and definition-lines keep it, the column-0
+    rule at the statement's column, an unclosed pattern, a pattern nested
+    past the recursion limit, a pattern as a later declarator or after a
+    split keyword, the binder's offsets and a copy of it run alone (no
+    module state); classify-stale over storybook's
+    `testing-library.ts` shape finding every name defined, and fix moving
+    an entry at the `export const {` line to its name's line
+  - @overload groups (#782): every stub and the implementation verify
+    (`@overload`, `@typing.overload`, `@typing_extensions.overload`, a
+    method's `@overload @staticmethod` stubs, async stubs, a decorator
+    over several lines), a miss gives the first stub in verify and
+    definition-lines, for a group of stubs alone (a `.pyi`, a Protocol)
+    and through `@t.overload` too, verify then `fix --dry-run` plans that
+    move, and `def` lines that are no group (both branches of an `if`, a
+    stub between other lines, a blank line under the decorator, two
+    indentations, two classes in a `.py` or a `.pyi`) keep every line,
+    `several-definition-lines` in fix
   - reference apps (#549): no missing / orphaned set-diff and
     `summary.set_diff: not-applicable`; `entry_index` on each stale item
   - definition-lines: each `line_check`, `line_is_definition`, the dropped
@@ -130,6 +154,7 @@ Covers:
 from __future__ import annotations
 
 import ast
+import builtins
 import copy
 import importlib.util
 import json
@@ -2181,16 +2206,16 @@ class TestDefinitionShapes:
                 "export const m = new Map<string, number>(), S = 1;\n"
                 "export const FLAG = 1 << 3, MASK = FLAG << 1;\n")
         cases = {"a1": [1], "B2": [1], "x": [2], "Y": [2], "Q": [3],
-                 "AfterDestr": [4], "Other": [5], "T": [6], "U": [6],
+                 "de": [4], "obj": [], "AfterDestr": [4], "Other": [5], "T": [6], "U": [6],
                  "Hidden": [7], "R": [8], "S": [9], "MASK": [10], "number": []}
         for name, lines in cases.items():
             assert _ts_lines(tmp_path, "d.ts", text, name) == lines, name
 
     def test_declarator_line_negatives(self, tmp_path: Path) -> None:
-        # the name inside a string, a comment, a destructuring default, a
-        # call's arguments, an array, a regular expression, a generic arrow
-        # function's type parameters, JSX or type arguments: none of them
-        # declares it
+        # the name inside a string, a comment, a destructuring default (the
+        # pattern's own name `g` is declared), a call's arguments, an
+        # array, a regular expression, a generic arrow function's type
+        # parameters, JSX or type arguments: none of them declares it
         text = ('export const a = "B, C = 1", d = 2;\n'
                 "export const e = 1, /* B = 2 */ f = 3; // , C = 4\n"
                 "export const { g = B } = obj;\n"
@@ -2204,7 +2229,7 @@ class TestDefinitionShapes:
                 "export const s: Handler<A, U, C> = h, t = 2;\n")
         for name in ("B", "C", "U"):
             assert _ts_lines(tmp_path, "n.ts", text, name) == [], name
-        cases = {"d": [1], "f": [2], "i": [4], "k": [5], "n": [7], "o": [8],
+        cases = {"d": [1], "f": [2], "g": [3], "i": [4], "k": [5], "n": [7], "o": [8],
                  "el": [9], "p": [10], "t": [11]}
         for name, lines in cases.items():
             assert _ts_lines(tmp_path, "n.ts", text, name) == lines, name
@@ -2386,6 +2411,477 @@ class TestDefinitionShapes:
         (item,) = result["stale"]
         assert item["reason"] == mod.STALE_LINE_NOT_DEFINITION
         assert item["definition_lines"] == [2]
+
+
+# --------------------------------------------------------------------------
+# Destructured bindings (#785, #806) and @overload groups (#782)
+# --------------------------------------------------------------------------
+
+# storybook/test's `testing-library.ts`, in a `lib/` folder the lookup reads.
+TESTING_LIBRARY_TS = """\
+import * as domTestingLibrary from '@testing-library/dom';
+import _userEvent from '@testing-library/user-event';
+import { instrument } from 'storybook/internal/instrumenter';
+import type { UserEvent } from './user-event';
+
+type TestingLibraryDom = typeof domTestingLibrary;
+
+const testingLibrary = instrument(
+  { ...domTestingLibrary },
+  {
+    intercept: (method, path) =>
+      path[0] === 'fireEvent' || method.startsWith('find') || method.startsWith('waitFor'),
+  }
+) as TestingLibraryDom;
+
+/** The queries, `screen` and the event helpers, each instrumented. */
+export const {
+  buildQueries,
+  configure,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+  prettyDOM,
+} = testingLibrary;
+
+export const { userEvent }: { userEvent: UserEvent['setup'] } = instrument(
+  { userEvent: _userEvent.setup() },
+  { intercept: true }
+);
+"""
+# Line numbers in TESTING_LIBRARY_TS.
+TL_PATTERN_OPEN = 17
+TL_LINES = {"buildQueries": 18, "configure": 19, "fireEvent": 20, "screen": 21, "waitFor": 22,
+            "within": 23, "prettyDOM": 24, "userEvent": 27}
+
+
+class TestDestructuredBindings:
+    def test_a_multi_line_pattern_binds_each_name_on_its_line(self, tmp_path: Path) -> None:
+        text = ("export const {\n"   # 1
+                "  fireEvent,\n"     # 2
+                "  within,\n"        # 3
+                "} = lib;\n")        # 4
+        cases = {"fireEvent": [2], "within": [3], "lib": []}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "t.ts", text, name) == lines, name
+        assert _verify_one(tmp_path, "t.ts", text, "within", 3)["stale"] == []
+        (item,) = _verify_one(tmp_path, "t.ts", text, "within", 1)["stale"]
+        assert (item["reason"], item["definition_lines"]) == (mod.STALE_LINE_NOT_DEFINITION, [3])
+
+    def test_the_type_annotation_after_the_pattern_binds_nothing(self, tmp_path: Path) -> None:
+        text = "export const { userEvent }: { userEvent: T; setup: S } = f(x);\n"
+        cases = {"userEvent": [1], "setup": [], "T": [], "S": [], "f": [], "x": []}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "a.ts", text, name) == lines, name
+
+    def test_every_binding_shape(self, tmp_path: Path) -> None:
+        text = ("export const { a: alias } = o1;\n"                           # 1
+                "export const { b = 2, c = DEFAULT_C } = o2;\n"               # 2
+                "export let { ...rest } = o3;\n"                              # 3
+                "export var [first, , third = 3, ...others] = list;\n"        # 4
+                "export const { n: { deep }, l: [elem] } = o4;\n"             # 5
+                "export const { 0: zero, 'q-r': quoted, f = () => 1 } = o5;\n"  # 6
+                "const [[inner] = [], { tail } = {}] = o6;\n")                # 7
+        cases = {"alias": [1], "b": [2], "c": [2], "rest": [3], "first": [4], "third": [4],
+                 "others": [4], "deep": [5], "elem": [5], "zero": [6], "quoted": [6], "f": [6],
+                 "inner": [7], "tail": [7]}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "s.ts", text, name) == lines, name
+        # a renamed key, a nested pattern's key, a number or string key, a
+        # default value and the value bound
+        for name in ("a", "n", "l", "q-r", "DEFAULT_C", "list", "o4"):
+            assert _ts_lines(tmp_path, "s.ts", text, name) == [], name
+
+    def test_strings_and_computed_keys(self, tmp_path: Path) -> None:
+        text = ('export const { x = "}, fake", y = `], ${fake2}` } = o;\n'
+                "export const { [k]: comp, [`${k2}`]: comp2 } = o;\n")
+        cases = {"x": [1], "y": [1], "comp": [2], "comp2": [2]}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "c.ts", text, name) == lines, name
+        for name in ("fake", "fake2", "k", "k2"):
+            assert _ts_lines(tmp_path, "c.ts", text, name) == [], name
+
+    def test_a_name_in_a_comment_inside_the_pattern_binds_nothing(self, tmp_path: Path) -> None:
+        text = ("export const {\n"
+                "  // ghost,\n"
+                "  real, /* phantom, */\n"
+                "} = o;\n")
+        assert _ts_lines(tmp_path, "m.ts", text, "real") == [3]
+        for name in ("ghost", "phantom"):
+            assert _ts_lines(tmp_path, "m.ts", text, name) == [], name
+
+    @pytest.mark.parametrize("text, line, declared", [
+        ("export const { X } = require('./m');\n", 1, False),
+        ("export const { X } = await import('./m');\n", 1, False),
+        ("const { X }: Mod =\n  require('./m');\n", 1, False),
+        ("export const {\n  X,\n} = require('./m');\n", 2, False),
+        ("export const { X }: { X: () => void } = require('./m');\n", 1, False),
+        ("export const [X] = make();\n", 1, True),
+        ("export const { X } = make();\n", 1, True),
+    ], ids=["require", "await-import", "annotated-line-broken-require", "multi-line-require",
+            "arrow-typed-require", "array-make", "object-make"])
+    def test_an_import_value_is_no_declaration(
+        self, tmp_path: Path, capsys, text: str, line: int, declared: bool
+    ) -> None:
+        rel = "pkg/m.mjs"
+        files = {**PKG, rel: text}
+        assert _defined_at(tmp_path, capsys, files, ["X"], [MAIN_ENTRY, TS_ENTRY]) == {
+            "X": f"{rel}:{line}" if declared else None}
+        # verify and definition-lines keep the import-valued binding
+        src = tmp_path / "src"
+        assert mod.find_definition_lines(rel, "X", src) == [line]
+        assert mod.definition_lines_report(rel, "X", src, line)["line_is_definition"] is True
+        entry = {"export_name": "X", "source_file": rel, "source_line": line}
+        assert mod.verify({"exports": ["X"]}, {"entries": [entry]}, src)["stale"] == []
+
+    def test_a_local_shadow_is_dropped(self, tmp_path: Path) -> None:
+        text = ("export const { x } = obj;\n"     # 1
+                "function f(props) {\n"           # 2
+                "  const { x } = props;\n"        # 3
+                "  const {\n"                     # 4
+                "    y,\n"                        # 5
+                "  } = props;\n"                  # 6
+                "  const z = 1;\n"                # 7
+                "}\n"                             # 8
+                "export const {\n"                # 9
+                "  z,\n"                          # 10
+                "} = obj;\n")                     # 11
+        # the name's line takes its statement's column, so `z` on line 10
+        # outranks the local on line 7
+        cases = {"x": [1], "y": [5], "z": [10]}
+        for name, lines in cases.items():
+            assert _ts_lines(tmp_path, "l.ts", text, name) == lines, name
+
+    def test_what_binds_nothing(self, tmp_path: Path) -> None:
+        # an unclosed pattern, a pattern as a later declarator and one after
+        # a split keyword are not covered
+        text = ("export const { kept } = o;\n"     # 1
+                "export const a = 1, { later } = c;\n"  # 2
+                "export const\n"                   # 3
+                "  { split } = c;\n"               # 4
+                "export const { open,\n"           # 5
+                "  more\n")                        # 6
+        assert _ts_lines(tmp_path, "u.ts", text, "kept") == [1]
+        for name in ("later", "split", "open", "more"):
+            assert _ts_lines(tmp_path, "u.ts", text, name) == [], name
+        assert mod._js_pattern_bindings("{ a, b: [c", 0) == ([], None)
+        assert mod._js_pattern_bindings('{ a = "}', 0) == ([], None)
+        assert mod._js_pattern_bindings("{ a ]", 0) == ([], None)
+        assert mod._js_pattern_bindings("x = { a }", 0) == ([], None)
+
+    def test_classify_stale_finds_each_destructured_export(self, tmp_path: Path, capsys) -> None:
+        # storybook/test's shape (#785): no destructured name is fabricated,
+        # and verify finds every entry at its definition line (#806)
+        rel = "lib/testing-library.ts"
+        entries = [{"export_name": name, "source_file": rel, "source_line": line}
+                   for name, line in TL_LINES.items()]
+        out = _classified(tmp_path, capsys, {rel: TESTING_LIBRARY_TS}, list(TL_LINES), entries)
+        for name, line in TL_LINES.items():
+            got = out[name]
+            assert (got["fabricated"], got["reason"], got["source"], got["defined_at"]) == (
+                False, "defined", f"{rel}:{line}", f"{rel}:{line}"), name
+            assert got["entries"][0]["definition_lines"] == [line], name
+        result = mod.verify({"exports": list(TL_LINES)}, {"entries": entries}, tmp_path / "src")
+        assert result["stale"] == [] and result["status"] == "pass"
+
+    def test_fix_moves_an_entry_at_the_pattern_line_to_its_name(self, tmp_path: Path) -> None:
+        rel = "src/lib/testing-library.ts"
+        entries = [
+            {"export_name": "within", "source_file": rel, "source_line": TL_PATTERN_OPEN,
+             "extraction_method": "ast-grep"},
+            {"export_name": "userEvent", "source_file": rel, "source_line": TL_LINES["userEvent"],
+             "extraction_method": "ast-grep"},
+        ]
+        pkg = _fix_package(tmp_path, skill_md=f"`within` [AST:{rel}:L{TL_PATTERN_OPEN}]\n", api_md="",
+                           entries=entries)
+        _write_bytes(pkg.root, rel, TESTING_LIBRARY_TS)
+        verify = _verify_to_file(pkg, tmp_path / "verify.json")
+        assert [(s["export_name"], s["reason"], s["definition_lines"]) for s in verify["stale"]] == [
+            ("within", mod.STALE_LINE_NOT_DEFINITION, [TL_LINES["within"]])]
+        code, out = _fix(pkg, tmp_path / "verify.json")
+        assert code == 0 and out["left_as_warn"] == []
+        assert [(a["kind"], a["export_name"], a["from"], a["to"]) for a in out["applied"]
+                if a["kind"] == "source-line"] == [("source-line", "within", TL_PATTERN_OPEN, TL_LINES["within"])]
+        assert (pkg.skill / "SKILL.md").read_text(encoding="utf-8") == (
+            f"`within` [AST:{rel}:L{TL_LINES['within']}]\n")
+        assert _verify_to_file(pkg, tmp_path / "again.json")["stale"] == []
+
+    def test_a_pattern_nested_past_the_recursion_limit_binds_nothing(self, tmp_path: Path) -> None:
+        depth = sys.getrecursionlimit() + 10
+        text = ("export function keep() {}\n"
+                "export const " + "[" * depth + "deep" + "]" * depth + " = x;\n")
+        assert _ts_lines(tmp_path, "d.ts", text, "keep") == [1]
+        assert _ts_lines(tmp_path, "d.ts", text, "deep") == []
+        assert _verify_one(tmp_path, "d.ts", text, "keep", 1)["stale"] == []
+
+    def test_the_binder_offsets_and_end(self) -> None:
+        text = "const {\n  a,\n  b: [c, ...d],\n} = e;"
+        start = text.index("{")
+        names, end = mod._js_pattern_bindings(text, start)
+        assert [(name, text[offset : offset + len(name)]) for name, offset in names] == [
+            ("a", "a"), ("c", "c"), ("d", "d")]
+        assert text[end:] == " = e;"
+
+    def test_the_binder_runs_alone(self) -> None:
+        # a pure function of its arguments: a copy of it, with nothing else of
+        # the script, gives the same answers (the public-API runner will carry one)
+        tree = ast.parse(SCRIPT_PATH.read_text(encoding="utf-8"))
+        (fn,) = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_js_pattern_bindings"]
+        bound = {a.arg for n in ast.walk(fn) if isinstance(n, ast.arguments)
+                 for a in n.posonlyargs + n.args + n.kwonlyargs}
+        bound |= {n.name for n in ast.walk(fn) if isinstance(n, ast.FunctionDef)}
+        bound |= {n.id for n in ast.walk(fn) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store)}
+        loaded = {n.id for n in ast.walk(fn) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+        assert loaded - bound - set(dir(builtins)) == set()
+        assert not [n for n in ast.walk(fn) if isinstance(n, ast.Global)]
+        namespace: dict = {}
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "copy", "exec"), namespace)
+        copied = namespace["_js_pattern_bindings"]
+        for text in ("{ a: b, c = 1, ...d }", "[x, , [y] = [], { z }]", '{ s = "}", [k]: v }', "{ open,"):
+            assert copied(text, 0) == mod._js_pattern_bindings(text, 0), text
+
+
+PARSERS_PY = '''\
+"""Parsers."""
+import typing
+from typing import overload
+
+import typing_extensions
+from warnings import deprecated
+
+
+@overload
+def parse(data: bytes) -> bytes: ...
+@typing.overload
+def parse(data: str) -> str: ...
+def parse(data):
+    return data
+
+
+class Loader:
+    @overload
+    @staticmethod
+    def load(path: str) -> str: ...
+
+    @typing_extensions.overload  # bytes in, bytes out
+    @staticmethod
+    def load(path: bytes) -> bytes: ...
+
+    @staticmethod
+    def load(path):
+        return path
+
+
+@overload
+@deprecated(
+    "pass a str",
+)
+async def fetch(url: bytes) -> bytes: ...
+@overload
+async def fetch(url: str) -> str: ...
+async def fetch(url):
+    return url
+'''
+# Line numbers in PARSERS_PY: a blank line above parse's group, and each
+# group's first stub and every line.
+PARSE_BLANK = 8
+PARSE_FIRST = 10
+LOAD_FIRST = 20
+FETCH_FIRST = 35
+PARSERS_GROUPS = {"parse": [10, 12, 13], "Loader.load": [20, 24, 27], "fetch": [35, 37, 38]}
+# Appended to PARSERS_PY: `def` lines that are no @overload group.
+NOT_GROUPS_PY = '''\
+
+
+if typing.TYPE_CHECKING:
+    def f(x: int) -> int: ...
+else:
+    def f(x): return x
+
+
+@overload
+def g(x: int) -> int: ...
+def g(x): return x
+def g(x): return x
+
+@overload
+def h(x: int) -> int: ...
+def h(x): return x
+@overload
+def h(x: str) -> str: ...
+
+@overload
+
+def i(x: int) -> int: ...
+def i(x): return x
+
+class J:
+    @overload
+    def j(self, x: int) -> int: ...
+@overload
+def j(x: int) -> int: ...
+def j(x): return x
+'''
+
+
+class TestOverloadGroups:
+    def test_every_line_verifies_and_a_miss_gives_the_first_stub(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        _write_text(src, "pkg/parsers.py", PARSERS_PY)
+        for name, lines in PARSERS_GROUPS.items():
+            assert mod.find_definition_lines("pkg/parsers.py", name, src) == lines, name
+            for line in lines:
+                result = _verify_one(tmp_path, "pkg/parsers.py", PARSERS_PY, name, line)
+                assert result["stale"] == [], (name, line)
+        cases = [
+            # parse: two stubs (`@overload`, `@typing.overload`) and the implementation
+            ("parse", PARSE_BLANK, [PARSE_FIRST]), ("parse", PARSE_FIRST - 1, [PARSE_FIRST]),
+            ("parse", PARSE_FIRST + 1, [PARSE_FIRST]),
+            # a method whose stubs are `@overload @staticmethod` (`@typing_extensions.overload`)
+            ("Loader.load", LOAD_FIRST - 2, [LOAD_FIRST]), ("Loader.load", LOAD_FIRST + 1, [LOAD_FIRST]),
+            # async stubs, one with a decorator whose arguments span lines
+            ("fetch", FETCH_FIRST - 1, [FETCH_FIRST]), ("fetch", FETCH_FIRST - 3, [FETCH_FIRST]),
+        ]
+        for name, line, lines in cases:
+            (item,) = _verify_one(tmp_path, "pkg/parsers.py", PARSERS_PY, name, line)["stale"]
+            assert (item["reason"], item["definition_lines"]) == (mod.STALE_LINE_NOT_DEFINITION, lines), \
+                (name, line)
+
+    def test_definition_lines_command(self, tmp_path: Path, capsys) -> None:
+        src = tmp_path / "src"
+        _write_text(src, "pkg/parsers.py", PARSERS_PY)
+        args = ["definition-lines", "--source-root", str(src), "--file", "pkg/parsers.py", "--name", "parse"]
+        _, out = _main_json(capsys, *args, "--line", str(PARSE_BLANK))
+        assert (out["definition_lines"], out["line_is_definition"]) == ([PARSE_FIRST], False)
+        _, out = _main_json(capsys, *args, "--line", str(PARSE_FIRST + 2))
+        assert (out["definition_lines"], out["line_is_definition"]) == (PARSERS_GROUPS["parse"], True)
+        _, out = _main_json(capsys, *args)
+        assert out["definition_lines"] == PARSERS_GROUPS["parse"]
+
+    def test_def_lines_that_are_no_group(self, tmp_path: Path) -> None:
+        text = PARSERS_PY + NOT_GROUPS_PY
+        base = PARSERS_PY.count("\n")
+        cases = [
+            # `def f` in both branches of an `if`
+            ("f", base + 3, [base + 4, base + 6]),
+            # a stub, the implementation, then a redefinition: the second line is no stub
+            ("g", base + 9, [base + 10, base + 11, base + 12]),
+            # a stub, then the implementation, then a stub
+            ("h", base + 14, [base + 15, base + 16, base + 18]),
+            # a blank line parts the decorator from its `def`
+            ("i", base + 20, [base + 22, base + 23]),
+            # lines at two indentations
+            ("J.j", base + 25, [base + 27, base + 29, base + 30]),
+        ]
+        for name, line, lines in cases:
+            (item,) = _verify_one(tmp_path, "pkg/parsers.py", text, name, line)["stale"]
+            assert item["definition_lines"] == lines, name
+        # beside them, the group still gives its first stub
+        (item,) = _verify_one(tmp_path, "pkg/parsers.py", text, "parse", PARSE_BLANK)["stale"]
+        assert item["definition_lines"] == [PARSE_FIRST]
+
+    def test_a_group_of_stubs_alone(self, tmp_path: Path) -> None:
+        # a type stub, and a Protocol's methods: every line an @overload stub
+        stub = ("from typing import overload\n"         # 1
+                "\n"                                    # 2
+                "@overload\n"                           # 3
+                "def parse(data: bytes) -> bytes: ...\n"  # 4
+                "@overload\n"                           # 5
+                "def parse(data: str) -> str: ...\n")   # 6
+        protocol = ("from typing import Protocol, overload\n"    # 1
+                    "\n"                                         # 2
+                    "class Reader(Protocol):\n"                  # 3
+                    "    @overload\n"                            # 4
+                    "    def get(self, key: int) -> int: ...\n"  # 5
+                    "    @overload\n"                            # 6
+                    "    def get(self, key: str) -> str: ...\n")  # 7
+        for rel, text, name, line, first in [("m.pyi", stub, "parse", 2, 4),
+                                             ("r.py", protocol, "Reader.get", 3, 5)]:
+            (item,) = _verify_one(tmp_path, rel, text, name, line)["stale"]
+            assert item["definition_lines"] == [first], rel
+
+    def test_a_group_through_a_renamed_typing_module(self, tmp_path: Path) -> None:
+        # Flask, Click and Werkzeug write `@t.overload` after `import typing as t`
+        text = ("import typing as t\n"                 # 1
+                "\n"                                   # 2
+                "@t.overload\n"                        # 3
+                "def get(key: int) -> int: ...\n"      # 4
+                "@t.overload\n"                        # 5
+                "def get(key: str) -> str: ...\n"      # 6
+                "def get(key):\n"                      # 7
+                "    return key\n")                    # 8
+        (item,) = _verify_one(tmp_path, "t.py", text, "get", 2)["stale"]
+        assert item["definition_lines"] == [4]
+
+    @pytest.mark.parametrize("rel, text, line, lines", [
+        ("s.py", "from typing import Protocol, overload\n"   # 1
+                 "\n"                                        # 2
+                 "\n"                                        # 3
+                 "class Reader(Protocol):\n"                 # 4
+                 "    @overload\n"                           # 5
+                 "    def get(self, key: int) -> int: ...\n"  # 6
+                 "    @overload\n"                           # 7
+                 "    def get(self, key: str) -> str: ...\n"  # 8
+                 "\n"                                        # 9
+                 "\n"                                        # 10
+                 "class Store:\n"                            # 11
+                 "    @overload\n"                           # 12
+                 "    def get(self, key: int) -> int: ...\n"  # 13
+                 "    @overload\n"                           # 14
+                 "    def get(self, key: str) -> str: ...\n"  # 15
+                 "    def get(self, key):\n"                 # 16
+                 "        return key\n",                     # 17
+         12, [6, 8, 13, 15, 16]),
+        ("s.pyi", "from typing import Protocol, overload\n"   # 1
+                  "\n"                                        # 2
+                  "class Reader(Protocol):\n"                 # 3
+                  "    @overload\n"                           # 4
+                  "    def get(self, key: int) -> int: ...\n"  # 5
+                  "    @overload\n"                           # 6
+                  "    def get(self, key: str) -> str: ...\n"  # 7
+                  "\n"                                        # 8
+                  "class Store:\n"                            # 9
+                  "    @overload\n"                           # 10
+                  "    def get(self, key: int) -> int: ...\n"  # 11
+                  "    @overload\n"                           # 12
+                  "    def get(self, key: str) -> str: ...\n",  # 13
+         10, [5, 7, 11, 13]),
+    ], ids=["py", "pyi"])
+    def test_two_classes_are_no_group(self, tmp_path: Path, rel: str, text: str, line: int,
+                                      lines: list[int]) -> None:
+        # each class's stubs sit at one indentation, but in two blocks: a miss
+        # keeps every line, so nobody moves the entry into the other class
+        (item,) = _verify_one(tmp_path, rel, text, "Store.get", line)["stale"]
+        assert item["definition_lines"] == lines
+
+    def test_verify_then_fix_dry_run_plans_the_move_to_the_first_stub(self, tmp_path: Path) -> None:
+        rel = "src/lib/parsers.py"
+        base = PARSERS_PY.count("\n")
+        entries = [
+            {"export_name": "parse", "source_file": rel, "source_line": PARSE_FIRST - 1,
+             "extraction_method": "ast-grep"},
+            {"export_name": "Loader.load", "source_file": rel, "source_line": LOAD_FIRST + 1,
+             "extraction_method": "ast-grep"},
+            {"export_name": "f", "source_file": rel, "source_line": base + 3,
+             "extraction_method": "ast-grep"},
+        ]
+        pkg = _fix_package(tmp_path, skill_md=f"`parse` [AST:{rel}:L{PARSE_FIRST - 1}]\n", api_md="",
+                           entries=entries)
+        _write_bytes(pkg.root, rel, PARSERS_PY + NOT_GROUPS_PY)
+        verify = _verify_to_file(pkg, tmp_path / "verify.json")
+        assert [(s["export_name"], s["definition_lines"]) for s in verify["stale"]] == [
+            ("Loader.load", [LOAD_FIRST]), ("f", [base + 4, base + 6]), ("parse", [PARSE_FIRST])]
+        before = {p: p.read_bytes() for p in (pkg.skill / "SKILL.md", pkg.prov)}
+        code, out = _fix(pkg, tmp_path / "verify.json", "--dry-run")
+        assert code == 1 and out["dry_run"] is True and out["files_written"] == []
+        assert {p: p.read_bytes() for p in before} == before
+        assert [(a["export_name"], a["from"], a["to"]) for a in out["applied"] if a["kind"] == "source-line"] == [
+            ("parse", PARSE_FIRST - 1, PARSE_FIRST), ("Loader.load", LOAD_FIRST + 1, LOAD_FIRST)]
+        assert [a["fixed"] for a in out["applied"] if a["kind"] == "citation-line"] == [
+            f"[AST:{rel}:L{PARSE_FIRST}]"]
+        # `def f` in both branches of an `if` is no group: nobody moves it
+        assert [(w["export_name"], w["why"]) for w in out["left_as_warn"]] == [("f", "several-definition-lines")]
 
 
 # --------------------------------------------------------------------------
