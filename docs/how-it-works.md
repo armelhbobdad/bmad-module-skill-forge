@@ -23,7 +23,7 @@ In under a minute, plus one preview for you to approve, you get a `SKILL.md` you
 
 ### 2. The workflow resolves your target
 
-Ferris turns your input into a GitHub repository. A GitHub URL is used as given. A package name is looked up on every registry of npm, PyPI and crates.io (a language hint asks only that language's registry), with a web search as the last resort. When more than one registry answers, an interactive run lists every candidate and asks which project you mean, and a headless run keeps the first registry's pick (npm, then PyPI, then crates.io) and records an `also_found_in` warning in its result envelope. He then detects the main language from the repository's files, starting with its manifest (`pyproject.toml`, `package.json`, etc.). By default Quick Skill reads the repository's default branch. To pin a release, add it to the command (`@Ferris QS cognee@1.0.0`): Ferris checks that the matching git tag exists, stops if it doesn't, and reads everything from that tag.
+Ferris turns your input into a GitHub repository. A GitHub URL is used as given. A package name is looked up on every registry of npm, PyPI and crates.io (a language hint asks only that language's registry), with a web search as the last resort. When more than one registry answers, an interactive run lists every candidate and asks which project you mean, and a headless run keeps the first registry's pick (npm, then PyPI, then crates.io) and records an `also_found_in` warning in its result envelope. He then detects the main language from the repository's files, starting with its manifest (`pyproject.toml`, `package.json`, etc.). By default Quick Skill reads the repository's default branch. To pin a release, add it to the command (`@Ferris QS cognee@1.6.2`): Ferris checks that the matching git tag exists, stops if it doesn't, and reads everything from that tag.
 
 Quick Skill has a step that checks for an official skill before it reads any code, but it skips that check until agentskills.io offers a registry API to ask, so Ferris goes straight on to extraction.
 
@@ -50,7 +50,7 @@ That's the whole pipeline. One trigger in, one reviewed skill out, built from co
 Quick Skill is the fastest path, not the most thorough one. When you want every instruction tied to a file and a line, use the brief-driven [`create-skill`](/docs/workflows.md#create-skill-cs) path instead: describe the skill's scope with `@Ferris BS`, which writes a `skill-brief.yaml`, then compile it with `@Ferris CS`. That path records the exact commit it read, and with ast-grep installed each export an ast-grep rule matches carries a receipt like this one:
 
 ```python
-await cognee.search(  # [AST:cognee/api/v1/search/search.py:L27]
+await cognee.search(  # [AST:cognee/api/v1/search/search.py:L41]
     query_text="What does Cognee do?"
 )
 ```

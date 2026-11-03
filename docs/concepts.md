@@ -15,7 +15,7 @@ An agent skill is an instruction file that tells an AI agent how to use your cod
 
 Skills follow the [agentskills.io](https://agentskills.io) open standard, so they work across Claude, Cursor, Copilot, and other AI tools.
 
-**Example:** A skill for [cognee](https://github.com/topoteretes/cognee) tells your agent: "The function is `cognee.search()`, its first parameters are `query_text`, `query_type`, `user`, `datasets`, and `dataset_ids`, and it's defined at `cognee/api/v1/search/search.py:L27` (v1.0.0, commit `3c048aa4`)." With ast-grep installed, SKF reads such a signature from the structure of the actual source code (its abstract syntax tree, or AST) and labels it T1; a signature it reads by eye instead is labeled T1-low (see [Confidence Tiers](#confidence-tiers-t1t1-lowt2t3)).
+**Example:** A skill for [cognee](https://github.com/topoteretes/cognee) tells your agent: "The function is `cognee.search()`, its first parameters are `query_text`, `query_type`, `user`, `datasets`, and `dataset_ids`, and it's defined at `cognee/api/v1/search/search.py:L41` (v1.6.2, commit `ba3631f2`)." With ast-grep installed, SKF reads such a signature from the structure of the actual source code (its abstract syntax tree, or AST) and labels it T1; a signature it reads by eye instead is labeled T1-low (see [Confidence Tiers](#confidence-tiers-t1t1-lowt2t3)).
 
 ---
 
@@ -24,8 +24,8 @@ Skills follow the [agentskills.io](https://agentskills.io) open standard, so the
 Provenance means every instruction in a skill traces back to where it came from. For code, that's a file and line number. For documentation, it's a URL. For developer discourse such as issues, pull requests, and changelogs, it's the indexed document the instruction came from. **If SKF can't point to a source, it doesn't include the instruction.**
 
 **Examples** (the citation forms, with paths from the oms-cognee skill in [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills)):
-- `[AST:cognee/api/v1/search/search.py:L27]`: an ast-grep rule matched the definition in the source code (T1)
-- `[SRC:cognee/api/v1/add/add.py:L166]`: read from source code by eye, without an ast-grep match (T1-low)
+- `[AST:cognee/api/v1/search/search.py:L41]`: an ast-grep rule matched the definition in the source code (T1)
+- `[SRC:cognee/api/v1/__init__.py:L8]`: read from source code by eye, without an ast-grep match (T1-low)
 - `[QMD:oms-cognee-temporal:releases.md]`: found in indexed release notes and other developer discourse (T2)
 - `[EXT:https://docs.cognee.ai/getting-started/quickstart]`: taken from external documentation (T3)
 
@@ -79,7 +79,7 @@ Audit Skill also checks the documentation pages a skill tracked when it was buil
 
 Every skill records the exact version (or commit) of the source code it was built from. This means you always know which version of the library the instructions apply to.
 
-By default, the version is auto-detected from the source (package.json, pyproject.toml, etc.). You can also target a specific version, either by giving it during `@Ferris BS` (Brief Skill) or by adding `@version` to a Quick Skill command (`@Ferris QS cognee@1.0.0`). This is especially useful for docs-only skills, where there is no source code to detect a version from. When you target a version on a remote repository, SKF finds the matching git tag and clones from it. That way the extracted API signatures come from that version's code, not from whatever is on the default branch with a label added. If no tag matches, Quick Skill stops and lists the tags it found, while Create Skill warns you and falls back to the default branch.
+By default, the version is auto-detected from the source (package.json, pyproject.toml, etc.). You can also target a specific version, either by giving it during `@Ferris BS` (Brief Skill) or by adding `@version` to a Quick Skill command (`@Ferris QS cognee@1.6.2`). This is especially useful for docs-only skills, where there is no source code to detect a version from. When you target a version on a remote repository, SKF finds the matching git tag and clones from it. That way the extracted API signatures come from that version's code, not from whatever is on the default branch with a label added. If no tag matches, Quick Skill stops and lists the tags it found, while Create Skill warns you and falls back to the default branch.
 
 When the source updates, re-run `@Ferris US` (Update Skill) to regenerate the skill. SKF writes the result as a new version and leaves the old one in place. Anything you wrote between `<!-- [MANUAL:name] -->` and `<!-- [/MANUAL:name] -->` markers is carried over; edits made anywhere else are not protected and can be overwritten. Update Skill follows the ref the skill was built from, so a skill built from a branch picks up that branch's new commits. To move a skill built from a release tag to a newer release, run `@Ferris US <name> --target-ref <tag>`.
 

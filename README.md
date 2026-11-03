@@ -52,15 +52,15 @@ results = cognee.search("What does Cognee do?", mode="graph")
 import cognee
 
 # Agent follows the skill instruction:
-# `search(query_text: str, query_type: SearchType = GRAPH_COMPLETION) -> List[SearchResult]`
-# [AST:cognee/api/v1/search/search.py:L27]
+# `search(query_text: str, query_type: SearchType = SearchType.HYBRID_COMPLETION, ...) -> list[SearchResult]`
+# [AST:cognee/api/v1/search/search.py:L41]
 results = await cognee.search(
     query_text="What does Cognee do?",
     query_type=cognee.SearchType.GRAPH_COMPLETION
 )
 ```
 
-The skill told the agent the real function name, the real parameters, and that the call is async, all traced to the exact source line. This example is from the real [`oms-cognee`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.0.0/oms-cognee/SKILL.md) skill in [**oh-my-skills**](https://github.com/armelhbobdad/oh-my-skills), SKF's reference output. That skill predates provenance labels that follow the tool: its provenance map records `search` as read by eye, which SKF 3.0.0 cites as `[SRC:...]`, keeping `[AST:...]` for a definition an ast-grep rule matched. The [**Verifying a Skill**](#verifying-a-skill) section below shows how to walk the citation chain yourself.
+The skill told the agent the real function name, the real parameters, and that the call is async, all traced to the exact source line. This example is from the real [`oms-cognee`](https://github.com/armelhbobdad/oh-my-skills/blob/main/skills/oms-cognee/1.6.2/oms-cognee/SKILL.md) skill in [**oh-my-skills**](https://github.com/armelhbobdad/oh-my-skills), SKF's reference output. Its provenance map records `search` as an ast-grep match at that line, which is what `[AST:...]` means; an export SKF reads by eye instead is cited `[SRC:...]`. The [**Verifying a Skill**](#verifying-a-skill) section below shows how to walk the citation chain yourself.
 
 ## Install
 

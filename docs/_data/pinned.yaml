@@ -46,11 +46,11 @@ oh_my_skills_path: "../oh-my-skills"
 skills:
   oms-cognee:
     library: cognee
-    version: "1.0.0"
+    version: "1.6.2"
     source_repo: "https://github.com/topoteretes/cognee"
-    source_commit: "3c048aa4147776f14d4546704f986242554a9ef3"
-    source_ref: "v1.0.0"
-    upstream_commit_date: "2026-04-11"
+    source_commit: "ba3631f2ed363a6ea50d649c34c56885af6b36fe"
+    source_ref: "v1.6.2"
+    upstream_commit_date: "2026-09-29"
     test_score: 99.00
     test_mode: "naive"
     confidence_tier: "Deep"
@@ -59,12 +59,12 @@ skills:
 
   oms-cocoindex:
     library: cocoindex
-    version: "0.3.37"
+    version: "1.0.0"
     source_repo: "https://github.com/cocoindex-io/cocoindex"
-    source_commit: "87c5dbf087bfccca83791861db0d33519ef09677"
-    source_ref: "v0.3.37"
-    upstream_commit_date: "2026-03-31"
-    test_score: 99.0
+    source_commit: "5fe4f37a526e51516655832ec9814e7ca24ade9a"
+    source_ref: "v1.0.0"
+    upstream_commit_date: "2026-04-22"
+    test_score: 100.0
     test_mode: "naive"
     confidence_tier: "Deep"
     source_authority: "community"
@@ -77,7 +77,7 @@ skills:
     source_commit: "e486d3826bcd40c52db1c766966d1c8ec16df6cb"
     source_ref: "v10.3.5"
     upstream_commit_date: "2026-04-07"
-    test_score: 99.49
+    test_score: 95.17
     test_mode: "naive"
     confidence_tier: "Deep"
     source_authority: "community"
@@ -90,7 +90,7 @@ skills:
     source_commit: "a5ffb45be05335d2c547436664cfbfb8c22d04df"
     source_ref: "HEAD"
     upstream_commit_date: "2026-03-22"
-    test_score: 99.45
+    test_score: 100.0
     test_mode: "naive"
     confidence_tier: "Deep"
     source_authority: "community"
