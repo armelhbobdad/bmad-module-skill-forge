@@ -44,8 +44,13 @@ reading files and writing one JSON object:
                             members (the names its module passes on, each
                             at its file, once with a public name of the
                             same name and file), less the outside_scope
-                            names (defined in a file the brief scopes
-                            out); exports[] only gives each name's
+                            names (defined in a file out of scope), which
+                            `excluded.outsideScope` lists with their file,
+                            line and entry point and, when the brief
+                            scopes the file out, why: the scope.exclude
+                            glob that matches it (`excludeGlob`) or no
+                            scope.include glob covering it
+                            (`outsideInclude`); exports[] only gives each name's
                             kind, line and signature line, looked up by the
                             name its defining file gives it (an aliased
                             re-export's `local`) and that file.
@@ -665,6 +670,21 @@ def _extraction_summary(data: dict, language: str | None) -> dict:
 NO_UMBRELLA = {"entries": [], "names": 0, "reexported": 0, "ratio": None, "umbrella": False}
 
 
+def _outside_row(row: dict, scope: dict) -> dict:
+    """An outside_scope row as `excluded.outsideScope` lists it: its name,
+    file, line and entry point, and why the brief scopes the file out when
+    it does (#796): `excludeGlob`, the first scope.exclude glob that matches
+    the file, and `outsideInclude`, true when scope.include has globs and
+    none matches it. Neither (null and false) when the brief does not
+    explain it, such as a file no recipe reads or no file at all."""
+    file = row.get("file") if isinstance(row.get("file"), str) and row.get("file") else None
+    path = _norm(file) if file else None
+    return {"name": row.get("name"), "file": file, "line": row.get("line"), "entry": row.get("entry"),
+            "excludeGlob": next((g for g in scope["exclude"] if glob_match(path, g)), None) if path else None,
+            "outsideInclude": bool(path and scope["include"]
+                                   and not any(glob_match(path, g) for g in scope["include"]))}
+
+
 def from_extraction(data: dict, language: str | None = None, brief: dict | None = None) -> dict:
     """The public surface of an extraction, less what lies outside scope,
     plus the root exports a stale scope.include glob left out. A nested
@@ -758,7 +778,7 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
         "records": records,
         "nestedRecords": nested_records,
         "sets": sets,
-        "outside": [{"name": o.get("name"), "file": o.get("file")} for o in outside],
+        "outside": [_outside_row(o, scope) for o in outside],
         "nested": [{"entry": top, "within": nested[top], "names": nested_names[top]} for top in sorted(nested)],
         "staleScope": {"unmatchedInclude": unmatched, "unmatchedTierAInclude": unmatched_tier_a,
                        "restored": [{"name": o["name"], "file": o["file"], "line": o.get("line")}
