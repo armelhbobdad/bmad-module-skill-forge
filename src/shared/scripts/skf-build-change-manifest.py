@@ -84,8 +84,9 @@ Subcommands:
               (--plan [--files-out <file>] | -o <file>)
       A gap-driven repair's spot-checks, routing and verification records
       (see "Gap records" below): --plan prints what to answer and which
-      files targeted re-extraction scans; without it, the records are
-      written to -o through a temporary file and a rename.
+      files §4a's extraction scans (targeted re-extraction, and the
+      signatures of the exports a spot-check located); without it, the
+      records are written to -o through a temporary file and a rename.
 
   baseline-gaps --provenance-map <file> --extraction <file> --files <file>
                 --source-root <dir> -o <file>
@@ -299,21 +300,29 @@ Apply (update-skill write.md §3):
   gap-driven reads --reextract-records ({"mode": "gap-driven",
   "verification": [...], "files": [...]}) and --merge-records ({"exports":
   [{export_name, export_type, params, return_type}]}, merge's output for
-  an export no fresh record holds). Each verification record names
+  an export no record covers). Each verification record names
   export_name, gap_category, severity, verification, in_map (the map holds
   an entry of that name), map_entry ({source_file, source_line} of the one
   entry the spot-check took, else null), source_citation, new_location,
-  unknown_reason, pinned_definition_lines and reachability:
-    verified (map_entry)    unchanged
-    moved (map_entry)       source_line (and source_file) from new_location
+  unknown_reason, pinned_definition_lines, reachability, and the located
+  export's export_type, params, return_type, extraction_method and
+  ast_node_type (from §4a's record at its line, see "Gap records"; null
+  when none holds it):
+    verified (map_entry)    unchanged, but a NEW_EXPORT's or
+                            MODIFIED_EXPORT's signature (below) when its
+                            record was found
+    moved (map_entry)       source_line (and source_file) from new_location,
+                            and a NEW_EXPORT's or MODIFIED_EXPORT's
+                            signature (below) when its record was found
     re-extracted            the entry from its `files` record (gap-driven.md §4a);
                             none when its reachability is internal-unreachable
     verified/moved, not in_map, a NEW_EXPORT or MODIFIED_EXPORT whose
     reachability is not internal-unreachable
                             one source-read entry at the citation's line
                             (verified) or new_location (moved), at most one
-                            per name and file, export_type and the
-                            signature from --merge-records
+                            per name and file, with the signature (below)
+                            and the source-read labels whatever its record's
+                            tool
     unknown, not in_map, a NEW_EXPORT or MODIFIED_EXPORT, a Medium, Low or
     Info severity           an entry from --merge-records with no
                             source_file or source_line
@@ -322,6 +331,18 @@ Apply (update-skill write.md §3):
     missing, unknown in_map, unknown on a MOVED_EXPORT
                             unchanged, with a warning for a person
     rescoped                the entry removed
+  The signature: when §4a found the export's record (its verification
+  record has an extraction_method), every part from it, a params or
+  return_type it gives as null removed from the entry; with none, an
+  entry the map holds keeps its signature, and an entry this run adds
+  takes --merge-records'. An entry the map holds keeps its confidence and
+  extraction_method; when its own extraction_method is ast-grep or
+  ast_bridge, it takes the signature_source of its record's labels (T1
+  for an ast-grep record, T1-low for a source-read one) and, when the
+  record's export_type is another, the record's ast_node_type, while a
+  source-read entry keeps T1-low and no node kind. Each signature_source
+  it changes is listed in `relabeled`, {name, file, from, to}, each with a
+  warning. An internal-unreachable NEW_EXPORT takes none.
   Under the drift override (--drift-head and --drift-pinned) each warning
   names the drift.
 
@@ -387,7 +408,8 @@ Metadata (update-skill write.md §2):
 
   Summary on stdout: {"status": "written", "map": <-o>, "entries":
   {"added", "updated", "removed"}, "not_public": [{name, file}],
-  "file_entries": {"added", "updated", "removed"}, "warnings": [...]},
+  "relabeled": [{name, file, from, to}] (gap-driven), "file_entries":
+  {"added", "updated", "removed"}, "warnings": [...]},
   or {"status": "refused",
   "blocking_unresolved": [{export_name, severity}]} with exit 3.
 
@@ -488,10 +510,20 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
      the verifier fails on (a file it cannot read, or any error) is
      unknown, with a `provenance: spot-check failed for {name}: {error}`
      warning.
+     A NEW_EXPORT or MODIFIED_EXPORT a check gives verified or moved, at
+     its map entry or at a citation the map holds no entry of its name
+     for, is located: its signature_at is the checked file and the
+     recorded line (verified) or the new one (moved). One whose citation
+     names another file than the map's entries of its name is not (apply
+     warns, as before), nor one whose file is absolute or outside
+     --source-root, links resolved, nor a NEW_EXPORT --judgments answers
+     internal-unreachable (one not yet answered is located, so its scan
+     may go unused).
   --plan stops here: {"status": "planned", "reextract": {"entries":
   [{gap_id, name, severity, resolved_paths}], "files": [the union of
-  their resolved_paths]}, "warnings"}, the files also written to
-  --files-out as a JSON array.
+  their resolved_paths, then of the located exports' files],
+  "signatures": [{gap_id, name, file, line} of each located export]},
+  "warnings"}, the files also written to --files-out as a JSON array.
   4. Targeted re-extraction (--remediation-records, `records`' output
      over those files): each routed entry with resolved_paths takes the
      first export of its name in the blocks of those files, in their
@@ -504,13 +536,23 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
      unknown. Any unresolved entry: {"status": "unresolved",
      "unresolved": [{gap_id, name, severity, remediation_paths,
      rejected_paths, files_scanned, exports_found_in_scan}]}.
+     Each located export takes the one record of its name in the block
+     of its file at its line, else the one with no line: the record
+     copied into `files` less its `public` mark, with no docstring asked
+     (one copy per name and location, or per record with no location),
+     and its type, params, return_type, extraction_method and
+     ast_node_type on the verification record. One with no such record
+     keeps them null, with a `provenance: {name}: located at
+     {file}:{line}, but no record of it there; signature not repaired`
+     warning (§4a's by-eye pass may add it to --export-details). Files to
+     match, of either kind, with no --remediation-records are an error.
   5. The public-reachability gate: every NEW_EXPORT that is verified,
      moved or re-extracted takes the answered `reachability`, `public` or
      `internal-unreachable`. An internal one keeps its outcome in its
-     verification record, its record is not in `files`, `counts` tallies
-     it under `reclassified` instead of its outcome, and it is listed in
-     `reclassified` (merge queues it as a metadata update; apply writes no
-     entry for it).
+     verification record (with no signature), its record is not in
+     `files`, `counts` tallies it under `reclassified` instead of its
+     outcome, and it is listed in `reclassified` (merge queues it as a
+     metadata update; apply writes no entry for it).
 
   Any answer missing in step 3 or 5 (a `docstring` too, for each
   re-extracted entry): {"status": "needs-judgment", "needs_judgment":
@@ -525,15 +567,20 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
   [one record per export-bearing entry: export_name, gap_category,
   severity, verification, in_map, map_entry, provenance_citation,
   source_citation, new_location, unknown_reason, pinned_definition_lines,
-  resolution_source, reachability, export_type (always null: for a cited
-  export the map lacks, apply takes it from merge.md's
-  merge-records.json)], "files": [...]}, and prints {"status": "written",
+  resolution_source, reachability, and export_type, params, return_type,
+  extraction_method and ast_node_type (a located export's record's, step
+  4; else null, and apply takes the signature of an entry it adds from
+  merge.md's merge-records.json)],
+  "files": [...]}, and prints {"status": "written",
   "output", "gap_count", "files_extracted", "exports_extracted",
   "confidence_breakdown", "counts" (per verification outcome, and
   `reclassified`), "reclassified", "forwarded", "targeted_reextraction",
-  "warnings"}. When targeted re-extraction ran, `targeted_reextraction`
-  is {resolved_count, files_scanned, exports_matched, tier}, also appended
-  to --evidence as one JSON line keyed `targeted_reextraction`.
+  "warnings"}. When §4a ran (targeted re-extraction, or a located
+  export's signature), `targeted_reextraction` is {resolved_count,
+  files_scanned (the targeted re-extraction's files),
+  signature_files_scanned (the located exports' files), exports_matched,
+  tier}, also appended to --evidence as one JSON line keyed
+  `targeted_reextraction`.
 
 Baseline gaps (update-skill detect-changes Category B, step 1):
 
@@ -563,9 +610,10 @@ Exit codes:
   0  operation succeeded (for gap-records, whatever its `status`)
   1  user error (malformed JSON, bad path, malformed provenance file, a
      helper file that is not the output it names, a gap-records answer of
-     the wrong type, targeted re-extraction to match with no
-     --remediation-records, or, for baseline-gaps, a source root that is
-     no folder or a verifier that cannot be loaded)
+     the wrong type, files to match (targeted re-extraction or a located
+     export's signature) with no --remediation-records, or, for
+     baseline-gaps, a source root that is no folder or a verifier that
+     cannot be loaded)
   3  apply refused: a blocking gap reached the provenance write with no
      source line (nothing written)
 """
@@ -1330,6 +1378,8 @@ REPLACE_WAIT_SECONDS = 5.0  # how long a Windows rename onto a file held open is
 # The update block apply sets at the top level of the map, in this order.
 UPDATE_BLOCK_KEYS = ("last_update", "update_type", "test_report_run_id", "files_changed", "exports_affected",
                      "confidence_tier", "manual_sections_preserved")
+# The parts of a signature a gap-driven repair writes from a verification record, else from merge's records.
+SIGNATURE_PARTS = ("export_type", "params", "return_type")
 
 
 def _labels(method: object, node: object) -> dict:
@@ -1464,9 +1514,10 @@ def _new_entry(fields: dict, library: str) -> dict:
     return out
 
 
-def _rewrite(entry: dict, fields: dict) -> dict:
-    """The entry with `fields` set in place; keys the update does not set keep their values."""
-    out = dict(entry)
+def _rewrite(entry: dict, fields: dict, drop: tuple = ()) -> dict:
+    """The entry with `fields` set in place and the keys `drop` names removed; keys the update does not set keep
+    their values."""
+    out = {k: v for k, v in entry.items() if k not in drop}
     for key, value in fields.items():
         if value is None and key not in ("ast_node_type",):
             continue
@@ -1516,9 +1567,9 @@ class _Map:
         if entry.get("source_file"):
             self.touched_files.add(_norm_path(entry["source_file"]))
 
-    def update(self, index: int, fields: dict) -> None:
+    def update(self, index: int, fields: dict, drop: tuple = ()) -> None:
         before = self.doc["entries"][index]
-        after = _rewrite(before, fields)
+        after = _rewrite(before, fields, drop)
         if after != before:
             self.doc["entries"][index] = after
             self.updated.append(_name_of(after))
@@ -1673,8 +1724,9 @@ def _drift_note(drift: tuple | None) -> str:
 
 
 def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, drift: tuple | None,
-                      warnings: list[str]) -> tuple[int, int] | list[dict]:
-    """Gap-driven mode: one write per verification record. A list return is the refusal."""
+                      warnings: list[str], relabeled: list[dict]) -> tuple[int, int] | list[dict]:
+    """Gap-driven mode: one write per verification record. A list return is the refusal; each entry whose
+    signature_source the repair changes goes to `relabeled`."""
     verification = [r for r in records.get("verification") or [] if isinstance(r, dict) and _name_of(r)]
     reextracted = _Fresh(records.get("files") or [], None, None)
     merged = {}
@@ -1684,6 +1736,40 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
 
     def in_map(r: dict) -> bool:
         return bool(r.get("in_map")) or bool(r.get("map_entry"))
+
+    def signature(r: dict) -> tuple[dict, tuple]:
+        """(the signature parts to set, the parts to remove) of an export: with the record §4a's extraction gave at
+        its line (its verification record has an extraction_method), every part from it, a null params or
+        return_type removed; with none, merge's."""
+        if r.get("extraction_method") is not None:
+            return _without_none({part: r.get(part) for part in SIGNATURE_PARTS}), \
+                tuple(part for part in ("params", "return_type") if r.get(part) is None)
+        extra = merged.get(_name_of(r), {})
+        return _without_none({part: extra.get(part) for part in SIGNATURE_PARTS}), ()
+
+    def resign(r: dict, index: int, fields: dict) -> None:
+        """Write an entry the map holds with `fields` and, when §4a found the export's record, its signature; an
+        ast-grep entry takes the record's signature_source, and its node kind when the record's export_type is
+        another (a source-read entry keeps T1-low and no kind); confidence and extraction_method stay."""
+        entry = pmap.doc["entries"][index]
+        drop: tuple = ()
+        method = r.get("extraction_method")
+        if r.get("gap_category") in ("NEW_EXPORT", "MODIFIED_EXPORT") and method is not None \
+                and r.get("reachability") != "internal-unreachable":
+            parts, gone = signature(r)
+            fields = {**fields, **parts}
+            drop = tuple(part for part in gone if entry.get(part) is not None)
+            if entry.get("extraction_method") in ("ast-grep", "ast_bridge"):
+                fields["signature_source"] = _labels(method, None)["signature_source"]
+                if parts.get("export_type") not in (None, entry.get("export_type")):
+                    fields["ast_node_type"] = r.get("ast_node_type")
+                old, new = entry.get("signature_source"), fields["signature_source"]
+                if old is not None and old != new:
+                    path = _file_of(entry)
+                    relabeled.append({"name": _name_of(entry), "file": path, "from": old, "to": new})
+                    warnings.append(f"provenance: {_name_of(entry)} in {path}: signature_source {old} relabeled "
+                                    f"{new}, from the {method} record of its signature")
+        pmap.update(index, fields, drop)
 
     blocking = [{"export_name": _name_of(r), "severity": r.get("severity")} for r in verification
                 if r.get("verification") == "unknown" and not in_map(r)
@@ -1705,10 +1791,10 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
         elif outcome == "verified" and index is not None:
             if drift and category == "MOVED_EXPORT":
                 warnings.append(f"provenance: {name}: verified at HEAD only ({note}{r5})")
+            resign(r, index, {})
         elif outcome == "moved" and index is not None:
             path, line = _location(r.get("new_location"))
-            if path and line is not None:
-                pmap.update(index, {"source_file": path, "source_line": line})
+            resign(r, index, {"source_file": path, "source_line": line} if path and line is not None else {})
         elif outcome == "re-extracted":
             if r.get("reachability") == "internal-unreachable":
                 continue  # not public API: merge queued it as a metadata update
@@ -1730,18 +1816,14 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
             if not path or line is None or (name, path) in pinned_keys or pmap.find(name, path) is not None:
                 continue
             pinned_keys.add((name, path))
-            extra = merged.get(name, {})
+            # the signature its record gives, else merge's; the source-read labels whatever the record's tool
             pmap.add(_new_entry(_without_none({
-                "export_name": name,
-                "export_type": extra.get("export_type") or r.get("export_type"),
-                "params": extra.get("params"), "return_type": extra.get("return_type"),
+                "export_name": name, **signature(r)[0],
                 "source_file": path, "source_line": line, **_labels("source-read", None)},
                 keep=("ast_node_type",)), pmap.library))
         elif outcome == "unknown" and not in_map(r) and category in ("NEW_EXPORT", "MODIFIED_EXPORT"):
-            extra = merged.get(name, {})
             pmap.add(_new_entry(_without_none({
-                "export_name": name, "export_type": extra.get("export_type") or r.get("export_type"),
-                "params": extra.get("params"), "return_type": extra.get("return_type"),
+                "export_name": name, **signature(r)[0],
                 **_labels("source-read", None)}, keep=("ast_node_type",)), pmap.library))
         else:
             if r.get("unknown_reason") == "drift-override":
@@ -1936,9 +2018,10 @@ def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, 
     pmap = _Map(provenance, skill_name)
     warnings: list[str] = []
     not_public: list[dict] = []
+    relabeled: list[dict] = []
     mode = records.get("mode")
     if update_type == "gap-driven":
-        outcome = _apply_gap_driven(pmap, records, merge_records, drift, warnings)
+        outcome = _apply_gap_driven(pmap, records, merge_records, drift, warnings, relabeled)
         if isinstance(outcome, list):
             return {}, {"status": "refused", "blocking_unresolved": outcome}
         files, exports = outcome
@@ -1983,6 +2066,7 @@ def apply_update(*, update_type: str, provenance: dict | None, skill_name: str, 
         "status": "written",
         "entries": {"added": pmap.added, "updated": pmap.updated, "removed": pmap.removed},
         "not_public": not_public,
+        "relabeled": relabeled,
         "file_entries": file_changes,
         "warnings": warnings,
     }
@@ -2311,6 +2395,18 @@ def _pinned_lines(remediation: object) -> list[int] | None:
     return lines or None
 
 
+def _inside(root: Path | None, path: str | None) -> bool:
+    """True for a relative path that stays under the source root, links resolved."""
+    rel = Path(path) if path else None
+    if root is None or rel is None or rel.is_absolute() or ".." in rel.parts:
+        return False
+    try:
+        (root / rel).resolve().relative_to(root.resolve())
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def _where(path: object, line: object) -> str | None:
     file, number = _norm_path(path), _line_of(line)
     return f"{file}:{number}" if file and number is not None else None
@@ -2338,8 +2434,9 @@ class _GapEntry:
         self.new_line: int | None = None
         self.unknown_reason: str | None = None
         self.reextract = False
-        self.record: dict | None = None  # the §4a record it matched
+        self.record: dict | None = None  # the §4a record it matched, or took its signature from
         self.record_path: str | None = None
+        self.signature_at: tuple[str, int] | None = None  # where a check located it: its signature's record
         self.waits = False  # on a declaring_line answer
         self.failure: str | None = None  # why its spot-check failed
 
@@ -2355,6 +2452,23 @@ class _GapEntry:
         self.recorded = (_norm_path(path), _line_of(line))
         self.outcome, self.new_line, self.waits, self.failure = _spot_check(
             root, self.recorded[0], self.name, self.recorded[1], export_type, self.answers)
+
+    def locate(self, root: Path | None) -> None:
+        """Record where a check located the export (the checked file, at the recorded line or the one it moved
+        to), so its signature comes from §4a's record there; never a file outside the source root."""
+        line = self.new_line if self.outcome == "moved" else self.recorded[1]
+        if self.outcome in ("verified", "moved") and line is not None and _inside(root, self.recorded[0]):
+            self.signature_at = (self.recorded[0], line)
+
+    def take_signature(self, blocks: dict[str, list[dict]]) -> None:
+        """Take the one record of the entry's name in the block of the file it was located in that is at its line,
+        else the one with no line; none otherwise."""
+        path, line = self.signature_at
+        named = [r for r in blocks.get(path, []) if _name_of(r) == self.name]
+        at = [r for r in named if _line_of(r.get("location")) == line] \
+            or [r for r in named if _line_of(r.get("location")) is None]
+        if len(at) == 1:
+            self.record, self.record_path = at[0], path
 
     def route(self, root: Path | None, drift: bool) -> None:
         """Spot-check the entry, or send it to targeted re-extraction (see "Gap records" in the module docstring)."""
@@ -2373,6 +2487,7 @@ class _GapEntry:
             return
         if self.match_status == "found":
             self.check(root, self.map_entry["source_file"], self.map_entry["source_line"], self.map_export_type)
+            self.locate(root)
             return
         if self.match_status == "ambiguous":
             self.outcome = "unknown"
@@ -2380,6 +2495,8 @@ class _GapEntry:
         if self.citation:
             self.check(root, self.citation.get("file"), self.citation.get("line"), None)
             if self.waits or self.outcome in ("verified", "moved"):
+                if not self.in_map:  # a citation of another file than the map's entries of its name takes none
+                    self.locate(root)
                 return
         if self.entry.get("provenance_completeness") and root is not None:
             self.reextract = True
@@ -2427,7 +2544,12 @@ class _GapEntry:
             return (self.record or {}).get("location")
         return None
 
+    def signature(self) -> dict | None:
+        """The record a located export takes its signature from, or None."""
+        return self.record if self.signature_at and not self.internal else None
+
     def verification(self) -> dict:
+        signed = self.signature() or {}
         recorded = _where(*self.recorded)
         if self.outcome == "re-extracted":
             citation = self.new_location()
@@ -2451,7 +2573,11 @@ class _GapEntry:
             "resolution_source": "remediation-paths" if self.outcome == "re-extracted" else None,
             "reachability": self.answers.get("reachability") if self.category == "NEW_EXPORT" and self.located
             else None,
-            "export_type": None,
+            "export_type": signed.get("type", signed.get("export_type")),
+            "params": signed.get("params", signed.get("parameters")),
+            "return_type": signed.get("return_type"),
+            "extraction_method": signed.get("extraction_method"),
+            "ast_node_type": signed.get("ast_node_type"),
         }
 
     def label(self, provenance: list[dict]) -> str:
@@ -2513,17 +2639,22 @@ def gap_records(manifest: dict, provenance: dict | None, *, source_root: Path | 
     if waiting:
         return None, {"status": "needs-judgment", "needs_judgment": waiting, "warnings": warnings}
     to_scan = [g for g in routed if g.reextract]
-    files = list(dict.fromkeys(p for g in to_scan for p in g.paths))
+    located = [g for g in routed if g.signature_at and not g.internal]  # an internal export takes no signature
+    files = list(dict.fromkeys([p for g in to_scan for p in g.paths] + [g.signature_at[0] for g in located]))
     if plan:
         return None, {"status": "planned", "reextract": {
             "entries": [{"gap_id": g.entry.get("gap_id"), "name": g.name, "severity": g.entry.get("severity"),
-                         "resolved_paths": g.paths} for g in to_scan], "files": files}, "warnings": warnings}
+                         "resolved_paths": g.paths} for g in to_scan], "files": files,
+            "signatures": [{"gap_id": g.entry.get("gap_id"), "name": g.name, "file": g.signature_at[0],
+                            "line": g.signature_at[1]} for g in located]}, "warnings": warnings}
     blocks: dict[str, list[dict]] = {}
     scanned = 0
+    targeted_files = {p for g in to_scan for p in g.paths}
+    signature_files = {g.signature_at[0] for g in located}
     if files:
         if remediation is None:
-            raise ValueError("targeted re-extraction has files to match: pass --remediation-records, the output "
-                             "of `records` over them")
+            raise ValueError("gap-records has files to match (targeted re-extraction, or a located export's "
+                             "signature): pass --remediation-records, the output of `records` over them")
         if not isinstance(remediation, dict) or not isinstance(remediation.get("files"), list):
             raise ValueError("--remediation-records has no `files` array: is it the output of `records`?")
         for block in remediation["files"]:
@@ -2545,21 +2676,32 @@ def gap_records(manifest: dict, provenance: dict | None, *, source_root: Path | 
                            "files_scanned": files_scanned, "exports_found_in_scan": found})
     if unresolved:
         return None, {"status": "unresolved", "unresolved": unresolved, "warnings": warnings}
+    for g in located:
+        g.take_signature(blocks)
     needs = [{"gap_id": g.entry.get("gap_id"), "name": g.name, "needs": g.needs(),
               "file": _location(g.new_location())[0] if g.outcome != "verified" else g.recorded[0],
               "line": _location(g.new_location())[1] if g.outcome != "verified" else g.recorded[1]}
              for g in routed if g.needs()]
     if needs:
         return None, {"status": "needs-judgment", "needs_judgment": needs, "warnings": warnings}
+    warnings += [f"provenance: {g.name}: located at {g.signature_at[0]}:{g.signature_at[1]}, but no record of it "
+                 f"there; signature not repaired" for g in located if g.record is None]
     kept: dict[str, list[dict]] = {}
     for g in routed:
-        if g.record is not None and not g.internal:
-            record = dict(g.record)
-            record.pop("public", None)  # a repair documents and maps every record: the mark is a normal update's
-            if g.answers.get("docstring") is not None:
-                record["docstring"] = g.answers["docstring"]
-            if record not in kept.setdefault(g.record_path, []):
-                kept[g.record_path].append(record)
+        if g.record is None or g.internal:
+            continue
+        record = dict(g.record)
+        record.pop("public", None)  # a repair documents and maps every record: the mark is a normal update's
+        if g.outcome == "re-extracted" and g.answers.get("docstring") is not None:
+            record["docstring"] = g.answers["docstring"]  # a located export's signature record asks none
+        block = kept.setdefault(g.record_path, [])
+        location = record.get("location")
+        same = next((r for r in block if (_name_of(r) == _name_of(record) and r.get("location") == location
+                                          if location is not None else r == record)), None)
+        if same is None:
+            block.append(record)
+        elif same.get("docstring") is None and record.get("docstring") is not None:
+            same["docstring"] = record["docstring"]
     breakdown = {"T1": 0, "T1-low": 0, "unlabeled": 0, "T2": 0}
     provenance_entries = _entries_of(provenance)
     for g in routed:
@@ -2574,9 +2716,11 @@ def gap_records(manifest: dict, provenance: dict | None, *, source_root: Path | 
         "files": [{"file_path": path, "exports": exports} for path, exports in kept.items()],
     }
     matched = [g for g in to_scan if g.record is not None]
-    targeted = {"resolved_count": len(matched), "files_scanned": scanned,
+    scanned_paths = set(blocks)
+    targeted = {"resolved_count": len(matched), "files_scanned": len(scanned_paths & targeted_files),
+                "signature_files_scanned": len(scanned_paths & signature_files),
                 "exports_matched": len({(g.record_path, _name_of(g.record)) for g in matched}),
-                "tier": tier} if to_scan else None
+                "tier": tier} if to_scan or located else None
     summary = {
         "status": "written",
         "gap_count": len(entries),
@@ -3094,9 +3238,9 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="the workspace drift check's status; overridden runs the drift gate")
     p_gap.add_argument("--judgments", metavar="FILE", help="the answers to its needs_judgment[], keyed by gap id")
     p_gap.add_argument("--remediation-records", metavar="FILE",
-                       help="`records` output over the files targeted re-extraction scanned")
+                       help="`records` output over the files the plan listed")
     p_gap.add_argument("--plan", action="store_true",
-                       help="print the answers it needs and the files targeted re-extraction scans; write no records")
+                       help="print the answers it needs and the files §4a's extraction scans; write no records")
     p_gap.add_argument("--files-out", metavar="FILE", help="with --plan: write those files here, a JSON array")
     p_gap.add_argument("--evidence", metavar="FILE",
                        help="append the targeted_reextraction record to this JSON-lines file when it ran")
