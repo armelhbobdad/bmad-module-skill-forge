@@ -1,6 +1,17 @@
 # Coverage Check: Branch Sections
 
-Load this file only from the coverage-check.md sentence that names one of its sections, and follow that section alone: **States 2 to 4** from coverage-check.md §2 when the source is not local, and only its State 2 command from coverage-check.md §2b when `rebuild` is `provenance-fold`; **Scalar and Stack Branches** from coverage-check.md §2c on the scalar or stack branch; **Denominator Candidates** from coverage-check.md §4 when `denominator.clause` is `stratified-scope` or `multi-entry`. Load it once: when another sentence names one of its sections, read that section from the copy already loaded. A bare § in a section is coverage-check.md's. coverage-check.md's frontmatter bindings, its run files, its per-file results and its §2 **Exits** apply here unchanged. When the section is done, continue in coverage-check.md right after the sentence that loaded it.
+Load this file only from the coverage-check.md sentence that names one of its sections, and follow that section alone: **Inventory Failures** from coverage-check.md §1a when the inventory check fails; **States 2 to 4** from coverage-check.md §2 when the source is not local, and only its State 2 command from coverage-check.md §2b when `rebuild` is `provenance-fold`; **Scalar and Stack Branches** from coverage-check.md §2c on the scalar or stack branch; **Denominator Candidates** from coverage-check.md §4 when `denominator.clause` is `stratified-scope` or `multi-entry`. Load it once: when another sentence names one of its sections, read that section from the copy already loaded. A bare § in a section is coverage-check.md's. coverage-check.md's frontmatter bindings, its run files, its per-file results and its §2 **Exits** apply here unchanged. When the section is done, continue in coverage-check.md right after the sentence that loaded it.
+
+## Inventory Failures
+
+- **`valid` false (exit 2):** delete the response `{validateInventoryScript}` refused, so a stale one is never validated twice:
+
+  ```bash
+  rm -f "{run_dir}/inventory-response.txt"
+  ```
+
+  Re-dispatch the §1 subagent once, with the script's `violations[]` appended to its instructions (an absent name as a name the skill does not write): it writes its new response to that file, or returns it for you to save there, as §1 says. Run the §1a command again.
+- **Exit 1** (no input, a file that cannot be read, or a package with no readable SKILL.md): correct the file and run it again.
 
 ## States 2 to 4
 

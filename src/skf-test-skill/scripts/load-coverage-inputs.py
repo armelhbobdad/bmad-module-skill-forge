@@ -230,9 +230,13 @@ found no ast-grep (`no-ast-grep`), read no file in scope, read files only
 in languages it has no recipe for (`files_without_recipes` and no export),
 or found files no recipe reads while the skill's language (the --brief
 `language`, else the metadata.json `language`) is not one RECIPE_LANGUAGES
-holds, so the per-file scan has to run instead. An `incomplete` run keeps
-its exports; `extraction.readByEye` lists the files its errors and file
-issues name.
+holds, so the per-file scan has to run instead. A run keeps its exports
+whatever its status; `extraction.readByEye` lists the files to read by eye,
+at any status: each file the runner could not parse or decode (a
+`syntax-errors` or `not-utf8` file issue) and, on an `incomplete` run, each
+file a failed call names. `extraction.unread` lists the files nobody can
+read (a `missing` or `unreadable` file issue); a `no-recipes` file, such as
+a stylesheet, holds nothing to read and is in neither list.
 
 Usage:
   uv run load-coverage-inputs.py census --skill-dir <dir> [--output <file>]
@@ -626,9 +630,14 @@ def _members_in_place(public: list[dict]) -> list[dict]:
     return expanded
 
 
+# The runner's file issues for a file it could not open at all: no one can read it by eye either.
+UNREADABLE_ISSUES = frozenset({"missing", "unreadable"})
+
+
 def _extraction_summary(data: dict, language: str | None) -> dict:
     """The surface's `extraction` object: the runner's status and counts,
-    the files to read by eye and the fallback verdict."""
+    the files to read by eye, the files no one can read and the fallback
+    verdict."""
     counts = data.get("counts") if isinstance(data.get("counts"), dict) else {}
     arms = data.get("arms") if isinstance(data.get("arms"), dict) else {}
     entry_points = data.get("entry_points") if isinstance(data.get("entry_points"), dict) else {}
@@ -645,8 +654,11 @@ def _extraction_summary(data: dict, language: str | None) -> dict:
         reason = (f"no recipe reads the skill's language, {language} "
                   f"({', '.join(sorted(without))} in scope)")
     errors = [e for e in data.get("errors") or [] if isinstance(e, dict)]
-    read_by_eye = sorted({str(i["file"]) for i in data.get("file_issues") or []
-                          if isinstance(i, dict) and i.get("file") and i.get("issue") != "no-recipes"}
+    issues = [i for i in data.get("file_issues") or [] if isinstance(i, dict) and i.get("file")]
+    # A file missing from disk or one the runner could not open is no file to read by eye.
+    unread = sorted({str(i["file"]) for i in issues if i.get("issue") in UNREADABLE_ISSUES})
+    read_by_eye = sorted({str(i["file"]) for i in issues
+                          if i.get("issue") != "no-recipes" and i.get("issue") not in UNREADABLE_ISSUES}
                          | {str(e["first_file"]) for e in errors if e.get("first_file")}
                          | {str(f) for e in errors if isinstance(e.get("unread"), list) for f in e["unread"] if f})
     return {
@@ -663,6 +675,7 @@ def _extraction_summary(data: dict, language: str | None) -> dict:
         "entryPointsFound": (bool(entry_points["files"]) if isinstance(entry_points.get("files"), list)
                              and data.get("files_in_scope") else None),
         "readByEye": read_by_eye,
+        "unread": unread,
         "fallback": {"needed": reason is not None, "reason": reason},
     }
 

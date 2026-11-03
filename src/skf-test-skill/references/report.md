@@ -221,7 +221,7 @@ uv run {resultContextScript} --report "{report_file}" --report-path "{publishedR
 
 Bind `{emit_target}` ← `target` from its JSON (`stderr` for a run the hard gate blocked, else `stdout`). Exit 2: correct the command and run it again. Exit 1: HALT with its `error` (`halt_reason: "helper-failed"`, phase `report:result-contract`); the report keeps its in-progress name, so export-skill never reads a verdict the scoring output did not settle.
 
-**Publish the report.** Set `health_check_dispatched` in the `{outputFile}` frontmatter: `false` when `no_health_check` is true (the `--no-health-check` flag), else `true`, since the health check now runs with no menu before it. The checks passed, so the report takes its public name, the one export-skill and update-skill read, a blocked run's included. From `{project-root}`, run:
+**Publish the report.** Set `health_check_dispatched`, already in the `{outputFile}` frontmatter: `false` when `no_health_check` is true (the `--no-health-check` flag), else `true`, since the health check now runs with no menu before it. The checks passed, so the report takes its public name, the one export-skill and update-skill read, a blocked run's included. From `{project-root}`, run:
 
 ```bash
 mv "{report_file}" "{publishedReportFile}"

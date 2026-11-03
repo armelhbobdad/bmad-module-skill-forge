@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  When a skill's `evidence-report.md` pins no usable `t2_future_count` (the field is absent, empty, `null` or quoted, or the report has no frontmatter, as in every report Create Stack Skill writes), Test Skill's migration section check now records that the report pins no count, and tells you to re-run Create Skill only for a skill Create Skill made, instead of saying the file was not found. The note now has its own line in the report's Coherence Analysis section. A report with Windows line endings is now read the same as any other, where before its pinned count was never found. The check still raises no gap, and a skill with no evidence report at all still skips it with no note.
+issues: [784]

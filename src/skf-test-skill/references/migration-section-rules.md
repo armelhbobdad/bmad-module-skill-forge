@@ -16,7 +16,8 @@ Execute this check only when both conditions are met:
    the flat copy an older skill may still keep); the detection contract below
    reads it.
 
-If either condition fails, skip silently and proceed to the next section.
+If either condition fails, skip the check with no note and proceed to the next
+section: a missing evidence report is not Case 4.
 
 The check runs regardless of naive/contextual mode. T2-future annotations are a
 property of the source code and enrichment data, not the skill type.
@@ -54,23 +55,26 @@ narrative body.
 **Detection contract.** Read the frontmatter deterministically:
 
 ```bash
-# Extract t2_future_count from frontmatter. Requires a `---` delimiter pair.
-awk '/^---$/{c++;next} c==1 && /^t2_future_count:/{print $2; exit}' \
+# Extract t2_future_count from frontmatter. Requires a `---` delimiter pair;
+# a trailing CR is stripped first, so a CRLF report reads the same.
+awk '{sub(/\r$/,"")} /^---$/{c++;next} c==1 && /^t2_future_count:/{print $2; exit}' \
     {forge_evidence_report}
 ```
 
-- **Frontmatter missing OR `t2_future_count` absent** → treat as Case 4 (see
-  below) and skip silently. Do not fall back to grepping prose (`grep "T2-future"`) —
-  prose drift (heading renames, alt phrasings like "forward-looking
-  annotations", capitalization variance) silently breaks detection and can
-  invert Case-1 vs Case-2/3 severity.
-- **`t2_future_count` parsed** → use its integer value for the Case Rules
-  below.
+- **Frontmatter missing, OR `t2_future_count` absent or not a non-negative
+  integer** (empty, `null`, quoted) → treat as Case 4 (see below). Do not
+  fall back to grepping prose (`grep "T2-future"`): prose drift (heading
+  renames, alt phrasings like "forward-looking annotations", capitalization
+  variance) silently breaks detection and can invert Case-1 vs Case-2/3
+  severity.
+- **`t2_future_count` a non-negative integer** (digits only) → use its value
+  for the Case Rules below.
 
 The pinned field is emitted by `skf-create-skill/references/compile.md`
 §7 (frontmatter-pinned fields), which always writes `t2_future_count: N`
 (including 0). Legacy skills whose `evidence-report.md` predates the pinned
-field land in Case 4.
+field land in Case 4, and so does every stack skill: create-stack-skill's
+evidence report has no frontmatter.
 
 ### Case 1 — T2-future > 0 AND Section 4b absent
 
@@ -106,11 +110,19 @@ Flag as **Medium** severity gap:
 Reviewer may downgrade to Low with inline justification on a case-by-case
 basis.
 
-### Case 4 — evidence-report.md unavailable
+### Case 4: evidence report has no pinned count
 
-Skip silently. Record the note:
+The evidence report exists but pins no usable `t2_future_count`: the field is
+absent or not a non-negative integer, or the report has no frontmatter at all
+(a create-skill report older than the field, or any create-stack-skill
+report). Skip the Case Rules and raise no gap. Record this note on the
+Coherence Analysis section's **Migration Section:** line (`{outputFormatsFile}`
+gives it in both formats):
 
-> "Section 4b verification skipped — evidence-report.md not found."
+> "Section 4b verification skipped: evidence-report.md pins no
+> `t2_future_count`. For a skill create-skill made, re-run create-skill to
+> regenerate the report with the field (create-stack-skill does not write
+> it)."
 
 ## Output
 

@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  The Test Skill subagent that lists a skill's documented exports now writes its JSON to `inventory-response.txt` in the run folder with the Write tool and returns the path, so the main agent no longer copies the whole response into that file by hand. A subagent that cannot write files returns the JSON instead, and the main agent saves it whenever the subagent returned the JSON or left the file absent or empty. Before the one re-dispatch after a failed validation, the refused file is deleted, so a stale response is never validated twice.
+issues: [814]

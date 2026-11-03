@@ -44,7 +44,7 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --run-dir "{run_
 
 Display the line it prints, as the run's last line, then stop. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
 
-**Run files.** Every script below writes its result into the run folder `{run_dir}` that init.md §6b created, where the next one reads it by path. A subagent's response is saved there with the Write tool exactly as it came back, fence and all, and passed by path, so a quote or an apostrophe in it never meets a shell. Every count, name list and score a script computes is read from the file it wrote, never re-derived by hand or copied between commands. Each command runs from `{project-root}`; a `{...Script}` path resolves relative to the skill root.
+**Run files.** Every script below writes its result into the run folder `{run_dir}` that init.md §6b created, where the next one reads it by path. A subagent's response is saved there exactly as it came back, fence and all (the subagent writes it to the path it is given, or the parent saves it, with the Write tool), and passed by path, so a quote or an apostrophe in it never meets a shell. Every count, name list and score a script computes is read from the file it wrote, never re-derived by hand or copied between commands. Each command runs from `{project-root}`; a `{...Script}` path resolves relative to the skill root.
 
 ### 0. Check for Docs-Only Mode
 
@@ -78,7 +78,7 @@ Bind `{source_is_monorepo}` ← `is_monorepo` and `{source_workspace_kind}` ← 
 
 ### 1. Extract Documented Exports from SKILL.md
 
-Delegate the reading of the skill under test to a subagent, given the path to SKILL.md and to its `references/` directory when one exists: it reads SKILL.md, and every `references/*.md` file too when SKILL.md's `## Full` headings are absent or stubs. For each export both the SKILL.md body and a reference file document, it compares the two: parameters (name, type, order, optionality), the return type, and descriptions that contradict (brief against detailed is fine, as is a form the skill labels partial that leaves out only optional members). It returns only this JSON, with no prose and no commentary:
+Delegate the reading of the skill under test to a subagent, given `{run_dir}` and the path to SKILL.md and to its `references/` directory when one exists: it reads SKILL.md, and every `references/*.md` file too when SKILL.md's `## Full` headings are absent or stubs. For each export both the SKILL.md body and a reference file document, it compares the two: parameters (name, type, order, optionality), the return type, and descriptions that contradict (brief against detailed is fine, as is a form the skill labels partial that leaves out only optional members). It writes only this JSON, with no prose and no commentary, to `{run_dir}/inventory-response.txt` with the Write tool, never a shell, and returns that path, or returns the JSON itself when it cannot write files:
 
 ```json
 {
@@ -97,7 +97,7 @@ Delegate the reading of the skill under test to a subagent, given the path to SK
 
 Tell the subagent the contract the validator checks: each `kind` is one of `function`, `class`, `type`, `constant`, `hook`, `interface`, `method`, `struct`, `enum`, `trait`, `macro` or `adapter`; every entry carries the `description` the skill gives it (an empty string when it gives none); a function or method carries `params` (`""` or `[]` when it takes none) and `return_type` as the skill documents them, and leaves a key out when the skill documents nothing for it. An entry whose signature the skill labels partial (simplified, key parameters, a `...` standing in for omitted members, not rest or variadic syntax) carries `signature_form: "partial"`, any other `"full"` or no key: copy the label, never judge the form.
 
-Save the subagent's response, as it came back, to `{run_dir}/inventory-response.txt` with the Write tool. The documented inventory is the one §1a validates: do not load SKILL.md or the reference files into the parent context. Without subagents, the parent builds the same JSON from the same files and saves it to that file; §1a's checks still run on it.
+When the subagent returned the JSON rather than the path, or the file is absent or empty afterwards, save its response, as it came back, to `{run_dir}/inventory-response.txt` with the Write tool. The documented inventory is the one §1a validates: do not load SKILL.md or the reference files into the parent context. Without subagents, the parent builds the same JSON from the same files and saves it to that file; §1a's checks still run on it.
 
 #### 1a. Parent-Side Schema Validation + Spot-Check
 
@@ -108,8 +108,7 @@ uv run {validateInventoryScript} --input "{run_dir}/inventory-response.txt" --sk
 ```
 
 - `valid` true (exit 0): every later command reads `{run_dir}/inventory.json`.
-- `valid` false (exit 2): re-dispatch the §1 subagent once, with the script's `violations[]` appended to its instructions (an absent name as a name the skill does not write), save the new response over the old one and run the command again. Invalid a second time: HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`): "coverage-check: the subagent inventory failed {schema validation | the ground-truth spot-check} twice: {the violations joined}."
-- Exit 1 (no input, a file that cannot be read, or a package with no readable SKILL.md): correct the file and run it again.
+- `valid` false (exit 2), or exit 1: load `{coverageBranchesFile}` and follow its **Inventory Failures** section. Invalid a second time: HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`): "coverage-check: the subagent inventory failed {schema validation | the ground-truth spot-check} twice: {the violations joined}."
 
 ### 1b. Cross-Check Split-Body Consistency
 
@@ -142,7 +141,8 @@ uv run {coverageInputsScript} surface --extraction "{run_dir}/extract-full.json"
 The surface holds the names the entry points export, less those defined in a file the brief scopes out (`excluded.outsideScope`); the recipes' internal matches are never part of it. A Python `__init__.py` nested in the folder of another package that exports a name is no barrel: its names (`excluded.nestedEntries`) leave only the `all` and `root` sets and the umbrella ratio, and `plan` still compares their signatures. When a `scope.include` glob matches no file (`guards.staleScope.fires`), the root exports defined in a file no glob covers and the brief does not exclude are back in it (`guards.staleScope.restored`). A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) and counts no name. §5's render lists `excluded.outsideScope`, `excluded.nestedEntries` and the restored names. Decide what to do from the JSON, not from the exit code:
 
 - `extraction.fallback.needed` is true, or the runner printed no JSON on an exit other than 2: load `{coverageTiersFile}` and run its **Fallback Per-File Scan** in place of the rest of this tier.
-- `extraction.status` is `incomplete` (exit 1): keep the surface, read by eye only the files `extraction.readByEye` names, save a per-file result for each, and run `surface` again with them.
+- `extraction.readByEye` is non-empty (a file the run could not parse or decode, or a failed call left unread): keep the surface, read by eye only the files it names, save a per-file result for each, and run `surface` again with them, once (the second call starts no new pass).
+- In the Coverage Analysis section, list each `readByEye` file as read by eye, each `extraction.unread` file as unread.
 - `extractionGaps[]` names exports no recipe found: they are on the surface; read their signature by eye at their `file` and `line`.
 
 **Compare the signatures.** A script lists the comparisons; subagents judge them:

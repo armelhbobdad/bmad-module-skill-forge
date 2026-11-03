@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  At Forge tier, Test Skill now reads by eye each file the recipe runner could not parse or decode (a syntax error or a file that is not UTF-8) whenever the runner lists one, not only when the run is `incomplete`, reads those files once, and lists them in the Coverage Analysis section as read by eye. A complete run that listed such a file used to leave it to the recipes, so an export they missed there was left off the API surface Test Skill measures coverage against. A file the runner could not open at all (`missing` or `unreadable`) is no longer sent to be read by eye: the Coverage Analysis section lists it as unread.
+issues: [789]

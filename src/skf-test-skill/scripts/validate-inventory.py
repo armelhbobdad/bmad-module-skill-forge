@@ -75,13 +75,16 @@ CLI usage (mirrors reconcile-coverage.py):
   uv run validate-inventory.py --json-input '<raw response>'    # explicit flag
   echo '<raw response>' | uv run validate-inventory.py --stdin  # piped input
 
---input reads the raw response from a file (UTF-8): coverage-check.md saves
-the subagent's response with the Write tool and passes its path, so a quote
-or an apostrophe in a description never meets a shell. --output writes the
-validated inventory object to a file (UTF-8 JSON) when it is valid, for
-the steps that read it by path; an invalid inventory removes a file left
-there by an earlier attempt. --skill-package names the skill package under
-test (the folder that holds SKILL.md) and adds the spot-check.
+--input reads the raw response from a file (UTF-8): the coverage-check.md §1
+subagent writes its response to the path it is given with the Write tool,
+and the parent saves it there with the Write tool when the subagent returned
+it instead or left the file absent or empty. coverage-check.md passes that
+path, so a quote or an apostrophe in a description never meets a shell.
+--output writes the validated inventory object to a file (UTF-8
+JSON) when it is valid, for the steps that read it by path; an invalid
+inventory removes a file left there by an earlier attempt. --skill-package
+names the skill package under test (the folder that holds SKILL.md) and
+adds the spot-check.
 
 Input: the subagent's RAW response text (JSON, optionally wrapped in a markdown
 code fence — a leading line of three backticks with an optional language tag and

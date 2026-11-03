@@ -7,6 +7,7 @@
 
 **Mode:** Naive (structural validation only)
 **Coherence category:** Not scored (weight redistributed)
+**Migration Section:** {the note migration-section-rules.md Case 4 records; leave this line out when it records none}
 
 ### Structural Findings
 
@@ -41,6 +42,7 @@ Only rendered when `references/` directory exists alongside SKILL.md. Each row i
 **References Found:** {count}
 **References Valid:** {count}
 **Broken References:** {count}
+**Migration Section:** {the note migration-section-rules.md Case 4 records; leave this line out when it records none}
 
 ### Reference Validation
 
