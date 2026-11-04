@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate because a documented type matches the function's body but not its declared annotation, document the declared annotation (and report the source's annotation upstream), then run Test Skill again.
 issues: [835]
+prs: [869]

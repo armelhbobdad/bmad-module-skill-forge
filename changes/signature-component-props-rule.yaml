@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a component's `signature-mismatch` gap, write `?` on each optional prop of an object type that marks any (or give the table a Required column), list the required props it inherits, then run Test Skill again.
 issues: [827]
+prs: [869]
