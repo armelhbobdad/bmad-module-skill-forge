@@ -27,6 +27,18 @@ violation, and the prompt re-dispatches the subagent with them, as it does
 for a schema violation. No grep runs in the prompt, so an export named
 `$state` or `a.b` is never a shell variable or a regex.
 
+With --floor it also checks the inventory against the floor
+load-coverage-inputs.py floor wrote (#790): the names the skill documents in
+a fixed form. A floor name is checked when one of its origins is SKILL.md
+or a file the inventory's `references` lists (the spot-check's files; a
+listed absolute path inside the --skill-package folder counts as its path
+relative to it); a name only an unlisted reference writes is not. It is
+kept when any inventory entry has that name, whatever its kind: kinds stay
+the reader's. Each checked name not
+kept is a violation naming its first checked origin, and the inventory is
+invalid, as for a fabricated name, so the prompt re-dispatches the subagent
+with the names it left out.
+
 An entry's optional `signature_form` says how the skill presents its
 signature: `partial` only when the skill labels the form partial (a
 simplified form, a key-parameter summary, a `...` that stands in for
@@ -70,7 +82,7 @@ declaration the skill cites.
 
 CLI usage (mirrors reconcile-coverage.py):
   uv run validate-inventory.py --input <response file> [--output <inventory file>]
-      [--skill-package <package folder>]
+      [--skill-package <package folder>] [--floor <floor file>]
   uv run validate-inventory.py '<raw response>'                 # positional
   uv run validate-inventory.py --json-input '<raw response>'    # explicit flag
   echo '<raw response>' | uv run validate-inventory.py --stdin  # piped input
@@ -84,7 +96,8 @@ path, so a quote or an apostrophe in a description never meets a shell.
 JSON) when it is valid, for the steps that read it by path; an invalid
 inventory removes a file left there by an earlier attempt. --skill-package
 names the skill package under test (the folder that holds SKILL.md) and
-adds the spot-check.
+adds the spot-check. --floor names the floor file (UTF-8 JSON) and adds the
+floor check.
 
 Input: the subagent's RAW response text (JSON, optionally wrapped in a markdown
 code fence — a leading line of three backticks with an optional language tag and
@@ -107,15 +120,21 @@ Output (stdout, one object):
       "absent": [<name>, ...],   # the sampled names no file writes
       "files": [<path>, ...],    # the files read, relative to the package
       "unread": [<path>, ...]    # listed references that are missing,
-    }                            # unreadable or outside the package
+    },                           # unreadable or outside the package
+    "floor": {                   # with --floor, once the schema passed
+      "names": <int>,            # the floor's names
+      "checked": <int>,          # those with an origin in SKILL.md or a listed reference
+      "absent": [<name>, ...]    # the checked names no inventory entry lists
+    }
   }
 
 Exit codes:
-  0  inventory valid (and every sampled name found)
-  1  no input provided, the --input file cannot be read, or the
-     --skill-package folder holds no readable SKILL.md (usage error)
-  2  inventory invalid (parse failure, schema violation or a sampled name
-     absent; result JSON emitted)
+  0  inventory valid (every sampled name found, every checked floor name kept)
+  1  no input provided, the --input file cannot be read, the
+     --skill-package folder holds no readable SKILL.md, or the --floor file
+     cannot be read or is not a floor (usage error)
+  2  inventory invalid (parse failure, schema violation, a sampled name
+     absent or a floor name left out; result JSON emitted)
 """
 
 from __future__ import annotations
@@ -366,6 +385,77 @@ def spot_check(inventory, skill_package_path):
     }
 
 
+# --- Floor ------------------------------------------------------------------
+
+
+class FloorError(Exception):
+    """The --floor file cannot be read or is not a floor: exit 1."""
+
+
+def _is_origin(origin):
+    return (isinstance(origin, dict) and isinstance(origin.get("file"), str) and bool(origin["file"])
+            and isinstance(origin.get("line"), int) and not isinstance(origin["line"], bool)
+            and isinstance(origin.get("form"), str))
+
+
+def read_floor(path):
+    """The floor load-coverage-inputs.py floor wrote to `path`, its shape checked."""
+    try:
+        data = json.loads(Path(path).read_bytes().decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise FloorError(f"cannot read {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise FloorError(f"{path} is not JSON: {exc.msg}") from exc
+    names = data.get("names") if isinstance(data, dict) else None
+    if not isinstance(names, list) or not all(
+            isinstance(item, dict) and isinstance(item.get("name"), str) and item["name"]
+            and isinstance(item.get("origins"), list) and all(_is_origin(o) for o in item["origins"])
+            for item in names):
+        raise FloorError(f"{path} is not a floor: `names` must give each name's `name` and `origins` "
+                         "(each a file, a line and a form)")
+    return data
+
+
+def _listed_path(ref, skill_package_path):
+    """A listed reference as a floor origin names it: relative to the package, forward slashes. An absolute
+    path inside the package is made relative to it (it needs the package to be)."""
+    if skill_package_path is not None and os.path.isabs(ref):
+        target, root = os.path.realpath(ref), os.path.realpath(skill_package_path)
+        if _inside(target, root):
+            return Path(os.path.relpath(target, root)).as_posix()
+    return _cited_path(ref)
+
+
+def floor_check(inventory, floor, skill_package_path=None):
+    """The floor names the inventory leaves out: (the `floor` result, its violations).
+
+    A floor name is checked when one of its origins is SKILL.md or a file
+    the inventory's `references` lists (the spot-check's files, an absolute
+    path inside `skill_package_path` matched by its path relative to it),
+    and kept when any inventory entry has that name, whatever its kind. A
+    name left out is a violation naming its first checked origin.
+    """
+    listed = inventory.get("references")
+    files = {"SKILL.md"} | {_listed_path(ref, skill_package_path)
+                            for ref in (listed if isinstance(listed, list) else [])
+                            if isinstance(ref, str) and ref.strip()}
+    kept = {e.get("name") for e in inventory.get("exports") or [] if isinstance(e, dict)}
+    names = floor.get("names") or []
+    checked, absent, violations = 0, [], []
+    for item in names:
+        origins = [o for o in item["origins"] if _cited_path(o["file"]) in files]
+        if not origins:
+            continue
+        checked += 1
+        name = item["name"]
+        if name in kept:
+            continue
+        absent.append(name)
+        where = f"{origins[0]['file']}:{origins[0]['line']} ({origins[0]['form']})"
+        violations.append(f"floor: `{name}` is documented at {where}, but no inventory entry lists it")
+    return {"names": len(names), "checked": checked, "absent": absent}, violations
+
+
 # --- Completeness -------------------------------------------------------------
 
 
@@ -415,13 +505,14 @@ def completeness(exports):
 # --- Validation ---------------------------------------------------------------
 
 
-def validate_inventory(raw, skill_package_path=None):
-    """Structural validation of the subagent inventory response, then the spot-check.
+def validate_inventory(raw, skill_package_path=None, floor=None):
+    """Structural validation of the subagent inventory response, then the spot-check and the floor check.
 
     `raw` is the raw response text. Returns the result dict documented in the
     module docstring. With `skill_package_path`, an inventory that passed the
-    schema is spot-checked against the package (spot_check). Deterministic:
-    identical input yields an identical verdict.
+    schema is spot-checked against the package (spot_check); with `floor`
+    (read_floor's object), it is checked against the floor (floor_check).
+    Deterministic: identical input yields an identical verdict.
     """
     violations = []
     inner = strip_fences(raw)
@@ -502,14 +593,19 @@ def validate_inventory(raw, skill_package_path=None):
                 f"cross_check_mismatches[{idx}] missing field(s): {', '.join(missing)}"
             )
 
+    schema_valid = not violations
     checked = None
-    if not violations and skill_package_path is not None:
+    if schema_valid and skill_package_path is not None:
         checked = spot_check(data, skill_package_path)
         for name in checked["absent"]:
             violations.append(
                 f"spot-check: `{name}` is listed as an export, but SKILL.md and the "
                 f"listed reference files never write it"
             )
+    floor_result = None
+    if schema_valid and floor is not None:
+        floor_result, floor_violations = floor_check(data, floor, skill_package_path)
+        violations.extend(floor_violations)
 
     valid = not violations
     result = {
@@ -523,6 +619,8 @@ def validate_inventory(raw, skill_package_path=None):
         result["completeness"] = completeness(exports)
     if checked is not None:
         result["spotCheck"] = checked
+    if floor_result is not None:
+        result["floor"] = floor_result
     return result
 
 
@@ -536,8 +634,9 @@ def _build_parser():
             "Deterministic schema validation of the §1 subagent inventory JSON "
             "(coverage-check.md §1a). Strips wrapping fences, parses, and asserts "
             "the required-keys/types/enum/mismatch-field contract, then with "
-            "--skill-package spot-checks sampled names against the package, returning "
-            "{valid, violations, rejectedCount, exportsCount, inventory, completeness, spotCheck}."
+            "--skill-package spot-checks sampled names against the package and --floor checks it "
+            "keeps the floor's names, returning "
+            "{valid, violations, rejectedCount, exportsCount, inventory, completeness, spotCheck, floor}."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -572,6 +671,11 @@ def _build_parser():
         "--skill-package",
         metavar="DIR",
         help="Spot-check sampled names against this package's SKILL.md and listed references.",
+    )
+    parser.add_argument(
+        "--floor",
+        metavar="PATH",
+        help="Check the inventory keeps the names of this load-coverage-inputs.py floor file.",
     )
     return parser
 
@@ -612,7 +716,12 @@ def main(argv=None):
         return 1
 
     try:
-        result = validate_inventory(raw, args.skill_package)
+        floor = read_floor(args.floor) if args.floor is not None else None
+    except FloorError as exc:
+        print(f"error: --floor: {exc}", file=sys.stderr)
+        return 1
+    try:
+        result = validate_inventory(raw, args.skill_package, floor)
     except PackageError as exc:
         print(f"error: --skill-package: {exc}", file=sys.stderr)
         return 1

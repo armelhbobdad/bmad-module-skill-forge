@@ -10,8 +10,8 @@ Load this file only from the coverage-check.md sentence that names one of its se
   rm -f "{run_dir}/inventory-response.txt"
   ```
 
-  Re-dispatch the §1 subagent once, with the script's `violations[]` appended to its instructions (an absent name as a name the skill does not write): it writes its new response to that file, or returns it for you to save there, as §1 says. Run the §1a command again.
-- **Exit 1** (no input, a file that cannot be read, or a package with no readable SKILL.md): correct the file and run it again.
+  Re-dispatch the §1 subagent once, with the script's `violations[]` appended to its instructions (an absent name as a name the skill does not write, a floor name as one it must keep): it writes its new response to that file, or returns it for you to save there, as §1 says. Run the §1a command again.
+- **Exit 1** (no input, a file that cannot be read, or a package with no readable SKILL.md): correct the file and run it again. An error that names `--floor` (the floor file missing or malformed): run §1's `floor` command again, whose exit 1 halts the run `helper-failed` as §1 says, then the §1a command.
 
 ## States 2 to 4
 

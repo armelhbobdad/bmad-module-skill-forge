@@ -9,7 +9,7 @@ coverage-check.md decides whether a bookkeeping variant is a real export,
 and makes the judgments the denominator clause needs where no file holds
 them (--pattern-reference-intent, and --curated-subset and --barrel where
 the extraction does not say); the clause, everything it counts, folds or
-unions on the way runs here, so no count is made by hand. Three subcommands, each
+unions on the way runs here, so no count is made by hand. Four subcommands, each
 reading files and writing one JSON object:
 
   census    docs-only detection. Counts the citations SKILL.md and each .md
@@ -17,6 +17,65 @@ reading files and writing one JSON object:
             the local forms `[AST:`, `[SRC:` and a stack's `[from skill:`
             (`[QMD:` and `[DOC:` are counted and decide nothing). A skill is
             docs-only when it cites `[EXT:` and no local form.
+
+  floor     the documented inventory's floor (#790): every name SKILL.md
+            and each .md file directly in references/ (a subfolder is not
+            read) write in a fixed form, which validate-inventory.py --floor
+            refuses an inventory for leaving out. It owns names only: no
+            kind is mapped and no signature read. A name is a plain
+            identifier (`[A-Za-z_$][\\w$]*`) once a leading `new ` and
+            everything from the first `(` or `<` are cut, so `Meta<T>`,
+            `fetch(url): Promise<T>` and `new Client(opts)` give `Meta`,
+            `fetch` and `Client`. A dotted or `::` name gives none, so a
+            namespace-style skill such as zod (`z.object`) gets no table
+            floor. The forms, read outside the frontmatter and HTML
+            comments (a table row or heading inside fenced code gives none):
+              table-row    each inline code span in the first cell of a
+                           table row (cells split on an unescaped `|`)
+                           whose header row's first cell is, in any case,
+                           singular or plural and bare or wrapped in `**`
+                           or `__`, Export, Symbol, Function, Class,
+                           Interface, Type, Hook, Component, Helper,
+                           Constant, Enum or API (a Name, Method, Prop,
+                           Param, Import or Subpath table gives none). The
+                           row's Kind cell, as written, is the name's
+                           `kindLabel`: the skill's own label, never mapped
+                           to a kind (the first in origin order when two
+                           rows label the name differently; null with no
+                           Kind column)
+              heading      an ATX heading whose whole text is one code
+                           span, as in ``### `Meta<T>` `` (a heading with
+                           other words, ``## Testing with `mount` ``, gives
+                           none)
+              declaration  a column-0 public declaration in a fenced block
+                           whose first non-blank line is a comment (`//`,
+                           `#`, `/* */`, `--`, `<!-- -->` or `;`) holding an
+                           `[AST:` or `[SRC:` citation, or naming a path one
+                           such citation of the skill names (its `:12`,
+                           `:L12` or `:12-30` left out). A citation counts
+                           only with its `:L<n>` (`[AST:src/a.ts:L12]`, not
+                           `[AST:src/a.ts]`), and one on the line above the
+                           fence heads nothing. Comments and strings are
+                           masked first. TS/JS (not Svelte, whose `export
+                           let` is a prop): `export` then `function`,
+                           `const`, `let`, `var`, `class`, `interface`,
+                           `type` or `enum` (`declare`, `abstract` and
+                           `async` may come between), or `export default
+                           function` or `class` with a name; Python: `def`,
+                           `async def` or `class`, a name not starting with
+                           `_`; Rust: a `pub` (not `pub(crate)`) `fn`,
+                           `struct`, `enum`, `trait`, `type`, `const` or
+                           `static`, and a `macro_rules!` under
+                           `#[macro_export]`; Go: `func`, `type`, `var` or
+                           `const` with a capitalized name, each name of a
+                           `type (`, `var (` or `const (` group too. A
+                           block in another language, an untagged one or a
+                           data block (json, yaml, text...) gives none.
+            Output: {"files": [...], "names": [{"name", "kindLabel",
+            "origins": [{"file", "line", "form"}]}], "summary": {"names",
+            "byForm"}}, names sorted, each one's origins in file order then
+            line, `byForm` counting the origins of each form; the same skill
+            gives the same bytes.
 
   metadata  the metadata.json and provenance-map counts. Cluster A
             (`stats.exports_public_api`, the `exports[]` length) and Cluster
@@ -256,6 +315,7 @@ a stylesheet, holds nothing to read and is in neither list.
 
 Usage:
   uv run load-coverage-inputs.py census --skill-dir <dir> [--output <file>]
+  uv run load-coverage-inputs.py floor --skill-dir <dir> [--output <file>]
   uv run load-coverage-inputs.py metadata --metadata <metadata.json> \\
       [--provenance <provenance-map.json>] [--output <file>]
   uv run load-coverage-inputs.py surface [--extraction <file>] [--quick <file>]... \\
@@ -267,7 +327,8 @@ Usage:
 Exit codes:
   0  the result was printed (and written to --output)
   1  an input file is missing, unreadable or not the JSON (or the YAML
-     brief) it should be (one line on stderr)
+     brief) it should be, or the --skill-dir holds no SKILL.md or a skill
+     file that is not UTF-8 (one line on stderr)
   2  a per-file result breaks the schema: {"valid": false, "violations":
      [...]} names each breach and nothing is written to --output; or a
      usage error (argparse)
@@ -297,6 +358,40 @@ CITATION_FORMS = {
     "DOC": "[DOC:",
 }
 LOCAL_FORMS = ("AST", "SRC", "from skill")
+# floor: the forms a documented name takes, in the order an origin on one line sorts by.
+FLOOR_FORMS = ("table-row", "heading", "declaration")
+# The first header cells (lower case, singular or plural) of a table whose first column names exports.
+FLOOR_TABLE_HEADERS = frozenset({
+    "export", "exports", "symbol", "symbols", "function", "functions", "class", "classes", "interface", "interfaces",
+    "type", "types", "hook", "hooks", "component", "components", "helper", "helpers", "constant", "constants",
+    "enum", "enums", "api", "apis"})
+# A header cell wrapped in `**` or `__` (group 2 its text).
+EMPHASIS_RE = re.compile(r"(\*\*|__)(.+)\1")
+PLAIN_IDENTIFIER_RE = re.compile(r"[A-Za-z_$][\w$]*")
+TABLE_CELL_RE = re.compile(r"(?<!\\)\|")
+# A comment's opening marker: `//`, `#`, `/*`, `--`, `<!--` or `;`.
+COMMENT_MARKER_RE = re.compile(r"[ \t]*(?://+|#+|/\*+|--|<!--|;+)")
+# A cited path's line suffix: `:12`, `:L12`, `:12-30` or `:L12-L30`.
+LINE_SUFFIX_RE = re.compile(r":L?\d+(?:-L?\d+)?$")
+PYTHON_LANGUAGES = frozenset({"python", "py", "python3"})
+RUST_LANGUAGES = frozenset({"rust", "rs"})
+GO_LANGUAGES = frozenset({"go", "golang"})
+# Column-0 public declarations (group 1 the name), matched on the block with comments and strings masked.
+JS_DECLARATION_RE = re.compile(
+    r"export\s+(?:default\s+(?:abstract\s+)?(?:async\s+)?(?:function(?:\s*\*\s*|\s+)|class\s+)"
+    r"|(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?"
+    r"(?:function(?:\s*\*\s*|\s+)|const\s+enum\s+|const\s+|let\s+|var\s+|class\s+|interface\s+|type\s+|enum\s+))"
+    r"(?!(?:extends|implements)(?![\w$]))([A-Za-z_$][\w$]*)")
+PYTHON_DECLARATION_RE = re.compile(r"(?:async\s+def|def|class)\s+([A-Za-z_]\w*)")
+RUST_DECLARATION_RE = re.compile(
+    r"pub\s+(?:(?:async|unsafe|const|extern)\s+)*(?:fn|struct|enum|trait|type|const|static)\s+(?:mut\s+)?"
+    r"([A-Za-z_]\w*)")
+RUST_MACRO_EXPORT_RE = re.compile(r"#\[macro_export\]")
+RUST_MACRO_RE = re.compile(r"(?:#\[[^\]]*\][ \t]*)*macro_rules![ \t]*([A-Za-z_]\w*)")
+# Go: a single declaration (group 1 its keyword, group 2 its names) or a group's opening line (group 1).
+GO_DECLARATION_RE = re.compile(r"(func|type|var|const)[ \t]+([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)")
+GO_GROUP_RE = re.compile(r"(type|var|const)[ \t]*\([ \t]*$")
+GO_GROUP_NAMES_RE = re.compile(r"[ \t]+([A-Za-z_]\w*(?:[ \t]*,[ \t]*[A-Za-z_]\w*)*)")
 # Bookkeeping variants folded to their base name, in rule order.
 FOLD_SUFFIXES = ("_def", "_exact")
 FOLD_PREFIX = "a11y_"
@@ -337,7 +432,9 @@ SHARED_SCRIPTS = Path(__file__).resolve().parent.parent.parent / "shared" / "scr
 
 def _sibling(filename: str, folder: Path | None = None):
     """A script beside this one, loaded once: validate-inventory.py (the doc
-    text) and score-signatures.py (the per-file result schema); or, with
+    text, and the skill citations floor reads), locate-export-segments.py
+    (the line model floor reads the skill with) and score-signatures.py (the
+    per-file result schema); or, with
     `folder`, one in that folder: SHARED_SCRIPTS'
     skf-resolve-authoritative-files.py (a skill brief's YAML)."""
     module = _SIBLINGS.get(filename)
@@ -422,6 +519,199 @@ def census(skill_dir: str) -> dict:
         "docsOnly": counts["EXT"] > 0 and local == 0,
         "files": files,
     }
+
+
+# --------------------------------------------------------------------------
+# floor
+# --------------------------------------------------------------------------
+
+
+def _floor_name(text: str) -> str | None:
+    """The plain identifier `text` writes once a leading `new ` and everything from the first `(` or `<` are
+    cut; None for any other text, a dotted or `::` name among them."""
+    text = text.strip()
+    if text.startswith("new "):
+        text = text[4:]
+    text = re.split(r"[(<]", text, maxsplit=1)[0].strip()
+    return text if PLAIN_IDENTIFIER_RE.fullmatch(text) else None
+
+
+def _header_word(cell: str) -> str:
+    """A header cell's word, lower case, unwrapped from `**` or `__`."""
+    m = EMPHASIS_RE.fullmatch(cell)
+    return (m.group(2) if m else cell).strip().lower()
+
+
+def _cells(row: str) -> list[str]:
+    """A table row's cells, split on each unescaped `|`, each stripped."""
+    row = row.strip()
+    if row.startswith("|"):
+        row = row[1:]
+    if row.endswith("|") and not row.endswith("\\|"):
+        row = row[:-1]
+    return [cell.strip() for cell in TABLE_CELL_RE.split(row)]
+
+
+def _whole_span(text: str, segments) -> str | None:
+    """The code span `text` is, when the whole of it is one; else None."""
+    spans = segments._inline_code(text)
+    if len(spans) != 1:
+        return None
+    run = len(text) - len(text.lstrip("`"))
+    return spans[0] if text == "`" * run + spans[0] + "`" * run else None
+
+
+def _comment_text(line: str) -> str | None:
+    """A comment line's text, its markers stripped (`// x`, `# x`, `/* x */`, `-- x`, `<!-- x -->`, `; x`);
+    None for a line that is no comment. Linear in the line's length."""
+    m = COMMENT_MARKER_RE.match(line)
+    if not m:
+        return None
+    text = line[m.end():].strip()
+    if text.endswith("-->"):
+        text = text[:-3]
+    elif text.endswith("*/"):
+        text = text[:-2].rstrip("*")
+    return text.strip()
+
+
+def _headed(lines: list[str], opening: int, closing: int, cited: set[str], inventory) -> bool:
+    """Whether a source citation heads the fenced block opening at `opening`: its first non-blank line is a
+    comment holding a citation, or naming a path the skill cites (a `:12`, `:L12` or `:12-30` suffix left
+    out). A citation on the line above the fence heads nothing."""
+    first = next((lines[i] for i in range(opening + 1, closing) if lines[i].strip()), None)
+    text = _comment_text(first) if first is not None else None
+    if not text:
+        return False
+    if inventory._SKILL_CITATION_RE.search(text):
+        return True
+    suffix = LINE_SUFFIX_RE.search(text)
+    path = text[:suffix.start()] if suffix else text
+    return bool(path) and not any(c.isspace() for c in path) and inventory._cited_path(path) in cited
+
+
+def _html_comment_lines(lines: list[str], start: int, code: list[bool]) -> set[int]:
+    """The lines inside an HTML comment, the fenced lines it holds included, read as _prose reads one: a line
+    outside fenced code that starts `<!--` opens it, the next such line holding `-->` closes it."""
+    inside, open_ = set(), False
+    for i in range(start, len(lines)):
+        if open_:
+            inside.add(i)
+            open_ = code[i] or "-->" not in lines[i]
+        elif not code[i] and lines[i].strip().startswith("<!--"):
+            inside.add(i)
+            open_ = "-->" not in lines[i].strip()[4:]
+    return inside
+
+
+def _names(text: str) -> list[str]:
+    return [name.strip() for name in text.split(",")]
+
+
+def _declared_names(lines: list[str], language: str, js_family) -> list[tuple[int, str]]:
+    """(offset, name) of each column-0 public declaration in a block's masked lines, by its language."""
+    found: list[tuple[int, str]] = []
+    if language in js_family:
+        found = [(i, m.group(1)) for i, line in enumerate(lines) if (m := JS_DECLARATION_RE.match(line))]
+    elif language in PYTHON_LANGUAGES:
+        found = [(i, m.group(1)) for i, line in enumerate(lines)
+                 if (m := PYTHON_DECLARATION_RE.match(line)) and not m.group(1).startswith("_")]
+    elif language in RUST_LANGUAGES:
+        exported = False  # a `#[macro_export]` above, with only blank or attribute lines between
+        for i, line in enumerate(lines):
+            if m := RUST_DECLARATION_RE.match(line):
+                found.append((i, m.group(1)))
+            exported = exported or bool(RUST_MACRO_EXPORT_RE.match(line))
+            macro = RUST_MACRO_RE.match(line)
+            if macro and exported:
+                found.append((i, macro.group(1)))
+            if macro or (line.strip() and not line.startswith("#[")):
+                exported = False
+    elif language in GO_LANGUAGES:
+        group, depth = False, 0  # inside a `type (`, `var (` or `const (` group, and its bracket depth there
+        for i, line in enumerate(lines):
+            if group:
+                if depth == 0 and line.lstrip().startswith(")"):
+                    group = False
+                    continue
+                if depth == 0 and (m := GO_GROUP_NAMES_RE.match(line)):
+                    found += [(i, name) for name in _names(m.group(1)) if name[0].isupper()]
+                depth = max(0, depth + sum(map(line.count, "{([")) - sum(map(line.count, "})]")))
+            elif GO_GROUP_RE.match(line):
+                group, depth = True, 0
+            elif m := GO_DECLARATION_RE.match(line):
+                found += [(i, name) for name in _names(m.group(2)) if name[0].isupper()]
+    return found
+
+
+def floor(skill_dir: str) -> dict:
+    """The names the skill documents in a fixed form, each with its origins (see the module docstring)."""
+    root = Path(skill_dir)
+    if not (root / "SKILL.md").is_file():
+        raise InputError(f"--skill-dir {skill_dir} holds no SKILL.md")
+    segments = _sibling("locate-export-segments.py")
+    inventory = _sibling("validate-inventory.py")
+    refs = root / "references"
+    files = ["SKILL.md"] + ([f"references/{p.name}" for p in sorted(refs.glob("*.md")) if p.is_file()]
+                           if refs.is_dir() else [])
+    texts = []
+    for rel in files:
+        try:
+            texts.append(segments._split_lines((root / rel).read_bytes().decode("utf-8-sig")))
+        except (OSError, UnicodeDecodeError) as exc:
+            raise InputError(f"cannot read {rel} under {skill_dir}: {exc}") from exc
+    cited = {inventory._cited_path(m.group(2))
+             for lines in texts for line in lines for m in inventory._SKILL_CITATION_RE.finditer(line)}
+
+    found: dict[str, set[tuple[int, int, str, str | None]]] = {}
+
+    def add(name: str | None, file_index: int, index: int, form: str, label: str | None = None) -> None:
+        if name:
+            found.setdefault(name, set()).add((file_index, index + 1, form, label))
+
+    js_family = segments.JS_FAMILY - {"svelte"}  # a Svelte block's `export let` is a component prop
+    for file_index, lines in enumerate(texts):
+        start = segments._frontmatter_end(lines)
+        blocks, code = segments._fenced_blocks(lines, start)
+        headings, prose = segments._prose(lines, start, code)
+        for block in prose:
+            if block["kind"] != "table-row" or block["header"] is None:
+                continue
+            header = _cells(block["header"])
+            if _header_word(header[0]) not in FLOOR_TABLE_HEADERS:
+                continue
+            row = _cells(lines[block["start"]])
+            kind_at = next((i for i, cell in enumerate(header) if _header_word(cell) == "kind"), None)
+            label = row[kind_at] if kind_at is not None and kind_at < len(row) and row[kind_at] else None
+            for span in segments._inline_code(row[0]):
+                add(_floor_name(span), file_index, block["start"], "table-row", label)
+        for index, _level, text, _above in headings:
+            span = _whole_span(text, segments)
+            if span is not None:
+                add(_floor_name(span), file_index, index, "heading")
+        comments = _html_comment_lines(lines, start, code)
+        for opening, closing, info in blocks:
+            language = segments._language(info)
+            if (opening in comments or language in segments.DATA_LANGUAGES
+                    or not _headed(lines, opening, closing, cited, inventory)):
+                continue
+            masked = segments.mask_code("\n".join(lines[opening + 1:closing]), language).split("\n")
+            for offset, name in _declared_names(masked, language, js_family):
+                add(name, file_index, opening + 1 + offset, "declaration")
+
+    names = []
+    by_form = dict.fromkeys(FLOOR_FORMS, 0)
+    for name in sorted(found):
+        origins = sorted(found[name], key=lambda o: (o[0], o[1], FLOOR_FORMS.index(o[2]), o[3] or ""))
+        seen, kept = set(), []
+        for file_index, line, form, _label in origins:
+            if (file_index, line, form) not in seen:
+                seen.add((file_index, line, form))
+                kept.append({"file": files[file_index], "line": line, "form": form})
+                by_form[form] += 1
+        label = next((o[3] for o in origins if o[2] == "table-row" and o[3]), None)
+        names.append({"name": name, "kindLabel": label, "origins": kept})
+    return {"files": files, "names": names, "summary": {"names": len(names), "byForm": by_form}}
 
 
 # --------------------------------------------------------------------------
@@ -1210,6 +1500,10 @@ def _cmd_census(args: argparse.Namespace) -> dict:
     return census(args.skill_dir)
 
 
+def _cmd_floor(args: argparse.Namespace) -> dict:
+    return floor(args.skill_dir)
+
+
 def _cmd_metadata(args: argparse.Namespace) -> dict:
     meta = _object(args.metadata, "--metadata")
     provenance = _object(args.provenance, "--provenance") if args.provenance else None
@@ -1227,6 +1521,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skill-dir", required=True, help="the skill package: SKILL.md and references/")
     p.add_argument("--output", help="also write the result to this file")
     p.set_defaults(func=_cmd_census)
+
+    p = sub.add_parser("floor", help="the names the skill documents in a fixed form, which the inventory keeps")
+    p.add_argument("--skill-dir", required=True, help="the skill package: SKILL.md and references/")
+    p.add_argument("--output", help="also write the result to this file")
+    p.set_defaults(func=_cmd_floor)
 
     p = sub.add_parser("metadata", help="the metadata.json and provenance-map counts")
     p.add_argument("--metadata", required=True, help="the skill's metadata.json")

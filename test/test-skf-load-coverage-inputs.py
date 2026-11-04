@@ -36,6 +36,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -209,6 +210,306 @@ def test_census_counts_each_form(tmp_path):
 def test_census_without_a_skill_md_exits_1(tmp_path):
     proc = _run("census", "--skill-dir", str(tmp_path))
     assert proc.returncode == 1 and "holds no SKILL.md" in proc.stderr and proc.stdout == ""
+
+
+# --------------------------------------------------------------------------
+# floor (#790): the names the skill documents in a fixed form
+# --------------------------------------------------------------------------
+
+
+def _origin(file: str, line: int, form: str) -> dict:
+    return {"file": file, "line": line, "form": form}
+
+
+API_TABLE = (
+    "| Export | Kind | Purpose | Source |\n"                                    # 1
+    "| --- | --- | --- | --- |\n"                                               # 2
+    "| `fetchData`, `fetchAll` | function | Wraps `inner`. | [AST:src/a.ts:L1] |\n"  # 3
+    "| `useQuery<T>()` | hook | Queries. | [AST:src/q.ts:L4] |\n"              # 4
+    "| `request(url): Promise<T>` | function | Requests. | |\n"                 # 5
+    "| `new Client(opts)` | class | Builds. | |\n"                               # 6
+    "| plain | function | No code span. | |\n"                                   # 7
+    "\n"                                                                        # 8
+    "| API | Purpose |\n"                                                       # 9
+    "|-----|---------|\n"                                                       # 10
+    "| `connect(url)` | Opens. |\n"                                             # 11
+    "\n"                                                                        # 12
+    "| Prop | Type |\n"                                                         # 13
+    "| --- | --- |\n"                                                           # 14
+    "| `size` | number |\n"                                                     # 15
+)
+
+
+def test_floor_lists_export_table_first_column_names(tmp_path):
+    """Every code span in the first cell of an export table's row, a leading `new ` and everything from the first
+    `(` or `<` cut, with the row's Kind cell as written; another column's span, a cell with no span and a Prop
+    table give none."""
+    out = mod.floor(str(_skill(tmp_path, "# Demo\n", {"api.md": API_TABLE})))
+    assert out["files"] == ["SKILL.md", "references/api.md"]
+    assert out["names"] == [
+        {"name": "Client", "kindLabel": "class", "origins": [_origin("references/api.md", 6, "table-row")]},
+        {"name": "connect", "kindLabel": None, "origins": [_origin("references/api.md", 11, "table-row")]},
+        {"name": "fetchAll", "kindLabel": "function", "origins": [_origin("references/api.md", 3, "table-row")]},
+        {"name": "fetchData", "kindLabel": "function", "origins": [_origin("references/api.md", 3, "table-row")]},
+        {"name": "request", "kindLabel": "function", "origins": [_origin("references/api.md", 5, "table-row")]},
+        {"name": "useQuery", "kindLabel": "hook", "origins": [_origin("references/api.md", 4, "table-row")]},
+    ]
+    assert out["summary"] == {"names": 6, "byForm": {"table-row": 6, "heading": 0, "declaration": 0}}
+
+
+@pytest.mark.parametrize("header", ["Functions", "**Hooks**", "__Types__", "CLASSES", "Components", "**Export**",
+                                    "APIs", "Symbols"])
+def test_floor_reads_plural_and_emphasized_header_words(tmp_path, header):
+    body = f"| {header} | **Kind** |\n| --- | --- |\n| `useThing` | hook |\n"
+    assert mod.floor(str(_skill(tmp_path, body)))["names"] == [
+        {"name": "useThing", "kindLabel": "hook", "origins": [_origin("SKILL.md", 3, "table-row")]}]
+
+
+@pytest.mark.parametrize("header", ["Name", "**Methods**", "Props", "*Export*", "Exported", "Import"])
+def test_floor_reads_no_other_header_word(tmp_path, header):
+    body = f"| {header} | Kind |\n| --- | --- |\n| `useThing` | hook |\n"
+    assert mod.floor(str(_skill(tmp_path, body)))["names"] == []
+
+
+def test_floor_keeps_the_first_kind_label_in_origin_order(tmp_path):
+    """Two tables label one name differently: the first label in origin order (file order, then line) is the
+    name's `kindLabel`, the skill's own label; a later one is not kept."""
+    root = _skill(tmp_path, "# Demo\n\n| Export | Kind |\n| --- | --- |\n| `Store` | class |\n", {
+        "api.md": "| Export | Kind |\n| --- | --- |\n| `Store` | component |\n\n"
+                  "| Type | Kind |\n| --- | --- |\n| `Store` | type |\n"})
+    assert mod.floor(str(root))["names"] == [{"name": "Store", "kindLabel": "class", "origins": [
+        _origin("SKILL.md", 5, "table-row"), _origin("references/api.md", 3, "table-row"),
+        _origin("references/api.md", 7, "table-row")]}]
+
+
+def test_floor_reads_code_only_headings(tmp_path):
+    """A heading whose whole text is one code span; a heading with other words, a dotted name, and a heading in
+    the frontmatter, an HTML comment or a fenced block give none."""
+    body = ("---\nname: demo\n# `fm`\n---\n# Demo\n\n"         # 1-6
+            "### `Meta<T>`\n\n"                               # 7
+            "## Testing with `mount`\n\n"                     # 9
+            "### `render(ui)` ###\n\n"                        # 11
+            "#### `client.get`\n\n"                           # 13
+            "<!--\n### `hidden`\n-->\n\n"                     # 15-18
+            "```md\n### `inFence`\n```\n")                    # 19-21
+    out = mod.floor(str(_skill(tmp_path, body)))
+    assert out["names"] == [
+        {"name": "Meta", "kindLabel": None, "origins": [_origin("SKILL.md", 7, "heading")]},
+        {"name": "render", "kindLabel": None, "origins": [_origin("SKILL.md", 11, "heading")]},
+    ]
+
+
+CITED_BLOCKS = (
+    "# Demo\n"                                                                  # 1
+    "\n"                                                                        # 2
+    "Fetches data [AST:src/api.ts:L12] and models [SRC:src/model.py:L3-L9].\n"  # 3
+    "\n"                                                                        # 4
+    "The client:\n"                                                             # 5
+    "\n"                                                                        # 6
+    "```ts\n"                                                                   # 7
+    "// src/api.ts:12\n"                                                        # 8
+    "export interface Options { a: string }\n"                                  # 9
+    "const local = 1;\n"                                                        # 10
+    "export async function fetchData() {}\n"                                    # 11
+    "export default function main() {}\n"                                       # 12
+    "// export const commented = 1\n"                                           # 13
+    "  export const indented = 1;\n"                                            # 14
+    "const t = `\n"                                                             # 15
+    "export const inTemplate = 1;\n"                                            # 16
+    "`;\n"                                                                      # 17
+    "export default class extends Base {}\n"                                    # 18
+    "```\n"                                                                     # 19
+    "\n"                                                                        # 20
+    "```tsx\n"                                                                  # 21
+    "export const Primary = {};\n"                                              # 22
+    "```\n"                                                                     # 23
+    "\n"                                                                        # 24
+    "```ts\n"                                                                   # 25
+    "// src/other.ts:3\n"                                                       # 26
+    "export const Uncited = 1;\n"                                               # 27
+    "```\n"                                                                     # 28
+    "\n"                                                                        # 29
+    "```json\n"                                                                 # 30
+    "// src/api.ts:12\n"                                                        # 31
+    "{\"export\": \"const Data\"}\n"                                            # 32
+    "```\n"                                                                     # 33
+    "\n"                                                                        # 34
+    "An example [SRC:src/example.py:L1]:\n"                                     # 35
+    "\n"                                                                        # 36
+    "```python\n"                                                               # 37
+    "class User(BaseModel):\n"                                                  # 38
+    "    name: str\n"                                                           # 39
+    "```\n"                                                                     # 40
+    "\n"                                                                        # 41
+    "The model:\n"                                                              # 42
+    "\n"                                                                        # 43
+    "```python\n"                                                               # 44
+    "# src/model.py:L3\n"                                                       # 45
+    "class Model:\n"                                                            # 46
+    "    def save(self): ...\n"                                                 # 47
+    "def build(): ...\n"                                                        # 48
+    "async def fetch(): ...\n"                                                  # 49
+    "def _private(): ...\n"                                                     # 50
+    "'''\n"                                                                     # 51
+    "def in_docstring(): ...\n"                                                 # 52
+    "'''\n"                                                                     # 53
+    "```\n"                                                                     # 54
+    "\n"                                                                        # 55
+    "<!--\n"                                                                    # 56
+    "```ts\n"                                                                   # 57
+    "// src/api.ts:12\n"                                                        # 58
+    "export const Hidden = 1;\n"                                                # 59
+    "```\n"                                                                     # 60
+    "-->\n"                                                                     # 61
+)
+
+
+def test_floor_reads_public_declarations_in_cited_blocks(tmp_path):
+    """A block whose first line is a comment naming a cited path (its line left out): its column-0 public
+    declarations, comments and strings masked. An uncited block, one whose comment names a path the skill never
+    cites, a data block, a block only the line above cites (a user example) and a block in an HTML comment give
+    none."""
+    out = mod.floor(str(_skill(tmp_path, CITED_BLOCKS)))
+    assert [(n["name"], n["origins"]) for n in out["names"]] == [
+        ("Model", [_origin("SKILL.md", 46, "declaration")]),
+        ("Options", [_origin("SKILL.md", 9, "declaration")]),
+        ("build", [_origin("SKILL.md", 48, "declaration")]),
+        ("fetch", [_origin("SKILL.md", 49, "declaration")]),
+        ("fetchData", [_origin("SKILL.md", 11, "declaration")]),
+        ("main", [_origin("SKILL.md", 12, "declaration")]),
+    ]
+    assert all(n["kindLabel"] is None for n in out["names"])
+
+
+HEAD_DECLARATIONS = {"ts": "export const Head = 1;", "python": "class Head: ...", "go": "type Head struct{}",
+                     "rust": "pub struct Head;"}
+
+
+@pytest.mark.parametrize("language, head", [
+    ("ts", "// src/api.ts:12"),
+    ("ts", "// ./src/api.ts:L12-L30"),
+    ("ts", "/* src/api.ts */"),
+    ("ts", "/** src/api.ts:L1 **/"),
+    ("ts", "// [AST:src/elsewhere.ts:L4]"),
+    ("python", "# src/api.ts:12-30"),
+    ("python", "## [SRC:src/model.py:L3]"),
+    ("go", "// [SRC:src/api.go:L1-9]"),
+    ("rust", "-- src/api.ts"),
+    ("rust", "<!-- src/api.ts:L2 -->"),
+    ("ts", "; src/api.ts"),
+], ids=["slash-line", "slash-range", "block", "doc-block", "slash-citation", "hash-range", "hash-citation",
+        "go-citation", "dashes", "html", "semicolon"])
+def test_floor_a_first_line_comment_heads_a_block(tmp_path, language, head):
+    """Each first-line comment form, with no citation above the fence: a citation in it, or a path the skill
+    cites elsewhere (its line suffix left out)."""
+    body = ("# Demo\n\nThe client [AST:src/api.ts:L12].\n\nNo citation here.\n\n"
+            f"```{language}\n{head}\n{HEAD_DECLARATIONS[language]}\n```\n")
+    assert [(n["name"], n["origins"]) for n in mod.floor(str(_skill(tmp_path, body)))["names"]] == [
+        ("Head", [_origin("SKILL.md", 9, "declaration")])]
+
+
+@pytest.mark.parametrize("above, head", [
+    ("The client [AST:src/api.ts:L12]:", None),
+    ("No citation here.", "// [AST:src/api.ts]"),
+    ("No citation here.", "src/api.ts:12"),
+    ("No citation here.", "// see src/api.ts:12"),
+    ("No citation here.", "// src/other.ts:3"),
+], ids=["only-the-line-above", "citation-without-a-line", "path-not-in-a-comment", "more-than-a-path",
+        "uncited-path"])
+def test_floor_nothing_else_heads_a_block(tmp_path, above, head):
+    body = (f"# Demo\n\nCited once [AST:src/api.ts:L12].\n\n{above}\n```ts\n" + (f"{head}\n" if head else "")
+            + "export const Nope = 1;\n```\n")
+    assert mod.floor(str(_skill(tmp_path, body)))["names"] == []
+
+
+def test_floor_reads_a_long_comment_in_linear_time(tmp_path):
+    """A first-line comment with a long run of inner whitespace is read in one pass (a backtracking pattern took
+    seconds at 800 spaces)."""
+    spaces = " " * 5000
+    body = ("# Demo\n\nCited [AST:src/api.ts:L1].\n\n"
+            f"```ts\n//{spaces}src/api.ts:1{spaces}\nexport const Kept = 1;\n```\n\n"
+            f"```ts\n// a{spaces}b{spaces}*/\nexport const Dropped = 1;\n```\n")
+    started = time.perf_counter()
+    names = [n["name"] for n in mod.floor(str(_skill(tmp_path, body)))["names"]]
+    assert time.perf_counter() - started < 1.0
+    assert names == ["Kept"]
+
+
+@pytest.mark.parametrize("language, code, names", [
+    ("ts", "export const a = 1;\nexport let b = 2;\nexport var v = 3;\nexport class C {}\nexport type T = string;\n"
+           "export enum E { A }\nexport const enum F { A }\nexport declare function d(): void;\n"
+           "export abstract class G {}\nexport function* gen() {}\nexport { x } from './x';\n"
+           "export type { Y } from './y';\nexport default class H {}\nexport default async function load() {}\n"
+           "export default function() {}\nexport default class extends Base {}\nexport namespace N {}\n",
+     ["C", "E", "F", "G", "H", "T", "a", "b", "d", "gen", "load", "v"]),
+    ("svelte", "export let prop = 1;\nexport const k = 2;\n", []),
+    ("rust", "pub fn connect() {}\npub(crate) fn hidden() {}\npub const fn size() -> usize { 0 }\n"
+             "pub const LIMIT: u32 = 3;\npub static mut COUNT: u32 = 0;\npub struct Client;\n"
+             "pub async unsafe fn run() {}\nimpl Client {\n    pub fn get(&self) {}\n}\nfn private() {}\n"
+             "pub mod inner {}\npub use inner::Thing;\n"
+             "#[macro_export]\nmacro_rules! exported {\n    () => {};\n}\nmacro_rules! internal { () => {} }\n"
+             "#[macro_export] macro_rules! inline_one { () => {} }\n"
+             "#[macro_export]\n#[doc(hidden)]\nmacro_rules! hidden_doc { () => {} }\n"
+             "#[macro_export]\nfn not_a_macro() {}\nmacro_rules! after_a_fn { () => {} }\n",
+     ["COUNT", "Client", "LIMIT", "connect", "exported", "hidden_doc", "inline_one", "run", "size"]),
+    ("go", "func Open() {}\nfunc (c *Client) Get() {}\nfunc private() {}\ntype Client struct{}\n"
+           "type handler func()\nvar Default = New()\nvar a, B = 1, 2\nconst Version = \"1\"\n"
+           "const (\n\tStatusOK = 200\n\tstatusHidden = 1\n\tA, Bb = 1, 2\n)\n"
+           "var (\n\tErrClosed = errors.New(\"closed\")\n)\n"
+           "type (\n\tConfig struct {\n\t\tName string\n\t}\n\treader interface {\n\t\tRead() error\n\t}\n"
+           "\tID string\n)\n",
+     ["A", "B", "Bb", "Client", "Config", "Default", "ErrClosed", "ID", "Open", "StatusOK", "Version"]),
+    ("", "export const untagged = 1;\n", []),
+    ("java", "public class Main {}\n", []),
+], ids=["ts", "svelte", "rust", "go", "untagged", "other-language"])
+def test_floor_reads_each_languages_public_declarations(tmp_path, language, code, names):
+    body = f"# Demo\n\n```{language}\n// [SRC:src/lib:L1]\n{code}```\n"
+    assert [n["name"] for n in mod.floor(str(_skill(tmp_path, body)))["names"]] == names
+
+
+def test_floor_skips_dotted_names_and_method_tables(tmp_path):
+    """A dotted or `::` name gives none, so a namespace-style skill such as zod gets no table floor."""
+    body = ("# Demo\n\n| Export | Kind |\n| --- | --- |\n| `cognee.add` | function |\n| `Store::get` | method |\n"
+            "| `z.object(shape)` | function |\n\n"
+            "| Method | Signature |\n| --- | --- |\n| `close` | `() => void` |\n\n"
+            "| Name | Kind |\n| --- | --- |\n| `config` | object |\n\n### `client.fetch()`\n")
+    out = mod.floor(str(_skill(tmp_path, body)))
+    assert out["names"] == []
+    assert out["summary"] == {"names": 0, "byForm": {"table-row": 0, "heading": 0, "declaration": 0}}
+
+
+def test_floor_reads_direct_references_only(tmp_path):
+    root = _skill(tmp_path, "# Demo\n", {"api.md": "### `top`\n", "sub/x.md": "### `nested`\n"})
+    out = mod.floor(str(root))
+    assert out["files"] == ["SKILL.md", "references/api.md"]
+    assert out["names"] == [{"name": "top", "kindLabel": None, "origins": [_origin("references/api.md", 1, "heading")]}]
+
+
+def test_floor_is_byte_identical_across_runs(tmp_path):
+    """The same skill gives the same bytes, each name's origins in file order then line."""
+    root = _skill(tmp_path, "# Demo\n\n### `fetchData`\n\n" + CITED_BLOCKS,
+                  {"b.md": "### `fetchAll`\n", "api.md": API_TABLE})
+    first, second = tmp_path / "floor-1.json", tmp_path / "floor-2.json"
+    for target in (first, second):
+        proc = _run("floor", "--skill-dir", str(root), "--output", str(target))
+        assert proc.returncode == 0, proc.stderr
+    assert first.read_bytes() == second.read_bytes()
+    out = json.loads(first.read_bytes())
+    assert out["files"] == ["SKILL.md", "references/api.md", "references/b.md"]
+    fetch_data = next(n for n in out["names"] if n["name"] == "fetchData")
+    assert fetch_data == {"name": "fetchData", "kindLabel": "function", "origins": [
+        _origin("SKILL.md", 3, "heading"), _origin("SKILL.md", 15, "declaration"),
+        _origin("references/api.md", 3, "table-row")]}
+    assert [n["name"] for n in out["names"]] == sorted(n["name"] for n in out["names"])
+
+
+def test_floor_without_skill_md_exits_1(tmp_path):
+    proc = _run("floor", "--skill-dir", str(tmp_path))
+    assert proc.returncode == 1 and "holds no SKILL.md" in proc.stderr and proc.stdout == ""
+    root = _skill(tmp_path / "bad", "# Demo\n")
+    _write(root / "references" / "api.md", b"\xff\xfe broken")
+    proc = _run("floor", "--skill-dir", str(root), "--output", str(tmp_path / "floor.json"))
+    assert proc.returncode == 1 and "references/api.md" in proc.stderr and not (tmp_path / "floor.json").exists()
 
 
 # --------------------------------------------------------------------------

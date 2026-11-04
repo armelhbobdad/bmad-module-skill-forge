@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill now lists every name a skill documents in a fixed form before it reads the skill for its documented exports: the first column of an export table, a heading that is only a code span, and a public declaration in a code block whose first line is a comment citing its source. The new `load-coverage-inputs.py floor` writes them to `inventory-floor.json` in the run folder, and `validate-inventory.py --floor` refuses an inventory that leaves one out of SKILL.md or a reference file the reader lists, so two runs on the same skill agree on those names and Export Coverage and Type Coverage stop shifting with them. A refused inventory is dispatched again once with the missing names, and the run halts `inventory-invalid` the second time. Names a skill writes only in prose are still the reader's call. Because the names the floor adds are now always counted and compared with the source, a skill that passed before can now stop at the hard gate on one of them.
+migration: |
+  If a skill now stops at the hard gate on a gap for a name it documents in an export table, a code-only heading or a cited declaration block, document that name correctly or remove it from the skill, then run Test Skill again. The floor checks SKILL.md and the reference files the reader lists, and the run's `inventory-floor.json` lists each name's `origins`, so find the line that put the name in the floor. When the name is not an export (an example, or a heading over something that is not an export), change that line, for example rename the heading or move the citation comment out of the example block, rather than document a name that is not an export.
+issues: [790]
+prs: [872]

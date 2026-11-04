@@ -432,6 +432,117 @@ def test_cli_a_package_without_skill_md_exits_1(tmp_path):
     assert proc.returncode == 1 and "--skill-package" in proc.stderr
 
 
+# --- Floor (#790) ---------------------------------------------------------------
+
+FLOOR_SCRIPT = SCRIPT.parent / "load-coverage-inputs.py"
+
+
+def _floor(*names):
+    """A floor whose names each come with origins: (name, [(file, line, form), ...])."""
+    return {"files": ["SKILL.md"], "names": [
+        {"name": name, "kindLabel": None, "origins": [{"file": f, "line": ln, "form": form} for f, ln, form in origins]}
+        for name, origins in names]}
+
+
+def _entries(*entries, references=None):
+    data = {"exports": [{"name": n, "kind": k} for n, k in entries], "cross_check_mismatches": []}
+    if references is not None:
+        data["references"] = references
+    return json.dumps(data)
+
+
+def test_a_dropped_floor_name_fails_and_removes_the_inventory(tmp_path):
+    """The floor load-coverage-inputs.py writes, read by path: a name SKILL.md writes in an export table that the
+    inventory leaves out is a violation naming it and its origin, exit 2, and no inventory file is left."""
+    pkg = _package(tmp_path, "# Demo\n\n| Export | Kind |\n| --- | --- |\n| `fetchData`, `fetchAll` | function |\n")
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(_inventory("fetchData").encode("utf-8"))
+    out = tmp_path / "inventory.json"
+    out.write_bytes(b"{}")
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [
+        "floor: `fetchAll` is documented at SKILL.md:5 (table-row), but no inventory entry lists it"]
+    assert result["floor"] == {"names": 2, "checked": 2, "absent": ["fetchAll"]}
+    assert result["spotCheck"]["absent"] == [] and result["inventory"] is None
+    assert not out.exists()
+
+
+def test_any_entry_keeps_a_floor_name_whatever_its_kind(tmp_path):
+    """Kinds stay the reader's: a skill's own `| get | method |` row is kept by a `method` entry."""
+    pkg = _package(tmp_path, "# Demo\n\n| Function | Kind |\n| --- | --- |\n| `get` | method |\n")
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    r = mod.validate_inventory(_entries(("get", "method")), pkg, mod.read_floor(floor))
+    assert r["valid"] is True, r["violations"]
+    assert r["floor"] == {"names": 1, "checked": 1, "absent": []}
+
+
+def test_a_floor_name_of_an_unlisted_reference_is_not_checked():
+    """A floor name counts only through SKILL.md or a reference the inventory lists; the first such origin is
+    the one the violation names."""
+    floor = _floor(("helper", [("references/api.md", 4, "table-row")]),
+                   ("Client", [("references/api.md", 9, "heading"), ("references/b.md", 2, "declaration")]))
+    r = mod.validate_inventory(_entries(("other", "function")), floor=floor)
+    assert r["valid"] is True and r["floor"] == {"names": 2, "checked": 0, "absent": []}
+    r = mod.validate_inventory(_entries(("other", "function"), references=["./references/b.md"]), floor=floor)
+    assert r["valid"] is False and r["floor"] == {"names": 2, "checked": 1, "absent": ["Client"]}
+    assert r["violations"] == [
+        "floor: `Client` is documented at references/b.md:2 (declaration), but no inventory entry lists it"]
+
+
+def test_an_absolute_reference_path_is_matched_to_its_floor_origin(tmp_path):
+    """A `references` item given as an absolute path inside the package counts as its package-relative path."""
+    pkg = _package(tmp_path, "# Demo\n\n`other()` runs.\n", {"api.md": "### `Client`\n"})
+    floor = _floor(("Client", [("references/api.md", 1, "heading")]))
+    listed = [str((pkg / "references" / "api.md").resolve())]
+    r = mod.validate_inventory(_entries(("other", "function"), references=listed), pkg, floor)
+    assert r["floor"] == {"names": 1, "checked": 1, "absent": ["Client"]}
+    assert r["violations"] == [
+        "floor: `Client` is documented at references/api.md:1 (heading), but no inventory entry lists it"]
+    r = mod.validate_inventory(_entries(("other", "function"), ("Client", "class"), references=listed), pkg, floor)
+    assert r["valid"] is True and r["floor"]["absent"] == []
+    # Outside the package an absolute path names no origin.
+    (tmp_path / "elsewhere" / "references").mkdir(parents=True)
+    outside = [str((tmp_path / "elsewhere" / "references" / "api.md").resolve())]
+    r = mod.validate_inventory(_entries(("other", "function"), references=outside), pkg, floor)
+    assert r["floor"] == {"names": 1, "checked": 0, "absent": []}
+
+
+def test_an_inventory_that_keeps_the_floor_passes():
+    floor = _floor(("Options", [("SKILL.md", 7, "heading")]), ("fetchData", [("SKILL.md", 3, "table-row")]))
+    r = mod.validate_inventory(_entries(("fetchData", "function"), ("Options", "interface")), floor=floor)
+    assert r["valid"] is True and r["violations"] == []
+    assert r["floor"] == {"names": 2, "checked": 2, "absent": []}
+    # No floor check without a floor, or for an inventory the schema refused.
+    assert "floor" not in mod.validate_inventory(_entries(("fetchData", "function")))
+    assert "floor" not in mod.validate_inventory(_entries(("fetchData", "nope")), floor=floor)
+
+
+@pytest.mark.parametrize("content", [None, b"{not json", b'{"names": [{"name": "x"}]}', b"[]"],
+                         ids=["missing", "not-json", "no-origins", "not-an-object"])
+def test_an_unreadable_floor_file_exits_1(tmp_path, content):
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(_inventory("real").encode("utf-8"))
+    floor = tmp_path / "inventory-floor.json"
+    if content is not None:
+        floor.write_bytes(content)
+    out = tmp_path / "inventory.json"
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--output", str(out),
+                           "--floor", str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 1 and "--floor" in proc.stderr and proc.stdout == ""
+    assert not out.exists()
+
+
 def test_the_citation_scan_is_the_verifiers(tmp_path):
     """The skill citations gap-ledger.py's homonym pick and score-signatures.py's plan read (#781), and the files
     they read them in, are the verifier's."""
