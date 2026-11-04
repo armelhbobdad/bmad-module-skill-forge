@@ -103,16 +103,21 @@ Modes, from the statuses:
 
 An unknown --language value adds an `unknown-language` warning.
 
-Library use: the one brief-scope test for script and asset paths.
-skf-new-file-diff.py (update-skill Category D, --brief),
-skf-detect-scripts-assets.py detect --brief (create-skill) and
-skf-compare-file-hashes.py compare --brief (audit-skill) load this file by
-its path and call load_scope(brief_path, cited). It returns a Scope:
-takes(path) is the in-scope test above (`_in_scope`), with the brief's
-`scope.include` and `scope.exclude` normalized as classify normalizes them
-and, for an empty `scope.include`, the extensions of the `cited` paths
-(the provenance map's `entries[].source_file`) and of the brief's
-`language`; wants(kind) is False for a `script` or `asset` whose
+Library use: the one brief-scope test for script and asset paths, and for
+the files a gap-driven repair reads. skf-new-file-diff.py (update-skill
+Category D, --brief), skf-detect-scripts-assets.py detect --brief
+(create-skill), skf-compare-file-hashes.py compare --brief (audit-skill)
+and skf-build-change-manifest.py gap-records --brief (update-skill
+gap-driven, which passes as `cited` each file its gaps cite or their
+Remediation names and each `entries[].source_file` of the provenance
+map) load this file by its path and call load_scope(brief_path, cited).
+It returns a Scope: takes(path) is the in-scope test above
+(`_in_scope`), with the brief's `scope.include` and `scope.exclude`
+normalized as classify normalizes them and, for an empty
+`scope.include`, the extensions of the `cited` paths (the provenance
+map's `entries[].source_file` for the first three callers) and of the
+brief's `language`, so a path with no extension is not taken; wants(kind)
+is False for a `script` or `asset` whose
 `scripts_intent` or `assets_intent` is `none` (an absent or free-text
 intent detects). load_scope raises ValueError, `brief not found: <path>`
 for a path that names no file and load_brief's message for a brief it
