@@ -1,0 +1,58 @@
+# Signature Comparison Rules
+
+Every signature judge compares by these rules: coverage-check.md §1's split-body cross-check, its §2 judge (or the main thread in its place), its §5b split-body Source, coverage-check-tiers.md's fallback per-file scan and coherence-check.md §4's reference judge (its `signature_match`). They decide what is a mismatch and how to tag one; each judge returns the JSON its step gives.
+
+## Reading a form
+
+A form claims only what it writes, and only what it claims is compared. Its parameter list claims each parameter it lists, in that order, and no other: a parameter it leaves out is one it says the export does not take (Difference tags say when that is `omitted-optional`). A type or a return type it does not write claims nothing (Annotations).
+
+Optionality is stated only by a default, a `?` (on the name, or as `?:`) or an optional marker: `optional` in a docstring-style list, a Required column, a Default cell that gives a value. A type never states it, and an empty Default cell states nothing. A list of parameters or props, or a table, that states optionality for none of its members states none, and optionality is not compared: `connect(host: str, port: int)` matches `def connect(host: str, port: int = 5432)`. Once a list states optionality for any member, each member it writes with no mark, unless it is rest or variadic, claims to be required; a Default cell and a destructuring default mark only their own member (Components). A default's value is not compared: it only marks its parameter optional.
+
+In a language without keyword arguments (TS/JS, Go, Rust, Java, C, C++), leaving out an optional parameter that comes before one the form writes shifts the caller's positions: that is a mismatch, not `omitted-optional` (`slice(str, end?)` against `(str, start?, end?)`).
+
+The names of Python's `*args` and `**kwargs` are never compared (`**kwargs` against `**options` is no difference), and the parameters after `*` or `*args` are compared by name, not order. A positional-only `/` or keyword-only `*` marker the form leaves out is not compared.
+
+The source's declaration decides, never its body: the documented form is compared with the parameters, the optionality and the annotations the signature declares, whatever the body returns or assigns.
+
+In the split-body cross-check both forms are documented: each is read by these rules, a type, return type or type arguments one of them leaves out are not compared, and coverage-check.md §1 says which parameters a form may leave out.
+
+## Components
+
+A component is an export the source declares as one: a function that takes one props object (plus a `ref`, for `forwardRef`) and returns JSX, an element or `null`, or a value the source declares as a component type, a wrapper's result, a class component, a `defineComponent` result or a Svelte component, in React, Preact, Solid, Vue or Svelte. A function with several positional parameters is a function, whatever it returns (`flexRender(Comp, props)`, `createPortal(children, container)`). A component's signature is its props `P`: a function component's props type, a class component's props type argument, a Vue component's `props` option or `defineProps` type or runtime object, or a Svelte component's props (`$props()`, or its `export let` declarations).
+
+`FC<P>`, `React.FC<P>`, `FunctionComponent<P>`, `ComponentType<P>`, a `memo`, `forwardRef` or other higher-order component result over `P`, and `(props: P) => JSX.Element` (or `ReactElement`, `ReactNode` or `null`) are one contract, the props `P`: a component's return type and its wrapper are never compared. Callers set props by name, so their order is never compared.
+
+A component's own props are the members written in its package: its interface or object type, object literals intersected into it, and members computed from its own code (`VariantProps<typeof buttonVariants>`). Members of a type from another package (`React.ComponentProps<"button">`, `HTMLAttributes<...>`, `ComponentProps<typeof Link>`) are inherited, as are the `ref` a `forwardRef` result takes and the optional `children` of `PropsWithChildren<P>`. A prop the form writes must exist on `P`, own or inherited.
+
+A prop the form writes that `P` lacks, or a type or an optionality it writes that the source contradicts, is a mismatch. So is a required own prop it leaves out, and a required inherited one (a `Link`'s `href`) left out of a full form. An optional own prop it leaves out is an `omitted-optional` difference, and an optional inherited prop it leaves out is no difference. `| null` and `| undefined` on an optional prop are no difference (`VariantProps` adds both). A props type name the form writes that the source does not declare (`Button(props: ButtonProps)` against a source with no `ButtonProps`) is not compared by name, only the props the form lists. Values in a usage example (`variant="subtle"`) are not compared.
+
+A props list states optionality as Reading a form says: `({ of, meta, story })`, or a list of names, states none, and in an object type literal (`{ of?: X; meta: M }`) that states it for any member, each member written with no mark claims to be required. A table states optionality by a Required column, a `?` on a prop's name or a Default cell that gives a value; its Type column states types, never optionality. A Default cell with a value marks only its own row optional and an empty one states nothing, so Create Skill's `| Prop | Type | Default | Description |` table never reads a prop with an empty Default cell as required. A destructuring default (`({ of, meta = {} })`) likewise marks only its own member, and the others state no optionality.
+
+## Annotations
+
+- A parameter written without a type is not compared on type: its name and order are, and its optionality as Reading a form says. Bare `*args` matches `*args: P.args`, and `**kwargs` matches `**kwargs: P.kwargs`.
+- A return type the form does not state is not compared. A form states one when its entry has a non-blank `return_type` or the form writes one: after `->`, `=>`, `→` or `):`, or in its language's own position (Go's result list after the parameters, the type before the name in C, C++ and Java). A blank `return_type` (`""`) states none, so an entry with `params: ""` and no return type matches `def f() -> None`.
+- A type the source leaves unannotated, on a parameter or a return, is not compared, except that a TS/JS parameter with a literal default has that literal's type: `pageSize = 20` is a `number`, so `pageSize?: string` is a mismatch. An unannotated return stays uncompared.
+- Type arguments the form leaves out are not compared: `dict` matches `dict[str, Any]`, and `list[dict]` matches `list[dict[str, Any]]`. Type arguments it writes are: `dict[str, int]` against `dict[str, str]` is a mismatch.
+- A documented type that matches what the body does but contradicts the declared annotation is a mismatch, since the declaration decides. Its `issue` cites the body line the documented type matches (`documented -> Callable[[], None] matches the function returned at line 19; the declaration annotates -> Callable[[], Callable[[], None]]`), so the reader sees the source contradict itself.
+
+## Equivalent spellings
+
+Two spellings of one type are no mismatch:
+
+- `Optional[X]`, `Union[X, None]` and `X | None`; `Union[A, B]` and `A | B`; a union's members in any order (`None | X`, `B | A`).
+- `typing`'s `List`, `Dict`, `Tuple`, `Set`, `FrozenSet` and `Type` and the builtins `list`, `dict`, `tuple`, `set`, `frozenset` and `type`.
+- A name with or without its `typing.`, `collections.abc.` or `React.` prefix: `React.ReactNode` and `ReactNode`.
+- A quoted forward reference and the name it quotes: `"Node"` and `Node`.
+- `Array<T>` and `T[]`; `ReadonlyArray<T>` and `readonly T[]`.
+- A type alias the source declares and the type it names.
+- Type variables renamed consistently: `(a: T) -> T` against `(a: U) -> U`, but not `(a: T, b: U)` against `(a: U, b: U)`.
+- Type arguments the source leaves out are not compared either: the form's `dict[str, Any]` matches the source's bare `dict`.
+
+## Overload sets
+
+A declaration opening an overload set (Python `@overload` stubs, TS bodiless signatures) is read through its implementation: a documented signature matching the implementation or any overload is no mismatch.
+
+## Difference tags
+
+A fact these rules leave uncompared is no difference. A mismatch carries `difference` when the two differ only in one of these ways, else no key: `parameter-name` (only parameter names differ: types, order, optionality and return type equal; a destructured property is part of a type) or `omitted-optional` (the documented form leaves out only members the source marks optional). A parameter or field with a default or a `?`, a TS/JS rest parameter, or a Python `*args` or `**kwargs`, is optional; a Rust `Option<T>` field a struct literal still requires is not. A renamed component prop is never `parameter-name`: callers set props by name, so it is a mismatch with no tag. Tag it in any language and form: `score` (coverage-check.md §2b) checks the facts. The example in coverage-check.md §2, tagged `omitted-optional`, stays Critical against a full form.

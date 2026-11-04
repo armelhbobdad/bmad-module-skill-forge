@@ -107,6 +107,8 @@ COVERAGE_TIERS = REFS / "coverage-check-tiers.md"
 COVERAGE_BRANCHES = REFS / "coverage-check-branches.md"
 COHERENCE = REFS / "coherence-check.md"
 SCORING = REFS / "scoring-rules.md"
+# The rules every signature judge compares by (#827, #835): the overload rule and the `difference` tags live there.
+SIGNATURE_RULES = REFS / "signature-comparison-rules.md"
 INVENTORY = SRC / "shared" / "scripts" / "skf-skill-inventory.py"
 CREATE_ARTIFACTS = SRC / "skf-create-skill" / "references" / "generate-artifacts.md"
 SKILL_SECTIONS = SRC / "skf-create-skill" / "assets" / "skill-sections.md"
@@ -1402,11 +1404,14 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     assert "`extraction.fallback.needed`" in forge and "`extraction.readByEye`" in forge
     assert "the recipes' internal matches are never part of it" in forge
     assert "reads the full declaration at `{file}:{line}`" in forge
-    # #781: a check the citations do not settle names each candidate; an overload set is judged whole
+    # #781: a check the citations do not settle names each candidate
     assert ("A check with `candidates` reads each and reports a mismatch only when the documented signature "
             "matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the "
             "result's `file` stays its `files[]` entry) and its `difference` tagged against it") in forge
-    assert "a documented signature matching the implementation or any overload is no mismatch" in forge
+    # an overload set is judged whole, by the rule the judge reads in the rules file whose path it is given (#827)
+    assert "delegate one subagent with its checks and the absolute path of `{signatureRulesFile}`" in forge
+    assert "is read through its implementation" not in forge, "the overload rule has one copy, in the rules file"
+    assert "is read through its implementation" in _read(SIGNATURE_RULES)
     for gone in ("exports_documented", "missing_docs"):
         assert gone not in forge, gone
 
@@ -1876,15 +1881,21 @@ def test_the_fallback_scan_asks_each_file_for_the_names_it_defines():
 
 
 def test_the_fallback_scan_reads_an_overload_set_whole():
-    """#845: a fallback per-file subagent gets coverage-check.md §2's overload rule, so a documented signature that
-    matches an overload set's implementation or any of its overloads is no mismatch on that path either."""
+    """#845, #827: a fallback per-file subagent gets the path of the signature comparison rules every judge reads, so
+    a documented signature that matches an overload set's implementation or any of its overloads is no mismatch on
+    that path either, and it tags a mismatch's `difference` as §2's judge does. The overload rule has one copy, in
+    that file: neither coverage-check.md nor the tiers file repeats it."""
     scan = _flow(_slice(_read(COVERAGE_TIERS), "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
-    rule = ("declaration opening an overload set (Python `@overload` stubs, TS bodiless signatures) is read through "
-            "its implementation")
-    assert (f"Tell it the overload rule of coverage-check.md §2: a {rule}, and a documented signature matching the "
-            "implementation or any overload is no mismatch.") in scan
-    assert f"A {rule}: a documented signature matching the implementation or any overload is no mismatch." in _flow(
-        _read(COVERAGE)), "the rule the scan mirrors"
+    assert ("delegate a subagent that gets that map with the file and the absolute path of `{signatureRulesFile}` "
+            "(under `{skill-root}`)") in scan
+    assert ("compares each with the map's entry by the rules of that file (overload sets and `difference` tags "
+            "included)") in scan
+    rules = _flow(_slice(_read(SIGNATURE_RULES), "## Overload sets", "## Difference tags"))
+    assert ("A declaration opening an overload set (Python `@overload` stubs, TS bodiless signatures) is read through "
+            "its implementation: a documented signature matching the implementation or any overload is no "
+            "mismatch.") in rules
+    for path in (COVERAGE, COVERAGE_TIERS):
+        assert "is read through its implementation" not in _read(path), path.name
 
 
 def test_the_prose_state_4_surface_runs(tmp_path):

@@ -176,7 +176,7 @@ For each Props contract found (a `*Props` interface, or a Vue props type):
 
 The component exports are those `react-component-functions` (its `javascript` form for `.js` and `.jsx` files), `react-component-arrow-functions` and `react-wrapped-components` (for `memo`, `forwardRef` and `lazy` components) find, and the items of a local list such as the `export { Button, buttonVariants }` that ends a shadcn/ui component file, which `js-local-exports` finds. Sort a local list's items by what they name: the runner records an item's `export_type` as the kind of the declaration it names (`interface`, `type` or `enum` for a type). A type-only item (one in an `export type { ... }` list, or a `type X` specifier) is a type: one whose name ends in `Props` is a Props contract for Steps 1 and 3 (read its fields from the interface or type the list names), and any other is a shared type for Step 4. A PascalCase value item is a component, and any other value item (such as `buttonVariants`) is a shared export: record it with the shared types of Step 4.
 
-For each component export: record name, source file, line number. Do not document the function signature in detail (it's always `(props: XProps) => JSX.Element`).
+For each component export: record name, source file, line number. Do not document the function signature in detail (a component's contract is its Props interface: Test Skill compares the props a form writes, never its return type or wrapper).
 
 **Step 3 (link Props to components):**
 

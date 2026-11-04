@@ -3,6 +3,7 @@ nextStepFile: 'external-validators.md'
 outputFile: '{report_file}'
 outputFormatsFile: 'assets/output-section-formats.md'
 scoringRulesFile: 'references/scoring-rules.md'
+signatureRulesFile: 'references/signature-comparison-rules.md'
 coherenceAggregationScript: 'scripts/aggregate-coherence.py'
 locateExportSegmentsScript: 'scripts/locate-export-segments.py'
 migrationSectionRules: 'references/migration-section-rules.md'
@@ -144,16 +145,17 @@ SKILL.md's cross-references come in two kinds, and each has one owner:
 
 The scanned references need no further check: `{run_dir}/references.json` holds their statuses.
 
-Delegate the references §3's subagent found, in one batch, to a subagent that, for each one:
+Delegate the references §3's subagent found, in one batch, to a subagent given the absolute path of `{signatureRulesFile}` (under `{skill-root}`), that, for each one:
 
 1. Checks if the target exists (the skill exists in the skills output folder, the type is declared, the integration point is in the code)
 2. If the target exists, validates the reference is accurate:
    - Type imports: type is actually exported from the referenced module
    - Skill references: referenced skill exists in skills output folder
    - Integration patterns: documented pattern matches actual implementation
+   - Signatures: a documented signature matches its declaration by the rules of `{signatureRulesFile}` (`signature_match`)
 3. Returns only a JSON array, one object per reference, with no prose, no commentary and no markdown fences: `{"reference": "...", "line": N, "target_exists": <bool>, "type_match": <bool>, "signature_match": <bool>, "issues": ["..."]}`
 
-Save its response, as it came back, to `{run_dir}/judged-references.json` with the Write tool (no file when §3 found no such reference). If subagent unavailable, validate each reference in main thread and save the same array. §5c counts the valid references from both files, and classifies the invalid ones.
+Save its response, as it came back, to `{run_dir}/judged-references.json` with the Write tool (no file when §3 found no such reference). If subagent unavailable, load `{signatureRulesFile}`, validate each reference in main thread by it and save the same array. §5c counts the valid references from both files, and classifies the invalid ones.
 
 When `scripts_assets.missing` in `{run_dir}/references.json` is true (a `scripts/` or `assets/` folder beside SKILL.md, and no Scripts & Assets section), it is a Medium `scripts-assets` gap, as in naive mode §2.7; §6 records it from that file.
 

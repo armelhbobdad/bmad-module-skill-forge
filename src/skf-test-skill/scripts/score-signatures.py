@@ -152,9 +152,10 @@ from pathlib import Path, PurePosixPath
 TYPE_KINDS = frozenset({"interface", "type", "enum", "class", "struct", "trait"})
 SIGNATURE_FIELDS = ("params", "return_type", "usage_signature")
 MISMATCH_FIELDS = ("name", "line", "source_sig", "documented_sig", "issue")
-# The optional `difference` a judge tags a mismatch with (coverage-check.md
-# section 2): only the parameter names differ, or only members the documented
-# form leaves out that the source marks optional.
+# The optional `difference` a judge tags a mismatch with, defined in
+# references/signature-comparison-rules.md (Difference tags): only the
+# parameter names differ, or only members the documented form leaves out that
+# the source marks optional.
 DIFFERENCES = ("parameter-name", "omitted-optional")
 # Source files of the languages with no keyword arguments, where a caller
 # never writes a parameter's name: TS/JS, Go, Rust, Java, C and C++. Not

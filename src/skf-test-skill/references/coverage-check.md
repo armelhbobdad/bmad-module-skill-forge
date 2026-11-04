@@ -2,6 +2,7 @@
 nextStepFile: 'coherence-check.md'
 outputFile: '{report_file}'
 scoringRulesFile: 'references/scoring-rules.md'
+signatureRulesFile: 'references/signature-comparison-rules.md'
 sourceAccessProtocol: 'references/source-access-protocol.md'
 coverageTiersFile: 'references/coverage-check-tiers.md'
 coverageBranchesFile: 'references/coverage-check-branches.md'
@@ -78,7 +79,7 @@ A workspace whose members `scope.exclude` drops is no workspace. Bind `{source_i
 
 ### 1. Extract Documented Exports from SKILL.md
 
-Delegate the reading of the skill under test to a subagent, given `{run_dir}` and the path to SKILL.md and to its `references/` directory when one exists: it reads SKILL.md, and every `references/*.md` file too when SKILL.md's `## Full` headings are absent or stubs. For each export both the SKILL.md body and a reference file document, it compares the two: parameters (name, type, order, optionality), the return type, and descriptions that contradict (brief against detailed is fine, as is a form the skill labels partial that leaves out only optional members). It writes only this JSON, with no prose and no commentary, to `{run_dir}/inventory-response.txt` with the Write tool, never a shell, and returns that path, or returns the JSON itself when it cannot write files:
+Delegate the reading of the skill under test to a subagent, given `{run_dir}` and the path to SKILL.md and to its `references/` directory when one exists: it reads SKILL.md, and every `references/*.md` file too when SKILL.md's `## Full` headings are absent or stubs. For each export both the SKILL.md body and a reference file document, it compares the two by the rules of `{signatureRulesFile}`, whose absolute path (under `{skill-root}`) it is given: parameters (name, type, order, optionality), the return type, and descriptions that contradict (brief against detailed is fine, as is a form the skill labels partial that leaves out only optional members). It writes only this JSON, with no prose and no commentary, to `{run_dir}/inventory-response.txt` with the Write tool, never a shell, and returns that path, or returns the JSON itself when it cannot write files:
 
 ```json
 {
@@ -95,7 +96,7 @@ Delegate the reading of the skill under test to a subagent, given `{run_dir}` an
 }
 ```
 
-Tell the subagent the contract the validator checks: each `kind` is one of `function`, `class`, `type`, `constant`, `hook`, `interface`, `method`, `struct`, `enum`, `trait`, `macro` or `adapter`; every entry carries the `description` the skill gives it (an empty string when it gives none); a function or method carries `params` (`""` or `[]` when it takes none) and `return_type` as the skill documents them, and leaves a key out when the skill documents nothing for it. An entry whose signature the skill labels partial (simplified, key parameters, a `...` standing in for omitted members, not rest or variadic syntax) carries `signature_form: "partial"`, any other `"full"` or no key: copy the label, never judge the form.
+Tell the subagent the contract the validator checks: each `kind` is one of `function`, `class`, `type`, `constant`, `hook`, `interface`, `method`, `struct`, `enum`, `trait`, `macro` or `adapter`; every entry carries the `description` the skill gives it (an empty string when it gives none); a function or method carries `params` (`""` or `[]` when it takes none) and `return_type` as the skill documents them, and leaves a key out when the skill documents nothing for it. An entry whose signature the skill labels partial (simplified, key parameters, a `...` standing in for omitted members, not rest or variadic syntax; a label in a table's column header, such as `Props (simplified)`, labels each of its rows) carries `signature_form: "partial"`, any other `"full"` or no key: copy the label, never judge the form.
 
 When the subagent returned the JSON rather than the path, or the file is absent or empty afterwards, save its response, as it came back, to `{run_dir}/inventory-response.txt` with the Write tool. The documented inventory is the one §1a validates: do not load SKILL.md or the reference files into the parent context. Without subagents, the parent builds the same JSON from the same files and saves it to that file; §1a's checks still run on it.
 
@@ -151,17 +152,17 @@ The surface holds the names the entry points export, less those defined in a fil
 uv run {scoreSignaturesScript} plan --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --skill-dir "{resolved_skill_package}" --output "{run_dir}/signature-plan.json"
 ```
 
-For each `files[]` entry, delegate one subagent with its checks. For each check it reads the full declaration at `{file}:{line}` (all of it: `signatureLine` is one physical line, and a multi-line signature cut there reads as a mismatch), compares it with the check's `documented` signature (params: name, type, order, optionality; and the return type), and returns only this JSON, with no prose and no markdown fences:
+For each `files[]` entry, delegate one subagent with its checks and the absolute path of `{signatureRulesFile}` (under `{skill-root}`). For each check it reads the full declaration at `{file}:{line}` (all of it: `signatureLine` is one physical line, and a multi-line signature cut there reads as a mismatch), compares it with the check's `documented` signature by the rules of that file, and returns only this JSON, with no prose and no markdown fences:
 
 ```json
 {"file": "src/utils.ts", "signature_mismatches": [{"name": "formatDate", "line": 42, "source_sig": "(date: Date, format?: string) => string", "documented_sig": "(date: Date) => string", "issue": "missing optional parameter 'format'", "difference": "omitted-optional"}]}
 ```
 
-A mismatch carries `difference` when the two differ only in one of these ways, else no key: `parameter-name` (only parameter names differ: types, order, optionality, defaults and return type equal; a destructured property is part of a type) or `omitted-optional` (the documented form leaves out only members the source marks optional). A parameter or field with a default or a `?`, or a TS/JS rest parameter, is optional; a Rust `Option<T>` field a struct literal still requires is not. Tag it in any language and form: `score` (§2b) checks the facts. The example above, tagged `omitted-optional`, stays Critical against a full form.
+Tag a mismatch's `difference` as `{signatureRulesFile}` says: `score` (§2b) checks the facts.
 
-A check with `candidates` reads each and reports a mismatch only when the documented signature matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the result's `file` stays its `files[]` entry) and its `difference` tagged against it. A declaration opening an overload set (Python `@overload` stubs, TS bodiless signatures) is read through its implementation: a documented signature matching the implementation or any overload is no mismatch.
+A check with `candidates` reads each and reports a mismatch only when the documented signature matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the result's `file` stays its `files[]` entry) and its `difference` tagged against it.
 
-Save each response to `{run_dir}/signatures-<n>.txt` with the Write tool. Without subagents, compare in the main thread and save the same JSON.
+Save each response to `{run_dir}/signatures-<n>.txt` with the Write tool. Without subagents, load `{signatureRulesFile}`, compare in the main thread by its rules and save the same JSON.
 
 **Deep Tier (ast-grep + gh + QMD):** the Forge tier checks, plus: check with the gh CLI that the source repository matches the documented version, check type definitions against their source declarations, and trace re-exports to their origin.
 
@@ -314,7 +315,7 @@ uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check -
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from provenance-line --input "{run_dir}/provenance-verify.json"
 ```
 
-**A split-body mismatch's Source** is a line inside the skill package. At State 1 and the Forge tier or above, with `workspaceDrift` not `overridden`, set the two forms its `issue` gives against the export's declaration at the `file` and `line` `surface.json` gives, when that one declaration decides (no overload set, no second declaring file): when the reference agrees and the body does not, the Source is `SKILL.md:{skill_md_line}`, else `{reference_file}:{reference_line}`. Its remediation names the file to edit and the file and line whose form it takes, citing the declaration's `file:line`; when both forms agree with it, it says so and names what differs; when neither does, or nothing decides, it says no source settled it.
+**A split-body mismatch's Source** is a line inside the skill package. At State 1 and the Forge tier or above, with `workspaceDrift` not `overridden`, load `{signatureRulesFile}` and set the two forms its `issue` gives against the export's declaration at the `file` and `line` `surface.json` gives, by its rules, when that one declaration decides (no overload set, no second declaring file): when the reference agrees and the body does not, the Source is `SKILL.md:{skill_md_line}`, else `{reference_file}:{reference_line}`. Its remediation names the file to edit and the file and line whose form it takes, citing the declaration's `file:line`; when both forms agree with it, it says so and names what differs; when neither does, or nothing decides, it says no source settled it.
 
 Then write the records no script wrote, §1b's split-body mismatches, in the Ledger Record Format of `{outputFormatsFile}`, each naming its export in `export` and in its title: the ledger tells two gaps apart by their title, Source and `export`, and update-skill takes the export's name from `export`. Write them as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`): the hard gate refuses to decide until every stage before it has recorded, with gaps or without.
 
