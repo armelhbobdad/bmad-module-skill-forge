@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   At the Deep tier, Test Skill no longer asks for a gh version check, a type cross-check or a re-export trace that nothing ran or recorded: at any tier, the workspace drift guard checks the local source tree against the pinned commit when both exist, the recipe runner traces each re-export to the file that defines it whenever it runs (the fallback per-file scan does not), and the signature check compares each documented signature with its declaration. A documentation error a Deep run sees that no script checks, such as an import path whose module does not export the name, is now an Info `observation` gap, `Not checked by script: <name>`, in the Gap Report, at the documenting line, whose remediation says to correct the documentation to match the source. It never blocks.
 issues: [828]
+prs: [874]
