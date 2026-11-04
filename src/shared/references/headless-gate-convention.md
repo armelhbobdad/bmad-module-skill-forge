@@ -81,8 +81,11 @@ A gate appends its decision the moment it decides, and a step appends a warning 
 
 ```bash
 uv run {emitEnvelopeHelper} record --workflow <workflow> --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
-uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "<warning>"
+uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "<warning>" [--warning "<another>"]
+uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_dir}/<helper output>.json"
 ```
+
+`--warning` repeats, one per warning. `--warnings-file` records, in one call, every warning in a helper's saved JSON output: an array of strings, or an object whose `warnings` is one. A blank or non-string warning, or a file with no such list, records nothing and exits 1; an empty list records nothing and exits 0.
 
 With `--workflow`, a decision the workflow's envelope schema rejects fails here, at the gate; without it, the emitter leaves the decision out when the run ends and adds a `headless_decision_invalid` warning. Because the sink is on disk, the trail survives context compaction, and a HARD HALT reports every decision taken before it.
 

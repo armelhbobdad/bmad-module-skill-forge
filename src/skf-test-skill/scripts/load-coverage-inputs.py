@@ -204,7 +204,13 @@ reconcile-coverage.py and score-signatures.py --surface-set pick one.
 
 Candidates and guards (with an extraction, --brief or --metadata): each
 set's count, the metadata `stats.effective_denominator` (--metadata), and
-the extractor's own effective_denominator and its basis. Both guards run
+the extractor's own effective_denominator and its basis; for the
+Denominator annotations, `tierAIncludeFiles` and `scopeIncludeFiles` (the
+distinct files the set's names sit at: the files that define them when
+each name sits at its defining file) and `subpathEntries` (an extraction's
+distinct in-scope non-root, non-wildcard subpaths, each package's subpath
+once however many files it names), each null when its set is absent.
+Both guards run
 only on a surface read from the source. The deflation guard compares a
 re-derived set with `stats.effective_denominator` and names it in `basis`.
 It is the tier_a_include set (`tier_a_include`) when the clause's ladder
@@ -870,6 +876,14 @@ def matching(records: list[dict], globs: list[str], excludes: list[str]) -> list
                    and not any(glob_match(_norm(r["file"]), g) for g in excludes)})
 
 
+def matching_files(records: list[dict], globs: list[str], excludes: list[str]) -> list[str]:
+    """The distinct files `matching` takes its names from: each record's file one of `globs` matches and no
+    exclude glob does."""
+    return sorted({r["file"] for r in records if r.get("file")
+                   and any(glob_match(_norm(r["file"]), g) for g in globs)
+                   and not any(glob_match(_norm(r["file"]), g) for g in excludes)})
+
+
 def _apart(a: str, b: str) -> bool:
     """True when, before either has a `*` or `?`, the two globs spell a different segment at the same
     place, so no file can match both. Any other pair counts as overlapping, even one no file can match
@@ -1028,7 +1042,7 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
                 "staleScope": {"unmatchedInclude": unmatched, "unmatchedTierAInclude": unmatched_tier_a,
                                "restored": []},
                 "gaps": [], "scope": scope, "scopeType": recorded.get("type"), "umbrella": dict(NO_UMBRELLA),
-                "extraction": extraction}
+                "subpathEntries": None, "extraction": extraction}
 
     diff = data.get("entry_point_diff") if isinstance(data.get("entry_point_diff"), dict) else {}
     # Each in-scope definition of a public name is a record of its own (#830): the runner's other
@@ -1053,6 +1067,11 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
     subpath_files = {e.get("file") for e in entry_files
                      if e.get("subpath") not in ROOT_SUBPATHS and "*" not in str(e.get("subpath"))}
     root_files = {e.get("file") for e in entry_files if e.get("subpath") in ROOT_SUBPATHS} - set(nested)
+    # The distinct in-scope subpaths of those (a package's subpath once, however many files its conditions
+    # name), for the multi-entry annotation.
+    subpath_entries = {(e.get("package"), e.get("subpath")) for e in entry_files
+                       if e.get("subpath") not in ROOT_SUBPATHS and "*" not in str(e.get("subpath"))
+                       and e.get("in_scope") is not False}
 
     # A scope.include glob that matches no file: the brief predates the
     # source, so a root export defined in a file no glob covers comes back,
@@ -1123,6 +1142,8 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
             "ratio": round2(len(reexported) / len(root_names)) if root_names else None,
             "umbrella": bool(root_names) and len(reexported) / len(root_names) > UMBRELLA_RATIO,
         },
+        # The in-scope subpaths the `subpaths` set reads (None when there is no such set).
+        "subpathEntries": len(subpath_entries) if subpath_files else None,
         "extraction": extraction,
     }
 
@@ -1364,13 +1385,17 @@ def surface(args: argparse.Namespace) -> dict:
               and not (scope["include"] and all(_apart(g, i) for i in scope["include"]))
               and not any(_inside(g, e) for e in scope["exclude"])]
     filed = [r for r in records if r["file"]]
+    # The files each scope set's names sit at, for the Denominator annotations' file counts.
+    set_files: dict[str, list[str]] = {}
     if filed and scope["include"]:
         sets["scope.include"] = matching(filed, scope["include"], scope["exclude"])
+        set_files["scope.include"] = matching_files(filed, scope["include"], scope["exclude"])
     in_include = [r for r in filed if not scope["include"]
                   or any(glob_match(_norm(r["file"]), g) for g in scope["include"])]
     tier_a_names = matching(in_include, tier_a, scope["exclude"]) if tier_a else []
     if tier_a_names:
         sets["tier_a_include"] = tier_a_names
+        set_files["tier_a_include"] = matching_files(in_include, tier_a, scope["exclude"])
 
     # The clause: an extraction's entry-point status (one the per-file scan replaces says only that it found no
     # entry point), else a quick output's (an export is a barrel; none, and no warning, an empty one), else what
@@ -1418,7 +1443,10 @@ def surface(args: argparse.Namespace) -> dict:
             "statsEffectiveDenominator": stats_eff,
             "tierAIncludeUnion": len(sets["tier_a_include"]) if "tier_a_include" in sets else None,
             "scopeIncludeUnion": len(sets["scope.include"]) if "scope.include" in sets else None,
+            "tierAIncludeFiles": len(set_files["tier_a_include"]) if "tier_a_include" in sets else None,
+            "scopeIncludeFiles": len(set_files["scope.include"]) if "scope.include" in sets else None,
             "subpathUnion": len(sets["subpaths"]) if "subpaths" in sets else None,
+            "subpathEntries": extracted["subpathEntries"] if extracted is not None else None,
             "rootBarrel": len(sets["root"]) if "root" in sets else None,
             "extractorEffectiveDenominator": extraction.get("effectiveDenominator"),
             "extractorBasis": extraction.get("effectiveDenominatorBasis"),

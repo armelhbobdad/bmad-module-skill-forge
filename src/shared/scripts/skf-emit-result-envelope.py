@@ -44,10 +44,17 @@ Subcommands:
              that name: the envelope warns that the `_bmad/custom/`
              overrides were not applied.
 
-  record     Append one entry to the run's sink: --decision reads one
-             auto-decision (a JSON object) on stdin, --warning takes the
-             warning text. With --workflow a decision is checked against
-             that workflow's headless_decisions item schema first.
+  record     Append to the run's sink: --decision reads one auto-decision
+             (a JSON object) on stdin; --warning takes one warning's text,
+             and a repeated --warning records each; --warnings-file reads a
+             JSON file that holds the warnings, an array of strings or an
+             object whose `warnings` is one (a helper's saved stdout, such
+             as skf-parse-gaps.py translate's), and records each, in order.
+             A blank or non-string warning, an unreadable file or an object
+             with no `warnings` list exits 1 and writes nothing; an empty
+             list writes nothing and exits 0. With --workflow a decision is
+             checked against that workflow's headless_decisions item schema
+             first.
 
   validate   Read an envelope (without the prefix) as JSON on stdin and
              verify it against the workflow's schema (skf-setup's without
@@ -131,7 +138,8 @@ envelope field of the same name, except `result_contract` and
 
 Run sink. Every run owns a folder, `_bmad-output/.skf-run/<workflow>-<run_id>/`,
 passed as --run-dir. Each gate records its auto-decision there the moment
-it decides, and each warning as it is raised, with `record`:
+it decides, and each warning as it is raised, with `record` (one call can
+record several warnings: each line is appended in that one write):
 
   {run_dir}/headless-decisions.jsonl   one decision object per line
   {run_dir}/warnings.jsonl             one warning string per line
@@ -299,6 +307,7 @@ the first of `uv run`, `python3`, `python` and `py -3` that works.
   uv run skf-emit-result-envelope.py emit-blocked --phase "step 2:write-tools" --path "<path>" --reason "<message>" --stderr-from "{run_dir}/write-tools.err"
   echo '{"skf_setup":{...}}' | uv run skf-emit-result-envelope.py validate
   uv run skf-emit-result-envelope.py record --run-dir "{run_dir}" --warning "customization_resolver_unavailable: <reason>"
+  uv run skf-emit-result-envelope.py record --run-dir "{run_dir}" --warnings-file "{run_dir}/translate.json"
 
 Exit codes:
   0 success
@@ -1788,13 +1797,42 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
     print(envelope_line(schema, envelope), file=sys.stderr if target == "stderr" else sys.stdout)
 
 
+def _warnings_to_record(args) -> list[str]:
+    """The warnings one `record` call appends: each --warning, or the --warnings-file's list (a JSON array of
+    strings, or an object whose `warnings` is one). A blank or non-string entry, an unreadable file or an
+    object with no `warnings` list exits 1 before anything is written."""
+    if args.warnings_file is None:
+        entries, label = list(args.warning), "--warning"
+    else:
+        label = f"--warnings-file {args.warnings_file}"
+        try:
+            data = json.loads(Path(args.warnings_file).read_bytes().decode("utf-8-sig"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as e:
+            _die(1, f"record: cannot read {label}: {getattr(e, 'strerror', None) or e}")
+        if isinstance(data, dict):
+            if not isinstance(data.get("warnings"), list):
+                _die(1, f"record: {label} is an object with no `warnings` list")
+            entries = data["warnings"]
+        elif isinstance(data, list):
+            entries = data
+        else:
+            _die(1, f"record: {label} holds neither a JSON array nor an object with `warnings`")
+    out = []
+    for i, entry in enumerate(entries):
+        if not isinstance(entry, str) or not entry.strip():
+            where = "" if args.warnings_file is None and len(entries) == 1 else f" (entry {i})"
+            _die(1, f"record: {label} must be a non-empty string{where}")
+        out.append(entry.strip())
+    return out
+
+
 def cmd_record(args) -> None:
-    """Append one decision or one warning to the run's sink, one JSON value per line."""
+    """Append one decision, or each warning given, to the run's sink, one JSON value per line."""
     run_dir = Path(args.run_dir)
-    if args.warning is not None:
-        value = args.warning.strip()
-        if not value:
-            _die(1, "record: --warning must be a non-empty string")
+    if args.warning is not None or args.warnings_file is not None:
+        values = _warnings_to_record(args)
+        if not values:
+            return
         name = SINK_WARNINGS
     else:
         value = _read_stdin_json("record")
@@ -1808,14 +1846,15 @@ def cmd_record(args) -> None:
             errors = _validate_against_schema(value, item_schema)
             if errors:
                 _die(1, f"record: the decision fails {schema_path.name}: {'; '.join(errors)}")
+        values = [value]
         name = SINK_DECISIONS
     # ASCII only: a raw RAW_LINE_BREAKS character would split the line for a
-    # reader that breaks lines there.
-    line = json.dumps(value, separators=(",", ":"), ensure_ascii=True) + "\n"
+    # reader that breaks lines there. Every line goes out in one write.
+    lines = "".join(json.dumps(v, separators=(",", ":"), ensure_ascii=True) + "\n" for v in values)
     try:
         run_dir.mkdir(parents=True, exist_ok=True)
         with open(run_dir / name, "a", encoding="utf-8", newline="\n") as fh:
-            fh.write(line)
+            fh.write(lines)
     except OSError as e:
         _die(1, f"record: cannot append to {(run_dir / name).as_posix()}: {e.strerror or e}")
 
@@ -1975,7 +2014,7 @@ def main() -> None:
     p_emit = sub.add_parser("emit",          help="Build a run's envelope from its context payload (default).")
     p_halt = sub.add_parser("emit-halt",     help="Build a HARD HALT's envelope from its halt payload.")
     p_blocked = sub.add_parser("emit-blocked", help="Emit skf-setup's status='blocked' envelope for early-halt paths.")
-    p_record = sub.add_parser("record",      help="Append an auto-decision or a warning to the run's sink.")
+    p_record = sub.add_parser("record",      help="Append an auto-decision or warnings to the run's sink.")
     p_validate = sub.add_parser("validate",  help="Validate an envelope payload against the schema.")
     p_render = sub.add_parser("render-report", help="Print skf-setup's FORGE STATUS banner for its payload.")
     for p in (p_emit, p_halt):
@@ -1992,7 +2031,11 @@ def main() -> None:
                           help="Check a decision against this workflow's headless_decisions schema.")
     kind = p_record.add_mutually_exclusive_group(required=True)
     kind.add_argument("--decision", action="store_true", help="Read one decision object on stdin.")
-    kind.add_argument("--warning", default=None, help="The warning text.")
+    kind.add_argument("--warning", action="append", default=None,
+                      help="A warning's text (repeatable: each one is recorded).")
+    kind.add_argument("--warnings-file", default=None, metavar="FILE",
+                      help="A JSON file of warnings: an array of strings, or an object whose `warnings` is one "
+                           "(a helper's saved stdout).")
     p_validate.add_argument("--workflow", default=None,
                             help="Workflow folder name or schema stem (skf-setup when omitted).")
     p_render.add_argument("--run-dir", default=None, help="The setup run folder that holds the staged helper outputs.")

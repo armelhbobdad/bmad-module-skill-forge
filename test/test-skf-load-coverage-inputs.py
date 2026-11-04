@@ -689,7 +689,8 @@ def test_the_extraction_name_sets_and_candidates(tmp_path):
     assert out["sets"]["subpaths"] == ["Extra", "Level"]
     assert out["sets"]["root"] == ["Mode", "Options", "fetchData", "gapFn", "helper", "legacy"]
     assert out["candidates"] == {"statsEffectiveDenominator": 4, "tierAIncludeUnion": None,
-                                 "scopeIncludeUnion": 7, "subpathUnion": 2, "rootBarrel": 6,
+                                 "scopeIncludeUnion": 7, "tierAIncludeFiles": None, "scopeIncludeFiles": 4,
+                                 "subpathUnion": 2, "subpathEntries": 1, "rootBarrel": 6,
                                  "extractorEffectiveDenominator": 7, "extractorBasis": "scope.include"}
     guards = out["guards"]
     assert guards["deflation"] == {"applicable": True, "basis": "scope.include", "effectiveDenominator": 4,
@@ -698,6 +699,55 @@ def test_the_extraction_name_sets_and_candidates(tmp_path):
                                    "pct": -22.22, "fires": False}
     assert guards["umbrella"]["ratio"] == 0.5 and guards["umbrella"]["umbrella"] is False
     assert out["state2"] is None
+
+
+def test_candidates_count_the_files_each_scope_set_sits_at(tmp_path):
+    """#822: the stratified-scope, specific-modules and multi-entry Denominator annotations read their file
+    counts from `candidates`: the files that define each scope set's names, and the subpath entry points."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["scope"]["tier_a_include"] = ["src/index.ts", "src/extra.ts"]
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", data))
+    assert out["sets"]["tier_a_include"] == ["Extra", "Level", "Mode", "Options", "fetchData"]
+    candidates = out["candidates"]
+    # tier A: index.ts and extra.ts; scope.include: those two, gap.ts and helper.ts (legacy's lib/ file is out)
+    assert (candidates["tierAIncludeFiles"], candidates["scopeIncludeFiles"], candidates["subpathEntries"]) == (2, 4, 1)
+    assert (candidates["tierAIncludeUnion"], candidates["scopeIncludeUnion"], candidates["subpathUnion"]) == (5, 7, 2)
+
+
+def test_no_tier_a_set_has_no_tier_a_file_count(tmp_path):
+    """#822: with no tier A list the tier A file count is null, as its union is (the annotation reads `absent`),
+    and so is the subpath entry count of an extraction whose `exports` map has no non-root subpath."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["entry_points"]["files"] = data["entry_points"]["files"][:1]
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", data))
+    assert "tier_a_include" not in out["sets"] and "subpaths" not in out["sets"]
+    candidates = out["candidates"]
+    assert candidates["tierAIncludeFiles"] is None and candidates["tierAIncludeUnion"] is None
+    assert candidates["subpathEntries"] is None and candidates["subpathUnion"] is None
+    assert candidates["scopeIncludeFiles"] == 4
+
+
+def _subpath_entry(file: str, subpath: str, in_scope: bool = True) -> dict:
+    return {"language": "typescript", "file": file, "package": ".", "subpath": subpath, "resolution": "file",
+            "in_scope": in_scope}
+
+
+@pytest.mark.parametrize("subpaths, count", [
+    # two subpaths behind one file: two entry points
+    ([_subpath_entry("src/extra.ts", "./extra"), _subpath_entry("src/extra.ts", "./extra/index")], 2),
+    # an entry point outside the files in scope is no subpath the skill documents
+    ([_subpath_entry("src/extra.ts", "./extra"), _subpath_entry("lib/legacy.ts", "./legacy", False)], 1),
+    # one subpath whose conditions name two files: one entry point
+    ([_subpath_entry("src/extra.ts", "./extra"), _subpath_entry("src/extra.mjs", "./extra")], 1),
+], ids=["shared-file", "out-of-scope-entry", "two-files-one-subpath"])
+def test_the_subpath_entry_count_is_the_in_scope_subpaths(tmp_path, subpaths, count):
+    """#822: `subpathEntries` counts each in-scope non-root subpath once: not the files behind them, and not an
+    entry point the scope leaves out."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["entry_points"]["files"] = data["entry_points"]["files"][:1] + subpaths
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", data))
+    assert out["sets"]["subpaths"] == ["Extra", "Level"]
+    assert out["candidates"]["subpathEntries"] == count
 
 
 def test_a_tier_a_set_keeps_both_guards_off_on_the_standard_barrel(tmp_path):
@@ -1909,8 +1959,10 @@ def test_a_quick_tier_surface_takes_its_scope_from_the_brief(tmp_path):
     assert out["sets"]["scope.include"] == ["close", "connect", "query", "serve"]
     assert out["sets"]["tier_a_include"] == ["close", "connect", "query"]
     assert "subpaths" not in out["sets"] and "root" not in out["sets"], "an extraction gives those"
+    # A quick name sits at its defined_in, else its entry file: core's three at one file, serve at another.
     assert out["candidates"] == {"statsEffectiveDenominator": 3, "tierAIncludeUnion": 3, "scopeIncludeUnion": 4,
-                                 "subpathUnion": None, "rootBarrel": None, "extractorEffectiveDenominator": None,
+                                 "tierAIncludeFiles": 1, "scopeIncludeFiles": 2, "subpathUnion": None,
+                                 "subpathEntries": None, "rootBarrel": None, "extractorEffectiveDenominator": None,
                                  "extractorBasis": None}
     assert out["guards"]["deflation"]["applicable"] is True and out["guards"]["deflation"]["fires"] is False
     assert out["guards"]["umbrella"]["umbrella"] is False

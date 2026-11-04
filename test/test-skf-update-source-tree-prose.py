@@ -2403,7 +2403,9 @@ def _apply_call() -> str:
 
 
 def _argv_with(call: str, helper: str, values: dict, keep: tuple = ()) -> list[str]:
-    """A documented call's arguments with only the `[--flag ...]` groups `keep` names, filled in."""
+    """A documented call's arguments, cut at its first redirection, with only the `[--flag ...]` groups `keep`
+    names, filled in."""
+    call = re.split(r"\s>\s", call.replace("\\\n", " "), maxsplit=1)[0]
     kept = re.sub(r"\[(--[^\]]*)\]", lambda m: m.group(1) if m.group(1).split()[0] in keep else "", call)
     return _argv(kept, helper, values)
 
@@ -4138,6 +4140,79 @@ def test_the_new_helper_calls_quote_every_path():
     ]
     for call, helper in calls:
         assert _unquoted_placeholders(call, helper) == [], call
+
+
+TRANSLATE_RECORD = ('uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" '
+                    '--warnings-file "{run_dir}/translate.json"')
+
+
+def test_the_translate_warnings_are_recorded_in_one_call(tmp_path):
+    """#825: gap-driven.md §1 saves translate's stdout and records every warning it lists (one per gap not
+    routed) in one `record --warnings-file` call right after the run, where one call per warning ran a model
+    through a call per gap and a repeated --warning kept only the last. A rescope re-run writes its own file and
+    records it the same way, so a re-run that fails loses none of the first run's warnings."""
+    three = _slice(_read(GAP), "3. **Build the change manifest through `{parseGapsHelper}`**", "### 2.")
+    fence = _fence(three, "uv run {parseGapsHelper} translate")
+    assert fence.rstrip().endswith('> "{run_dir}/translate.json"'), fence
+    assert "Its JSON goes to `{run_dir}/translate.json` (a rescope re-run's to its own file, below)" in three
+    written = _slice(_zero(), "   - **`written`:** set `gap_count`", "\n")
+    assert ("Record them right away, in one call in place of one call per warning, from `{project-root}`: `"
+            + TRANSLATE_RECORD + "`") in written
+    assert ("its output redirected to `{run_dir}/translate-rerun.json` in place of `translate.json`, taking that "
+            "run's output in place of this one") in written
+    assert ("record a `written` re-run's warnings the same way from `{run_dir}/translate-rerun.json` (the emitter "
+            "drops a warning recorded twice)") in written
+    assert "Once no run is pending" not in written
+    # the run-log rule stays word for word: these calls are the one form of it that records several warnings
+    assert WARNING_RULE_LINE in _read(GAP)
+    # §4's records helper and write.md's apply save their JSON and record its warnings in one call each
+    for text, start, saved in (
+            (_read(GAP), "2. **Write the gap-driven records**", "{run_dir}/gap-records.json"),
+            (_read(WRITE), "### 3. Write Updated provenance-map.json", "{run_dir}/apply.json")):
+        section = text[text.index(start):]
+        call = _fence(section, "uv run {buildChangeManifestHelper}")
+        assert call.rstrip().endswith(f'> "{saved}"'), call
+        record = f'uv run {{emitEnvelopeHelper}} record --run-dir "{{run_dir}}" --warnings-file "{saved}"'
+        assert f"recording them in one call, from `{{project-root}}`: `{record}`" in section, saved
+
+    # run the documented calls: translate's stdout, saved as the shell saves it, then the one record call
+    run_dir = tmp_path / "run dir"
+    run_dir.mkdir()
+    gaps = [{"id": f"GAP-00{i}", "title": title, "severity": "Info", "category": category, "source_citation": None,
+             "export": None, "remediation": "r", "remediation_paths": [], "resolved_paths": [], "rejected_paths": []}
+            for i, (title, category) in enumerate((("Barrel and documented counts differ", "multi-denominator"),
+                                                   ('Prompt misrouted: "say $HOME"', "discovery")), 1)]
+    (run_dir / "gaps.json").write_bytes(json.dumps({"status": "ok", "gaps": gaps, "warnings": [
+        "GAP-009 has no readable severity"]}).encode("utf-8"))
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(b'{"entries": []}')
+    values = {"run_dir": str(run_dir), "provenance_map_path": str(provenance)}
+    proc = subprocess.run([sys.executable, str(PARSE_GAPS), *_call_args(fence, "parseGapsHelper", values,
+                                                                       optional=False)],
+                          capture_output=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    (run_dir / "translate.json").write_bytes(proc.stdout.encode("utf-8"))
+    summary = json.loads(proc.stdout)
+    assert summary["status"] == "written" and len(summary["warnings"]) == 3, summary
+    proc = subprocess.run([sys.executable, str(EMITTER), *_argv(TRANSLATE_RECORD, "emitEnvelopeHelper", values)],
+                          capture_output=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    sink = (run_dir / "warnings.jsonl").read_text(encoding="utf-8").splitlines()
+    assert [json.loads(line) for line in sink] == summary["warnings"]
+    assert [w.split(":")[1].strip() for w in summary["warnings"][1:]] == ["not routed", "not routed"]
+    # a re-run's file repeats them: the halt line carries each once
+    (run_dir / "translate-rerun.json").write_bytes((run_dir / "translate.json").read_bytes())
+    rerun = TRANSLATE_RECORD.replace("translate.json", "translate-rerun.json")
+    proc = subprocess.run([sys.executable, str(EMITTER), *_argv(rerun, "emitEnvelopeHelper", values)],
+                          capture_output=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    halt = {"phase": "detect-changes:parse-gaps", "reason": "r", "status": "blocked", "skill_name": "lib",
+            "version": "1.0.0", "previous_version": "1.0.0", "update_mode": "gap-driven"}
+    proc = subprocess.run([sys.executable, str(EMITTER), "emit-halt", "--workflow", "skf-update-skill", "--run-dir",
+                           str(run_dir)], input=json.dumps(halt), capture_output=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    line = proc.stdout.strip()
+    assert json.loads(line[line.index("{"):])["skf_update"]["warnings"] == summary["warnings"]
 
 
 NEW_FILE_DIFF = UPDATE / "scripts" / "skf-new-file-diff.py"

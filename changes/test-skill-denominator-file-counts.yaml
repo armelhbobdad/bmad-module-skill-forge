@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Every Denominator line of Test Skill's report that carries a count now reads it from `surface.json`. `load-coverage-inputs.py surface` now writes `candidates.tierAIncludeFiles` and `candidates.scopeIncludeFiles` (the files that define each set's names) and `candidates.subpathEntries` (the in-scope subpaths the `subpaths` set reads, each counted once however many files it names), each null when its set is absent, so a report no longer carries a count made by hand, and a count no file gives reads `absent`.
+issues: [822]

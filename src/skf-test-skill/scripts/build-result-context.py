@@ -14,7 +14,10 @@ than the model retyping them from memory:
   - the report frontmatter: skillName, runId, testMode, hardGate,
     testResult, workspaceDrift, score, threshold, thresholdFallback,
     originalThreshold and evidenceReportPath (the steps write the verdict
-    inputs there, so a compacted context cannot change them);
+    inputs there, so a compacted context cannot change them), and
+    analysisConfidence, which must be one of compute-score.py's
+    ANALYSIS_CONFIDENCE for a scored run and a blocked one alike (score.md
+    §7 writes it, or step-hard-gate.md §3 on a blocked run);
   - the gap ledger: the gap counts by severity (gap-ledger.py's summary);
   - the scoring script's output, which score.md saves: the verdict, score
     and threshold it settled, activeCategories and inconclusiveReasons. A
@@ -82,8 +85,9 @@ takes: "stderr" for a blocked run, else "stdout".
 Exit codes:
   0  the payload was written
   1  an input is missing or unreadable, the report's frontmatter holds no
-     settled verdict or a verdict field the scoring output does not settle,
-     or --output cannot be written ({"status": "error", "error"} on stdout)
+     settled verdict, an analysisConfidence that names no source access or
+     a verdict field the scoring output does not settle, or --output cannot
+     be written ({"status": "error", "error"} on stdout)
   2  a usage error: no --score for a run the hard gate did not block (the
      same JSON on stdout), or a flag argparse refuses (its usage on stderr)
 """
@@ -180,6 +184,11 @@ def _fallback_floor() -> int:
     return _sibling("compute-score.py", "skf_compute_score_floor").FALLBACK_FLOOR
 
 
+def _analysis_confidence() -> tuple[str, ...]:
+    """The source access levels a report may record: compute-score.py's, which scores by them."""
+    return tuple(_sibling("compute-score.py", "skf_compute_score_confidence").ANALYSIS_CONFIDENCE)
+
+
 def settled_test_result(scored: dict, workspace_drift: str | None) -> str | None:
     """The testResult the scoring output settles, or None when it holds no verdict.
 
@@ -240,6 +249,14 @@ def build(report: str, ledger: str, score: str | None = None, health_check: bool
         counts = gl.summarize(Path(ledger), gl.load_ledger(Path(ledger)))["counts"]
     except gl.LedgerError as exc:
         raise ContextError(f"--ledger {ledger}: {exc}") from exc
+
+    # Every run records its source access, a blocked one included (step-hard-gate.md §3): a report missing it
+    # halts here, before report.md publishes it.
+    confidence = front.get("analysisConfidence")
+    levels = _analysis_confidence()
+    if confidence not in levels:
+        raise ContextError(f"--report {report} records no source access (analysisConfidence {confidence!r}, "
+                           f"not one of: {', '.join(levels)})")
 
     skill = front.get("skillName") or None
     blocked = front.get("hardGate") == "blocked"

@@ -51,6 +51,7 @@ The gate blocks the run, and scoring never runs. The run still ends through the 
 Update `{outputFile}` frontmatter:
 - Set `hardGate: 'blocked'`
 - Set `testResult: 'fail'`
+- Set `analysisConfidence: '{analysis_confidence}'`: the source access coverage-check resolved, as score.md §7 writes it for a scored run
 - Set `nextWorkflow: 'update-skill'`
 - Append `'hard-gate'` to `stepsCompleted`
 
