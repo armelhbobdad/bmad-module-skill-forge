@@ -662,7 +662,8 @@ class TestStagesRecordTheirGaps:
             assert outcome in text, outcome
 
     def test_coverage_records_what_541_names(self) -> None:
-        text = _flow(_body(COVERAGE_FILE))
+        # §4b's count findings are recorded from the branch section §4b loads
+        text = _flow(_body(COVERAGE_FILE)) + " " + _flow(_read(COVERAGE_BRANCHES_FILE))
         for needle in ("High `split-body-mismatch` gap", "High `numerator-inflation` gap",
                        "Medium `metadata-drift` gap", "Info `multi-denominator` gap",
                        "Low `provenance-line` gap", "Info `provenance-unverified` gap"):
@@ -781,7 +782,9 @@ class TestStagesRecordTheirGaps:
                                                         tmp_path: pathlib.Path) -> None:
         """§4b redirects the script into the run file; on a non-zero exit that file holds an error object, which
         §5b's call refuses, so §4b deletes it and §5b skips the call."""
-        section = _flow(_slice(_read(COVERAGE_FILE), "### 4b. Metadata", "**The numerator ground truth"))
+        assert "follow its **Metadata Count Cross-Check** section" in _flow(
+            _slice(_read(COVERAGE_FILE), "### 4b. Metadata", "**The numerator ground truth"))
+        section = _flow(_read(COVERAGE_BRANCHES_FILE).split("\n## Metadata Count Cross-Check\n", 1)[1])
         assert '> "{run_dir}/metadata-coherence.json"' in section
         assert ("A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its "
                 "call and records no count finding") in section
