@@ -1467,6 +1467,92 @@ def test_the_floor_and_validator_commands_run_from_the_prose(tmp_path):
     assert (run / "inventory.json").is_file()
 
 
+# The five Denominator annotations with counts, each read from surface.json `candidates` (#822).
+CANDIDATE_ANNOTATIONS = {
+    "Empty barrel, denominator:": ["scopeIncludeUnion"],
+    "Stratified scope, denominator:": ["tierAIncludeFiles", "scopeIncludeFiles", "tierAIncludeUnion",
+                                       "scopeIncludeUnion"],
+    "Pattern-reference, denominator:": ["tierAIncludeUnion"],
+    "Specific-modules subset, denominator:": ["scopeIncludeUnion", "scopeIncludeFiles"],
+    "Multi-entry (exports-map), denominator:": ["subpathEntries", "subpathUnion", "rootBarrel"],
+}
+
+
+def test_each_denominator_annotation_reads_a_candidates_field():
+    """#822: every Denominator annotation with a count takes it from `surface.json` (`candidates`, or the
+    canonicalized count a pattern reference's fold writes), which load-coverage-inputs.py writes; none asks for a
+    count no script holds."""
+    protocol = _read(SOURCE_ACCESS)
+    clauses = _slice(protocol, "Each clause, by its `denominator.clause`", "Internal module symbols are")
+    surface = _slice(_read(SCRIPTS_DIR / "load-coverage-inputs.py"), 'out["candidates"] = {', "}")
+    for clause, fields in CANDIDATE_ANNOTATIONS.items():
+        annotation = clauses[clauses.index(clause):].split("`", 1)[0]
+        assert re.findall(r"candidates\.(\w+)", annotation) == fields, annotation
+        for gone in ("files matched", "{M} modules", "subpaths resolved", "{N}", "{M}", "{R}"):
+            assert gone not in annotation, (clause, gone)
+        for field in fields:
+            assert f'"{field}":' in surface, field  # a field the script writes
+    # a pattern reference's provenance-map count is the fold's canonical count
+    pattern = clauses[clauses.index("Pattern-reference, denominator:"):].split("\n", 1)[0]
+    assert "canonical.canonical" in pattern and '"canonical": len(canonical)' in _read(
+        SCRIPTS_DIR / "load-coverage-inputs.py")
+    # on the `all` set no scope set gives the stratified counts
+    stratified = _flow(clauses[clauses.index("Stratified scope, denominator:"):].split("\n", 1)[0])
+    assert "when `denominator.surfaceSet` is `all` no scope set gives a count, so both read `absent`" in stratified
+    intro = _flow(_slice(protocol, "when the tier A globs count no name", "Each clause, by its"))
+    assert ("each `{candidates.<field>}` count from `surface.json`, and a null one reads `absent`; a `*Files` "
+            "count is the files that define the set's names (at Quick tier, word it as the files its names sit "
+            "at)") in intro
+
+
+def test_the_source_access_is_written_when_it_is_resolved():
+    """#823: the protocol writes `analysisConfidence` to the report the moment it resolves it, so the result step's
+    check reads a value on disk; when that check refuses one, report.md writes the resolved value and runs it
+    again instead of halting."""
+    protocol = _flow(_read(SOURCE_ACCESS))
+    assert ("and write it at once to the frontmatter of `{report_file}` (init.md §6c created it) as "
+            "`analysisConfidence: '{analysis_confidence}'`, again each time a later rule changes it") in protocol
+    assert "binds `{report_file}`" in _read(REFS / "init.md")
+    contract = _flow(_slice(_read(REPORT), "### 4c. Result Contract", "### 5."))
+    assert "checks that `analysisConfidence` names a source access" in contract
+    assert ("except when the `error` names `analysisConfidence`: then write `analysisConfidence: "
+            "'{analysis_confidence}'`, the value source-access-protocol.md resolved") in contract
+    assert "**Source Access:** {analysis_confidence}" in _read(COVERAGE)
+
+
+def test_the_deep_tier_asks_only_for_what_runs():
+    """#828: the Deep tier asks for no check that has no command, run file or ledger record: it names what
+    already covers the version and the re-exports, and records an error no script checks as an Info
+    observation, which never blocks."""
+    deep = _flow(_slice(_read(COVERAGE), "**Deep Tier", "**States 2 to 4"))
+    for gone in ("gh CLI", "check type definitions", "trace re-exports"):
+        assert gone not in deep, gone
+    assert ("init.md §5b's drift guard checks the local tree against the pinned commit, at any tier, when both "
+            "exist") in deep
+    assert ("the recipe runner traces each re-export to the file that defines it when it runs (the fallback "
+            "per-file scan does not)") in deep
+    assert ("goes in coverage-check §5b's hand-written records as an Info `observation` titled `Not checked by "
+            "script: {name}`, with `export` `{name}`, its Source at the documenting line and the remediation "
+            "\"Correct the documentation to match the source; no script checks this.\"") in deep
+    # §5b writes them, the tier branch file sends a Deep run back to the paragraph, the severity table names them
+    records = _flow(_slice(_read(COVERAGE), "Then write the records no script wrote", "```"))
+    assert "(at the Deep tier, §2's `Not checked by script: {name}` observations too)" in records
+    assert "its extra checks" not in _read(COVERAGE_TIERS)
+    assert "at Deep tier, its **Deep Tier** paragraph, which runs no check of its own" in _read(COVERAGE_TIERS)
+    observation = next(row for row in _read(SCORING).splitlines() if row.startswith("| Info     | `observation`"))
+    assert "`Not checked by script: {name}`, at the documenting line, written by hand" in observation
+    # the drift guard is init.md §5b's helper call, which runs at every tier
+    init = _read(REFS / "init.md")
+    assert "It runs the workspace drift guard" in _flow(init)
+    assert "uv run {checkWorkspaceDriftHelper}" in _slice(init, "### 5b.", "### 6.")
+    ledger = runpy_module(TEST_SKILL / "scripts" / "gap-ledger.py")
+    record, error = ledger.normalize_record({
+        "severity": "Info", "category": "observation", "title": "Not checked by script: fetchData",
+        "export": "fetchData", "source": "SKILL.md:12",
+        "remediation": "Import fetchData from the module that exports it."})
+    assert error is None and record["severity"] not in ledger.BLOCKING
+
+
 def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     command = _command(COVERAGE, "uv run {extractPublicApiHelper} --mode full")
     assert command == ('uv run {extractPublicApiHelper} --mode full --source-root "{source_path}" '

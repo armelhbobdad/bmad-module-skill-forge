@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Update Skill's `--from-test-report` repair now records the warnings of every gap it does not route in one call right after each translation, not one call per gap, and a rescope re-run keeps its own output, so a re-run that fails loses none of the first run's warnings. The spot-check records and the provenance map write record their `provenance:` warnings the same way, one call each. The result emitter's `record` takes `--warning` more than once and a `--warnings-file`; a repeated `--warning` used to keep only the last.
+issues: [825]
+prs: [874]

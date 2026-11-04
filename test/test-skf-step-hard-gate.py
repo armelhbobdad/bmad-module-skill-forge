@@ -459,8 +459,9 @@ class TestBlockPath:
         return _slice(_read(STEP_FILE), "### §3. Block", "### §4. Pass")
 
     def test_sets_the_verdict_in_the_frontmatter(self, block: str) -> None:
+        # #823: a blocked run records its source access, as score.md §7 does for a scored one
         for field in ("`hardGate: 'blocked'`", "`testResult: 'fail'`", "`nextWorkflow: 'update-skill'`",
-                      "Append `'hard-gate'` to `stepsCompleted`"):
+                      "`analysisConfidence: '{analysis_confidence}'`", "Append `'hard-gate'` to `stepsCompleted`"):
             assert field in block, field
 
     def test_writes_the_completeness_score_in_scorings_place(self, block: str) -> None:
@@ -514,7 +515,8 @@ class TestBlockPath:
         assert "SKF_TEST_RESULT_JSON: {" not in _read(REPORT_FILE), "no envelope literal is typed"
         report = tmp_path / f"test-report-demo-{RUN_ID}.md"
         report.write_bytes(f"---\nskillName: 'demo'\nrunId: '{RUN_ID}'\nhardGate: 'blocked'\n"
-                           "testResult: 'fail'\ntestMode: 'naive'\n---\n# R\n".encode("utf-8"))
+                           "testResult: 'fail'\nanalysisConfidence: 'full'\ntestMode: 'naive'\n---\n# R\n"
+                           .encode("utf-8"))
         ledger = tmp_path / f"test-findings-{RUN_ID}.json"
         record = _gap("Critical", "broken-reference", "Broken reference: x")
         subprocess.run([sys.executable, str(GAP_LEDGER), "append", "--ledger", str(ledger), "--stage",

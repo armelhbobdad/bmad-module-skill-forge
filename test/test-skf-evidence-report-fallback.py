@@ -341,7 +341,7 @@ class TestReportSection6Fallback:
 def _build(tmp_path: pathlib.Path, fallback: bool) -> dict:
     """Run build-result-context.py on a scored report, with or without a fallback."""
     lines = ["---", "skillName: 'demo'", "runId: '20260101T000000Z-ab12cd34'", "testMode: 'naive'",
-             "hardGate: 'passed'", "testResult: 'pass'", "score: '84.5%'"]
+             "hardGate: 'passed'", "testResult: 'pass'", "score: '84.5%'", "analysisConfidence: 'full'"]
     if fallback:
         lines += ["threshold: '80%'", "thresholdFallback: true", "originalThreshold: '90%'",
                   "evidenceReportPath: 'forge/demo/1.0.0/evidence-report-fallback.md'"]

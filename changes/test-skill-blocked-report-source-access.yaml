@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  A test report the hard gate blocks now records `analysisConfidence` in its frontmatter, as a scored one does: Test Skill writes it to the report the moment it resolves the source access, and again when it scores or blocks the run. Test Skill refuses to publish a report whose `analysisConfidence` is not `full`, `provenance-map`, `metadata-only`, `remote-only` or `docs-only`: it writes the source access it resolved and builds the result again, and halts before the report gets its public name only when the value is still refused.
+issues: [823]
+prs: [874]

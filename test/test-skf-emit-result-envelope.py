@@ -1317,19 +1317,76 @@ def test_cli_record_appends_decisions_and_warnings(tmp_path):
     assert (run_dir / mod.SINK_WARNINGS).read_text(encoding="utf-8") == '"source-not-fetched: offline"\n'
 
 
+def test_cli_record_appends_every_warning(tmp_path):
+    """#825: a repeated --warning records each one, in order, where the flag used to keep only the last."""
+    run_dir = tmp_path / "skf-update-skill-RUN1"
+    proc = _cli("record", "--run-dir", str(run_dir), "--warning", "a", "--warning", " b ")
+    assert proc.returncode == 0, proc.stderr
+    assert (run_dir / mod.SINK_WARNINGS).read_text(encoding="utf-8") == '"a"\n"b"\n'
+    _, warnings, problems = mod.read_sink(run_dir)
+    assert warnings == ["a", "b"] and problems == []
+
+
+@pytest.mark.parametrize("content", [
+    {"status": "written", "gap_count": 1, "not_routed": [], "warnings": ["x", "y"]},
+    ["x", "y"],
+], ids=["helper-stdout", "array"])
+def test_cli_record_reads_a_warnings_file(tmp_path, content):
+    """#825: --warnings-file records every warning a helper printed (skf-parse-gaps.py translate's stdout, which
+    gap-driven.md saves) in one call, and the halt line carries each one."""
+    run_dir = tmp_path / "skf-update-skill-RUN1"
+    run_dir.mkdir()
+    source = run_dir / "translate.json"
+    source.write_bytes(("\ufeff" + json.dumps(content, indent=2)).encode("utf-8"))
+    proc = _cli("record", "--run-dir", str(run_dir), "--warnings-file", str(source))
+    assert proc.returncode == 0, proc.stderr
+    assert (run_dir / mod.SINK_WARNINGS).read_text(encoding="utf-8") == '"x"\n"y"\n'
+    proc = _cli("emit-halt", "--workflow", "skf-update-skill", "--run-dir", str(run_dir), payload=UPDATE_HALT)
+    assert proc.returncode == 0, proc.stderr
+    [line] = proc.stdout.splitlines()
+    assert json.loads(line[len("SKF_UPDATE_RESULT_JSON: "):])["skf_update"]["warnings"] == ["x", "y"]
+    # a file with no warning records nothing and is no error
+    source.write_bytes(json.dumps({"status": "written", "warnings": []}).encode("utf-8"))
+    proc = _cli("record", "--run-dir", str(run_dir), "--warnings-file", str(source))
+    assert proc.returncode == 0, proc.stderr
+    assert (run_dir / mod.SINK_WARNINGS).read_text(encoding="utf-8") == '"x"\n"y"\n'
+
+
 @pytest.mark.parametrize("args,payload", [
     (("--decision", "--workflow", "skf-update-skill"), {"gate": "not.a.gate", "default_action": "C",
                                                           "taken_action": "C", "reason": "r"}),
     (("--decision",), ["not", "an", "object"]),
     (("--decision",), {}),
     (("--warning", "   "), None),
+    (("--warning", "a", "--warning", " "), None),
     (("--decision", "--workflow", "skf-brief-skill"), {"gate": "g"}),
-])
+    (("--warnings-file", {"status": "written", "warnings": ["x", " "]}), None),
+    (("--warnings-file", {"status": "written", "warnings": ["x", 3]}), None),
+    (("--warnings-file", {"status": "needs-judgment", "needs_judgment": []}), None),
+    (("--warnings-file", {"status": "written", "warnings": "x"}), None),
+    (("--warnings-file", "x"), None),
+    (("--warnings-file", None), None),
+], ids=["decision-schema", "decision-array", "decision-empty", "blank-warning", "one-blank-of-two",
+        "decision-no-items", "blank-entry", "non-string-entry", "no-warnings-key", "warnings-not-a-list",
+        "not-a-list", "unreadable-file"])
 def test_cli_record_refuses_what_the_sink_cannot_hold(tmp_path, args, payload):
     run_dir = tmp_path / "run"
+    if args[0] == "--warnings-file":
+        source = tmp_path / "warnings.json"
+        if args[1] is not None:
+            source.write_bytes(json.dumps(args[1]).encode("utf-8"))
+        args = ("--warnings-file", str(source))
     proc = _cli("record", "--run-dir", str(run_dir), *args, payload=payload)
     assert proc.returncode == 1, proc.stderr
     assert not (run_dir / mod.SINK_DECISIONS).exists() and not (run_dir / mod.SINK_WARNINGS).exists()
+
+
+def test_cli_record_takes_one_kind_per_call(tmp_path):
+    """--decision, --warning and --warnings-file stay exclusive: one call records one kind of entry."""
+    run_dir = tmp_path / "run"
+    proc = _cli("record", "--run-dir", str(run_dir), "--warning", "a", "--warnings-file", str(tmp_path / "w.json"))
+    assert proc.returncode == 2 and "not allowed with" in proc.stderr
+    assert not run_dir.exists()
 
 
 def test_cli_update_halt_carries_the_wrapper_and_the_sink(tmp_path):

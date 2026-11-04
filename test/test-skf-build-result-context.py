@@ -23,7 +23,10 @@ and the scoring output. These tests pin:
   with no --score is a usage error, exit 2 (v4.0.0 quality gate run 1,
   determinism-3);
 - an input it cannot read, or a report with no settled verdict, exits 1
-  with a JSON error and writes nothing.
+  with a JSON error and writes nothing;
+- a report, scored or blocked, whose `analysisConfidence` is not a source
+  access compute-score.py knows exits 1 before the report takes its public
+  name (#823).
 """
 
 from __future__ import annotations
@@ -69,7 +72,7 @@ def test_embedded_doctests_pass():
 
 def _report(folder: Path, **front: str) -> Path:
     fields = {"workflowType": "'test-skill'", "skillName": "'demo'", "runId": f"'{RUN_ID}'",
-              "testMode": "'naive'", "hardGate": "'passed'", **front}
+              "testMode": "'naive'", "hardGate": "'passed'", "analysisConfidence": "'full'", **front}
     text = "---\n" + "".join(f"{k}: {v}\n" for k, v in fields.items()) + "stepsCompleted: ['init']\n---\n# R\n"
     path = folder / f"test-report-demo-{RUN_ID}.md"
     path.write_bytes(text.encode("utf-8"))
@@ -158,6 +161,32 @@ def test_a_report_without_a_settled_verdict_is_refused(tmp_path, front, error):
                 "--output", str(out))
     assert proc.returncode == 1 and error in json.loads(proc.stdout)["error"]
     assert not out.exists()
+
+
+@pytest.mark.parametrize("front", [
+    {"hardGate": "'blocked'", "testResult": "'fail'"},
+    {"testResult": "'pass'", "score": "'84%'", "threshold": "'80%'"},
+], ids=["blocked", "scored"])
+@pytest.mark.parametrize("confidence", ["''", "'degraded'", None], ids=["empty", "degraded", "absent"])
+def test_a_report_without_its_source_access_is_refused(tmp_path, front, confidence):
+    """#823: a run the hard gate blocks records `analysisConfidence` too (step-hard-gate.md §3), so a report that
+    holds no source access compute-score.py knows, blocked or scored, exits 1 and writes no payload."""
+    out = tmp_path / "result-context.json"
+    report = _report(tmp_path, **front, analysisConfidence=confidence)
+    if confidence is None:
+        report.write_bytes(report.read_bytes().replace(b"analysisConfidence: None\n", b""))
+        assert b"analysisConfidence" not in report.read_bytes()
+    proc = _run("--report", str(report), "--ledger", str(_ledger(tmp_path)), "--score", str(_score(tmp_path)),
+                "--output", str(out))
+    assert proc.returncode == 1, proc.stdout
+    error = json.loads(proc.stdout)["error"]
+    assert "analysisConfidence" in error and "records no source access" in error, error
+    assert not out.exists()
+    # each level compute-score.py scores by is one a report may record
+    for level in ("full", "provenance-map", "metadata-only", "remote-only", "docs-only"):
+        proc = _run("--report", str(_report(tmp_path, **front, analysisConfidence=f"'{level}'")), "--ledger",
+                    str(_ledger(tmp_path)), "--score", str(_score(tmp_path)), "--output", str(out))
+        assert proc.returncode == 0, proc.stdout
 
 
 def test_a_missing_ledger_or_report_is_refused(tmp_path):

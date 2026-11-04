@@ -1,6 +1,6 @@
 # Coverage Check: Tier Branches
 
-Load this file only from coverage-check.md §2, and follow the one section §2 names: **Quick Tier** at Quick tier, **Fallback Per-File Scan** when the Forge-tier recipe runner cannot be used. coverage-check.md's frontmatter bindings, its run files, its per-file results and its §2 **Exits** apply here unchanged. When the section is done, continue in coverage-check.md §2 after the tier that loaded it (at Deep tier, its extra checks; otherwise States 2 to 4 and then §2b).
+Load this file only from coverage-check.md §2, and follow the one section §2 names: **Quick Tier** at Quick tier, **Fallback Per-File Scan** when the Forge-tier recipe runner cannot be used. coverage-check.md's frontmatter bindings, its run files, its per-file results and its §2 **Exits** apply here unchanged. When the section is done, continue in coverage-check.md §2 after the tier that loaded it (at Deep tier, its **Deep Tier** paragraph, which runs no check of its own but records what no script checks; otherwise States 2 to 4 and then §2b).
 
 ## Quick Tier
 
