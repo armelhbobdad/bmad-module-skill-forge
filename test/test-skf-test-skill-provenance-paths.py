@@ -998,6 +998,11 @@ def test_signatures_are_scored_over_the_denominator_set():
     assert section2b.index("**Pick the denominator.**") < section2b.index("**Score the signatures**")
     command = _command(COVERAGE, "uv run {scoreSignaturesScript} score")
     assert "--surface-set <set>" in command and command in section2b
+    # #835 follow-up: the local source the judges read checks an annotation-contradicted mismatch's evidence line,
+    # a drifted tree included
+    assert '[--source-root "{source_path}"]' in command
+    assert ("`--source-root` whenever the source is local (State 1, Forge tier or above), under a drift override too, "
+            "since the judges read that tree") in _flow(section2b)
     assert "uv run {scoreSignaturesScript} score" not in _slice(text, "### 2. Analyze Source Code", "### 2b.")
     # Its warnings reach the Coverage Analysis section through §5's render, never retyped.
     assert "§5's render lists its `warnings`" in _flow(section2b)
@@ -1735,7 +1740,14 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     metadata.write_bytes(json.dumps({"skill_type": "single", "exports": ["fetchData", "helper", "Options"],
                                      "stats": {"exports_public_api": 3, "exports_documented": 3,
                                                "effective_denominator": 4}}).encode("utf-8"))
+    # The tree the judges read, which §2b's score is given as --source-root: fetchData returns on its own one-line
+    # declaration, which the surface records at line 1, before Options at line 2.
+    source = _write_tree(tmp_path / "source", {
+        "src/index.ts": "export const fetchData = (url: string): Promise<string> => cache.get(url);\n"
+                        "export interface Options {}\n",
+    })
     values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(),
+              "{source_path}": source.as_posix(),
               "{ledgerFile}": (tmp_path / "test-findings-20260101T000000Z-abcdef12.json").as_posix()}
 
     census = _exec(_command(COVERAGE, "uv run {coverageInputsScript} census"), values, tmp_path)
@@ -1752,15 +1764,22 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     (run / "signatures-1.txt").write_bytes(json.dumps({"file": "src/helper.ts", "signature_mismatches": [
         {"name": "helper", "line": 1, "source_sig": "(x: number, y?: number) => number",
          "documented_sig": "(x: number) => number", "issue": "missing optional parameter 'y'"}]}).encode("utf-8"))
-    (run / "signatures-2.txt").write_bytes(json.dumps({"file": "src/index.ts",
-                                                       "signature_mismatches": []}).encode("utf-8"))
-    signatures = _exec(_command(COVERAGE, "uv run {scoreSignaturesScript} score").replace(
+    # #835 follow-up: a return annotation the body contradicts, checked in the {source_path} file
+    (run / "signatures-2.txt").write_bytes(json.dumps({"file": "src/index.ts", "signature_mismatches": [
+        {"name": "fetchData", "line": 1, "source_sig": "(url: string) => Promise<string>",
+         "documented_sig": "(url: string) => string", "issue": "annotated Promise<string>; the body returns the string",
+         "difference": "annotation-contradicted", "evidence_line": 1}]}).encode("utf-8"))
+    command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score"), keep=("--source-root",))
+    signatures = _exec(command.replace(
         '--results "{run_dir}/signatures-<n>.txt"',
         '--results "{run_dir}/signatures-1.txt" --results "{run_dir}/signatures-2.txt"').replace(
         "<set>", "all"), values, tmp_path)
     assert (signatures["signatureAccuracy"], signatures["typeCoverage"]) == (50.0, 100.0)
+    # the source file read, fetchData's contradiction is an Info observation that still matches
+    assert [(g["title"], g["severity"]) for g in signatures["gapRecords"]] == [
+        ("Signature mismatch: helper", "Critical"), ("Annotation contradicted: fetchData", "Info")]
     appended = _exec(_command(COVERAGE, '--input "{run_dir}/signature-gaps.json"'), values, tmp_path)
-    assert appended["appended"] == ["GAP-001"]
+    assert appended["appended"] == ["GAP-001", "GAP-002"]
     inputs = _exec(_choose(_command(COVERAGE, "uv run {coverageInputsScript} metadata")), values, tmp_path)
     assert inputs["inflationSignature"] is False
     numerator = _exec(_command(COVERAGE, "uv run {numeratorVerifyScript}"), values, tmp_path)
@@ -1932,7 +1951,7 @@ def test_the_prose_fallback_scan_runs(tmp_path):
     assert (surface["guards"]["staleScope"]["fires"], surface["guards"]["staleScope"]["unmatchedTierAInclude"]) == (
         True, ["src/old/**"])
     assert "only its scope and the globs it lists as matching no file" in _flow(_read(COVERAGE_TIERS))
-    command = _command(COVERAGE, "uv run {scoreSignaturesScript} score").replace(
+    command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score")).replace(
         '"{run_dir}/signatures-<n>.txt"', '"{run_dir}/per-file-<n>.txt"').replace("<set>", "all")
     scores = _exec(command, values, tmp_path)
     assert (scores["signatureAccuracy"], scores["typeCoverage"]) == (0.0, 100.0)

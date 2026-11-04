@@ -14,7 +14,10 @@ and none of the `difference` tags. These tests keep:
   moved out of coverage-check.md §2, so each has one copy;
 - each rule its sections state, and every `difference` value
   score-signatures.py accepts, defined in that file and only there
-  (scoring-rules.md's Low and Info rows point at it);
+  (scoring-rules.md's Low and Info rows point at it), a return annotation
+  the body contradicts included: a mismatch tagged
+  `annotation-contradicted` with `evidence_line`, an Info observation
+  coverage-check.md §2b's `score` checks against the local source;
 - coverage-check.md binding the file as `{signatureRulesFile}` and naming it
   at each judge: §1's split-body cross-check and §2's judge, each given its
   absolute path, and the main-thread compare and §5b's split-body Source,
@@ -257,7 +260,9 @@ def test_a_props_list_states_optionality_only_with_a_mark():
 def test_an_annotation_a_form_leaves_out_is_not_compared():
     """#835: an untyped parameter is not compared on type, an unstated return (in any language's position), a
     source-unannotated type and type arguments the form leaves out are not compared, and a documented return type
-    the body demonstrably returns is no mismatch against a declared annotation that contradicts it."""
+    the body demonstrably returns, against a declared annotation that contradicts it, is a mismatch tagged
+    `annotation-contradicted` with the body line as `evidence_line`, which `score` reports without blocking. Only a
+    return type: a parameter's annotation always decides."""
     annotations = _section("Annotations")
     assert ("A parameter written without a type is not compared on type: its name and order are, and its optionality "
             "as Reading a form says.") in annotations
@@ -272,10 +277,24 @@ def test_an_annotation_a_form_leaves_out_is_not_compared():
             "`number`, so `pageSize?: string` is a mismatch. An unannotated return stays uncompared.") in annotations
     assert "Type arguments the form leaves out are not compared: `dict` matches `dict[str, Any]`" in annotations
     assert "Type arguments it writes are" in annotations
-    assert ("A documented return type that matches what the body demonstrably returns is no mismatch, even when "
-            "the declared annotation says otherwise") in annotations
-    assert "It counts only when you can name the body line that returns that value" in annotations
-    assert "when you cannot, the declaration decides." in annotations
+    assert ("A documented return type that matches what the body demonstrably returns, where the declared annotation "
+            "says otherwise, is a mismatch tagged `annotation-contradicted` with `evidence_line`, the body line that "
+            "returns that value: the skill documents what callers get, and the contradiction is the source's, which "
+            "`score` reports without blocking.") in annotations
+    assert ("Against a declaration annotated `-> Callable[[], Callable[[], None]]` whose line 19 returns the function, "
+            "`-> Callable[[], None]` is tagged with `evidence_line` 19.") in annotations
+    assert ("Tag it only when you can name that line: a body line that starts with `return`, or the declaration line "
+            "itself when its own expression body follows its parameters there (`=> expr`, a Python "
+            "`def ...: return x`).") in annotations
+    assert ("A Rust tail expression, a Kotlin or Scala expression body and a Ruby implicit return have no such line and "
+            "cannot be tagged: there, as when you cannot name the line, the declaration decides.") in annotations
+    # the judges with no `difference` field read the same case as agreeing
+    assert ("A judge whose result has no `difference` field (coherence-check.md §4's `signature_match`, "
+            "coverage-check.md §5b's split-body Source) reads such a documented return type, at a line it can name, as "
+            "agreeing with the source: a match for `signature_match`, and for §5b a form that agrees with the "
+            "source.") in annotations
+    assert "It holds for a return type alone, never a parameter's annotation." in annotations
+    assert "is no mismatch, even when the declared annotation says otherwise" not in annotations, "#835 follow-up"
 
 
 def test_two_spellings_of_one_type_are_no_mismatch():
@@ -298,17 +317,21 @@ def test_two_spellings_of_one_type_are_no_mismatch():
 def test_every_difference_the_script_accepts_is_defined_in_the_rules_file_alone():
     """The `difference` tags moved out of coverage-check.md §2 into the rules file, so the fallback scan's subagents
     get them too; §2 keeps one pointer, scoring-rules.md's Low and Info rows point at the file for what each tag
-    means, and score-signatures.py's comment points at it. No tag is added."""
+    means, and score-signatures.py's comment points at it. `annotation-contradicted` (#835 follow-up) is the one
+    tag added since, defined there too."""
     spec = importlib.util.spec_from_file_location("score_signatures", SCORE_SIGNATURES)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
-    assert module.DIFFERENCES == ("parameter-name", "omitted-optional")
+    assert module.DIFFERENCES == ("parameter-name", "omitted-optional", "annotation-contradicted")
     tags = _section("Difference tags")
     for value in module.DIFFERENCES:
         assert f"`{value}`" in tags, value
     assert TAG_DEFINITION in tags
     assert ("`parameter-name` (only parameter names differ: types, order, optionality and return type equal; a "
             "destructured property is part of a type)") in tags
+    assert ("`annotation-contradicted` (only the return type differs: `documented_sig` and `source_sig` write the same "
+            "parameters, and the body returns the documented type at the mismatch's `evidence_line`, as Annotations "
+            "says)") in tags
     assert ("A parameter or field with a default or a `?`, a TS/JS rest parameter, or a Python `*args` or "
             "`**kwargs`, is optional") in tags
     assert "a Rust `Option<T>` field a struct literal still requires is not" in tags
@@ -326,8 +349,36 @@ def test_every_difference_the_script_accepts_is_defined_in_the_rules_file_alone(
     [info] = [line for line in rows if line.startswith("| Info     | `observation`")]
     assert "tags `parameter-name` (defined in signature-comparison-rules.md, Difference tags)" in low
     assert "tags `omitted-optional` (defined in signature-comparison-rules.md, Difference tags)" in info
+    assert "tags `annotation-contradicted` (defined in signature-comparison-rules.md, Difference tags)" in info
     assert "only parameter names differ" not in low
     assert "leaves out only members the source marks optional" not in info
+
+
+def test_a_contradicted_return_annotation_is_a_visible_note_that_never_blocks():
+    """#835 follow-up: a match on the body's return made no output, so the source's contradiction reached no report
+    and a lenient judge could pass a real mismatch. The judge reports it tagged with `evidence_line`, §2b's `score`
+    is given the local source to check that line, and scoring-rules.md's Info row names the observation, which asks
+    for no change to the skill."""
+    text = _read(COVERAGE)
+    section2 = _flow(_slice(text, "### 2. Analyze Source Code", "### 2b."))
+    assert ("One tagged `annotation-contradicted` also gives `evidence_line`, the body line that returns the documented "
+            "type.") in section2
+    section2b = _flow(_slice(text, "### 2b. Resolve the Denominator", "### 2c."))
+    assert ("and `--source-root` whenever the source is local (State 1, Forge tier or above), under a drift override "
+            "too, since the judges read that tree:") in section2b
+    assert ("an Info `observation` titled `Annotation contradicted: {name}` (no change to the skill: report the "
+            "annotation upstream) for an `annotation-contradicted` one whose facts check (a documented return type, "
+            "the same parameters on both sides, and an `evidence_line` between the declaration and the next one, whose "
+            "line returns in the `--source-root` file)") in section2b
+    [info] = [line for line in _read(SCORING).splitlines() if line.startswith("| Info     | `observation`")]
+    assert ("whose documented signature states a return type and writes the source's parameters, and whose "
+            "`evidence_line`, the body line that returns the documented type, comes after the declaration and before "
+            "the next one and, with the local source, starts with `return` (or is a one-line declaration's own "
+            "expression body)") in info
+    assert ("`Annotation contradicted: {name}`, at the declaration, counted as matching in Signature Accuracy, with no "
+            "change to the skill (the annotation is reported upstream)") in info
+    [critical] = [line for line in _read(SCORING).splitlines() if line.startswith("| Critical | `signature-mismatch`")]
+    assert "in any way but those the Low `signature-mismatch` row and the Info `observation` row grade" in critical
 
 
 def test_every_coverage_check_judge_names_the_rules_file():

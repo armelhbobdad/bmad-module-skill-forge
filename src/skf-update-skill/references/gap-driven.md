@@ -105,7 +105,7 @@ Read the gaps of the test report at `{test_report_path}` and translate them into
 - `multi-denominator`: no fix is needed, since the barrel and the documented surface measure different sets by design and the report records both counts.
 - `numerator-inflation`: a person documents the absent exports in SKILL.md or references/, reading each from the source.
 - `scripts-assets-provenance`: a person adds the file's row to the provenance map's `file_entries`, or removes the file from the skill.
-- `observation`: a person applies it only when they agree, since it is advisory, and a documented extra needs no change.
+- `observation` (`Annotation contradicted: {name}` included, which needs no skill edit: its remediation is an upstream report of the source's annotation): a person applies it only when they agree, since it is advisory, and a documented extra needs no change.
 - `discovery`: a person improves the skill's description so realistic prompts route to it, or runs the discovery test Test Skill skipped.
 - `description`: a person edits the description in the SKILL.md frontmatter as the gap suggests.
 - `external-validator`: a person applies the skill-check diagnostic or Tessl Review suggestion to SKILL.md.

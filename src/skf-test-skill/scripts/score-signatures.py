@@ -65,6 +65,25 @@ ratios and the gap records of the wrong signatures.
            Info `observation`, titled `Partial signature: {name}`
              `difference` "omitted-optional" on a documented signature whose
              inventory entry is `signature_form` "partial"
+           Info `observation`, titled `Annotation contradicted: {name}`
+             `difference` "annotation-contradicted" (the documented return
+             type is the one the body returns, the declared annotation says
+             otherwise) whose facts check: the documented entry states a
+             return type (a non-blank `return_type`, or a `documented_sig`
+             that writes one); `documented_sig` and `source_sig` write the
+             same parameters (the text before the return, whitespace runs
+             read as one space); `evidence_line` comes after the
+             declaration line (of the name's surface records at the
+             mismatch's file, the closest at or before the mismatch's
+             `line`, else the first; with none, the mismatch's `line`) and
+             before the next surface record in that file; and, with
+             --source-root, that line of the file under it starts with
+             `return`, or is the declaration line itself with its
+             expression body after its parameters (an arrow function's
+             `=> expr`, a Python `def ...: return x`). Its remediation
+             changes nothing in the skill: the annotation is reported
+             upstream. A tagged mismatch whose facts do not check is graded
+             as an untagged one, and `warnings` names the fact that failed
            Critical `signature-mismatch`  every other mismatch
          A mismatch's `file` (normalized: `/` separated, no `./`) is the file
          it is graded and recorded at (the gap's Source) when the plan
@@ -96,24 +115,32 @@ Inputs, all files in the run folder:
                   "types_found": ["..."],       (fallback scan only)
                   "signature_mismatches": [
                     {"name", "line", "source_sig", "documented_sig", "issue",
-                     "difference", "file"}]}  (difference optional: one of
+                     "difference", "file", "evidence_line"}]}
+                                      (difference optional: one of
                                        DIFFERENCES, absent or null for none;
                                        file optional: the candidate the
                                        mismatch was found at, a non-empty
                                        string, absent or null for the
-                                       result's `file`)
+                                       result's `file`; evidence_line, the
+                                       body line that returns the documented
+                                       type, an integer from 1, required
+                                       with "annotation-contradicted" and
+                                       refused with any other difference)
   --skill-dir  plan only: the skill package under test (the folder that
                holds SKILL.md), whose citations pick the declaration of a
                name the surface records in several files
   --plan       score only: the plan's output, whose checks name the files a
                mismatch of each name may be recorded at
+  --source-root  score only: the local source tree the judges read (a
+               drifted workspace included), where an annotation-contradicted
+               mismatch's `evidence_line` is checked in its file
 
 Rounding is compute-score.py's (JS-compatible half-up, two decimals).
 
 Usage:
   uv run score-signatures.py plan --inventory <file> [--surface <file>] [--skill-dir <dir>] [--output <file>]
   uv run score-signatures.py score --inventory <file> --surface <file> [--surface-set <set>] [--plan <file>] \\
-      --results <file> [--results <file> ...] [--output <file>] [--gaps-output <file>]
+      [--source-root <dir>] --results <file> [--results <file> ...] [--output <file>] [--gaps-output <file>]
 
 Output (stdout; --output also writes it, --gaps-output writes the records):
   plan:  {"compared": N, "files": [{"file", "checks": [{"name", "line",
@@ -125,15 +152,16 @@ Output (stdout; --output also writes it, --gaps-output writes the records):
           "typeCoverage", "documentedTypes", "totalTypes",
           "missingTypes": [...], "mismatches": [{"name", "file", "line",
           "source_sig", "documented_sig", "issue", "difference" (null for
-          none), "severity" (Critical, Low or Info)}], "gapRecords": [...],
+          none), "evidence_line" (with "annotation-contradicted" alone),
+          "severity" (Critical, Low or Info)}], "gapRecords": [...],
           "warnings": [...]}
          or {"valid": false, "violations": [...]} when a result breaks the schema
 
 Exit codes:
   0  the result was printed
   1  an input file cannot be read or is not the JSON it should be, the
-     surface has no --surface-set set, or the --skill-dir folder holds no
-     readable SKILL.md
+     surface has no --surface-set set, the --skill-dir folder holds no
+     readable SKILL.md, or the --source-root folder does not exist
   2  a subagent result breaks the schema (violations[] names each breach;
      nothing is written to --output or --gaps-output)
 """
@@ -144,6 +172,7 @@ import argparse
 import importlib.util
 import json
 import math
+import re
 import sys
 from pathlib import Path, PurePosixPath
 
@@ -154,9 +183,25 @@ SIGNATURE_FIELDS = ("params", "return_type", "usage_signature")
 MISMATCH_FIELDS = ("name", "line", "source_sig", "documented_sig", "issue")
 # The optional `difference` a judge tags a mismatch with, defined in
 # references/signature-comparison-rules.md (Difference tags): only the
-# parameter names differ, or only members the documented form leaves out that
-# the source marks optional.
-DIFFERENCES = ("parameter-name", "omitted-optional")
+# parameter names differ, only members the documented form leaves out that
+# the source marks optional, or only a return annotation the body contradicts
+# (the body returns the documented type at the mismatch's `evidence_line`).
+DIFFERENCES = ("parameter-name", "omitted-optional", "annotation-contradicted")
+CONTRADICTED = "annotation-contradicted"
+# grade()'s default: an annotation-contradicted mismatch whose facts no one checked stays Critical.
+UNCHECKED = "its facts were not checked"
+# A body line that returns starts with the `return` keyword. The declaration
+# line itself returns when its expression body follows its parameters: an
+# arrow function assigned with `=` or `export default` (`=> expr`, not a
+# `{` block), or a Python `def ...: return x`. A `type` alias's arrow is a type.
+RETURN_START_RE = re.compile(r"return(?![\w$])")
+ARROW_OPENER_RE = re.compile(r"(?:=|\bdefault)\s*(?:async\s*)?(?:<[^()]*>\s*)?\(")
+ARROW_BODY_RE = re.compile(r"\s*(?::[^=]*)?=>\s*[^\s{]")
+PYTHON_DEF_RE = re.compile(r"(?:async\s+)?def\s+\w+\s*\(")
+PYTHON_BODY_RE = re.compile(r"\s*(?:->[^:]*)?:\s*return(?![\w$])")
+TYPE_DECLARATION_RE = re.compile(r"(?:export\s+)?(?:declare\s+)?type\s")
+# Where a signature's return type starts, with no parenthesized parameters.
+RETURN_ARROW_RE = re.compile(r"->|=>|→")
 # Source files of the languages with no keyword arguments, where a caller
 # never writes a parameter's name: TS/JS, Go, Rust, Java, C and C++. Not
 # Python, which has keyword arguments (the script cannot see which
@@ -294,6 +339,15 @@ def check_result(item: object, where: str) -> list[str]:
         if entry.get("difference") is not None and entry["difference"] not in DIFFERENCES:
             errors.append(f"{at}: `difference` must be one of {', '.join(DIFFERENCES)} when present, "
                           f"not {json.dumps(entry['difference'])}")
+        # The body line that returns the documented type: the fact an annotation-contradicted mismatch rests on.
+        evidence = entry.get("evidence_line")
+        if entry.get("difference") == CONTRADICTED:
+            if isinstance(evidence, bool) or not isinstance(evidence, int) or evidence < 1:
+                errors.append(f"{at}: `evidence_line` must be a line number (an integer from 1) with `difference` "
+                              f"{CONTRADICTED}, not {json.dumps(evidence)}")
+        elif evidence is not None:
+            errors.append(f"{at}: `evidence_line` is given only with `difference` {CONTRADICTED}, "
+                          f"not {json.dumps(entry.get('difference'))}")
         # The candidate a mismatch was found at, when the plan handed the judge several.
         if entry.get("file") is not None and not (isinstance(entry["file"], str) and entry["file"].strip()):
             errors.append(f"{at}: `file` must be a non-empty string when present, not {json.dumps(entry['file'])}")
@@ -503,19 +557,141 @@ def _is_offered_file(files: list[str], file: str) -> bool:
     return _path(file) in {_path(f) for f in files}
 
 
-def grade(difference: str | None, file: str, documented: dict, declared: str | None = None) -> str:
+def _is_line(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
+
+
+def _lines_in(exports: list[dict], file: str) -> list[int]:
+    """The lines of the surface records in `file`, however either writes its path."""
+    return [r["line"] for r in exports
+            if _record_file(r) and _path(_record_file(r)) == _path(file) and _is_line(r.get("line"))]
+
+
+def _declaration_line(by_name: dict[str, list[dict]], name: str, file: str, line: int) -> int:
+    """The line `name` is declared at in `file`: of its surface records there
+    (the plan's check, or the candidate it offered), the closest one at or
+    before the mismatch's `line` (a name declared twice in one file), else
+    the first; with none there, the mismatch's own `line`."""
+    lines = _lines_in(by_name.get(name) or [], file)
+    before = [at for at in lines if at <= line]
+    return max(before) if before else min(lines, default=line)
+
+
+def _next_declaration(exports: list[dict], file: str, line: int) -> int | None:
+    """The line of the first surface record in `file` after `line`, None when there is none."""
+    return min((at for at in _lines_in(exports, file) if at > line), default=None)
+
+
+def _source_lines(source_root: str, file: str) -> list[str] | None:
+    """The lines of `file` under `source_root`, None when it is no readable
+    file there (a path that leaves the root included)."""
+    root = Path(source_root).resolve()
+    path = (root / file).resolve()
+    try:
+        path.relative_to(root)
+        return path.read_bytes().decode("utf-8-sig", errors="replace").splitlines()
+    except (ValueError, OSError):
+        return None
+
+
+def _after_parens(text: str, start: int) -> int:
+    """The index past the `)` that closes the `(` at `start`, -1 when none does."""
+    depth = 0
+    for i in range(start, len(text)):
+        depth += {"(": 1, ")": -1}.get(text[i], 0)
+        if depth == 0:
+            return i + 1
+    return -1
+
+
+def _signature_parts(sig: str) -> tuple[str, str]:
+    """(the text before the return, its whitespace runs read as one space;
+    the return type it writes, "" for none) of a signature. The return
+    follows the first parenthesized group (after a `->`, `=>`, `→` or `:`),
+    or, with no group, the first such arrow."""
+    text = sig.strip()
+    end = _after_parens(text, text.find("(")) if "(" in text else -1
+    if end == -1:
+        arrow = RETURN_ARROW_RE.search(text)
+        head, tail = (text[:arrow.start()], text[arrow.end():]) if arrow else (text, "")
+    else:
+        head, tail = text[:end], re.sub(r"^\s*(?:->|=>|→|:)", "", text[end:])
+    return " ".join(head.split()), tail.strip().rstrip("{:").strip()
+
+
+def _returns(lines: list[str], number: int, declaration_line: int) -> bool:
+    """Whether line `number` (from 1) of `lines` returns: a line after the
+    declaration whose text starts with the `return` keyword, or the
+    declaration line itself when its own expression body follows its
+    parameters there (an arrow function's `=> expr`, a Python
+    `def ...: return x`). A type arrow, a callback parameter, a match arm, a
+    string or a comment never does."""
+    code = lines[number - 1].strip()
+    if number != declaration_line:
+        return bool(RETURN_START_RE.match(code))
+    if TYPE_DECLARATION_RE.match(code):
+        return False
+    for opener, body in ((PYTHON_DEF_RE.match(code), PYTHON_BODY_RE), (ARROW_OPENER_RE.search(code), ARROW_BODY_RE)):
+        end = _after_parens(code, opener.end() - 1) if opener else -1
+        if end != -1 and body.match(code, end):
+            return True
+    return False
+
+
+def contradiction_fact(entry: dict, documented: dict, file: str, declaration_line: int,
+                       next_line: int | None = None, source_root: str | None = None) -> str | None:
+    """The first fact an annotation-contradicted mismatch rests on that does
+    not check, None when each does: the documented entry states a return
+    type (a non-blank `return_type`, or a `documented_sig` that writes one);
+    `documented_sig` and `source_sig` write the same parameters (the text
+    before the return); `evidence_line` comes after the declaration line and
+    before `next_line`, the next surface record in the file; and, with
+    `source_root`, that line of `file` under it returns (_returns), which
+    alone lets the declaration line itself stand."""
+    evidence = entry.get("evidence_line")
+    documented_params, documented_return = _signature_parts(entry["documented_sig"])
+    source_params, _ = _signature_parts(entry["source_sig"])
+    return_type = documented.get("return_type")
+    if not (isinstance(return_type, str) and return_type.strip()) and not documented_return:
+        return "the documented signature states no return type"
+    if documented_params != source_params:
+        return f"its parameters differ: documented `{documented_params}`, source `{source_params}`"
+    if not _is_line(evidence) or evidence < declaration_line:
+        return f"evidence_line {json.dumps(evidence)} is before the declaration"
+    if next_line is not None and evidence >= next_line:
+        return f"evidence_line {evidence} is not before the next declaration in the file, at line {next_line}"
+    if source_root is None:
+        return None if evidence > declaration_line else (
+            f"evidence_line {evidence} is the declaration line, which only --source-root can check")
+    lines = _source_lines(source_root, file)
+    if lines is None:
+        return f"evidence_line {evidence} is in no readable file under --source-root"
+    if evidence > len(lines):
+        return f"evidence_line {evidence} is past the end of the file ({len(lines)} lines)"
+    if not _returns(lines, evidence, declaration_line):
+        if evidence == declaration_line:
+            return f"evidence_line {evidence}, the declaration line, has no expression body after its parameters"
+        return f"evidence_line {evidence} does not start with `return`"
+    return None
+
+
+def grade(difference: str | None, file: str, documented: dict, declared: str | None = None,
+          contradiction: str | None = UNCHECKED) -> str:
     """The severity of one mismatch the result reports at `file`. The judge's
     `difference` lowers it only where the script confirms the fact it rests
     on: a parameter-name difference is Low when `declared`, the file the
     plan offered the check at (else `file`), is the mismatch's file and of a
     language with no keyword arguments; an omitted-optional difference on a
-    form the inventory marks partial is Info; every other mismatch is
-    Critical."""
+    form the inventory marks partial is Info; an annotation-contradicted
+    difference is Info when `contradiction`, the fact contradiction_fact
+    found failing, is None; every other mismatch is Critical."""
     if difference == "parameter-name":
         at = file if declared is None else declared
         if at.replace("\\", "/") == file.replace("\\", "/") and _extension(at) in POSITIONAL_EXTENSIONS:
             return "Low"
     if difference == "omitted-optional" and _partial(documented):
+        return "Info"
+    if difference == CONTRADICTED and contradiction is None:
         return "Info"
     return "Critical"
 
@@ -525,6 +701,19 @@ def _gap_record(m: dict) -> dict:
     issue = f"documented `{m['documented_sig']}`, source `{m['source_sig']}`: {m['issue']}"
     remediation = (f"Update the documented signature of `{name}` from `{m['documented_sig']}` "
                    f"to `{m['source_sig']}`, the signature the source defines at `{where}`.")
+    if m["severity"] == "Info" and m["difference"] == CONTRADICTED:
+        body = f"{m['file']}:{m['evidence_line']}"
+        return {
+            "severity": "Info",
+            "category": "observation",
+            "title": f"Annotation contradicted: {name}",
+            "source": where,
+            "export": name,
+            "issue": (f"the source annotates the return of `{name}` otherwise than the skill documents, and its "
+                      f"body returns the documented type at `{body}`: {issue}"),
+            "remediation": (f"No change to the skill: it documents what `{name}` returns, as `{body}` shows. "
+                            f"Report the return annotation at `{where}` upstream, since the body contradicts it."),
+        }
     if m["severity"] == "Info":
         return {
             "severity": "Info",
@@ -552,12 +741,15 @@ def _gap_record(m: dict) -> dict:
 
 
 def score(inventory: list[dict], names: list[str], exports: list[dict], results: list[dict],
-          type_names: list[str] | None = None, offered: dict[str, list[str]] | None = None) -> dict:
+          type_names: list[str] | None = None, offered: dict[str, list[str]] | None = None,
+          source_root: str | None = None) -> dict:
     """The two categories: Signature Accuracy over the signature universe of
     `names` (the `all` set) and `exports`, Type Coverage over `type_names`
     when given, else over `names`. A fallback scan's exports_found join the
     universe, and `names` when no `type_names` is given. `offered` (read
-    from --plan) names the files the plan offered each check at."""
+    from --plan) names the files the plan offered each check at;
+    `source_root` (--source-root) is the local tree an
+    annotation-contradicted mismatch's `evidence_line` is checked in."""
     by_name = _records_by_name(exports)
     # A fallback scan reports its own names and types.
     fallback_types = {n for r in results for n in r.get("types_found") or []}
@@ -594,13 +786,25 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
             difference = entry.get("difference")
             # Graded at the file only when the plan offered it: never Low at a namesake it did not offer.
             declared = (file if _is_offered_file(files, file) else files[0]) if files else None
-            severity = grade(difference, file, signatures[name], declared)
+            # The facts of an annotation-contradicted mismatch, checked once and handed to grade().
+            fact = None
+            if difference == CONTRADICTED:
+                at_line = _declaration_line(by_name, name, file, entry["line"])
+                fact = contradiction_fact(entry, signatures[name], file, at_line,
+                                          _next_declaration(exports, file, at_line), source_root)
+                warning = (f"{file}:{at_line}: the mismatch for `{name}` is tagged {CONTRADICTED}, but {fact}: "
+                           "graded as an untagged mismatch (Critical)")
+                if fact is not None and warning not in warnings:
+                    warnings.append(warning)
+            severity = grade(difference, file, signatures[name], declared, fact)
             # Every entry is graded: one declaration reported twice keeps its most severe grade.
             if key in graded and GRADES.index(graded[key]["severity"]) <= GRADES.index(severity):
                 continue
             graded[key] = {"name": name, "file": file, "line": entry["line"],
                            "source_sig": entry["source_sig"], "documented_sig": entry["documented_sig"],
                            "issue": entry["issue"], "difference": difference, "severity": severity}
+            if difference == CONTRADICTED:
+                graded[key]["evidence_line"] = entry.get("evidence_line")
     # A check that offered several files keeps one mismatch, its least severe (the closest candidate).
     mismatches, closest = [], {}
     for m in sorted(graded.values(), key=lambda m: (m["file"], m["line"], m["name"])):
@@ -676,6 +880,8 @@ def _cmd_plan(args: argparse.Namespace) -> tuple[dict, int]:
 
 
 def _cmd_score(args: argparse.Namespace) -> tuple[dict, int]:
+    if args.source_root is not None and not (args.source_root.strip() and Path(args.source_root).is_dir()):
+        raise InputError(f"--source-root {args.source_root!r} is no folder: pass the local source tree the judges read")
     inventory = load_inventory(args.inventory)
     chosen, exports, names = load_surface(args.surface, args.surface_set)
     results, violations = load_results(args.results or [])
@@ -685,7 +891,8 @@ def _cmd_score(args: argparse.Namespace) -> tuple[dict, int]:
                 Path(path).unlink(missing_ok=True)
         return {"valid": False, "violations": violations}, 2
     offered = load_plan(args.plan) if args.plan is not None else None
-    out = score(inventory, names, exports, results, None if args.surface_set == "all" else chosen, offered)
+    out = score(inventory, names, exports, results, None if args.surface_set == "all" else chosen, offered,
+                args.source_root)
     if args.output:
         _write_json(args.output, out)
     if args.gaps_output:
@@ -717,6 +924,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--surface-set", default="all",
                    help="the surface name set Type Coverage counts (default: all)")
     p.add_argument("--plan", help="the plan's output: the files each check offered a mismatch at")
+    p.add_argument("--source-root", help="the local source tree the judges read: an annotation-contradicted "
+                                         "mismatch's evidence_line must start with `return` there, or be the "
+                                         "declaration line with its expression body")
     p.add_argument("--results", action="append", help="a subagent result file (repeatable)")
     p.add_argument("--output", help="also write the scores to this file")
     p.add_argument("--gaps-output", help="write the gap ledger records to this file")
