@@ -3337,9 +3337,15 @@ class TestGapRecords:
                               remediation=_remediation(("pkg/b.py", [("fetch", 4, "ast-grep")])))
         assert (records["verification"][0]["verification"], records["verification"][0]["unknown_reason"]) == \
             ("re-extracted", None)
+        # a gap whose only file the brief's scope leaves out
+        brief = tmp_path / "skill-brief.yaml"
+        brief.write_bytes(b"scope:\n  include:\n    - lib.rs\n")
+        records, _ = _records([cited], source_root=root, scope=mod._brief_scope(brief, {"pkg/api.py", "pkg/b.py"}))
+        assert (records["verification"][0]["verification"], records["verification"][0]["unknown_reason"]) == \
+            ("unknown", "outside-scope")
         assert set(mod.UNKNOWN_REASONS) == {"ambiguous", "no-definition", "several-definitions", "unchecked-language",
                                             "no-line", "spot-check-failed", "verifier-missing", "no-source-root",
-                                            "drift-override", "cited-elsewhere"}
+                                            "drift-override", "cited-elsewhere", "outside-scope"}
 
     def test_a_source_at_the_definition_picks_one_of_ambiguous_entries_only_in_a_file_holding_one(
             self, tmp_path: Path) -> None:
@@ -3662,6 +3668,291 @@ class TestGapRecords:
         assert (record["verification"], record["unknown_reason"], record["map_entry"], record["extraction_method"]) \
             == ("verified", None, {"source_file": self.REACT_VITE, "source_line": 2}, "ast-grep")
 
+    # #824, the rest: the brief's scope is the repair's boundary. oms-storybook's brief takes react-vite's package and
+    # not Angular's or Vue's, so a gap citing Vue's own `definePreview`, or naming only Angular's file for a name the map
+    # lacks, is never checked, scanned or repaired there; a file the scope takes repairs as before
+
+    VUE = "vue3-vite/src/preview.ts"
+    OUTSIDE = ("outside-scope: the brief's scope leaves out a file the gap cites or its Remediation names, so the "
+               "export is not read there")
+
+    def _scope(self, tmp_path: Path, include: list, exclude: tuple = (), cited: frozenset = frozenset()):
+        """The scope of a skill brief that includes and excludes these patterns, as gap-records loads it."""
+        brief = tmp_path / "brief" / "skill-brief.yaml"
+        brief.parent.mkdir(exist_ok=True)
+        lines = ["name: oms-storybook-react-vite", "scope:", "  include:" + ("" if include else " []"),
+                 *[f"    - '{p}'" for p in include], "  exclude:" + ("" if exclude else " []"),
+                 *[f"    - '{p}'" for p in exclude]]
+        brief.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+        return mod._brief_scope(brief, cited)
+
+    def _vue(self, root: Path) -> dict:
+        """Vue's own `definePreview`, which declares the name itself: the citation of its line 7."""
+        (root / "vue3-vite" / "src").mkdir(parents=True)
+        (root / "vue3-vite" / "src" / "preview.ts").write_bytes(
+            b"// @storybook/vue3-vite\n" + b"\n" * 5 + b"export function definePreview(input: VueInput): VuePreview {\n"
+            b"  return input;\n}\n")
+        return {"file": self.VUE, "line": 7}
+
+    def test_a_citation_outside_the_brief_scope_of_a_name_the_map_holds_is_cited_elsewhere(
+            self, tmp_path: Path) -> None:
+        root, _, _ = self._storybook(tmp_path)
+        cited = self._vue(root)
+        old = {"entries": [_entry("definePreview", self.REACT_VITE, 2)]}
+        entries = [self._elsewhere(old=old, cited=cited, severity="Critical", resolved=[self.VUE])]
+        # with no brief, the check finds Vue's own declaration there: verified, as 5.0.0 did
+        records, _ = _records(entries, source_root=root, provenance=old)
+        assert (records["verification"][0]["verification"], records["verification"][0]["outside_scope"]) == \
+            ("verified", None)
+        scope = self._scope(tmp_path, ["react-vite/**"])
+        _, plan = _records(entries, source_root=root, provenance=old, plan=True, scope=scope)
+        assert plan["reextract"] == {"entries": [], "files": [], "signatures": []}
+        records, summary = _records(entries, source_root=root, provenance=old, scope=scope)
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["unknown_reason"], record["citation_check"], record["map_locations"],
+                record["outside_scope"]) == ("unknown", "cited-elsewhere", "outside-scope", [f"{self.REACT_VITE}:2"],
+                                             [self.VUE])
+        assert (record["map_entry"], record["extraction_method"], records["files"]) == (None, None, [])
+        doc, applied = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                        test_report_run_id="r", **BLOCK)
+        assert doc["entries"] == old["entries"]
+        assert (applied["entries"]["added"], applied["entries"]["updated"]) == ([], [])
+        assert applied["warnings"] == [
+            "provenance: definePreview (GAP-002): unknown (cited-elsewhere: the gap cites another file than the "
+            "provenance map's entries of its name; it cites vue3-vite/src/preview.ts:7; its check there: outside-scope "
+            "(not run: the brief's scope leaves it out); the map holds it at react-vite/src/index.ts:2); its entry is "
+            "left unchanged, and nothing is re-extracted for it. When the map is right, re-run Test Skill, since the "
+            "test compared another file's declaration; when the export moved there, change the brief's scope so it "
+            "takes that file (its scope.include or scope.exclude) and fix the map entry by hand (set its source_file "
+            "and source_line to the line that defines it), then re-run update-skill"]
+
+    def test_a_same_package_citation_in_the_brief_scope_is_still_verified(self, tmp_path: Path) -> None:
+        """useParameter: the map holds the re-export at preview-api/index.ts, the gap cites its definition in
+        hooks.ts, and the brief's scope takes both, so the check runs and the repair goes on as before."""
+        root = tmp_path / "storybook"
+        (root / "preview-api" / "modules" / "addons").mkdir(parents=True)
+        (root / "preview-api" / "index.ts").write_bytes(b"// preview-api\n" * 10 + b"export { useParameter } from "
+                                                        b"'./modules/addons/hooks';\n")
+        (root / "preview-api" / "modules" / "addons" / "hooks.ts").write_bytes(
+            b"// hooks\n\nexport function useParameter(parameterKey: string, defaultValue?: unknown): unknown {\n"
+            b"  return defaultValue;\n}\n")
+        old = {"entries": [_entry("useParameter", "preview-api/index.ts", 11)]}
+        cited = {"file": "preview-api/modules/addons/hooks.ts", "line": 3}
+        entries = [self._elsewhere(name="useParameter", old=old, cited=cited, severity="Critical")]
+        assert entries[0]["map_match"]["status"] == "not-found"
+        records, summary = _records(entries, source_root=root, provenance=old,
+                                    scope=self._scope(tmp_path, ["preview-api/**"]))
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["unknown_reason"], record["in_map"], record["outside_scope"]) == \
+            ("verified", None, True, None)
+        doc, applied = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                        test_report_run_id="r", **BLOCK)
+        assert doc["entries"] == old["entries"] and applied["warnings"] == ["provenance: useParameter: verified"]
+
+    @pytest.mark.parametrize("severity", ["Critical", "Medium"], ids=["blocking", "non-blocking"])
+    @pytest.mark.parametrize("change, category", [("MODIFIED_EXPORT", "signature-mismatch"),
+                                                  ("NEW_EXPORT", "missing-export")], ids=["modified", "missing-export"])
+    def test_a_gap_the_map_lacks_is_not_reextracted_outside_the_brief_scope(self, tmp_path: Path, change: str,
+                                                                            category: str, severity: str) -> None:
+        root, remediation, cited = self._storybook(tmp_path)
+        match = parse_gaps.map_match([], "definePreview", cited)
+        entries = [_gap_entry("GAP-002", "definePreview", change, category=category, severity=severity, match=match,
+                              citation=cited, resolved=[self.ANGULAR])]
+        scope = self._scope(tmp_path, ["react-vite/**"])
+        # the plan sends nothing to §4a, and the records are written, not unresolved, whatever the severity
+        _, plan = _records(entries, source_root=root, plan=True, scope=scope)
+        assert (plan["status"], plan["reextract"]) == ("planned", {"entries": [], "files": [], "signatures": []})
+        records, summary = _records(entries, source_root=root, remediation=remediation, scope=scope,
+                                    judgments={"GAP-002": {"docstring": None, "reachability": "public"}})
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["unknown_reason"], record["in_map"], record["outside_scope"]) == \
+            ("unknown", "outside-scope", False, [self.ANGULAR])
+        assert (record["citation_check"], record["map_locations"], record["new_location"]) == (None, None, None)
+        assert records["files"] == [] and summary["targeted_reextraction"] is None
+        # apply never refuses it and adds no entry, a placeholder from merge's records included: one warning
+        merge = {"exports": [{"export_name": "definePreview", "export_type": "function", "params": ["input"]}]}
+        doc, applied = mod.apply_update(update_type="gap-driven", provenance={"entries": []}, skill_name="lib",
+                                        records=records, merge_records=merge, test_report_run_id="r", **BLOCK)
+        assert applied["status"] == "written" and doc["entries"] == [] and applied["entries"]["added"] == []
+        assert applied["warnings"] == [
+            f"provenance: definePreview (GAP-002): unknown ({self.OUTSIDE}; left out: angular/src/client/preview.ts); "
+            "nothing is added or re-extracted for it. When the skill covers that file, change the brief's scope so it "
+            "takes it (its scope.include or scope.exclude), then re-run update-skill; otherwise re-run Test Skill, "
+            "since the test compared a declaration the skill does not cover"]
+
+    @pytest.mark.parametrize("citation", [False, True], ids=["no-citation", "cited-outside"])
+    def test_a_remediation_file_outside_the_scope_is_not_scanned(self, tmp_path: Path, citation: bool) -> None:
+        root, angular, cited = self._storybook(tmp_path)
+        (root / "react-vite" / "src" / "preview.ts").write_bytes(
+            b"// @storybook/react-vite preview\nexport function definePreview(input: ReactInput): ReactPreview {\n"
+            b"  return input;\n}\n")
+        own = "react-vite/src/preview.ts"
+        entries = [_gap_entry("GAP-002", "definePreview", "MODIFIED_EXPORT", severity="Critical",
+                              citation=cited if citation else None, resolved=[own, self.ANGULAR])]
+        scope = self._scope(tmp_path, ["react-vite/**"])
+        _, plan = _records(entries, source_root=root, plan=True, scope=scope)
+        assert plan["reextract"]["files"] == [own]
+        assert [(e["gap_id"], e["resolved_paths"]) for e in plan["reextract"]["entries"]] == [("GAP-002", [own])]
+        # Angular's block, which re-exports its `__definePreview` as `definePreview`, is not matched even when given
+        remediation = _remediation((own, [("definePreview", 2, "ast-grep")]))
+        remediation["files"] += angular["files"]
+        records, summary = _records(entries, source_root=root, remediation=remediation, scope=scope,
+                                    judgments={"GAP-002": {"docstring": None}})
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        # the record still names the file the scope left out, whatever its outcome
+        assert (record["verification"], record["new_location"], record["unknown_reason"], record["outside_scope"]) \
+            == ("re-extracted", f"{own}:2", None, [self.ANGULAR])
+        assert [block["file_path"] for block in records["files"]] == [own]
+
+    @pytest.mark.parametrize("include", [["**"], []], ids=["include-all", "empty-include"])
+    def test_an_exclude_puts_a_file_outside_the_scope(self, tmp_path: Path, include: list) -> None:
+        root, remediation, cited = self._storybook(tmp_path)
+        scope = self._scope(tmp_path, include, ("angular/**",), cited=frozenset({self.ANGULAR, self.REACT_VITE}))
+        assert (scope.takes(self.REACT_VITE), scope.takes(self.ANGULAR)) == (True, False)
+        entries = [_gap_entry("GAP-002", "definePreview", "MODIFIED_EXPORT", severity="Critical", citation=cited,
+                              resolved=[self.ANGULAR])]
+        records, summary = _records(entries, source_root=root, remediation=remediation, scope=scope)
+        assert summary["status"] == "written", summary
+        assert [(r["verification"], r["unknown_reason"], r["outside_scope"]) for r in records["verification"]] == \
+            [("unknown", "outside-scope", [self.ANGULAR])]
+
+    @pytest.mark.parametrize("severity, unscoped_status", [("Critical", "unresolved"), ("Medium", "written")],
+                             ids=["blocking", "non-blocking"])
+    def test_an_in_scope_scan_with_no_match_and_a_left_out_file_is_unknown(self, tmp_path: Path, severity: str,
+                                                                          unscoped_status: str) -> None:
+        root, _, _ = self._storybook(tmp_path)
+        (root / "react-vite" / "src" / "types.ts").write_bytes(b"export type ReactRenderer = unknown;\n")
+        types = "react-vite/src/types.ts"
+        entries = [_gap_entry("GAP-002", "definePreview", "NEW_EXPORT", category="missing-export", severity=severity,
+                              resolved=[types, self.ANGULAR])]
+        remediation = _remediation((types, [("ReactRenderer", 1, "ast-grep")]))
+        # with no brief, the same scan of both files finds nothing in the given blocks: a Critical gap is unresolved
+        # and a Medium one unknown, as before
+        _, unscoped = _records(entries, source_root=root, remediation=remediation)
+        assert unscoped["status"] == unscoped_status, unscoped
+        scope = self._scope(tmp_path, ["react-vite/**"])
+        _, plan = _records(entries, source_root=root, plan=True, scope=scope)
+        assert plan["reextract"]["files"] == [types]
+        records, summary = _records(entries, source_root=root, remediation=remediation, scope=scope)
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["unknown_reason"], record["outside_scope"]) == \
+            ("unknown", "outside-scope", [self.ANGULAR])
+        assert summary["targeted_reextraction"]["files_scanned"] == 1
+        # apply adds no entry, a placeholder from merge's records included
+        merge = {"exports": [{"export_name": "definePreview", "export_type": "function", "params": ["input"]}]}
+        doc, applied = mod.apply_update(update_type="gap-driven", provenance={"entries": []}, skill_name="lib",
+                                        records=records, merge_records=merge, test_report_run_id="r", **BLOCK)
+        assert doc["entries"] == [] and applied["entries"]["added"] == [] and len(applied["warnings"]) == 1
+        assert applied["warnings"][0].startswith(
+            f"provenance: definePreview (GAP-002): unknown ({self.OUTSIDE}; left out: {self.ANGULAR}); ")
+
+    def test_the_warning_names_each_left_out_file(self, tmp_path: Path) -> None:
+        root, _, _ = self._storybook(tmp_path)
+        self._vue(root)
+        entries = [_gap_entry("GAP-002", "definePreview", "MODIFIED_EXPORT", severity="Critical",
+                              resolved=[self.ANGULAR, self.VUE])]
+        records, _ = _records(entries, source_root=root, scope=self._scope(tmp_path, ["react-vite/**"]))
+        _, applied = mod.apply_update(update_type="gap-driven", provenance={"entries": []}, skill_name="lib",
+                                      records=records, test_report_run_id="r", **BLOCK)
+        assert applied["warnings"] == [
+            f"provenance: definePreview (GAP-002): unknown ({self.OUTSIDE}; left out: {self.ANGULAR}, {self.VUE}); "
+            "nothing is added or re-extracted for it. When the skill covers one of those files, change the brief's "
+            "scope so it takes it (its scope.include or scope.exclude), then re-run update-skill; otherwise re-run "
+            "Test Skill, since the test compared a declaration the skill does not cover"]
+
+    def test_a_citation_outside_the_scope_of_a_name_the_map_holds_at_two_files(self, tmp_path: Path) -> None:
+        root, _, _ = self._storybook(tmp_path)
+        cited = self._vue(root)
+        old = {"entries": [_entry("__x", self.REACT_VITE, 2, reexported_as="definePreview"),
+                           _entry("__x", "react/src/index.ts", 7, reexported_as="definePreview")]}
+        entries = [self._elsewhere(old=old, cited=cited, severity="Critical")]
+        records, _ = _records(entries, source_root=root, provenance=old,
+                              scope=self._scope(tmp_path, ["react-vite/**", "react/**"]))
+        _, applied = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                      test_report_run_id="r", **BLOCK)
+        assert applied["warnings"] == [
+            "provenance: definePreview (GAP-002): unknown (cited-elsewhere: the gap cites another file than the "
+            "provenance map's entries of its name; it cites vue3-vite/src/preview.ts:7; its check there: outside-scope "
+            "(not run: the brief's scope leaves it out); the map holds it at react-vite/src/index.ts:2, "
+            "react/src/index.ts:7); its entries are left unchanged, and nothing is re-extracted for it. When the map is "
+            "right, re-run Test Skill, since the test compared another file's declaration; when an export moved there, "
+            "change the brief's scope so it takes that file (its scope.include or scope.exclude) and fix by hand "
+            "whichever of those entries moved (set its source_file and source_line to the line that defines it), then "
+            "re-run update-skill"]
+
+    def test_a_file_the_map_tracks_is_in_scope(self, tmp_path: Path) -> None:
+        """Category A takes each file the map tracks whatever the scope says: a gap on a new name there repairs."""
+        root, angular, cited = self._storybook(tmp_path)
+        old = {"entries": [_entry("__other", self.ANGULAR, 1)]}
+        entries = [_gap_entry("GAP-002", "definePreview", "MODIFIED_EXPORT", severity="Critical",
+                              match=parse_gaps.map_match(old["entries"], "definePreview", None),
+                              resolved=[self.ANGULAR])]
+        _, plan = _records(entries, source_root=root, provenance=old, plan=True,
+                           scope=self._scope(tmp_path, ["react-vite/**"]))
+        assert plan["reextract"]["files"] == [self.ANGULAR]
+        records, summary = _records(entries, source_root=root, provenance=old, remediation=angular,
+                                    scope=self._scope(tmp_path, ["react-vite/**"]),
+                                    judgments={"GAP-002": {"docstring": None}})
+        assert summary["status"] == "written", summary
+        assert [(r["verification"], r["outside_scope"]) for r in records["verification"]] == [("re-extracted", None)]
+
+    @pytest.mark.parametrize("form", ["dotted", "absolute"])
+    def test_a_path_is_read_relative_to_the_source_root(self, tmp_path: Path, form: str) -> None:
+        """A `..` part cannot pass a lexical include glob, and an absolute path under the root is tested by its
+        relative one."""
+        root, _, _ = self._storybook(tmp_path)
+        self._vue(root)
+        path = "react-vite/../vue3-vite/src/preview.ts" if form == "dotted" else (root / self.REACT_VITE).as_posix()
+        entries = [_gap_entry("GAP-002", "definePreview", "MODIFIED_EXPORT", severity="Critical", resolved=[path])]
+        _, plan = _records(entries, source_root=root, plan=True, scope=self._scope(tmp_path, ["react-vite/**"]))
+        assert plan["reextract"]["files"] == ([] if form == "dotted" else [path])
+
+    def test_a_check_at_an_in_scope_citation_that_read_nothing_says_how_to_read_it(self, tmp_path: Path) -> None:
+        """No source tree: the cited file the scope takes was never read, so the warning gives the check's fix, not
+        the scope's."""
+        root, _, _ = self._storybook(tmp_path)
+        cited = {"file": self.REACT_VITE, "line": 2}
+        entries = [_gap_entry("GAP-002", "definePreview", "MODIFIED_EXPORT", severity="Critical", citation=cited,
+                              resolved=[self.ANGULAR])]
+        records, summary = _records(entries, source_root=None, scope=self._scope(tmp_path, ["react-vite/**"]))
+        assert summary["status"] == "written", summary
+        [record] = records["verification"]
+        assert (record["verification"], record["unknown_reason"], record["citation_check"], record["outside_scope"]) \
+            == ("unknown", "outside-scope", "no-source-root", [self.ANGULAR])
+        _, applied = mod.apply_update(update_type="gap-driven", provenance={"entries": []}, skill_name="lib",
+                                      records=records, test_report_run_id="r", **BLOCK)
+        assert applied["warnings"] == [
+            f"provenance: definePreview (GAP-002): unknown ({self.OUTSIDE}; left out: {self.ANGULAR}; it cites "
+            "react-vite/src/index.ts:2; its check there: no-source-root (no source tree to check)); nothing is added or "
+            "re-extracted for it. Nothing was read at the cited file: give update-skill the source tree, then re-run "
+            "update-skill"]
+        # a check that read the file and found no definition there keeps its cause beside the scope's fix
+        (root / "react-vite" / "src" / "types.ts").write_bytes(b"export type ReactRenderer = unknown;\n")
+        entries = [{**entries[0], "source_citation": {"file": "react-vite/src/types.ts", "line": 1}}]
+        records, _ = _records(entries, source_root=root, scope=self._scope(tmp_path, ["react-vite/**"]))
+        assert records["verification"][0]["citation_check"] == "no-definition"
+        _, applied = mod.apply_update(update_type="gap-driven", provenance={"entries": []}, skill_name="lib",
+                                      records=records, test_report_run_id="r", **BLOCK)
+        [warning] = applied["warnings"]
+        assert ("; it cites react-vite/src/types.ts:1; its check there: no-definition (no line of its file defines "
+                "it, by the definition-line rules)); nothing is added or re-extracted for it. When the skill covers "
+                "that file, change the brief's scope so it takes it") in warning
+
+    def test_a_brief_that_names_no_file_is_an_input_error(self, tmp_path: Path) -> None:
+        missing = tmp_path / "forge" / "skill-brief.yaml"
+        with pytest.raises(ValueError, match=re.escape(f"brief not found: {missing}")):
+            mod._brief_scope(missing)
+        bad = tmp_path / "skill-brief.yaml"
+        bad.write_bytes(b"scope: [unclosed\n")
+        with pytest.raises(ValueError, match="is not valid YAML") as caught:
+            mod._brief_scope(bad)
+        assert "\n" not in str(caught.value)
+
     def test_the_records_carry_every_documented_field(self, tmp_path: Path) -> None:
         remediation = ("Set the provenance `source_line` of `search` in `pkg/api.py` to its definition line (5) "
                        "and move its citations to that line.")
@@ -3675,8 +3966,8 @@ class TestGapRecords:
         [record] = records["verification"]
         assert list(record) == ["gap_id", "export_name", "gap_category", "severity", "verification", "in_map",
                                 "map_entry", "provenance_citation", "source_citation", "new_location",
-                                "unknown_reason", "citation_check", "map_locations", "pinned_definition_lines",
-                                "resolution_source", "reachability",
+                                "unknown_reason", "citation_check", "map_locations", "outside_scope",
+                                "pinned_definition_lines", "resolution_source", "reachability",
                                 "export_type", "params", "return_type", "extraction_method", "ast_node_type"]
         assert record["gap_id"] == "GAP-001"
         assert (record["in_map"], record["map_entry"], record["pinned_definition_lines"]) == \
@@ -3690,6 +3981,16 @@ class TestGapRecords:
     ], ids=["one-line", "several-lines", "none-listed"])
     def test_pinned_definition_lines(self, remediation, lines) -> None:
         assert mod._pinned_lines(remediation) == lines
+
+
+class TestScriptPEP723:
+    """gap-records --brief loads skf-classify-changed-files.py, whose resolver reads the brief with PyYAML: under
+    `uv run` the header must declare it."""
+
+    def test_pyyaml_dependency(self) -> None:
+        text = SCRIPT_PATH.read_text(encoding="utf-8")
+        header = text[: text.index("# ///", text.index("# /// script") + 1)]
+        assert '# requires-python = ">=3.11"' in header and 'dependencies = ["pyyaml"]' in header
 
 
 class TestGapRecordsCli:
@@ -3810,6 +4111,79 @@ class TestGapRecordsCli:
             args = tuple(str(bad) if a == "BAD" else a for a in args)
         result = _run_cli("gap-records", "--manifest", paths["manifest"], "--provenance-map", paths["map"], *args)
         assert result.returncode == 1 and message in result.stderr, result.stderr
+
+    def test_brief_scopes_the_plan(self, tmp_path: Path) -> None:
+        """--brief takes the skill brief: the plan's files leave out each one its scope leaves out (#824)."""
+        paths = self._files(tmp_path, [_gap_entry("GAP-001", "search", "NEW_EXPORT", category="missing-export",
+                                                  severity="Critical", resolved=["pkg/api.py", "lib.rs"])])
+        brief = tmp_path / "skill-brief.yaml"
+        brief.write_bytes(b"name: lib\nscope:\n  include:\n    - 'pkg/**'\n  exclude: []\n")
+        files_out = paths["run"] / "remediation-files.json"
+        base = ("gap-records", "--manifest", paths["manifest"], "--provenance-map", paths["map"],
+                "--source-root", paths["root"], "--plan", "--files-out", str(files_out))
+        result = _run_cli(*base)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(files_out.read_bytes()) == ["pkg/api.py", "lib.rs"]
+        result = _run_cli(*base, "--brief", str(brief))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(files_out.read_bytes()) == ["pkg/api.py"]
+        assert json.loads(result.stdout)["reextract"]["entries"][0]["resolved_paths"] == ["pkg/api.py"]
+
+    def test_an_empty_include_takes_the_brief_languages_files(self, tmp_path: Path) -> None:
+        """An empty scope.include takes each file with a suffix of the brief's language (or of a path the gaps or the
+        map name): an Elixir skill's gap at its `.ex` file is still scanned."""
+        paths = self._files(tmp_path, [_gap_entry("GAP-001", "search", "MODIFIED_EXPORT", severity="Critical",
+                                                  resolved=["lib/search.ex"])])
+        brief = tmp_path / "skill-brief.yaml"
+        brief.write_bytes(b"name: lib\nlanguage: elixir\nscope:\n  include: []\n  exclude: []\n")
+        files_out = paths["run"] / "remediation-files.json"
+        result = _run_cli("gap-records", "--manifest", paths["manifest"], "--provenance-map", paths["map"],
+                          "--source-root", paths["root"], "--brief", str(brief), "--plan", "--files-out",
+                          str(files_out))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(files_out.read_bytes()) == ["lib/search.ex"]
+
+    def test_the_drift_gate_passes_a_gap_the_brief_scope_keeps_from_a_repair(self, tmp_path: Path) -> None:
+        """Under --allow-workspace-drift nothing is read for a gap whose every file the scope leaves out, so it
+        does not halt the run; one with a file the scope takes still does."""
+        entries = [_gap_entry("GAP-001", "search", "MODIFIED_EXPORT", severity="Critical", resolved=["lib.rs"]),
+                   _gap_entry("GAP-002", "fetch", "MODIFIED_EXPORT", severity="Critical",
+                              citation={"file": "lib.rs", "line": 1})]
+        paths = self._files(tmp_path, entries)
+        brief = tmp_path / "skill-brief.yaml"
+        brief.write_bytes(b"name: lib\nscope:\n  include:\n    - 'pkg/**'\n")
+        base = ("gap-records", "--manifest", paths["manifest"], "--provenance-map", paths["map"],
+                "--source-root", paths["root"], "--drift-status", "overridden")
+        result = _run_cli(*base, "--plan")
+        assert result.returncode == 0, result.stderr
+        assert [b["gap_id"] for b in json.loads(result.stdout)["drift_blocked"]] == ["GAP-001", "GAP-002"]
+        out = paths["run"] / "reextract-records.json"
+        result = _run_cli(*base, "--brief", str(brief), "-o", str(out))
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["status"] == "written"
+        assert [(r["gap_id"], r["unknown_reason"]) for r in json.loads(out.read_bytes())["verification"]] == [
+            ("GAP-001", "outside-scope"), ("GAP-002", "outside-scope")]
+        # a gap with a file the scope takes still needs the tree
+        (paths["run"] / "change-manifest.json").write_bytes(json.dumps({"mode": "gap-driven", "entries": [
+            _gap_entry("GAP-003", "search", "MODIFIED_EXPORT", severity="Critical",
+                       resolved=["pkg/api.py", "lib.rs"])]}).encode("utf-8"))
+        result = _run_cli(*base, "--brief", str(brief), "--plan")
+        assert result.returncode == 0, result.stderr
+        assert [b["gap_id"] for b in json.loads(result.stdout)["drift_blocked"]] == ["GAP-003"]
+
+    @pytest.mark.parametrize("value, message", [("MISSING", "error: brief not found: "),
+                                                ("", "error: --brief is empty")], ids=["no-file", "empty"])
+    def test_a_missing_brief_is_an_input_error(self, tmp_path: Path, value: str, message: str) -> None:
+        paths = self._files(tmp_path, [_gap_entry("GAP-001", "search", "NEW_EXPORT", category="missing-export",
+                                                  resolved=["pkg/api.py"])])
+        missing = str(tmp_path / "forge" / "skill-brief.yaml")
+        result = _run_cli("gap-records", "--manifest", paths["manifest"], "--provenance-map", paths["map"],
+                          "--source-root", paths["root"], "--brief", missing if value == "MISSING" else value, "--plan")
+        assert result.returncode == 1 and result.stdout == "", result
+        [line] = result.stderr.splitlines()
+        assert line.startswith(message), line
+        if value == "MISSING":
+            assert missing in line
 
     def test_a_status_that_writes_nothing_exits_0(self, tmp_path: Path) -> None:
         paths = self._files(tmp_path, [_gap_entry("GAP-001", "x", "NEW_EXPORT", category="missing-export")])

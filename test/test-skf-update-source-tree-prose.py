@@ -2703,17 +2703,18 @@ def test_a_gap_citing_another_file_than_the_map_is_never_reextracted():
     assert ("A `cited-elsewhere` gap, whatever its severity, takes its own warning and fix in their place "
             "(gap-driven.md §4 bullet 1).") in zero
     r3 = _slice(text, "- **R3: provenance-completeness.**", "\n")
-    assert ("The one exception: when the map holds the name at another file than the gap cites (`map_match` "
+    assert ("One exception: when the map holds the name at another file than the gap cites (`map_match` "
             "`not-found` with a candidate that has a `source_file`), its provenance is not absent, so §4 records it "
             "`unknown` (`cited-elsewhere`) and never re-extracts it (§4 bullet 1).") in r3
     merge = _read(MERGE)
     four = _slice(merge, "**Priority 4", "**Priority 5")
     assert ("- **Gap-driven `MODIFIED_EXPORT` recorded `unknown` or `missing`** (gap-driven.md §4 located no line for "
-            "it, and step 5's `apply` warns with the cause, `cited-elsewhere` among them): keep its documented content "
-            "as it stands. Never rewrite it from the gap's text") in four
-    assert ("- **Gap-driven `NEW_EXPORT` recorded `unknown` with `cited-elsewhere`** (gap-driven.md §4: the "
-            "provenance map already holds its name at another file than the gap cites): add nothing for it, and never "
-            "document it from the gap's text") in _slice(merge, "**Priority 5", "**Priority 6")
+            "it, and step 5's `apply` warns with the cause, `cited-elsewhere` or `outside-scope` among them): keep its "
+            "documented content as it stands. Never rewrite it from the gap's text") in four
+    assert ("- **Gap-driven `NEW_EXPORT` recorded `unknown` with `cited-elsewhere` or `outside-scope`** (gap-driven.md "
+            "§4: the provenance map already holds its name at another file than the gap cites, or the skill brief's "
+            "scope leaves out the file the gap names): add nothing for it, and never document it from the gap's text") \
+        in _slice(merge, "**Priority 5", "**Priority 6")
     doc = _gap_records_doc()
     assert ("When the map holds entries of its name (in_map, which a not-found has only for a citation of another "
             "file than theirs), one of them with a source_file, and no check pins a line (unknown or missing): "
@@ -2724,6 +2725,105 @@ def test_a_gap_citing_another_file_than_the_map_is_never_reextracted():
     assert "A cited-elsewhere one, whatever its severity, takes in their place a warning" in apply_doc
     assert _module(BUILD_MANIFEST, "skf_build_change_manifest_cited").UNKNOWN_REASONS["cited-elsewhere"] == \
         "the gap cites another file than the provenance map's entries of its name"
+
+
+BRIEF_FLAG = '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"]'
+
+
+def test_a_gap_outside_the_brief_scope_is_never_repaired_there(tmp_path, capsys):
+    """#824: both gap-records calls in gap-driven.md §4 pass the skill brief, whose scope bounds the repair: a gap
+    whose files the scope leaves out is `unknown` (`outside-scope`) whatever its severity, never checked, scanned or
+    repaired there, with no halt; merge adds nothing for it and write.md names its warning."""
+    plan, record = _gap_calls()
+    for call in (plan, record):
+        assert BRIEF_FLAG in call, call
+    text = _read(GAP)
+    two = _slice(text, "1. **Spot-check and route.**", "2. **Write the gap-driven records**")
+    assert ("`--brief` when `{forge_data_folder}/{skill_name}/skill-brief.yaml` exists (a skill built without a brief, "
+            "such as a quick skill, has no scope to keep to, so nothing is left out)") in two
+    scoped = _slice(two, "   With `--brief`, the brief's scope bounds the repair", "\n")
+    for token in ("a cited file or a Remediation path the scope leaves out is never checked, scanned or repaired from",
+                  "a gap the scope keeps from a repair ends `unknown`, whatever its severity, with no halt",
+                  "`unknown`, `cited-elsewhere`, with `citation_check` `outside-scope`",
+                  "either is `unknown`, `outside-scope`, its record's `outside_scope` listing the files left out",
+                  "Step 5's `apply` adds no entry for an `outside-scope` gap, a placeholder included, and warns",
+                  "when the skill covers that file, change the brief's scope so it takes it (its `scope.include` or "
+                  "`scope.exclude`), then re-run update-skill; otherwise re-run Test Skill, since the test compared a "
+                  "declaration the skill does not cover",
+                  "When the gap cites a file the scope takes, the warning also names what its check there found",
+                  "the warning gives no advice to exclude the cited file, since the scope already leaves it out, and "
+                  "when the export moved there it says to change the brief's scope so it takes that file (its "
+                  "`scope.include` or `scope.exclude`) and fix the map entry by hand",
+                  "A file the scope takes is repaired from as before"):
+        assert token in scoped, token
+    assert "Pass `--brief` as bullet 1 does" in \
+        _slice(text, "2. **Write the gap-driven records**", "   - **`unresolved`:**")
+    zero_a = _slice(text, "### 4a. Targeted Re-Extraction Branch", "### 5.")
+    assert "as they are, less each one the brief's scope leaves out" in _slice(zero_a, "2. **The file set**", "\n")
+    assert ("It takes no `--brief`: §4 bullet 1's plan already left out each file a gap cites or its Remediation "
+            "names that the brief's scope leaves out.") in zero_a
+    # nothing is read for a gap the scope keeps from a repair, so the drift gate passes it
+    assert ("So does, with `--brief`, a gap the brief's scope keeps from a repair before anything is read for it"
+            in _slice(text, DRIFT_GATE, "- `a public API recount from the tree (rule R1)`"))
+    assert "a file the brief's scope leaves out, several map entries of its name" in \
+        _slice(text, '"**Gap-driven re-extraction.**', "\n")
+    assert ("One the brief's scope keeps from a repair (`outside-scope`, or `cited-elsewhere` with `citation_check` "
+            "`outside-scope`) is never checked, scanned or repaired from a file the scope leaves out") in \
+        _slice(text, "### 5. Display the Repair Summary", "This step asks")
+    assert "The other: no file it cites or its Remediation names that the skill brief's scope leaves out is read" in \
+        _slice(text, "- **R3: provenance-completeness.**", "\n")
+    merge = _read(MERGE)
+    assert "`cited-elsewhere` or `outside-scope` among them" in _slice(merge, "**Priority 4", "**Priority 5")
+    assert "but not one whose `unknown_reason` is `outside-scope`, for which `apply` adds no entry" in \
+        _slice(merge, "In gap-driven mode, write what step 5's `apply` reads from merge", "```bash")
+    zero = _slice(_write_3(), "- **0:**", "\n")
+    assert ("An `outside-scope` gap (the skill brief's scope leaves out the file it names), whatever its severity, adds "
+            "no entry, a placeholder included, and is never refused, with its own warning") in zero
+    assert "`unknown` for any cause but `outside-scope`" in _slice(_write_3(), "- **3** (`status` `refused`):", "\n")
+    doc = _gap_records_doc()
+    for token in ("The brief's scope (--brief, the skill brief) bounds the repair (#824), by "
+                  "skf-classify-changed-files.py's load_scope and Scope.takes",
+                  "none of them is checked, scanned or repaired from",
+                  "Without --brief (a skill with no brief) there is no scope test and nothing is left out",
+                  "An entry with no match whose outside_scope is not empty is unknown, unknown_reason outside-scope"):
+        assert token in doc, token
+    apply_doc = _docstring(BUILD_MANIFEST, "Apply (update-skill write.md §3):", "Metadata (update-skill write.md")
+    assert "unknown, outside-scope unchanged and no entry added, whatever its severity (never refused)" in apply_doc
+    manifest = _module(BUILD_MANIFEST, "skf_build_change_manifest_outside_scope")
+    assert manifest.UNKNOWN_REASONS["outside-scope"] == (
+        "the brief's scope leaves out a file the gap cites or its Remediation names, so the export is not read there")
+    # run both documented calls with the brief kept: a Critical gap the map lacks, whose only file is another
+    # package's, is planned for no scan and written `unknown`, never `unresolved`
+    src = tmp_path / "src tree"
+    (src / "pkg").mkdir(parents=True)
+    (src / "pkg" / "api.py").write_bytes(API_PY)
+    (src / "vendor").mkdir()
+    (src / "vendor" / "api.py").write_bytes(API_PY)
+    forge = tmp_path / "forge data"
+    (forge / "lib").mkdir(parents=True)
+    (forge / "lib" / "skill-brief.yaml").write_bytes(b"name: lib\nscope:\n  include:\n    - pkg/**\n")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    entries = [_gap_entry("search", "signature-mismatch", "MODIFIED_EXPORT", severity="Critical", gap_id="GAP-001",
+                          citation={"file": "vendor/api.py", "line": 5}, resolved=["vendor/api.py"])]
+    (run_dir / "change-manifest.json").write_bytes(json.dumps({"mode": "gap-driven", "entries": entries}).encode())
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(b'{"entries": []}')
+    values = {"run_dir": str(run_dir), "provenance_map_path": str(provenance), "source_root": str(src),
+              "workspace_drift_status": "ok", "forge_data_folder": str(forge), "skill_name": "lib"}
+    code, out = _run_gap_records(plan, values, capsys, keep=("--source-root", "--brief"))
+    assert code == 0 and out["status"] == "planned", out
+    assert out["reextract"] == {"entries": [], "files": [], "signatures": []}
+    assert json.loads((run_dir / "remediation-files.json").read_bytes()) == []
+    code, out = _run_gap_records(record, values, capsys, keep=("--source-root", "--brief"))
+    assert code == 0 and out["status"] == "written", out
+    [result] = json.loads((run_dir / "reextract-records.json").read_bytes())["verification"]
+    assert (result["verification"], result["unknown_reason"], result["outside_scope"]) == \
+        ("unknown", "outside-scope", ["vendor/api.py"])
+    # without the brief (a skill with none) the same gap is checked at its citation, as before
+    code, out = _run_gap_records(plan, values, capsys, keep=("--source-root",))
+    assert code == 0 and out["reextract"]["signatures"] == [
+        {"gap_id": "GAP-001", "name": "search", "file": "vendor/api.py", "line": 5}], out
 
 
 def test_blocking_gap_without_a_path_halts_in_gap_driven_before_merge(tmp_path, capsys):
