@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill, skf-create-skill, skf-update-skill, skf-create-stack-skill
+summary: |
+  The provenance line check no longer reports a bookkeeping variant (`X_def`, `X_exact`, `a11y_X`) as unverified when its line defines `X`: when the cited file never names the variant, `skf-verify-provenance-completeness.py` checks the line against `X`, the fold Test Skill's Source Access Protocol defines. In an oms-storybook-react-vite run this clears 10 of 27 Info `provenance-unverified` gaps, such as `mockChannel_def`. A variant at a wrong line now gets the base's definition line, so Create Skill, Update Skill and Create Stack Skill move it as they move any entry. The fabricated-signature test still checks the documented name as written.
+issues: [847]

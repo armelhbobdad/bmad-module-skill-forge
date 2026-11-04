@@ -389,6 +389,12 @@ Apply (update-skill write.md §3):
                             any other, fix the entry by hand (its
                             source_file and source_line), since the
                             re-run checks the same entry again. A
+                            missing MOVED_EXPORT, whatever its severity,
+                            takes that warning too (the gone file and
+                            the hand fix): rule R5 moves a line, never
+                            a file. A MOVED_EXPORT's warning names the
+                            pinned_definition_lines only when the test
+                            report listed any. A
                             cited-elsewhere one, whatever its severity,
                             takes in their place a warning that names
                             its gap_id, its source_citation, its
@@ -634,7 +640,10 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
      lines rules, loaded from this folder, under --source-root:
        DELETED_EXPORT         rescoped, no check
        MOVED_EXPORT           checked at its map entry when map_match is
-                              found (unknown otherwise); under the
+                              found (unknown otherwise), a bookkeeping
+                              variant its file never names against its
+                              base (the verifier's fold; no other
+                              category folds); under the
                               override a `moved` becomes unknown with
                               unknown_reason drift-override; its
                               pinned_definition_lines are the numbers of
@@ -2075,17 +2084,22 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
             and reason in UNKNOWN_REASONS else ""
 
     def unchecked(r: dict) -> str | None:
-        """The warning for a blocking NEW_EXPORT or MODIFIED_EXPORT the map holds that its spot-check could not
-        locate (missing, or unknown for a cause its unknown_reason names), which stays unchanged: the gap, the
+        """The warning for an export the map holds that its spot-check could not locate, which stays unchanged: a
+        blocking NEW_EXPORT or MODIFIED_EXPORT (missing, or unknown for a cause its unknown_reason names), or a
+        MOVED_EXPORT whose map entry's file is gone (missing, rule R5), whatever its severity. It gives the gap, the
         export, the outcome, its cause and the one fix a re-run acts on; None for any other record."""
-        outcome = r.get("verification")
-        if outcome not in ("missing", "unknown") or not in_map(r) or not _blocking(r.get("severity")) \
-                or r.get("gap_category") not in ("NEW_EXPORT", "MODIFIED_EXPORT"):
+        outcome, category = r.get("verification"), r.get("gap_category")
+        gone = outcome == "missing" and category == "MOVED_EXPORT"  # R5 cannot point an entry at another file
+        if not in_map(r) or not gone and (
+                outcome not in ("missing", "unknown") or not _blocking(r.get("severity"))
+                or category not in ("NEW_EXPORT", "MODIFIED_EXPORT")):
             return None
         name, gap = _name_of(r), r.get("gap_id")
         path = _location(r.get("map_entry"))[0]
         cause = f"its map entry's file{f' {path}' if path else ''} is gone" if outcome == "missing" else why(r)
-        detail = "; ".join(part for part in (cause, note) if part)
+        lines = r.get("pinned_definition_lines") if gone else None
+        detail = "; ".join(part for part in (
+            cause, note, f"definition lines per the test report: {lines}" if lines else "") if part)
         if r.get("unknown_reason") == "ambiguous":  # a Source at the definition lets the re-run's lookup pick one
             fix = ("its entries are left unchanged. Fix its entries by hand, or give the gap a `file:line` Source at "
                    "its definition when that file holds only one of them, then re-run update-skill")
@@ -2169,7 +2183,8 @@ def _apply_gap_driven(pmap: _Map, records: dict, merge_records: dict | None, dri
         entry_file, entry_line = _location(r.get("map_entry"))
         index = pmap.find(name, entry_file, entry_line, reexport=True) if r.get("map_entry") else None
         lines = r.get("pinned_definition_lines")
-        r5 = f"; definition lines per the test report: {lines}" if category == "MOVED_EXPORT" else ""
+        # rule R5's lines, only when the test report listed any (a citation that did not resolve lists none)
+        r5 = f"; definition lines per the test report: {lines}" if category == "MOVED_EXPORT" and lines else ""
         if outcome == "rescoped":
             if index is not None:
                 pmap.remove([index])
@@ -3038,9 +3053,11 @@ def _drift_reason(entry: dict) -> str | None:
 
 
 def _spot_check(root: Path | None, path: str | None, name: str, line: int | None, export_type: object,
-                answers: dict) -> tuple[str, int | None, bool, str | None, str | None]:
+                answers: dict, fold: bool = False) -> tuple[str, int | None, bool, str | None, str | None]:
     """(outcome, the line a `moved` export moves to, whether it waits on a `declaring_line` answer, why the
-    check failed, why it is `unknown`: an UNKNOWN_REASONS key)."""
+    check failed, why it is `unknown`: an UNKNOWN_REASONS key). `fold` (rule R5's MOVED_EXPORT only) checks a
+    bookkeeping variant its file never names against its base; any other gap judges the name as written, so a
+    fabricated variant is never located at its base's line."""
     if root is None:
         return "unknown", None, False, None, "no-source-root"
     verifier = _verifier()
@@ -3050,7 +3067,7 @@ def _spot_check(root: Path | None, path: str | None, name: str, line: int | None
         return "unknown", None, False, None, "no-line"
     try:
         report = verifier.definition_lines_report(path, name, root, line,
-                                                  export_type if isinstance(export_type, str) else None)
+                                                  export_type if isinstance(export_type, str) else None, fold)
     except Exception as exc:  # noqa: BLE001 - a file it cannot read, or any verifier failure: this entry only
         return "unknown", None, False, f"{type(exc).__name__}: {exc}", "spot-check-failed"
     check = report.get("line_check")
@@ -3167,7 +3184,8 @@ class _GapEntry:
     def check(self, root: Path | None, path: object, line: object, export_type: object) -> None:
         self.recorded = (_norm_path(path), _line_of(line))
         self.outcome, self.new_line, self.waits, self.failure, self.unknown_reason = _spot_check(
-            root, self.recorded[0], self.declared, self.recorded[1], export_type, self.answers)
+            root, self.recorded[0], self.declared, self.recorded[1], export_type, self.answers,
+            self.category == "MOVED_EXPORT")
 
     def locate(self, root: Path | None) -> None:
         """Record where a check located the export (the checked file, at the recorded line or the one it moved

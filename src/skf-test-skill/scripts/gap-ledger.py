@@ -195,12 +195,21 @@ cites (never read; default `metadata.json`):
             Create Skill, which rebuilds `exports[]` from the source.
   provenance-line
             --input skf-verify-provenance-completeness.py verify's result.
-            Each `stale[]` item whose reason is `line-not-definition`, at
-            its `{source_file}:{source_line}` with `export`: a Low
+            Each `stale[]` item, at its `{source_file}:{source_line}` with
+            `export`, by `reason`: `line-not-definition` is a Low
             `provenance-line` gap `Provenance line is not the definition of
             {export_name}` when `definition_lines` holds a line, else an Info
             `provenance-unverified` gap `Provenance line not verified for
-            {export_name}`. Its other items are not gaps here.
+            {export_name}`, and its issue names the base of a `folded_to`
+            variant; `file-missing` is a Low `provenance-line` gap
+            `Provenance file is missing for {export_name}`;
+            `line-out-of-bounds` a Low `provenance-line` gap `Provenance line
+            is out of range for {export_name}`; `line-invalid` an Info
+            `provenance-unverified` gap `Provenance line not verified for
+            {export_name}` at `{source_file}` alone. Its `missing`,
+            `orphaned` and `citations` are not gaps here, and no record is
+            appended for an export the ledger already records as a
+            `fabricated-signature` gap.
   coherence --input aggregate-coherence.py's result. Each
             `invalidReferences[]` entry at `SKILL.md:{line}`, by `status`:
             `missing` is a Critical `broken-reference` gap, `inaccurate` a
@@ -308,8 +317,13 @@ CATEGORIES: dict[str, tuple[str, str]] = {
     "stale-documentation": ("Coverage", "documentation for an export the enumerated source surface lacks"),
     "missing-type": ("Coverage", "a type or interface the skill does not document"),
     "provenance-completeness": ("Coverage", "an export the skill documents that the provenance map lacks"),
-    "provenance-line": ("Coverage", "a provenance line that is not the definition of its export"),
-    "provenance-unverified": ("Coverage", "a provenance line the line-check rules could not verify"),
+    "provenance-line": (
+        "Coverage",
+        "a provenance line that is not the definition of its export, or a citation whose file or line the source "
+        "lacks",
+    ),
+    "provenance-unverified": (
+        "Coverage", "a provenance line the line-check rules could not verify, or one that is not a line number"),
     "metadata-drift": ("Coverage", "export counts in the metadata that diverge from each other"),
     "denominator-inflation": ("Coverage", "a scope include union larger than the provenance map"),
     "brief-scope-stale": (
@@ -1432,15 +1446,52 @@ def from_metadata_coherence(result: object, metadata: str | None = None) -> list
 
 
 def from_provenance_line(result: object) -> list[dict]:
-    """verify's `line-not-definition` items: provenance line gaps."""
+    """verify's `stale[]` items: provenance line gaps, one per citation that does not resolve or is not the
+    definition line."""
     result = _object(result, "--input (skf-verify-provenance-completeness.py verify)", "stale")
     records: list[dict] = []
     for item in _list(result, "stale", "--input"):
-        if not isinstance(item, dict) or item.get("reason") != "line-not-definition":
+        if not isinstance(item, dict):
             continue
+        reason = item.get("reason")
         name, file, line = item.get("export_name"), item.get("source_file"), item.get("source_line")
-        defs = [n for n in item.get("definition_lines") or [] if _count(n) is not None]
         where = f"{file}:{line}"
+        if reason == "file-missing":
+            records.append(_gap(
+                "Low", "provenance-line", f"Provenance file is missing for {name}", where,
+                f"Set the provenance `source_file` and `source_line` of `{name}` to the file and line that define "
+                "it in the pinned source, and move its citations there. update-skill `--from-test-report` does not "
+                "repair this: it leaves the entry unchanged, with a warning that names the file.",
+                issue=f"the provenance map records `{name}` at `{where}`, but the pinned source has no readable "
+                      f"file `{file}`; the export may live in another file, such as one with another extension.",
+                export=name))
+            continue
+        if reason == "line-out-of-bounds":
+            records.append(_gap(
+                "Low", "provenance-line", f"Provenance line is out of range for {name}", where,
+                f"Set the provenance `source_line` of `{name}` in `{file}` to the line that defines it and move "
+                "its citations to that line; update-skill `--from-test-report` applies this when the file defines "
+                "it on one line.",
+                issue=f"the provenance map records `{name}` at `{where}`, which is not a line of `{file}` (past "
+                      "its end, or below 1).",
+                export=name))
+            continue
+        if reason == "line-invalid":  # no line number to cite: the Source is the file alone
+            records.append(_gap(
+                "Info", "provenance-unverified", f"Provenance line not verified for {name}", f"{file}",
+                f"Set the provenance `source_line` of `{name}` in `{file}` to the number of the line that defines "
+                "it.",
+                issue=f"the provenance map records `{name}` in `{file}` at line `{line}`, which is not a line "
+                      "number, so no rule could check it; check by hand",
+                export=name))
+            continue
+        if reason != "line-not-definition":
+            continue
+        defs = [n for n in item.get("definition_lines") or [] if _count(n) is not None]
+        base = item.get("folded_to") if isinstance(item.get("folded_to"), str) and item.get("folded_to") else None
+        # a bookkeeping variant the file never names was checked against its base (#847)
+        folded = f" `{name}` is a bookkeeping variant `{file}` never names, checked against its base `{base}`." \
+            if base else ""
         if defs:
             lines = ", ".join(str(n) for n in defs)
             records.append(_gap(
@@ -1449,16 +1500,25 @@ def from_provenance_line(result: object) -> list[dict]:
                 "and move its citations to that line; update-skill `--from-test-report` applies this when the "
                 "file defines it on one line.",
                 issue=f"the provenance map records `{name}` at `{where}`, which is not the line that defines "
-                      f"it; the lines that define it are {lines}.",
+                      f"it; the lines that define it are {lines}.{folded}",
                 export=name))
         else:
             records.append(_gap(
                 "Info", "provenance-unverified", f"Provenance line not verified for {name}", where,
-                f"Open `{file}` and confirm that line {line} defines `{name}`; if another line does, set the "
-                "provenance `source_line` to it.",
-                issue=f"the line-check rules found no definition line for `{name}` in `{file}`; check by hand",
+                f"Open `{file}` and confirm that line {line} defines `{base or name}`; if another line does, set "
+                "the provenance `source_line` to it.",
+                issue=f"the line-check rules found no definition line for `{name}` in `{file}`; check by hand"
+                      + (f".{folded}" if folded else ""),
                 export=name))
     return records
+
+
+def without_fabricated(ledger: dict, records: list[dict]) -> list[dict]:
+    """`--from provenance-line`'s records but those of an export the ledger already records as a
+    `fabricated-signature` gap: coverage-check §5b appends that record first, and an export the source no longer
+    holds takes no provenance line fix."""
+    fabricated = {r.get("export") for r in ledger["records"] if r.get("category") == "fabricated-signature"}
+    return [r for r in records if not r.get("export") or r.get("export") not in fabricated]
 
 
 def from_coherence(result: object) -> list[dict]:
@@ -1756,6 +1816,8 @@ def _cmd_append(args: argparse.Namespace) -> int:
         # one waits here instead of writing over the records it adds.
         with ledger_lock(path):
             ledger = load_ledger(path) if path.exists() else new_ledger(path)
+            if args.adapter == "provenance-line":
+                records = without_fabricated(ledger, records)
             appended, duplicates = append_records(ledger, args.stage, records)
             save_ledger(path, ledger)
     except LedgerError as exc:

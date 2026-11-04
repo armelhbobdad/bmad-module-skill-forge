@@ -71,8 +71,15 @@ not read as a missing public export nor as an orphan.
 Definition lines: after a citation resolves (the file exists and the line
 is in range, so the older reasons win), the line must define the entry's
 export. NAME is the raw `export_name` (not canonicalized); for a dotted
-name (`App.update`) it is the last segment. The rules follow the
-`source_file` extension:
+name (`App.update`) it is the last segment. A bookkeeping variant
+(`X_def`, `X_exact`, `a11y_X`, test-skill's Source Access Protocol fold
+without `--fold-prefix` or `--keep`) that the cited file never names (no
+whole identifier in its text) is checked against its base `X` instead,
+its finding carries `folded_to`, and `summary.line_check_folded` counts
+it; the raw name always comes first, so an export really named
+`parse_exact`, or bound in a shape the rules do not cover, is judged as
+written. classify-stale never folds. The rules
+follow the `source_file` extension:
 
   - Python (`.py`, `.pyi`): the `def` / `async def` / `class NAME` line
     itself (a decorator line above it does not count); an assignment
@@ -262,7 +269,9 @@ Subcommands:
            "source_line": <int|null>,
            "reason": "file-missing" | "line-out-of-bounds" | "line-invalid"
                      | "line-not-definition",
-           "definition_lines": [<int>, ...]},   # line-not-definition only
+           "definition_lines": [<int>, ...],    # line-not-definition only
+           "folded_to": "<base name>"},         # line-not-definition only,
+                                                # a variant checked as its base
           ...
         ],
         "citations": [
@@ -302,6 +311,7 @@ Subcommands:
           "stale_count":      <int>,
           "citations_checked": <int>,  # entries whose citation was resolved
           "line_check_skipped": <int>, # resolved entries with no line rule
+          "line_check_folded": <int>,  # variants checked against their base
           "stale_check": "checked" | "skipped-no-source-root",
           "skill_citations_scanned": <int>,  # [AST:]/[SRC:] with a line
           "skill_citations_matched": <int>,  # of those, citing an entry
@@ -413,12 +423,15 @@ Subcommands:
                       | "skipped-language",
         "definition_lines": [<int>, ...] | null,   # checked only
         "source_line": <int> | null,               # --line
-        "line_is_definition": <bool> | null        # --line, checked only
+        "line_is_definition": <bool> | null,       # --line, checked only
+        "folded_to": "<base name>"                 # a folded variant only
       }
 
     With `--line`, a recorded line that is an indented match the column-0
     rule dropped joins `definition_lines`, and one that misses a Python
-    `@overload` group gives its first line alone, as in `verify`.
+    `@overload` group gives its first line alone, as in `verify`. A
+    bookkeeping variant the file never names is checked against its base,
+    as in `verify`, and only then does the key `folded_to` appear.
 
   classify-stale --names <coverage.json> --provenance <provenance-map.json>
                  --source-root <path> [--inventory <inventory.json>]
@@ -428,7 +441,8 @@ Subcommands:
     documented name the enumerated source surface lacks): the
     definition-lines rules above, run for every provenance entry whose raw
     `export_name` is the name, at its `source_file` and `source_line`, with
-    its `export_type`. `--names` holds reconcile-coverage.py's result (its
+    its `export_type`, and with no bookkeeping-variant fold (the name is
+    judged as written). `--names` holds reconcile-coverage.py's result (its
     `stale` names) or a JSON array of names. `--inventory` holds the
     documented inventory, validate-inventory.py's `--output` file or its
     whole result: the `kind` it gives each name decides the module rule
@@ -1044,6 +1058,28 @@ def definition_name(export_name: str) -> str:
     """The name a definition line must carry: the last segment of a dotted
     export name (`App.update` -> `update`), else the name itself."""
     return export_name.rsplit(".", 1)[-1]
+
+
+# Bookkeeping variants folded to their base name, in rule order: test-skill's
+# Source Access Protocol defines the fold (`X_def`, `X_exact`, `a11y_X` -> `X`).
+# Keep identical to FOLD_SUFFIXES and FOLD_PREFIX in load-coverage-inputs.py.
+FOLD_SUFFIXES = ("_def", "_exact")
+FOLD_PREFIX = "a11y_"
+
+
+def fold_base(export_name: str) -> str | None:
+    """The base name a bookkeeping variant folds to, None for a name that is
+    no variant: a suffix in FOLD_SUFFIXES first, else FOLD_PREFIX, never the
+    whole name (`_def` alone is no variant). The rules of
+    load-coverage-inputs.py `fold_names`, without `--fold-prefix` or
+    `--keep`: the line check tries the raw name first, so a real export
+    named like a variant is never folded."""
+    for suffix in FOLD_SUFFIXES:
+        if export_name.endswith(suffix) and len(export_name) > len(suffix):
+            return export_name[: -len(suffix)]
+    if export_name.startswith(FOLD_PREFIX) and len(export_name) > len(FOLD_PREFIX):
+        return export_name[len(FOLD_PREFIX):]
+    return None
 
 
 def _read_lines(path: Path) -> list[str] | None:
@@ -2135,6 +2171,42 @@ def _definition_matches(
     return _line_matches(suffix, path, lines, export_name, cache, declarations_only)
 
 
+def _folded_matches(
+    source_file: str,
+    export_name: str,
+    source_root: Path,
+    cache: _SourceCache | None = None,
+) -> tuple[tuple[list[int], set[int]] | None, str | None]:
+    """(`_definition_matches` of the name the line check judges, the base
+    name a bookkeeping variant was folded to, else None).
+
+    The raw name comes first. Only when the file never names it (no whole
+    identifier in its text, so no shape the rules miss can define it) and
+    `fold_base` gives a base that some line matches are the base's matches
+    returned, with the base; otherwise the raw name's, with None. So a real
+    export named like a variant (`parse_exact` defined as itself, or bound
+    in a shape the rules do not cover) is judged as written, and
+    classify-stale, which never folds, does not call this.
+    """
+    cache = cache if cache is not None else _SourceCache()
+    matches = _definition_matches(source_file, export_name, source_root, cache)
+    if matches is None or matches[1]:
+        return matches, None
+    base = fold_base(export_name)
+    if base is None:
+        return matches, None
+    # the variant's own identifiers: `mockChannel_def`, or `a11y_App` of `a11y_App.update`
+    own = sorted(set(export_name.split(".")) - set(base.split(".")))
+    named = re.compile(r"(?<![\w$])(?:" + "|".join(map(re.escape, own)) + r")(?![\w$])")
+    lines = cache.lines((source_root / source_file.strip().replace("\\", "/")).resolve())
+    if not own or lines is None or any(named.search(text) for text in lines):
+        return matches, None
+    folded = _definition_matches(source_file, base, source_root, cache)
+    if folded is None or not folded[1]:
+        return matches, None
+    return folded, base
+
+
 def _line_matches(
     suffix: str,
     path: Path,
@@ -2223,6 +2295,7 @@ def definition_lines_report(
     source_root: Path,
     line: int | None = None,
     export_type: str | None = None,
+    fold: bool = True,
 ) -> dict:
     """What `verify` would say about one entry's line (the definition-lines
     subcommand). Raises ValueError when the file exists but cannot be read.
@@ -2234,6 +2307,12 @@ def definition_lines_report(
     (`_missed_definition_lines`): an indented match the column-0 rule
     dropped joins `definition_lines`, so the answer carries several lines,
     and a Python `@overload` group gives its first line alone.
+
+    With `fold` (the default, as `verify` checks), a bookkeeping variant the
+    file never names is checked against its base name (`_folded_matches`),
+    and the report gains `folded_to`, the base, only when it folded.
+    classify-stale passes `fold=False`: the fabricated-signature test judges
+    the documented name as written.
     """
     report: dict = {
         "source_file": source_file,
@@ -2253,15 +2332,21 @@ def definition_lines_report(
         report["line_check"] = "skipped-export-type" if covered else "skipped-language"
         return report
     cache = _SourceCache()
-    matches = _definition_matches(source_file, export_name, source_root, cache)
+    if fold:
+        matches, folded_to = _folded_matches(source_file, export_name, source_root, cache)
+    else:
+        matches, folded_to = _definition_matches(source_file, export_name, source_root, cache), None
     if matches is None:
         raise ValueError(f"failed to read source file {source_root / rel}")
+    if folded_to is not None:
+        report["folded_to"] = folded_to
+    judged = folded_to or export_name
     defs, every = matches
     if line is not None:
         report["line_is_definition"] = line in defs
         if line not in defs:
             defs = _missed_definition_lines(
-                source_file, export_name, source_root, cache, line, defs, every
+                source_file, judged, source_root, cache, line, defs, every
             )
     report["definition_lines"] = defs
     return report
@@ -2307,7 +2392,10 @@ def _entry_citation(entry: dict) -> str | None:
 def _stale_line_check(
     entry: dict, name: str, source_root: Path
 ) -> tuple[str, list[int] | None]:
-    """(line_check, definition_lines) of one provenance entry of a stale name."""
+    """(line_check, definition_lines) of one provenance entry of a stale name.
+
+    The documented name is judged as written, with no bookkeeping-variant
+    fold: a variant the cited file never defines stays fabricated."""
     source_file = _entry_file(entry)
     if source_file is None:
         # no file to check: it neither proves the name fabricated nor clears it
@@ -2321,6 +2409,7 @@ def _stale_line_check(
             source_root,
             line if isinstance(line, int) else None,
             export_type if isinstance(export_type, str) else None,
+            fold=False,
         )
     except ValueError:
         # the file exists but cannot be read: nothing proves it
@@ -3677,6 +3766,7 @@ def verify(
     stale: list[dict] = []
     citations_checked = 0
     line_check_skipped = 0
+    line_check_folded = 0
     if source_root is not None:
         cache = _SourceCache()
         entries = prov.get("entries")
@@ -3717,10 +3807,14 @@ def verify(
                 if not line_rule_applies(sf, entry.get("export_type")):
                     line_check_skipped += 1
                     continue
-                matches = _definition_matches(sf, name, source_root, cache)
+                # A bookkeeping variant the file never names is checked
+                # against its base name (`folded_to`).
+                matches, folded_to = _folded_matches(sf, name, source_root, cache)
                 if matches is None:
                     line_check_skipped += 1
                     continue
+                if folded_to is not None:
+                    line_check_folded += 1
                 defs, every = matches
                 if line not in defs:
                     # An indented match the column-0 rule dropped joins
@@ -3728,8 +3822,10 @@ def verify(
                     # group gives its first line alone, the move target.
                     item["reason"] = STALE_LINE_NOT_DEFINITION
                     item["definition_lines"] = _missed_definition_lines(
-                        sf, name, source_root, cache, line, defs, every
+                        sf, folded_to or name, source_root, cache, line, defs, every
                     )
+                    if folded_to is not None:
+                        item["folded_to"] = folded_to
                     stale.append(item)
         stale.sort(key=lambda s: (s["export_name"], s.get("source_file") or ""))
 
@@ -3771,6 +3867,7 @@ def verify(
         "stale_count": len(stale),
         "citations_checked": citations_checked,
         "line_check_skipped": line_check_skipped,
+        "line_check_folded": line_check_folded,
         "stale_check": "checked"
         if source_root is not None
         else "skipped-no-source-root",

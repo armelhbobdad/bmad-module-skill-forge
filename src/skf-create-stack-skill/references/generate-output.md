@@ -188,7 +188,7 @@ uv run {verifyProvenanceCompletenessHelper} fix \
     --skill-dir {skill_staging}
 ```
 
-Read the JSON, not the exit code, ignoring `missing` and `orphaned` (a stack's `exports` is `[]`). Record a `workflow_warnings[]` entry (`severity: "info"`, `code: "provenance-lines-fixed"`) naming the lines `fix` moved, and one (`code: "provenance-line-unverified"`, `message`: the item's `export_name`, `source_file`, `source_line`, `reason` and `definition_lines`) per `stale[]` item of the last `verify`. The check is advisory (`provenance-lines-unchecked`) and ends at a `summary.stale_check` of `skipped-no-source-root`. Delete `{forge_version}/provenance-verify.skf-tmp` at the end.
+Read the JSON, not the exit code, ignoring `missing` and `orphaned` (a stack's `exports` is `[]`). Record a `workflow_warnings[]` entry (`severity: "info"`, `code: "provenance-lines-fixed"`) naming the lines `fix` moved, and one (`code: "provenance-line-unverified"`, `message`: the item's `export_name`, `source_file`, `source_line`, `reason` and `definition_lines`, and, when it carries `folded_to`, that its line was checked against that base name) per `stale[]` item of the last `verify`. The check is advisory (`provenance-lines-unchecked`) and ends at a `summary.stale_check` of `skipped-no-source-root`. Delete `{forge_version}/provenance-verify.skf-tmp` at the end.
 
 ### 8. Pre-Commit Gate
 

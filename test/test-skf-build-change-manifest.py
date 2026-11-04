@@ -1042,6 +1042,33 @@ class TestApplyGapDriven:
         assert doc["exports_affected"] == 10
         assert stats.check_label_agreement(doc) == []
 
+    def test_a_moved_export_whose_file_is_gone_names_the_file(self) -> None:
+        """#832: rule R5 moves a line, never a file. A provenance-line gap whose map entry's file the pinned source
+        lacks keeps its entry, whatever its severity, with a warning that names the file and the hand fix, and
+        never prints the definition lines the test report did not list."""
+        old = _old_map()
+        records = {"mode": "gap-driven", "verification": [
+            _verification("gone_a", "missing", "MOVED_EXPORT", severity="Low", in_map=True,
+                          map_entry={"source_file": "pkg/gone.py", "source_line": 1}, gap_id="GAP-004",
+                          pinned_definition_lines=None),
+            _verification("mv", "missing", "MOVED_EXPORT", severity="Low", in_map=True,
+                          map_entry={"source_file": "pkg/old.py", "source_line": 2}, pinned_definition_lines=[5]),
+            _verification("shifted", "unknown", "MOVED_EXPORT", severity="Low", in_map=True,
+                          map_entry={"source_file": "pkg/a.py", "source_line": 30}, unknown_reason="no-definition",
+                          pinned_definition_lines=None)]}
+        doc, summary = mod.apply_update(update_type="gap-driven", provenance=old, skill_name="lib", records=records,
+                                        test_report_run_id="r", **BLOCK)
+        assert doc["entries"] == old["entries"]
+        fix = ("its entry is left unchanged. Fix the entry by hand (set its source_file and source_line to the line "
+               "that defines it), then re-run update-skill")
+        assert summary["warnings"] == [
+            f"provenance: gone_a (GAP-004): missing (its map entry's file pkg/gone.py is gone); {fix}",
+            f"provenance: mv: missing (its map entry's file pkg/old.py is gone; definition lines per the test report: "
+            f"[5]); {fix}",
+            "provenance: shifted: unknown (no-definition: no line of its file defines it, by the definition-line "
+            "rules)"]
+        assert not any("None" in w for w in summary["warnings"])
+
     # #804, #809: an export a spot-check located takes the signature §4a's record gives at its line
 
     def _signed(self, name: str, outcome: str, category: str, **extra) -> dict:
@@ -3981,6 +4008,70 @@ class TestGapRecords:
     ], ids=["one-line", "several-lines", "none-listed"])
     def test_pinned_definition_lines(self, remediation, lines) -> None:
         assert mod._pinned_lines(remediation) == lines
+
+    def test_rule_r5_checks_a_variant_and_an_unresolved_citation(self, tmp_path: Path) -> None:
+        """#847: a bookkeeping variant at a wrong line moves to its base's definition line; #832: a line past the
+        file's end moves to the one line that defines the export, and a file the source lacks is missing."""
+        root = _tree(tmp_path)
+        (root / "code").mkdir()
+        (root / "code" / "mock.ts").write_bytes(b"// mock helpers\n\nexport function mockChannel() {\n}\n")
+        variant = ("Set the provenance `source_line` of `mockChannel_exact` in `code/mock.ts` to its definition line "
+                   "(3) and move its citations to that line.")
+        out_of_range = ("Set the provenance `source_line` of `search` in `pkg/api.py` to the line that defines it and "
+                        "move its citations to that line.")
+        gone = ("Set the provenance `source_file` and `source_line` of `gone` to the file and line that define it in "
+                "the pinned source, and move its citations there.")
+        entries = [
+            _gap_entry("GAP-001", "mockChannel_exact", "MOVED_EXPORT", category="provenance-line", severity="Low",
+                       match=_found("code/mock.ts", 1), citation={"file": "code/mock.ts", "line": 1},
+                       remediation=variant),
+            _gap_entry("GAP-002", "search", "MOVED_EXPORT", category="provenance-line", severity="Low",
+                       match=_found("pkg/api.py", 99), citation={"file": "pkg/api.py", "line": 99},
+                       remediation=out_of_range),
+            _gap_entry("GAP-003", "gone", "MOVED_EXPORT", category="provenance-line", severity="Low",
+                       match=_found("pkg/old.py", 3), citation={"file": "pkg/old.py", "line": 3}, remediation=gone)]
+        records, summary = _records(entries, source_root=root)
+        assert summary["status"] == "written", summary
+        assert [(r["export_name"], r["verification"], r["new_location"], r["pinned_definition_lines"])
+                for r in records["verification"]] == [
+            ("mockChannel_exact", "moved", "code/mock.ts:3", [3]),
+            ("search", "moved", "pkg/api.py:5", None),
+            ("gone", "missing", None, None)]
+
+    def test_only_rule_r5_folds_a_variant(self, tmp_path: Path) -> None:
+        """#847: the fold serves rule R5 alone. A fabricated variant a MODIFIED_EXPORT or NEW_EXPORT gap names, at a
+        line that defines its base, is judged as written: unknown (no-definition), its entry unchanged and warned,
+        never verified and re-signed from the base's declaration."""
+        root = _tree(tmp_path)
+        (root / "code").mkdir()
+        (root / "code" / "mock.ts").write_bytes(b"// mock helpers\n\nexport function mockChannel() {\n}\n")
+        entries = [
+            _gap_entry("GAP-001", "mockChannel_def", "MODIFIED_EXPORT", category="fabricated-signature",
+                       severity="Critical", match=_found("code/mock.ts", 3)),
+            _gap_entry("GAP-002", "a11y_mockChannel", "NEW_EXPORT", category="missing-export",
+                       match=_found("code/mock.ts", 3)),
+            _gap_entry("GAP-003", "mockChannel_exact", "MOVED_EXPORT", category="provenance-line", severity="Low",
+                       match=_found("code/mock.ts", 1), citation={"file": "code/mock.ts", "line": 1},
+                       remediation="Set it to its definition line (3).")]
+        records, summary = _records(entries, source_root=root, remediation=_remediation(("code/mock.ts", [])))
+        assert summary["status"] == "written", summary
+        assert [(r["export_name"], r["verification"], r["unknown_reason"], r["new_location"])
+                for r in records["verification"]] == [
+            ("mockChannel_def", "unknown", "no-definition", None),
+            ("a11y_mockChannel", "unknown", "no-definition", None),
+            ("mockChannel_exact", "moved", None, "code/mock.ts:3")]
+        old = {"provenance_version": "2.0", "skill_name": "lib", "entries": [
+            _entry("mockChannel_def", "code/mock.ts", 3), _entry("a11y_mockChannel", "code/mock.ts", 3),
+            _entry("mockChannel_exact", "code/mock.ts", 1)]}
+        doc, applied = mod.apply_update(update_type="gap-driven", provenance=json.loads(json.dumps(old)),
+                                        skill_name="lib", records=records, test_report_run_id="r", **BLOCK)
+        assert doc["entries"][:2] == old["entries"][:2]
+        assert doc["entries"][2]["source_line"] == 3
+        fix = ("its entry is left unchanged. Fix the entry by hand (set its source_file and source_line to the line "
+               "that defines it), then re-run update-skill")
+        why = "no-definition: no line of its file defines it, by the definition-line rules"
+        assert applied["warnings"] == [f"provenance: mockChannel_def (GAP-001): unknown ({why}); {fix}",
+                                       f"provenance: a11y_mockChannel (GAP-002): unknown ({why}); {fix}"]
 
 
 class TestScriptPEP723:
