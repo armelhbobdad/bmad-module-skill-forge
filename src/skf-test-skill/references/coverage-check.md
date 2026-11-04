@@ -3,6 +3,7 @@ nextStepFile: 'coherence-check.md'
 outputFile: '{report_file}'
 scoringRulesFile: 'references/scoring-rules.md'
 signatureRulesFile: 'references/signature-comparison-rules.md'
+inventoryContractFile: 'references/inventory-contract.md'
 sourceAccessProtocol: 'references/source-access-protocol.md'
 coverageTiersFile: 'references/coverage-check-tiers.md'
 coverageBranchesFile: 'references/coverage-check-branches.md'
@@ -85,26 +86,9 @@ uv run {coverageInputsScript} floor --skill-dir "{resolved_skill_package}" --out
 
 Exit 1 printed its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase `coverage-check:inventory`).
 
-Delegate the reading of the skill under test to a subagent, given `{run_dir}` and the path to SKILL.md and to its `references/` directory when one exists: it reads SKILL.md, and every `references/*.md` file too when SKILL.md's `## Full` headings are absent or stubs. It is given `{run_dir}/inventory-floor.json` too, and lists each name there with an origin in a file it reads, choosing its kind from the name's `kindLabel`, the skill's own label, when it has one. For each export both the SKILL.md body and a reference file document, it compares the two by the rules of `{signatureRulesFile}`, whose absolute path (under `{skill-root}`) it is given: parameters (name, type, order, optionality), the return type, and descriptions that contradict (brief against detailed is fine, as is a form the skill labels partial that leaves out only optional members). It writes only this JSON, with no prose and no commentary, to `{run_dir}/inventory-response.txt` with the Write tool, never a shell, and returns that path, or returns the JSON itself when it cannot write files:
+Delegate the reading of the skill under test to a subagent, given `{run_dir}` and the path to SKILL.md and to its `references/` directory when one exists: it reads SKILL.md, and every `references/*.md` file too when SKILL.md's `## Full` headings are absent or stubs. It is given `{run_dir}/inventory-floor.json` too, and lists each name there with an origin in a file it reads, choosing its kind from the name's `kindLabel`, the skill's own label, when it has one. For each export both the SKILL.md body and a reference file document, it compares the two by the rules of `{signatureRulesFile}`, whose absolute path (under `{skill-root}`) it is given: parameters (name, type, order, optionality), the return type, and descriptions that contradict (brief against detailed is fine, as is a form the skill labels partial that leaves out only optional members). It writes only this JSON, with no prose and no commentary, to `{run_dir}/inventory-response.txt` with the Write tool, never a shell, and returns that path, or returns the JSON itself when it cannot write files. The JSON's shape and the contract the validator checks are in `{inventoryContractFile}`, whose absolute path (under `{skill-root}`) the subagent is given.
 
-```json
-{
-  "exports": [
-    {"name": "functionName", "kind": "function", "params": "...", "return_type": "...", "description": "..."},
-    {"name": "ClassName", "kind": "class", "methods": ["..."], "properties": ["..."], "description": "..."},
-    {"name": "TypeName", "kind": "type", "fields": ["..."], "description": "..."},
-    {"name": "useHook", "kind": "hook", "usage_signature": "...", "description": "...", "signature_form": "partial"}
-  ],
-  "references": ["references/api-reference.md"],
-  "cross_check_mismatches": [
-    {"export": "functionName", "skill_md_line": 42, "reference_file": "references/api-reference.md", "reference_line": 18, "issue": "SKILL.md shows (date: Date) => string, the reference (date: Date, format?: string) => string"}
-  ]
-}
-```
-
-Tell the subagent the contract the validator checks: each `kind` is one of `function`, `class`, `type`, `constant`, `hook`, `interface`, `method`, `struct`, `enum`, `trait`, `macro` or `adapter`; every entry carries the `description` the skill gives it (an empty string when it gives none); a function or method carries `params` (`""` or `[]` when it takes none) and `return_type` as the skill documents them, and leaves a key out when the skill documents nothing for it. An entry whose signature the skill labels partial (simplified, key parameters, a `...` standing in for omitted members, not rest or variadic syntax; a label in a table's column header, such as `Props (simplified)`, labels each of its rows) carries `signature_form: "partial"`, any other `"full"` or no key: copy the label, never judge the form.
-
-When the subagent returned the JSON rather than the path, or the file is absent or empty afterwards, save its response, as it came back, to `{run_dir}/inventory-response.txt` with the Write tool. The documented inventory is the one §1a validates: do not load SKILL.md or the reference files into the parent context. Without subagents, the parent builds the same JSON from the same files and `inventory-floor.json` and saves it to that file; §1a's checks still run on it.
+When the subagent returned the JSON rather than the path, or the file is absent or empty afterwards, save its response, as it came back, to `{run_dir}/inventory-response.txt` with the Write tool. The documented inventory is the one §1a validates: do not load SKILL.md or the reference files into the parent context. Without subagents, the parent loads `{inventoryContractFile}` and builds the same JSON from the same files and `inventory-floor.json` and saves it to that file; §1a's checks still run on it.
 
 #### 1a. Parent-Side Schema Validation + Spot-Check
 
