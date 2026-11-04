@@ -1021,8 +1021,9 @@ NOT_ROUTED_REASONS = {
         "`scope.tier_a_include` to it, and documented-surface counts that differ by the `Type::method` entries the "
         "named-export count leaves out need no fix"),
     "provenance-unverified": (
-        "the line-check rules could not verify the line, so a person checks by hand that it defines the export and, "
-        "when another line does, sets its provenance `source_line` to that line"),
+        "the line-check rules could not verify the line, or the recorded line is not a number, so a person checks "
+        "by hand which line defines the export and, when it is not the recorded one, sets its provenance "
+        "`source_line` to that line"),
     "denominator-inflation": (
         "it concerns the brief's scope and the count design, which a person decides in the skill brief, as the "
         "gap's remediation says"),

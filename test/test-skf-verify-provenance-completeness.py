@@ -3058,6 +3058,183 @@ class TestDefinitionLinesCommand:
 
 
 # --------------------------------------------------------------------------
+# Bookkeeping variants (#847): `X_def`, `X_exact`, `a11y_X` checked as `X`
+# --------------------------------------------------------------------------
+
+MOCK_TS = (
+    "// mock helpers\n"
+    "\n"
+    "export function mockChannel() {\n"
+    "}\n"
+    "export function parse_exact() {\n"
+    "}\n"
+    "export function parse() {}\n"
+)
+PREVIEW_TSX = "export const decorators = [1];\n"
+LOAD_COVERAGE_INPUTS = REPO_ROOT / "src" / "skf-test-skill" / "scripts" / "load-coverage-inputs.py"
+
+
+class TestBookkeepingVariantFold:
+    def _src(self, tmp_path: Path) -> Path:
+        src = tmp_path / "src"
+        _write_text(src, "code/mock.ts", MOCK_TS)
+        _write_text(src, "code/preview.tsx", PREVIEW_TSX)
+        _write_text(src, "code/app.py", "class App:\n    def update(self):\n        pass\n")
+        return src
+
+    def _verify(self, tmp_path: Path, entries: list[dict]) -> dict:
+        return mod.verify({"exports": [e["export_name"] for e in entries]}, {"entries": entries},
+                          self._src(tmp_path))
+
+    def test_a_variant_whose_line_defines_its_base_is_verified(self, tmp_path: Path) -> None:
+        result = self._verify(tmp_path, [
+            {"export_name": "mockChannel_def", "source_file": "code/mock.ts", "source_line": 3},
+            {"export_name": "a11y_decorators", "source_file": "code/preview.tsx", "source_line": 1},
+            {"export_name": "mockChannel_exact", "source_file": "code/mock.ts", "source_line": 1},
+            {"export_name": "parse_exact", "source_file": "code/mock.ts", "source_line": 5},
+        ])
+        # only the variant at a wrong line is stale, and it takes its base's definition line
+        assert result["stale"] == [
+            {"export_name": "mockChannel_exact", "entry_index": 2, "source_file": "code/mock.ts",
+             "source_line": 1, "reason": "line-not-definition", "definition_lines": [3],
+             "folded_to": "mockChannel"}]
+        assert result["summary"]["line_check_skipped"] == 0
+        # every fold leaves a trace, the two it verified included; parse_exact is judged as written
+        assert result["summary"]["line_check_folded"] == 3
+
+    def test_the_raw_name_comes_first(self, tmp_path: Path) -> None:
+        """A real export named like a variant is judged as written: `parse_exact` at `parse`'s line is stale at
+        its own definition line, never folded to `parse`."""
+        result = self._verify(tmp_path, [
+            {"export_name": "parse_exact", "source_file": "code/mock.ts", "source_line": 7}])
+        assert result["stale"] == [
+            {"export_name": "parse_exact", "entry_index": 0, "source_file": "code/mock.ts", "source_line": 7,
+             "reason": "line-not-definition", "definition_lines": [5]}]
+
+    def test_a_variant_whose_base_is_not_defined_either_stays_unverified(self, tmp_path: Path) -> None:
+        result = self._verify(tmp_path, [
+            {"export_name": "ghost_def", "source_file": "code/mock.ts", "source_line": 3},
+            {"export_name": "plain", "source_file": "code/mock.ts", "source_line": 3}])
+        assert [(s["export_name"], s["definition_lines"], "folded_to" in s) for s in result["stale"]] == [
+            ("ghost_def", [], False), ("plain", [], False)]
+
+    def test_a_dotted_variant_folds_to_its_dotted_base(self, tmp_path: Path) -> None:
+        result = self._verify(tmp_path, [
+            {"export_name": "App.update_def", "source_file": "code/app.py", "source_line": 1},
+            {"export_name": "App.update_exact", "source_file": "code/app.py", "source_line": 2}])
+        assert result["stale"] == [
+            {"export_name": "App.update_def", "entry_index": 0, "source_file": "code/app.py", "source_line": 1,
+             "reason": "line-not-definition", "definition_lines": [2], "folded_to": "App.update"}]
+
+    def test_the_definition_lines_command_folds(self, tmp_path: Path, capsys) -> None:
+        src = self._src(tmp_path)
+        code, out = _main_json(capsys, "definition-lines", "--source-root", str(src),
+                               "--file", "code/mock.ts", "--name", "mockChannel_def", "--line", "3")
+        assert code == 0
+        assert out == {"source_file": "code/mock.ts", "export_name": "mockChannel_def", "line_check": "checked",
+                       "definition_lines": [3], "source_line": 3, "line_is_definition": True,
+                       "folded_to": "mockChannel"}
+        # update-skill's R5 spot-check reads the same answer: a variant at a wrong line moves to its base's line
+        _, out = _main_json(capsys, "definition-lines", "--source-root", str(src),
+                            "--file", "code/mock.ts", "--name", "mockChannel_exact", "--line", "1")
+        assert (out["definition_lines"], out["line_is_definition"], out["folded_to"]) == ([3], False, "mockChannel")
+        # a raw-name match carries no folded_to key
+        _, out = _main_json(capsys, "definition-lines", "--source-root", str(src),
+                            "--file", "code/mock.ts", "--name", "mockChannel", "--line", "3")
+        assert "folded_to" not in out and out["line_is_definition"] is True
+
+    def test_no_fold_judges_the_name_as_written(self, tmp_path: Path) -> None:
+        report = mod.definition_lines_report("code/mock.ts", "mockChannel_def", self._src(tmp_path), 3, fold=False)
+        assert (report["definition_lines"], report["line_is_definition"]) == ([], False)
+        assert "folded_to" not in report
+
+    def test_classify_stale_never_folds(self, tmp_path: Path, capsys) -> None:
+        """The fabricated-signature test keeps its verdict: a documented variant the cited file never defines is
+        fabricated, though its base is defined there."""
+        src = self._src(tmp_path)
+        names = _write_json(tmp_path / "run" / "coverage.json", {"branch": "enumerated", "stale": ["mockChannel_def"]})
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": [
+            {"export_name": "mockChannel_def", "source_file": "code/mock.ts", "source_line": 3}]})
+        code, [out] = _main_json(capsys, "classify-stale", "--names", str(names), "--provenance", str(prov),
+                                 "--source-root", str(src))
+        assert code == 0
+        assert (out["fabricated"], out["reason"], out["source"]) == (True, "not-defined", "code/mock.ts:3")
+        assert out["entries"] == [{"source_file": "code/mock.ts", "source_line": 3, "line_check": "checked",
+                                   "definition_lines": []}]
+
+    @pytest.mark.parametrize("name, base", [
+        ("mockChannel_def", "mockChannel"), ("mockChannel_exact", "mockChannel"), ("a11y_Checkbox", "Checkbox"),
+        ("a11y_x_def", "a11y_x"),  # a suffix first, as fold_names orders the rules
+        ("App.update_def", "App.update"),
+        ("_def", None), ("_exact", None), ("a11y_", None), ("mobile_Button", None), ("parse", None),
+    ])
+    def test_fold_base(self, name: str, base: str | None) -> None:
+        assert mod.fold_base(name) == base
+
+    def test_the_fold_is_test_skills(self) -> None:
+        """The line check folds by the rules test-skill's `surface --fold` applies: the same constants, and over a
+        set of names `fold_base` folds exactly what load-coverage-inputs.py's `fold_names` folds (no
+        `--fold-prefix`, no `--keep`), to the same base."""
+        pin = importlib.util.spec_from_file_location("skf_pin_load_coverage_inputs", LOAD_COVERAGE_INPUTS)
+        loader = importlib.util.module_from_spec(pin)
+        assert pin.loader is not None
+        pin.loader.exec_module(loader)
+        assert (mod.FOLD_SUFFIXES, mod.FOLD_PREFIX) == (loader.FOLD_SUFFIXES, loader.FOLD_PREFIX)
+        names = ["mockChannel", "mockChannel_def", "mockChannel_exact", "a11y_Checkbox", "a11y_x_def",
+                 "a11y_x_exact", "x_def_exact", "_def", "_exact", "a11y_", "a11y__def", "def", "exact",
+                 "mobile_Button", "App.update_def", "a11y_App.update", "plain"]
+        variants, _ = loader.fold_names(names, [], set())
+        assert {n: mod.fold_base(n) for n in names if mod.fold_base(n) is not None} == variants
+
+    @pytest.mark.parametrize("rel, text, line", [
+        ("code/reg.py", "def mockChannel():\n    pass\n\n\nglobals()['mockChannel_def'] = mockChannel\n", 5),
+        ("code/def.ts", "export function mockChannel() {}\nexport default { mockChannel_def: mockChannel };\n", 2),
+        ("code/use.ts", "export function mockChannel() {}\nconst x = mockChannel_def;\n", 1),
+        ("code/inner.ts", "export function mockChannel() {\n  const mockChannel_def = 1;\n}\n", 1),
+    ], ids=["globals-key", "default-object-key", "read-only", "indented-only"])
+    def test_a_file_that_names_the_variant_never_folds(self, tmp_path: Path, rel: str, text: str,
+                                                        line: int) -> None:
+        """A variant its file names, in a shape the rules miss or only as an indented match, may be bound right
+        there: it is judged as written, so its citation is never moved to the base's line."""
+        src = tmp_path / "src"
+        _write_text(src, rel, text)
+        entry = {"export_name": "mockChannel_def", "source_file": rel, "source_line": line}
+        result = mod.verify({"exports": ["mockChannel_def"]}, {"entries": [entry]}, src)
+        assert result["summary"]["line_check_folded"] == 0
+        assert all("folded_to" not in s and s["definition_lines"] != [1] for s in result["stale"]), result["stale"]
+        report = mod.definition_lines_report(rel, "mockChannel_def", src, line)
+        assert "folded_to" not in report
+
+    def test_a_variant_of_an_overload_group_moves_to_its_first_stub(self, tmp_path: Path) -> None:
+        src = tmp_path / "src"
+        _write_text(src, "code/parse.py", "from typing import overload\n\n\n@overload\n"
+                    "def parse(data: bytes) -> bytes: ...\n@overload\ndef parse(data: str) -> str: ...\n"
+                    "def parse(data):\n    return data\n")
+        entry = {"export_name": "parse_def", "source_file": "code/parse.py", "source_line": 1}
+        result = mod.verify({"exports": ["parse_def"]}, {"entries": [entry]}, src)
+        [item] = result["stale"]
+        assert (item["definition_lines"], item["folded_to"]) == ([5], "parse")
+        report = mod.definition_lines_report("code/parse.py", "parse_def", src, 1)
+        assert (report["definition_lines"], report["folded_to"]) == ([5], "parse")
+
+    def test_a_line_below_1_reaches_the_ledger_out_of_range(self, tmp_path: Path) -> None:
+        """#832: line 0 is `line-out-of-bounds`, and test-skill records it as a Low provenance-line gap."""
+        entry = {"export_name": "mockChannel", "source_file": "code/mock.ts", "source_line": 0}
+        result = self._verify(tmp_path, [entry])
+        assert result["stale"] == [{"export_name": "mockChannel", "entry_index": 0, "source_file": "code/mock.ts",
+                                    "source_line": 0, "reason": mod.STALE_LINE_OOB}]
+        ledger_path = REPO_ROOT / "src" / "skf-test-skill" / "scripts" / "gap-ledger.py"
+        pin = importlib.util.spec_from_file_location("skf_pin_gap_ledger_for_verify", ledger_path)
+        ledger = importlib.util.module_from_spec(pin)
+        assert pin.loader is not None
+        pin.loader.exec_module(ledger)
+        [record] = ledger.from_provenance_line(result)
+        assert (record["severity"], record["category"], record["title"], record["source"], record["export"]) == (
+            "Low", "provenance-line", "Provenance line is out of range for mockChannel", "code/mock.ts:0",
+            "mockChannel")
+
+
+# --------------------------------------------------------------------------
 # classify-stale
 # --------------------------------------------------------------------------
 

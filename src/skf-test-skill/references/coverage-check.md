@@ -273,9 +273,9 @@ uv run {verifyProvenanceCompletenessHelper} verify \
     -o "{run_dir}/provenance-verify.json"
 ```
 
-Rely on the file, not the exit code (exit 1 means findings); on exit 2 the helper writes no file: skip to section 5. §5b records each `stale[]` item whose `reason` is `line-not-definition`: a Low `provenance-line` gap when its `definition_lines` holds a line, else an Info `provenance-unverified` gap (the rules may not cover its shape: the export is unverified, not gone). Its Source is exactly the `file:line` the map records, the citation update-skill's rule R5 reads.
+Rely on the file, not the exit code (exit 1 means findings); on exit 2 the helper writes no file: skip to section 5. §5b records each `stale[]` item by its `reason`: `line-not-definition` is a Low `provenance-line` gap when its `definition_lines` holds a line, else an Info `provenance-unverified` gap (the rules may not cover its shape: the export is unverified, not gone); `file-missing` (the pinned source lacks the file) and `line-out-of-bounds` (the line is past its end, or below 1) are Low `provenance-line` gaps; `line-invalid` (not a line number) is an Info `provenance-unverified` gap. A bookkeeping variant (`X_def`, `X_exact`, `a11y_X`) the cited file never names is checked against `X`. Its Source is exactly the `file:line` the map records (the file alone for `line-invalid`), the citation update-skill's rule R5 reads. A name §2c's `fabricated-signature` gap covers takes no such gap.
 
-This section reports none of the helper's other findings, and neither gap blocks the gate.
+This section reports none of the helper's `missing`, `orphaned` or `citations` findings, and no gap it records blocks the gate.
 
 ### 5. Write the Coverage Analysis Section
 

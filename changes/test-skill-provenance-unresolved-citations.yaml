@@ -1,0 +1,6 @@
+type: changed
+scope: skf-test-skill, skf-update-skill
+summary: |
+  Test Skill's provenance line check now records a citation that does not resolve. An entry whose file the pinned source does not hold, such as `portable-stories.ts` for a `portable-stories.tsx` export, or whose line is past the end of its file or below 1, is a Low `provenance-line` gap, and a line that is not a number is an Info `provenance-unverified` gap; before, they reached no report line. Update Skill's `--from-test-report` moves an out-of-range line when the file defines the export on one line, and leaves an entry whose file is gone unchanged, with a warning that names the file. Neither gap changes a score or the hard gate.
+issues: [832]
+prs: [875]

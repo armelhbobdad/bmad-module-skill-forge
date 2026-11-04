@@ -690,7 +690,9 @@ class TestStagesRecordTheirGaps:
         assert [(r["severity"], r["category"], r["title"], r["source"], r["export"])
                 for r in _ledger_records(values)] == [
             ("Low", "provenance-line", "Provenance line is not the definition of search", "src/api.py:25", "search"),
-            ("Info", "provenance-unverified", "Provenance line not verified for fetch", "src/api.py:40", "fetch")]
+            ("Info", "provenance-unverified", "Provenance line not verified for fetch", "src/api.py:40", "fetch"),
+            # #832: a citation whose file the pinned source lacks reaches R5 at the map's file:line too
+            ("Low", "provenance-line", "Provenance file is missing for gone", "src/old.py:3", "gone")]
 
     def test_a_split_body_gap_cites_the_side_the_source_contradicts(self) -> None:
         """#778: §1b no longer makes the body authoritative; §5b, where the pinned source can settle it, cites the
@@ -749,7 +751,11 @@ class TestStagesRecordTheirGaps:
             stale=[{"name": "ghost", "fabricated": True, "source": "src/a.ts:3"}])
         records += gap_ledger.from_provenance_line({"stale": [
             {"export_name": n, "source_file": "a.py", "source_line": 1, "reason": "line-not-definition",
-             "definition_lines": lines} for n, lines in (("f", [2]), ("g", []))]})
+             "definition_lines": lines} for n, lines in (("f", [2]), ("g", []))] + [
+            {"export_name": n, "source_file": "a.py", "source_line": line, "reason": reason}
+            for n, line, reason in (("h", 1, "file-missing"), ("i", 99, "line-out-of-bounds"),
+                                    ("j", "x", "line-invalid"))]})
+        assert {r["export"] for r in records} >= {"f", "g", "h", "i", "j"}
         assert {r["category"] for r in records} == {"missing-export", "missing-type", "fabricated-signature",
                                                     "stale-documentation", "provenance-line",
                                                     "provenance-unverified"}

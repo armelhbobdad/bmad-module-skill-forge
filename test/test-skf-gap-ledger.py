@@ -1711,14 +1711,87 @@ class TestProvenanceAndCoherenceAdapters:
             {"export_name": "fetch", "source_file": "lib/api.py", "source_line": 40,
              "reason": "line-not-definition", "definition_lines": []},
             {"export_name": "gone", "source_file": "lib/old.py", "source_line": 3, "reason": "file-missing"},
+            {"export_name": "Stories", "source_file": "x.tsx", "source_line": 99, "reason": "line-out-of-bounds"},
+            {"export_name": "odd", "source_file": "lib/api.py", "source_line": "L7", "reason": "line-invalid"},
+            {"export_name": "flag", "source_file": "lib/api.py", "source_line": True, "reason": "line-invalid"},
+            {"export_name": "real", "source_file": "lib/api.py", "source_line": 3.0, "reason": "line-invalid"},
+            {"export_name": "skipped", "source_file": "lib/api.py", "source_line": 1, "reason": "no-such-reason"},
         ]})
         assert brief(records) == [
             ("Low", "provenance-line", "Provenance line is not the definition of search", "lib/api.py:25", "search"),
             ("Info", "provenance-unverified", "Provenance line not verified for fetch", "lib/api.py:40", "fetch"),
+            # #832: a citation that does not resolve is a gap too, at the file:line the map records
+            ("Low", "provenance-line", "Provenance file is missing for gone", "lib/old.py:3", "gone"),
+            ("Low", "provenance-line", "Provenance line is out of range for Stories", "x.tsx:99", "Stories"),
+            # a line that is not a number gives no line to cite: the Source is the file alone
+            ("Info", "provenance-unverified", "Provenance line not verified for odd", "lib/api.py", "odd"),
+            ("Info", "provenance-unverified", "Provenance line not verified for flag", "lib/api.py", "flag"),
+            ("Info", "provenance-unverified", "Provenance line not verified for real", "lib/api.py", "real"),
         ]
         assert records[0]["remediation"].startswith(
             "Set the provenance `source_line` of `search` in `lib/api.py` to its definition line (26, 31)")
         assert "check by hand" in records[1]["issue"]
+        gone, oob, invalid = records[2:5]
+        # update-skill cannot point an entry at another file: the fix says so, and pins no definition line
+        assert gone["remediation"].startswith("Set the provenance `source_file` and `source_line` of `gone`")
+        assert "does not repair this" in gone["remediation"] and "definition line (" not in gone["remediation"]
+        # an existing file that cannot be read is `file-missing` too
+        assert "has no readable file `lib/old.py`" in gone["issue"]
+        assert "applies this when the file defines it on one line" in oob["remediation"]
+        assert "definition line (" not in oob["remediation"] and "past its end" in oob["issue"]
+        assert "not a line number" in invalid["issue"] and "check by hand" in invalid["issue"]
+        for record in records:
+            assert record["title"].endswith(record["export"]), record
+
+    def test_a_fabricated_export_takes_no_provenance_line_gap(self, tmp_path: Path):
+        """#832: an export the ledger already records as a fabricated signature no longer exists, so the append
+        drops its provenance records; another export's, and a plain append, are kept."""
+        ledger = tmp_path / "ledger.json"
+        fabricated = write_json(tmp_path / "fabricated.json", [record(
+            severity="Critical", category="fabricated-signature", title="Fabricated signature: gone",
+            source="lib/old.py:3", export="gone")])
+        assert run("append", "--ledger", str(ledger), "--stage", "coverage-check", "--input",
+                   str(fabricated)).returncode == 0
+        verify = write_json(tmp_path / "verify.json", {"stale": [
+            {"export_name": "gone", "source_file": "lib/old.py", "source_line": 3, "reason": "file-missing"},
+            {"export_name": "gone", "source_file": "lib/old.py", "source_line": "x", "reason": "line-invalid"},
+            {"export_name": "search", "source_file": "lib/api.py", "source_line": 99,
+             "reason": "line-out-of-bounds"}]})
+        proc = from_file(ledger, "coverage-check", "provenance-line", verify)
+        assert proc.returncode == 0, proc.stdout
+        assert [(r["category"], r.get("export")) for r in ledger_records(ledger)] == [
+            ("fabricated-signature", "gone"), ("provenance-line", "search")]
+        assert mod.without_fabricated({"records": []}, [record(export="gone")]) == [record(export="gone")]
+
+    def test_a_folded_variant_names_its_base(self):
+        """#847: a bookkeeping variant verify checked against its base names the base in its issue, and its
+        remediation still lists the definition lines update-skill's rule R5 reads."""
+        records = mod.from_provenance_line({"stale": [
+            {"export_name": "mockChannel_exact", "source_file": "code/mock.ts", "source_line": 1,
+             "reason": "line-not-definition", "definition_lines": [3], "folded_to": "mockChannel"},
+            {"export_name": "a11y_x", "source_file": "code/x.ts", "source_line": 2,
+             "reason": "line-not-definition", "definition_lines": [], "folded_to": "x"},
+            {"export_name": "search", "source_file": "lib/api.py", "source_line": 25,
+             "reason": "line-not-definition", "definition_lines": [26]},
+        ]})
+        assert brief(records) == [
+            ("Low", "provenance-line", "Provenance line is not the definition of mockChannel_exact", "code/mock.ts:1",
+             "mockChannel_exact"),
+            ("Info", "provenance-unverified", "Provenance line not verified for a11y_x", "code/x.ts:2", "a11y_x"),
+            ("Low", "provenance-line", "Provenance line is not the definition of search", "lib/api.py:25", "search")]
+        assert records[0]["issue"].endswith(
+            "the lines that define it are 3. `mockChannel_exact` is a bookkeeping variant `code/mock.ts` never names, "
+            "checked against its base `mockChannel`.")
+        assert "checked against its base `x`" in records[1]["issue"]
+        # the person confirms the line against the base the check read
+        assert records[1]["remediation"].startswith("Open `code/x.ts` and confirm that line 2 defines `x`;")
+        assert "bookkeeping variant" not in records[2]["issue"]
+        manifest_path = SCRIPT.parent.parent.parent / "shared" / "scripts" / "skf-build-change-manifest.py"
+        manifest_spec = importlib.util.spec_from_file_location("skf_manifest_for_gap_ledger", manifest_path)
+        manifest = importlib.util.module_from_spec(manifest_spec)
+        assert manifest_spec.loader is not None
+        manifest_spec.loader.exec_module(manifest)
+        assert manifest._pinned_lines(records[0]["remediation"]) == [3]
 
     def test_coherence(self):
         records = mod.from_coherence({"invalidReferences": [
@@ -1910,7 +1983,10 @@ class TestTheProseCalls:
             {"severity": "Info", "title": "multi-denominator reporting", "detail": "barrel=3"}]})
         write_json(run_dir / "provenance-verify.json", {"stale": [
             {"export_name": "fetchData", "source_file": "src/fetch.ts", "source_line": 11,
-             "reason": "line-not-definition", "definition_lines": [12]}]})
+             "reason": "line-not-definition", "definition_lines": [12]},
+            {"export_name": "Stories", "source_file": "src/stories.ts", "source_line": 4, "reason": "file-missing"},
+            {"export_name": "ghost", "source_file": "src/g.ts", "source_line": 2, "reason": "file-missing"},
+            {"export_name": "odd", "source_file": "src/fetch.ts", "source_line": "x", "reason": "line-invalid"}]})
         provenance = write_json(tmp_path / "provenance-map.json", {"entries": []})
         values = {"{ledgerFile}": ledger.as_posix(), "{run_dir}": run_dir.as_posix(),
                   "{resolved_skill_package}": skill.as_posix(), "{forge_provenance_map}": provenance.as_posix()}
@@ -1924,7 +2000,13 @@ class TestTheProseCalls:
             ("Critical", "signature-mismatch"), ("Medium", "missing-type"), ("Medium", "missing-export"),
             ("Medium", "stale-documentation"), ("Critical", "fabricated-signature"), ("Medium", "metadata-drift"),
             ("High", "numerator-inflation"), ("Info", "multi-denominator"), ("Low", "provenance-line"),
-            ("Info", "observation")}
+            ("Info", "provenance-unverified"), ("Info", "observation")}
+        # #832: a citation whose file the pinned source lacks is recorded, at the file:line the map records
+        missing = next(r for r in ledger_records(ledger) if r["title"] == "Provenance file is missing for Stories")
+        assert (missing["severity"], missing["source"], missing["export"]) == ("Low", "src/stories.ts:4", "Stories")
+        # a name classify-stale found fabricated, recorded first, takes no provenance line gap for its gone file
+        assert [r["category"] for r in ledger_records(ledger) if r.get("export") == "ghost"] == [
+            "fabricated-signature"]
         stale = next(r for r in ledger_records(ledger) if r["category"] == "stale-documentation")
         assert (stale["source"], stale["export"]) == ("SKILL.md:3", "oldName")
         extra = next(r for r in ledger_records(ledger) if r["category"] == "observation")
