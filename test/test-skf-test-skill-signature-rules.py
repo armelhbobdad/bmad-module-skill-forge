@@ -122,7 +122,8 @@ def test_a_form_claims_only_what_it_writes():
     is not compared."""
     reading = _section("Reading a form")
     assert "A form claims only what it writes" in reading
-    assert "The source's declaration decides, never its body" in reading
+    assert "The source's declaration decides" in reading
+    assert "with one exception, a return annotation the body contradicts (Annotations)" in reading
     assert ("Optionality is stated only by a default, a `?` (on the name, or as `?:`) or an optional marker: "
             "`optional` in a docstring-style list, a Required column, a Default cell that gives a value. A type never "
             "states it, and an empty Default cell states nothing.") in reading
@@ -219,8 +220,8 @@ def test_a_props_list_states_optionality_only_with_a_mark():
 
 def test_an_annotation_a_form_leaves_out_is_not_compared():
     """#835: an untyped parameter is not compared on type, an unstated return (in any language's position), a
-    source-unannotated type and type arguments the form leaves out are not compared, and a documented type that
-    contradicts the declared annotation is a mismatch whose issue cites the body line."""
+    source-unannotated type and type arguments the form leaves out are not compared, and a documented return type
+    the body demonstrably returns is no mismatch against a declared annotation that contradicts it."""
     annotations = _section("Annotations")
     assert ("A parameter written without a type is not compared on type: its name and order are, and its optionality "
             "as Reading a form says.") in annotations
@@ -235,8 +236,10 @@ def test_an_annotation_a_form_leaves_out_is_not_compared():
             "`number`, so `pageSize?: string` is a mismatch. An unannotated return stays uncompared.") in annotations
     assert "Type arguments the form leaves out are not compared: `dict` matches `dict[str, Any]`" in annotations
     assert "Type arguments it writes are" in annotations
-    assert ("A documented type that matches what the body does but contradicts the declared annotation is a "
-            "mismatch, since the declaration decides. Its `issue` cites the body line") in annotations
+    assert ("A documented return type that matches what the body demonstrably returns is no mismatch, even when "
+            "the declared annotation says otherwise") in annotations
+    assert "It counts only when you can name the body line that returns that value" in annotations
+    assert "when you cannot, the declaration decides." in annotations
 
 
 def test_two_spellings_of_one_type_are_no_mismatch():

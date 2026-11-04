@@ -12,7 +12,7 @@ In a language without keyword arguments (TS/JS, Go, Rust, Java, C, C++), leaving
 
 The names of Python's `*args` and `**kwargs` are never compared (`**kwargs` against `**options` is no difference), and the parameters after `*` or `*args` are compared by name, not order. A positional-only `/` or keyword-only `*` marker the form leaves out is not compared.
 
-The source's declaration decides, never its body: the documented form is compared with the parameters, the optionality and the annotations the signature declares, whatever the body returns or assigns.
+The source's declaration decides: the documented form is compared with the parameters, the optionality and the annotations the signature declares, with one exception, a return annotation the body contradicts (Annotations).
 
 In the split-body cross-check both forms are documented: each is read by these rules, a type, return type or type arguments one of them leaves out are not compared, and coverage-check.md §1 says which parameters a form may leave out.
 
@@ -34,7 +34,7 @@ A props list states optionality as Reading a form says: `({ of, meta, story })`,
 - A return type the form does not state is not compared. A form states one when its entry has a non-blank `return_type` or the form writes one: after `->`, `=>`, `→` or `):`, or in its language's own position (Go's result list after the parameters, the type before the name in C, C++ and Java). A blank `return_type` (`""`) states none, so an entry with `params: ""` and no return type matches `def f() -> None`.
 - A type the source leaves unannotated, on a parameter or a return, is not compared, except that a TS/JS parameter with a literal default has that literal's type: `pageSize = 20` is a `number`, so `pageSize?: string` is a mismatch. An unannotated return stays uncompared.
 - Type arguments the form leaves out are not compared: `dict` matches `dict[str, Any]`, and `list[dict]` matches `list[dict[str, Any]]`. Type arguments it writes are: `dict[str, int]` against `dict[str, str]` is a mismatch.
-- A documented type that matches what the body does but contradicts the declared annotation is a mismatch, since the declaration decides. Its `issue` cites the body line the documented type matches (`documented -> Callable[[], None] matches the function returned at line 19; the declaration annotates -> Callable[[], Callable[[], None]]`), so the reader sees the source contradict itself.
+- A documented return type that matches what the body demonstrably returns is no mismatch, even when the declared annotation says otherwise: the skill documents what callers get, and the contradiction is the source's. It counts only when you can name the body line that returns that value (`-> Callable[[], None]` matches the function returned at line 19 although the declaration annotates `-> Callable[[], Callable[[], None]]`); when you cannot, the declaration decides.
 
 ## Equivalent spellings
 
