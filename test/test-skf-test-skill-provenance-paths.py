@@ -1010,7 +1010,7 @@ def test_signatures_are_scored_over_the_denominator_set():
 def test_a_run_with_no_local_source_names_its_skip():
     flags = _flow(_slice(_read(SCORE), "#### 3a. Construct Scoring Input JSON", "#### 3b."))
     assert "`metadata-only` or `remote-only`, States 3 and 4" in flags
-    docs_only = _flow(_slice(_read(COVERAGE), "**A docs-only run**", "**Docs-only skill detected.**"))
+    docs_only = _flow(_slice(_read(COVERAGE_BRANCHES), "## Docs-Only Run", "**Docs-only skill detected.**"))
     assert "§4's `Denominator: docs-only completeness` annotation" in docs_only
 
 
@@ -1402,7 +1402,7 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     # The fallback is decided from the JSON, and a recipe's internal match is never on the surface.
     assert "Decide what to do from the JSON, not from the exit code" in forge
     assert "`extraction.fallback.needed`" in forge and "`extraction.readByEye`" in forge
-    assert "the recipes' internal matches are never part of it" in forge
+    assert "the recipes' internal matches are never part of it" in _flow(_read(SOURCE_ACCESS))
     assert "reads the full declaration at `{file}:{line}`" in forge
     # #781: a check the citations do not settle names each candidate
     assert ("A check with `candidates` reads each and reports a mismatch only when the documented signature "
@@ -1447,16 +1447,18 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
                        '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] '
                        '[--monorepo] [--pattern-reference-intent] [--curated-subset] --output "{run_dir}/surface.json"')
     forge = _flow(_slice(_read(COVERAGE), "**Forge Tier (ast-grep available):**", "**Deep Tier"))
+    assert "The surface holds what `{sourceAccessProtocol}` **What the Surface Holds** says" in forge
+    held = _flow(_slice(_read(SOURCE_ACCESS), "### What the Surface Holds", "## Source Access Resolution"))
     # an outer package that exports nothing (a stray source-root __init__.py) nests nothing; the nested names
     # leave the standard barrel and the umbrella ratio, never the scope sets or the signature comparisons
     assert ("nested in the folder of another package that exports a name is no barrel: its names "
             "(`excluded.nestedEntries`) leave only the `all` and `root` sets and the umbrella ratio, and `plan` still "
-            "compares their signatures") in forge
-    assert "When a `scope.include` glob matches no file (`guards.staleScope.fires`" in forge
-    assert "are back in it (`guards.staleScope.restored`)" in forge
+            "compares their signatures") in held
+    assert "When a `scope.include` glob matches no file (`guards.staleScope.fires`" in held
+    assert "are back in it (`guards.staleScope.restored`)" in held
     # #695: a stale tier A glob fires the guard too and counts no name
     assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
-            "and counts no name") in forge
+            "and counts no name") in held
     # the report lists every name the surface leaves out of the barrel or puts back in it, through §5's render
     assert "§5's render lists `excluded.outsideScope`, `excluded.nestedEntries` and the restored names" in forge
     section4 = _flow(_slice(_read(COVERAGE), "### 4. The Denominator Record", "### 4b."))
@@ -2048,6 +2050,16 @@ CARVED_TO_BRANCHES = {
         "integration pairs)`, from `stack.basis`) and of a reference app (`Denominator: pattern-surface "
         "({pattern_surfaces_documented})`)."
     )],
+    "Docs-Only Run": [(
+        "**A docs-only run** measures documentation completeness as its Export Coverage, with "
+        "`analysis_confidence` `docs-only`. It runs only §1, §1a and §1b, the docs-only guard of §2b, §2c's "
+        "`docsOnly` branch, §4's `Denominator: docs-only completeness` annotation, §5, §5b and §6. Step 5 "
+        "passes `docsOnly: true` to the scoring script, which skips Signature Accuracy and Type Coverage at "
+        "any tier.\n"
+        "\n"
+        "\"**Docs-only skill detected.** Coverage check evaluates documentation completeness rather than "
+        "source code coverage.\""
+    )],
 }
 
 
@@ -2090,6 +2102,7 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
         "Scalar and Stack Branches": ["### 2c."],
         "Denominator Candidates": ["### 4. The Denominator Record"],
         "Metadata Count Cross-Check": ["### 4b. Metadata Export-Count Coherence Cross-Check"],
+        "Docs-Only Run": ["### 0. Check for Docs-Only Mode"],
     }
     assert re.findall(r"^## (.+)$", branches, re.M) == list(loads) == list(CARVED_TO_BRANCHES)
     heading, fenced, pointers = None, False, []
