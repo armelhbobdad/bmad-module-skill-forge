@@ -137,6 +137,41 @@ def test_a_form_claims_only_what_it_writes():
     assert "defaults" not in _section("Difference tags"), "a default's value is no fact `parameter-name` compares"
 
 
+def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
+    """A replay of real skills' signature checks: call examples, an ellipsis and a list of bare names do not claim a
+    complete parameter list, so an optional parameter they leave out is no difference, while a typed form still
+    claims its list is complete (#834's `(date: Date) => string` stays `omitted-optional`)."""
+    reading = _section("Reading a form")
+    assert "Three kinds of form do not claim a complete parameter list:" in reading
+    assert ("It is compared as a call: each argument it passes must exist, by position or by name, and every required "
+            "parameter must be passed; an optional parameter it leaves out is no difference.") in reading
+    assert "An empty call `X()` is one too, so it matches a source whose parameters are all optional." in reading
+    assert ("An ellipsis (`...` or `\u2026`) in a list stands for members it does not show and claims nothing about "
+            "them") in reading
+    assert "`(...)` and `(tasks, data, dataset, ...)` leave out no parameter." in reading
+    assert ("A list of bare names, with no type, default or `?` (`connect(host, port)`, `({ themes, defaultTheme })`), "
+            "names parameters without claiming the list is complete") in reading
+    assert ("A form that writes a type or a default for a parameter (`(date: Date) => string`) claims its list is "
+            "complete: an optional parameter it leaves out is an `omitted-optional` difference") in reading
+    assert "one it adds where the source has none is no difference: calls that follow the form are valid." in reading
+    props = _section("Components")
+    assert ("An optional own prop a typed props list or a table leaves out is an `omitted-optional` difference; one a "
+            "list of bare names or a usage leaves out, and an optional inherited prop, is no difference.") in props
+
+
+def test_a_caller_following_a_narrower_form_makes_a_valid_call():
+    """A documented parameter type naming some of a union's members, a union of callables written as one callable
+    returning a union, and a form taking the unions of an overload set's parameter types are no mismatch."""
+    annotations = _section("Annotations")
+    assert ("A documented parameter type that names some of the members of the source's union is no mismatch, since a "
+            "caller passing it makes a valid call") in annotations
+    assert "a documented return type must cover every member the source can return." in annotations
+    spellings = _section("Equivalent spellings")
+    assert "`Callable[[A], X] | Callable[[A], Y]` and `(a: A) -> X | Y`" in spellings
+    overloads = _section("Overload sets")
+    assert "the unions of the overloads' types" in overloads
+
+
 def test_a_positional_caller_and_a_python_keyword_caller_are_read_as_they_call():
     """A left-out optional parameter before a written one shifts a positional caller, so it is a mismatch; Python's
     variadic names are never compared, and parameters after `*` are compared by name, not order."""
@@ -146,7 +181,7 @@ def test_a_positional_caller_and_a_python_keyword_caller_are_read_as_they_call()
             "`omitted-optional` (`slice(str, end?)` against `(str, start?, end?)`).") in reading
     assert ("The names of Python's `*args` and `**kwargs` are never compared (`**kwargs` against `**options` is no "
             "difference), and the parameters after `*` or `*args` are compared by name, not order.") in reading
-    assert "A positional-only `/` or keyword-only `*` marker the form leaves out is not compared." in reading
+    assert "A positional-only `/` or keyword-only `*` marker the form leaves out is not compared" in reading
 
 
 def test_the_split_body_cross_check_compares_what_both_forms_write():
@@ -191,8 +226,9 @@ def test_a_component_s_own_props_are_written_in_its_package():
             "optional `children` of `PropsWithChildren<P>`. A prop the form writes must exist on `P`, own or "
             "inherited.") in components
     assert ("So is a required own prop it leaves out, and a required inherited one (a `Link`'s `href`) left out of a "
-            "full form. An optional own prop it leaves out is an `omitted-optional` difference, and an optional "
-            "inherited prop it leaves out is no difference.") in components
+            "full form. An optional own prop a typed props list or a table leaves out is an `omitted-optional` "
+            "difference; one a list of bare names or a usage leaves out, and an optional inherited prop, is no "
+            "difference.") in components
     assert "`| null` and `| undefined` on an optional prop are no difference (`VariantProps` adds both)." in components
     assert ("A props type name the form writes that the source does not declare (`Button(props: ButtonProps)` against "
             "a source with no `ButtonProps`) is not compared by name, only the props the form lists.") in components

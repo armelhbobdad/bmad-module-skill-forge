@@ -1893,7 +1893,7 @@ def test_the_fallback_scan_reads_an_overload_set_whole():
     rules = _flow(_slice(_read(SIGNATURE_RULES), "## Overload sets", "## Difference tags"))
     assert ("A declaration opening an overload set (Python `@overload` stubs, TS bodiless signatures) is read through "
             "its implementation: a documented signature matching the implementation or any overload is no "
-            "mismatch.") in rules
+            "mismatch") in rules
     for path in (COVERAGE, COVERAGE_TIERS):
         assert "is read through its implementation" not in _read(path), path.name
 
