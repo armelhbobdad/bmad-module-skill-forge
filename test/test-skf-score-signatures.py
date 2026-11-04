@@ -23,6 +23,12 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     `signature_form: "partial"` (an Info `observation`); both still match.
     The script checks the extension and the inventory flag itself, so the
     tag alone never lowers a grade
+  - reports a return annotation the body contradicts (#835 follow-up): an
+    `annotation-contradicted` mismatch names its `evidence_line`, which the
+    script checks comes after the declaration and, with --source-root,
+    holds a `return` or an arrow function's expression body; then it is an
+    Info `observation` titled `Annotation contradicted: {name}` that asks
+    for no change to the skill, else a Critical one with a warning
   - plans each check at the declaration the skill cites (#781): for a name
     the surface records in several files, `plan --skill-dir` picks the one
     file the skill cites on a line naming it, and hands the judge every
@@ -500,6 +506,283 @@ def test_a_name_with_several_entries_is_compared_with_its_full_form(entries, com
 
 
 # --------------------------------------------------------------------------
+# a return annotation the body contradicts (#835 follow-up)
+# --------------------------------------------------------------------------
+
+VIZ_FILE = "cognee/api/v1/visualize/start_visualization_server.py"
+VIZ_LINES = [f"# line {n}" for n in range(1, 25)]
+VIZ_LINES[11] = "def visualization_server(port: int = 8001) -> Callable[[], Callable[[], None]]:"
+VIZ_LINES[18] = "    return start_visualization_server(port)"
+VIZ = {"name": "visualization_server", "kind": "function", "params": "port: int = 8001",
+       "return_type": "Callable[[], None]"}
+VIZ_SURFACE = {"exports": [{"name": "visualization_server", "kind": "function", "file": VIZ_FILE, "line": 12,
+                            "signatureLine": VIZ_LINES[11], "origin": "extraction"}],
+               "sets": {"all": ["visualization_server"]}}
+CONTRADICTED = {"name": "visualization_server", "line": 12,
+                "source_sig": "(port: int = 8001) -> Callable[[], Callable[[], None]]",
+                "documented_sig": "(port: int = 8001) -> Callable[[], None]",
+                "issue": "the declaration annotates a function that returns a function; the body returns the server's "
+                         "stop function", "difference": "annotation-contradicted", "evidence_line": 19}
+
+
+VIZ_TEXT = "\n".join(VIZ_LINES) + "\n"
+
+
+def _contradiction_run(tmp_path: Path, mismatch: dict, text: str | None = VIZ_TEXT, source_root: bool = True,
+                       entry: dict = VIZ, surface_records: list[dict] | None = None,
+                       file: str = VIZ_FILE) -> tuple[subprocess.CompletedProcess, Path]:
+    """score over one annotation-contradicted mismatch reported at `file`, whose source `text` sits there under the
+    source tree, given as --source-root when asked."""
+    root = tmp_path / "source"
+    if text is not None:
+        (root / file).parent.mkdir(parents=True, exist_ok=True)
+        (root / file).write_bytes(text.encode("utf-8"))
+    inventory = _write(tmp_path / "inventory.json", {"exports": [entry], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {**VIZ_SURFACE, **(
+        {"exports": surface_records} if surface_records is not None else {})})
+    results = _write(tmp_path / "s.txt", json.dumps({"file": file, "signature_mismatches": [mismatch]}))
+    gaps = tmp_path / "signature-gaps.json"
+    args = ["score", "--inventory", inventory, "--surface", surface, "--results", results, "--gaps-output", str(gaps)]
+    if source_root:
+        root.mkdir(parents=True, exist_ok=True)
+        args += ["--source-root", str(root)]
+    return _run(*args), gaps
+
+
+@pytest.mark.parametrize("source_root", [True, False], ids=["checked-in-the-source", "no-source-root"])
+def test_a_return_annotation_the_body_contradicts_is_an_info_observation(tmp_path, source_root):
+    """#835 follow-up (cognee visualization_server): the skill documents what the body returns, and the source's
+    annotation says otherwise. The judge reports it tagged with the body line; the script checks that line comes
+    after the declaration and, with --source-root, holds the `return`, then grades an Info observation that asks
+    for no change to the skill, so the source's contradiction is visible and the gate still passes."""
+    proc, gaps = _contradiction_run(tmp_path, CONTRADICTED, source_root=source_root)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (1, 1, 100.0)
+    assert out["mismatches"] == [{**CONTRADICTED, "file": VIZ_FILE, "severity": "Info"}]
+    assert not any("annotation-contradicted" in w for w in out["warnings"])
+    [gap] = json.loads(gaps.read_text(encoding="utf-8"))
+    assert (gap["severity"], gap["category"], gap["title"], gap["source"], gap["export"]) == (
+        "Info", "observation", "Annotation contradicted: visualization_server", f"{VIZ_FILE}:12",
+        "visualization_server")
+    assert f"`{VIZ_FILE}:19`" in gap["issue"] and CONTRADICTED["source_sig"] in gap["issue"]
+    assert gap["remediation"].startswith("No change to the skill:") and "upstream" in gap["remediation"]
+    assert f"`{VIZ_FILE}:12`" in gap["remediation"]
+    gate = _append_and_gate(tmp_path, gaps)
+    assert (gate["gate"], gate["counts"]["Critical"], gate["counts"]["Info"]) == ("passed", 0, 1)
+
+
+LATER_FUNCTION = {"name": "stop_server", "kind": "function", "file": VIZ_FILE, "line": 16,
+                  "signatureLine": "def stop_server():", "origin": "extraction"}
+
+
+@pytest.mark.parametrize("mismatch, text, kwargs, fact", [
+    ({**CONTRADICTED, "evidence_line": 15}, VIZ_TEXT, {}, "evidence_line 15 does not start with `return`"),
+    ({**CONTRADICTED, "evidence_line": 5}, VIZ_TEXT, {}, "evidence_line 5 is before the declaration"),
+    ({**CONTRADICTED, "evidence_line": 12}, VIZ_TEXT, {},
+     "evidence_line 12, the declaration line, has no expression body after its parameters"),
+    ({**CONTRADICTED, "evidence_line": 90}, VIZ_TEXT, {}, "evidence_line 90 is past the end of the file (24 lines)"),
+    (CONTRADICTED, None, {}, "evidence_line 19 is in no readable file under --source-root"),
+    (CONTRADICTED, "\n".join([*VIZ_LINES[:18], "    # return start_visualization_server(port)"]), {},
+     "evidence_line 19 does not start with `return`"),
+    # the `return` belongs to a later function: the next surface record in the file bounds the evidence line
+    (CONTRADICTED, VIZ_TEXT, {"surface_records": [*VIZ_SURFACE["exports"], LATER_FUNCTION]},
+     "evidence_line 19 is not before the next declaration in the file, at line 16"),
+    # a parameter difference is no annotation the body contradicts
+    ({**CONTRADICTED, "documented_sig": "(port: str = 8001) -> Callable[[], None]"}, VIZ_TEXT, {},
+     "its parameters differ: documented `(port: str = 8001)`, source `(port: int = 8001)`"),
+    # a documented entry that states no return type claims none, so nothing contradicts it
+    ({**CONTRADICTED, "documented_sig": "(port: int = 8001)"}, VIZ_TEXT,
+     {"entry": {k: v for k, v in VIZ.items() if k != "return_type"}},
+     "the documented signature states no return type"),
+], ids=["line-not-a-return", "line-before-the-declaration", "the-declaration-line", "past-the-end", "no-such-file",
+        "a-comment", "a-return-in-a-later-function", "a-parameter-difference", "no-documented-return-type"])
+def test_a_contradiction_whose_facts_do_not_check_is_critical(tmp_path, mismatch, text, kwargs, fact):
+    """The tag alone never lowers a grade: a documented entry with no return type, a parameter difference, an
+    evidence line before the declaration or past the next one, or, with --source-root, one that does not start with
+    `return` (a comment does not) or that the file lacks, is graded as an untagged mismatch, and a warning names
+    the fact that failed at the declaration's line."""
+    proc, gaps = _contradiction_run(tmp_path, mismatch, text, **kwargs)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert [(m["difference"], m["severity"]) for m in out["mismatches"]] == [("annotation-contradicted", "Critical")]
+    assert (out["matchingSignatures"], out["signatureAccuracy"]) == (0, 0.0)
+    [gap] = json.loads(gaps.read_text(encoding="utf-8"))
+    assert (gap["severity"], gap["category"], gap["title"]) == (
+        "Critical", "signature-mismatch", "Signature mismatch: visualization_server")
+    [warning] = [w for w in out["warnings"] if "annotation-contradicted" in w]
+    assert warning.startswith(f"{VIZ_FILE}:12: "), "the warning names the declaration's line, its fact no other"
+    assert fact in warning and "tagged annotation-contradicted" in warning and "(Critical)" in warning, warning
+
+
+def test_without_a_source_root_only_the_line_order_is_checked(tmp_path):
+    """No --source-root: a line after the declaration and before the next one is the one line fact checked, so a
+    line that holds no `return` still grades Info, while one before the declaration, or the declaration line
+    itself (only the file can show its expression body), stays Critical."""
+    proc, _ = _contradiction_run(tmp_path, {**CONTRADICTED, "evidence_line": 15}, source_root=False)
+    assert [m["severity"] for m in json.loads(proc.stdout)["mismatches"]] == ["Info"]
+    for line, fact in ((5, "evidence_line 5 is before the declaration"),
+                       (12, "evidence_line 12 is the declaration line, which only --source-root can check")):
+        proc, _ = _contradiction_run(tmp_path, {**CONTRADICTED, "evidence_line": line}, source_root=False)
+        out = json.loads(proc.stdout)
+        assert [m["severity"] for m in out["mismatches"]] == ["Critical"]
+        assert any(fact in w for w in out["warnings"]), out["warnings"]
+
+
+@pytest.mark.parametrize("line, returns", [
+    ("  return x;", True),
+    ("    return", True),
+    ("return start(port)", True),
+    ("  callback: () => void,", False),
+    ("  type F = () => void;", False),
+    ("    Some(x) => x,", False),
+    ('  log("return value")', False),
+    ("  x = 1  # return later", False),
+    ("  if (ok) return x;", False),
+    ("  // return x", False),
+    ('  "return x"', False),
+    ("  generator.return(x);", False),
+    ("  returns = x", False),
+    ("  return_value = x", False),
+    ("  startServer(port);", False),
+    ("", False),
+], ids=["return", "a-bare-return", "unindented", "a-callback-parameter", "a-type-arrow", "a-match-arm", "a-string",
+        "a-comment-after-code", "a-return-after-code", "a-line-comment", "a-string-line", "a-method-named-return",
+        "a-longer-name", "a-name-starting-with-return", "an-arrow-body-on-a-later-line", "blank"])
+def test_a_line_after_the_declaration_returns_only_when_it_starts_with_return(line, returns):
+    """A body line returns only when its text starts with the `return` keyword: a type arrow, a callback parameter,
+    a match arm, a string or a comment never does, nor does an arrow's expression body on a line of its own."""
+    lines = ["export const make = (port: number) =>", line]
+    assert mod._returns(lines, 2, 1) is returns
+
+
+@pytest.mark.parametrize("line, returns", [
+    ("export const make = (port: number) => startServer(port);", True),
+    ("export const make = async (port: number): Promise<Stop> => startServer(port);", True),
+    ("const make = <T,>(port: T): Stop => startServer(port)", True),
+    ("export default (port) => startServer(port);", True),
+    ("def make(port: int) -> Stop: return start(port)", True),
+    ("async def make(port): return await start(port)", True),
+    ("export const make = (port: number) => {", False),
+    ("export const make = (port: number) =>", False),
+    ("type F = () => void;", False),
+    ("export type F = (port: number) => Stop;", False),
+    ("  callback: () => void,", False),
+    ("    Some(x) => x,", False),
+    ("def make(port: int) -> Stop:", False),
+    ("def make(port: int) -> Stop: pass  # return later", False),
+    ("function make(port) {", False),
+    ("fun make(port: Int) = start(port)", False),
+], ids=["an-arrow", "an-async-arrow", "a-generic-arrow", "a-default-arrow", "a-one-line-def", "an-async-def",
+        "an-arrow-block", "an-arrow-body-on-the-next-line", "a-type-arrow", "an-exported-type-arrow",
+        "a-callback-parameter", "a-match-arm", "a-def", "a-def-with-another-body", "a-function-block",
+        "a-kotlin-expression-body"])
+def test_the_declaration_line_returns_only_with_its_own_expression_body(line, returns):
+    """The declaration line itself returns when its expression body follows its parameters there: an arrow
+    function's `=> expr` or a Python `def ...: return x`. A block body, a type arrow, a callback parameter, a match
+    arm or another language's expression body does not."""
+    assert mod._returns([line], 1, 1) is returns
+
+
+ONE_LINERS = {
+    "arrow": ("src/make.ts", "export const make = (port: number): Stop => startServer(port);",
+              "(port: number) => Server", "(port: number) => Stop"),
+    "def": ("pkg/make.py", "def make(port: int) -> Server: return start_server(port)",
+            "(port: int) -> Server", "(port: int) -> Stop"),
+}
+
+
+@pytest.mark.parametrize("kind", list(ONE_LINERS))
+def test_a_one_line_declaration_whose_body_returns_the_documented_type_is_info(tmp_path, kind):
+    """A one-line arrow or `def` returns on its declaration line, so `evidence_line` may be that line, once
+    --source-root shows the expression body after the parameters."""
+    file, text, source_sig, documented_sig = ONE_LINERS[kind]
+    entry = {"name": "make", "kind": "function", "params": "port", "return_type": "Stop"}
+    record = {"name": "make", "kind": "function", "file": file, "line": 1, "signatureLine": text,
+              "origin": "extraction"}
+    mismatch = {"name": "make", "line": 1, "source_sig": source_sig, "documented_sig": documented_sig,
+                "issue": "the annotation says Server; the body returns a Stop", "difference": "annotation-contradicted",
+                "evidence_line": 1}
+    proc, gaps = _contradiction_run(tmp_path, mismatch, text + "\n", entry=entry, surface_records=[record], file=file)
+    out = json.loads(proc.stdout)
+    assert [m["severity"] for m in out["mismatches"]] == ["Info"], out["warnings"]
+    assert [g["title"] for g in json.loads(gaps.read_text(encoding="utf-8"))] == ["Annotation contradicted: make"]
+
+
+@pytest.mark.parametrize("line, evidence, severity", [(30, 33, "Info"), (12, 33, "Critical")],
+                         ids=["the-later-declaration", "the-earlier-declaration"])
+def test_a_name_declared_twice_in_one_file_is_checked_at_the_declaration_the_mismatch_names(tmp_path, line, evidence,
+                                                                                          severity):
+    """Of two records of the name in the mismatch's file, the closest at or before its `line` is the declaration,
+    and the other bounds it: a `return` after the second declaration belongs to it, not to the first."""
+    lines = [f"# line {n}" for n in range(1, 40)]
+    lines[11], lines[29], lines[32] = VIZ_LINES[11], VIZ_LINES[11], VIZ_LINES[18]
+    records = [VIZ_SURFACE["exports"][0], {**VIZ_SURFACE["exports"][0], "line": 30}]
+    proc, _ = _contradiction_run(tmp_path, {**CONTRADICTED, "line": line, "evidence_line": evidence},
+                                 "\n".join(lines) + "\n", surface_records=records)
+    out = json.loads(proc.stdout)
+    assert [(m["line"], m["severity"]) for m in out["mismatches"]] == [(line, severity)]
+    if severity == "Critical":
+        assert any("evidence_line 33 is not before the next declaration in the file, at line 30" in w
+                   for w in out["warnings"]), out["warnings"]
+
+
+def test_a_name_declared_in_two_files_is_checked_at_the_mismatch_file(tmp_path):
+    """A check with candidates: the mismatch found at the second file is checked at that file's declaration (line
+    40), not at the first file's (line 50), and against that file's text."""
+    other = "cognee/api/v2/visualize.py"
+    lines = [f"# line {n}" for n in range(1, 50)]
+    lines[39], lines[42] = VIZ_LINES[11], VIZ_LINES[18]
+    records = [{**VIZ_SURFACE["exports"][0], "line": 50}, {**VIZ_SURFACE["exports"][0], "file": other, "line": 40}]
+    proc, _ = _contradiction_run(tmp_path, {**CONTRADICTED, "line": 40, "evidence_line": 43},
+                                 "\n".join(lines) + "\n", surface_records=records, file=other)
+    out = json.loads(proc.stdout)
+    assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(other, "Info")], out["warnings"]
+
+
+def test_a_file_outside_the_source_root_is_never_read(tmp_path):
+    """A mismatch whose file leaves --source-root (`../outside.py`) is not checked there, even when that file holds
+    the `return`."""
+    _write(tmp_path / "outside.py", VIZ_TEXT)
+    proc, _ = _contradiction_run(tmp_path, CONTRADICTED, None, file="../outside.py",
+                                 surface_records=[{**VIZ_SURFACE["exports"][0], "file": "../outside.py"}])
+    out = json.loads(proc.stdout)
+    assert [m["severity"] for m in out["mismatches"]] == ["Critical"]
+    assert any("evidence_line 19 is in no readable file under --source-root" in w for w in out["warnings"])
+
+
+@pytest.mark.parametrize("newline", ["\r\n", "\r"], ids=["crlf", "cr-only"])
+def test_lines_are_counted_whatever_ends_them(tmp_path, newline):
+    """A CRLF or a CR-only file has its `return` at the line an editor shows."""
+    proc, _ = _contradiction_run(tmp_path, CONTRADICTED, newline.join(VIZ_LINES) + newline)
+    out = json.loads(proc.stdout)
+    assert [m["severity"] for m in out["mismatches"]] == ["Info"], out["warnings"]
+
+
+def test_the_declaration_line_falls_back_to_the_mismatch_line():
+    """With no surface record of the name at the mismatch's file (a fallback scan's name), the declaration line is
+    the mismatch's own `line`; with records there but none at or before it, the first record's."""
+    out = mod.score([VIZ], ["visualization_server"], VIZ_SURFACE["exports"],
+                    [{"file": VIZ_FILE, "signature_mismatches": [{**CONTRADICTED, "line": 3, "evidence_line": 9}]}])
+    assert [m["severity"] for m in out["mismatches"]] == ["Critical"], "line 9 is before the record's line 12"
+    out = mod.score([VIZ], ["visualization_server"], [],
+                    [{"file": VIZ_FILE, "exports_found": ["visualization_server"],
+                      "signature_mismatches": [{**CONTRADICTED, "line": 3, "evidence_line": 9}]}])
+    assert [m["severity"] for m in out["mismatches"]] == ["Info"]
+
+
+def test_a_source_root_that_is_no_folder_exits_1_before_the_results_are_read(tmp_path):
+    """A bad --source-root is refused (exit 1) before any result is read, so a result that breaks the schema does
+    not turn it into exit 2."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [VIZ], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", VIZ_SURFACE)
+    bad = _write(tmp_path / "bad.txt", "not json")
+    for root in (str(tmp_path / "absent"), ""):
+        proc = _run("score", "--inventory", inventory, "--surface", surface, "--source-root", root, "--results", bad)
+        assert proc.returncode == 1 and "--source-root" in proc.stderr and proc.stdout == ""
+
+
+# --------------------------------------------------------------------------
 # the declaration a check reads (#781) and zero-argument entries (#794)
 # --------------------------------------------------------------------------
 
@@ -862,15 +1145,35 @@ def test_empty_params_on_a_kind_that_takes_none_is_no_signature():
     ({"file": "a.ts", "exports_found": "x", "signature_mismatches": []}, "`exports_found` must be a list"),
     # #793: a difference outside the enum is refused, the field named
     ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "difference": "bogus"}]},
-     'signature_mismatches[0]: `difference` must be one of parameter-name, omitted-optional when present, '
-     'not "bogus"'),
+     'signature_mismatches[0]: `difference` must be one of parameter-name, omitted-optional, annotation-contradicted '
+     'when present, not "bogus"'),
+    # #835: an annotation-contradicted mismatch names the body line that returns the documented type, and only it
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "difference": "annotation-contradicted"}]},
+     "signature_mismatches[0]: `evidence_line` must be a line number (an integer from 1) with `difference` "
+     "annotation-contradicted, not null"),
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "difference": "annotation-contradicted",
+                                                "evidence_line": "19"}]},
+     '`evidence_line` must be a line number (an integer from 1) with `difference` annotation-contradicted, not "19"'),
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "difference": "annotation-contradicted",
+                                                "evidence_line": 0}]},
+     "`evidence_line` must be a line number (an integer from 1) with `difference` annotation-contradicted, not 0"),
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "difference": "annotation-contradicted",
+                                                "evidence_line": True}]},
+     "`evidence_line` must be a line number (an integer from 1) with `difference` annotation-contradicted, not true"),
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "difference": "omitted-optional", "evidence_line": 19}]},
+     'signature_mismatches[0]: `evidence_line` is given only with `difference` annotation-contradicted, '
+     'not "omitted-optional"'),
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "evidence_line": 19}]},
+     "`evidence_line` is given only with `difference` annotation-contradicted, not null"),
     # #781: a mismatch's candidate `file`, when given, is a path
     ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "file": ""}]},
      'signature_mismatches[0]: `file` must be a non-empty string when present, not ""'),
     ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "file": 3}]},
      "signature_mismatches[0]: `file` must be a non-empty string when present, not 3"),
 ], ids=["not-json", "no-file", "no-mismatches", "missing-fields", "line-not-int", "exports-not-list",
-        "bad-difference", "empty-mismatch-file", "mismatch-file-not-a-string"])
+        "bad-difference", "contradicted-without-evidence-line", "evidence-line-not-int", "evidence-line-zero",
+        "evidence-line-bool", "evidence-line-on-another-tag", "evidence-line-untagged", "empty-mismatch-file",
+        "mismatch-file-not-a-string"])
 def test_a_result_that_breaks_the_schema_exits_2(tmp_path, payload, needle):
     inventory, surface = _files(tmp_path)
     bad = _write(tmp_path / "bad.txt", payload)
