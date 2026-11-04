@@ -1355,6 +1355,7 @@ def test_an_inventory_file_left_absent_or_empty_is_saved_before_it_is_validated(
     if left == "empty":
         response.write_bytes(b"")
     values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix()}
+    _exec(_command(COVERAGE, "uv run {coverageInputsScript} floor"), values, tmp_path)
     command = _command(COVERAGE, "uv run {validateInventoryScript}")
     rest = command.split("uv run {validateInventoryScript} ", 1)[1]
     for key, value in values.items():
@@ -1377,11 +1378,13 @@ def test_an_invalid_inventory_is_redispatched_once_then_halts_with_its_reason():
             "section. Invalid a second time: HALT") in section
     failures = _flow(_slice(_read(COVERAGE_BRANCHES), "## Inventory Failures", "## States 2 to 4"))
     assert "Re-dispatch the §1 subagent once, with the script's `violations[]` appended" in failures
-    assert "(an absent name as a name the skill does not write)" in failures
+    assert "(an absent name as a name the skill does not write, a floor name as one it must keep)" in failures
     assert 'HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`)' in section
+    assert "failed {schema validation | the ground-truth spot-check | the floor check} twice" in section
     assert "SKF_TEST_RESULT_JSON" not in _read(COVERAGE), "the emitter prints the line"
     table = _flow(_slice(_read(CONTRACT), "| `halt_reason` | Raised by |", "When the emitter itself"))
-    assert "| `inventory-invalid` | coverage-check.md §1a" in table
+    assert ("| `inventory-invalid` | coverage-check.md §1a: the documented inventory failed its schema check, "
+            "spot-check or floor check twice |") in table
 
 
 def test_the_spot_check_is_the_scripts():
@@ -1391,6 +1394,72 @@ def test_the_spot_check_is_the_scripts():
     assert '--skill-package "{resolved_skill_package}"' in command
     assert "grep -n" not in section and "[0, len//2, len-1]" not in section
     assert "an export named `$state` or `a.b` is neither a shell variable nor a regex" in _flow(section)
+
+
+FLOOR_COMMAND = ('uv run {coverageInputsScript} floor --skill-dir "{resolved_skill_package}" '
+                 '--output "{run_dir}/inventory-floor.json"')
+
+
+def test_the_floor_runs_before_the_inventory_subagent():
+    """#790: the floor, the names the skill documents in a fixed form, is written before the §1 reader is
+    dispatched, and both paths read it: the subagent is given its path, the parent without subagents builds
+    from it, and §1a refuses an inventory that leaves one of its names out. Its form rules are the script's."""
+    text = _read(COVERAGE)
+    section1 = _slice(text, "### 1. Extract Documented Exports", "#### 1a.")
+    assert _command(COVERAGE, "uv run {coverageInputsScript} floor") == FLOOR_COMMAND
+    assert section1.index(FLOOR_COMMAND) < section1.index("Delegate the reading of the skill under test")
+    flow = _flow(section1)
+    assert ('Exit 1 printed its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase '
+            '`coverage-check:inventory`).') in flow
+    assert ("It is given `{run_dir}/inventory-floor.json` too, and lists each name there with an origin in a file "
+            "it reads, choosing its kind from the name's `kindLabel`, the skill's own label, when it has one.") in flow
+    assert ("Without subagents, the parent builds the same JSON from the same files and `inventory-floor.json` and "
+            "saves it to that file; §1a's checks still run on it.") in flow
+    for rule in ("first cell", "public declaration", "Exports, Symbol"):
+        assert rule not in flow, rule
+    assert "first cell" in _flow(runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py").__doc__)
+    section1a = _flow(_slice(text, "#### 1a. Parent-Side Schema Validation", "### 1b."))
+    assert "refuses it when it leaves out a floor name those files write" in section1a
+    command = _command(COVERAGE, "uv run {validateInventoryScript}")
+    assert command.endswith(' --floor "{run_dir}/inventory-floor.json"'), command
+
+
+def test_the_floor_and_validator_commands_run_from_the_prose(tmp_path):
+    """#790 through the step's own commands: the floor lists the names SKILL.md writes in an export table's first
+    column and as a code-only heading; an inventory that drops one fails §1a with exit 2, the name and its origin
+    in `violations` and no `inventory.json` left from an earlier attempt; with the name added it validates."""
+    skill = _write_tree(tmp_path / "skill", {
+        "SKILL.md": "---\nname: demo\ndescription: Demo. Use when testing.\n---\n# Demo\n\n"
+                    "| Export | Kind | Purpose |\n| --- | --- | --- |\n| `fetchData` | function | Fetches. |\n\n"
+                    "### `Options`\n\nConfigures.\n",
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix()}
+    floor = _exec(_command(COVERAGE, "uv run {coverageInputsScript} floor"), values, tmp_path)
+    assert [(n["name"], n["kindLabel"], n["origins"]) for n in floor["names"]] == [
+        ("Options", None, [{"file": "SKILL.md", "line": 11, "form": "heading"}]),
+        ("fetchData", "function", [{"file": "SKILL.md", "line": 9, "form": "table-row"}]),
+    ]
+    assert json.loads((run / "inventory-floor.json").read_bytes()) == floor
+    entries = [{"name": "fetchData", "kind": "function", "params": "", "return_type": "string",
+                "description": "Fetches."}]
+    response = run / "inventory-response.txt"
+    response.write_bytes(json.dumps({"exports": entries, "cross_check_mismatches": []}).encode("utf-8"))
+    (run / "inventory.json").write_bytes(b"{}")
+    command = _command(COVERAGE, "uv run {validateInventoryScript}")
+    proc = _run(command, values, tmp_path)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [
+        "floor: `Options` is documented at SKILL.md:11 (heading), but no inventory entry lists it"]
+    assert result["floor"] == {"names": 2, "checked": 2, "absent": ["Options"]}
+    assert not (run / "inventory.json").exists()
+    entries.append({"name": "Options", "kind": "interface", "description": "Configures."})
+    response.write_bytes(json.dumps({"exports": entries, "cross_check_mismatches": []}).encode("utf-8"))
+    validated = _exec(command, values, tmp_path)
+    assert validated["valid"] is True and validated["floor"] == {"names": 2, "checked": 2, "absent": []}
+    assert (run / "inventory.json").is_file()
 
 
 def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
@@ -1671,6 +1740,7 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
 
     census = _exec(_command(COVERAGE, "uv run {coverageInputsScript} census"), values, tmp_path)
     assert census["docsOnly"] is False
+    assert _exec(_command(COVERAGE, "uv run {coverageInputsScript} floor"), values, tmp_path)["names"] == []
     validated = _exec(_command(COVERAGE, "uv run {validateInventoryScript}"), values, tmp_path)
     assert validated["valid"] is True and (run / "inventory.json").is_file()
     surface = _exec(_choose(_command(COVERAGE, "surface --extraction")), values, tmp_path)
@@ -1769,6 +1839,7 @@ def test_the_prose_scalar_branch_counts_the_named_set(tmp_path):
     values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(),
               "{ledgerFile}": (tmp_path / "test-findings-20260101T000000Z-abcdef12.json").as_posix()}
 
+    _exec(_command(COVERAGE, "uv run {coverageInputsScript} floor"), values, tmp_path)
     assert _exec(_command(COVERAGE, "uv run {validateInventoryScript}"), values, tmp_path)["valid"] is True
     surface = _exec(_choose(_command(COVERAGE, "surface --extraction"), keep=("--monorepo", "--curated-subset")),
                     values, tmp_path)
@@ -1821,6 +1892,7 @@ def test_the_prose_fallback_scan_runs(tmp_path):
     }) + "\n```\n").encode("utf-8"))
     values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(), "<n>": "1"}
 
+    _exec(_command(COVERAGE, "uv run {coverageInputsScript} floor"), values, tmp_path)
     assert _exec(_command(COVERAGE, "uv run {validateInventoryScript}"), values, tmp_path)["valid"] is True
     plan = _exec(_command(COVERAGE_TIERS, "uv run {scoreSignaturesScript} plan"), values, tmp_path)
     assert (plan["files"], plan["documentedSignatures"]) == (
@@ -1927,7 +1999,9 @@ COVERAGE_CHAR_BUDGET = 36_000
 
 # The text coverage-check.md carved into coverage-check-branches.md, byte for byte as the step held it at
 # 3ac917ef (the surplus paragraph's guard sentence as #788 and #813 rewrote it; §1a's failures as #814 rewrote
-# them, the refused file deleted before the re-dispatch; §2c's scalar and stack commands, the scalar branch's
+# them, the refused file deleted before the re-dispatch, and as #790 did, a floor name one the skill must keep and
+# a floor file exit 1 names written again;
+# §2c's scalar and stack commands, the scalar branch's
 # counted set and the surplus paragraph's subject as #791 and #792 moved, added and rewrote them): each
 # section's blocks, which the step no longer holds.
 CARVED_TO_BRANCHES = {
@@ -1940,10 +2014,12 @@ CARVED_TO_BRANCHES = {
         "  ```\n"
         "\n"
         "  Re-dispatch the §1 subagent once, with the script's `violations[]` appended to its instructions (an "
-        "absent name as a name the skill does not write): it writes its new response to that file, or returns it "
+        "absent name as a name the skill does not write, a floor name as one it must keep): it writes its new "
+        "response to that file, or returns it "
         "for you to save there, as §1 says. Run the §1a command again.\n"
         "- **Exit 1** (no input, a file that cannot be read, or a package with no readable SKILL.md): correct the "
-        "file and run it again."
+        "file and run it again. An error that names `--floor` (the floor file missing or malformed): run §1's "
+        "`floor` command again, whose exit 1 halts the run `helper-failed` as §1 says, then the §1a command."
     )],
     "States 2 to 4": [(
         "- **State 2** (`{forge_provenance_map}`, the provenance map init.md §2 bound): the union of its "
