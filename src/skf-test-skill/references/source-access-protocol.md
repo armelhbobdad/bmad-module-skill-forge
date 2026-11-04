@@ -41,6 +41,10 @@ A provenance map may hold **bookkeeping variants** of one export, artifacts of h
 
 A map whose raw count equals `stats.effective_denominator` is already canonical: `surface` folds nothing (`canonical.skipped`). A non-zero `canonical.residual` after folding (raw 222, canonical 215, `effective_denominator` 216) is an unexplained-reconciliation note; do not invent fold rules to close it. One judgment stays here: a variant the library's public surface genuinely distinguishes (an `a11y_Checkbox` documented and installed on its own) is a real export: pass it as `--keep`. Check SKILL.md for explicit documentation of the variant first; when in doubt, keep it and report both forms.
 
+### What the Surface Holds
+
+The surface holds the names the entry points export, less those defined in a file the brief scopes out (`excluded.outsideScope`); the recipes' internal matches are never part of it. A Python `__init__.py` nested in the folder of another package that exports a name is no barrel: its names (`excluded.nestedEntries`) leave only the `all` and `root` sets and the umbrella ratio, and `plan` still compares their signatures. When a `scope.include` glob matches no file (`guards.staleScope.fires`), the root exports defined in a file no glob covers and the brief does not exclude are back in it (`guards.staleScope.restored`). A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) and counts no name.
+
 ## Source Access Resolution
 
 Before analysis, determine source access level. Walk through these states in order — use the first that succeeds:
