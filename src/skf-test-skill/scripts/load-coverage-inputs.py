@@ -54,7 +54,10 @@ reading files and writing one JSON object:
                             glob that matches it (`excludeGlob`) or no
                             scope.include glob covering it
                             (`outsideInclude`); exports[] only gives each name's
-                            kind, line and signature line, looked up by the
+                            kind, line and signature line (a local export
+                            list's item: its binding's declaration_line and
+                            declaration_signature_line, when the extractor
+                            records them), looked up by the
                             name its defining file gives it (an aliased
                             re-export's `local`) and that file.
                             extraction_gaps are listed to read by eye, and
@@ -790,10 +793,16 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
         # under the name its defining file gives it, `local`.
         found = index.get((info.get("local") or name, file)) or index.get((name, file))
         kind = found.get("export_type") if found else None
+        # A local `export { ... }` list's item is planned at the declaration it
+        # names (#836): the line and the signature line both come from that pair.
+        if found and isinstance(found.get("declaration_line"), int):
+            line, signature_line = found["declaration_line"], found.get("declaration_signature_line")
+        elif found:
+            line, signature_line = found.get("source_line"), found.get("signature_line")
+        else:
+            line, signature_line = info.get("line"), None
         (nested_records if info.get("entry") in nested else records).append(
-            _record(name, None if kind == "re-export" else kind, file,
-                    found.get("source_line") if found else info.get("line"),
-                    found.get("signature_line") if found else None, "extraction"))
+            _record(name, None if kind == "re-export" else kind, file, line, signature_line, "extraction"))
 
     # The umbrella ratio reads the public rows alone: an other definition is no root barrel name there.
     root_names = [p for p in _members_in_place(rows["public"]) if p.get("entry") in root_files]

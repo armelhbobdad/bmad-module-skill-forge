@@ -641,6 +641,36 @@ def test_an_aliased_reexport_takes_the_kind_of_its_definition(tmp_path):
         "interface", 3, "export interface Settings {")
 
 
+def test_a_local_list_item_is_planned_at_its_declaration(tmp_path):
+    """#836: an item of a local `export { ... }` list gives the surface the line and signature line of the
+    declaration the extractor records for it, both from that one pair; a record without them (or with no line
+    in it) gives the list's, as before, and no other record moves."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["exports"].append({"export_name": "NativeButton", "export_type": "function", "source_file": "src/native.tsx",
+                            "source_line": 40, "signature_line": "export { NativeButton, nativeVariants }",
+                            "declaration_line": 15, "declaration_signature_line": "const NativeButton = ({"})
+    data["entry_point_diff"]["public"].append({"name": "NativeButton", "entry": "src/index.ts", "via": "re-export",
+                                               "file": "src/native.tsx", "line": 40})
+    plain = json.loads(json.dumps(data))
+    del plain["exports"][-1]["declaration_line"], plain["exports"][-1]["declaration_signature_line"]
+    unset = json.loads(json.dumps(data))
+    unset["exports"][-1]["declaration_line"] = None
+    surfaces = {key: _surface(tmp_path / key, "--extraction", _write(tmp_path / key / "e.json", extraction))
+                for key, extraction in (("declared", data), ("plain", plain), ("unset", unset))}
+
+    def button(key: str) -> tuple:
+        (record,) = [e for e in surfaces[key]["exports"] if e["name"] == "NativeButton"]
+        return record["kind"], record["file"], record["line"], record["signatureLine"]
+
+    assert button("declared") == ("function", "src/native.tsx", 15, "const NativeButton = ({")
+    assert button("plain") == button("unset") == (
+        "function", "src/native.tsx", 40, "export { NativeButton, nativeVariants }")
+    others = {key: [e for e in out["exports"] if e["name"] != "NativeButton"] for key, out in surfaces.items()}
+    assert others["declared"] == others["plain"] == others["unset"]
+    rest = {key: {k: v for k, v in out.items() if k not in ("inputs", "exports")} for key, out in surfaces.items()}
+    assert rest["declared"] == rest["plain"] == rest["unset"]
+
+
 # #830: the runner's storybook shape. Core's `./preview-api` subpath re-exports its composeStories by name (the
 # public row); react's root entry point passes react's own on through `export *` (an other definition, in scope
 # too) beside StoryObj. This is skf-extract-public-api.py's output for the STORYBOOK_TREE below, trimmed.
@@ -1900,6 +1930,43 @@ def test_a_real_extraction_feeds_the_surface(tmp_path):
                                                               "fetchData": "function", "helper": "function"}
     config = next(e for e in out["exports"] if e["name"] == "Config")
     assert (config["file"], config["line"]) == ("src/impl.ts", 1)
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+def test_a_real_local_list_item_feeds_its_declaration_line(tmp_path):
+    """#836 end to end: the barrel re-exports NativeButton from a file that declares it at line 1 and lists it in
+    `export { ... }` at line 4. The runner keeps the item at the list and records the declaration, and
+    score-signatures.py plans the check at the declaration."""
+    source = tmp_path / "src"
+    _write(source / "package.json", '{"name": "demo", "version": "1.0.0", "exports": {".": "./src/index.ts"}}\n')
+    _write(source / "src" / "index.ts", "export { NativeButton } from './native-button';\n")
+    _write(source / "src" / "native-button.tsx", "const NativeButton = ({\n  label,\n}: Props) => label\n"
+                                                 "export { NativeButton }\n")
+    brief = _write(tmp_path / "skill-brief.yaml", "name: demo\nlanguage: typescript\n"
+                                                   "scope:\n  type: full-library\n  include: ['src/**']\n")
+    extraction = tmp_path / "run" / "extract-full.json"
+    extraction.parent.mkdir()
+    proc = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source),
+                           "--brief", brief, "--tier", "Forge", "--head-cap", "0", "--output", str(extraction)],
+                          capture_output=True, text=True, timeout=600)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(extraction.read_text(encoding="utf-8"))
+    (item,) = [e for e in data["exports"] if e["source_file"] == "src/native-button.tsx"]
+    assert (item["source_line"], item["signature_line"], item["citation"]) == (
+        4, "export { NativeButton }", "[AST:src/native-button.tsx:L4]")
+    out = _surface(tmp_path, "--extraction", str(extraction))
+    assert [(e["name"], e["kind"], e["file"], e["line"]) for e in out["exports"]] == [
+        ("NativeButton", "function", "src/native-button.tsx", 1)]
+    inventory = _write(tmp_path / "inventory.json", {"exports": [
+        {"name": "NativeButton", "kind": "function", "params": "label", "return_type": "string"},
+    ], "cross_check_mismatches": []})
+    plan = json.loads(subprocess.run([sys.executable, str(SCORE_SIGNATURES), "plan", "--inventory", inventory,
+                                      "--surface", str(tmp_path / "surface.json")],
+                                     capture_output=True, text=True, check=True).stdout)
+    assert [(f["file"], [(c["name"], c["line"], c["signatureLine"]) for c in f["checks"]]) for f in plan["files"]] == [
+        ("src/native-button.tsx", [("NativeButton", 1, "const NativeButton = ({")])]
 
 
 COGNEE_TREE = {

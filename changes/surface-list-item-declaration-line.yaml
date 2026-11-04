@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill now plans the signature check of a name exported through a local `export { ... }` list, such as the `export { Button, buttonVariants }` that ends a shadcn/ui component file, at the declaration the judge compares instead of the list line, so the judge no longer searches the file for it. The recipe runner records such an item's same-file declaration in two new keys, `declaration_line` and `declaration_signature_line`, and keeps its `source_line`, `signature_line` and citation at the list, so Create Skill's citations do not change. The surface's `line` and `signatureLine` take the declaration, which also moves the Sources and Source Locations Test Skill takes from the surface to it. A list item that names an import or a destructured binding stays at the list.
+issues: [836]

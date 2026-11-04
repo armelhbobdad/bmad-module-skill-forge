@@ -385,7 +385,11 @@ the line cap, say), which the caller then reads by eye. An item of a local `expo
 list takes instead the type of the top-level binding it names in its file:
 what the recipes record for that declaration exported in place (a const
 bound to an arrow function or a function expression is a function), or
-`re-export` for an import.
+`re-export` for an import. When that binding is declared in the file (not
+an import or a destructured name), the item also gets `declaration_line`
+and `declaration_signature_line`, its `$NAME` line and the source line
+holding it (an overload set's first signature); its `source_line`,
+`signature_line` and `citation` stay at the list.
 
 Entry points. The export surface each package declares: every subpath of a
 package.json `exports` map (committed .d.ts/.d.mts targets outside src/
@@ -551,7 +555,10 @@ Output JSON (stdout, or -o):
                  "citation": "[AST:<file>:L<line>]", "ast_recipe",
                  "ast_node_type", "export_type", "language",
                  "from": "<module>" | null, "from_file": "<file>" | null,
-                 "confidence": "T1", "extraction_method": "ast-grep"}, ...],
+                 "confidence": "T1", "extraction_method": "ast-grep",
+                 # only on a local export list item whose binding is
+                 # declared in the file:
+                 "declaration_line": N, "declaration_signature_line": "<line>"}, ...],
     "aggregates": {"exports": N, "by_type": {"function": N, ...},
                    "t1": N, "t1_low": 0},
     "entry_points": {"status": "barrel" | "empty-barrel" | "no-entry-point"
@@ -2009,18 +2016,22 @@ def _binding_rules(language: str) -> list[dict]:
     return rules + [r for r in _trace_rules(language) if r["id"] in IMPORT_RULES]
 
 
-def _binding_types(matches: list[dict]) -> dict[tuple[str, str], str]:
-    """(file, name) -> the export type of the top-level binding `name` has
-    in that file, from the matches of _binding_rules."""
+def _bindings(matches: list[dict]) -> dict[tuple[str, str], dict]:
+    """(file, name) -> the top-level binding `name` has in that file, from
+    the matches of _binding_rules: its form, the export type BINDING_TYPES
+    gives it (`type`), and the `line` and `signature_line` of its match. Of
+    several matches of the winning form (an overload set's signatures), the
+    lowest line wins, the line merge_exports keeps for a name."""
     rank = list(BINDING_TYPES)
-    best: dict[tuple[str, str], str] = {}
+    best: dict[tuple[str, str], tuple[tuple[int, int], dict]] = {}
     for m in matches:
         form = "import" if m["rule"] in IMPORT_RULES else m["rule"].removeprefix(f"{BINDING_RULE}-")
         if form in BINDING_TYPES and m["name"]:
-            key = (m["file"], m["name"])
-            if key not in best or rank.index(form) < rank.index(best[key]):
-                best[key] = form
-    return {key: BINDING_TYPES[form] for key, form in best.items()}
+            key, order = (m["file"], m["name"]), (rank.index(form), m["line"])
+            if key not in best or order < best[key][0]:
+                best[key] = (order, {"form": form, "type": BINDING_TYPES[form], "line": m["line"],
+                                     "signature_line": m["signature_line"]})
+    return {key: binding for key, (_, binding) in best.items()}
 
 
 # --------------------------------------------------------------------------
@@ -2743,7 +2754,10 @@ def _type_list_items(exe: str, root: Path, folder: Path, matches: list[dict], ex
     export_specifier with no `from`) the type of the top-level binding it
     names in its file, as BINDING_TYPES has it; the recipe's own
     export_type stays when no such binding has the name (a destructured
-    one)."""
+    one). A binding declared in the file (not an import) also gives the
+    item `declaration_line` and `declaration_signature_line`, its line and
+    source line; the item's own `source_line`, `signature_line` and
+    citation stay at the list."""
     items = [e for e in exports if e["ast_node_type"] == "export_specifier" and e["from"] is None]
     if not items:
         return
@@ -2755,10 +2769,16 @@ def _type_list_items(exe: str, root: Path, folder: Path, matches: list[dict], ex
     languages = sorted({lang for f in files for lang in _rule_languages(_file_language(f) or "")}
                        & set(RECIPE_LANGUAGES))
     rules = [rule for language in languages for rule in _binding_rules(language)]
-    types = _binding_types(_scan(exe, root, folder, rules, files, errors, clock))
+    bindings = _bindings(_scan(exe, root, folder, rules, files, errors, clock))
     for e in items:
         name = local.get((e["source_file"], e["ast_recipe"], e["export_name"]), e["export_name"])
-        e["export_type"] = types.get((e["source_file"], name), e["export_type"])
+        binding = bindings.get((e["source_file"], name))
+        if binding is None:
+            continue
+        e["export_type"] = binding["type"]
+        if binding["form"] != "import":
+            e["declaration_line"] = binding["line"]
+            e["declaration_signature_line"] = binding["signature_line"]
 
 
 # --------------------------------------------------------------------------
