@@ -5,4 +5,4 @@ summary: |
 migration: |
   For a skill that now stops at the hard gate on such a gap, run `@Ferris US <skill> --from-test-report` on that test report, or document by hand the parameters the source declares (for a component, its props), then run Test Skill again. In a monorepo, first check that each gap's Source is a file of the package the skill documents: when the skill's citations name none or several of the files that declare the name, Test Skill can cite another package's declaration of it, and the repair would rewrite the export's documentation from that file. Fix such a gap by hand instead, with an `[AST:]` or `[SRC:]` citation of the skill's own file on the line that names the export, so the next test compares that declaration.
 issues: [794]
-prs: [850, 862]
+prs: [850, 862, 864]
