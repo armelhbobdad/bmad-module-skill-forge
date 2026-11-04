@@ -1,6 +1,6 @@
 # Coverage Check: Branch Sections
 
-Load this file only from the coverage-check.md sentence that names one of its sections, and follow that section alone: **Inventory Failures** from coverage-check.md §1a when the inventory check fails; **States 2 to 4** from coverage-check.md §2 when the source is not local, and only its State 2 command from coverage-check.md §2b when `rebuild` is `provenance-fold`; **Scalar and Stack Branches** from coverage-check.md §2c on the scalar or stack branch; **Denominator Candidates** from coverage-check.md §4 when `denominator.clause` is `stratified-scope` or `multi-entry`. Load it once: when another sentence names one of its sections, read that section from the copy already loaded. A bare § in a section is coverage-check.md's. coverage-check.md's frontmatter bindings, its run files, its per-file results and its §2 **Exits** apply here unchanged. When the section is done, continue in coverage-check.md right after the sentence that loaded it.
+Load this file only from the coverage-check.md sentence that names one of its sections, and follow that section alone: **Inventory Failures** from coverage-check.md §1a when the inventory check fails; **States 2 to 4** from coverage-check.md §2 when the source is not local, and only its State 2 command from coverage-check.md §2b when `rebuild` is `provenance-fold`; **Scalar and Stack Branches** from coverage-check.md §2c on the scalar or stack branch; **Denominator Candidates** from coverage-check.md §4 when `denominator.clause` is `stratified-scope` or `multi-entry`; **Metadata Count Cross-Check** from coverage-check.md §4b. Load it once: when another sentence names one of its sections, read that section from the copy already loaded. A bare § in a section is coverage-check.md's. coverage-check.md's frontmatter bindings, its run files, its per-file results and its §2 **Exits** apply here unchanged. When the section is done, continue in coverage-check.md right after the sentence that loaded it.
 
 ## Inventory Failures
 
@@ -59,3 +59,13 @@ coverage-check.md §5b records this gap from the run files:
 - exports-map subpath union: {subpathUnion | absent}        {← chosen if the barrel branch's set}
 - root barrel: {rootBarrel | absent}                               {secondary candidate: root-barrel-vs-subpath-union audit}
 ```
+
+## Metadata Count Cross-Check
+
+`{coherenceScript}` compares the `coverage-inputs.json` counts and owns every skip (a stack, a reference app, a cluster with fewer than two counts, drift within its threshold):
+
+```bash
+uv run {coherenceScript} --inputs "{run_dir}/coverage-inputs.json" > "{run_dir}/metadata-coherence.json"
+```
+
+A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its call and records no count finding, and note the error in the Coverage Analysis section. §5b records each `findings[]` entry: a Medium entry as a Medium `metadata-drift` gap and an Info entry as an Info `multi-denominator` gap. They describe data quality and change no denominator. Record the denominator of a stack (`Denominator: stack composition ({N} cited contracts)` or `({N} libraries + integration pairs)`, from `stack.basis`) and of a reference app (`Denominator: pattern-surface ({pattern_surfaces_documented})`).

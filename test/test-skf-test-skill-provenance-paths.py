@@ -1701,7 +1701,7 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     assert (scalar["stale"], scalar["staleApplicable"]) == ([], True)
     coverage = _exec(_command(COVERAGE, "--denominator-source barrel").replace("<set>", "all"), values, tmp_path)
     assert (coverage["documented"], coverage["denominator"], coverage["exportCoverage"]) == (3, 3, 100.0)
-    coherence = _exec(_command(COVERAGE, "uv run {coherenceScript}"), values, tmp_path)
+    coherence = _exec(_command(COVERAGE_BRANCHES, "uv run {coherenceScript}"), values, tmp_path)
     assert coherence["findings"] == []
     external = _exec(_command(EXTERNAL, "uv run {externalScoreScript}").replace(
         "<score or null>", "80", 1).replace("<score or null>", "null"), values, tmp_path)
@@ -2031,6 +2031,23 @@ CARVED_TO_BRANCHES = {
         "root-barrel-vs-subpath-union audit}\n"
         "```"
     )],
+    "Metadata Count Cross-Check": [(
+        "`{coherenceScript}` compares the `coverage-inputs.json` counts and owns every skip (a stack, a "
+        "reference app, a cluster with fewer than two counts, drift within its threshold):\n"
+        "\n"
+        "```bash\n"
+        "uv run {coherenceScript} --inputs \"{run_dir}/coverage-inputs.json\" > "
+        "\"{run_dir}/metadata-coherence.json\"\n"
+        "```\n"
+        "\n"
+        "A non-zero exit leaves the script's error, or nothing, in that file: delete it, so §5b skips its "
+        "call and records no count finding, and note the error in the Coverage Analysis section. §5b records "
+        "each `findings[]` entry: a Medium entry as a Medium `metadata-drift` gap and an Info entry as an "
+        "Info `multi-denominator` gap. They describe data quality and change no denominator. Record the "
+        "denominator of a stack (`Denominator: stack composition ({N} cited contracts)` or `({N} libraries + "
+        "integration pairs)`, from `stack.basis`) and of a reference app (`Denominator: pattern-surface "
+        "({pattern_surfaces_documented})`)."
+    )],
 }
 
 
@@ -2072,6 +2089,7 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
         "States 2 to 4": ["### 2. Analyze Source Code", "### 2b."],
         "Scalar and Stack Branches": ["### 2c."],
         "Denominator Candidates": ["### 4. The Denominator Record"],
+        "Metadata Count Cross-Check": ["### 4b. Metadata Export-Count Coherence Cross-Check"],
     }
     assert re.findall(r"^## (.+)$", branches, re.M) == list(loads) == list(CARVED_TO_BRANCHES)
     heading, fenced, pointers = None, False, []
