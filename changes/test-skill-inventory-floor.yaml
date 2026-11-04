@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a gap for a name it documents in an export table, a code-only heading or a cited declaration block, document that name correctly or remove it from the skill, then run Test Skill again. The floor checks SKILL.md and the reference files the reader lists, and the run's `inventory-floor.json` lists each name's `origins`, so find the line that put the name in the floor. When the name is not an export (an example, or a heading over something that is not an export), change that line, for example rename the heading or move the citation comment out of the example block, rather than document a name that is not an export.
 issues: [790]
+prs: [872]
