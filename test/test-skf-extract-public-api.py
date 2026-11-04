@@ -3033,7 +3033,8 @@ class TestFullRuns:
 
     def test_a_local_list_item_takes_its_binding_type(self, tmp_path, capsys) -> None:
         """A local list item is typed by the binding it names (#559), and
-        cites the whole line of the list."""
+        records the declaration it names (#836), the list's own line kept:
+        it cites the whole line of the list."""
         root = _tree(tmp_path, LOCAL_LISTS)
         _, out = _full(capsys, root)
         types = {e["export_name"]: e["export_type"] for e in out["exports"]}
@@ -3044,6 +3045,57 @@ class TestFullRuns:
         assert button["signature_line"] == "export { buttonVariants, Button, Icon, Card, Store, picked, cva, Radix }"
         assert out["aggregates"]["by_type"] == {"class": 1, "const": 3, "enum": 1, "function": 2, "interface": 1,
                                                 "re-export": 2, "type": 1}
+        rows = LOCAL_LISTS["src/button.tsx"].splitlines()
+        # each item names a declaration in the file: its line and the source line holding it (`default` is Tone's)
+        declared = {"buttonVariants": 3, "Button": 4, "Icon": 5, "Card": 6, "DialogProps": 7, "Size": 8,
+                    "default": 9, "Store": 10}
+        assert {e["export_name"]: (e["declaration_line"], e["declaration_signature_line"])
+                for e in out["exports"] if "declaration_line" in e} == {
+            name: (line, rows[line - 1]) for name, line in declared.items()}
+        assert button["declaration_signature_line"] == "const Button = React.forwardRef((p, r) => null)"
+        # an import and a destructured name have no declaration of their own: no key, not a null one
+        assert [e["export_name"] for e in out["exports"]
+                if not {"declaration_line", "declaration_signature_line"} & e.keys()] == ["Radix", "cva", "picked"]
+        # the item itself stays at its list: its line, the whole list line, its citation and no params
+        lists = {name: 12 for name in types} | {"DialogProps": 13, "Size": 13, "default": 14}
+        assert {e["export_name"]: (e["source_line"], e["signature_line"], e["citation"], e["params"])
+                for e in out["exports"]} == {
+            name: (line, rows[line - 1], f"[AST:src/button.tsx:L{line}]", None) for name, line in lists.items()}
+
+    def test_a_multi_line_list_item_records_its_declaration(self, tmp_path, capsys) -> None:
+        """#836: an item of a list split one per line keeps its own line and
+        records the line its declaration opens on, not the parameters after it."""
+        root = _tree(tmp_path, {"src/select.tsx": "function Select({\n  a,\n}: P) {}\nexport {\n  Select,\n}\n"})
+        _, out = _full(capsys, root)
+        (select,) = out["exports"]
+        assert (select["source_line"], select["signature_line"], select["declaration_line"],
+                select["declaration_signature_line"]) == (5, "Select,", 1, "function Select({")
+
+    def test_an_overloaded_list_item_records_its_first_signature(self, tmp_path, capsys) -> None:
+        """#836: of an overload set, the declaration recorded is its first
+        signature, the line the set exported in place is recorded at."""
+        root = _tree(tmp_path, {"src/f.ts": ("function f(a: string): string;\n"
+                                             "function f(a: number): number;\n"
+                                             "function f(a: unknown) { return a }\n"
+                                             "export { f }\n")})
+        _, out = _full(capsys, root)
+        (f,) = out["exports"]
+        assert (f["export_type"], f["source_line"], f["declaration_line"], f["declaration_signature_line"]) == (
+            "function", 4, 1, "function f(a: string): string;")
+
+    def test_a_list_item_records_the_binding_its_type_comes_from(self, tmp_path, capsys) -> None:
+        """#836: the declaration recorded is the binding that gives the item
+        its type, a const before an interface of the same name on a lower
+        line, and it may come after the list."""
+        root = _tree(tmp_path, {
+            "src/props.ts": "interface Props { a: string }\nconst Props = (p: Props) => p\nexport { Props }\n",
+            "src/late.ts": "export { Late }\nconst Late = () => 1\n",
+        })
+        _, out = _full(capsys, root)
+        assert {e["export_name"]: (e["export_type"], e["source_line"], e["declaration_line"],
+                                   e["declaration_signature_line"]) for e in out["exports"]} == {
+            "Props": ("function", 3, 2, "const Props = (p: Props) => p"),
+            "Late": ("function", 1, 2, "const Late = () => 1")}
 
     def test_a_rush_monorepo(self, tmp_path, capsys) -> None:
         root = _tree(tmp_path, RUSH_MONOREPO)
