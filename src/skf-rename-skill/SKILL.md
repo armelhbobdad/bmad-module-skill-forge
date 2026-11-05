@@ -32,7 +32,7 @@ These rules apply to every step in this workflow:
 - Never allow a rename to collide with an existing skill name
 - Never rename a folder SKF did not generate: select.md §4a takes that verdict from the inventory helper
 - Only load one step file at a time — never preload future steps
-- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`), wait for every long-running command to exit before the next instruction, and never end a turn while either still runs: under `claude -p` a run stops when its turn ends.
+- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`) and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
 - Every helper is required: select.md §1, §5's validator call and execute.md §0 halt (exit 4) without one, and no stage does a helper's write, scan or check by hand
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)

@@ -33,7 +33,7 @@ These rules apply to every step in this workflow:
 - Never purge content SKF did not generate: select.md §8b takes the purge verdict for the skill folder and its forge folder from the inventory helper; a forge folder SKF did not generate is left in place, and a purge SKF cannot check is refused
 - Only load one step file at a time — never preload future steps
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread, with two exceptions. A helper On-Activation §4 resolves is never replaced by hand (a missing one halts the run before the first prompt): never type an envelope or edit the manifest or a context file yourself. And never decide by hand whether SKF generated a folder: without the inventory helper, select.md offers manifest skills only and refuses every purge
-- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`), wait for every long-running command to exit before the next instruction, and never end a turn while either still runs: under `claude -p` a run stops when its turn ends.
+- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`) and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision

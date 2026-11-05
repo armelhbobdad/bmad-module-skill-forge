@@ -39,7 +39,7 @@ If `{ccc}` (from step 1) is false, go to section 3 with no output. Otherwise con
 
 Unless `{quiet_mode}` is true, display: "**Preparing the ccc settings, then the semantic index if it needs building: a first index can take several minutes on large codebases (1000+ files). Run `ccc status` in another terminal to monitor progress.**"
 
-Pass `{ccc_index_fresh}` (from step 1) and `{ccc_skip_index}` as `true` or `false`, and add `--defer-index` only when `{require_tier_satisfied}` (from step 1) is `false`: a run that ends `tier_failure` then builds no index that is due, while a fresh index record still carries forward. Run the call in the foreground with the shell's longest timeout; a call the shell stops at that timeout goes on as the paragraph after the command says:
+Pass `{ccc_index_fresh}` (from step 1) and `{ccc_skip_index}` as `true` or `false`, and add `--defer-index` only when `{require_tier_satisfied}` (from step 1) is `false`: a run that ends `tier_failure` then builds no index that is due, while a fresh index record still carries forward. Run the call in the foreground with the shell's longest timeout (in an interactive run, an index that can outlast that timeout may run in the background instead, the step waiting for it to exit before it goes on; a headless run keeps it in the foreground); a call the shell stops at that timeout goes on as the paragraph after the command says:
 
 ```bash
 uv run {mergeCccExclusionsHelper} \
