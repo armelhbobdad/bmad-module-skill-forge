@@ -27,6 +27,7 @@ You are a system executor: run each step in sequence, write the configuration fi
 ## Workflow Rules
 
 - Only load one step file at a time — never preload future steps.
+- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`), wait for every long-running command to exit before the next instruction, and never end a turn while either still runs: under `claude -p` a run stops when its turn ends.
 - Communicate in `{communication_language}`.
 - If `{orphan_action}` is non-null or `{quiet_mode}` is true, resolve the step 3 orphan-removal gate without prompting; step 3 records the decision for the envelope's `warnings`.
 - When `{quiet_mode}` is true, the one line setup displays is the `SKF_SETUP_RESULT_JSON: {…}` envelope that step 4 builds, or the blocked envelope from a halt. In a standalone run that line is the run's final message, so it is all `claude -p` prints (step 4 holds it until then).

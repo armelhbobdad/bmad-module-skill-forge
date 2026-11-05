@@ -9,7 +9,7 @@ Step 3 §2b (deferred ccc discovery on SKF's workspace clone) and step 7 §6b (t
 
 ## 1. Wait for the Pass
 
-Run `cd "{ccc_root}" && ccc status`. If it prints an `Indexing in progress:` line, a pass is still running and the counts below it are not final: run `cd "{ccc_root}" && ccc index` again, which waits for the running pass to finish and then makes a quick incremental pass, then run `ccc status` again. If the line is still there after 3 such runs, return **index unverified** to the caller and skip §2 and §3.
+Run `cd "{ccc_root}" && ccc status`. If it prints an `Indexing in progress:` line, a pass is still running and the counts below it are not final: run `cd "{ccc_root}" && ccc index` again, which waits for the running pass to finish and then makes a quick incremental pass, then run `ccc status` again. Run both in the foreground with the shell's longest timeout. If the line is still there after 3 such runs, return **index unverified** to the caller and skip §2 and §3.
 
 ## 2. Check the Languages
 

@@ -529,6 +529,21 @@ class TestSetSkillExport:
                     "--export-exit-code", "1")[0] == 0
         assert _read(path)["skills"][1]["export"] == {"status": "failed", "halt_reason": None, "exit_code": 1}
 
+    def test_failed_with_no_result_line_records_no_code(self, tmp_path, capsys):
+        """step-10: an export that printed no SKF_EXPORT_RESULT_JSON line has no result to read, so it is
+        recorded failed with the halt reason `no-result` and no exit code."""
+        path = self._done(tmp_path)
+        rc, out = _run(capsys, "set-skill", "--state-file", str(path), "--skill", "core", "--export", "failed",
+                       "--export-halt-reason", "no-result")
+        assert rc == 0 and out["changed"] == ["core.export=failed"]
+        state = _read(path)
+        assert state["skills"][0]["export"] == {"status": "failed", "halt_reason": "no-result", "exit_code": None}
+        assert state["skills"][0]["status"] == "completed"
+        assert mod.validation_errors(state) == []
+        step = (REPO_ROOT / "src" / "skf-campaign" / "references" / "step-10-export.md").read_text(encoding="utf-8")
+        assert "--skill {name} --export failed --export-halt-reason <reason>` (no exit code), `no-result` for no line" in step
+        assert "`result-unreadable` for a line that does not parse or has no `exit_code`" in step
+
     @pytest.mark.parametrize(
         "extra",
         [

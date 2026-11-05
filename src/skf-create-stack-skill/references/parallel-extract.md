@@ -213,7 +213,7 @@ Each subprocess:
 
 **If parallel subprocess unavailable:** Process libraries sequentially in main thread. Report progress after each library.
 
-**Per-subprocess timeout (S6):** Apply a 60-second wall-clock timeout to each library's extraction subprocess. On timeout, mark the library as `partial-failure` with `warnings: ["extraction timeout after 60s"]`, store whatever partial data was returned (if any), and continue with the remaining libraries. Do NOT abort the batch on a single timeout.
+**Per-subprocess budget (S6):** Tell each library's extraction subprocess to stop and return what it has after about 20 tool calls, adding `"extraction budget reached"` to its `warnings` when it stops there, and wait for it in the foreground. A library whose subprocess returned partial data is a `partial-failure`: store that data and continue with the remaining libraries. One whose subprocess returned no usable data is a complete failure (§3): it goes in `failed[]` with an `extraction-failed` warning and counts toward the `all-extractions-failed` halt. Do NOT abort the batch on a single library that reached its budget or failed.
 
 ### 3. Handle Extraction Failures
 
@@ -221,7 +221,7 @@ For each library extraction:
 
 **Success:** Store the extraction result as the library's `per_library_extractions[]` entry.
 
-**Partial failure:** Store partial result with warnings, continue with other libraries.
+**Partial failure:** Store partial result with warnings, append a `workflow_warnings[]` entry (`step: "step-04"`, `severity: "warn"`, `code: "extraction-partial"`, `message`: the library and its warnings, `extraction budget reached` among them when it stopped on its budget), and continue with other libraries.
 
 **Complete failure:** Log failure reason, exclude from stack skill, note in report.
 

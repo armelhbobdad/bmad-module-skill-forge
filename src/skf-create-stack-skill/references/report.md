@@ -71,7 +71,7 @@ uv run {emitEnvelopeHelper} emit --workflow skf-create-stack-skill --run-dir "{r
 
 The emitter stamps `timestamp`, `run_id`, the run's auto-decisions and its warnings into the record, writes `create-stack-skill-result-<YYYYMMDD-HHmmss>.json` (it picks the name, with `-2` for a run that ends in the same second as another) and its `create-stack-skill-result-latest.json` copy in `{forge_version}`, and prints the success line on stdout: display it when `{headless_mode}` is true. A file it cannot write becomes a `result_file_write_failed` warning in the envelope, with `result_path` `null` when the per-run record is the one that failed. If the emitter exits non-zero, fix the payload its stderr names and run it once more; if it fails again, print its error and continue: the result contract is advisory and never halts the report.
 
-**Stable latest pointer at the stack group root.** Pipeline consumers read `{forge_data_folder}/{stack_name}/create-stack-skill-result-latest.json`, above the version folder, without knowing the current version. Copy the record there (a copy, not a symlink, so no consumer chases a link across version folders):
+**Stable latest pointer at the stack group root.** `{forge_data_folder}/{stack_name}/create-stack-skill-result-latest.json`, above the version folder, is a copy of the version folder's `-latest` copy, at a path that does not name the current version; a caller reads its own run's `SKF_STACK_RESULT_JSON` line. Copy the record there (a copy, not a symlink, so no consumer chases a link across version folders):
 
 ```bash
 python3 {atomicWriteHelper} write --target {forge_data_folder}/{stack_name}/create-stack-skill-result-latest.json < {forge_version}/create-stack-skill-result-latest.json

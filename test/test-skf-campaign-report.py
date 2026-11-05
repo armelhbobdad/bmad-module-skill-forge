@@ -509,6 +509,23 @@ class TestExportOutcomes:
         section = mod._compute_aggregates(state)["export_gate_section"]
         assert "| skill-beta | 88 | fallback | failed (exit 1) |" in section
 
+    def test_an_export_with_no_result_line_reports_no_result(self, tmp_path: Path, capsys):
+        """step-10 records an export that printed no SKF_EXPORT_RESULT_JSON line as failed with `no-result`
+        and no exit code: the report names it, and the envelope lists it and still validates."""
+        state = _exported_state()
+        state["skills"][1]["export"] = {"status": "failed", "halt_reason": "no-result", "exit_code": None}
+        context = tmp_path / "_result-context.json"
+        output_file = tmp_path / "campaign-report.md"
+        rc = mod.run(str(_write_state(tmp_path, state)), str(_write_template(tmp_path)), str(output_file),
+                     str(context), "ws/log.md")
+        assert rc == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result["export_failures"] == [{"skill": "skill-beta", "halt_reason": "no-result", "exit_code": None}]
+        assert "| skill-beta | 88 | fallback | failed (no-result) |" in output_file.read_text(encoding="utf-8")
+        envelope = _envelope(context)
+        assert (envelope["status"], envelope["exit_code"]) == ("success", 0)
+        assert envelope["export_failures"] == [{"skill": "skill-beta", "halt_reason": "no-result", "exit_code": None}]
+
     @pytest.mark.parametrize("stage", [6, 8], ids=["stage-6", "stage-8"])
     def test_null_before_the_export_stage_ran(self, tmp_path: Path, capsys, stage):
         rc = mod.run(str(_write_state(tmp_path, _exported_state(stage))), str(_write_template(tmp_path)),

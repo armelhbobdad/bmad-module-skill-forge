@@ -30,6 +30,7 @@ These rules apply to every step in this workflow:
 - Zero hallucination — all extracted content must trace to actual source code (compose-mode inferences must be labeled)
 - Only load one step file at a time — never preload future steps
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread, with two exceptions: never decide by hand whether SKF generated a folder (the ownership check), and never work out by hand what a shared helper computes where its step names a `helper-missing` HALT: that helper resolving to no path stops the run with exit 3 `helper-missing` (`references/invocation-contract.md` lists every such halt). Where a step says what to do without its helper (an advisory check, a default value), do as it says
+- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`), wait for every long-running command to exit before the next instruction, and never end a turn while either still runs: under `claude -p` a run stops when its turn ends.
 - Never write into a skill folder SKF did not generate — generate-output §1 runs the inventory's write check before any prior metadata is read and again before staging
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action, and record each auto-decision in the run sink the moment the gate takes it, with the `record --decision` command the gate shows

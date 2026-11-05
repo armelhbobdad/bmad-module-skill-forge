@@ -71,7 +71,7 @@ refinement_rules_path = ""
 # Override the destination directory for the refined architecture document
 # and the files beside it: the earlier refined document a promotion renames,
 # the result files (refine-architecture-result-<YYYYMMDD-HHmmss>.json and its
-# -latest.json copy, the stable path pipelines read) and the record of
+# -latest.json copy, the record of the last run whose emitter wrote it) and the record of
 # findings a review dropped (.ra-dismissed-<project>.json). Empty = use
 # {output_folder} from config.yaml. Useful for orgs that want
 # refined-architecture artifacts to land under a curated docs tree.

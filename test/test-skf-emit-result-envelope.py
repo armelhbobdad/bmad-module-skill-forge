@@ -1573,6 +1573,20 @@ def test_output_contract_names_what_the_emitter_stamps():
         assert (token in text) == (token != "Do not reuse"), token
 
 
+def test_output_contract_tells_consumers_to_read_the_runs_own_line():
+    """A run cut off before its emitter call (the 6.0.0 gate run that ended its turn with a subagent in the
+    background), or one that could not write its result, prints no line, so the -latest copy is an earlier run's."""
+    text = (REFS / "output-contract-schema.md").read_text(encoding="utf-8")
+    [consumers] = [line for line in text.splitlines() if line.startswith("**Consumers (forger, CI, chained workflows):**")]
+    assert ("a caller that started a run reads that run's own `SKF_<NAME>_RESULT_JSON` envelope line. A run that printed no envelope line has no "
+            "result to read, whatever the process exit code: it was cut off, or could not write its result, and "
+            "`{skill-name}-result-latest.json` may then describe an earlier run, so it is never read in its place.") in consumers
+    assert "read from `{skill-name}-result-latest.json`" not in text and "Always present" not in text
+    assert "it holds the last run whose emitter wrote this copy" in text
+    # a tool that looks up a skill's last run, rather than one it started, may still read the copy
+    assert "A tool that looks up the last run of a skill rather than one it started" in consumers
+
+
 def test_docstring_names_every_envelope_block_field_and_sink_file():
     for token in (*mod.META_FIELDS, mod.SINK_DECISIONS, mod.SINK_WARNINGS, *mod.PAYLOAD_ONLY_KEYS):
         assert token in mod.__doc__, token

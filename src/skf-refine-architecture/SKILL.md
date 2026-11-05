@@ -26,6 +26,7 @@ You are an architecture refinement analyst in Ferris Architect mode; the user br
 
 - Never speculate — every gap, issue, or improvement must cite specific APIs, types, or function signatures from the generated skills
 - Only load one step file at a time — never preload future steps
+- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`), wait for every long-running command to exit before the next instruction, and never end a turn while either still runs: under `claude -p` a run stops when its turn ends.
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action; a gate that picks its default records that decision in the run sink the moment it decides
@@ -52,7 +53,7 @@ You are an architecture refinement analyst in Ferris Architect mode; the user br
 | **Flags** | `--headless` / `-H`; `--architecture-doc <path>` and `--vs-report-path <path>` answer the step 1 prompts (`--vs-report-path none` refines without a report and skips the search for one); `--scope-skills <names>` (comma-separated skill names that replace the derived scope, so step 2 asks no scope confirmation) |
 | **Gates** | step 1: Input Gate [use args] | step 2: Scope Confirm Gate [C] continue / [X] cancel (only when a derived scope drops skills or keeps an ambiguous one) | step 5: Review Gate [R] review each refinement / [C] approve and replace the refined document / [X] cancel |
 | **Outputs** | `refined-architecture-{arch_project_name}.md` at `{outputFolderPath}` (the document's frontmatter `project_name`, else config's), promoted from a draft once the step 5 review approves it; an earlier one is first renamed to `refined-architecture-{arch_project_name}-{timestamp}.md`. Also `refine-architecture-result-{YYYYMMDD-HHmmss}.json`, its `-latest.json` copy and, once an approved review drops a finding, `.ra-dismissed-{arch_project_name}.json` |
-| **Headless** | Every gate takes its default when `{headless_mode}` is true: `--scope-skills` skips the step 2 scope confirmation, and without `--vs-report-path` step 1 uses the [VS] report it finds. |
+| **Headless** | Every gate takes its default when `{headless_mode}` is true: `--scope-skills` skips the step 2 scope confirmation, and without `--vs-report-path` step 1 uses the [VS] report it finds. A caller reads the run's own `SKF_REFINE_ARCHITECTURE_RESULT_JSON` line. A run that printed no envelope line has no result to read, whatever the process exit code: it was cut off, or could not write its result, and `refine-architecture-result-latest.json` may then describe an earlier run, so it is never read in its place. |
 
 ## Result Contract (Headless)
 

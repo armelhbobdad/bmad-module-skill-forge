@@ -36,7 +36,12 @@ that ledger (#583, #541). These tests pin that wiring and run it:
   Gap Report totals (#543);
 - each stage's closing line names its stepsCompleted token (#585);
 - the exit codes and the result envelope live in references/invocation-contract.md
-  (#600), and every HALT names its halt_reason and phase (#593, #594).
+  (#600), and every HALT names its halt_reason and phase (#593, #594);
+- an automator reads the exit code from the run's own result line, never from
+  skf-test-skill-result-latest.json: a run that printed no line has no result
+  to read (it was cut off, or could not write its result), and that copy then
+  holds an earlier run's verdict (the 6.0.0 gate run that ended its turn with
+  a subagent still in the background).
 """
 
 from __future__ import annotations
@@ -504,7 +509,7 @@ class TestBlockPath:
         for field in ('`status: "error"`', '`verdict: "FAIL"`', "`exit_code` 2",
                       '`halt_reason: "hard-gate-blocked"`'):
             assert field in contract, field
-        assert "never holds an earlier run's verdict" in contract
+        assert "so after a blocked run `skf-test-skill-result-latest.json` holds its FAIL, never an earlier run's verdict" in contract
         # build-result-context.py's table is the one home of the exit codes: the report step restates none.
         assert _load("skf_build_result_context_gate", BUILD_CONTEXT).VERDICTS["fail"][2] == 2
         assert "{headless_exit_code}" not in text and "The Exit Code" not in text
@@ -1441,7 +1446,7 @@ class TestExitCodes:
         """A skill run cannot set the agent's exit status (the W3 enhancement-1 handoff)."""
         flow = _flow(section)
         assert "A skill run cannot set the process exit status of the agent that runs it" in flow
-        assert "read `exit_code` from the `SKF_TEST_RESULT_JSON` line or from `skf-test-skill-result-latest.json`" in flow
+        assert "so automators read `exit_code` from the run's own `SKF_TEST_RESULT_JSON` line." in flow
         for path in (REPORT_FILE, STEP_FILE):
             assert "process-exit" not in _read(path) and "exits with code 2" not in _read(path), path.name
         # The reason is stated once, in the Exit Codes paragraph, and no HALT promises a process exit.
@@ -1450,6 +1455,21 @@ class TestExitCodes:
             if path != CONTRACT_FILE:
                 assert "cannot set the" not in _read(path), path.name
             assert "HALT exits 1" not in _read(path) and "exits 1 and names" not in _read(path), path.name
+
+    def test_a_run_with_no_line_did_not_finish(self, section: str) -> None:
+        """The 6.0.0 gate run ended its turn with a subagent in the background: `claude -p` exited 0, no line
+        was printed, and skf-test-skill-result-latest.json still held an earlier run's verdict."""
+        assert ("A run that printed no envelope line has no result to read, whatever the process exit code: it was "
+                "cut off, or could not write its result, and `skf-test-skill-result-latest.json` may then describe an "
+                "earlier run, so it is never read in its place.") in _flow(section)
+        contract = _flow(_read(CONTRACT_FILE))
+        assert "or from `skf-test-skill-result-latest.json`" not in contract
+        assert "never holds an earlier run's verdict" not in contract
+        assert "the stable path pipeline consumers read" not in contract and "did not finish" not in contract
+        assert "the record of the last run whose emitter wrote this copy, at a stable path" in contract
+        records = _flow(_section(_read(CONTRACT_FILE), "## Result Files"))
+        assert ("A HALT writes no result file, and neither does a run cut off before report.md §4c: the copy then "
+                "still holds an earlier run's verdict.") in records
 
 
 class TestResultContract:
