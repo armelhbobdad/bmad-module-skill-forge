@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `signature-mismatch` gap for a form it did not compare before, correct the form the gap quotes as `documented_sig`, then run Test Skill again.
 issues: [826]
+prs: [878]

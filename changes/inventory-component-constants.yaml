@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a component constant's `signature-mismatch` gap, correct the form the gap quotes as `documented_sig`, then run Test Skill again.
 issues: [837]
+prs: [878]
