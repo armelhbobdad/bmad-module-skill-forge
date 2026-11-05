@@ -86,8 +86,8 @@ ratios and the gap records of the wrong signatures.
              otherwise) whose facts check: the documented entry states a
              return type (a non-blank `return_type`, or a `documented_sig`
              that writes one); `documented_sig` and `source_sig` write the
-             same parameters (the text before the return, whitespace runs
-             read as one space); `evidence_line` comes after the
+             same parameters as signature-comparison-rules.md reads them
+             (_parameter_difference, below); `evidence_line` comes after the
              declaration line (of the name's surface records at the
              mismatch's file, the closest at or before the mismatch's
              `line`, else the first; with none, the mismatch's `line`) and
@@ -95,10 +95,43 @@ ratios and the gap records of the wrong signatures.
              --source-root, that line of the file under it starts with
              `return`, or is the declaration line itself with its
              expression body after its parameters (an arrow function's
-             `=> expr`, a Python `def ...: return x`). Its remediation
-             changes nothing in the skill: the annotation is reported
-             upstream. A tagged mismatch whose facts do not check is graded
-             as an untagged one, and `warnings` names the fact that failed
+             `=> expr`, a Python `def ...: return x`). The parameters are
+             read from each one's parameter group, past a decorator's, a Go
+             receiver's or a C++ `operator()`'s group (a qualifier such as
+             `noexcept(...)` after a group leaves it the parameter group),
+             and compared by name and in order, by name alone after a `*`
+             marker; by type wherever both write one, with the common
+             Equivalent spellings (_type_key), a documented type that names
+             some members of the source's union included, and, in a TS/JS
+             file, with a literal default's type for a source parameter
+             that writes none; by optionality when the documented list
+             states one for some member; and by the type parameters both
+             write before the group. A list of bare names need not write an
+             optional parameter (unless leaving it out shifts a caller's
+             positions in a POSITIONAL_EXTENSIONS file), and one holding an
+             ellipsis claims nothing about what it stands for. A keyword or
+             name before the group, a default's value, a `*` or `/` marker,
+             the names of `*args` and `**kwargs`, and a leading receiver the
+             source writes (`self`, `cls`, `&self`, `this: T`) are never
+             compared; the documented list's own receiver is dropped only
+             when the source's list leads with one too, so a module-level
+             function whose first parameter is named `self` or `cls` is read
+             as a method. A signature with no group, on either side, is
+             compared by the text before its return. Still refused, on the
+             strict side, where the rules would read the two as one: type
+             variables renamed consistently, a type alias against the type
+             it names, an overload set, a union of callables against one
+             callable returning the union, a call example's `name=value`
+             (read as a default, so its list claims to be complete) or
+             positional literal (`RecursiveSplitter(512)`, read as a name),
+             a destructured parameter (compared as one name, so the order of
+             its properties and the ones it leaves out count), a parameter
+             in another language's order (Go's `id string`, C's `int n`,
+             read as one name), and a `;`-joined text, read as written. Its
+             remediation changes nothing in the skill: the annotation is
+             reported upstream. A tagged mismatch whose facts do not check is
+             graded as an untagged one, and `warnings` names the fact that
+             failed
            Critical `signature-mismatch`  every other mismatch
          A mismatch's `file` (normalized: `/` separated, no `./`) is the file
          it is graded and recorded at (the gap's Source) when the plan
@@ -235,6 +268,42 @@ PYTHON_BODY_RE = re.compile(r"\s*(?:->[^:]*)?:\s*return(?![\w$])")
 TYPE_DECLARATION_RE = re.compile(r"(?:export\s+)?(?:declare\s+)?type\s")
 # Where a signature's return type starts, with no parenthesized parameters.
 RETURN_ARROW_RE = re.compile(r"->|=>|→")
+# The prefixes a type is compared without, as signature-comparison-rules.md's Equivalent spellings reads a name
+# with or without one: `typing.List[int]` is `List[int]`, `React.ReactNode` is `ReactNode`.
+TYPE_PREFIX_RE = re.compile(r"(?<![\w.$])(?:typing|collections\.abc|React)\.")
+# The `typing` names Equivalent spellings reads as the builtins they alias.
+TYPING_ALIASES = {"List": "list", "Dict": "dict", "Tuple": "tuple", "Set": "set", "FrozenSet": "frozenset",
+                  "Type": "type"}
+# A quoted forward reference (`"Node"`), read as the type it quotes.
+FORWARD_REFERENCE_RE = re.compile(r"(['\"])([A-Za-z_][^'\"]*)\1")
+# The name a type starts with, before its type arguments (`dict[str, Any]`, `Promise<T>`).
+TYPE_NAME_RE = re.compile(r"[A-Za-z_$][\w.$]*")
+# A Rust lifetime's `'a`, followed by whitespace, `,`, `>`, `+`, `)` or the end (_lifetime says where it stands).
+LIFETIME_RE = re.compile(r"'[A-Za-z_]\w*(?=[\s,>+)]|$)")
+# Each closing bracket and the opening one it closes (_levels: a `>` closes only a `<`).
+CLOSERS = {")": "(", "]": "[", "}": "{"}
+OPENERS = {"(": ")", "[": "]", "{": "}", "<": ">"}
+# A group a decorator or a Java annotation writes: the text before it ends with `@name`.
+DECORATED_RE = re.compile(r"@[\w.$]+\s*$")
+# What follows a prefix group: another `(` with no space between (C++ `operator()(int x)`), or a name and a `(`
+# after whitespace (a Go receiver, `func (s *Server) Start(port int)`), the name no C or C++ qualifier that takes
+# arguments after a parameter group (`f(int x) noexcept(true)`).
+PREFIX_GROUP_RE = re.compile(r"\(|\s+(?!(?:noexcept|throw|__attribute__|requires|decltype)\b)[A-Za-z_$][\w$]*\s*\(")
+# A receiver a method's parameter list may lead with: Python's `self` and `cls`, Rust's `self`, `&self`,
+# `&mut self` and `mut self` (with a lifetime too, `&'a self`), and TS's `this: T` (_parameter_difference).
+RECEIVER_RE = re.compile(r"self|cls|this|mut self|&(?:'\w+ )?(?:mut )?self")
+# An ellipsis item, standing for parameters a form does not show (a TS/JS rest `...name` is none).
+ELLIPSES = ("...", "…")
+# The TS/JS source files, where a parameter with no type and a literal default has that literal's type.
+TS_JS_EXTENSIONS = frozenset({".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"})
+# A literal default's type (signature-comparison-rules.md, Annotations): a bigint, a number, a string or template
+# literal, a boolean.
+LITERAL_TYPES = (
+    (re.compile(r"[-+]?(?:0[xob][\da-f_]+|\d[\d_]*)n", re.I), "bigint"),
+    (re.compile(r"[-+]?(?:0[xob][\da-f_]+|(?:\d[\d_]*(?:\.[\d_]*)?|\.\d[\d_]*)(?:e[-+]?\d+)?)", re.I), "number"),
+    (re.compile(r"(['\"`]).*\1", re.S), "string"),
+    (re.compile(r"true|false"), "boolean"),
+)
 # Source files of the languages with no keyword arguments, where a caller
 # never writes a parameter's name: TS/JS, Go, Rust, Java, C and C++. Not
 # Python, which has keyword arguments (the script cannot see which
@@ -710,19 +779,416 @@ def _after_parens(text: str, start: int) -> int:
     return -1
 
 
-def _signature_parts(sig: str) -> tuple[str, str]:
-    """(the text before the return, its whitespace runs read as one space;
-    the return type it writes, "" for none) of a signature. The return
-    follows the first parenthesized group (after a `->`, `=>`, `→` or `:`),
-    or, with no group, the first such arrow."""
+def _string_end(text: str, start: int) -> int:
+    """The index past the string literal whose quote is at `start`: up to the same quote not escaped, the end of
+    `text` when none closes it."""
+    quote, i = text[start], start + 1
+    while i < len(text):
+        if text[i] == "\\":
+            i += 2
+        elif text[i] == quote:
+            return i + 1
+        else:
+            i += 1
+    return len(text)
+
+
+def _lifetime(text: str, i: int, in_angle: bool, extension: str) -> bool:
+    """Whether the `'` at `i` starts a Rust lifetime: only in a `.rs` file, `'ident` followed by whitespace, `,`,
+    `>`, `+`, `)` or the end, coming after a `&` or a `+` (whitespace aside) or inside a `<...>` (`in_angle`), as
+    in `&'a str`, `impl Tr + 'a` and `<'a>`. Any other `'` opens a string, so a TS `Omit<P, 'a,b'>` holds one."""
+    return (extension == ".rs" and bool(LIFETIME_RE.match(text, i))
+            and (in_angle or text[:i].rstrip()[-1:] in ("&", "+")))
+
+
+def _opens(text: str, i: int, extension: str) -> bool:
+    """Whether the `<` at `i` opens a pair: it follows a letter, a digit, `_`, `$`, `.`, `]` or `>` with no
+    whitespace between (`Map<`, `f<T>`, `obj.get<T>`), and a `>` that is not part of `->` or `=>` closes it
+    before the bracket pair around it closes or the text ends. Any other `<` is an operator (`x < y`, `1 << 20`,
+    `x<3)`)."""
+    if i == 0 or not (text[i - 1].isalnum() or text[i - 1] in "_$.]>"):
+        return False
+    depth, j = 0, i + 1
+    while j < len(text):
+        ch = text[j]
+        if ch in "\"`" or (ch == "'" and not _lifetime(text, j, depth == 0, extension)):
+            j = _string_end(text, j)
+            continue
+        if ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                return False
+            depth -= 1
+        elif ch == ">" and depth == 0 and text[j - 1] not in "-=":
+            return True
+        j += 1
+    return False
+
+
+def _levels(text: str, extension: str = "") -> list[int | None]:
+    """For each character of `text`, in a file of `extension`, the number of bracket pairs open around it, None
+    inside a string literal (its quotes included). `(`, `[` and `{` open a pair, and a `<` opens one only when it
+    follows a name, a `.`, a `]` or a `>` with no whitespace between and a `>` that is not part of `->` or `=>`
+    closes it before the bracket pair around it closes or the text ends (_opens); any other `<` is an operator
+    and nests nothing, so `(path, size=1 << 20, mode)` holds three parameters,
+    `(a: boolean = x < y, b: Map<string, number>)` two, and `Map<string, number>` keeps its comma. An opening
+    bracket and the one that closes it stand at the level outside them. A closing bracket closes the pair it
+    matches and any `<` left open inside it, and a `>` closes only a `<`, never as part of `->` or `=>`. A `"`, a
+    backquote or a `'` opens a string (_string_end), except the `'` of a Rust lifetime in a `.rs` file
+    (_lifetime)."""
+    levels: list[int | None] = []
+    stack: list[str] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch in "\"`" or (ch == "'" and not _lifetime(text, i, bool(stack) and stack[-1] == "<", extension)):
+            end = _string_end(text, i)
+            levels.extend([None] * (end - i))
+            i = end
+            continue
+        if ch in "([{" or (ch == "<" and _opens(text, i, extension)):
+            levels.append(len(stack))
+            stack.append(ch)
+        elif ch in CLOSERS and CLOSERS[ch] in stack:
+            while stack.pop() != CLOSERS[ch]:
+                pass
+            levels.append(len(stack))
+        elif ch == ">" and stack and stack[-1] == "<" and text[i - 1:i] not in ("-", "="):
+            stack.pop()
+            levels.append(len(stack))
+        else:
+            levels.append(len(stack))
+        i += 1
+    return levels
+
+
+def _split(text: str, separator: str, extension: str = "") -> list[str]:
+    """`text` cut at each `separator` outside every bracket pair and string (_levels)."""
+    levels = _levels(text, extension)
+    cuts = [-1, *(i for i, ch in enumerate(text) if ch == separator and levels[i] == 0), len(text)]
+    return [text[a + 1:b] for a, b in zip(cuts, cuts[1:])]
+
+
+def _encloses(text: str, start: int, extension: str = "") -> bool:
+    """Whether the bracket at `start` of `text` opens a pair that the last character of `text` closes."""
+    levels = _levels(text, extension)
+    return (OPENERS.get(text[start]) == text[-1] and levels[start] == 0 == levels[-1] and len(text) - start > 1
+            and all(level is None or level > 0 for level in levels[start + 1:-1]))
+
+
+def _group(text: str, extension: str = "") -> tuple[int, int] | None:
+    """The indices of the `(` and the `)` of the parameter group of `text`: the first pair of parentheses outside
+    every bracket pair and string (_levels), before any return arrow there, that is no prefix group. A prefix group
+    is one a decorator or a Java annotation writes (the text before it ends with `@name`:
+    `@lru_cache(maxsize=None) def f(x)`), one directly followed by another `(` (C++ `operator()(int x)`), or one
+    followed, after whitespace, by a name and a `(` (a Go receiver, `func (s *Server) Start(port int)`), unless
+    that name is a C or C++ qualifier (`noexcept`, `throw`, `__attribute__`, `requires`, `decltype`: `f(int x)
+    noexcept(true)` keeps its group). A `(` after a space is no prefix either (Go's result list,
+    `Start(port int) (int, error)`). So a keyword, a name or type parameters before the group are never part of
+    it. None when there is no such group: no `(` comes before the return arrow (`make -> X`), or a group does not
+    close."""
+    levels = _levels(text, extension)
+    i = 0
+    while i < len(text):
+        if levels[i] == 0 and RETURN_ARROW_RE.match(text, i):
+            return None
+        if text[i] == "(" and levels[i] == 0:
+            end = next((j for j in range(i + 1, len(text)) if text[j] == ")" and levels[j] == 0), None)
+            if end is None:
+                return None
+            if not (DECORATED_RE.search(text, 0, i) or PREFIX_GROUP_RE.match(text, end + 1)):
+                return i, end
+            i = end
+        i += 1
+    return None
+
+
+def _signature_parts(sig: str, extension: str = "") -> tuple[str, str]:
+    """(the text before the return, its whitespace runs read as one space; the return type it writes, "" for
+    none) of a signature, in a file of `extension`. The return follows the parameter group (_group, the one
+    _parameters reads), after a `->`, `=>`, `→` or `:`, or, with no group, the first such arrow. A `;` is read as
+    any other character."""
     text = sig.strip()
-    end = _after_parens(text, text.find("(")) if "(" in text else -1
-    if end == -1:
+    group = _group(text, extension)
+    if group is None:
         arrow = RETURN_ARROW_RE.search(text)
         head, tail = (text[:arrow.start()], text[arrow.end():]) if arrow else (text, "")
     else:
-        head, tail = text[:end], re.sub(r"^\s*(?:->|=>|→|:)", "", text[end:])
+        head, tail = text[:group[1] + 1], re.sub(r"^\s*(?:->|=>|→|:)", "", text[group[1] + 1:])
     return " ".join(head.split()), tail.strip().rstrip("{:").strip()
+
+
+def _compact(text: str) -> str:
+    """`text` with its whitespace runs read as one space, and none beside a character that is no letter, digit
+    or `_`, so `{ title }` is `{title}` and `dict[str, Any]` is `dict[str,Any]`."""
+    return re.sub(r"\s*([^\w\s])\s*", r"\1", " ".join(text.split()))
+
+
+def _type_parameters(sig: str, extension: str = "") -> str:
+    """The type parameters a signature writes between its name and its parameter group (`<T extends X>`, or
+    Python's `[T: int]`), compacted and without a trailing comma; "" for none, or no group."""
+    text = sig.strip()
+    group = _group(text, extension)
+    if group is None:
+        return ""
+    levels = _levels(text, extension)
+    k = len(text[:group[0]].rstrip()) - 1
+    if k < 1 or text[k] not in ">]" or levels[k] is None:
+        return ""
+    j = next((j for j in range(k - 1, -1, -1) if levels[j] is not None and levels[j] <= levels[k]), None)
+    if j is None or OPENERS.get(text[j]) != text[k] or levels[j] != levels[k]:
+        return ""
+    return _compact(text[j + 1:k]).rstrip(",")
+
+
+def _parameter(text: str, extension: str = "") -> dict:
+    """One parameter as _parameters reads it, but for its "by_name" and "receiver": its name is the text before
+    the `:` of its type and the `=` of its default (each outside every bracket pair and string; the `=` of `==`,
+    `=>`, `<=`, `>=` or `!=` is no default), the whole text when it writes neither, so a parameter in another
+    language's order (Go's `id string`) or a destructured one (`{ a, b }`) is read as one name."""
+    levels = _levels(text, extension)
+    at = next((i for i, ch in enumerate(text) if ch == "=" and levels[i] == 0
+               and text[i + 1:i + 2] not in ("=", ">") and text[i - 1:i] not in ("=", "!", "<", ">")), None)
+    head = text if at is None else text[:at]
+    colon = next((i for i, ch in enumerate(head) if ch == ":" and levels[i] == 0), None)
+    name = _compact(head if colon is None else head[:colon])
+    optional = at is not None or name.endswith("?")
+    name = name.rstrip("?")
+    key = "**" if name.startswith("**") else "*" if name.startswith("*") else name
+    return {"key": key, "name": name, "type": "" if colon is None else _compact(head[colon + 1:]),
+            "default": None if at is None else text[at + 1:].strip(), "optional": optional,
+            "variadic": key in ("*", "**") or (name.startswith("...") and name not in ELLIPSES),
+            "ellipsis": name in ELLIPSES and colon is None and at is None}
+
+
+def _parameters(sig: str, extension: str = "") -> list[dict] | None:
+    """The parameters the group of `sig` writes (_group), in a file of `extension`, None when it has no group:
+    the group split at its commas outside every bracket pair and string (_levels), so a comma inside a nested
+    type, a callback's parameters or a default's string splits nothing, without a bare `*` or `/` marker. Each is
+    {"key": its name (_parameter), `*` for any `*args` and `**` for any `**kwargs`, whose names are never
+    compared; "name": its name as written; "type": the type it writes, compacted, "" for none; "default": the text
+    of its default, None for none; "optional": whether a default or a `?` on its name marks it optional;
+    "variadic": whether it is a `*args`, a `**kwargs` or a TS/JS rest `...name`; "ellipsis": whether it is an
+    ellipsis item (`...`, `…`) standing for members it does not show; "by_name": whether it comes after a `*`
+    marker, a bare `*` or a `*args`; "receiver": whether it is the group's first item and a receiver
+    (RECEIVER_RE: `self`, `cls`, `&self`, `&mut self`, `mut self`, `this: T`), which _parameter_difference
+    drops}. A `sig` that holds a `;` outside every bracket pair and string (shared text before a name's own
+    members, an overload set or a usage list joined by `;`) has none either, so it is compared as text, read as
+    written: its first group may be a call inside the shared text."""
+    text = sig.strip()
+    group = _group(text, extension)
+    if group is None or len(_split(text, ";", extension)) > 1:
+        return None
+    params: list[dict] = []
+    by_name = False
+    for index, item in enumerate(_split(text[group[0] + 1:group[1]], ",", extension)):
+        item = item.strip()
+        if item in ("", "/"):
+            continue
+        if item == "*":
+            by_name = True
+            continue
+        param = _parameter(item, extension)
+        param.update(by_name=by_name, receiver=index == 0 and bool(RECEIVER_RE.fullmatch(param["name"])))
+        by_name = by_name or param["key"] == "*"
+        params.append(param)
+    return params
+
+
+def _type_key(text: str, extension: str = "") -> frozenset:
+    """A written type, in a file of `extension`, as signature-comparison-rules.md's Equivalent spellings commonly
+    reads it: the set of its union's members (cut at each `|` outside every bracket pair and string), each (its
+    base name, the keys of its type arguments, None when it writes none), so `Optional[X]`, `Union[X, None]` and
+    `X | None` are one key, and so are `Union[A, B]`, `A | B` and `B | A`. A `typing.`, `collections.abc.` or
+    `React.` prefix is dropped, `typing`'s `List`, `Dict`, `Tuple`, `Set`, `FrozenSet` and `Type` are the
+    builtins they alias, a quoted forward reference is the type it quotes outside a TS/JS file (where a quoted
+    type is a string literal type), `Array<T>` is `T[]`, `ReadonlyArray<T>` is `readonly T[]`, and a
+    parenthesized type is the type inside. A type it reads no other way (a callable's arrow, a literal) is one
+    member, its compacted text. Type variables renamed consistently, a type alias against the type it names and a
+    union of callables against one callable returning the union are different keys: the script cannot see them
+    as one."""
+    members: set = set()
+    for part in _split(TYPE_PREFIX_RE.sub("", _compact(text)), "|", extension):
+        members |= _member_keys(part.strip(), extension)
+    return frozenset(members)
+
+
+def _member_keys(text: str, extension: str = "") -> frozenset:
+    """The union members (_type_key) one part of a type with no `|` outside brackets stands for."""
+    quoted = FORWARD_REFERENCE_RE.fullmatch(text) if extension not in TS_JS_EXTENSIONS else None
+    if quoted:
+        return _type_key(quoted.group(2), extension)
+    if text.startswith("(") and _encloses(text, 0, extension):
+        return _type_key(text[1:-1], extension)
+    if text.endswith("[]") and len(text) > 2:
+        inner = text[:-2].strip()
+        if inner.startswith("readonly "):
+            return frozenset({("ReadonlyArray", (_type_key(inner[len("readonly "):], extension),))})
+        return frozenset({("Array", (_type_key(inner, extension),))})
+    name = TYPE_NAME_RE.match(text)
+    if name and name.end() == len(text):
+        return frozenset({(TYPING_ALIASES.get(text, text), None)})
+    if name and text[name.end()] in "[<" and _encloses(text, name.end(), extension):
+        args = tuple(_type_key(arg, extension) for arg in _split(text[name.end() + 1:-1], ",", extension)
+                     if arg.strip())
+        base = TYPING_ALIASES.get(name.group(), name.group())
+        if base == "Optional" and len(args) == 1:
+            return args[0] | {("None", None)}
+        if base == "Union" and args:
+            return frozenset().union(*args)
+        return frozenset({(base, args)})
+    return frozenset({(text, None)})
+
+
+def _members_match(documented: tuple, source: tuple) -> bool:
+    """Whether two union members (_type_key) are one type: one base name and, unless either side leaves its type
+    arguments out (`dict` against `dict[str, Any]`, which compares the base alone), as many arguments, each pair
+    one type (_types_match)."""
+    (base, args), (other_base, other_args) = documented, source
+    if base != other_base:
+        return False
+    if args is None or other_args is None:
+        return True
+    return len(args) == len(other_args) and all(_types_match(a, b) for a, b in zip(args, other_args))
+
+
+def _types_match(documented: frozenset, source: frozenset, subset: bool = False) -> bool:
+    """Whether every documented member is a source member (_members_match) and, unless `subset`, every source
+    member a documented one. A parameter's own type is compared with `subset`: a documented type that names some
+    of the members of the source's union is no difference, one that names a member the source lacks is."""
+    if not all(any(_members_match(d, s) for s in source) for d in documented):
+        return False
+    return subset or all(any(_members_match(d, s) for d in documented) for s in source)
+
+
+def _literal_type(default: str | None) -> str:
+    """The type of a TS/JS literal default (LITERAL_TYPES: `number`, `string`, `boolean` or `bigint`), "" for any
+    other default."""
+    if default is None:
+        return ""
+    return next((name for pattern, name in LITERAL_TYPES if pattern.fullmatch(default)), "")
+
+
+def _count(n: int) -> str:
+    return f"{n} parameter" if n == 1 else f"{n} parameters"
+
+
+def _pair_difference(documented: dict, source: dict, stated: bool, extension: str) -> str | None:
+    """Why a documented parameter differs from the source parameter it pairs with, None when it does not: its
+    type, where both write one (_types_match with `subset`), or, when the documented list states optionality for
+    any member (`stated`), its optionality, a rest or variadic member's aside."""
+    if documented["type"] and source["type"] and not _types_match(
+            _type_key(documented["type"], extension), _type_key(source["type"], extension), subset=True):
+        return (f"`{documented['name']}` is typed `{documented['type']}` in the documented list, "
+                f"`{source['type']}` in the source")
+    if stated and not documented["variadic"] and documented["optional"] != source["optional"]:
+        def word(optional: bool) -> str:
+            return "optional" if optional else "required"
+        return (f"`{documented['name']}` is {word(documented['optional'])} in the documented list, "
+                f"{word(source['optional'])} in the source")
+    return None
+
+
+def _complete_difference(documented: list[dict], source: list[dict], stated: bool, extension: str) -> str | None:
+    """Why a documented list that claims to be complete (it writes a type, a default or a `?` for some member)
+    differs from the source's, None when it does not: it must write as many parameters, paired in order up to the
+    first that either list writes after a `*` marker and by name from there, each pair with one name and no
+    _pair_difference."""
+    if len(documented) != len(source):
+        return f"the documented list writes {_count(len(documented))}, the source {_count(len(source))}"
+    first = min(next((i for i, p in enumerate(params) if p["by_name"]), len(params)) for params in (documented, source))
+    for n, (d, s) in enumerate(zip(documented[:first], source[:first]), 1):
+        if d["key"] != s["key"]:
+            return f"parameter {n} is `{d['name']}` in the documented list, `{s['name']}` in the source"
+        reason = _pair_difference(d, s, stated, extension)
+        if reason:
+            return f"parameter {n}: {reason}"
+    named = [{p["key"]: p for p in params[first:]} for params in (documented, source)]
+    if any(len(keys) != len(documented) - first for keys in named):
+        return "a parameter is written twice"
+    for key, d in named[0].items():
+        if key not in named[1]:
+            return f"`{d['name']}`, written after a `*` marker, is not a source parameter"
+        reason = _pair_difference(d, named[1][key], stated, extension)
+        if reason:
+            return reason
+    return None
+
+
+def _partial_difference(documented: list[dict], source: list[dict], stated: bool, bare: bool,
+                        extension: str) -> str | None:
+    """Why a documented list that does not claim to be complete differs from the source's, None when it does
+    not: each member it writes must be a source parameter (`*args` and `**kwargs` by kind), in the source's order
+    (a member after a `*` marker on either side by name alone), with no _pair_difference. A list of bare names
+    (`bare`) must also leave out only optional source parameters (a default, a `?`, `*args`, `**kwargs`, a rest),
+    and, in a file of a language without keyword arguments (POSITIONAL_EXTENSIONS), none before one it writes,
+    which shifts a caller's positions. A list holding an ellipsis claims nothing about what it stands for."""
+    used: list[int] = []
+    last = -1
+    for d in documented:
+        at = next((i for i, s in enumerate(source) if i not in used and s["key"] == d["key"]), None)
+        if at is None:
+            return f"`{d['name']}` is not a source parameter"
+        if not (d["by_name"] or source[at]["by_name"]):
+            if at < last:
+                return (f"`{d['name']}` comes before `{source[last]['name']}` in the source, after it in the "
+                        "documented list")
+            last = at
+        used.append(at)
+        reason = _pair_difference(d, source[at], stated, extension)
+        if reason:
+            return reason
+    if not bare:
+        return None
+    for i, s in enumerate(source):
+        if i in used:
+            continue
+        if not (s["optional"] or s["variadic"]):
+            return f"the required source parameter `{s['name']}` is left out"
+        later = min((j for j in used if j > i), default=None)
+        if extension in POSITIONAL_EXTENSIONS and later is not None:
+            return (f"the optional `{s['name']}`, left out before `{source[later]['name']}`, shifts a caller's "
+                    f"positions in a `{extension}` file")
+    return None
+
+
+def _parameter_difference(documented_sig: str, source_sig: str, extension: str = "") -> str | None:
+    """Why `documented_sig` and `source_sig` do not write the same parameters as signature-comparison-rules.md
+    reads them in a file of `extension`, None when they do. When either has no parameter group (_parameters; a
+    `;`-joined text has none), the texts before their returns (_signature_parts) are compared, and the reason says
+    which side has none.
+    Otherwise: the source's leading receiver is dropped, and the documented list's only when the source leads
+    with one too, so a documented `(self, a)` against `def f(a)` differs; type parameters both write between the
+    name and the group (_type_parameters) must be one text; in a TS/JS file (TS_JS_EXTENSIONS) a source parameter
+    with no type and a literal default has that literal's type (_literal_type); a list of bare names (no type,
+    default or `?` for any member) or one holding an ellipsis need not write every parameter
+    (_partial_difference), and any other list claims to be complete (_complete_difference). A keyword or name
+    before the group, a type only one side writes, a default's value, a `*` or `/` marker and the names of `*args`
+    and `**kwargs` are never compared. The reason names the count, or the parameter (by position or by name) and
+    the fact that differs: its name, its order, its type, its optionality, or the type parameters."""
+    documented, source = _parameters(documented_sig, extension), _parameters(source_sig, extension)
+    if documented is None or source is None:
+        if _signature_parts(documented_sig, extension)[0] == _signature_parts(source_sig, extension)[0]:
+            return None
+        side = ("neither signature has a" if documented is None and source is None
+                else "the documented signature has no" if documented is None else "the source signature has no")
+        return f"{side} parameter group, so the texts before the return are compared"
+    if source and source[0]["receiver"]:
+        source = source[1:]
+        if documented and documented[0]["receiver"]:
+            documented = documented[1:]
+    written, other = _type_parameters(documented_sig, extension), _type_parameters(source_sig, extension)
+    if written and other and written != other:
+        return f"the type parameters differ: documented `{written}`, source `{other}`"
+    if extension in TS_JS_EXTENSIONS:
+        source = [{**p, "type": _literal_type(p["default"])} if not p["type"] else p for p in source]
+    stated = any(p["optional"] for p in documented if not p["variadic"])
+    members = [p for p in documented if not p["ellipsis"]]
+    bare = not any(p["type"] or p["optional"] for p in documented)
+    if bare or len(members) < len(documented):
+        return _partial_difference(members, source, stated, bare and len(members) == len(documented), extension)
+    return _complete_difference(documented, source, stated, extension)
 
 
 def _returns(lines: list[str], number: int, declaration_line: int) -> bool:
@@ -749,19 +1215,25 @@ def contradiction_fact(entry: dict, documented: dict, file: str, declaration_lin
     """The first fact an annotation-contradicted mismatch rests on that does
     not check, None when each does: the documented entry states a return
     type (a non-blank `return_type`, or a `documented_sig` that writes one);
-    `documented_sig` and `source_sig` write the same parameters (the text
-    before the return); `evidence_line` comes after the declaration line and
-    before `next_line`, the next surface record in the file; and, with
-    `source_root`, that line of `file` under it returns (_returns), which
-    alone lets the declaration line itself stand."""
+    `documented_sig` and `source_sig` write the same parameters, as the
+    comparison rules read them in a file of `file`'s language
+    (_parameter_difference, which compares the texts before the return when
+    either has no parameter group); `evidence_line` comes
+    after the declaration line and before `next_line`, the next surface
+    record in the file; and, with `source_root`, that line of `file` under it
+    returns (_returns), which alone lets the declaration line itself stand.
+    A failed parameter fact quotes the text before each one's return
+    (_signature_parts), then says why the two differ."""
     evidence = entry.get("evidence_line")
-    documented_params, documented_return = _signature_parts(entry["documented_sig"])
-    source_params, _ = _signature_parts(entry["source_sig"])
+    extension = _extension(file)
+    documented_params, documented_return = _signature_parts(entry["documented_sig"], extension)
+    source_params, _ = _signature_parts(entry["source_sig"], extension)
     return_type = documented.get("return_type")
     if not (isinstance(return_type, str) and return_type.strip()) and not documented_return:
         return "the documented signature states no return type"
-    if documented_params != source_params:
-        return f"its parameters differ: documented `{documented_params}`, source `{source_params}`"
+    difference = _parameter_difference(entry["documented_sig"], entry["source_sig"], extension)
+    if difference is not None:
+        return f"its parameters differ: documented `{documented_params}`, source `{source_params}`: {difference}"
     if not _is_line(evidence) or evidence < declaration_line:
         return f"evidence_line {json.dumps(evidence)} is before the declaration"
     if next_line is not None and evidence >= next_line:
