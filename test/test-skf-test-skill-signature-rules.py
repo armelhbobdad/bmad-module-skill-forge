@@ -28,6 +28,11 @@ and none of the `difference` tags. These tests keep:
   reference judge, whose `signature_match` is an `inaccurate-reference` gap,
   its absolute path;
 - a partial label in a table's column header labelling each of its rows;
+- a usage form read as what it writes, in the call-example rule, and a
+  name documented in several forms compared with each form by its own
+  rules, a mismatch reported for each form that does not match, on §2's
+  path and the fallback scan's alike (#826); a component whose props live
+  outside the source tree left uncompared (#837);
 - Create Skill naming a component's Props interface as its contract, not
   `(props: XProps) => JSX.Element`.
 
@@ -173,6 +178,69 @@ def test_a_caller_following_a_narrower_form_makes_a_valid_call():
     assert "`Callable[[A], X] | Callable[[A], Y]` and `(a: A) -> X | Y`" in spellings
     overloads = _section("Overload sets")
     assert "the unions of the overloads' types" in overloads
+
+
+def test_a_usage_form_is_read_as_what_it_writes():
+    """#826, deferred from #862: an entry whose only form is its `usage_signature` had no rule saying how it is read.
+    The call-example rule, its one copy, reads a component usage as a list of bare names of the props it sets and a
+    call as its arguments in order; a spread, children or `...args` can pass a required member; each usage of a list
+    is a form of its own."""
+    reading = _section("Reading a form")
+    assert ("A component usage `<X a={x} b=\"y\" />` reads as a list of bare names of the props it sets, and a call "
+            "`f(a, b)` as its arguments in order, each the parameter at its position (or, written `name=value`, the one "
+            "it names).") in reading
+    assert ("A JSX spread (`{...props}`) or children can pass a required prop, and a call's `...args` a required "
+            "parameter, so neither leaves one out.") in reading
+    assert ("An entry's `usage_signature` written as a usage is read this way, and each usage in a list of usages is "
+            "compared as a form of its own, under its entry's `form` index.") in reading
+    assert reading.count("`usage_signature`") == 1, "one copy of the usage rule"
+    # the bullet it extends, and the bare-names rule it reads by
+    call = _paragraph(_read(RULES), "- A call or usage example passes values")
+    assert "A component usage `<X a={x} b=\"y\" />` reads as a list of bare names" in call
+    assert "A list of bare names, with no type, default or `?`" in reading
+
+
+def test_each_documented_form_of_a_name_is_compared_by_its_own_rules():
+    """#826: a brief form in SKILL.md stood in for the full props list of a reference file. `plan` now offers the
+    name's other forms as `alternatives` (the fallback scan's `documentedAlternatives`), and the judge compares the
+    declaration with each by its own reading rules and reports a mismatch for each form that does not match, naming
+    it in `form`, the index score-signatures.py checks and grades by; with `candidates`, at the closest one. §2 points
+    its judge at the rule, and the fallback scan hands its subagents the alternatives."""
+    reading = _section("Reading a form")
+    assert ("A name the skill documents in several forms (a brief usage in SKILL.md, a full props list in a reference "
+            "file) comes with `alternatives`: coverage-check.md §2's check lists them after its `documented` form, and "
+            "the fallback per-file scan's `documentedAlternatives` holds them by name.") in reading
+    assert ("Compare the declaration with each form the check offers, each by its own reading rules, and report a "
+            "mismatch for each form that does not match, with its index as `form` (0 is `documented`, 1 the first "
+            "alternative), its `documented_sig` written as that form and its `difference` tagged against it.") in reading
+    assert ("With `candidates`, a form matches when it matches any candidate, and its mismatch is reported at the "
+            "closest candidate.") in reading
+    assert "only when none matches" not in reading and "differs from least" not in reading
+    spec = importlib.util.spec_from_file_location("score_signatures", SCORE_SIGNATURES)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.check_result({"file": "a.ts", "signature_mismatches": [
+        {"name": "x", "line": 1, "source_sig": "(a)", "documented_sig": "()", "issue": "i", "form": 1}]}, "r") == []
+    section2 = _flow(_slice(_read(COVERAGE), "### 2. Analyze Source Code", "### 2b."))
+    assert ("A check with `alternatives` (the other forms the skill documents for the name) is compared with each of "
+            "them too, as `{signatureRulesFile}` says, each mismatch naming its form as `form`.") in section2
+    section2b = _flow(_slice(_read(COVERAGE), "### 2b. Resolve the Denominator", "### 2c."))
+    assert ("(for a name documented in several forms, each gap's title ends `(form {n} of {m})` and its Issue names "
+            "that form)") in section2b
+    scan = _flow(_slice(_read(COVERAGE_TIERS), "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
+    assert ("`plan` without `--surface` writes the map as `documentedSignatures`, and each name's other documented "
+            "forms as `documentedAlternatives`:") in scan
+    assert ("(under `{skill-root}`). It gets the `documentedAlternatives` map too, whose forms it compares as that "
+            "file says.") in scan
+
+
+def test_a_component_whose_props_live_outside_the_source_is_checked_only_as_a_component():
+    """#837: `const Tabs = TabsPrimitive.Root` aliases another package's component, whose props type the judge cannot
+    read in the source tree: its props are left uncompared, and only that it is a component is checked."""
+    components = _section("Components")
+    assert ("A prop the form writes must exist on `P`, own or inherited. A component whose props type lives in a "
+            "package outside the source tree (`const Tabs = TabsPrimitive.Root`) has its props left uncompared: only "
+            "that it is a component is checked.") in components
 
 
 def test_a_positional_caller_and_a_python_keyword_caller_are_read_as_they_call():

@@ -1313,6 +1313,29 @@ def test_the_inventory_contract_lists_the_validators_kinds():
     assert "every entry carries the `description`" in section
 
 
+def test_the_inventory_contract_gives_a_component_constant_a_usage_signature():
+    """#837: a `const` holding a component had no rule, so whether its form was compared depended on how a run
+    recorded it. The contract records it as a `constant` with the form the skill writes as `usage_signature` (which
+    score-signatures.py plans) and a data constant with no signature field (which it does not). #826: a name
+    documented in several places is listed once per place, under one kind, so `plan` offers its forms. The contract's
+    example shows both. Both rules live in the contract file §1 loads, and coverage-check.md stays under its
+    budget."""
+    contract = _flow(_read(INVENTORY_CONTRACT))
+    assert ("A `const` holding a component (a `forwardRef`, `memo` or other wrapper call, or an alias like "
+            "`const Tabs = TabsPrimitive.Root`) is a `constant` with the declaration or usage form the skill writes as "
+            "`usage_signature`; a data constant carries no `usage_signature`, `params` or `return_type`.") in contract
+    assert ("A name documented in several places is listed once per place, each entry with that place's form (`Card` "
+            "above), and keeps one `kind` in every place.") in contract
+    example = json.loads(re.search(r"```json\n(.*?)\n```", _read(INVENTORY_CONTRACT), re.S).group(1))["exports"]
+    assert {"name": "ComponentName", "kind": "constant", "usage_signature": "<ComponentName prop={value} />",
+            "description": "..."} in example
+    assert [(e["kind"], e["params"]) for e in example if e["name"] == "Card"] == [
+        ("function", "{ title }"), ("function", "{ title: string; footer?: ReactNode }")]
+    section1 = _flow(_slice(_read(COVERAGE), "### 1. Extract Documented Exports", "#### 1a."))
+    assert "The JSON's shape and the contract the validator checks are in `{inventoryContractFile}`" in section1
+    assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
+
+
 def test_the_inventory_subagent_writes_its_own_response():
     """#814: the §1 subagent writes its JSON to the run file with the Write tool, never through a shell, and returns
     the path, or returns the JSON itself when it cannot write files; the parent saves the response with the Write
@@ -1571,6 +1594,9 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     assert ("A check with `candidates` reads each and reports a mismatch only when the documented signature "
             "matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the "
             "result's `file` stays its `files[]` entry) and its `difference` tagged against it") in forge
+    # #826: a check that offers a name's other documented forms is compared with each, by the rules file
+    assert ("A check with `alternatives` (the other forms the skill documents for the name) is compared with each of "
+            "them too, as `{signatureRulesFile}` says, each mismatch naming its form as `form`.") in forge
     # an overload set is judged whole, by the rule the judge reads in the rules file whose path it is given (#827)
     assert "delegate one subagent with its checks and the absolute path of `{signatureRulesFile}`" in forge
     assert "is read through its implementation" not in forge, "the overload rule has one copy, in the rules file"

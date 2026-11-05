@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory rules now say how to record a documented `const` whose value is a component, such as a `forwardRef(...)` or `memo(...)` call or an alias like `const Tabs = TabsPrimitive.Root`: as a `constant` with the declaration or usage form the skill gives as `usage_signature`, while a data constant carries no signature field. The rules had no such line, so whether a component constant's signature entered Signature Accuracy depended on how a run recorded it. Recorded this way, its form is compared with its declaration, so a skill some runs passed can now stop at the hard gate. A component whose props type comes from a package outside the source tree, such as that `Tabs` alias, is checked only for being a component: its props are left uncompared.
+migration: |
+  If a skill now stops at the hard gate on a component constant's `signature-mismatch` gap, correct the form the gap quotes as `documented_sig`, then run Test Skill again.
+issues: [837]
