@@ -1344,6 +1344,36 @@ def test_the_inventory_contract_gives_a_component_constant_a_usage_signature():
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
 
+def test_the_inventory_contract_keeps_the_members_several_names_share():
+    """6.0.0 release gate (oms-cognee): one SKILL.md row documented six models, stating their shared base fields
+    (the required `external_id` among them) once and then each model's own fields. The reader recorded each
+    model's own fields alone, a form that writes defaults and so claims a complete list, and every model was a
+    Critical gap for leaving out `external_id`; two judges given the whole row judged it a match. The contract
+    has each name's entry carry, in its `params` (never a `methods` item), the shared text first, then `; `,
+    then its own members without its name, as the skill writes them, whether the shared members sit in the same row
+    or paragraph or over a table for all its rows, and its example shows one, so the verdict no longer depends on
+    how the reader cuts the row."""
+    contract = _flow(_read(INVENTORY_CONTRACT))
+    assert ("Where the skill documents several names and states members they share once, in the same place (a "
+            "table row, a paragraph) or over a table for all its rows (a sentence or caption just above it, or its "
+            "column header), each name's entry carries that shared text in its `params` (in its `usage_signature`, "
+            "for a usage form), never in a `methods` item, which still starts with the method's name: the shared "
+            "text first, then `; `, then the name's own members as the skill writes them, without the name, never "
+            "the name's own members alone (`Note` above, from a row that documents `Note` and `Task`, each with the "
+            "base fields `id, scope=Scope()`, as `Note(content, title=None)` and `Task(title, done=False)`)."
+            ) in contract
+    # after the rule for a name documented in several places, which it extends to several names in one place
+    assert contract.index("A name documented in several places is listed once per place") < contract.index(
+        "Where the skill documents several names and states members they share once")
+    example = json.loads(re.search(r"```json\n(.*?)\n```", _read(INVENTORY_CONTRACT), re.S).group(1))["exports"]
+    [note] = [e for e in example if e["name"] == "Note"]
+    shared, own = note["params"].split("; ")
+    assert (shared, own) == ("each with the base fields id, scope=Scope()", "content, title=None"), (
+        "the shared text first, then `; `, then the name's own members, without the name")
+    assert "Note" not in note["params"]
+    assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
+
+
 def test_the_inventory_subagent_writes_its_own_response():
     """#814: the §1 subagent writes its JSON to the run file with the Write tool, never through a shell, and returns
     the path, or returns the JSON itself when it cannot write files; the parent saves the response with the Write

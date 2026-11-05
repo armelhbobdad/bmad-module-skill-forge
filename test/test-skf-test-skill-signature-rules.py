@@ -150,6 +150,19 @@ def test_a_form_claims_only_what_it_writes():
     assert "defaults" not in _section("Difference tags"), "a default's value is no fact `parameter-name` compares"
 
 
+def test_a_form_that_opens_with_shared_text_writes_its_members():
+    """6.0.0 release gate (oms-cognee): an inventory entry for one of several names a skill documents together
+    carries the members they share, then `; `, then its own (inventory-contract.md). Reading a form says that form
+    writes both, so a judge reads the shared members as part of it, before the name's own, and the required field
+    the shared text states is no member the form leaves out. A reading rule only: no comparison rule changes."""
+    reading = _section("Reading a form")
+    assert ("A form that opens with text the skill states once for several names, then `; ` and the name's own "
+            "members (inventory-contract.md), writes both: the members the shared text states are members that form "
+            "writes, read before its own.") in reading
+    assert reading.index("A default's value is not compared") < reading.index(
+        "A form that opens with text the skill states once"), "after the paragraph on optionality"
+
+
 def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
     """A replay of real skills' signature checks: call examples, an ellipsis and a list of bare names do not claim a
     complete parameter list, so an optional parameter they leave out is no difference, while a typed form still

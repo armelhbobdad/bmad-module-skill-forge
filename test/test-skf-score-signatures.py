@@ -28,7 +28,17 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     script checks comes after the declaration and, with --source-root,
     holds a `return` or an arrow function's expression body; then it is an
     Info `observation` titled `Annotation contradicted: {name}` that asks
-    for no change to the skill, else a Critical one with a warning
+    for no change to the skill, else a Critical one with a warning that
+    says why; the script checks that both signatures write the same
+    parameters as the comparison rules read them (6.0.0 release gate): a
+    `def` keyword, a decorator, a Go receiver, a leading `self` the source
+    writes, a type only one side writes or a common equivalent spelling of
+    one, a default's value and
+    the names of `*args` and `**kwargs` never refuse the tag, a list of bare
+    names or one with an ellipsis need not write every parameter, while a
+    name, the order, a type both write, an optionality the documented list
+    states, type parameters both write, a TS/JS literal default's type and a
+    caller's shifted positions do
   - plans each check at the declaration the skill cites (#781): for a name
     the surface records in several files, `plan --skill-dir` picks the one
     file the skill cites on a line naming it, and hands the judge every
@@ -593,20 +603,41 @@ LATER_FUNCTION = {"name": "stop_server", "kind": "function", "file": VIZ_FILE, "
     # the `return` belongs to a later function: the next surface record in the file bounds the evidence line
     (CONTRADICTED, VIZ_TEXT, {"surface_records": [*VIZ_SURFACE["exports"], LATER_FUNCTION]},
      "evidence_line 19 is not before the next declaration in the file, at line 16"),
-    # a parameter difference is no annotation the body contradicts
+    # a parameter difference is no annotation the body contradicts: a type both sides write
     ({**CONTRADICTED, "documented_sig": "(port: str = 8001) -> Callable[[], None]"}, VIZ_TEXT, {},
      "its parameters differ: documented `(port: str = 8001)`, source `(port: int = 8001)`"),
+    # ... the count, a name, an optionality the documented list states, a name after a `*` marker
+    ({**CONTRADICTED, "documented_sig": "(a, b) -> X", "source_sig": "(a) -> Y"}, VIZ_TEXT, {},
+     "its parameters differ: documented `(a, b)`, source `(a)`"),
+    ({**CONTRADICTED, "documented_sig": "(a, c) -> X", "source_sig": "(a, b) -> Y"}, VIZ_TEXT, {},
+     "its parameters differ: documented `(a, c)`, source `(a, b)`"),
+    ({**CONTRADICTED, "documented_sig": "(a, b=1) -> X", "source_sig": "(a=0, b=1) -> Y"}, VIZ_TEXT, {},
+     "its parameters differ: documented `(a, b=1)`, source `(a=0, b=1)`: parameter 1: `a` is required in the "
+     "documented list, optional in the source"),
+    ({**CONTRADICTED, "documented_sig": "(width: int, height: int) -> X",
+      "source_sig": "def f(height: int, width: int) -> Y"}, VIZ_TEXT, {},
+     "its parameters differ: documented `(width: int, height: int)`, source `def f(height: int, width: int)`: "
+     "parameter 1 is `width` in the documented list, `height` in the source"),
+    ({**CONTRADICTED, "documented_sig": "(a, *, c, b) -> X", "source_sig": "(a, *, b, d) -> Y"}, VIZ_TEXT, {},
+     "its parameters differ: documented `(a, *, c, b)`, source `(a, *, b, d)`"),
+    # a signature with no parameter group keeps the text comparison
+    ({**CONTRADICTED, "documented_sig": "make -> X", "source_sig": "make() -> Y"}, VIZ_TEXT, {},
+     "its parameters differ: documented `make`, source `make()`: the documented signature has no parameter group"),
     # a documented entry that states no return type claims none, so nothing contradicts it
     ({**CONTRADICTED, "documented_sig": "(port: int = 8001)"}, VIZ_TEXT,
      {"entry": {k: v for k, v in VIZ.items() if k != "return_type"}},
      "the documented signature states no return type"),
 ], ids=["line-not-a-return", "line-before-the-declaration", "the-declaration-line", "past-the-end", "no-such-file",
-        "a-comment", "a-return-in-a-later-function", "a-parameter-difference", "no-documented-return-type"])
+        "a-comment", "a-return-in-a-later-function", "a-parameter-difference", "a-parameter-count", "a-parameter-name",
+        "an-optionality-the-list-states", "typed-parameters-swapped", "a-name-after-a-star-marker",
+        "no-parameter-group", "no-documented-return-type"])
 def test_a_contradiction_whose_facts_do_not_check_is_critical(tmp_path, mismatch, text, kwargs, fact):
-    """The tag alone never lowers a grade: a documented entry with no return type, a parameter difference, an
-    evidence line before the declaration or past the next one, or, with --source-root, one that does not start with
-    `return` (a comment does not) or that the file lacks, is graded as an untagged mismatch, and a warning names
-    the fact that failed at the declaration's line."""
+    """The tag alone never lowers a grade: a documented entry with no return type, a parameter difference the rules
+    compare (a type both sides write, the count, a name, an optionality the documented list states, or, for a
+    signature with no parameter group, its text before the return), an evidence line before the declaration or
+    past the next one, or, with --source-root, one that does not start with `return` (a comment does not) or that
+    the file lacks, is graded as an untagged mismatch, and a warning names the fact that failed (for the
+    parameters, both texts before the return and why they differ) at the declaration's line."""
     proc, gaps = _contradiction_run(tmp_path, mismatch, text, **kwargs)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     out = json.loads(proc.stdout)
@@ -618,6 +649,494 @@ def test_a_contradiction_whose_facts_do_not_check_is_critical(tmp_path, mismatch
     [warning] = [w for w in out["warnings"] if "annotation-contradicted" in w]
     assert warning.startswith(f"{VIZ_FILE}:12: "), "the warning names the declaration's line, its fact no other"
     assert fact in warning and "tagged annotation-contradicted" in warning and "(Critical)" in warning, warning
+
+
+RUN_PARALLEL_FILE = "cognee/modules/pipelines/operations/run_parallel.py"
+RUN_PARALLEL_LINES = [f"# line {n}" for n in range(1, 20)]
+RUN_PARALLEL_LINES[7] = "def run_tasks_parallel(tasks: list[Task]) -> Callable[[Any], Generator[Any, Any, Any]]:"
+RUN_PARALLEL_LINES[14] = "    return Task(parallel_run)"
+# The 6.0.0 release gate's two contradictions (oms-cognee), their signatures as the judges wrote them.
+RELEASE_GATE = {
+    "visualization_server": (
+        {**CONTRADICTED, "documented_sig": "visualization_server(port) -> shutdown() callable",
+         "source_sig": "def visualization_server(port) -> Callable[[], Callable[[], None]]"},
+        VIZ_TEXT, {}),
+    "run_tasks_parallel": (
+        {"name": "run_tasks_parallel", "line": 8, "documented_sig": "run_tasks_parallel(tasks) -> Task",
+         "source_sig": "def run_tasks_parallel(tasks: list[Task]) -> Callable[[Any], Generator[Any, Any, Any]]",
+         "issue": "the declaration annotates a Callable; the body returns Task(parallel_run)",
+         "difference": "annotation-contradicted", "evidence_line": 15},
+        "\n".join(RUN_PARALLEL_LINES) + "\n",
+        {"entry": {"name": "run_tasks_parallel", "kind": "function", "params": "tasks", "return_type": "Task"},
+         "surface_records": [{"name": "run_tasks_parallel", "kind": "function", "file": RUN_PARALLEL_FILE, "line": 8,
+                              "signatureLine": RUN_PARALLEL_LINES[7], "origin": "extraction"}],
+         "file": RUN_PARALLEL_FILE}),
+}
+
+
+@pytest.mark.parametrize("name", list(RELEASE_GATE))
+def test_the_release_gate_contradictions_are_info_observations(tmp_path, name):
+    """6.0.0 release gate (oms-cognee): the judge tagged both annotations correctly, and `score` refused each tag
+    because the two texts before the return differed where the rules compare nothing, a `def` keyword before
+    `visualization_server(port)` and a type (`list[Task]`) the documented `run_tasks_parallel(tasks)` does not
+    write. The parameters are compared as the rules read them, so each is an Info observation that still
+    matches, and the gate passes."""
+    mismatch, text, kwargs = RELEASE_GATE[name]
+    proc, gaps = _contradiction_run(tmp_path, mismatch, text, **kwargs)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert [(m["name"], m["severity"]) for m in out["mismatches"]] == [(name, "Info")], out["warnings"]
+    assert (out["matchingSignatures"], out["signatureAccuracy"]) == (1, 100.0)
+    assert not any("annotation-contradicted" in w for w in out["warnings"]), out["warnings"]
+    assert [g["title"] for g in json.loads(gaps.read_text(encoding="utf-8"))] == [f"Annotation contradicted: {name}"]
+    gate = _append_and_gate(tmp_path, gaps)
+    assert (gate["gate"], gate["counts"]["Critical"]) == ("passed", 0)
+
+
+@pytest.mark.parametrize("documented_sig, source_sig", [
+    ("(a, b) -> X", "(a, b=1) -> Y"),
+    ("async def f(self, a: typing.List[int]) -> X", "def f(self, a: List[int]) -> Y"),
+    ("(*args, **kw) -> X", "(*items, **options) -> Y"),
+    ("(a, *, c, b) -> X", "(a, *, b, c) -> Y"),
+    ("(cb: (x: A, y: B) => void, n: Record<string, number>) => X",
+     "(cb: (x: A, y: B) => void, n: Record<string, number>) => Y"),
+    ("(cb, n) => X", "(cb: (x: A, y: B) => void, n: Record<string, number>) => Y"),
+    ("(port: int = 9000) -> X", "(port: int = 8001) -> Y"),
+    ("(a, b) -> X", "(a, b, /) -> Y"),
+    ("make -> X", "make -> Y"),
+], ids=["no-optionality-stated", "a-keyword-self-and-a-typing-prefix", "the-names-of-args-and-kwargs",
+        "by-name-after-a-star-marker", "commas-inside-nested-brackets-and-arrows", "a-type-only-the-source-writes",
+        "a-default-s-value", "a-positional-only-marker", "no-parameter-group-and-the-same-text"])
+def test_what_the_rules_leave_uncompared_never_refuses_a_contradiction(tmp_path, documented_sig, source_sig):
+    """`documented_sig` and `source_sig` write the same parameters as signature-comparison-rules.md reads them, not
+    as text: an optionality the documented list states for no member, a `def` or `async def` keyword before the
+    group, a leading `self` both sides write, a `typing.` prefix, the names of `*args` and `**kwargs`, the order
+    after a `*` marker, a type only one side writes, a default's value and a `/` marker are never compared, and a
+    comma inside a callback's parameters or a type's arguments splits no parameter. A signature with no parameter
+    group agrees by its text before the return. Each is an Info observation."""
+    proc, _ = _contradiction_run(tmp_path, {**CONTRADICTED, "documented_sig": documented_sig,
+                                            "source_sig": source_sig})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert [m["severity"] for m in out["mismatches"]] == ["Info"], out["warnings"]
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, file, severity", [
+    ("(pageSize?: string) => X", "(pageSize = 20) => Y", "src/table.ts", "Critical"),
+    ("(pageSize?: number) => X", "(pageSize = 20) => Y", "src/table.ts", "Info"),
+    ("(str, end) => X", "(str: string, start?: number, end?: number) => Y", "src/slice.ts", "Critical"),
+    ("(s, end) -> X", "(s: str, start: int = 0, end: int = -1) -> Y", "pkg/slice.py", "Info"),
+], ids=["a-ts-literal-default-s-type", "the-same-ts-literal-type", "a-ts-positional-shift", "no-shift-in-python"])
+def test_the_mismatch_s_file_says_how_its_language_reads_the_parameters(tmp_path, documented_sig, source_sig, file,
+                                                                       severity):
+    """End to end, the file a mismatch is reported at gives contradiction_fact its language: in a TS/JS file a
+    source parameter with no type and a literal default has that literal's type, and a list of bare names that
+    leaves out an optional parameter before one it writes shifts a caller's positions, which Python's keyword
+    arguments do not."""
+    record = {**VIZ_SURFACE["exports"][0], "file": file}
+    proc, _ = _contradiction_run(tmp_path, {**CONTRADICTED, "documented_sig": documented_sig, "source_sig": source_sig},
+                                 surface_records=[record], file=file)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert [m["severity"] for m in out["mismatches"]] == [severity], out["warnings"]
+
+
+def _parameter_fact(documented_sig: str, source_sig: str, extension: str = ".py") -> str | None:
+    """contradiction_fact for a mismatch at a file of `extension` whose facts other than its parameters check."""
+    entry = {"documented_sig": documented_sig, "source_sig": source_sig, "evidence_line": 19}
+    return mod.contradiction_fact(entry, {"return_type": "X"}, f"src/viz{extension}", 12)
+
+
+def _check_parameters(documented_sig: str, source_sig: str, extension: str, reason: str | None) -> None:
+    """The parameter fact agrees (`reason` None), or refuses with today's prefix and then `reason`."""
+    fact = _parameter_fact(documented_sig, source_sig, extension)
+    if reason is None:
+        assert fact is None, fact
+    else:
+        assert fact is not None and fact.startswith("its parameters differ: documented `") and reason in fact, fact
+
+
+@pytest.mark.parametrize("sig, extension, parameters", [
+    ("(path, size=1 << 20, mode)", ".py",
+     [("path", "", False, False), ("size", "", True, False), ("mode", "", False, False)]),
+    ("def f(a=x<3, b=1)", ".py", [("a", "", True, False), ("b", "", True, False)]),
+    ("def f(a: int = 0 if n < 2 else 1, b: int = 2)", ".py", [("a", "int", True, False), ("b", "int", True, False)]),
+    ("def f(a=g(x < 3), b=1) -> X", ".py", [("a", "", True, False), ("b", "", True, False)]),
+    ("(a: boolean = x < y, b: Map<string, number>)", ".ts",
+     [("a", "boolean", True, False), ("b", "Map<string,number>", False, False)]),
+    ("(m: Map<string, number>, n)", ".ts", [("m", "Map<string,number>", False, False), ("n", "", False, False)]),
+    ("(m: Map<(k: K) => V, string>, n: number) => X", ".ts",
+     [("m", "Map<(k:K)=>V,string>", False, False), ("n", "number", False, False)]),
+    ("(cb: (x: A, y: B) => void, n: Record<string, number>, sep: str = \", \") => X", ".ts",
+     [("cb", "(x:A,y:B)=>void", False, False), ("n", "Record<string,number>", False, False),
+      ("sep", "str", True, False)]),
+    ("(props: Omit<P, 'on-change'>, n: number) => X", ".ts",
+     [("props", "Omit<P,'on-change'>", False, False), ("n", "number", False, False)]),
+    ("(props: Omit<P, 'a,b'>, n: number) => X", ".ts",
+     [("props", "Omit<P,'a,b'>", False, False), ("n", "number", False, False)]),
+    ("(r: Record<'on off', number>, n: number) => X", ".ts",
+     [("r", "Record<'on off',number>", False, False), ("n", "number", False, False)]),
+    ("fn f<'a>(x: &'a str, t: impl Tr + 'a) -> &'a str", ".rs",
+     [("x", "&'a str", False, False), ("t", "impl Tr+'a", False, False)]),
+    ("export function f<T extends (a: X, b: Y) => Z>(x: T, y?: number): T", ".ts",
+     [("x", "T", False, False), ("y", "number", True, False)]),
+    ("def f(cls, a: typing.Optional[int] = None, *args, key, **kw) -> X", ".py",
+     [("cls", "", False, False), ("a", "typing.Optional[int]", True, False), ("*", "", False, False),
+      ("key", "", False, True), ("**", "", False, True)]),
+    ("def f(a, /, b, *, c, d=1)", ".py", [("a", "", False, False), ("b", "", False, False), ("c", "", False, True),
+                                          ("d", "", True, True)]),
+], ids=["a-shift-operator", "a-less-than", "a-conditional-default", "a-less-than-inside-a-call",
+        "a-less-than-after-a-space", "a-generic-s-comma", "a-callback-inside-a-generic",
+        "nested-commas-and-a-string-default", "a-string-literal-type", "a-string-literal-with-a-comma",
+        "a-string-literal-with-a-space", "rust-lifetimes", "type-parameters-before-the-group",
+        "a-leading-cls-and-star-parameters", "the-markers"])
+def test_a_parameter_list_is_split_at_its_top_level_commas(sig, extension, parameters):
+    """The group splits only at a comma outside every bracket pair and string: a callback's parameters, a type's
+    arguments or a default's string stays one parameter. A `<` opens a pair only when it follows a name, a `.`, a
+    `]` or a `>` with no space between and a `>` closes it before the pair around it does, so a shift, a
+    less-than or a conditional in a default nests nothing; an arrow's `>` closes no `<`; a `'` opens a string
+    (`'on-change'`, `'a,b'`, `'on off'`) unless it is a Rust lifetime in a `.rs` file (`&'a`, `+ 'a`). Each
+    parameter is its key (`*` and `**` for any `*args` and `**kwargs`), the type it writes, compacted, whether a
+    default or a `?` marks it optional, and whether it comes after a `*` marker, a bare `*` or `*args`; a `/` and
+    a bare `*` are none, and a leading `cls` is kept, as a receiver."""
+    params = mod._parameters(sig, extension)
+    assert [(p["key"], p["type"], p["optional"], p["by_name"]) for p in params] == parameters
+    assert [p["receiver"] for p in params] == [p[0] == "cls" for p in parameters]
+
+
+def test_a_rust_lifetime_is_read_only_in_a_rust_file():
+    """A `'` starts a lifetime only in a `.rs` file: anywhere else it opens a string, which here runs to the end,
+    so the group never closes and the signature has no parameter list."""
+    sig = "fn f<'a>(x: &'a str, n: usize) -> X"
+    assert [p["key"] for p in mod._parameters(sig, ".rs")] == ["x", "n"]
+    assert mod._parameters(sig, ".py") is None and mod._parameters(sig, ".ts") is None
+
+
+@pytest.mark.parametrize("sig", ["make -> X", "make -> f(x)", "f(a, b", "<Canvas of={X} />"],
+                         ids=["no-parentheses", "parentheses-after-the-return-arrow", "a-group-that-does-not-close",
+                              "a-component-usage"])
+def test_a_signature_with_no_parameter_group_is_compared_as_text(sig):
+    """No `(` before the return arrow, or a group that does not close, is no parameter list: contradiction_fact
+    compares such a signature by its text before the return, and says which side has no group."""
+    assert mod._parameters(sig) is None
+    _check_parameters(sig, "make() -> Y", ".py", "the documented signature has no parameter group, so the texts "
+                                                 "before the return are compared")
+    _check_parameters("make() -> X", sig, ".py", "the source signature has no parameter group")
+
+
+@pytest.mark.parametrize("sig", [
+    "each with x=A(); f(a, b) -> X",
+    "f(a: int) -> X; f(a: str) -> X",
+    "useA(x); useA(x, y)",
+])
+def test_a_semicolon_joined_text_has_no_parameter_list(sig):
+    """A `;` outside every bracket pair and string (shared text before a name's own members, an overload set or a
+    usage list) leaves no parameter list to read, so its first group, which may be a call inside the shared text,
+    is never compared as the parameters: the texts before the return decide, and a refusal says so."""
+    assert mod._parameters(sig) is None
+    _check_parameters(sig, "def f() -> Y", ".py", "the documented signature has no parameter group")
+    assert mod._parameters("(a: { x: number; y: string }, b) => X", ".ts") is not None
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, reason", [
+    ("make -> X", "build -> Y", "neither signature has a parameter group"),
+    ("make -> X", "make -> Y", None),
+], ids=["different-texts", "the-same-text"])
+def test_two_signatures_with_no_parameter_group_are_compared_as_text(documented_sig, source_sig, reason):
+    """When neither side has a parameter group, the texts before the return decide, and a refusal says so."""
+    _check_parameters(documented_sig, source_sig, ".py", reason)
+
+
+@pytest.mark.parametrize("sig, keys", [
+    ("func (s *Server) Start(port string, x int) error", ["port string", "x int"]),
+    ("func Start(port int) (int, error)", ["port int"]),
+    ("@lru_cache(maxsize=None) def f(x)", ["x"]),
+    ('@Annotation(value="x") public void f(int x)', ["int x"]),
+    ("R operator()(int x) const", ["int x"]),
+    ("void f(int x) noexcept(true)", ["int x"]),
+    ("void f(int x) throw()", ["int x"]),
+    ("void f(int x) __attribute__((nonnull))", ["int x"]),
+    ("template<class T> void f(T x) requires(Small<T>)", ["T x"]),
+    ("auto f(int x) decltype(g(x))", ["int x"]),
+], ids=["a-go-receiver", "a-go-result-list", "a-decorator", "a-java-annotation", "a-cpp-call-operator",
+        "noexcept", "throw", "attribute", "requires", "decltype"])
+def test_the_parameter_group_is_no_prefix_group(sig, keys):
+    """The parameter group is the first top-level group that a decorator or a Java annotation does not write (no
+    `@name` before it) and that no other `(` follows directly, nor a name and a `(` after whitespace: a Go
+    receiver, a decorator's arguments and C++'s `operator()` are passed over, while a Go result list after a space
+    is the return, and a C or C++ qualifier that takes arguments (`noexcept`, `throw`, `__attribute__`, `requires`,
+    `decltype`) leaves the group before it the parameter group."""
+    assert [p["key"] for p in mod._parameters(sig)] == keys
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, extension, reason", [
+    ("func (s *Server) Start(port string, x int) error", "func (s *Server) Start(port int) error", ".go",
+     "`port string` is not a source parameter"),
+    ("Start(port int) -> error", "func (s *Server) Start(port int) error", ".go", None),
+    ("Start(port int) -> (int, error)", "func Start(port int) (int, error)", ".go", None),
+    ("f(x) -> X", "@lru_cache(maxsize=None) def f(x) -> Y", ".py", None),
+    ("f(x, y) -> X", "@lru_cache(maxsize=None) def f(x) -> Y", ".py", "`y` is not a source parameter"),
+    ("operator()(int x) -> R", "R operator()(int x) const", ".cpp", None),
+    ("operator()(int x, int y) -> R", "R operator()(int x) const", ".cpp", "`int y` is not a source parameter"),
+    ("f(int x) -> void", '@Annotation(value="x") public void f(int x)', ".java", None),
+    ("f(int x) -> void", "void f(int y) noexcept(true)", ".cpp", "`int x` is not a source parameter"),
+    ("f(int x) -> void", "void f(int x) noexcept(true)", ".cpp", None),
+], ids=["a-go-receiver-s-method-refuses", "a-go-receiver-s-method-agrees", "a-go-result-list", "a-decorator-agrees",
+        "a-decorator-refuses", "a-cpp-call-operator-agrees", "a-cpp-call-operator-refuses", "a-java-annotation",
+        "a-qualifier-keeps-the-group-and-refuses", "a-qualifier-keeps-the-group-and-agrees"])
+def test_a_prefix_group_is_never_compared_as_the_parameters(documented_sig, source_sig, extension, reason):
+    """A Go receiver, a decorator's or annotation's arguments and C++'s `operator()` are never the parameters,
+    so a method whose parameters differ refuses the tag even when both write one receiver, and one whose
+    parameters agree keeps it whatever writes the prefix."""
+    _check_parameters(documented_sig, source_sig, extension, reason)
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, reason", [
+    ("f<T extends string>(x: T) => X", "f<T extends number>(x: T) => Y",
+     "the type parameters differ: documented `T extends string`, source `T extends number`"),
+    ("f<T extends string>(x: T) => X", "function f<T extends string>(x: T): Y", None),
+    ("f(x: T) => X", "function f<T>(x: T): Y", None),
+    ("<T,>(x: T) => X", "<T>(x: T) => Y", None),
+    ("def f[T: int](x: T) -> X", "def f[T: str](x: T) -> Y", "the type parameters differ"),
+], ids=["a-different-constraint", "the-same-type-parameters", "only-the-source-writes-them", "a-trailing-comma",
+        "python-type-parameters"])
+def test_type_parameters_both_sides_write_are_compared(documented_sig, source_sig, reason):
+    """Type parameters between the name and the group (`<...>`, Python's `[...]`) are compared, compacted and
+    without a trailing comma, when both sides write them, and not when only one does."""
+    _check_parameters(documented_sig, source_sig, ".ts", reason)
+
+
+@pytest.mark.parametrize("sig, parts", [
+    ("export function f<T extends (a: X) => Z>(x: T)", ("export function f<T extends (a: X) => Z>(x: T)", "")),
+    ("func Start(port int) (int, error)", ("func Start(port int)", "(int, error)")),
+    ("func (s *Server) Start(port int) error", ("func (s *Server) Start(port int)", "error")),
+    ("make -> X", ("make", "X")),
+], ids=["a-group-inside-type-parameters", "a-go-result-list", "a-go-receiver", "no-group"])
+def test_the_head_and_the_return_are_read_from_the_parameter_group(sig, parts):
+    """_signature_parts reads the head and the return from the group _parameters reads, so a `(` inside type
+    parameters is not the group and a refusal quotes the head that was compared."""
+    assert mod._signature_parts(sig) == parts
+
+
+def test_a_group_inside_type_parameters_states_no_return_type():
+    """A `(` inside the type parameters is no group, so a form with no return after its group states none, and a
+    refusal quotes each head up to the group's `)`."""
+    entry = {"documented_sig": "export function f<T extends (a: X) => Z>(x: T)",
+             "source_sig": "export function f<T extends (a: X) => Z>(x: T): Z", "evidence_line": 19}
+    assert mod.contradiction_fact(entry, {}, "src/f.ts", 12) == "the documented signature states no return type"
+    _check_parameters("f<T extends (a: X) => Z>(x: T) => R", "f<T extends (a: X) => Z>(x: T, y: U) => R", ".ts",
+                      "documented `f<T extends (a: X) => Z>(x: T)`, source `f<T extends (a: X) => Z>(x: T, y: U)`: "
+                      "the documented list writes 1 parameter, the source 2")
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, reason", [
+    ("(a: typing.Any) -> X", "(a: Any) -> Y", None),
+    ("(a: collections.abc.Sequence[int]) -> X", "(a: Sequence[int]) -> Y", None),
+    ("(children: ReactNode) => X", "(children: React.ReactNode) => Y", None),
+    ("(a: typing_extensions.Self) -> X", "(a: Self) -> Y", "`a` is typed `typing_extensions.Self`"),
+    ("(a: Optional[int]) -> X", "(a: int | None) -> Y", None),
+    ("(a: Union[int, None]) -> X", "(a: int | None) -> Y", None),
+    ("(a: Optional[int]) -> X", "(a: str | None) -> Y", "`a` is typed `Optional[int]`"),
+    ("(a: Union[A, B]) -> X", "(a: A | B) -> Y", None),
+    ("(a: B | A) -> X", "(a: A | B) -> Y", None),
+    ("(a: List[int]) -> X", "(a: list[int]) -> Y", None),
+    ("(a: Dict[str, int]) -> X", "(a: dict[str, int]) -> Y", None),
+    ("(a: Tuple[int, str]) -> X", "(a: tuple[int, str]) -> Y", None),
+    ("(a: Set[int]) -> X", "(a: set[int]) -> Y", None),
+    ("(a: FrozenSet[int]) -> X", "(a: frozenset[int]) -> Y", None),
+    ("(a: Type[T]) -> X", "(a: type[T]) -> Y", None),
+    ("(a: List[int]) -> X", "(a: list[str]) -> Y", "`a` is typed `List[int]`"),
+    ("(a: Dict) -> X", "(a: dict) -> Y", None),
+    ("(a: (int | None)) -> X", "(a: int | None) -> Y", None),
+    ('(a: "Node") -> X', "(a: Node) -> Y", None),
+    ("(a: Array<T>) => X", "(a: T[]) => Y", None),
+    ("(a: ReadonlyArray<T>) => X", "(a: readonly T[]) => Y", None),
+    ("(a: Array<T>) => X", "(a: readonly T[]) => Y", "`a` is typed `Array<T>`"),
+    ("(a: dict) -> X", "(a: dict[str, Any]) -> Y", None),
+    ("(a: dict[str, Any]) -> X", "(a: dict) -> Y", None),
+    ("(a: list[dict]) -> X", "(a: list[dict[str, Any]]) -> Y", None),
+    ("(a: dict[str, int]) -> X", "(a: dict[str, str]) -> Y", "`a` is typed `dict[str,int]`"),
+    ("(schema: VectorSchemaProvider) -> X", "(schema: VectorSchemaProvider | MultiVectorSchemaProvider) -> Y", None),
+    ("(schema: A | B) -> X", "(schema: A) -> Y", "`schema` is typed `A|B` in the documented list, `A` in the source"),
+    ("(a: T) -> X", "(a: U) -> Y", "`a` is typed `T` in the documented list, `U` in the source"),
+], ids=["a-typing-prefix", "a-collections-abc-prefix", "a-react-prefix", "a-typing-extensions-prefix-is-compared",
+        "optional-and-a-none-union", "union-with-none", "optional-of-another-type", "union-and-a-bar",
+        "a-union-in-any-order", "typing-list", "typing-dict", "typing-tuple", "typing-set", "typing-frozenset",
+        "typing-type", "a-list-of-another-type", "a-bare-typing-alias", "a-parenthesized-union",
+        "a-forward-reference", "array-and-brackets",
+        "readonly-array-and-readonly-brackets", "an-array-is-no-readonly-array", "type-arguments-the-form-leaves-out",
+        "type-arguments-the-source-leaves-out", "nested-type-arguments-left-out", "type-arguments-both-write-differ",
+        "a-documented-member-of-the-source-s-union", "a-documented-union-wider-than-the-source-s",
+        "a-renamed-type-variable"])
+def test_types_both_sides_write_are_compared_by_the_rules_equivalent_spellings(documented_sig, source_sig, reason):
+    """A type both sides write is compared as Equivalent spellings and Annotations read it: a `typing.`,
+    `collections.abc.` or `React.` prefix (not `typing_extensions.`), `Optional` and `Union` against `|`, a
+    union in any order, `typing`'s aliases against the builtins, a quoted forward reference, `Array<T>` against
+    `T[]` and `ReadonlyArray<T>` against `readonly T[]`, and type arguments one side leaves out; a documented type
+    that names some of the source's union members agrees, one wider than the source's does not, and a renamed type
+    variable stays a difference."""
+    _check_parameters(documented_sig, source_sig, ".ts" if "=>" in documented_sig else ".py", reason)
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, extension, reason", [
+    ("(pageSize?: string) => X", "(pageSize = 20) => Y", ".ts",
+     "`pageSize` is typed `string` in the documented list, `number` in the source"),
+    ("(pageSize?: number) => X", "(pageSize = 20) => Y", ".ts", None),
+    ("(sep?: number) => X", '(sep = ", ") => Y', ".js", "`number` in the documented list, `string` in the source"),
+    ("(s?: string) => X", "(s = `x${y}`) => Y", ".tsx", None),
+    ("(flag?: boolean) => X", "(flag = true) => Y", ".mjs", None),
+    ("(n?: bigint) => X", "(n = 123n) => Y", ".ts", None),
+    ("(n?: number) => X", "(n = 123n) => Y", ".ts", "`bigint` in the source"),
+    ("(page_size: str = 'a') -> X", "(page_size=20) -> Y", ".py", None),
+], ids=["a-number-literal-refuses", "a-number-literal-agrees", "a-string-literal", "a-template-literal",
+        "a-boolean-literal", "a-bigint-literal", "a-bigint-is-no-number", "no-literal-type-in-python"])
+def test_a_ts_js_literal_default_has_its_literal_s_type(documented_sig, source_sig, extension, reason):
+    """In a TS/JS file a source parameter with no type and a literal default has that literal's type (a number,
+    a string or template literal, a boolean, a bigint), as Annotations says, so a documented type that differs
+    from it refuses the tag; in Python a default gives no type."""
+    _check_parameters(documented_sig, source_sig, extension, reason)
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, extension, reason", [
+    ("(a) -> X", "(a, b=1) -> Y", ".py", None),
+    ("(a) -> X", "(a, b) -> Y", ".py", "the required source parameter `b` is left out"),
+    ("(a, b) -> X", "(a) -> Y", ".py", "`b` is not a source parameter"),
+    ("(b, a) -> X", "(a, b) -> Y", ".py", "`a` comes before `b` in the source, after it in the documented list"),
+    ("(str, end) => X", "(str: string, start?: number, end?: number) => Y", ".ts",
+     "the optional `start`, left out before `end`, shifts a caller's positions in a `.ts` file"),
+    ("(s, end) -> X", "(s: str, start: int = 0, end: int = -1) -> Y", ".py", None),
+    ("(a, b, c) -> X", "(a, *, c, b) -> Y", ".py", None),
+    ("(a, *args, c, b) -> X", "(a, *args, b, c) -> Y", ".py", None),
+    ("(tasks, data, ...) -> X", "(tasks, data, dataset, user=None) -> Y", ".py", None),
+    ("(tasks, …) -> X", "(tasks, data, dataset) -> Y", ".py", None),
+    ("(...) -> X", "(tasks, data) -> Y", ".py", None),
+    ("(tasks, other, ...) -> X", "(tasks, data, dataset) -> Y", ".py", "`other` is not a source parameter"),
+    ("(data, tasks, ...) -> X", "(tasks, data) -> Y", ".py", "`tasks` comes before `data` in the source"),
+    ("(tasks: str, ...) -> X", "(tasks: list[Task], data) -> Y", ".py", "`tasks` is typed `str`"),
+    ("(...items) => X", "(...rest) => Y", ".ts", "`...items` is not a source parameter"),
+    ("(a: int) -> X", "(a: int, b: int = 1) -> Y", ".py", "the documented list writes 1 parameter, the source 2"),
+], ids=["bare-names-leave-out-an-optional", "bare-names-leave-out-a-required", "bare-names-write-one-too-many",
+        "bare-names-out-of-order", "a-positional-shift-in-ts", "no-positional-shift-in-python",
+        "positional-names-against-keyword-only", "by-name-after-args", "an-ellipsis", "a-unicode-ellipsis",
+        "an-ellipsis-alone", "an-ellipsis-with-a-name-the-source-lacks", "an-ellipsis-out-of-order",
+        "an-ellipsis-with-a-typed-member-that-differs", "a-rest-is-no-ellipsis", "a-typed-list-claims-to-be-complete"])
+def test_a_form_that_claims_no_complete_list_need_not_write_every_parameter(documented_sig, source_sig, extension,
+                                                                            reason):
+    """Reading a form: a list of bare names need not write an optional source parameter, but each name it writes
+    must be one, in the source's order (by name alone after a `*` marker), and it may not leave out a required one,
+    nor, in a language without keyword arguments, an optional one before a name it writes. A list holding an
+    ellipsis claims nothing about what it stands for; the members it writes are still checked. A TS/JS rest is no
+    ellipsis, and a list that writes a type, a default or a `?` must write every parameter."""
+    _check_parameters(documented_sig, source_sig, extension, reason)
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, extension, reason", [
+    ("get(key) -> X", "def get(self, key) -> Y", ".py", None),
+    ("get(self, key) -> X", "def get(self, key) -> Y", ".py", None),
+    ("(self, a) -> X", "def f(a) -> Y", ".py", "`self` is not a source parameter"),
+    ("(self: Self, a: int) -> X", "def f(a: int) -> Y", ".py", "the documented list writes 2 parameters, the source 1"),
+    ("len(&self) -> usize", "fn len(&self) -> usize", ".rs", None),
+    ("create(name) -> X", "def create(cls, name) -> Y", ".py", None),
+    ("get(key) -> X", "def get(self, key, other) -> Y", ".py", "the required source parameter `other` is left out"),
+    ("len() -> usize", "fn len(&self) -> usize", ".rs", None),
+    ("push(x: T) -> ()", "fn push(&mut self, x: T)", ".rs", None),
+    ("into_inner() -> T", "fn into_inner(mut self) -> T", ".rs", None),
+    ("(x: number) => X", "function f(this: Window, x: number): Y", ".ts", None),
+], ids=["self", "self-on-both-sides", "a-documented-self-the-source-lacks", "a-typed-documented-self",
+        "rust-ref-self-on-both-sides", "cls", "self-and-a-required-parameter-left-out", "rust-ref-self",
+        "rust-ref-mut-self", "rust-mut-self", "a-ts-this-parameter"])
+def test_a_leading_receiver_is_dropped_where_the_source_writes_one(documented_sig, source_sig, extension, reason):
+    """A leading `self`, `cls`, `&self`, `&mut self`, `mut self` or TS `this: T` the source writes is dropped, so a
+    method documented without its receiver keeps the tag; the documented list's own is dropped only when the
+    source leads with one too, so a documented `self` the source does not take is a parameter it lacks. The
+    parameters after it are still compared."""
+    _check_parameters(documented_sig, source_sig, extension, reason)
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, reason", [
+    ("(width: int, height: int) -> X", "def f(height: int, width: int) -> Y",
+     "parameter 1 is `width` in the documented list, `height` in the source"),
+    ("(a: int, *, key: str) -> X", "def f(a: int, *, key: int) -> Y",
+     "`key` is typed `str` in the documented list, `int` in the source"),
+    ("(a: int, *, kee: int) -> X", "def f(a: int, *, key: int) -> Y",
+     "`kee`, written after a `*` marker, is not a source parameter"),
+    ("(a: int, b: int, c: int) -> X", "def f(a: int, *, c: int, b: int) -> Y", None),
+    ("(a: int, *, b: int, b: int) -> X", "def f(a: int, *, b: int, c: int) -> Y", "a parameter is written twice"),
+], ids=["swapped-in-order", "a-keyword-only-type", "a-keyword-only-name", "positional-against-keyword-only",
+        "a-name-written-twice"])
+def test_a_list_that_claims_to_be_complete_is_paired_in_order_then_by_name(documented_sig, source_sig, reason):
+    """A typed list pairs its parameters with the source's in order up to the first either writes after a `*`
+    marker, then by name: two typed parameters swapped differ at their position, a keyword-only parameter differs
+    by its type or its name, positional parameters pair with keyword-only ones by name, and a name written twice
+    after the marker is a difference."""
+    _check_parameters(documented_sig, source_sig, ".py", reason)
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, extension, reason", [
+    ("(kind: string) => X", "(kind: 'string') => Y", ".ts",
+     "`kind` is typed `string` in the documented list, `'string'` in the source"),
+    ('(a: "Node") => X', "(a: Node) => Y", ".ts", '`a` is typed `"Node"`'),
+    ('(a: "Node") -> X', "(a: Node) -> Y", ".py", None),
+    ("(kind: 'string') => X", "(kind: 'string') => Y", ".ts", None),
+], ids=["a-ts-string-literal-type", "a-ts-quoted-type", "a-python-forward-reference", "the-same-literal-type"])
+def test_a_quoted_type_is_a_forward_reference_only_outside_ts_js(documented_sig, source_sig, extension, reason):
+    """Outside TS/JS a quoted type is a forward reference to the type it quotes; in a TS/JS file it is a string
+    literal type, so it differs from the type its text names."""
+    _check_parameters(documented_sig, source_sig, extension, reason)
+
+
+def test_a_less_than_after_a_space_nests_no_parameter():
+    """A `<` after a space is an operator, so a comparison in a default does not swallow the comma before a
+    generic parameter: the documented bare names find both source parameters."""
+    _check_parameters("(a, b) => X", "(a: boolean = x < y, b: Map<string, number>) => Y", ".ts", None)
+    _check_parameters("(a, c) => X", "(a: boolean = x < y, b: Map<string, number>) => Y", ".ts",
+                      "`c` is not a source parameter")
+
+
+FETCH_FULL = {"name": "fetch", "kind": "function",
+              "params": "url: str, method: str = 'GET', timeout: float | None = None, retries: int = 0",
+              "return_type": "Response", "description": "Fetches."}
+FETCH_SHARED = {"name": "fetch", "kind": "function", "params": "each takes timeout=None, retries=0; url, method='GET'",
+                "return_type": "Response", "signature_form": "partial", "description": "Fetches."}
+FETCH_SURFACE = [{"name": "fetch", "kind": "function", "file": "pkg/http.py", "line": 3,
+                  "signatureLine": "def fetch(url, method='GET', timeout=None, retries=0, verify=True) -> Response:",
+                  "origin": "extraction"}]
+
+
+def test_a_partial_form_in_the_shared_text_shape_keeps_its_label():
+    """A name with two forms, its second a partial form in the shared-text shape (inventory-contract.md: the
+    shared text, `; `, then its own members): an `omitted-optional` mismatch reported for that form, quoting its
+    text with its return, is graded by that form's label, an Info `Partial signature`, with no warning that the
+    mismatch quotes another form. A `;` in a form is read as written."""
+    mismatch = {"name": "fetch", "line": 3, "form": 1, "difference": "omitted-optional",
+                "documented_sig": "each takes timeout=None, retries=0; url, method='GET' -> Response",
+                "source_sig": "def fetch(url, method='GET', timeout=None, retries=0, verify=True) -> Response",
+                "issue": "leaves out the optional 'verify'"}
+    out = mod.score([FETCH_FULL, FETCH_SHARED], ["fetch"], FETCH_SURFACE,
+                    [{"file": "pkg/http.py", "signature_mismatches": [mismatch]}])
+    assert [m["severity"] for m in out["mismatches"]] == ["Info"], out["warnings"]
+    assert [g["title"] for g in out["gapRecords"]] == ["Partial signature: fetch (form 2 of 2)"]
+    assert not any("whose text its `documented_sig` is not" in w for w in out["warnings"]), out["warnings"]
+
+
+def test_an_entry_in_the_shared_text_shape_is_valid_and_planned_whole(tmp_path):
+    """validate-inventory.py accepts an entry whose `params` is the shared-text shape the contract gives, and
+    `plan` hands the judge the whole text as the check's documented form, shared text included."""
+    shared = "each with the base fields id, scope=Scope(); content, title=None"
+    response = _write(tmp_path / "inventory-response.txt", {"exports": [
+        {"name": "Note", "kind": "class", "params": shared, "description": "A note."}],
+        "references": [], "cross_check_mismatches": []})
+    inventory = tmp_path / "inventory.json"
+    proc = subprocess.run([sys.executable, str(SCRIPTS / "validate-inventory.py"), "--input", response,
+                           "--output", str(inventory)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0 and json.loads(proc.stdout)["valid"] is True, proc.stdout + proc.stderr
+    surface = _write(tmp_path / "surface.json", {"exports": [
+        {"name": "Note", "kind": "class", "file": "pkg/notes.py", "line": 5, "signatureLine": "class Note(Record):",
+         "origin": "extraction"}], "sets": {"all": ["Note"]}})
+    proc = _run("plan", "--inventory", str(inventory), "--surface", surface)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    [group] = json.loads(proc.stdout)["files"]
+    assert [check["documented"] for check in group["checks"]] == [{"params": shared}]
 
 
 def test_without_a_source_root_only_the_line_order_is_checked(tmp_path):
