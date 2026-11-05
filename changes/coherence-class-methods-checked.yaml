@@ -5,3 +5,4 @@ summary: |
 migration: |
   For a skill that now stops at the hard gate on such a finding, make the example agree with the documented method (await one the skill documents as async, drop the `await` of one it documents as sync), or correct the description when the source says otherwise, then run Test Skill again.
 issues: [844]
+prs: [877]
