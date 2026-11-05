@@ -698,44 +698,97 @@ class TestStagesRecordTheirGaps:
         """#778: §1b no longer makes the body authoritative; §5b, where the pinned source can settle it, cites the
         file the export's one declaration contradicts, inside the package in every case, and falls back to the
         reference line when it cannot or neither side agrees. Each record names its reference file in its title, so
-        two references that disagree with one body are two gaps, and its remediation names both files."""
+        two references that disagree with one body are two gaps, and its remediation names both files. #841: the
+        cross-check also compares two references the body does not settle (it does not document the export, or
+        agrees with both), and §5b loads the Source rule from the branch file's Split-Body Sources section."""
         text = _read(COVERAGE_FILE)
+        section1 = _flow(_slice(text, "### 1. Extract Documented Exports", "#### 1a."))
+        assert ("For each export two or more of the files it reads document, it compares the SKILL.md body with "
+                "each reference file, and two reference files with each other only when the body does not settle "
+                "them (it does not document the export, or agrees with both), by the rules of `{signatureRulesFile}`"
+                ) in section1
+        assert "it compares the two by the rules" not in section1 and "every pair" not in section1
+        # the pair's other side, as the contract §1's reader is given writes it
+        contract = _flow(_read(REFS / "inventory-contract.md"))
+        assert ("A `cross_check_mismatches` entry gives its `export`, `reference_file`, `reference_line` and an "
+                "`issue` that names each form by its file's path, and the pair's other side: the SKILL.md body's line "
+                "as `skill_md_line`, or, for two references, the one that sorts first in codepoint order, by path and "
+                "then line, as `other_file` and `other_line`, with the one that sorts last as `reference_file` and "
+                "`reference_line`.") in contract
+        assert '"other_file": "references/api-reference.md", "other_line": 40' in contract
         section = _flow(_slice(text, "### 1b. Cross-Check", "### 2. Analyze"))
         assert "The SKILL.md body is authoritative" not in section
         assert "High `split-body-mismatch` gap" in section
         assert ("§5b records it titled `Split-body mismatch: {export} ({reference_file})`, with its `export` and its "
-                "Source at the side the source contradicts (the reference file when no source settles it): "
+                "Source at the side the source contradicts (`{reference_file}` when no source settles it): "
                 "update-skill edits that file to match the other without reading the source") in section
+        assert ("An entry for two references the body does not settle is titled `Split-body mismatch: {export} "
+                "({other_file}, {reference_file})`.") in section
+        # §5b keeps the sentence that loads the Source rule; the rule itself is a branch section
         side = _flow(_slice(text, "**A split-body mismatch's Source**", "Then write the records no script wrote"))
-        assert side.startswith("**A split-body mismatch's Source** is a line inside the skill package.")
+        assert side == ("**A split-body mismatch's Source** is a line inside the skill package: when §1b found one, "
+                        "load `{coverageBranchesFile}` and follow its **Split-Body Sources** section. ")
+        assert text.index("**A split-body mismatch's Source**") > text.index("### 5b. Record the Coverage Gaps")
+        rule = _flow(_read(COVERAGE_BRANCHES_FILE).split("\n## Split-Body Sources\n", 1)[1])
+        assert rule.lstrip().startswith("The Source is `{reference_file}:{reference_line}`, of two references the one that "
+                               "sorts last, unless the pinned source settles it for the other side.")
         for needle in (# only where the pinned source can settle it: no State 2 map strings, no Quick tier, no drift
                        "At State 1 and the Forge tier or above, with `workspaceDrift` not `overridden`",
                        "set the two forms its `issue` gives against the export's declaration at the `file` and "
                        "`line` `surface.json` gives",
                        "when that one declaration decides (no overload set, no second declaring file)",
-                       "when the reference agrees and the body does not, the Source is `SKILL.md:{skill_md_line}`, "
-                       "else `{reference_file}:{reference_line}`",
+                       # the other side when only the reference agrees, else the default, the reference that sorts last
+                       "when `{reference_file}`'s form agrees and the other side's does not, the Source is the other "
+                       "side, `SKILL.md:{skill_md_line}` or `{other_file}:{other_line}`.",
                        "Its remediation names the file to edit and the file and line whose form it takes, citing "
                        "the declaration's `file:line`",
                        "when both forms agree with it, it says so and names what differs",
-                       "when neither does, or nothing decides, it says no source settled it"):
-            assert needle in side, needle
-        assert "State 2" not in side and "`signature_source`" not in side
-        assert text.index("**A split-body mismatch's Source**") > text.index("### 5b. Record the Coverage Gaps")
+                       "when neither does, or nothing decides, it says no source settled it and names "
+                       "`{reference_file}` to edit, taking the other side's form (`{other_file}`'s, for two "
+                       "references)"):
+            assert needle in rule, needle
+        assert "State 2" not in rule and "`signature_source`" not in rule
         formats = _flow(_read(FORMATS_FILE))
-        assert ("Each row is a split-body gap coverage-check recorded, with its Source at "
-                "`SKILL.md:{SKILL.md Line}` when the pinned source contradicts the body, else at "
-                "`{Reference File}:{Reference Line}`") in formats
-        assert ("A split-body record, titled `Split-body mismatch: {export} ({reference_file})`, cites the side the "
-                "pinned source contradicts: `SKILL.md:{skill_md_line}` when the reference agrees with the source "
-                "declaration and the body does not, else `{reference_file}:{reference_line}`, also when no source "
-                "settled it. Its remediation names the file to edit and the file and line whose form it takes") \
-            in formats
-        # the table shows which side the source contradicts
-        assert ("| # | Reference File | Export | Issue | SKILL.md Line | Reference Line | Contradicted Side |"
+        assert ("Each row is a split-body gap coverage-check recorded. **Other Side** is the other file of its pair, "
+                "at its line: `SKILL.md:{skill_md_line}`, or `{other_file}:{other_line}` for two references. Its "
+                "Source is at **Other Side** when the pinned source contradicts that side and agrees with "
+                "**Reference File**, else at `{Reference File}:{Reference Line}`.") in formats
+        assert ("A split-body record, titled `Split-body mismatch: {export} ({reference_file})`, or "
+                "`Split-body mismatch: {export} ({other_file}, {reference_file})` for two references, cites the side "
+                "the pinned source contradicts: the other side, `SKILL.md:{skill_md_line}` or "
+                "`{other_file}:{other_line}`, when `{reference_file}` agrees with the source declaration and the other "
+                "side does not, else `{reference_file}:{reference_line}`, also when no source settled it. Its "
+                "remediation names the file to edit and the file and line whose form it takes") in formats
+        # the table shows the pair's other side and which side the source contradicts
+        assert ("| # | Reference File | Export | Issue | Other Side | Reference Line | Contradicted Side |"
                 in formats)
-        assert ("**Contradicted Side** is the side the source contradicts (`SKILL.md` or `reference`), `none` when "
-                "both forms agree with it, or `not settled` when no source settled it") in formats
+        assert "SKILL.md Line" not in formats
+        # a file's path in every case, never the word `reference`
+        assert ("**Contradicted Side** is the path of the one file the source contradicts (`SKILL.md` or a "
+                "`references/` file's path), `none` when both forms agree with it, or `not settled` when it "
+                "contradicts both or no source settled it") in formats
+        assert "`reference` for" not in formats
+
+    def test_a_reference_pair_is_one_gap_per_pair_that_blocks_and_records_once(self, values: dict[str, str]
+                                                                               ) -> None:
+        """#841: a body that matches both references while they contradict each other leaves their pair to find it,
+        a High `split-body-mismatch` the hard gate blocks on, beside another export's body pair. The pair's fixed
+        order gives it one title, so a rerun of §5b records each gap once."""
+        pair = _gap("High", "split-body-mismatch",
+                    "Split-body mismatch: run_tasks_parallel (references/a.md, references/b.md)",
+                    source="references/b.md:5", export="run_tasks_parallel")
+        body = _gap("High", "split-body-mismatch", "Split-body mismatch: fetch (references/b.md)",
+                    source="references/b.md:9", export="fetch")
+        first = _record("coverage-check", [pair, body], values)
+        again = _record("coverage-check", [pair, body], values)
+        assert (first["appended"], again["appended"], again["duplicates"]) == (
+            ["GAP-001", "GAP-002"], [], ["GAP-001", "GAP-002"])
+        assert [r["title"] for r in _ledger_records(values)] == [pair["title"], body["title"]]
+        _record("coherence-check", [], values)
+        _record("external-validators", [], values)
+        out = json.loads(_gate(values).stdout)
+        assert out["gate"] == "blocked"
+        assert [(g["id"], g["severity"]) for g in out["blocking"]] == [("GAP-001", "High"), ("GAP-002", "High")]
 
     def test_each_per_export_record_names_its_export(self) -> None:
         """The hand-written split-body record and the script's per-export records name the export in

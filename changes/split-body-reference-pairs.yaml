@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill, skf-update-skill
+summary: |
+  Test Skill's split-body cross-check now compares two `references/` files that document one export when the `SKILL.md` body does not settle them (it does not document the export, or agrees with both); before, a contradiction between two reference files surfaced only when the inventory happened to carry the wrong form. Such a contradiction is a High `split-body-mismatch` gap titled `Split-body mismatch: {export} ({other_file}, {reference_file})`, so a skill that passed can now stop at the hard gate. When no source settles it, its Source is the reference file whose path sorts last, and Update Skill edits that file to match the other. `validate-inventory.py` accepts `other_file` and `other_line` in place of `skill_md_line`, and now refuses a pair out of order (the one that sorts first in codepoint order, by path and then line, is `other_file`) or a `reference_file` or `other_file` that is not a `references/` file of the skill. The Reference Consistency table's `SKILL.md Line` column is now `Other Side`.
+migration: |
+  If a skill now stops at the hard gate on a split-body gap between two reference files, run `@Ferris US <skill> --from-test-report` on that report, or edit the cited reference so both files document the export as its source declares, then run Test Skill again.
+issues: [841]

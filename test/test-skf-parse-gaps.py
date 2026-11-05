@@ -1026,6 +1026,29 @@ def test_translate_keeps_a_split_body_gaps_package_citation(citation, package):
                            "resolved_paths", "rejected_paths", "change_category", "remediation", "map_match"]
 
 
+def test_a_two_reference_split_body_record_reaches_translate_as_a_package_citation(tmp_path: Path):
+    """#841: a ledger record of a pair of references, titled with both paths and cited at the one that sorts last
+    (no source settled it), parses with its title and citation and translates to a STRUCTURAL_FIX whose
+    `package_citation` is that reference, so merge Priority 8 edits it to match the other."""
+    title = "Split-body mismatch: run_tasks_parallel (references/a.md, references/b.md)"
+    ledger = write_ledger(tmp_path / "test-findings.json", "coverage-check", [{
+        "severity": "High", "category": "split-body-mismatch", "title": title, "source": "references/b.md:5",
+        "export": "run_tasks_parallel",
+        "issue": "references/a.md shows (tasks: list[Task], data: Any) -> None, references/b.md "
+                 "(tasks: list[Task]) -> None",
+        "remediation": "No source settled it: edit references/b.md:5 to match references/a.md:3."}])
+    code, out = parse("--ledger", str(ledger))
+    assert code == 0, out
+    [gap] = out["gaps"]
+    assert (gap["title"], gap["category"], gap["source_citation"]) == (
+        title, "split-body-mismatch", {"file": "references/b.md", "line": 5})
+    manifest, _ = mod.translate_gaps(out, MAP_ENTRIES, {}, today="2026-10-03")
+    [entry] = manifest["entries"]
+    assert (entry["name"], entry["change_category"]) == ("run_tasks_parallel", "STRUCTURAL_FIX")
+    assert entry["package_citation"] == {"file": "references/b.md", "line": 5}
+    assert "source_citation" not in entry
+
+
 def test_a_backticked_package_source_reaches_translate_as_a_package_citation():
     """oh-my-skills reports cite a package file by its project-relative path, sometimes in backticks."""
     citation = mod.source_citation("`skills/oms-storybook-react-vite/10.3.5/oms-storybook-react-vite/SKILL.md:88`")

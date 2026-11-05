@@ -1311,6 +1311,14 @@ def test_the_inventory_contract_lists_the_validators_kinds():
     listed = re.search(r"each `kind` is one of (.+?); every entry", section).group(1)
     assert re.findall(r"`([a-z]+)`", listed) == list(validator.VALID_KINDS)
     assert "every entry carries the `description`" in section
+    # #841: a cross-check entry's fields and its other side, the body's line or a second reference's path and line
+    entry = re.search(r"A `cross_check_mismatches` entry gives (.+?)\.\s*$", section).group(1)
+    for field in validator.REQUIRED_MISMATCH_FIELDS + validator.BODY_SIDE + validator.REFERENCE_SIDE:
+        assert f"`{field}`" in entry, field
+    assert ("for two references, the one that sorts first in codepoint order, by path and then line, as "
+            "`other_file` and `other_line`, with the one that sorts last as `reference_file` and `reference_line`"
+            ) in entry
+    assert "an `issue` that names each form by its file's path" in entry
 
 
 def test_the_inventory_contract_gives_a_component_constant_a_usage_signature():
@@ -2136,7 +2144,9 @@ COVERAGE_CHAR_BUDGET = 36_000
 # them, the refused file deleted before the re-dispatch, and as #790 did, a floor name one the skill must keep and
 # a floor file exit 1 names written again;
 # §2c's scalar and stack commands, the scalar branch's
-# counted set and the surplus paragraph's subject as #791 and #792 moved, added and rewrote them): each
+# counted set and the surplus paragraph's subject as #791 and #792 moved, added and rewrote them; §5b's
+# split-body Source as #841 rewrote it, the other side of a pair of references and the default Source
+# included): each
 # section's blocks, which the step no longer holds.
 CARVED_TO_BRANCHES = {
     "Inventory Failures": [(
@@ -2270,6 +2280,18 @@ CARVED_TO_BRANCHES = {
         "\"**Docs-only skill detected.** Coverage check evaluates documentation completeness rather than "
         "source code coverage.\""
     )],
+    "Split-Body Sources": [(
+        "The Source is `{reference_file}:{reference_line}`, of two references the one that sorts last, unless the "
+        "pinned source settles it for the other side. At State 1 and the Forge tier or above, with `workspaceDrift` "
+        "not `overridden`, load `{signatureRulesFile}` and set the two forms its `issue` gives against the export's "
+        "declaration at the `file` and `line` `surface.json` gives, by its rules, when that one declaration decides "
+        "(no overload set, no second declaring file): when `{reference_file}`'s form agrees and the other side's "
+        "does not, the Source is the other side, `SKILL.md:{skill_md_line}` or `{other_file}:{other_line}`. Its "
+        "remediation names the file to edit and the file and line whose form it takes, citing the declaration's "
+        "`file:line`; when both forms agree with it, it says so and names what differs; when neither does, or "
+        "nothing decides, it says no source settled it and names `{reference_file}` to edit, taking the other side's "
+        "form (`{other_file}`'s, for two references)."
+    )],
 }
 
 
@@ -2280,9 +2302,10 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
     with it: the Quick-tier scan and the fallback per-file scan in coverage-check-tiers.md, which only the §2
     branch that takes one loads; §1a's inventory failures (the refused response's `rm` included, #814), States
     2 to 4 (State 2, 3 and 4's `surface` commands included), the scalar and stack branches (§2c's scalar and
-    stack commands included, #791 and #792) and the Denominator Candidates block in coverage-check-branches.md,
-    byte for byte as the step held them, each section loaded only from the sentence of its branch, which names
-    it. Every other call stays in the step."""
+    stack commands included, #791 and #792), the Denominator Candidates block, §4b's metadata count cross-check,
+    the docs-only run and §5b's split-body Source (#841) in coverage-check-branches.md, byte for byte as the step
+    held them, each section loaded only from the sentence of its branch, which names it. Every other call stays in
+    the step, §5b's call that records the split-body gaps included."""
     text = _read(COVERAGE)
     assert len(text) < COVERAGE_CHAR_BUDGET, len(text)
     assert _frontmatter(COVERAGE)["coverageTiersFile"] == "references/coverage-check-tiers.md"
@@ -2313,6 +2336,7 @@ def test_coverage_check_stays_under_its_budget_and_loads_each_carved_branch():
         "Denominator Candidates": ["### 4. The Denominator Record"],
         "Metadata Count Cross-Check": ["### 4b. Metadata Export-Count Coherence Cross-Check"],
         "Docs-Only Run": ["### 0. Check for Docs-Only Mode"],
+        "Split-Body Sources": ["### 5b. Record the Coverage Gaps"],
     }
     assert re.findall(r"^## (.+)$", branches, re.M) == list(loads) == list(CARVED_TO_BRANCHES)
     heading, fenced, pointers = None, False, []

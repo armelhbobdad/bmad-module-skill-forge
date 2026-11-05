@@ -20,13 +20,17 @@ and none of the `difference` tags. These tests keep:
   coverage-check.md §2b's `score` checks against the local source;
 - coverage-check.md binding the file as `{signatureRulesFile}` and naming it
   at each judge: §1's split-body cross-check and §2's judge, each given its
-  absolute path, and the main-thread compare and §5b's split-body Source,
+  absolute path, and the main-thread compare and §5b's split-body Source
+  (the Split-Body Sources section of coverage-check-branches.md, #841),
   which load it; the fallback per-file scan of coverage-check-tiers.md gives
   its subagents the absolute path too, and neither repeats the overload rule
   or the tag definitions;
 - coherence-check.md binding the file the same way and giving its contextual
   reference judge, whose `signature_match` is an `inaccurate-reference` gap,
   its absolute path;
+- the split-body cross-check comparing a parameter's optionality only when
+  both forms state it, the file (not coverage-check.md §1) saying what a form
+  may leave out, and each export's form read alone (#843);
 - a partial label in a table's column header labelling each of its rows;
 - a usage form read as what it writes, in the call-example rule, and a
   name documented in several forms compared with each form by its own
@@ -118,7 +122,8 @@ def test_the_rules_file_is_a_reference_with_its_six_sections():
     assert "\u2014" not in text, "no em dash"
     opening = _flow(_slice(text, "# Signature Comparison Rules", "## Reading a form"))
     for judge in ("coverage-check.md §1's split-body cross-check", "its §2 judge (or the main thread in its place)",
-                  "its §5b split-body Source", "coverage-check-tiers.md's fallback per-file scan",
+                  "its §5b split-body Source (the Split-Body Sources section of coverage-check-branches.md)",
+                  "coverage-check-tiers.md's fallback per-file scan",
                   "coherence-check.md §4's reference judge (its `signature_match`)"):
         assert judge in opening, judge
 
@@ -256,10 +261,53 @@ def test_a_positional_caller_and_a_python_keyword_caller_are_read_as_they_call()
 
 
 def test_the_split_body_cross_check_compares_what_both_forms_write():
+    """#843: in the split-body cross-check no source says which parameter is required, so a parameter's
+    optionality is compared only when both forms state it, and what a form may leave out is this file's rule:
+    coverage-check.md §1 no longer allows only a form labelled partial to leave a member out, and a call or a list
+    of bare names may too, except where that shifts a caller's positions. An ellipsis claims nothing, as everywhere,
+    and each side's partial label is read from its own file, since the export's `signature_form` is one."""
     reading = _section("Reading a form")
     assert ("In the split-body cross-check both forms are documented: each is read by these rules, a type, return "
-            "type or type arguments one of them leaves out are not compared, and coverage-check.md §1 says which "
-            "parameters a form may leave out.") in reading
+            "type or type arguments one of them leaves out are not compared, and a parameter's optionality is "
+            "compared only when both forms state it.") in reading
+    # an ellipsis claims nothing, required members included, as Reading a form's ellipsis line says
+    assert "An ellipsis claims nothing about the members it stands for, required ones included." in reading
+    assert "`(...)` and `(tasks, data, dataset, ...)` leave out no parameter." in reading
+    # each side's partial label is its own file's; the positional shift stays a mismatch
+    assert ("A call, a list of bare names or a form its own file labels partial (each side's label is read from that "
+            "side's file, not from the export's one `signature_form`) may leave out a parameter the other form does "
+            "not state as required, unless leaving it out shifts a caller's positions (a language without keyword "
+            "arguments, as above); any other form claims its list is complete, so leaving out a parameter the other "
+            "writes is a mismatch (inventory-contract.md's examples).") in reading
+    assert ("In a language without keyword arguments (TS/JS, Go, Rust, Java, C, C++), leaving out an optional "
+            "parameter that comes before one the form writes shifts the caller's positions") in reading
+    assert "A call, an ellipsis," not in reading
+    assert "coverage-check.md §1 says which parameters a form may leave out" not in reading
+    # the examples the paragraph cites: a typed form leaving out a parameter the other form writes
+    contract = _read(REFS / "inventory-contract.md")
+    assert ("SKILL.md shows (date: Date) => string, references/api-reference.md (date: Date, format?: string) => "
+            "string") in contract
+    assert ("references/api-reference.md shows (tasks: Task[], data: unknown) => void, references/pipelines.md "
+            "(tasks: Task[]) => void") in contract
+    # §1 defers to this file for what a form may leave out, and states no omission rule of its own
+    section1 = _flow(_slice(_read(COVERAGE), "### 1. Extract Documented Exports", "#### 1a."))
+    assert ("descriptions that contradict (brief against detailed is fine). That file alone says what a form may "
+            "leave out.") in section1
+    assert "labels partial that leaves out only optional members" not in section1
+    assert "(name, type, order, optionality)" not in section1
+
+
+def test_each_export_s_form_is_read_alone():
+    """#843: GAP-105 read a bare-name list's parameters as required because every other row of its Key API Summary
+    table wrote defaults. A form is one export's: the rows of other exports state nothing about it."""
+    reading = _section("Reading a form")
+    assert ("Each export's form is read alone: what the rows of other exports write, in the same table or file, "
+            "states nothing about it, so `(action, sink, tracking_record, child_invalidation)` matches "
+            "`child_invalidation: X | None = None` even when every other row of its table writes its defaults."
+            ) in reading
+    # the example holds by the file's own rules: a list of bare names states no optionality
+    assert ("A list of bare names, with no type, default or `?` (`connect(host, port)`, `({ themes, defaultTheme })`), "
+            "names parameters without claiming the list is complete") in reading
 
 
 def test_a_component_is_compared_by_its_props():
@@ -457,9 +505,10 @@ def test_every_coverage_check_judge_names_the_rules_file():
     assert (TEST_SKILL / _frontmatter(COVERAGE)["signatureRulesFile"]).resolve() == RULES.resolve()
     text = _read(COVERAGE)
     cross_check = _paragraph(text, "Delegate the reading of the skill under test to a subagent")
-    assert ("it compares the two by the rules of `{signatureRulesFile}`, whose absolute path (under `{skill-root}`) "
-            "it is given: parameters (name, type, order, optionality), the return type, and descriptions that "
-            "contradict") in cross_check
+    assert ("and two reference files with each other only when the body does not settle them (it does not "
+            "document the export, or agrees with both), by the rules of `{signatureRulesFile}`, whose absolute path "
+            "(under `{skill-root}`) it is given: parameters, the return type, and descriptions that contradict"
+            ) in cross_check
     judge = _paragraph(text, "For each `files[]` entry, delegate one subagent")
     assert f"delegate one subagent with its checks and {ABSOLUTE_PATH}." in judge
     assert "compares it with the check's `documented` signature by the rules of that file" in judge
@@ -467,7 +516,9 @@ def test_every_coverage_check_judge_names_the_rules_file():
     main_thread = _paragraph(text, "Save each response to `{run_dir}/signatures-<n>.txt`")
     assert ("Without subagents, load `{signatureRulesFile}`, compare in the main thread by its rules and save the "
             "same JSON.") in main_thread
-    split_body = _paragraph(text, "**A split-body mismatch's Source**")
+    # §5b's split-body Source loads it from the branch section §5b loads (#841)
+    assert "follow its **Split-Body Sources** section" in _paragraph(text, "**A split-body mismatch's Source**")
+    split_body = _flow(_read(REFS / "coverage-check-branches.md").split("\n## Split-Body Sources\n", 1)[1])
     assert ("load `{signatureRulesFile}` and set the two forms its `issue` gives against the export's declaration at "
             "the `file` and `line` `surface.json` gives, by its rules, when that one declaration decides") in split_body
     assert OVERLOAD_RULE not in text
