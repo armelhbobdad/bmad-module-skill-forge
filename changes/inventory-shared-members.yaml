@@ -2,3 +2,4 @@ type: fixed
 scope: skf-test-skill
 summary: |
   Test Skill's inventory reader now keeps the members a skill states once for several names. Where a skill documents several names together and states the members they share once, in one table row or paragraph, in a sentence or caption just above a table, or in the table's column header, such as record models that each take the same base fields followed by each model's own fields, the reader records each name's `params` as the shared text, then `; `, then that name's own members as the skill writes them, rather than the name's own fields alone. The signature comparison rules read the shared text as part of that form, so a model is no longer a Critical `signature-mismatch` gap for leaving out a required field the shared text documents, and two runs on an unchanged skill agree on it.
+prs: [880]

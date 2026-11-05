@@ -5,4 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `signature-mismatch` gap whose documented parameter list marks some parameters optional and not others, write the default or `?` the source declares on each optional parameter, then run Test Skill again.
 issues: [835]
-prs: [869, 873]
+prs: [869, 873, 880]
