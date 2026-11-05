@@ -28,7 +28,7 @@ You are a source code analyst and decomposition architect collaborating with a d
 These rules apply to every step in this workflow:
 
 - Only load one step file at a time — never preload future steps
-- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`), wait for every long-running command to exit before the next instruction, and never end a turn while either still runs: under `claude -p` a run stops when its turn ends.
+- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`) and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
 - Always communicate in `{communication_language}`; the text persisted into `skill-brief.yaml` (each recommendation's `description` and `scope.notes`) is written in `{document_output_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action, and record each one in the run sink as the gate says
 

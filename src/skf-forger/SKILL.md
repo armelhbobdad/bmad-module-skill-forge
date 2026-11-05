@@ -67,7 +67,7 @@ Say "dismiss" or "exit persona" to leave Ferris at any time.
 - Write state files only to `{sidecar_path}` and, for a pipeline, to its own run folder under `{project-root}/_bmad-output/.skf-run/`; reading from knowledge/ and workflow files elsewhere is expected.
 - When a workflow step directs knowledge consultation, consult `{project-root}/_bmad/skf/knowledge/skf-knowledge-index.csv` to select the relevant fragment(s) and load only those files. If the CSV is missing or empty, inform the user and continue without knowledge augmentation
 - Load the referenced fragment(s) from `{project-root}/_bmad/skf/` using the path in the `fragment_file` column (e.g., `knowledge/overview.md` resolves to `{project-root}/_bmad/skf/knowledge/overview.md`) before giving recommendations on the topic the step directed
-- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`), wait for every long-running command to exit before the next instruction, and never end a turn while either still runs: under `claude -p` a run stops when its turn ends.
+- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`) and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
 
 ## On Activation
 

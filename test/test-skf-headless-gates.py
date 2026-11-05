@@ -373,8 +373,8 @@ def test_each_export_gate_states_the_row_default_and_records_it(name):
 # The one rule sentence every SKILL.md carries, word for word.
 FOREGROUND_RULE = (
     "- Run every subagent in the foreground (parallel ones as several calls in one message, never with "
-    "`run_in_background`), wait for every long-running command to exit before the next instruction, and never end "
-    "a turn while either still runs: under `claude -p` a run stops when its turn ends.")
+    "`run_in_background`) and wait for every long-running command to exit before the next instruction; in a "
+    "headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.")
 SKILLS = sorted(d.name for d in SRC.iterdir() if (d / "SKILL.md").is_file())
 # Ferris, the agent, states his standing rules under Critical Actions; each workflow under Workflow Rules.
 RULES_HEADING = {skill: "## Critical Actions" if skill == "skf-forger" else "## Workflow Rules" for skill in SKILLS}
@@ -385,6 +385,11 @@ BACKGROUND_RE = re.compile(
     r"|\bin\s+(?:the\s+)?background\b|\bbackground\s+(?:process(?:es)?|jobs?|tasks?|runs?|shells?|commands?)\b"
     r"|\bbackgrounded\b")
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z`*])")
+# The one background run the scan allows: an interactive run's long `ccc index`, which the step waits for, in a
+# sentence that also keeps a headless run in the foreground (a headless run stops when its turn ends).
+INTERACTIVE_INDEX = ("in an interactive run, an index that can outlast that timeout may run in the background "
+                     "instead, the step waiting for it to exit before it goes on; a headless run keeps it in the "
+                     "foreground")
 SCANNED = {".md", ".py", ".yaml", ".toml", ".json", ".csv"}
 # The sites that recommended a background run, or a timeout only a background run enforces, and what they say now.
 FORMER_BACKGROUND_SITES = {
@@ -392,8 +397,8 @@ FORMER_BACKGROUND_SITES = {
                                      "`xargs -P` (it waits for every job)",
                                      "Agent tool (foreground, sequential per unit)"),
     "skf-setup/references/ccc-index.md": (
-        "Run the call in the foreground with the shell's longest timeout; a call the shell stops at that timeout goes "
-        "on as the paragraph after the command says:",
+        f"Run the call in the foreground with the shell's longest timeout ({INTERACTIVE_INDEX}); a call the shell "
+        "stops at that timeout goes on as the paragraph after the command says:",
         "Go on to section 3 however the call ends: a non-zero exit, or a call the shell stopped, is no workflow error "
         "either (steps 2 and 4 report it as a failed index)."),
     "skf-create-stack-skill/references/parallel-extract.md": (
@@ -404,13 +409,13 @@ FORMER_BACKGROUND_SITES = {
         "Do NOT abort the batch on a single library that reached its budget or failed.",
         "`code: \"extraction-partial\"`"),
     "skf-create-skill/references/generate-artifacts.md": (
-        "ccc index` in the foreground with the shell's longest timeout, or use the ccc MCP tool; a call the shell "
-        "stops at that timeout is ccc indexing that failed, which **Error handling** at the end of this section "
-        "covers.",
+        f"ccc index` in the foreground with the shell's longest timeout ({INTERACTIVE_INDEX}), or use the ccc MCP "
+        "tool; a call the shell stops at that timeout is ccc indexing that failed, which **Error handling** at the "
+        "end of this section covers.",
         "**Error handling:** If ccc indexing or registry update fails, log and continue: do not fail the workflow."),
     "skf-create-skill/references/extract.md": (
-        "ccc index` in the foreground with the shell's longest timeout; a call the shell stops at that timeout is a "
-        "`ccc index` that failed, below.",
+        f"ccc index` in the foreground with the shell's longest timeout ({INTERACTIVE_INDEX}); a call the shell "
+        "stops at that timeout is a `ccc index` that failed, below.",
         "When `ccc index` fails, or the check returns **degraded**, set `{ccc_discovery: []}` and continue"),
 }
 # The reading rule, word for word in every skill's headless contract.
@@ -454,7 +459,7 @@ def _background_findings(paragraph: str) -> list[str]:
     """What in a paragraph runs something in the background, or names `run_in_background` without a `never`."""
     paragraph = " ".join(paragraph.split())
     found = [f"background run: {m.group(0)!r}" for sentence in SENTENCE_RE.split(paragraph)
-             for m in BACKGROUND_RE.finditer(sentence)]
+             for m in BACKGROUND_RE.finditer(sentence.replace(INTERACTIVE_INDEX, ""))]
     for match in re.finditer(r"run_in_background", paragraph):
         if not re.search(r"\bnever (?:with )?`?$", paragraph[:match.start()]):
             found.append("`run_in_background` that `never` does not directly precede")
@@ -500,6 +505,9 @@ def test_no_src_file_recommends_a_background_run():
     "Run it under nohup.",
     "Agent calls, or `run_in_background`, run them.",
     "Agent calls (`run_in_background`\nis never set).",
+    # the interactive allowance needs its headless half: without it, a background index is a background run
+    "In an interactive run, an index that can outlast that timeout may run in the background instead.",
+    "In an interactive run, a subagent may run in the background instead, the step waiting for it to exit.",
 ])
 def test_the_background_scan_catches_each_form(text):
     [(_, paragraph)] = list(_paragraphs(text))
@@ -512,6 +520,8 @@ def test_the_background_scan_catches_each_form(text):
     "Run every subagent in the foreground (parallel ones as several calls in one message, never\nwith "
     "`run_in_background`).",
     "Run the call in the foreground with the shell's longest timeout.",
+    f"Run the call in the foreground with the shell's longest timeout ({INTERACTIVE_INDEX}); a call the shell stops "
+    "at that timeout goes on.",
 ])
 def test_the_background_scan_passes_the_foreground_forms(text):
     [(_, paragraph)] = list(_paragraphs(text))
