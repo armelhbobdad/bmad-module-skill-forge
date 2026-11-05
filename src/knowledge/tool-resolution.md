@@ -23,12 +23,12 @@ Bridge names (`ast_bridge`, `ccc_bridge`, `qmd_bridge`, `gh_bridge`) and subproc
 
 Workflow steps reference "subprocess" execution with numbered patterns. These map to concrete mechanisms per IDE:
 
-| Pattern                                | Purpose                                               | Claude Code                                                          | Cursor                            | CLI                                |
-|----------------------------------------|-------------------------------------------------------|----------------------------------------------------------------------|-----------------------------------|------------------------------------|
-| **Pattern 1** (grep/search)            | Search across files for imports, co-imports           | Grep tool or Bash with `rg`                                          | Built-in search                   | `grep` / `rg`                      |
-| **Pattern 2** (per-file deep analysis) | Deep analysis of individual files or units            | Agent tool (sequential per unit)                                     | Sequential analysis               | Per-unit script                    |
-| **Pattern 3** (data operations)        | QMD queries, severity classification, data transforms | Main thread (Read + process)                                         | Main thread                       | Script                             |
-| **Pattern 4** (parallel execution)     | Parallel per-library extraction, parallel diffing     | Agent tool with multiple parallel calls or `run_in_background: true` | Parallel requests (IDE-dependent) | `xargs -P` or background processes |
+| Pattern                                | Purpose                                               | Claude Code                                                              | Cursor                            | CLI                                 |
+|----------------------------------------|-------------------------------------------------------|--------------------------------------------------------------------------|-----------------------------------|-------------------------------------|
+| **Pattern 1** (grep/search)            | Search across files for imports, co-imports           | Grep tool or Bash with `rg`                                              | Built-in search                   | `grep` / `rg`                       |
+| **Pattern 2** (per-file deep analysis) | Deep analysis of individual files or units            | Agent tool (foreground, sequential per unit)                             | Sequential analysis               | Per-unit script                     |
+| **Pattern 3** (data operations)        | QMD queries, severity classification, data transforms | Main thread (Read + process)                                             | Main thread                       | Script                              |
+| **Pattern 4** (parallel execution)     | Parallel per-library extraction, parallel diffing     | Several foreground Agent calls in one message, never `run_in_background` | Parallel requests (IDE-dependent) | `xargs -P` (it waits for every job) |
 
 ### max_parallel_generation
 

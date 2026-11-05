@@ -55,7 +55,7 @@ Paths here resolve as the skf-forger SKILL.md **Conventions** say: each `uv run 
      SKF_GATE
      ```
 
-     After any other workflow, or when the gate printed no JSON, give the step's status: `completed`, or `halted` with the workflow's own halt reason (or what the gate printed):
+     After any other workflow, or when the gate printed no JSON, give the step's status: `completed`, or `halted` with the workflow's own halt reason (or what the gate printed). An ungated workflow (CS, BS, QS, US, EX, SS, RA, DS, RS) that printed no envelope line has no result to read, whatever the process exit code: it was cut off, or could not write its result, so record it `halted` with `--reason no-result`, as the gate halts a gated one:
 
      ```bash
      uv run scripts/pipeline-journal.py step --journal "<journal>" --code <code> --status <completed|halted> [--reason '<reason>'] [--set "<name>=<value>"] [--output "<path>"]
@@ -86,4 +86,4 @@ uv run scripts/pipeline-journal.py reopen --journal "<journal>"
 
 ## Special behaviors
 
-- **`SF` in a sequence:** SF writes no result file; the one `SKF_SETUP_RESULT_JSON` envelope line it displays is its output. Continue on `status` `success`. Any other status halts the pipeline, with that status and any `error.reason` as the halt reason; so does a run that displays no envelope line, with the line it did display as the reason.
+- **`SF` in a sequence:** SF writes no result file; the one `SKF_SETUP_RESULT_JSON` envelope line it displays is its output. Continue on `status` `success`. Any other status halts the pipeline, with that status and any `error.reason` as the halt reason; so does a run that displays no envelope line, with the line it did display as the reason, or `no-result` when it displayed none.

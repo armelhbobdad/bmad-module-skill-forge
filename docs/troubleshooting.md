@@ -53,7 +53,7 @@ When ccc is available (Forge+, or Deep with ccc), create-skill indexes the skill
 
 Surfaced by `@Ferris SF` when ccc is available and `ccc index` exits with an error: the forge status shows `indexing failed, semantic discovery unavailable this session` with ccc's own message. Setup still finishes at your tier; only semantic discovery is off until the index builds. One cause is an index that an older ccc wrote and the installed ccc cannot read, with a message such as `Failed to deserialize pickle payload`.
 
-**Fix:** from the project root, run `ccc reset`, then `ccc daemon restart`, then re-run `@Ferris SF`. `ccc reset` deletes only the index databases and keeps `.cocoindex_code/settings.yml` with SKF's exclusions. Restart the daemon before indexing again: it still holds the databases `ccc reset` deleted, so an index built right after the reset can fail with `environment already open in this program`.
+**Fix:** from the project root, run `ccc reset`, then `ccc daemon restart`, then re-run `@Ferris SF`. `ccc reset` deletes only the index databases and keeps `.cocoindex_code/settings.yml` with SKF's exclusions. Restart the daemon before indexing again: it still holds the databases `ccc reset` deleted, so an index built right after the reset can fail with `environment already open in this program`. A first index of a large project can also outlast the longest timeout the agent's shell gives a command, and Setup then reports the stopped call as a failed index: run `ccc index` in a terminal in the project, then re-run `@Ferris SF`.
 
 ### `@Ferris deepwiki` shows a deprecation notice
 
@@ -68,6 +68,12 @@ The `onboard` alias was removed. Its replacement is [`forge-auto`](/docs/forge-a
 Test Skill checks a skill against the source commit it was made from. When the source folder's git checkout is at a different commit from the one the skill records (`source_commit` in its `metadata.json`), the results would show false gaps, so Test Skill stops before it writes a report.
 
 **Fix:** check out the pinned commit the message shows with `git -C <source> checkout <pinned commit>`, then re-run `@Ferris TS <name>`. The checkout line in the message names the skill's `source_ref` when it has one. When `source_ref` is a branch, that line does not move a checkout that is already on a newer commit of the branch. To test against the source as it is now, re-run with `--allow-workspace-drift`: the findings then describe the current checkout, and a pass under that flag does not clear the skill for export until you re-test at the pinned commit. Right after an update, follow the update's report instead (see "Update Skill stops with `blocked` before detecting changes").
+
+### Test Skill stops with `another-run-active`
+
+Surfaced by `@Ferris TS` (exit `1`) at one of two points. At the start (under `--headless`, `error.phase` is `init:run-lock`), another test of the same skill version holds its run lock, `.test-skill.lock` in `<forge_data_folder>/<name>/<version>/`, and the lock has not gone stale (60 minutes after it was taken or renewed). Just before it writes its results (`report:run-lock`), the run's own lock went stale and another run took it over, so it stops and writes no result. A run that was cut off, by a closed session or by a `claude -p` run whose agent ended its turn early (no `SKF_TEST_RESULT_JSON` line, and `claude -p` still exits `0`), leaves its lock behind, with its in-progress report `.skf-test-report-<name>-<run_id>.md` in the version folder and its run folder `_bmad-output/.skf-run/skf-test-skill-<run_id>/`.
+
+**Fix:** wait until the other test ends, then re-run. If no test of that skill is running, delete the lock file the message names, or wait until the time it gives: a test that finds a stale lock takes it over. After `report:run-lock`, re-run once the run that took the lock over has ended. A run cut off before its result step wrote no result, so `skf-test-skill-result-latest.json` still holds an earlier run's verdict, and one cut off later wrote it: re-run the test rather than read that file. Its in-progress report and run folder are safe to delete once no test of that skill is running.
 
 ### forge-auto halted at the Test stage
 
@@ -113,7 +119,7 @@ Rename rewrites the skill's `name` fields, the name where the snippet template w
 
 Surfaced by `@Ferris RS` (exit `5`) when another rename of the same skill holds its run lock, `.skf-rename-<name>.lock` in `forge_data_folder`, and the lock has not gone stale (60 minutes after it was taken or renewed). A rename that waited at a question past that time stops the same way before it copies anything, because another rename may have run in the meantime. `--dry-run` takes no lock.
 
-**Fix:** wait until the other rename ends, then run the rename again. If no rename of that skill is running, delete the lock file the message names, or wait until the time it gives.
+**Fix:** wait until the other rename ends, then run the rename again. If no rename of that skill is running (a closed session or a cut-off `claude -p` run leaves its lock behind), delete the lock file the message names, or wait until the time it gives.
 
 ### Rename Skill stops with `name-collision` and lists old folders
 
@@ -147,7 +153,7 @@ Surfaced by `@Ferris US` (under `--headless`, `error.phase` is `merge:new-versio
 
 Surfaced by `@Ferris US` when another update of the same skill holds its run lock, `.skf-update.lock` in `<forge_data_folder>/<name>/` (under `--headless`, `error.phase` is `init:concurrency-guard`). The message names the update that holds the lock, the lock file, and when the lock goes stale (60 minutes after it was taken or renewed). `--detect-only` and `--dry-run` take no lock.
 
-**Fix:** wait until the other update ends, then re-run. If no update of that skill is running (a session that crashed or was closed leaves its lock behind), delete the lock file the message names, or wait until the time it gives. An update that finds a stale lock takes it over and undoes what the interrupted update left half written.
+**Fix:** wait until the other update ends, then re-run. If no update of that skill is running (a session that crashed or was closed, or a `claude -p` run cut off when its agent ended its turn, leaves its lock behind), delete the lock file the message names, or wait until the time it gives. An update that finds a stale lock takes it over and undoes what the interrupted update left half written.
 
 **`run-lock-lost`:** the same status with this reason means the update waited at a question past the stale time, so another update may have changed the skill (`error.phase` is `merge:run-lock` or `write:run-lock`). It stops before it writes `metadata.json`, and the halt undoes anything the update already wrote: it removes the new version folders, or, for a repair from a test report, restores the files it edited in place from the copy it took first, and the message says which. Re-run the update once no other update of that skill runs; if a version folder the message names is still on disk, delete it first.
 

@@ -27,6 +27,7 @@ You are Ferris in Delivery mode, a packaging specialist: you check a developer's
 ## Workflow Rules
 
 - Only load one step file at a time — never preload future steps
+- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`), wait for every long-running command to exit before the next instruction, and never end a turn while either still runs: under `claude -p` a run stops when its turn ends.
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and record each auto-decision in the run sink (`references/result-envelope.md`)

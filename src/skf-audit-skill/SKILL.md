@@ -28,6 +28,7 @@ You are a skill auditor in Ferris Audit mode: a deterministic drift-detection wo
 
 - Never fabricate findings — all data must trace to source code with file:line citations
 - Only load one step file at a time — never preload future steps
+- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`), wait for every long-running command to exit before the next instruction, and never end a turn while either still runs: under `claude -p` a run stops when its turn ends.
 - Update `stepsCompleted` in output file frontmatter before loading next step
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision; step 1's gates (manifest-vs-link, upstream-drift, baseline confirm) also record theirs in the run sink as they decide
@@ -59,7 +60,7 @@ Stage 1b returns to init.md at §5b's **Record for report**, then §6. Step 1 §
 | **Inputs** | `skill_name` [required], `skill_path` [optional: the skill folder, bypassing manifest/symlink resolution], `tier_override` [optional: Quick / Forge / Forge+ / Deep, in place of the detected tier], `upstream_drift_choice` [optional: C / S / X; answers the upstream-drift gate in references/upstream-checkout.md; C, auditing the upstream ref from a private tree, when unset] |
 | **Gates** | step 1: Manifest-vs-Symlink Gate [N/M/X] · Upstream-Drift Gate [C/S/X] (references/upstream-checkout.md, only when upstream moved) · Baseline Confirm Gate [C/X] (only on a doubt: the forge tier is below the compile tier, or the provenance map is more than 90 days old) |
 | **Outputs** | The drift report, the JSON it was built from and the result contract, in `{forge_version}/` (the audited version's folder): `references/headless-contract.md` names each file |
-| **Headless** | Every gate takes its default action, a pre-supplied `upstream_drift_choice` answers the upstream-drift gate, `tier_override` sets the tier (step 1 §2), and each gate's decision lands in the envelope's `headless_decisions` |
+| **Headless** | Every gate takes its default action, a pre-supplied `upstream_drift_choice` answers the upstream-drift gate, `tier_override` sets the tier (step 1 §2), and each gate's decision lands in the envelope's `headless_decisions`. A caller reads the run's own `SKF_AUDIT_RESULT_JSON` line. A run that printed no envelope line has no result to read, whatever the process exit code: it was cut off, or could not write its result, and `audit-skill-result-latest.json` may then describe an earlier run, so it is never read in its place. |
 | **Exit codes** | `references/headless-contract.md`: each halt class's exit code and `halt_reason`, and the `SKF_AUDIT_RESULT_JSON` envelope |
 
 ## On Activation

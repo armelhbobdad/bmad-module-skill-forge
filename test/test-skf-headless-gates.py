@@ -30,6 +30,25 @@ left out):
   the step files cannot drift apart.
 
 skf-forger is the agent, not a workflow.
+
+A headless run also must not end before its work does: under `claude -p`
+the run stops when the agent's turn ends, so the 6.0.0 release-gate run of
+Test Skill that left a subagent in the background and ended its turn
+printed no result line. So:
+
+- all sixteen SKILL.md files, Ferris's Critical Actions included, carry one
+  identical rule: every subagent runs in the foreground, every long-running
+  command is waited for, and no turn ends while either still runs;
+- no .md, .py, .yaml, .toml, .json or .csv file under src/, read one
+  paragraph at a time with its wrapped lines joined, holds
+  `run_in_background: true`, a "background agent", "subagent" or
+  "sub-agent", `nohup`, `disown`, "in the background", "background
+  process", "job", "task", "run", "shell" or "command", or "backgrounded",
+  and each `run_in_background` it names directly follows `never` or
+  `never with`;
+- each skill's headless contract (the sixteen places HEADLESS_CONTRACTS
+  names) says a run that printed no envelope line has no result to read,
+  whatever the process exit code.
 """
 
 from __future__ import annotations
@@ -347,3 +366,171 @@ def test_each_export_gate_states_the_row_default_and_records_it(name):
         written = form.format(default)
         assert written.lower() in gate.lower(), f"{rel} {heading}: the row's headless default {written} is not at the gate"
     assert RECORD_COMMAND in section, f"{rel} {heading}: the headless default is not recorded as a decision"
+
+
+# ─── every subagent and long-running command is waited for ─────────────────
+
+# The one rule sentence every SKILL.md carries, word for word.
+FOREGROUND_RULE = (
+    "- Run every subagent in the foreground (parallel ones as several calls in one message, never with "
+    "`run_in_background`), wait for every long-running command to exit before the next instruction, and never end "
+    "a turn while either still runs: under `claude -p` a run stops when its turn ends.")
+SKILLS = sorted(d.name for d in SRC.iterdir() if (d / "SKILL.md").is_file())
+# Ferris, the agent, states his standing rules under Critical Actions; each workflow under Workflow Rules.
+RULES_HEADING = {skill: "## Critical Actions" if skill == "skf-forger" else "## Workflow Rules" for skill in SKILLS}
+# What the scan refuses anywhere under src/: the background flag set, a background agent, a detached process, and any
+# command or job run in the background.
+BACKGROUND_RE = re.compile(
+    r"(?i)run_in_background\s*[:=]\s*true|\bbackground(?:ed)?\s+(?:sub-?)?agents?\b|\bnohup\b|\bdisown\b"
+    r"|\bin\s+(?:the\s+)?background\b|\bbackground\s+(?:process(?:es)?|jobs?|tasks?|runs?|shells?|commands?)\b"
+    r"|\bbackgrounded\b")
+SENTENCE_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z`*])")
+SCANNED = {".md", ".py", ".yaml", ".toml", ".json", ".csv"}
+# The sites that recommended a background run, or a timeout only a background run enforces, and what they say now.
+FORMER_BACKGROUND_SITES = {
+    "knowledge/tool-resolution.md": ("Several foreground Agent calls in one message, never `run_in_background`",
+                                     "`xargs -P` (it waits for every job)",
+                                     "Agent tool (foreground, sequential per unit)"),
+    "skf-setup/references/ccc-index.md": (
+        "Run the call in the foreground with the shell's longest timeout; a call the shell stops at that timeout goes "
+        "on as the paragraph after the command says:",
+        "Go on to section 3 however the call ends: a non-zero exit, or a call the shell stopped, is no workflow error "
+        "either (steps 2 and 4 report it as a failed index)."),
+    "skf-create-stack-skill/references/parallel-extract.md": (
+        "stop and return what it has after about 20 tool calls",
+        "and wait for it in the foreground",
+        "One whose subprocess returned no usable data is a complete failure (§3): it goes in `failed[]` with an "
+        "`extraction-failed` warning and counts toward the `all-extractions-failed` halt.",
+        "Do NOT abort the batch on a single library that reached its budget or failed.",
+        "`code: \"extraction-partial\"`"),
+    "skf-create-skill/references/generate-artifacts.md": (
+        "ccc index` in the foreground with the shell's longest timeout, or use the ccc MCP tool; a call the shell "
+        "stops at that timeout is ccc indexing that failed, which **Error handling** at the end of this section "
+        "covers.",
+        "**Error handling:** If ccc indexing or registry update fails, log and continue: do not fail the workflow."),
+    "skf-create-skill/references/extract.md": (
+        "ccc index` in the foreground with the shell's longest timeout; a call the shell stops at that timeout is a "
+        "`ccc index` that failed, below.",
+        "When `ccc index` fails, or the check returns **degraded**, set `{ccc_discovery: []}` and continue"),
+}
+# The reading rule, word for word in every skill's headless contract.
+NO_RESULT = ("printed no envelope line has no result to read, whatever the process exit code: it was cut off, or "
+             "could not write its result")
+# Where each skill states it: its invocation or headless contract, the Headless row of the SKILL.md that holds
+# its contract table, Campaign's result contract, and Ferris's pipeline step that records a workflow's outcome.
+HEADLESS_CONTRACTS = {
+    "skf-analyze-source": "references/headless-contract.md",
+    "skf-audit-skill": "SKILL.md",
+    "skf-brief-skill": "references/invocation-contract.md",
+    "skf-campaign": "references/campaign-contracts.md",
+    "skf-create-skill": "SKILL.md",
+    "skf-create-stack-skill": "references/invocation-contract.md",
+    "skf-drop-skill": "references/invocation-contract.md",
+    "skf-export-skill": "references/invocation-contract.md",
+    "skf-forger": "references/pipeline-mode.md",
+    "skf-quick-skill": "SKILL.md",
+    "skf-refine-architecture": "SKILL.md",
+    "skf-rename-skill": "references/invocation-contract.md",
+    "skf-setup": "references/invocation-contract.md",
+    "skf-test-skill": "references/invocation-contract.md",
+    "skf-update-skill": "references/invocation-contract.md",
+    "skf-verify-stack": "SKILL.md",
+}
+
+
+def _paragraphs(text: str):
+    """(first line number, the paragraph with its wrapped lines joined) for each blank-line-separated block."""
+    block, first = [], 0
+    for n, line in enumerate([*text.splitlines(), ""], 1):
+        if line.strip():
+            first = first or n
+            block.append(line.strip())
+        elif block:
+            yield first, " ".join(block)
+            block, first = [], 0
+
+
+def _background_findings(paragraph: str) -> list[str]:
+    """What in a paragraph runs something in the background, or names `run_in_background` without a `never`."""
+    paragraph = " ".join(paragraph.split())
+    found = [f"background run: {m.group(0)!r}" for sentence in SENTENCE_RE.split(paragraph)
+             for m in BACKGROUND_RE.finditer(sentence)]
+    for match in re.finditer(r"run_in_background", paragraph):
+        if not re.search(r"\bnever (?:with )?`?$", paragraph[:match.start()]):
+            found.append("`run_in_background` that `never` does not directly precede")
+    return found
+
+
+def test_the_sixteen_skills_are_checked():
+    assert len(SKILLS) == 16 and "skf-forger" in SKILLS, SKILLS
+    assert sorted(HEADLESS_CONTRACTS) == SKILLS
+
+
+@pytest.mark.parametrize("skill", SKILLS)
+def test_every_skill_md_keeps_subagents_and_long_commands_waited_for(skill):
+    text = _read(SRC / skill / "SKILL.md")
+    heading = RULES_HEADING[skill]
+    assert text.count(f"\n{heading}\n") == 1, f"{skill}: one {heading} block"
+    block = text.split(f"\n{heading}\n", 1)[1].split("\n## ", 1)[0]
+    assert block.splitlines().count(FOREGROUND_RULE) == 1, f"{skill}: the {heading} block lacks the foreground rule"
+    assert text.count(FOREGROUND_RULE) == 1, skill
+
+
+def test_no_src_file_recommends_a_background_run():
+    found = []
+    for path in sorted(SRC.rglob("*")):
+        if not path.is_file() or path.suffix not in SCANNED:
+            continue
+        for n, paragraph in _paragraphs(_read(path)):
+            found += [f"{path.relative_to(REPO).as_posix()}:{n}: {why}" for why in _background_findings(paragraph)]
+    assert found == []
+
+
+@pytest.mark.parametrize("text", [
+    "Use the Agent tool with `run_in_background: true`.",
+    "Dispatch a background subagent per file.",
+    "Dispatch a background sub-agent per file.",
+    "Launch the reader subagent in the background and go on.",
+    "Run `ccc index` in the foreground, or in the background, polling until it exits.",
+    "Run `ccc index`\nin the background.",
+    "Start the indexer as a background process.",
+    "Two background jobs do the work.",
+    "A background task does the work.",
+    "The scan is backgrounded.",
+    "Run it under nohup.",
+    "Agent calls, or `run_in_background`, run them.",
+    "Agent calls (`run_in_background`\nis never set).",
+])
+def test_the_background_scan_catches_each_form(text):
+    [(_, paragraph)] = list(_paragraphs(text))
+    assert _background_findings(paragraph), text
+
+
+@pytest.mark.parametrize("text", [
+    "Several calls in one message, never with `run_in_background`.",
+    "Agent calls, never `run_in_background`.",
+    "Run every subagent in the foreground (parallel ones as several calls in one message, never\nwith "
+    "`run_in_background`).",
+    "Run the call in the foreground with the shell's longest timeout.",
+])
+def test_the_background_scan_passes_the_foreground_forms(text):
+    [(_, paragraph)] = list(_paragraphs(text))
+    assert _background_findings(paragraph) == [], text
+
+
+@pytest.mark.parametrize("rel", sorted(FORMER_BACKGROUND_SITES))
+def test_the_former_background_sites_keep_the_work_in_the_foreground(rel):
+    text = " ".join(_read(SRC / rel).split())
+    for token in FORMER_BACKGROUND_SITES[rel]:
+        assert token in text, f"{rel}: {token}"
+    assert "wall-clock timeout" not in text, rel
+
+
+@pytest.mark.parametrize("skill", SKILLS)
+def test_every_headless_contract_says_a_run_with_no_line_has_no_result(skill):
+    rel = HEADLESS_CONTRACTS[skill]
+    text = " ".join(_read(SRC / skill / rel).split())
+    assert NO_RESULT in text, f"{skill}/{rel}"
+    if rel == "SKILL.md":
+        [row] = [line for line in _read(SRC / skill / rel).splitlines() if line.startswith("| **Headless** |")]
+        assert NO_RESULT in row, f"{skill}: the reading rule belongs in the Headless row"

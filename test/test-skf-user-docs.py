@@ -1700,10 +1700,13 @@ def test_test_skill_documents_its_flags_and_where_automators_read_the_exit_code(
     assert "halts `input-missing`" in _paragraph(section, "**Skill name:**")
     exits = _paragraph(section, "**Verdicts and exit codes")
     for token in ("A skill run cannot set the exit status of the agent that runs it",
-                  "read `exit_code` from the `SKF_TEST_RESULT_JSON` line, or from `skf-test-skill-result-latest.json`",
-                  "is the run's last line"):
+                  "read `exit_code` from the run's own `SKF_TEST_RESULT_JSON` line",
+                  "is the run's last line",
+                  "A run that printed no such line has no result to read, whatever `claude -p` exits with: it was "
+                  "cut off, or could not write its result, and `skf-test-skill-result-latest.json` may then hold an "
+                  "earlier run's verdict"):
         assert token in exits, token
-    assert "then exits `2`" not in exits
+    assert "then exits `2`" not in exits and "or from `skf-test-skill-result-latest.json`" not in exits
     architecture = _read(ARCHITECTURE)
     tree = _slice(architecture, "## Workspace Artifacts", "### Pipeline Result Contracts")
     [report] = [line for line in tree.splitlines() if "├── test-report-{skill-name}-{run_id}.md" in line]

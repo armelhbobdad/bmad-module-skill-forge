@@ -94,8 +94,9 @@ skf-export-skill {export_name} --headless
 
 Capture its result envelope `SKF_EXPORT_RESULT_JSON`, then record the outcome under the campaign `name`, so step-11's report and result envelope read it from state:
 
-- **Exit code 0:** `uv run {stateScript} set-skill --state-file {stateFile} --skill {name} --export exported`, and log the result (type `event`).
-- **Non-zero exit:** `uv run {stateScript} set-skill --state-file {stateFile} --skill {name} --export failed --export-exit-code <exit_code> [--export-halt-reason <halt_reason>]`, with the envelope's `halt_reason` when it printed one, and log the error (type `event`: exit code, envelope or stderr). Continue with the remaining skills: one failure does not block the other exports.
+- **No envelope, or a line that does not parse or has no `exit_code`:** there is no result to read. Record it with `uv run {stateScript} set-skill --state-file {stateFile} --skill {name} --export failed --export-halt-reason <reason>` (no exit code), `no-result` for no line, logged as "no SKF_EXPORT_RESULT_JSON line" (type `event`), and `result-unreadable` for a line that does not parse or has no `exit_code`, the term the gate scripts use, logged as "unparseable SKF_EXPORT_RESULT_JSON line", and continue with the remaining skills.
+- **An envelope with `exit_code` 0:** `uv run {stateScript} set-skill --state-file {stateFile} --skill {name} --export exported`, and log the result (type `event`).
+- **Any other `exit_code`:** `uv run {stateScript} set-skill --state-file {stateFile} --skill {name} --export failed --export-exit-code <exit_code> [--export-halt-reason <halt_reason>]`, with the envelope's `halt_reason`, and log the error (type `event`: exit code, envelope or stderr). Continue with the remaining skills: one failure does not block the other exports.
 
 After all exports complete, display a summary:
 

@@ -36,6 +36,7 @@ The forger also accepts common pipeline aliases:
 4. **Circuit breakers** — if a workflow's output fails its quality check, the pipeline halts with a summary of what completed and what remains
 5. **Error halts propagate** — if any workflow hard-halts, the pipeline stops immediately
 6. **Progress reporting** — the forger reports completion of each workflow before starting the next
+7. **A missing result line halts**: a workflow that printed no envelope line has no result to read, whatever the process exit code: it was cut off, or could not write its result, so the pipeline halts with `no-result` (SF: with the line it did display, or `no-result` when it displayed none), and the forger never reads a `-latest.json` file in its place
 
 ## Pipeline Arguments
 
@@ -117,7 +118,7 @@ Every chained workflow's data context carries `pipeline_mode: true`, which marks
 
 ## Pipeline Result
 
-`pipeline-journal.py finish` writes each chain's result from its journal, per `output-contract-schema.md`: the per-run record `{sidecar_path}/pipeline-result-<YYYYMMDD-HHmmss>.json` (UTC; `-2`, `-3` ... when a run already took that second's name) and its copy `{sidecar_path}/pipeline-result-latest.json`, the file consumers read.
+`pipeline-journal.py finish` writes each chain's result from its journal, per `output-contract-schema.md`: the per-run record `{sidecar_path}/pipeline-result-<YYYYMMDD-HHmmss>.json` (UTC; `-2`, `-3` ... when a run already took that second's name) and its copy `{sidecar_path}/pipeline-result-latest.json`, which holds the last chain, or attempt, that reached `finish`. A chain cut off before `finish` writes none, so the file may describe an earlier chain or an earlier attempt of this one: a caller reads the envelope lines the chain's workflows print, never this file in their place.
 
 ```json
 {

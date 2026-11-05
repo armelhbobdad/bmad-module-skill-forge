@@ -1073,6 +1073,45 @@ def test_the_pipeline_result_example_has_the_shape_finish_writes(chain):
         assert f"`{status}`" in section, status
 
 
+def test_a_chain_cut_off_before_finish_leaves_the_earlier_result(chain):
+    """Only `finish` writes the pipeline result, so a chain cut off mid-step (an agent that ended its turn
+    under `claude -p`) leaves the previous chain's copy in place, as pipeline-contracts.md says: a caller reads
+    the envelope lines the chain's workflows print, never this file in their place."""
+    chain.start("QS[cognee] TS")
+    chain.ran("QS")
+    chain.ran("TS")
+    chain.finish()
+    earlier = _latest(chain)
+    chain.clock.tick(3600)
+    chain.start("QS[cognee] TS")
+    chain.ran("QS")
+    assert _latest(chain) == earlier
+    section = _section(_read(CONTRACTS), "## Pipeline Result")
+    for token in ("which holds the last chain, or attempt, that reached `finish`",
+                  "A chain cut off before `finish` writes none, so the file may describe an earlier chain or an "
+                  "earlier attempt of this one: a caller reads the envelope lines the chain's workflows print, never "
+                  "this file in their place."):
+        assert token in section, token
+    assert "the file consumers read" not in section and "`run_id` is its own chain's" not in section
+
+
+@pytest.mark.parametrize("code", ["CS", "BS", "QS", "US", "EX", "SS", "RA", "DS", "RS"])
+def test_an_ungated_workflow_with_no_result_line_halts_no_result(chain, code):
+    """pipeline-mode.md step e records an ungated workflow that printed no envelope line `halted` with
+    `--reason no-result`: the journal takes the reason as given and offers to run that step again."""
+    chain.start(f"{code}[cognee]")
+    out = chain.step(code, "halted", reason="no-result")
+    assert (out["recorded"]["status"], out["recorded"]["reason"], out["next"]) == ("halted", "no-result", None)
+    done = chain.finish()
+    assert (done["pipeline_status"], done["halt_reason"], done["offer"], done["kind"]) == (
+        "failed", "no-result", "resume", "error")
+    step = _read(SRC / "skf-forger" / "references" / "pipeline-mode.md")
+    flow = " ".join(step.split())
+    assert ("An ungated workflow (CS, BS, QS, US, EX, SS, RA, DS, RS) that printed no envelope line has no result "
+            "to read, whatever the process exit code: it was cut off, or could not write its result, so record it "
+            "`halted` with `--reason no-result`") in flow
+
+
 def test_the_run_id_and_the_record_names_are_the_shared_helpers(tmp_path):
     """pipeline-journal.py loads no shared script and keeps its own copy of
     skf-run-lock.py's run id and the emitter's per-run record name."""

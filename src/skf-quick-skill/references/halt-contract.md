@@ -22,7 +22,7 @@ Every HARD HALT in this workflow exits with a stable, documented code so headles
 
 ## Result Contract on HARD HALT
 
-Every HARD HALT emits an **error envelope** through the shared emitter, `{emitEnvelopeHelper}`, so headless automators never meet a failed run with no result, except SKILL.md On Activation's halt for a missing `python3` or `uv`, which the emitter needs: that halt displays its message alone. SKILL.md On Activation step 1 resolved the emitter; when a compaction lost it, it is the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. Stage the halt payload as `{run_dir}/halt.json` through a quoted heredoc, then run the emitter:
+Every HARD HALT emits an **error envelope** through the shared emitter, `{emitEnvelopeHelper}`, so no HARD HALT leaves a headless automator without a result line, except SKILL.md On Activation's halt for a missing `python3` or `uv`, which the emitter needs: that halt displays its message alone. SKILL.md On Activation step 1 resolved the emitter; when a compaction lost it, it is the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. Stage the halt payload as `{run_dir}/halt.json` through a quoted heredoc, then run the emitter:
 
 ```bash
 cat > "{run_dir}/halt.json" <<'SKF_JSON'
@@ -47,7 +47,7 @@ The emitter prints one line on stderr, `SKF_QUICK_SKILL_RESULT_JSON: {...}`: dis
 {skill_package}/quick-skill-result-latest.json   (copy, not symlink)
 ```
 
-so consumers that hardcode the `-latest.json` path see a deterministic file even on failed runs. Before step 5 §1 computes `{skill_package}`, the stderr line and the exit code are the whole contract. A HALT while `{skill_package}` has no `metadata.json` (a failed first write in step 5 §2, for example) writes nothing on disk either: a package holding only result files is not SKF output, so the next run's ownership check would refuse it.
+so the halt's record also becomes the `-latest.json` copy; a caller still reads the run's own `SKF_QUICK_SKILL_RESULT_JSON` line, never the copy in its place. Before step 5 §1 computes `{skill_package}`, the stderr line and the exit code are the whole contract. A HALT while `{skill_package}` has no `metadata.json` (a failed first write in step 5 §2, for example) writes nothing on disk either: a package holding only result files is not SKF output, so the next run's ownership check would refuse it.
 
 **Schema:** `shared/scripts/schemas/skf-quick-skill-result-envelope.v1.json` (installed under `{project-root}/_bmad/skf/`).
 

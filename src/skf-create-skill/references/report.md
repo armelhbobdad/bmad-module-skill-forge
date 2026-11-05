@@ -101,7 +101,7 @@ To use this skill immediately, add the context snippet to your CLAUDE.md:
 
 Every brief that reaches this step gets its own result contract and `on_complete` call, each brief of a `--batch` run included. A HARD HALT in steps 1 to 7 never reaches this step: it emits its envelope where it fires, as its HALT line says, and writes its result file there once step 7 has created `{forge_version}`.
 
-**Write the result contract through the emitter.** `{emitEnvelopeHelper}` writes `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and its `create-skill-result-latest.json` copy (a stable path for pipeline consumers; a copy, not a symlink), stamps the timestamp, the run id and the run sink's decisions and warnings into them, checks the brief's `SKF_CREATE_SKILL_RESULT_JSON` line against `skf-create-skill-result-envelope.v1.json` and prints it. First read the run sink, from `{project-root}`:
+**Write the result contract through the emitter.** `{emitEnvelopeHelper}` writes `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and its `create-skill-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path: a copy, not a symlink; a caller reads its own run's `SKF_CREATE_SKILL_RESULT_JSON` line), stamps the timestamp, the run id and the run sink's decisions and warnings into them, checks the brief's `SKF_CREATE_SKILL_RESULT_JSON` line against `skf-create-skill-result-envelope.v1.json` and prints it. First read the run sink, from `{project-root}`:
 
 ```bash
 grep -c . "{run_dir}/headless-decisions.jsonl" 2>/dev/null; grep -c '"gate":"zero-exports"' "{run_dir}/headless-decisions.jsonl" 2>/dev/null
@@ -118,7 +118,7 @@ uv run {emitEnvelopeHelper} emit --workflow skf-create-skill --run-dir "{run_dir
 
 The evidence report in `outputs` carries the `## Auto-Decisions` audit table: a pipeline consumer follows its path to audit the run. Display the line the emitter prints. If it exits non-zero, fix `result-context.json` once (its `message` names the problem) and run it again. When it fails again, display its `message`: this brief has no result contract.
 
-**If no path in `{emitEnvelopeProbeOrder}` exists** (an incomplete install), write no result contract: append "Result contract skipped: skf-emit-result-envelope.py is missing." under `{forge_version}/evidence-report.md`'s `## Remaining Warnings`, and set `validation_status: 'schema-unavailable'` in `{skill_package}/metadata.json`, rewritten through `python3 {atomicWriteHelper} write --target {skill_package}/metadata.json` when `{atomicWriteHelper}` resolves. Pipeline consumers observe the missing `-latest.json` and the metadata flag.
+**If no path in `{emitEnvelopeProbeOrder}` exists** (an incomplete install), write no result contract: append "Result contract skipped: skf-emit-result-envelope.py is missing." under `{forge_version}/evidence-report.md`'s `## Remaining Warnings`, and set `validation_status: 'schema-unavailable'` in `{skill_package}/metadata.json`, rewritten through `python3 {atomicWriteHelper} write --target {skill_package}/metadata.json` when `{atomicWriteHelper}` resolves. A caller sees no `SKF_CREATE_SKILL_RESULT_JSON` line for this brief and the metadata flag; a `create-skill-result-latest.json` already there is an earlier compile's.
 
 **Post-completion hook.** When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
 
