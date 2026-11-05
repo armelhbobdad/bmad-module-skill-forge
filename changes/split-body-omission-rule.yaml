@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   Test Skill's split-body cross-check compares a parameter's optionality only when both forms state it. An ellipsis claims nothing about the parameters it stands for, and a call, a list of bare names or a form its own file labels partial may leave out a parameter the other form does not state as required, unless that shifts a caller's positions in a language without keyword arguments; any other form that leaves one out is still a mismatch. Each export's form is read alone, so `(action, sink, tracking_record, child_invalidation)` is no longer a High `split-body-mismatch` gap when other rows of its table write defaults, and two runs on an unchanged skill agree on it.
 issues: [843]
+prs: [879]

@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a split-body gap between two reference files, run `@Ferris US <skill> --from-test-report` on that report, or edit the cited reference so both files document the export as its source declares, then run Test Skill again.
 issues: [841]
+prs: [879]
