@@ -409,7 +409,7 @@ def test_every_coverage_check_judge_names_the_rules_file():
 
 def test_a_partial_label_in_a_table_header_labels_each_row():
     """#827: oms-storybook's `Props (simplified)` column header labels every row of its table partial."""
-    contract = _paragraph(_read(COVERAGE), "Tell the subagent the contract the validator checks")
+    contract = _paragraph(_read(REFS / "inventory-contract.md"), "The contract `validate-inventory.py` checks")
     assert ("not rest or variadic syntax; a label in a table's column header, such as `Props (simplified)`, labels "
             "each of its rows) carries `signature_form: \"partial\"`") in contract
 

@@ -109,6 +109,7 @@ COHERENCE = REFS / "coherence-check.md"
 SCORING = REFS / "scoring-rules.md"
 # The rules every signature judge compares by (#827, #835): the overload rule and the `difference` tags live there.
 SIGNATURE_RULES = REFS / "signature-comparison-rules.md"
+INVENTORY_CONTRACT = REFS / "inventory-contract.md"
 INVENTORY = SRC / "shared" / "scripts" / "skf-skill-inventory.py"
 CREATE_ARTIFACTS = SRC / "skf-create-skill" / "references" / "generate-artifacts.md"
 SKILL_SECTIONS = SRC / "skf-create-skill" / "assets" / "skill-sections.md"
@@ -1305,7 +1306,8 @@ def test_score_reads_the_category_scores_from_files():
 
 def test_the_inventory_contract_lists_the_validators_kinds():
     validator = runpy_module(SCRIPTS_DIR / "validate-inventory.py")
-    section = _flow(_slice(_read(COVERAGE), "### 1. Extract Documented Exports", "#### 1a."))
+    assert _frontmatter(COVERAGE)["inventoryContractFile"] == "references/inventory-contract.md"
+    section = _flow(_read(INVENTORY_CONTRACT))
     listed = re.search(r"each `kind` is one of (.+?); every entry", section).group(1)
     assert re.findall(r"`([a-z]+)`", listed) == list(validator.VALID_KINDS)
     assert "every entry carries the `description`" in section
@@ -1323,7 +1325,8 @@ def test_the_inventory_subagent_writes_its_own_response():
     # The subagent's side: the Write tool, or the JSON returned.
     assert ("It writes only this JSON, with no prose and no commentary, to `{run_dir}/inventory-response.txt` with "
             "the Write tool, never a shell, and returns that path, or returns the JSON itself when it cannot write "
-            "files:") in section1
+            "files. The JSON's shape and the contract the validator checks are in `{inventoryContractFile}`, whose "
+            "absolute path (under `{skill-root}`) the subagent is given.") in section1
     # The parent's side: a save only when there is no file to validate.
     assert ("When the subagent returned the JSON rather than the path, or the file is absent or empty afterwards, "
             "save its response, as it came back, to `{run_dir}/inventory-response.txt` with the Write tool.") in section1
@@ -1418,7 +1421,7 @@ def test_the_floor_runs_before_the_inventory_subagent():
             '`coverage-check:inventory`).') in flow
     assert ("It is given `{run_dir}/inventory-floor.json` too, and lists each name there with an origin in a file "
             "it reads, choosing its kind from the name's `kindLabel`, the skill's own label, when it has one.") in flow
-    assert ("Without subagents, the parent builds the same JSON from the same files and `inventory-floor.json` and "
+    assert ("Without subagents, the parent loads `{inventoryContractFile}` and builds the same JSON from the same files and `inventory-floor.json` and "
             "saves it to that file; §1a's checks still run on it.") in flow
     for rule in ("first cell", "public declaration", "Exports, Symbol"):
         assert rule not in flow, rule

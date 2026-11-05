@@ -359,7 +359,7 @@ async function runTests() {
         'health-check.md',
       ],
       assets: ['output-section-formats.md'],
-      references: ['scoring-rules.md', 'signature-comparison-rules.md', 'source-access-protocol.md'],
+      references: ['inventory-contract.md', 'scoring-rules.md', 'signature-comparison-rules.md', 'source-access-protocol.md'],
     },
     'verify-stack': {
       steps: ['init.md', 'coverage.md', 'integrations.md', 'requirements.md', 'synthesize.md', 'report.md', 'health-check.md'],
