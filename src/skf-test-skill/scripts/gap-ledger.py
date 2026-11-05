@@ -341,7 +341,10 @@ CATEGORIES: dict[str, tuple[str, str]] = {
         "a reference whose real path leaves the skill, its source and, for a stack, the skills folder",
     ),
     "integration-pattern": ("Coherence", "an integration pattern that is incomplete"),
-    "split-body-mismatch": ("Coherence", "SKILL.md and a references/ file that disagree about an export"),
+    "split-body-mismatch": (
+        "Coherence",
+        "two files of the skill (SKILL.md or a references/ file) that disagree about an export",
+    ),
     "scripts-assets": ("Coherence", "a Scripts & Assets section that is missing or names a missing file"),
     "scripts-assets-provenance": ("Coherence", "a script or asset file without a provenance entry"),
     "structural": (

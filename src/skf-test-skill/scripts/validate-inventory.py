@@ -8,13 +8,29 @@ Structural validator for the SKF test-skill coverage step (coverage-check.md
 §1a "Schema validation" block). test-skill is a quality gate, so it must not
 trust subagent output blindly: before any downstream step consumes the
 documented inventory, the shape is validated. That validation is pure
-structural checking — strip wrapping fences, parse JSON, assert required keys
+structural checking (strip wrapping fences, parse JSON, assert required keys
 and types, assert each export entry is a dict with a non-empty `name` and a
-`kind` drawn from a fixed enum (and, when present, a `signature_form` of
-`partial` or `full`), and assert each cross-check mismatch carries its
-five fields — with exactly one correct pass/fail per input and no
-interpretation of meaning. It is therefore script work, not prompt work; the
-prompt reads this verdict and owns only the HALT decision.
+`kind` drawn from a fixed enum and, when present, a `signature_form` of
+`partial` or `full`, and assert each cross-check mismatch carries its fields
+and one other side, in order), with exactly one correct pass/fail per input
+and no interpretation of meaning. It is therefore script work, not prompt
+work; the prompt reads this verdict and owns only the HALT decision.
+
+A cross-check mismatch (coverage-check.md §1 compares the SKILL.md body
+with each reference file, and two reference files the body does not settle)
+carries `export`, `reference_file`, `reference_line` and `issue`, and the
+other side of its pair: `skill_md_line` for the SKILL.md body, or
+`other_file` and `other_line` for a second reference file, never both and
+never neither (a JSON null counts as absent). Each file is a
+`references/**/*.md` file of the package, normalized to its path relative
+to the package with forward slashes (an absolute path counts only inside
+--skill-package), and the inventory echoed back carries that path; each line
+is a positive integer. A pair of references is written in one order,
+(`other_file`, `other_line`) sorting before (`reference_file`,
+`reference_line`) in codepoint order, so a rerun gives the gap one title and
+the ledger records it once; one export documented twice in one reference is
+a pair of its two lines. A violation of the other side names both shapes,
+and one of the order names both places.
 
 With --skill-package it also runs the ground-truth spot-check (coverage-check.md
 §1a): it sorts the exports by name (a stable sort), samples the first, the
@@ -173,10 +189,18 @@ SIGNATURE_FORMS = ("partial", "full")
 
 REQUIRED_MISMATCH_FIELDS = (
     "export",
-    "skill_md_line",
     "reference_file",
     "reference_line",
     "issue",
+)
+
+# The other side of a cross-check pair, exactly one of these shapes: the
+# SKILL.md body's line, or a second reference file and its line.
+BODY_SIDE = ("skill_md_line",)
+REFERENCE_SIDE = ("other_file", "other_line")
+OTHER_SIDE_SHAPES = (
+    "`skill_md_line` (the SKILL.md body) or `other_file` and `other_line` "
+    "(a second reference file)"
 )
 
 # Kinds whose documented item also needs its parameters and return type to
@@ -505,6 +529,92 @@ def completeness(exports):
 # --- Validation ---------------------------------------------------------------
 
 
+def _reference_path(value, skill_package_path=None):
+    """A pair's file as the package names it (`_listed_path`: relative, forward slashes, no `./`), or None when
+    it is no `references/**/*.md` file of the package: empty, not a string, `SKILL.md`, another file, or an
+    absolute path outside the package (or with no package to make it relative to)."""
+    if not isinstance(value, str) or not value.strip():
+        return None
+    path = _listed_path(value.strip(), skill_package_path)
+    parts = path.split("/")
+    if len(parts) < 2 or parts[0] != "references" or ".." in parts or not parts[-1].endswith(".md") \
+            or parts[-1] == ".md":
+        return None
+    return path
+
+
+def _is_line(value):
+    """A line number: a positive integer, never a bool or a string."""
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def mismatch_violations(idx, entry, skill_package_path=None):
+    """The violations of one cross_check_mismatches entry (an object).
+
+    A required field left out; a `reference_file` or `other_file` that is no
+    `references/**/*.md` path of the package; a line that is no positive
+    integer; an other side that is not exactly one shape, `skill_md_line` or
+    both of `other_file` and `other_line` (a JSON null counts as absent); or a
+    pair of references out of order: (`other_file`, `other_line`) must sort
+    before (`reference_file`, `reference_line`) in codepoint order, so the pair
+    has one title. Each path is checked, and left in the entry, as the package
+    names it, relative and with forward slashes.
+    """
+    where = f"cross_check_mismatches[{idx}]"
+    violations = []
+    missing = [f for f in REQUIRED_MISMATCH_FIELDS if f not in entry]
+    if missing:
+        violations.append(f"{where} missing field(s): {', '.join(missing)}")
+    ref = None
+    if "reference_file" in entry:
+        ref = _reference_path(entry["reference_file"], skill_package_path)
+        if ref is None:
+            violations.append(f"{where}: `reference_file` must be a `references/*.md` file of the skill package, "
+                              f"not {json.dumps(entry['reference_file'])}")
+        else:
+            entry["reference_file"] = ref
+    lines_ok = True
+    for field in ("reference_line",) + BODY_SIDE + REFERENCE_SIDE[1:]:
+        given = entry.get(field) is not None or (field == "reference_line" and field in entry)
+        if given and not _is_line(entry[field]):
+            lines_ok = False
+            violations.append(f"{where}: `{field}` must be a line number (a positive integer), "
+                              f"not {json.dumps(entry[field])}")
+    body = [f for f in BODY_SIDE if entry.get(f) is not None]
+    reference = [f for f in REFERENCE_SIDE if entry.get(f) is not None]
+    if body and reference:
+        violations.append(f"{where} gives two other sides: give one, {OTHER_SIDE_SHAPES}")
+        return violations
+    if not body and not reference:
+        violations.append(f"{where} missing its other side: give {OTHER_SIDE_SHAPES}")
+        return violations
+    if body:
+        return violations
+    absent = [f for f in REFERENCE_SIDE if f not in reference]
+    if absent:
+        violations.append(f"{where} missing field(s): {', '.join(absent)}; its other side is "
+                          f"{OTHER_SIDE_SHAPES}")
+        return violations
+    other = _reference_path(entry["other_file"], skill_package_path)
+    if other is None:
+        violations.append(f"{where}: `other_file` must be a `references/*.md` file of the skill package, "
+                          f"not {json.dumps(entry['other_file'])}")
+        return violations
+    entry["other_file"] = other
+    if ref is None or not lines_ok or "reference_line" not in entry:
+        return violations
+    first, last = (other, entry["other_line"]), (ref, entry["reference_line"])
+    if not first < last:
+        relation = "names the same line as" if first == last else "sorts after"
+        violations.append(
+            f"{where}: `other_file` {json.dumps(other)} at `other_line` {first[1]} {relation} "
+            f"`reference_file` {json.dumps(ref)} at `reference_line` {last[1]}: a pair of references gives the "
+            "one that sorts first in codepoint order, by path and then line, as `other_file` and `other_line`, "
+            "and the one that sorts last as `reference_file` and `reference_line`"
+        )
+    return violations
+
+
 def validate_inventory(raw, skill_package_path=None, floor=None):
     """Structural validation of the subagent inventory response, then the spot-check and the floor check.
 
@@ -582,16 +692,13 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
                 f"not {json.dumps(entry['signature_form'])}"
             )
 
-    # Non-empty cross-check mismatch entries must carry all five fields.
+    # Each cross-check mismatch carries its fields and one other side of its
+    # pair, a pair of references in order.
     for idx, entry in enumerate(cross):
         if not isinstance(entry, dict):
             violations.append(f"cross_check_mismatches[{idx}] is not an object")
             continue
-        missing = [f for f in REQUIRED_MISMATCH_FIELDS if f not in entry]
-        if missing:
-            violations.append(
-                f"cross_check_mismatches[{idx}] missing field(s): {', '.join(missing)}"
-            )
+        violations.extend(mismatch_violations(idx, entry, skill_package_path))
 
     schema_valid = not violations
     checked = None

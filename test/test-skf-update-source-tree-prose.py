@@ -3140,13 +3140,17 @@ def test_split_body_findings_route_to_a_structural_fix(tmp_path, capsys):
     signature = next(i for i, row in enumerate(rows) if "`signature-mismatch`" in row)
     assert split < signature  # read top-down, the split-body row comes first
     assert rows[split].startswith("| `split-body-mismatch` | Split-body inconsistency:")
-    assert "with a `Source:` inside the skill package" in rows[split]
+    # #841: two reference files are a pair too, so the row names no body side
+    assert ("Split-body inconsistency: two files of the skill (the SKILL.md body or a `references/*.md` file) "
+            "document one export differently, with a `Source:` inside the skill package") in rows[split]
     assert ("STRUCTURAL_FIX, see rule R2 (for an older report, this row takes precedence over the Signature mismatch "
             "row below)") in rows[split]
     assert "MODIFIED_EXPORT" not in rows[split]
     r2 = _slice(zero, "- **R2: STRUCTURAL_FIX.**", "\n- **R3")
     for token in ("a coherence finding from `skf-scan-skill-md-structure.py`",
-                  "a split-body consistency finding (test-skill coverage-check §1b `cross_check_mismatches`)",
+                  "a split-body consistency finding (test-skill coverage-check §1b `cross_check_mismatches`): two "
+                  "files of the skill (the SKILL.md body or a `references/*.md` file) document one export "
+                  "differently.",
                   "Its `category` is `split-body-mismatch`; in a report older than the ledger, recognize it by its "
                   "`Source:`, which points inside the skill package",
                   "at the skill's own `SKILL.md` or at one of its `references/*.md` files",
@@ -3213,10 +3217,18 @@ def test_merge_edits_the_file_a_split_body_finding_cites():
     wrong body is repaired too; the body is the side kept only when nothing names a side (#547's rule before)."""
     priority8 = _slice(_read(MERGE), "**Priority 8:", "**Priority 8b")
     split = _slice(priority8, "- **A split-body consistency finding**", "\n")
+    assert split.startswith("- **A split-body consistency finding** (rule R2: two files of the skill, the SKILL.md "
+                            "body or a `references/*.md` file, document one export differently)")
     for token in ("edit the file the entry's `package_citation` names, the side the pinned source contradicts "
                   "(test-skill coverage-check §5b), so it documents the export as the other file does",
                   "Without a `package_citation`, edit the file the remediation names to change",
                   "when neither names one, edit the `references/*.md` file to match the SKILL.md body",
+                  # #841: a pair of references no source settled edits the one test-skill cites, the path that sorts
+                  # last, to match the other; several entries for one file and line are one edit
+                  "of two `references/*.md` files no source settled, that is the one whose path sorts last, matched "
+                  "to the other",
+                  "or of two `references/*.md` files the one whose path sorts last to match the other",
+                  "Several split-body entries that cite one file and line are one edit of it",
                   # only the contradicting parts, at each file's level of detail: the split stays a split
                   "Change only what the remediation names as contradicting (a parameter, a type, the return type), "
                   "taking it from the other file, and nothing more when it says both forms agree with the source",

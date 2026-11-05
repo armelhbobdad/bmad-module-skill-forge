@@ -209,6 +209,128 @@ def test_cross_check_all_fields_ok():
     assert r["valid"] is True
 
 
+def _cross_check(**fields):
+    """An inventory with one cross-check mismatch: its export, reference side and issue, plus `fields`. The issue is
+    a mismatch by the rules: a typed form claims its list is complete, and leaves out `dataset`."""
+    entry = {"export": "run_tasks_parallel", "reference_file": "references/b.md", "reference_line": 5,
+             "issue": "references/a.md shows (tasks: list[Task], data: Any, dataset: str) -> None, references/b.md "
+                      "(tasks: list[Task], data: Any) -> None"}
+    return json.dumps({"exports": [{"name": "run_tasks_parallel", "kind": "function"}],
+                       "cross_check_mismatches": [entry | fields]})
+
+
+def _violation(**fields) -> str:
+    r = mod.validate_inventory(_cross_check(**fields))
+    assert r["valid"] is False and r["inventory"] is None
+    [violation] = r["violations"]
+    assert violation.startswith("cross_check_mismatches[0]"), violation
+    return violation
+
+
+def test_cross_check_between_two_references_is_valid():
+    """#841: the split-body cross-check compares two reference files the body does not settle, so their
+    contradiction is one entry, the one that sorts first as `other_file` at `other_line` in place of
+    `skill_md_line`. Before, the validator required `skill_md_line` and refused the pair."""
+    r = mod.validate_inventory(_cross_check(other_file="references/a.md", other_line=3))
+    assert r["valid"] is True, r["violations"]
+    assert r["inventory"]["cross_check_mismatches"][0]["other_file"] == "references/a.md"
+    # a JSON null counts as absent, so a null `skill_md_line` beside a reference pair is no second side
+    assert mod.validate_inventory(_cross_check(skill_md_line=None, other_file="references/a.md",
+                                               other_line=3))["valid"] is True
+
+
+@pytest.mark.parametrize("fields, needle", [
+    ({}, "missing its other side"),
+    ({"skill_md_line": 1, "other_file": "references/a.md", "other_line": 3}, "gives two other sides"),
+    ({"other_file": "references/a.md"}, "missing field(s): other_line"),
+    ({"other_line": 3}, "missing field(s): other_file"),
+    ({"other_file": None, "other_line": 3}, "missing field(s): other_file"),
+    ({"other_file": "references/a.md", "other_line": None}, "missing field(s): other_line"),
+], ids=["neither", "both", "other-file-alone", "other-line-alone", "null-other-file", "null-other-line"])
+def test_cross_check_needs_exactly_one_other_side(fields, needle):
+    """An entry names one other side: the SKILL.md body's `skill_md_line`, or `other_file` and `other_line`. Each
+    violation names both shapes, so the re-dispatched subagent knows what to write."""
+    violation = _violation(**fields)
+    assert needle in violation, violation
+    assert ("`skill_md_line` (the SKILL.md body) or `other_file` and `other_line` (a second reference file)"
+            in violation), violation
+
+
+@pytest.mark.parametrize("field, value", [
+    ("other_file", 3), ("other_file", ""), ("other_file", "SKILL.md"), ("other_file", "metadata.json"),
+    ("other_file", "/elsewhere/references/a.md"), ("other_file", "references/../SKILL.md"),
+    ("reference_file", None), ("reference_file", "SKILL.md"), ("reference_file", ""),
+], ids=["other-int", "other-empty", "other-skill-md", "other-metadata", "other-absolute-outside",
+        "other-escapes", "reference-null", "reference-skill-md", "reference-empty"])
+def test_each_file_of_a_pair_is_a_reference_of_the_package(field, value):
+    """`reference_file` on every entry and `other_file` on a pair are `references/*.md` files of the package: never
+    SKILL.md (the body side is `skill_md_line`), another file, an empty or non-string value, or a path outside it."""
+    fields = {"other_file": "references/a.md", "other_line": 3} if field == "other_file" else {"skill_md_line": 4}
+    violation = _violation(**(fields | {field: value}))
+    assert (f"`{field}` must be a `references/*.md` file of the skill package, not {json.dumps(value)}"
+            in violation), violation
+
+
+def test_each_file_of_a_pair_is_normalized_to_its_package_path(tmp_path):
+    """`./references/a.md`, a backslash path and an absolute path inside --skill-package are checked, ordered and
+    echoed as the package names them, so a rerun titles the gap one way."""
+    (tmp_path / "references").mkdir()
+    (tmp_path / "SKILL.md").write_bytes(b"# demo\n\nrun_tasks_parallel(tasks)\n")
+    for other, ref in (("./references/a.md", "references\\b.md"),
+                       (str(tmp_path / "references" / "a.md"), "./references/b.md")):
+        r = mod.validate_inventory(_cross_check(other_file=other, other_line=3, reference_file=ref), tmp_path)
+        assert r["valid"] is True, r["violations"]
+        [entry] = r["inventory"]["cross_check_mismatches"]
+        assert (entry["other_file"], entry["reference_file"]) == ("references/a.md", "references/b.md")
+    # normalized first: `./references/c.md` is `references/c.md`, which sorts after `references/b.md`
+    assert "sorts after" in _violation(other_file="./references/c.md", other_line=3)
+
+
+@pytest.mark.parametrize("field, value", [
+    ("skill_md_line", True), ("skill_md_line", "42"), ("skill_md_line", 0), ("other_line", -1),
+    ("other_line", "3"), ("other_line", False), ("reference_line", "5"), ("reference_line", None),
+], ids=["body-bool", "body-string", "body-zero", "other-negative", "other-string", "other-bool",
+        "reference-string", "reference-null"])
+def test_each_line_is_a_positive_integer(field, value):
+    fields = {"skill_md_line": 4} if field == "skill_md_line" else {"other_file": "references/a.md", "other_line": 3}
+    violation = _violation(**(fields | {field: value}))
+    assert f"`{field}` must be a line number (a positive integer), not {json.dumps(value)}" in violation, violation
+
+
+@pytest.mark.parametrize("other_file, other_line, relation", [
+    ("references/b.md", 5, "names the same line as"),
+    ("references/b.md", 9, "sorts after"),
+    ("references/c.md", 3, "sorts after"),
+    ("references/b.md.bak.md", 1, "sorts after"),
+], ids=["same-place", "same-file-later-line", "later-path", "longer-path"])
+def test_cross_check_other_file_sorts_before_reference_file(other_file, other_line, relation):
+    """A pair of references is written in one order, so a rerun titles one gap one way and the ledger, which tells
+    gaps apart by their title, records it once: (`other_file`, `other_line`) sorts first in codepoint order, path
+    then line."""
+    violation = _violation(other_file=other_file, other_line=other_line)
+    assert (f'`other_file` "{other_file}" at `other_line` {other_line} {relation} `reference_file` "references/b.md" '
+            "at `reference_line` 5: a pair of references gives the one that sorts first in codepoint order, by path "
+            "and then line, as `other_file` and `other_line`") in violation, violation
+
+
+def test_one_export_documented_twice_in_one_reference_is_a_pair_of_its_lines():
+    """The same file at two lines is a pair too, ordered by line; codepoint order puts `B` before `a`."""
+    assert mod.validate_inventory(_cross_check(other_file="references/b.md", other_line=2))["valid"] is True
+    assert mod.validate_inventory(_cross_check(other_file="references/B.md", other_line=9))["valid"] is True
+
+
+def test_the_cli_refuses_a_reference_pair_out_of_order(tmp_path):
+    """The CLI exits 2 on the order violation and leaves no inventory behind, as for any schema violation."""
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(_cross_check(other_file="references/z.md", other_line=3).encode("utf-8"))
+    output = tmp_path / "inventory.json"
+    p = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--output", str(output)],
+                       capture_output=True, text=True)
+    assert p.returncode == 2, p.stdout + p.stderr
+    assert any("sorts after `reference_file`" in v for v in json.loads(p.stdout)["violations"])
+    assert not output.exists()
+
+
 def test_json_array_not_object():
     r = mod.validate_inventory(json.dumps([1, 2, 3]))
     assert r["valid"] is False

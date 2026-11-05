@@ -23,7 +23,7 @@ This table is the single source of truth for classifying a gap. Every stage reco
 | Critical | `broken-reference`          | Broken reference (contextual mode): a reference whose target does not exist, such as a file not at the stated path, a skill not in the skills output folder, a type no module declares, or a `scripts/` or `assets/` file the skill names (coherence-check §4) |
 | High     | `inaccurate-reference`      | Inaccurate reference (contextual mode): the target exists but does not match, such as a type the cited module does not export, a signature that differs, or an integration pattern that does not match the implementation (coherence-check §4) |
 | High     | `reference-escape`          | A reference whose real path leaves the skill, its source and, for a stack, the skills output folder (coherence-check §4) |
-| High     | `split-body-mismatch`       | The SKILL.md body and a `references/` file document one export differently (coverage-check §1b) |
+| High     | `split-body-mismatch`       | Two files of the skill (the SKILL.md body or a `references/` file) document one export differently (coverage-check §1b) |
 | High     | `numerator-inflation`       | A declared count (`stats.exports_documented`, or the provenance map's distinct entry names) equals the denominator while declared exports are absent from SKILL.md and `references/` (coverage-check §4b) |
 | High     | `structural`                | Naive mode: a missing required section, an unbalanced code fence, or a documented async or sync behaviour its example contradicts (coherence-check §2.1, §2.2, §2.5) |
 | High     | `discovery`                 | Discovery test: at most 1 of 3 realistic prompts routed to the skill (report §4b.3) |

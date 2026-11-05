@@ -1,6 +1,6 @@
 # Signature Comparison Rules
 
-Every signature judge compares by these rules: coverage-check.md §1's split-body cross-check, its §2 judge (or the main thread in its place), its §5b split-body Source, coverage-check-tiers.md's fallback per-file scan and coherence-check.md §4's reference judge (its `signature_match`). They decide what is a mismatch and how to tag one; each judge returns the JSON its step gives.
+Every signature judge compares by these rules: coverage-check.md §1's split-body cross-check, its §2 judge (or the main thread in its place), its §5b split-body Source (the Split-Body Sources section of coverage-check-branches.md), coverage-check-tiers.md's fallback per-file scan and coherence-check.md §4's reference judge (its `signature_match`). They decide what is a mismatch and how to tag one; each judge returns the JSON its step gives.
 
 ## Reading a form
 
@@ -22,7 +22,7 @@ The names of Python's `*args` and `**kwargs` are never compared (`**kwargs` agai
 
 The source's declaration decides: the documented form is compared with the parameters, the optionality and the annotations the signature declares, with one exception, a return annotation the body contradicts (Annotations).
 
-In the split-body cross-check both forms are documented: each is read by these rules, a type, return type or type arguments one of them leaves out are not compared, and coverage-check.md §1 says which parameters a form may leave out.
+In the split-body cross-check both forms are documented: each is read by these rules, a type, return type or type arguments one of them leaves out are not compared, and a parameter's optionality is compared only when both forms state it. An ellipsis claims nothing about the members it stands for, required ones included. A call, a list of bare names or a form its own file labels partial (each side's label is read from that side's file, not from the export's one `signature_form`) may leave out a parameter the other form does not state as required, unless leaving it out shifts a caller's positions (a language without keyword arguments, as above); any other form claims its list is complete, so leaving out a parameter the other writes is a mismatch (inventory-contract.md's examples). Each export's form is read alone: what the rows of other exports write, in the same table or file, states nothing about it, so `(action, sink, tracking_record, child_invalidation)` matches `child_invalidation: X | None = None` even when every other row of its table writes its defaults.
 
 A name the skill documents in several forms (a brief usage in SKILL.md, a full props list in a reference file) comes with `alternatives`: coverage-check.md §2's check lists them after its `documented` form, and the fallback per-file scan's `documentedAlternatives` holds them by name. Compare the declaration with each form the check offers, each by its own reading rules, and report a mismatch for each form that does not match, with its index as `form` (0 is `documented`, 1 the first alternative), its `documented_sig` written as that form and its `difference` tagged against it. With `candidates`, a form matches when it matches any candidate, and its mismatch is reported at the closest candidate.
 
