@@ -35,7 +35,7 @@ answer per input and judges no meaning. For each export name it lists:
   a comma dropped, any other run cut to one space, and a non-null `!!` or
   `!` dropped.
 
-A method given with its `owner` (the class or namespace the skill documents
+A method given with its `owner` (the class or object the skill documents
 it on) is called only on that owner. A receiver names an owner when its
 last member, or the callee of its last call, is the owner's last part, in
 any case (`client.messages` names `Messages`), and, when both have several

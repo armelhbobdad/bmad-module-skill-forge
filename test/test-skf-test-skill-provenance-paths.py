@@ -1344,6 +1344,20 @@ def test_the_inventory_contract_gives_a_component_constant_a_usage_signature():
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
 
+def test_a_module_s_function_is_a_function_never_a_method():
+    """6.0.0 release gate (oms-cognee): the contract gave a `method` "the class or namespace it is called on" as its
+    `owner`, so a reader recorded the module `cognee.tools`'s functions as methods owned by `tools`, and coverage,
+    which counts no `method` entry (reconcile-coverage.py), reported them undocumented. A method's owner is a class
+    or an object, and a function a module holds is a `function` named bare, even when called through the module."""
+    contract = _flow(_read(INVENTORY_CONTRACT))
+    assert ("A `method`'s `name` is the bare method name and its `owner` the class or object it is called on "
+            "(`agents` for `cognee.agents.get`, where the skill documents `agents` as a class;") in contract
+    assert ("A function the skill documents in a module is a `function` named bare, never a `method`, even when it "
+            "is called through the module's name (`register_sql_connection` for "
+            "`cognee.tools.register_sql_connection`, where the skill documents `tools` as a module).") in contract
+    assert "class or namespace" not in contract
+
+
 def test_the_inventory_contract_keeps_the_members_several_names_share():
     """6.0.0 release gate (oms-cognee): one SKILL.md row documented six models, stating their shared base fields
     (the required `external_id` among them) once and then each model's own fields. The reader recorded each
