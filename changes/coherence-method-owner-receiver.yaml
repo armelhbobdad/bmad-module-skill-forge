@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's async/sync check no longer takes a call of a same-named method on another namespace as a call of the method it checks. The inventory now gives a method the class or namespace the skill documents it on (`owner`), and `locate-export-segments.py` counts only calls on that owner (`cognee.agents.get(...)`) or on a variable the same example binds to it (`gen = UuidGenerator()`); a call on a receiver it cannot tie is listed as unverified and raises nothing. So `cognee.config.get(...)` no longer gives the async `cognee.agents.get` a High finding that blocks the hard gate. A signature line that lists annotated parameters without a return type (`get(key: str, reveal_secrets: bool = False)`) now counts as a signature, not an unawaited call.
+issues: [842]
+prs: [877]

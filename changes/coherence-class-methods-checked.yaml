@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's async/sync check now also checks each method a class, interface, struct, trait or type entry of the inventory lists, tied to its class. Before, only `function` and `method` entries were read, so an example that awaits a method the skill documents as sync, or never awaits one it documents as async, passed. Such an example now raises a High finding, which can stop a skill that passed Test Skill at its hard gate. A method name the skill documents on two owners is now checked per owner, so the second owner's example can raise its own High finding.
+migration: |
+  For a skill that now stops at the hard gate on such a finding, make the example agree with the documented method (await one the skill documents as async, drop the `await` of one it documents as sync), or correct the description when the source says otherwise, then run Test Skill again.
+issues: [844]
+prs: [877]
