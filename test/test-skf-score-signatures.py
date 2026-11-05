@@ -39,6 +39,11 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
   - compares a signature documented with no argument (#794): `params` of
     `""` or `[]` is a signature, and of a name listed twice the entry with
     non-empty `params` or a usage form (#826) is compared
+  - offers a name's other documented forms that list members as its
+    check's `alternatives` (#826), one form per meaning, grades each
+    mismatch against the form its `form` names, by that form's own label,
+    and keeps every form's mismatch; with --plan the forms are the plan's;
+    and compares a component `constant` the inventory gives a usage form (#837)
 The surface fixture is load-coverage-inputs.py surface output built from a
 --mode full extraction, so a recipe's internal match is never compared.
 """
@@ -1136,6 +1141,372 @@ def test_empty_params_on_a_kind_that_takes_none_is_no_signature():
     assert mod.plan(inventory, ["Mode", "VERSION"], surface)["compared"] == 0
 
 
+# --------------------------------------------------------------------------
+# every documented form of a name (#826) and a component constant's form (#837)
+# --------------------------------------------------------------------------
+
+BRIEF = {"name": "Canvas", "kind": "function", "params": "{ of }", "description": "SKILL.md's quick form."}
+# A typed props list claims it is complete: an optional prop it leaves out is an `omitted-optional` difference.
+DETAILED = {"name": "Canvas", "kind": "function",
+            "params": "{ of?: Export; meta?: Meta; sourceState?: SourceState; layout?: Layout }",
+            "description": "The reference file's props."}
+CANVAS_USAGE = {"name": "Canvas", "kind": "function", "usage_signature": "<Canvas of={Primary} />",
+                "description": "SKILL.md's usage."}
+# Storybook 7 renamed the prop `story` to `of`: a usage that still sets `story` really mismatches.
+CANVAS_STORY = {"name": "Canvas", "kind": "function", "usage_signature": "<Canvas story={Primary} />",
+                "description": "SKILL.md's usage, from Storybook 6."}
+CANVAS_SOURCE_SIG = ("(props: { of?: Export; meta?: Meta; sourceState?: SourceState; layout?: Layout; "
+                     "className?: string })")
+# The detailed form, form 1, leaves out an optional prop of the source.
+OMITS_CLASSNAME = {"name": "Canvas", "line": 12, "form": 1, "difference": "omitted-optional",
+                   "source_sig": CANVAS_SOURCE_SIG, "documented_sig": f"({DETAILED['params']})",
+                   "issue": "the typed props list leaves out the optional 'className'"}
+# The usage, form 0, sets a prop the source does not declare.
+SETS_STORY = {"name": "Canvas", "line": 12, "form": 0, "source_sig": CANVAS_SOURCE_SIG,
+              "documented_sig": "<Canvas story={Primary} />", "issue": "the usage sets 'story', a prop Canvas lacks"}
+
+
+@pytest.mark.parametrize("entries, alternatives", [
+    ([BRIEF, DETAILED], [{"params": DETAILED["params"]}]),
+    ([BRIEF, {**BRIEF, "description": "Repeated in a reference file."}], None),
+    ([BRIEF], None),
+], ids=["two-forms", "two-identical-forms", "one-form"])
+def test_every_documented_form_of_a_name_is_offered_as_an_alternative(tmp_path, entries, alternatives):
+    """#826 (storybook Canvas): SKILL.md writes `{ of }`, a reference file the full props list. Only the first was
+    planned. The check keeps `{ of }` as `documented` and offers the other as `alternatives`, and the fallback scan
+    gets it in `documentedAlternatives`; a name with one distinct form gets neither, and `documentedSignatures` is
+    unchanged."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": entries, "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", CANVAS_SURFACE)
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    [check] = plan["files"][0]["checks"]
+    assert check["documented"] == {"params": "{ of }"}
+    assert plan["documentedSignatures"] == {"Canvas": {"params": "{ of }"}}
+    fallback = json.loads(_run("plan", "--inventory", inventory).stdout)
+    assert fallback["documentedSignatures"] == plan["documentedSignatures"]
+    if alternatives is None:
+        assert "alternatives" not in check and fallback["documentedAlternatives"] == {}
+    else:
+        assert list(check) == ["name", "line", "signatureLine", "documented", "alternatives"]
+        assert check["alternatives"] == alternatives
+        assert fallback["documentedAlternatives"] == {"Canvas": alternatives}
+    # a check that offers files and forms lists its alternatives before its candidates
+    [check] = mod.plan([COMPOSE, {**COMPOSE, "params": "csfExports"}], ["composeStories"],
+                       COMPOSE_RECORDS)["files"][0]["checks"]
+    assert list(check) == ["name", "line", "signatureLine", "documented", "alternatives", "candidates"]
+    assert check["alternatives"] == [{"params": "csfExports", "return_type": "ComposedStories"}]
+
+
+@pytest.mark.parametrize("entries, forms", [
+    ([BRIEF, {**BRIEF, "signature_form": "full"}], [{"params": "{ of }"}]),
+    ([{**BRIEF, "signature_form": "full"}, BRIEF], [{"params": "{ of }", "signature_form": "full"}]),
+    ([{**BRIEF, "params": ["a", "b"]}, {**BRIEF, "params": "a, b"}], [{"params": ["a", "b"]}]),
+    ([{**BRIEF, "params": "{ of,\n  meta }"}, {**BRIEF, "params": "{ of, meta }"}], [{"params": "{ of,\n  meta }"}]),
+    ([{**DETAILED, "signature_form": "partial"}, DETAILED], [{"params": DETAILED["params"]}]),
+    ([DETAILED, {**DETAILED, "signature_form": "partial"}], [{"params": DETAILED["params"]}]),
+    ([{**BRIEF, "signature_form": "partial"}, {**BRIEF, "params": "{ of, meta }"}, BRIEF],
+     [{"params": "{ of, meta }"}, {"params": "{ of }"}]),
+    ([{**BRIEF, "return_type": "JSX.Element"}, {**BRIEF, "return_type": "JSX.Element", "usage_signature": None}],
+     [{"params": "{ of }", "return_type": "JSX.Element"}]),
+    ([BRIEF, {**BRIEF, "usage_signature": [], "return_type": "  "}], [{"params": "{ of }"}]),
+], ids=["full-label-and-none", "none-and-full-label", "list-and-joined-string", "whitespace", "partial-then-full",
+        "full-then-partial", "partial-full-pair-around-another", "a-null-key", "an-empty-list-and-a-blank-key"])
+def test_entries_that_say_the_same_thing_are_one_form(entries, forms):
+    """Two entries that differ only by a `full` label, a list against its items joined, or spacing are one form, so
+    no copy of a form is offered as its own alternative. Of two that differ only by the partial label, the full one
+    stands, where the rank would have put it: a partial copy never lowers a full form's grade."""
+    assert mod.documented_forms(entries) == {"Canvas": forms}
+    assert mod.documented_signatures(entries) == {"Canvas": forms[0]}
+
+
+@pytest.mark.parametrize("entries, documented", [
+    ([{"name": "helper", "kind": "function", "params": ""}, HELPER], HELPER),
+    ([{"name": "helper", "kind": "function", "return_type": "number"}, HELPER], HELPER),
+    ([{"name": "helper", "kind": "function", "params": "", "return_type": "number"}, HELPER], HELPER),
+    ([HELPER, {"name": "helper", "kind": "function", "params": [], "return_type": "void"}], HELPER),
+    ([{"name": "helper", "kind": "function", "params": "", "signature_form": "full"},
+      {**HELPER, "signature_form": "partial"}], {**HELPER, "signature_form": "partial"}),
+    ([{"name": "helper", "kind": "function", "params": ""},
+      {"name": "helper", "kind": "function", "params": [], "return_type": "void"}], {"params": ""}),
+], ids=["empty-then-full", "no-params-then-full", "empty-with-a-return-type-then-full", "full-then-empty-list",
+        "empty-full-then-partial", "two-empty"])
+def test_a_form_that_lists_no_members_is_never_an_alternative(entries, documented):
+    """A form with empty or no `params` and no usage form says nothing of what the name takes: a declaration that
+    takes none would match it and hide a wrong parameter list. So it is never an alternative, and each row of the
+    rank test above is planned with its `documented` form alone."""
+    expected = {f: documented[f] for f in ("params", "return_type", "signature_form") if f in documented}
+    assert mod.documented_forms(entries) == {"helper": [expected]}
+    [check] = mod.plan(entries, ["helper"], [{"name": "helper", "kind": "function", "file": "src/helper.ts",
+                                              "line": 1}])["files"][0]["checks"]
+    assert check["documented"] == expected and "alternatives" not in check
+
+
+@pytest.mark.parametrize("first, label, severity", [
+    (CANVAS_USAGE, "partial", "Info"),
+    (BRIEF, "partial", "Info"),
+    (BRIEF, "full", "Critical"),
+], ids=["usage-then-partial-props", "brief-then-partial-props", "brief-then-full-props"])
+def test_a_mismatch_is_graded_against_the_form_it_names(tmp_path, first, label, severity):
+    """#826 fixture (a): SKILL.md's form matches the declaration, which takes only optional props. The reference's
+    typed props list, form 1, leaves out the optional `className`, so the judge reports it for form 1 and `score`
+    grades it by that form's own label: partial, an Info observation (the gate passes, Signature Accuracy 100); full,
+    Critical. With no `form`, or `form` 0, the same mismatch quotes form 1's text as its `documented_sig`, so it is
+    graded against form 1 all the same, with a warning."""
+    entries = [first, {**DETAILED, "signature_form": label}]
+    inventory = _write(tmp_path / "inventory.json", {"exports": entries, "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", CANVAS_SURFACE)
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    [check] = plan["files"][0]["checks"]
+    assert check["documented"] == mod._form(first)
+    assert check["alternatives"] == [{"params": DETAILED["params"], "signature_form": label}]
+    results = _write(tmp_path / "s.txt", json.dumps({"file": "code/blocks/Canvas.tsx",
+                                                     "signature_mismatches": [OMITS_CLASSNAME]}))
+    gaps = tmp_path / "signature-gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--results", results,
+                "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert [(m["difference"], m["severity"]) for m in out["mismatches"]] == [("omitted-optional", severity)]
+    assert "form" not in out["mismatches"][0], "the mismatches[] keys the render reads are unchanged"
+    category = "observation" if severity == "Info" else "signature-mismatch"
+    [gap] = out["gapRecords"]
+    assert (gap["severity"], gap["category"]) == (severity, category)
+    assert gap["issue"].endswith(f"(documented form 2 of 2: `({DETAILED['params']})`)"), gap["issue"]
+    assert gap["title"].endswith(" (form 2 of 2)"), gap["title"]
+    assert out["signatureAccuracy"] == (100.0 if severity == "Info" else 0.0)
+    assert not any("`form`" in w for w in out["warnings"]), out["warnings"]
+    if severity == "Info":
+        gate = _append_and_gate(tmp_path, gaps)
+        assert (gate["gate"], gate["counts"]["Critical"], gate["counts"]["Info"]) == ("passed", 0, 1)
+    unnamed = {k: v for k, v in OMITS_CLASSNAME.items() if k != "form"}
+    for mismatch in (unnamed, {**unnamed, "form": None}, {**unnamed, "form": 0}):
+        out = mod.score(entries, ["Canvas"], CANVAS_SURFACE["exports"],
+                        [{"file": "code/blocks/Canvas.tsx", "signature_mismatches": [mismatch]}])
+        assert [m["severity"] for m in out["mismatches"]] == [severity]
+        assert "names `form` 0, whose text its `documented_sig` is not: graded against form 1, the one it quotes" in \
+            "\n".join(out["warnings"])
+
+
+@pytest.mark.parametrize("order", ["documented-first", "alternative-first"])
+def test_each_form_that_does_not_match_is_reported(tmp_path, order):
+    """A usage that sets a prop Canvas lacks (form 0) beside a typed list that leaves out an optional prop (form 1,
+    labelled partial): each form is graded by its own label and each mismatch stands, two gaps whose title and Issue
+    name the form, counted from 1, in one result file or two. The Info one never hides the Critical one, and two
+    Critical ones at one declaration are two ledger records."""
+    entries = [CANVAS_STORY, {**DETAILED, "signature_form": "partial"}]
+    pair = [SETS_STORY, OMITS_CLASSNAME] if order == "documented-first" else [OMITS_CLASSNAME, SETS_STORY]
+    for results in ([{"file": "code/blocks/Canvas.tsx", "signature_mismatches": pair}],
+                    [{"file": "code/blocks/Canvas.tsx", "signature_mismatches": [m]} for m in pair]):
+        out = mod.score(entries, ["Canvas"], CANVAS_SURFACE["exports"], results)
+        assert [(m["documented_sig"], m["severity"]) for m in out["mismatches"]] == [
+            ("<Canvas story={Primary} />", "Critical"), (f"({DETAILED['params']})", "Info")]
+        assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (0, 1, 0.0)
+        assert [(g["title"], g["issue"][g["issue"].rindex("(documented form"):]) for g in out["gapRecords"]] == [
+            ("Signature mismatch: Canvas (form 1 of 2)", "(documented form 1 of 2: `<Canvas story={Primary} />`)"),
+            ("Partial signature: Canvas (form 2 of 2)", f"(documented form 2 of 2: `({DETAILED['params']})`)")]
+    gaps = _write(tmp_path / "signature-gaps.json", out["gapRecords"])
+    ledger = tmp_path / "test-findings-20260101T000000Z-abcdef12.json"
+    proc = subprocess.run([sys.executable, str(GAP_LEDGER), "append", "--ledger", str(ledger), "--stage",
+                           "coverage-check", "--input", gaps], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout
+    assert json.loads(proc.stdout)["appended"] == ["GAP-001", "GAP-002"]
+    # one form reported twice keeps its most severe grade, and the other form's mismatch still stands
+    out = mod.score(entries, ["Canvas"], CANVAS_SURFACE["exports"], [{"file": "code/blocks/Canvas.tsx",
+                    "signature_mismatches": [OMITS_CLASSNAME, {**OMITS_CLASSNAME, "difference": None}, SETS_STORY]}])
+    assert [m["severity"] for m in out["mismatches"]] == ["Critical", "Critical"]
+    # two Critical gaps at one declaration: each form's title tells them apart, so the ledger keeps both
+    assert [g["title"] for g in out["gapRecords"]] == ["Signature mismatch: Canvas (form 1 of 2)",
+                                                       "Signature mismatch: Canvas (form 2 of 2)"]
+    gaps = _write(tmp_path / "critical-gaps.json", out["gapRecords"])
+    ledger = tmp_path / "test-findings-20260101T000000Z-bcdef123.json"
+    proc = subprocess.run([sys.executable, str(GAP_LEDGER), "append", "--ledger", str(ledger), "--stage",
+                           "coverage-check", "--input", gaps], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout
+    assert (json.loads(proc.stdout)["appended"], json.loads(proc.stdout)["duplicates"]) == (["GAP-001", "GAP-002"], [])
+
+
+TYPED_FULL = {"name": "Canvas", "kind": "function", "params": "{ of?: Export; meta?: Meta }"}
+TYPED_PARTIAL = {"name": "Canvas", "kind": "function", "params": "{ of?: Export }", "signature_form": "partial"}
+
+
+@pytest.mark.parametrize("form, sig, severity", [
+    (1, "({ of?: Export; meta?: Meta })", "Critical"),
+    (1, "({  of?: Export  })", "Info"),
+    (0, "{ of?: Export }", "Info"),
+], ids=["index-of-the-partial-quoting-the-full-form", "honest-index", "index-of-the-full-quoting-the-partial-form"])
+def test_a_form_label_lowers_a_grade_only_for_the_form_the_mismatch_quotes(form, sig, severity):
+    """A judge that compared the full typed list but names `form` 1, the partial one (counting from 1, say), would
+    turn a Critical into an Info by the index alone. The partial label lowers the grade only when the mismatch's
+    `documented_sig` is that form's text (whitespace runs as one, outer parentheses off); otherwise a warning, and
+    the mismatch is graded against the form it quotes."""
+    mismatch = {"name": "Canvas", "line": 12, "form": form, "difference": "omitted-optional",
+                "source_sig": "(props: { of?: Export; meta?: Meta; className?: string })", "documented_sig": sig,
+                "issue": "the typed list leaves out the optional 'className'"}
+    out = mod.score([TYPED_FULL, TYPED_PARTIAL], ["Canvas"], CANVAS_SURFACE["exports"],
+                    [{"file": "code/blocks/Canvas.tsx", "signature_mismatches": [mismatch]}])
+    assert [m["severity"] for m in out["mismatches"]] == [severity]
+    honest = (form == 1) == (severity == "Info")
+    assert any("whose text its `documented_sig` is not" in w for w in out["warnings"]) is not honest
+
+
+def test_each_usage_of_a_list_is_a_form_of_its_own():
+    """Two usages of one `usage_signature` list that both fail at one declaration are two mismatches: the
+    `documented_sig` each quotes is part of the declaration's key."""
+    entries = [{"name": "Canvas", "kind": "function", "usage_signature": ["<Canvas story={A} />",
+                                                                           "<Canvas source={B} />"]}, TYPED_FULL]
+    [usages] = [i for i, f in enumerate(mod.documented_forms(entries)["Canvas"]) if "usage_signature" in f]
+    results = [{"file": "code/blocks/Canvas.tsx", "signature_mismatches": [
+        {"name": "Canvas", "line": 12, "form": usages, "source_sig": "(props: { of?: Export })",
+         "documented_sig": usage, "issue": f"sets a prop Canvas lacks: {usage}"}
+        for usage in ("<Canvas story={A} />", "<Canvas source={B} />")]}]
+    out = mod.score(entries, ["Canvas"], CANVAS_SURFACE["exports"], results)
+    assert sorted(m["documented_sig"] for m in out["mismatches"]) == ["<Canvas source={B} />", "<Canvas story={A} />"]
+    assert not any("whose text its `documented_sig` is not" in w for w in out["warnings"])
+
+
+def test_naming_a_partial_alternative_never_lowers_a_critical():
+    """A partial copy of the full form is the full form (the stricter label stands), so it offers no alternative a
+    judge could name to turn the full form's Critical into an Info: the `form` is one the check never offered, a
+    warning, and the mismatch is graded against the full form."""
+    entries = [DETAILED, {**DETAILED, "signature_form": "partial", "description": "Props (simplified)."}]
+    assert mod.documented_forms(entries) == {"Canvas": [{"params": DETAILED["params"]}]}
+    out = mod.score(entries, ["Canvas"], CANVAS_SURFACE["exports"],
+                    [{"file": "code/blocks/Canvas.tsx", "signature_mismatches": [OMITS_CLASSNAME]}])
+    assert [m["severity"] for m in out["mismatches"]] == ["Critical"]
+    assert (out["matchingSignatures"], out["signatureAccuracy"]) == (0, 0.0)
+    assert any("names `form` 1, no form its check offered (0 to 0)" in w for w in out["warnings"])
+
+
+@pytest.mark.parametrize("form", [2, 5])
+def test_a_form_the_check_did_not_offer_is_a_warning(form):
+    """A `form` past the forms the check offered names nothing the script can grade by: `warnings` names it, and
+    the mismatch is graded against `documented` (full here, so Critical, where the partial alternative would have
+    made it Info)."""
+    entries = [BRIEF, {**DETAILED, "signature_form": "partial"}]
+    mismatch = {**OMITS_CLASSNAME, "form": form, "documented_sig": "({ of, meta })"}  # the text of no form
+    out = mod.score(entries, ["Canvas"], CANVAS_SURFACE["exports"],
+                    [{"file": "code/blocks/Canvas.tsx", "signature_mismatches": [mismatch]}])
+    assert [m["severity"] for m in out["mismatches"]] == ["Critical"]
+    assert [w for w in out["warnings"] if "`form`" in w] == [
+        f"code/blocks/Canvas.tsx:12: a signature mismatch for `Canvas` names `form` {form}, no form its check offered "
+        "(0 to 1): graded against `documented`"]
+
+
+def test_two_declarations_in_one_file_each_keep_their_mismatch():
+    """A name with several forms declared twice in one file (a check with no candidates): a mismatch at each
+    declaration stands, whatever form each names; nothing collapses across declarations."""
+    entries = [CANVAS_USAGE, {**DETAILED, "signature_form": "partial"}]
+    records = [*CANVAS_SURFACE["exports"], {**CANVAS_SURFACE["exports"][0], "line": 30}]
+    second = {**OMITS_CLASSNAME, "line": 30, "difference": None, "issue": "the second declaration takes no `of`"}
+    for later in (second, {**second, "form": 0}):
+        out = mod.score(entries, ["Canvas"], records,
+                        [{"file": "code/blocks/Canvas.tsx", "signature_mismatches": [OMITS_CLASSNAME, later]}])
+        assert [(m["line"], m["severity"]) for m in out["mismatches"]] == [(12, "Info"), (30, "Critical")]
+        assert [g["source"] for g in out["gapRecords"]] == ["code/blocks/Canvas.tsx:12", "code/blocks/Canvas.tsx:30"]
+
+
+def test_a_check_with_candidates_and_alternatives_keeps_the_closest_candidate_of_each_form():
+    """A name the citations do not settle (candidates) and documented in two forms: of each form's mismatches at the
+    candidates, the least severe stands (a form matches when it matches any candidate), and each form keeps its
+    own."""
+    entries = [COMPOSE, {**COMPOSE, "params": "csfExports"}]
+    far = {"name": "composeStories", "line": 40, "source_sig": "(csfExports: T, globalConfig: Config)",
+           "documented_sig": "(csfExports, projectAnnotations?)", "issue": "a required second parameter",
+           "file": REACT}
+    near = {**far, "line": 12, "file": VUE, "source_sig": "(csfExports: T, annotations?: Annotations)",
+            "issue": "the second parameter is renamed", "difference": "parameter-name"}
+    brief = [{**m, "form": 1, "documented_sig": "(csfExports)", "difference": None,
+              "issue": "leaves out a required parameter"} for m in (far, near)]
+    out = mod.score(entries, ["composeStories"], COMPOSE_RECORDS,
+                    [{"file": REACT, "signature_mismatches": [far, near, *brief]}])
+    assert [(m["file"], m["documented_sig"], m["severity"]) for m in out["mismatches"]] == [
+        (REACT, "(csfExports)", "Critical"), (VUE, "(csfExports, projectAnnotations?)", "Low")]
+    assert (out["matchingSignatures"], out["totalDocumented"]) == (0, 1)
+
+
+def test_an_annotation_contradicted_mismatch_is_checked_against_its_form(tmp_path):
+    """The facts of an `annotation-contradicted` mismatch are the named form's: form 0 states a return type, so the
+    tag checks and the mismatch is an Info observation; form 1 states none, so the same mismatch reported for it
+    is Critical, with the warning that names the fact that failed."""
+    (tmp_path / VIZ_FILE).parent.mkdir(parents=True)
+    (tmp_path / VIZ_FILE).write_bytes(VIZ_TEXT.encode("utf-8"))
+    entries = [VIZ, {"name": "visualization_server", "kind": "function", "params": "port"}]
+    for form, sig, severity in ((0, "(port: int = 8001)", "Info"), (1, "(port)", "Critical")):
+        out = mod.score(entries, ["visualization_server"], VIZ_SURFACE["exports"],
+                        [{"file": VIZ_FILE, "signature_mismatches": [{**CONTRADICTED, "form": form,
+                                                                      "documented_sig": sig}]}],
+                        source_root=str(tmp_path))
+        assert [m["severity"] for m in out["mismatches"]] == [severity]
+        failed = [w for w in out["warnings"] if "the documented signature states no return type" in w]
+        assert len(failed) == (1 if form == 1 else 0), out["warnings"]
+
+
+def test_score_grades_by_the_forms_the_plan_offered(tmp_path):
+    """With --plan, `score` grades by the forms the plan offered the judge, and warns when the inventory it is given
+    holds others: here the plan offered the partial typed list as form 1, the inventory no longer does."""
+    planned = _write(tmp_path / "planned.json", {"exports": [BRIEF, {**DETAILED, "signature_form": "partial"}],
+                                                  "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", CANVAS_SURFACE)
+    plan = tmp_path / "signature-plan.json"
+    assert _run("plan", "--inventory", planned, "--surface", surface, "--output", str(plan)).returncode == 0
+    inventory = _write(tmp_path / "inventory.json", {"exports": [BRIEF], "cross_check_mismatches": []})
+    results = _write(tmp_path / "s.txt", json.dumps({"file": "code/blocks/Canvas.tsx",
+                                                     "signature_mismatches": [OMITS_CLASSNAME]}))
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan),
+                          "--results", results).stdout)
+    assert [m["severity"] for m in out["mismatches"]] == ["Info"]
+    assert "`Canvas`: the plan offered 2 documented form(s), not the 1 the inventory gives: graded against the " \
+           "plan's" in out["warnings"]
+    assert mod.load_plan_forms(str(plan)) == {"Canvas": [{"params": "{ of }"},
+                                                         {"params": DETAILED["params"], "signature_form": "partial"}]}
+    # the plan of the inventory it is given: no warning
+    assert _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(plan)).returncode == 0
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan),
+                          "--results", results).stdout)
+    assert not any("the plan offered" in w for w in out["warnings"]), out["warnings"]
+
+
+AVATAR_CONSTANT = {"name": "Avatar", "kind": "constant", "description": "A forwardRef component.",
+                   "usage_signature": "React.forwardRef<HTMLSpanElement, AvatarProps>((props, ref) => ...)"}
+TABS_ALIAS = {"name": "Tabs", "kind": "constant", "usage_signature": '<Tabs defaultValue="account" />',
+              "description": "const Tabs = TabsPrimitive.Root"}
+BADGE_VARIANTS = {"name": "badgeVariants", "kind": "constant", "description": "The badge's cva classes."}
+
+
+def test_a_component_constant_with_a_usage_signature_is_compared(tmp_path):
+    """#837 (uitripled): the inventory contract records a `const` holding a component (a `forwardRef` call, an alias
+    of another component) as a `constant` with the form the skill writes as `usage_signature`, and a data constant
+    with none: the components are planned and scored, the data constant is not, so a mismatch reported for it is a
+    warning and no gap."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [AVATAR_CONSTANT, TABS_ALIAS, BADGE_VARIANTS],
+                                                     "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {"exports": [
+        {"name": "Avatar", "kind": "constant", "file": "src/avatar.tsx", "line": 8,
+         "signatureLine": "const Avatar = React.forwardRef<HTMLSpanElement, AvatarProps>(", "origin": "extraction"},
+        {"name": "badgeVariants", "kind": "constant", "file": "src/badge.tsx", "line": 3,
+         "signatureLine": "const badgeVariants = cva(", "origin": "extraction"},
+        {"name": "Tabs", "kind": "constant", "file": "src/tabs.tsx", "line": 5,
+         "signatureLine": "const Tabs = TabsPrimitive.Root", "origin": "extraction"},
+    ], "sets": {"all": ["Avatar", "Tabs", "badgeVariants"]}})
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    assert plan["compared"] == 2
+    assert [(c["name"], c["documented"]) for g in plan["files"] for c in g["checks"]] == [
+        ("Avatar", {"usage_signature": AVATAR_CONSTANT["usage_signature"]}),
+        ("Tabs", {"usage_signature": TABS_ALIAS["usage_signature"]})]
+    results = _write(tmp_path / "s.txt", json.dumps([
+        {"file": "src/avatar.tsx", "signature_mismatches": [
+            {"name": "Avatar", "line": 8, "source_sig": "(props: AvatarProps & { size: Size })",
+             "documented_sig": AVATAR_CONSTANT["usage_signature"], "issue": "leaves out the required prop 'size'"}]},
+        {"file": "src/badge.tsx", "signature_mismatches": [
+            {"name": "badgeVariants", "line": 3, "source_sig": "cva(...)", "documented_sig": "badgeVariants",
+             "issue": "a data constant"}]},
+    ]))
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
+    assert out["comparedNames"] == ["Avatar", "Tabs"]
+    assert [(g["export"], g["severity"]) for g in out["gapRecords"]] == [("Avatar", "Critical")]
+    assert any("`badgeVariants`, which is no documented signature" in w for w in out["warnings"])
+
+
 @pytest.mark.parametrize("payload, needle", [
     ("not json", "not valid JSON"),
     ({"signature_mismatches": []}, "`file` must be a non-empty string"),
@@ -1170,10 +1541,17 @@ def test_empty_params_on_a_kind_that_takes_none_is_no_signature():
      'signature_mismatches[0]: `file` must be a non-empty string when present, not ""'),
     ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "file": 3}]},
      "signature_mismatches[0]: `file` must be a non-empty string when present, not 3"),
+    # #826: a mismatch's `form`, when given, is the index of the documented form it was graded against
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "form": "1"}]},
+     'signature_mismatches[0]: `form` must be an index (an integer from 0) when present, not "1"'),
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "form": -1}]},
+     "signature_mismatches[0]: `form` must be an index (an integer from 0) when present, not -1"),
+    ({"file": "a.ts", "signature_mismatches": [{**MISMATCH, "form": True}]},
+     "signature_mismatches[0]: `form` must be an index (an integer from 0) when present, not true"),
 ], ids=["not-json", "no-file", "no-mismatches", "missing-fields", "line-not-int", "exports-not-list",
         "bad-difference", "contradicted-without-evidence-line", "evidence-line-not-int", "evidence-line-zero",
         "evidence-line-bool", "evidence-line-on-another-tag", "evidence-line-untagged", "empty-mismatch-file",
-        "mismatch-file-not-a-string"])
+        "mismatch-file-not-a-string", "form-not-int", "form-negative", "form-bool"])
 def test_a_result_that_breaks_the_schema_exits_2(tmp_path, payload, needle):
     inventory, surface = _files(tmp_path)
     bad = _write(tmp_path / "bad.txt", payload)

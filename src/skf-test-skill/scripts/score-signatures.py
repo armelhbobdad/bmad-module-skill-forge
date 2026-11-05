@@ -16,17 +16,27 @@ ratios and the gap records of the wrong signatures.
   plan   the comparisons to make. For each documented export with a
          signature (an inventory entry of any kind but `method` that carries
          `params`, `return_type` or `usage_signature`; a function's `params`
-         counts when empty, its form for one that takes none) in the
-         signature universe, grouped by source file, with the line that
-         defines it in the source and the documented signature (with the
-         entry's `signature_form` when it has one; of several entries of one
-         name, one that lists parameters or gives a usage form before one
-         that does neither, then a full one before a partial one, then, of
-         two full or two partial forms, one that lists parameters before one
-         that gives only a usage form, else the first). The signature
-         universe is the surface's `all` set plus every name on its export
-         records, so the names of a Python sub-package load-coverage-inputs.py
-         keeps out of `all` (excluded.nestedEntries) keep their checks. A check sits at the
+         counts when empty, its form for one that takes none; a `constant`
+         holding a component carries the form the skill writes as
+         `usage_signature`, references/inventory-contract.md says, and a data
+         constant none) in the signature universe, grouped by source file,
+         with the line that defines it in the source, the documented
+         signature (with the entry's `signature_form` when it has one; of
+         several entries of one name, one that lists parameters or gives a
+         usage form before one that does neither, then a full one before a
+         partial one, then, of two full or two partial forms, one that lists
+         parameters before one that gives only a usage form, else the first)
+         and, as `alternatives`, the name's other distinct forms that list
+         parameters or give a usage form, in that order: the judge compares
+         the declaration with each, by its own reading rules, and reports a
+         mismatch for each form that does not match, naming it as `form`. A
+         form that lists no member is never an alternative, and two entries
+         that say the same thing are one form (a `full` label and none, a
+         list and its items joined with `, `, whitespace runs; of two that
+         differ only by the partial label, the full one). The signature universe is the
+         surface's `all` set plus every name on its export records, so the
+         names of a Python sub-package load-coverage-inputs.py keeps out of
+         `all` (excluded.nestedEntries) keep their checks. A check sits at the
          name's first surface record (one with a file before one with none
          or a blank one). For a name the surface records in more than one
          file, --skill-dir (the skill package) picks the record whose file
@@ -34,8 +44,8 @@ ratios and the gap records of the wrong signatures.
          (validate-inventory.py's _skill_cited_files) when exactly one of
          those files is cited; otherwise the check stays at the first record
          and lists every record with a file as `candidates` for the judge to
-         read. Also the whole documented-signature map, for the fallback scan
-         that has no surface lines yet.
+         read. Also the whole documented-signature map, and each name's
+         alternatives, for the fallback scan that has no surface lines yet.
   score  the categories. Reads every subagent result, checks its schema,
          and computes:
            Signature Accuracy = matching / compared * 100, where compared is
@@ -51,8 +61,13 @@ ratios and the gap records of the wrong signatures.
              interface) and documented types those the inventory documents
          A category with nothing to compare scores 100 (nothing documented
          is wrong) and says so in `warnings`. Each signature mismatch of a
-         compared name is graded (grade()) and becomes a record in the gap
-         ledger's record format (gap-ledger.py append --input reads
+         compared name is graded (grade()) against the documented form its
+         `form` names (0, or none, the check's `documented`; n its nth
+         `alternatives` entry; an index past the name's forms is listed in
+         `warnings` and graded against `documented`), by that form's own
+         `signature_form`. With --plan the forms are the plan's (a name whose
+         forms differ from the inventory's is listed in `warnings`). Each
+         becomes a record in the gap ledger's record format (gap-ledger.py append --input reads
          --gaps-output). The judge's `difference` tag alone never lowers a
          grade: the script checks the fact each one rests on.
            Low `signature-mismatch`  `difference` "parameter-name" reported
@@ -93,10 +108,19 @@ ratios and the gap records of the wrong signatures.
          the result's `file` stands, as it does when there is none. Results
          that report one declaration (name, file and line) more than once
          keep its most severe grade: Critical, then Low, then Info. Of the
-         mismatches of a check that offered several files, the least severe
-         stands (the closest candidate), the first by file and line on a
-         tie: one documented signature, one gap. A Low or an Info mismatch
-         still counts as matching. A mismatch a result reports for any
+         mismatches of one form of a check that offered several files, the
+         least severe stands (the closest candidate), the first by file and
+         line on a tie: one documented form, one gap. Each form's mismatch
+         stands on its own (each usage of a `usage_signature` list too: the
+         mismatch's `documented_sig` is part of the declaration's key), and
+         a gap of a name with several forms names its form, counted from 1,
+         in its title (`Signature mismatch: {name} (form n of m)`) and its
+         Issue. For such a name the form's own label lowers a grade only when
+         the mismatch's `documented_sig` is that form's text (whitespace runs
+         as one, outer parentheses off, a list joined): otherwise `warnings`
+         says so and the mismatch is graded against the form it quotes, or
+         `documented` when it quotes none. A Low or an Info mismatch still
+         counts as matching. A mismatch a result reports for any
          other name (one the skill does not document, or the surface lacks)
          is listed in `warnings` instead, and no gap.
 
@@ -115,7 +139,7 @@ Inputs, all files in the run folder:
                   "types_found": ["..."],       (fallback scan only)
                   "signature_mismatches": [
                     {"name", "line", "source_sig", "documented_sig", "issue",
-                     "difference", "file", "evidence_line"}]}
+                     "difference", "file", "evidence_line", "form"}]}
                                       (difference optional: one of
                                        DIFFERENCES, absent or null for none;
                                        file optional: the candidate the
@@ -125,7 +149,13 @@ Inputs, all files in the run folder:
                                        body line that returns the documented
                                        type, an integer from 1, required
                                        with "annotation-contradicted" and
-                                       refused with any other difference)
+                                       refused with any other difference;
+                                       form optional: the index of the
+                                       documented form the mismatch is
+                                       reported for, an integer from 0
+                                       (`documented`; n the check's nth
+                                       `alternatives` entry), absent or null
+                                       for 0)
   --skill-dir  plan only: the skill package under test (the folder that
                holds SKILL.md), whose citations pick the declaration of a
                name the surface records in several files
@@ -144,9 +174,12 @@ Usage:
 
 Output (stdout; --output also writes it, --gaps-output writes the records):
   plan:  {"compared": N, "files": [{"file", "checks": [{"name", "line",
-          "signatureLine", "documented": {...}, "candidates": [{"file",
-          "line", "signatureLine"}] (only when the citation does not settle
-          the declaration)}]}], "documentedSignatures": {...}}
+          "signatureLine", "documented": {...}, "alternatives": [{...}]
+          (only when the name has another form that lists members),
+          "candidates": [{"file", "line", "signatureLine"}] (only when the
+          citation does not settle the declaration)}]}],
+          "documentedSignatures": {...}, "documentedAlternatives": {name:
+          [{...}], for each name with alternatives}}
   score: {"valid": true, "signatureAccuracy", "matchingSignatures",
           "totalDocumented", "comparedNames": [the names compared],
           "typeCoverage", "documentedTypes", "totalTypes",
@@ -306,6 +339,26 @@ def load_plan(path: str) -> dict[str, list[str]]:
     return offered
 
 
+def load_plan_forms(path: str) -> dict[str, list[dict]]:
+    """{name: the documented forms plan offered it, `documented` first, then
+    its `alternatives`} from plan's output: its documentedSignatures and
+    documentedAlternatives maps (the fallback scan's), then each check's."""
+    data = _read_json(path, "--plan")
+    data = data if isinstance(data, dict) else {}
+    signatures, alternatives = data.get("documentedSignatures"), data.get("documentedAlternatives")
+    alternatives = alternatives if isinstance(alternatives, dict) else {}
+    pairs = [(n, d, alternatives.get(n)) for n, d in (signatures.items() if isinstance(signatures, dict) else [])]
+    for group in data.get("files") if isinstance(data.get("files"), list) else []:
+        checks = group.get("checks") if isinstance(group, dict) else None
+        pairs += [(c.get("name"), c.get("documented"), c.get("alternatives"))
+                  for c in (checks if isinstance(checks, list) else []) if isinstance(c, dict)]
+    forms: dict[str, list[dict]] = {}
+    for name, documented, others in pairs:
+        if isinstance(name, str) and isinstance(documented, dict):
+            forms[name] = [documented, *(f for f in (others if isinstance(others, list) else []) if isinstance(f, dict))]
+    return forms
+
+
 def check_result(item: object, where: str) -> list[str]:
     """The schema breaches of one per-file result object."""
     if not isinstance(item, dict):
@@ -351,6 +404,10 @@ def check_result(item: object, where: str) -> list[str]:
         # The candidate a mismatch was found at, when the plan handed the judge several.
         if entry.get("file") is not None and not (isinstance(entry["file"], str) and entry["file"].strip()):
             errors.append(f"{at}: `file` must be a non-empty string when present, not {json.dumps(entry['file'])}")
+        # The documented form a mismatch is reported for, when the check offered `alternatives`.
+        form = entry.get("form")
+        if form is not None and (isinstance(form, bool) or not isinstance(form, int) or form < 0):
+            errors.append(f"{at}: `form` must be an index (an integer from 0) when present, not {json.dumps(form)}")
     return errors
 
 
@@ -424,27 +481,70 @@ def _rank(fields: dict) -> tuple[bool, bool, bool]:
     return not _lists_members(fields), _partial(fields), not _lists_params(fields)
 
 
-def documented_signatures(inventory: list[dict]) -> dict[str, dict]:
-    """{name: its documented signature fields} for each documented export
-    with one, with the entry's `signature_form` when it has one. Of several
-    entries of one name, one that lists parameters or gives a usage form
-    (_lists_members) is compared before one that does neither (empty or no
-    `params` and no usage form: it never hides one that says what the name
-    takes), then a full one (no `signature_form`, or `full`) before a
-    partial one (a form the skill also gives in full is held to it), then,
-    of two full or two partial forms, one that lists parameters is
-    compared before one that gives only a usage form, else the first."""
-    out: dict[str, dict] = {}
+def _form(entry: dict) -> dict:
+    """The documented signature fields of one inventory entry, with its `signature_form` when it has one."""
+    fields = {f: entry[f] for f in SIGNATURE_FIELDS if f in entry}
+    if entry.get("signature_form") is not None:
+        fields["signature_form"] = entry["signature_form"]
+    return fields
+
+
+def _field_text(value: object) -> str:
+    """A signature field as one text: a list's items joined with `, `, whitespace runs as one space, "" for null."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        value = ", ".join(v if isinstance(v, str) else json.dumps(v, sort_keys=True) for v in value)
+    return " ".join(value.split()) if isinstance(value, str) else json.dumps(value, sort_keys=True)
+
+
+def _form_key(fields: dict) -> tuple:
+    """What a form says, for telling two entries apart (_field_text), a
+    null, blank or empty key read as absent, and the `signature_form` label
+    left out (documented_forms keeps the full one)."""
+    return tuple((f, _field_text(fields[f])) for f in SIGNATURE_FIELDS if f in fields and _field_text(fields[f]))
+
+
+def documented_forms(inventory: list[dict]) -> dict[str, list[dict]]:
+    """{name: [its documented signature, *its alternatives]} for each
+    documented export with a signature: its distinct forms (_form), ranked.
+    Of several entries of one name, one that lists parameters or gives a
+    usage form (_lists_members) is compared before one that does neither
+    (empty or no `params` and no usage form: it never hides one that says
+    what the name takes), then a full one (no `signature_form`, or `full`)
+    before a partial one (a form the skill also gives in full is held to
+    it), then, of two full or two partial forms, one that lists parameters
+    is compared before one that gives only a usage form, else the first.
+    The first is the documented signature; the others that list members
+    follow it, in that order, as the alternatives the judge compares too (a
+    skill that documents a name briefly in one place and in full in
+    another). A form that lists no member is never an alternative. Two
+    entries that say the same thing (_form_key) are one form; of two that
+    differ only by the partial label, the full one (the stricter) stands."""
+    entries: dict[str, list[dict]] = {}
     for entry in inventory:
         name = entry.get("name")
         if entry.get("kind") == "method" or not (isinstance(name, str) and name) or not _has_signature(entry):
             continue
-        fields = {f: entry[f] for f in SIGNATURE_FIELDS if f in entry}
-        if entry.get("signature_form") is not None:
-            fields["signature_form"] = entry["signature_form"]
-        if name not in out or _rank(fields) < _rank(out[name]):
-            out[name] = fields
+        forms, fields = entries.setdefault(name, []), _form(entry)
+        same = next((i for i, f in enumerate(forms) if _form_key(f) == _form_key(fields)), None)
+        if same is None:
+            forms.append(fields)
+        elif _partial(forms[same]) and not _partial(fields):
+            # in the inventory order the full entry has, as the rank would have ordered it
+            del forms[same]
+            forms.append(fields)
+    out: dict[str, list[dict]] = {}
+    for name, forms in entries.items():
+        first, *others = sorted(forms, key=_rank)  # stable: of forms that rank alike, inventory order
+        out[name] = [first, *(f for f in others if _lists_members(f))]
     return out
+
+
+def documented_signatures(inventory: list[dict]) -> dict[str, dict]:
+    """{name: its documented signature fields}: the first of its
+    documented_forms, the one a check holds as `documented`."""
+    return {name: forms[0] for name, forms in documented_forms(inventory).items()}
 
 
 def documented_names(inventory: list[dict]) -> set[str]:
@@ -506,29 +606,35 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
     """The comparisons over the signature universe of `names` (the `all`
     set) and `exports`; none without a surface (`names` None). `skill_dir`,
     the skill package, settles which declaration a name the surface records
-    in several files is compared with (_check_at)."""
-    signatures = documented_signatures(inventory)
+    in several files is compared with (_check_at). A name documented in
+    several forms carries the others that list members as `alternatives`
+    (documented_forms)."""
+    forms = documented_forms(inventory)
     files: dict[str, list[dict]] = {}
     compared = 0
     if names is not None:
         by_name = _records_by_name(exports)
         texts = _inventory().skill_markdown_lines(Path(skill_dir)) if skill_dir is not None else None
-        for name in sorted(signature_universe(names, exports) & set(signatures)):
+        for name in sorted(signature_universe(names, exports) & set(forms)):
             record, candidates = _check_at(name, by_name.get(name) or [], skill_dir, texts)
             compared += 1
             check = {
                 "name": name,
                 "line": record.get("line"),
                 "signatureLine": record.get("signatureLine"),
-                "documented": signatures[name],
+                "documented": forms[name][0],
             }
+            if len(forms[name]) > 1:
+                check["alternatives"] = forms[name][1:]
             if candidates:
                 check["candidates"] = candidates
             files.setdefault(_record_file(record), []).append(check)
     return {
         "compared": compared,
         "files": [{"file": f, "checks": checks} for f, checks in sorted(files.items())],
-        "documentedSignatures": signatures,
+        "documentedSignatures": documented_signatures(inventory),
+        # The fallback scan's alternatives: a name's form n is its nth entry here, as in a check's `alternatives`.
+        "documentedAlternatives": {name: fs[1:] for name, fs in forms.items() if len(fs) > 1},
     }
 
 
@@ -740,24 +846,72 @@ def _gap_record(m: dict) -> dict:
     }
 
 
+def _form_text(form: dict) -> str:
+    """A documented form on one line: its usage form, else its parameters and return type."""
+    def text(value: object, sep: str = ", ") -> str:
+        return sep.join(str(v) for v in value) if isinstance(value, list) else str(value)
+    if _gives_usage(form):
+        return text(form["usage_signature"], "; ")
+    return_type = form.get("return_type")
+    tail = f" -> {text(return_type)}" if isinstance(return_type, (str, list)) and text(return_type).strip() else ""
+    return f"({text(form.get('params', ''))}){tail}"
+
+
+def _sig_text(text: str) -> str:
+    """A signature as a mismatch's `documented_sig` and a form compare: whitespace runs as one space, outer parentheses off."""
+    text = " ".join(text.split())
+    while text.startswith("(") and _after_parens(text, 0) == len(text):
+        text = text[1:-1].strip()
+    return text
+
+
+def _quotes(documented_sig: str, form: dict) -> bool:
+    """Whether `documented_sig` is the text of `form`: its parameters (a list joined), or one of its usages, whole
+    or before the return type it writes."""
+    usage = form.get("usage_signature")
+    texts = {_sig_text(_field_text(form.get("params")))} | {
+        _sig_text(u) for u in (usage if isinstance(usage, list) else [usage]) if isinstance(u, str)}
+    texts.discard("")
+    return bool({_sig_text(documented_sig), _sig_text(_signature_parts(documented_sig)[0])} & texts)
+
+
+def _form_gap_record(m: dict, index: int, forms: list[dict]) -> dict:
+    """_gap_record's record. For a name with several forms its title and Issue name the documented form the mismatch
+    concerns, counted from 1, so the ledger keeps one gap per form (its dedupe reads the title, never the Issue)."""
+    record = _gap_record(m)
+    if len(forms) > 1:
+        record["title"] += f" (form {index + 1} of {len(forms)})"
+        record["issue"] += f" (documented form {index + 1} of {len(forms)}: `{_form_text(forms[index])}`)"
+    return record
+
+
 def score(inventory: list[dict], names: list[str], exports: list[dict], results: list[dict],
           type_names: list[str] | None = None, offered: dict[str, list[str]] | None = None,
-          source_root: str | None = None) -> dict:
+          source_root: str | None = None, planned: dict[str, list[dict]] | None = None) -> dict:
     """The two categories: Signature Accuracy over the signature universe of
     `names` (the `all` set) and `exports`, Type Coverage over `type_names`
     when given, else over `names`. A fallback scan's exports_found join the
     universe, and `names` when no `type_names` is given. `offered` (read
     from --plan) names the files the plan offered each check at;
     `source_root` (--source-root) is the local tree an
-    annotation-contradicted mismatch's `evidence_line` is checked in."""
+    annotation-contradicted mismatch's `evidence_line` is checked in. A
+    mismatch is graded against the documented form its `form` names: of
+    documented_forms, or of `planned` (read from --plan) for a name it
+    holds, with a warning where the two differ."""
     by_name = _records_by_name(exports)
     # A fallback scan reports its own names and types.
     fallback_types = {n for r in results for n in r.get("types_found") or []}
     surface = set(names) | {n for r in results for n in r.get("exports_found") or []}
     documented = documented_names(inventory)
-    signatures = documented_signatures(inventory)
-    compared = (surface | signature_universe(names, exports)) & set(signatures)
+    forms = documented_forms(inventory)
+    compared = (surface | signature_universe(names, exports)) & set(forms)
     warnings = []
+    for name in sorted(set(forms) & set(planned or {})):
+        if planned[name] != forms[name]:
+            differ = (f"{len(planned[name])} documented form(s), not the {len(forms[name])} the inventory gives"
+                      if len(planned[name]) != len(forms[name]) else "different forms than the inventory gives")
+            warnings.append(f"`{name}`: the plan offered {differ}: graded against the plan's")
+            forms[name] = planned[name]
 
     graded: dict[tuple, dict] = {}
     seen = set()
@@ -775,14 +929,34 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
                                     f"`{entry['file']}`, no file the plan offered its check at: recorded at "
                                     "the result's file")
             file = _path(file)
-            key = (name, file, entry["line"])
             if name not in compared:
-                if key not in seen:
+                if (name, file, entry["line"]) not in seen:
                     warnings.append(f"{file}:{entry['line']}: a signature mismatch for "
                                     f"`{name}`, which is no documented signature on the source surface: "
                                     "not scored, no gap")
-                seen.add(key)
+                seen.add((name, file, entry["line"]))
                 continue
+            # The documented form the mismatch is reported for: 0 is `documented`, n the check's nth alternative.
+            index = entry.get("form") or 0
+            if index >= len(forms[name]):
+                warning = (f"{file}:{entry['line']}: a signature mismatch for `{name}` names `form` {index}, no "
+                           f"form its check offered (0 to {len(forms[name]) - 1}): graded against `documented`")
+                if warning not in warnings:
+                    warnings.append(warning)
+                index = 0
+            # A form's own label lowers a grade only for the form the mismatch quotes as `documented_sig`.
+            if len(forms[name]) > 1 and not _quotes(entry["documented_sig"], forms[name][index]):
+                quoted = next((j for j, f in enumerate(forms[name]) if _quotes(entry["documented_sig"], f)), None)
+                if quoted is not None or index != 0:
+                    target = "documented" if quoted is None else f"form {quoted}, the one it quotes"
+                    warning = (f"{file}:{entry['line']}: a signature mismatch for `{name}` names `form` {index}, whose "
+                               f"text its `documented_sig` is not: graded against {target}")
+                    if warning not in warnings:
+                        warnings.append(warning)
+                    index = quoted or 0
+            form = forms[name][index]
+            # Each usage of a list is a form of its own: one key per documented text.
+            key = (name, file, entry["line"], index, _sig_text(entry["documented_sig"]))
             difference = entry.get("difference")
             # Graded at the file only when the plan offered it: never Low at a namesake it did not offer.
             declared = (file if _is_offered_file(files, file) else files[0]) if files else None
@@ -790,14 +964,14 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
             fact = None
             if difference == CONTRADICTED:
                 at_line = _declaration_line(by_name, name, file, entry["line"])
-                fact = contradiction_fact(entry, signatures[name], file, at_line,
+                fact = contradiction_fact(entry, form, file, at_line,
                                           _next_declaration(exports, file, at_line), source_root)
                 warning = (f"{file}:{at_line}: the mismatch for `{name}` is tagged {CONTRADICTED}, but {fact}: "
                            "graded as an untagged mismatch (Critical)")
                 if fact is not None and warning not in warnings:
                     warnings.append(warning)
-            severity = grade(difference, file, signatures[name], declared, fact)
-            # Every entry is graded: one declaration reported twice keeps its most severe grade.
+            severity = grade(difference, file, form, declared, fact)
+            # Every entry is graded: one declaration reported twice against one form keeps its most severe grade.
             if key in graded and GRADES.index(graded[key]["severity"]) <= GRADES.index(severity):
                 continue
             graded[key] = {"name": name, "file": file, "line": entry["line"],
@@ -805,14 +979,21 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
                            "issue": entry["issue"], "difference": difference, "severity": severity}
             if difference == CONTRADICTED:
                 graded[key]["evidence_line"] = entry.get("evidence_line")
-    # A check that offered several files keeps one mismatch, its least severe (the closest candidate).
-    mismatches, closest = [], {}
-    for m in sorted(graded.values(), key=lambda m: (m["file"], m["line"], m["name"])):
+    # A check that offered several files keeps one mismatch per form, its least severe (the closest candidate).
+    # Each form's mismatch stands on its own.
+    def order(item: tuple) -> tuple:
+        (_, _, _, index, text), m = item
+        return m["file"], m["line"], m["name"], index, text
+
+    kept, closest = [], {}
+    for key, m in sorted(graded.items(), key=order):
+        bucket = (m["name"], key[3], key[4])
         if len({_path(f) for f in _offered_files(offered, by_name, m["name"])}) < 2:
-            mismatches.append(m)
-        elif m["name"] not in closest or GRADES.index(m["severity"]) > GRADES.index(closest[m["name"]]["severity"]):
-            closest[m["name"]] = m
-    mismatches = sorted(mismatches + list(closest.values()), key=lambda m: (m["file"], m["line"], m["name"]))
+            kept.append((key, m))
+        elif bucket not in closest or GRADES.index(m["severity"]) > GRADES.index(closest[bucket][1]["severity"]):
+            closest[bucket] = (key, m)
+    kept = sorted(kept + list(closest.values()), key=order)
+    mismatches = [m for _, m in kept]
 
     # A Low or an Info mismatch is a caller-invisible difference: it still matches.
     wrong = {m["name"] for m in mismatches if m["severity"] == "Critical"}
@@ -848,7 +1029,7 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
         "totalTypes": len(types),
         "missingTypes": sorted(types - documented),
         "mismatches": mismatches,
-        "gapRecords": [_gap_record(m) for m in mismatches],
+        "gapRecords": [_form_gap_record(m, key[3], forms[m["name"]]) for key, m in kept],
         "warnings": warnings,
     }
 
@@ -891,8 +1072,9 @@ def _cmd_score(args: argparse.Namespace) -> tuple[dict, int]:
                 Path(path).unlink(missing_ok=True)
         return {"valid": False, "violations": violations}, 2
     offered = load_plan(args.plan) if args.plan is not None else None
+    planned = load_plan_forms(args.plan) if args.plan is not None else None
     out = score(inventory, names, exports, results, None if args.surface_set == "all" else chosen, offered,
-                args.source_root)
+                args.source_root, planned)
     if args.output:
         _write_json(args.output, out)
     if args.gaps_output:
