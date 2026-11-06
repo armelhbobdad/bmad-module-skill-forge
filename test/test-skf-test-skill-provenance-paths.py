@@ -1486,7 +1486,9 @@ FLOOR_COMMAND = ('uv run {coverageInputsScript} floor --skill-dir "{resolved_ski
 def test_the_floor_runs_before_the_inventory_subagent():
     """#790: the floor, the names the skill documents in a fixed form, is written before the §1 reader is
     dispatched, and both paths read it: the subagent is given its path, the parent without subagents builds
-    from it, and §1a refuses an inventory that leaves one of its names out. Its form rules are the script's."""
+    from it, and §1a refuses an inventory that leaves one of its names out. Its form rules are the script's.
+    #888: an origin's `signature` is that place's entry, kept as given, the contract says so for every kind and
+    names the places pinned (no Props or Params cell), and §1a refuses an inventory that changes one."""
     text = _read(COVERAGE)
     section1 = _slice(text, "### 1. Extract Documented Exports", "#### 1a.")
     assert _command(COVERAGE, "uv run {coverageInputsScript} floor") == FLOOR_COMMAND
@@ -1495,14 +1497,32 @@ def test_the_floor_runs_before_the_inventory_subagent():
     assert ('Exit 1 printed its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase '
             '`coverage-check:inventory`).') in flow
     assert ("It is given `{run_dir}/inventory-floor.json` too, and lists each name there with an origin in a file "
-            "it reads, choosing its kind from the name's `kindLabel`, the skill's own label, when it has one.") in flow
+            "it reads, choosing its kind from the name's `kindLabel`, the skill's own label, when it has one. "
+            "An origin's `signature` is that place's entry, its non-blank `params` and `return_type` kept as given; "
+            "a blank one is the reader's.") in flow
     assert ("Without subagents, the parent loads `{inventoryContractFile}` and builds the same JSON from the same files and `inventory-floor.json` and "
             "saves it to that file; §1a's checks still run on it.") in flow
     for rule in ("first cell", "public declaration", "Exports, Symbol"):
         assert rule not in flow, rule
     assert "first cell" in _flow(runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py").__doc__)
     section1a = _flow(_slice(text, "#### 1a. Parent-Side Schema Validation", "### 1b."))
-    assert "refuses it when it leaves out a floor name those files write" in section1a
+    assert "refuses it when it leaves out a floor name those files write, or an origin's `signature`." in section1a
+    contract = _flow(_read(INVENTORY_CONTRACT))
+    assert ("and keeps one `kind` in every place. A place `inventory-floor.json` gives a `signature` (a cited "
+            "function declaration, a Signature cell, or a heading or an export table's first cell that writes one "
+            "call) has that form as its entry, whatever its kind, its non-blank `params` and `return_type` kept as "
+            "given (a `params` may open with the shared text the next sentence gives, then `; `); a blank one is the "
+            "reader's, and a form the skill writes only in prose is an entry of its own. Where the skill documents "
+            "several names and states members they share once") in contract
+    rules = _flow(runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py").__doc__)
+    assert ("an origin whose place writes the name's signature in a fixed form that is surely complete also "
+            "carries it as `signature`" in rules and "no signature read" not in rules)
+    assert "a Props, Params or Parameters cell is never read" in rules
+    assert not re.search(r"\bProps\b|\bParams\b", _flow(_read(INVENTORY_CONTRACT)).split(
+        "keeps one `kind` in every place.", 1)[1].split("Where the skill documents several names", 1)[0])
+    for rule in ("Signature cell", "Props (simplified)", "leading code span"):
+        assert rule not in flow, rule
+    assert len(text) < COVERAGE_CHAR_BUDGET
     command = _command(COVERAGE, "uv run {validateInventoryScript}")
     assert command.endswith(' --floor "{run_dir}/inventory-floor.json"'), command
 
@@ -1510,19 +1530,23 @@ def test_the_floor_runs_before_the_inventory_subagent():
 def test_the_floor_and_validator_commands_run_from_the_prose(tmp_path):
     """#790 through the step's own commands: the floor lists the names SKILL.md writes in an export table's first
     column and as a code-only heading; an inventory that drops one fails §1a with exit 2, the name and its origin
-    in `violations` and no `inventory.json` left from an earlier attempt; with the name added it validates."""
+    in `violations` and no `inventory.json` left from an earlier attempt; with the name added it validates. #888:
+    the row's Signature cell is its origin's `signature`; an inventory whose entry writes another form fails §1a
+    with exit 2 too, the origin and the signature in `violations`, and validates once the form is copied."""
     skill = _write_tree(tmp_path / "skill", {
         "SKILL.md": "---\nname: demo\ndescription: Demo. Use when testing.\n---\n# Demo\n\n"
-                    "| Export | Kind | Purpose |\n| --- | --- | --- |\n| `fetchData` | function | Fetches. |\n\n"
+                    "| Export | Kind | Signature | Purpose |\n| --- | --- | --- | --- |\n"
+                    "| `fetchData` | function | `(url: string) => Promise<string>` | Fetches. |\n\n"
                     "### `Options`\n\nConfigures.\n",
     })
     run = tmp_path / "run"
     run.mkdir()
     values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix()}
     floor = _exec(_command(COVERAGE, "uv run {coverageInputsScript} floor"), values, tmp_path)
+    signature = {"params": "url: string", "return_type": "Promise<string>"}
     assert [(n["name"], n["kindLabel"], n["origins"]) for n in floor["names"]] == [
         ("Options", None, [{"file": "SKILL.md", "line": 11, "form": "heading"}]),
-        ("fetchData", "function", [{"file": "SKILL.md", "line": 9, "form": "table-row"}]),
+        ("fetchData", "function", [{"file": "SKILL.md", "line": 9, "form": "table-row", "signature": signature}]),
     ]
     assert json.loads((run / "inventory-floor.json").read_bytes()) == floor
     entries = [{"name": "fetchData", "kind": "function", "params": "", "return_type": "string",
@@ -1534,11 +1558,19 @@ def test_the_floor_and_validator_commands_run_from_the_prose(tmp_path):
     proc = _run(command, values, tmp_path)
     assert proc.returncode == 2, proc.stdout + proc.stderr
     result = json.loads(proc.stdout)
+    form = ('floor: `fetchData` is documented at SKILL.md:9 (table-row) with the signature {"params": "url: string", '
+            '"return_type": "Promise<string>"}, but no inventory entry of that name carries it; copy it as given')
     assert result["violations"] == [
-        "floor: `Options` is documented at SKILL.md:11 (heading), but no inventory entry lists it"]
+        "floor: `Options` is documented at SKILL.md:11 (heading), but no inventory entry lists it", form]
     assert result["floor"] == {"names": 2, "checked": 2, "absent": ["Options"]}
     assert not (run / "inventory.json").exists()
     entries.append({"name": "Options", "kind": "interface", "description": "Configures."})
+    response.write_bytes(json.dumps({"exports": entries, "cross_check_mismatches": []}).encode("utf-8"))
+    proc = _run(command, values, tmp_path)
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["violations"] == [form]
+    assert not (run / "inventory.json").exists()
+    entries[0].update(signature)
     response.write_bytes(json.dumps({"exports": entries, "cross_check_mismatches": []}).encode("utf-8"))
     validated = _exec(command, values, tmp_path)
     assert validated["valid"] is True and validated["floor"] == {"names": 2, "checked": 2, "absent": []}

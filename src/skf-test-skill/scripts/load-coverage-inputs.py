@@ -21,8 +21,9 @@ reading files and writing one JSON object:
   floor     the documented inventory's floor (#790): every name SKILL.md
             and each .md file directly in references/ (a subfolder is not
             read) write in a fixed form, which validate-inventory.py --floor
-            refuses an inventory for leaving out. It owns names only: no
-            kind is mapped and no signature read. A name is a plain
+            refuses an inventory for leaving out. No kind is mapped, and a
+            signature is read only where the place writes it in a fixed
+            form (Signatures, below). A name is a plain
             identifier (`[A-Za-z_$][\\w$]*`) once a leading `new ` and
             everything from the first `(` or `<` are cut, so `Meta<T>`,
             `fetch(url): Promise<T>` and `new Client(opts)` give `Meta`,
@@ -71,11 +72,74 @@ reading files and writing one JSON object:
                            `type (`, `var (` or `const (` group too. A
                            block in another language, an untagged one or a
                            data block (json, yaml, text...) gives none.
+            Signatures (#888): an origin whose place writes the name's
+            signature in a fixed form that is surely complete also carries
+            it as `signature`, {"params", "return_type"}, two strings, each
+            one's whitespace runs read as one space, which
+            validate-inventory.py --floor refuses an inventory for
+            changing; any other place pins nothing, since a wrong pin would
+            be forced into the inventory. `params` is the text inside the
+            parameter group (score-signatures.py's _group: the first pair
+            of parentheses outside every bracket pair and string), and
+            `return_type` the type written after it (score-signatures.py's
+            _signature_parts), "" for none. A form that writes neither
+            (`f()`, `useQuery<T>()`) gives none, so an empty call claims no
+            form. A span (a table cell's or a heading's) is complete when
+            it is the name (or no name, as a Signature cell's `(x: A) =>
+            B`), its type parameters, one parameter group, then nothing or
+            a return separator (`->`, `=>`, `→` or `:`) and the return, with
+            nothing else: `useQuery(key).data`, `f(a) / f(a, b)`, a
+            trailing comment, a `;` or `,` outside the return's brackets,
+            an unclosed bracket, `Meta<T>` (no group) and `new Client(opts)`
+            give none. By form:
+              table-row    a row whose first cell names one name (a row
+                           naming several gives none), each cell's `\\|`
+                           read as `|`: the leading code span of its
+                           Signature or Signatures cell, else, when that
+                           span writes no parameter group (`Typed<X>`),
+                           the one span of its first cell that gives the
+                           name (another export's span there, as in
+                           `fetch` (same as `http.request(opts)`), gives
+                           nothing). A Signature span with a group that is
+                           no complete form (`client.get(k) -> str`,
+                           `new Client(opts)`) gives none, so a shorter
+                           first-cell call never stands in for it. A header
+                           cell matches whole, so a labelled one is not a
+                           Signature column, and a Props, Params or
+                           Parameters cell is never read (its shared
+                           members and usage forms stay the reader's).
+              heading      its code span
+              declaration  a function's (`function`, `def`, `fn` or Go's
+                           `func` before its name; a `const` holding an
+                           arrow gives none): its lines as one, as
+                           skf-extract-public-api.py's
+                           _declaration_signature joins them (a parameter
+                           list split over lines joined, line comments
+                           left out), the body cut off first, at the first
+                           `:` (Python) or `{`, `;` or ` where ` (any other
+                           language) outside every bracket pair and string
+                           after the parameter group, a `{` directly after
+                           a TS return `:` opening the return type
+                           (`(): { a: T } {` returns `{ a: T }`). None for
+                           one with anything but type parameters between
+                           its name and the group (a Go `func(...)`
+                           return), one whose opener follows, or whose
+                           uncut text ends with, `interface`, `struct`,
+                           `is`, `keyof`, `|`, `&`, `?`, `:`, `\\`, `=>` or
+                           `->` (the opener or the line end is inside the
+                           return type: Go's `interface{}`, a TS `asserts
+                           x is {...}`, `() => {...}` or conditional type,
+                           `): Promise<A> |`), or one whose brackets or
+                           strings do not all close.
+            A form written only in prose is never read: it stays the
+            reader's. Each origin keeps the first signature its place
+            writes.
             Output: {"files": [...], "names": [{"name", "kindLabel",
-            "origins": [{"file", "line", "form"}]}], "summary": {"names",
-            "byForm"}}, names sorted, each one's origins in file order then
-            line, `byForm` counting the origins of each form; the same skill
-            gives the same bytes.
+            "origins": [{"file", "line", "form", "signature"?}]}],
+            "summary": {"names", "byForm"}}, names sorted, each one's
+            origins in file order then line, `signature` only on an origin
+            that has one, `byForm` counting the origins of each form; the
+            same skill gives the same bytes.
 
   metadata  the metadata.json and provenance-map counts. Cluster A
             (`stats.exports_public_api`, the `exports[]` length) and Cluster
@@ -371,6 +435,23 @@ FLOOR_TABLE_HEADERS = frozenset({
     "export", "exports", "symbol", "symbols", "function", "functions", "class", "classes", "interface", "interfaces",
     "type", "types", "hook", "hooks", "component", "components", "helper", "helpers", "constant", "constants",
     "enum", "enums", "api", "apis"})
+# The header words (as _header_word reads them, whole) of a floor table's column that writes the row's signature
+# (#888); a labelled header, such as `Signature (simplified)`, is not one.
+FLOOR_SIGNATURE_HEADERS = frozenset({"signature", "signatures"})
+# A complete form's name, before its type parameters and parameter group (group 1, absent for none).
+SPAN_NAME_RE = re.compile(r"\s*([A-Za-z_$][\w$]*)?\s*")
+# What a complete form writes after its parameter group before its return: `->`, `=>`, `→` or `:` (not `::`).
+RETURN_SEPARATOR_RE = re.compile(r"\s*(?:->|=>|→|:(?!:))")
+# A declaration that gets a form: a function keyword before its name, on its masked line.
+FUNCTION_KEYWORD_RE = re.compile(r"(?<![\w$])(?:function|def|fn|func)(?![\w$])")
+# After a declaration's parameter group: the `:` a TS return type follows (a `{` right after it opens the type, not
+# the body), and a Rust `where` clause, which the body comes after.
+RETURN_COLON_RE = re.compile(r"\s*:\s*")
+WHERE_CLAUSE_RE = re.compile(r"\s+where(?![\w$])")
+# A declaration's text that ends in the middle of its return type: a body opener after one of these is part of that
+# type, cut short (Go's `interface{}` and `struct{...}`, a TS union, intersection, `asserts x is {...}`, `keyof {...}`,
+# conditional or function type), and so is a declaration that ends with one (`): Promise<A> |`, Python's `\`).
+OPENER_IN_TYPE_RE = re.compile(r"(?:(?<![\w$])(?:interface|struct|is|keyof)|[|&?:\\]|=>|->)\s*$")
 # A header cell wrapped in `**` or `__` (group 2 its text).
 EMPHASIS_RE = re.compile(r"(\*\*|__)(.+)\1")
 PLAIN_IDENTIFIER_RE = re.compile(r"[A-Za-z_$][\w$]*")
@@ -650,6 +731,144 @@ def _declared_names(lines: list[str], language: str, js_family) -> list[tuple[in
     return found
 
 
+def _form(text: str, group: tuple[int, int], extension: str = "") -> dict | None:
+    """{"params", "return_type"} of a form whose parameter group is `group`, whitespace runs read as one space: the
+    text inside the group, and the return after it (score-signatures.py's _signature_parts), "" for none; None for a
+    form that writes neither (`f()`)."""
+    form = {"params": " ".join(text[group[0] + 1:group[1]].split()),
+            "return_type": " ".join(_sibling("score-signatures.py")._signature_parts(text, extension)[1].split())}
+    return form if form["params"] or form["return_type"] else None
+
+
+def _type_parameters_only(text: str) -> bool:
+    """Whether `text` is empty or one `<...>` or `[...]` pair, the type parameters a form writes before its group."""
+    text = text.strip()
+    if not text:
+        return True
+    if text[0] not in "<[" or text[-1] != {"<": ">", "[": "]"}[text[0]]:
+        return False
+    depth = 0
+    for i, ch in enumerate(text):
+        if ch in "<[(":
+            depth += 1
+        elif ch in ">])" and not (ch == ">" and text[i - 1:i] in ("-", "=")):
+            depth -= 1
+            if depth == 0 and i != len(text) - 1:
+                return False
+    return depth == 0
+
+
+def _call_form(span: str, name: str | None) -> dict | None:
+    """The signature a span writes when it is a complete form (_form): `name` or no name (a Signature cell's
+    `(x: A) => B`), its type parameters, one parameter group (score-signatures.py's _group), then nothing, or a
+    return separator (`->`, `=>`, `→` or `:`) and the return, with nothing else: no other text after the group
+    (`useQuery(key).data`, `f(a) / f(a, b)`, a trailing comment), no `;`, `,`, `#`, `//` or `/*` in the return
+    outside its brackets and strings, and every bracket and string closed. None for any other span, a constructor
+    call (`new Client(opts)`) and a span with no parameter group (`Meta<T>`) among them."""
+    scorer = _sibling("score-signatures.py")
+    text = span.strip()
+    group = scorer._group(text)
+    if group is None or text.startswith("new ") or scorer._levels(text + " ")[-1] != 0:
+        return None
+    head = SPAN_NAME_RE.match(text, 0, group[0])
+    if head.group(1) not in (None, name) or not _type_parameters_only(text[head.end():group[0]]):
+        return None
+    tail = text[group[1] + 1:]
+    separator = RETURN_SEPARATOR_RE.match(tail)
+    returned = tail[separator.end():] if separator else ""
+    if (separator is None and tail.strip()) or (separator is not None and not returned.strip()):
+        return None
+    levels = scorer._levels(returned)
+    if any(levels[i] == 0 and (ch in ";,#" or returned.startswith(("//", "/*"), i)) for i, ch in enumerate(returned)):
+        return None
+    return _form(text, group)
+
+
+def _leading_span(cell: str) -> str | None:
+    """The code span a table cell opens with, None when it opens with none."""
+    run = len(cell) - len(cell.lstrip("`"))
+    spans = _sibling("locate-export-segments.py")._inline_code(cell) if run else []
+    return spans[0] if spans and cell.startswith("`" * run + spans[0] + "`" * run) else None
+
+
+def _row_form(header: list[str], row: list[str]) -> dict | None:
+    """The signature a floor table's row writes for the one name its first cell names (a row naming several gives
+    none), each cell's `\\|` read as `|`: the leading code span of its Signature or Signatures cell, else, when that
+    span writes no parameter group, the one span of its first cell that gives that name (another export's span there
+    gives nothing), each a complete form (_call_form). A Signature span with a group that is no complete form gives
+    none. A Props, Params or Parameters cell is never read."""
+    segments = _sibling("locate-export-segments.py")
+    names = {name for name in map(_floor_name, segments._inline_code(row[0])) if name}
+    if len(names) != 1:
+        return None
+    [name] = names
+    cells = [cell.replace("\\|", "|") for cell in row]
+    at = next((i for i, cell in enumerate(header) if _header_word(cell) in FLOOR_SIGNATURE_HEADERS), None)
+    span = _leading_span(cells[at]) if at is not None and at < len(cells) else None
+    if span is not None and (form := _call_form(span, name)):
+        return form
+    if span is not None and _sibling("score-signatures.py")._group(span.strip()) is not None:
+        return None  # the cell writes a call the floor cannot pin: a shorter first-cell form would hide it
+    own = [span for span in segments._inline_code(cells[0]) if _floor_name(span) == name]
+    return _call_form(own[0], name) if len(own) == 1 else None
+
+
+def _function_declaration(line: str, language: str, js_family) -> int | None:
+    """Where the name ends on a block's masked line, one _declared_names reads, that declares a function (`function`,
+    `def`, `fn` or Go's `func` before its name); None for a line that declares no function."""
+    if language in js_family:
+        m, at = JS_DECLARATION_RE.match(line), 1
+    elif language in PYTHON_LANGUAGES:
+        m, at = PYTHON_DECLARATION_RE.match(line), 1
+    elif language in RUST_LANGUAGES:
+        m, at = RUST_DECLARATION_RE.match(line), 1
+    elif language in GO_LANGUAGES:
+        m, at = GO_DECLARATION_RE.match(line), 2
+    else:
+        return False
+    return m.end(at) if m and FUNCTION_KEYWORD_RE.search(line, 0, m.start(at)) else None
+
+
+def _declaration_form(rows: list[str], offset: int, language: str, name_end: int) -> dict | None:
+    """The signature the function declaration at `offset` of a block's unmasked `rows` writes: the declaration on one
+    line (skf-extract-public-api.py's _declaration_signature: a parameter list split over lines joined, line comments
+    left out), its body cut at the first `:` (Python) or `{`, `;` or ` where ` (any other language) outside every
+    bracket pair and string after the parameter group, a `{` directly after a TS return `:` opening the return type,
+    then read as _form reads it. None when anything but type parameters sits between the name's end (`name_end`,
+    the masked line's offset, which masking keeps) and the group (a Go `func(...)` return read as the group), when
+    the opener follows, or the uncut text ends with, `interface`, `struct`, `is`, `keyof`, `|`, `&`, `?`, `:`, `\\`,
+    `=>` or `->` (it is inside the return type: Go's `interface{}`, a TS `asserts x is {...}`, `() => {...}` or
+    conditional type, a line that ends mid-type), or a bracket or string it opens does not close."""
+    scorer = _sibling("score-signatures.py")
+    extractor = _sibling("skf-extract-public-api.py", SHARED_SCRIPTS)
+    python, rust = language in PYTHON_LANGUAGES, language in RUST_LANGUAGES
+    extension = ".rs" if rust else ""
+    text = extractor._declaration_signature(rows, offset, "python" if python else "rust" if rust else language)
+    group = scorer._group(text, extension)
+    if group is None or not _type_parameters_only(text[name_end:group[0]]):
+        return None
+    levels = scorer._levels(text, extension)
+    for i in range(group[1] + 1, len(text)):
+        if levels[i] != 0:
+            continue
+        if python:
+            body = text[i] == ":"
+        else:
+            body = (text[i] == ";" or bool(WHERE_CLAUSE_RE.match(text, i))
+                    or (text[i] == "{" and not RETURN_COLON_RE.fullmatch(text, group[1] + 1, i)))
+        if body:
+            if OPENER_IN_TYPE_RE.search(text, 0, i):
+                return None
+            text = text[:i]
+            break
+    else:
+        if OPENER_IN_TYPE_RE.search(text):
+            return None
+    if scorer._levels(text + " ", extension)[-1] != 0:
+        return None
+    return _form(text, group, extension)
+
+
 def floor(skill_dir: str) -> dict:
     """The names the skill documents in a fixed form, each with its origins (see the module docstring)."""
     root = Path(skill_dir)
@@ -670,10 +889,14 @@ def floor(skill_dir: str) -> dict:
              for lines in texts for line in lines for m in inventory._SKILL_CITATION_RE.finditer(line)}
 
     found: dict[str, set[tuple[int, int, str, str | None]]] = {}
+    signatures: dict[tuple[str, int, int, str], dict] = {}  # the first per (name, file, line, form), in span order
 
-    def add(name: str | None, file_index: int, index: int, form: str, label: str | None = None) -> None:
+    def add(name: str | None, file_index: int, index: int, form: str, label: str | None = None,
+            signature: dict | None = None) -> None:
         if name:
             found.setdefault(name, set()).add((file_index, index + 1, form, label))
+            if signature is not None:
+                signatures.setdefault((name, file_index, index + 1, form), signature)
 
     js_family = segments.JS_FAMILY - {"svelte"}  # a Svelte block's `export let` is a component prop
     for file_index, lines in enumerate(texts):
@@ -689,12 +912,13 @@ def floor(skill_dir: str) -> dict:
             row = _cells(lines[block["start"]])
             kind_at = next((i for i, cell in enumerate(header) if _header_word(cell) == "kind"), None)
             label = row[kind_at] if kind_at is not None and kind_at < len(row) and row[kind_at] else None
+            signature = _row_form(header, row)
             for span in segments._inline_code(row[0]):
-                add(_floor_name(span), file_index, block["start"], "table-row", label)
+                add(_floor_name(span), file_index, block["start"], "table-row", label, signature)
         for index, _level, text, _above in headings:
             span = _whole_span(text, segments)
             if span is not None:
-                add(_floor_name(span), file_index, index, "heading")
+                add(_floor_name(span), file_index, index, "heading", None, _call_form(span, _floor_name(span)))
         comments = _html_comment_lines(lines, start, code)
         for opening, closing, info in blocks:
             language = segments._language(info)
@@ -703,7 +927,10 @@ def floor(skill_dir: str) -> dict:
                 continue
             masked = segments.mask_code("\n".join(lines[opening + 1:closing]), language).split("\n")
             for offset, name in _declared_names(masked, language, js_family):
-                add(name, file_index, opening + 1 + offset, "declaration")
+                name_end = _function_declaration(masked[offset], language, js_family)
+                signature = (_declaration_form(lines[opening + 1:closing], offset, language, name_end)
+                             if name_end is not None else None)
+                add(name, file_index, opening + 1 + offset, "declaration", None, signature)
 
     names = []
     by_form = dict.fromkeys(FLOOR_FORMS, 0)
@@ -713,7 +940,10 @@ def floor(skill_dir: str) -> dict:
         for file_index, line, form, _label in origins:
             if (file_index, line, form) not in seen:
                 seen.add((file_index, line, form))
-                kept.append({"file": files[file_index], "line": line, "form": form})
+                origin = {"file": files[file_index], "line": line, "form": form}
+                if (name, file_index, line, form) in signatures:
+                    origin["signature"] = signatures[(name, file_index, line, form)]
+                kept.append(origin)
                 by_form[form] += 1
         label = next((o[3] for o in origins if o[2] == "table-row" and o[3]), None)
         names.append({"name": name, "kindLabel": label, "origins": kept})
