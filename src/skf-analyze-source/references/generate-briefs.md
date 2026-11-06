@@ -287,11 +287,11 @@ The shared emitter writes the result files and prints the envelope; this section
 uv run {emitEnvelopeHelper} emit --workflow skf-analyze-source --run-dir "{run_dir}" --result-dir "{forge_data_folder}" < "{run_dir}/result-context.json"
 ```
 
-The emitter stamps the UTC time and the run id into the record, writes `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` and its `analyze-source-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path; a caller reads its own run's `SKF_ANALYZE_RESULT_JSON` line), and prints the `SKF_ANALYZE_RESULT_JSON:` line on stdout (field rules in `references/headless-contract.md`). When `{headless_mode}` is true, display the line verbatim: it is the success signal of a headless run. A result file that could not be written leaves the line's `result_path` null and a `result_file_write_failed` warning in it, and the run still finishes. If the emitter exits non-zero, correct `result-context.json` from the message on its stderr and run it once more; if it fails again, HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `generate-briefs:9`, path `{forge_data_folder}`, with `brief_paths` and `unit_counts` from the payload): "The result contract could not be written: {its message}."
+The emitter stamps the UTC time and the run id into the record, writes `{forge_data_folder}/analyze-source-result-{YYYYMMDD-HHmmss}.json` and its `analyze-source-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path; a caller reads its own run's `SKF_ANALYZE_RESULT_JSON` line), and prints the `SKF_ANALYZE_RESULT_JSON:` line on stdout (field rules in `references/headless-contract.md`). When `{headless_mode}` is true, display the line verbatim: it is the success signal of a headless run. A per-run record that could not be written leaves `result_path` null, and a `-latest` copy that could not be written leaves it set; either adds a `result_file_write_failed` warning to the line, and the run still finishes. If the emitter exits non-zero, correct `result-context.json` from the message on its stderr and run it once more; if it fails again, HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `generate-briefs:9`, path `{forge_data_folder}`, with `brief_paths` and `unit_counts` from the payload): "The result contract could not be written: {its message}."
 
 ### 9b. On-Complete Hook (pipeline integration)
 
-If `{onCompleteCommand}` is non-empty and the §9 line's `result_path` is not null, invoke it now, after the emitter wrote the timestamped result JSON and its `analyze-source-result-latest.json` copy:
+If `{onCompleteCommand}` is non-empty, the §9 line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` entry naming `analyze-source-result-latest.json` (the emitter wrote the timestamped result JSON and its `analyze-source-result-latest.json` copy), invoke it now:
 
 ```
 {onCompleteCommand} --result-path={forge_data_folder}/analyze-source-result-latest.json
@@ -303,8 +303,10 @@ The stable `-latest` path is preferred over the timestamped copy so downstream c
 - On non-zero exit / process error: display the hook failure (`on_complete hook failed (exit {code}): {stderr_snippet}`); it never fails the run.
 - **Never fail the workflow on hook errors** — the hook is for pipeline integration (Slack, dashboards, CI), not for gating skill-brief production.
 
+When `{onCompleteCommand}` is non-empty but `result_path` is null or a `result_file_write_failed` warning names `analyze-source-result-latest.json` (the copy alone failed), skip the hook and say so: "on_complete skipped: `analyze-source-result-latest.json` was not written." The hook never gets a `-latest` copy this run failed to write.
+
 If `{onCompleteCommand}` is empty, skip this section entirely (default behavior — no hook configured).
 
 ### 10. Chain to Health Check
 
-After the briefs are written (or skipped, or none was confirmed), the report updated, the summary presented, the run ended in §9 and the on-complete hook invoked (or skipped per empty `{onCompleteCommand}`), delete the run folder, whose payloads the emitter has read: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step: continue past the summary even though it reads as final.
+After the briefs are written (or skipped, or none was confirmed), the report updated, the summary presented, the run ended in §9 and the on-complete hook invoked (or skipped as §9b says), delete the run folder, whose payloads the emitter has read: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step: continue past the summary even though it reads as final.

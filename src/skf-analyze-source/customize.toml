@@ -59,8 +59,9 @@ analysis_report_template_path = "templates/analysis-report-template.md"
 # written the result files, at the end of every run that writes them
 # (generate-briefs.md, step-auto-scope.md and auto-docs-only.md), as:
 #   <on_complete> --result-path=<forge_data_folder>/analyze-source-result-latest.json
-# A run whose result file could not be written (result_path null in the
-# envelope) and a HALT call no hook. Useful for Slack notifications,
+# A HALT calls no hook, nor does a run whose result file or its -latest
+# copy could not be written (result_path null, or a result_file_write_failed
+# warning naming the copy, in the envelope). Useful for Slack notifications,
 # dashboard ingest, CI hooks, or chaining into a brief linter. A hook
 # failure is displayed and never fails the run.
 #

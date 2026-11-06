@@ -52,7 +52,7 @@ persistent_facts = [
 # command is called as:
 #   <on_complete> --result-path=<{forge_version}/update-skill-result-latest.json>
 # It is not called for --detect-only or --dry-run, which write no result
-# file, nor when a run halts.
+# file, nor when a run halts or did not write its -latest copy.
 # Useful for Slack notifications, dashboard ingest, CI hooks, or chaining a
 # downstream skill (audit, export, test). A failure is reported to the user
 # in one line and never fails the workflow; it does not reach the result

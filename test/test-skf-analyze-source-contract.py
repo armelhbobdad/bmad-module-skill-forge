@@ -299,10 +299,13 @@ def test_each_ending_runs_the_one_emit_command(path):
     assert _one_command(_read(path), "emit --workflow skf-analyze-source") == EMIT_COMMAND
 
 
-def _emit(tmp_path: Path, payload: dict) -> tuple[dict, Path]:
+def _emit(tmp_path: Path, payload: dict, latest_blocked: bool = False) -> tuple[dict, Path]:
+    """Run the documented emit; `latest_blocked` puts a folder where the `-latest` copy goes, so that write fails."""
     run_dir = _run_dir(tmp_path)
     forge = tmp_path / "forge-data"
     forge.mkdir()
+    if latest_blocked:
+        (forge / "analyze-source-result-latest.json").mkdir()
     (run_dir / "result-context.json").write_bytes(json.dumps(payload).encode("utf-8"))
     proc = _run(EMIT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir),
                                "forge_data_folder": str(forge)})
@@ -387,12 +390,70 @@ def test_zero_confirmed_units_end_with_an_envelope_the_forger_reads(tmp_path):
     assert (decision["decision"], decision["reason"]) == ("halt", "no-skillable-units")
 
 
+HOOK_SECTIONS = ((AUTO, "### 9. End the Run", None), (DOCS, "### 5. End the run", "### 6."),
+                 (GENERATE, "### 9b.", "### 10."))
+LATEST_SKIP = 'skip the hook and say so: "on_complete skipped: `analyze-source-result-latest.json` was not written."'
+
+
 def test_the_hook_reads_the_latest_record_only_when_one_was_written():
-    for path in (AUTO, DOCS, GENERATE):
+    """#891: each ending runs the hook only when this run wrote the -latest copy (a non-null result_path and no
+    write warning naming the copy), and says so when it skips; no file claims that every failed write nulls
+    result_path, since a failed -latest copy leaves it set."""
+    for path, start, end in HOOK_SECTIONS:
         text = _read(path)
         assert "--result-path={forge_data_folder}/analyze-source-result-latest.json" in text, path.name
         assert "`result_path` is not null" in text, path.name
         assert 'rm -rf "{run_dir}"' in text, path.name
+        hook = _section(text, start, end)
+        assert ("`result_path` is not null and its `warnings` hold no `result_file_write_failed` entry naming "
+                "`analyze-source-result-latest.json`") in hook, path.name
+        assert ("When `{onCompleteCommand}` is non-empty but `result_path` is null or a `result_file_write_failed` "
+                "warning names `analyze-source-result-latest.json` (the copy alone failed), " + LATEST_SKIP) in hook, \
+            path.name
+        assert hook.index("hold no `result_file_write_failed` entry") < hook.index("{onCompleteCommand} --result-path=")
+        assert "an earlier run's `-latest` copy" not in hook, path.name
+    # §9b: the skip follows the hook's success and failure bullets, so they read as the hook run's outcomes
+    nine_b = _section(_read(GENERATE), "### 9b.", "### 10.")
+    assert nine_b.index("**Never fail the workflow on hook errors**") < nine_b.index("on_complete skipped:")
+    assert "The hook never gets a `-latest` copy this run failed to write." in nine_b
+    for path in (AUTO, DOCS, GENERATE, HEADLESS):
+        text = _read(path)
+        assert "A result file that could not be written" not in text, path.name
+        assert "leaves the line's `result_path` null" not in text, path.name
+        assert ("A per-run record that could not be written leaves `result_path` null, and a `-latest` copy that "
+                "could not be written leaves it set; either adds a `result_file_write_failed` warning to the line, "
+                "and the run still finishes.") in text, path.name
+    contract = _read(HEADLESS)
+    [rule] = [line for line in contract.splitlines() if line.startswith("- `result_path`:")]
+    assert "when the write failed" not in rule
+    assert ("`null` for a HALT, which writes no result file, when `--result-dir` names no folder (with no "
+            "warning), and when the per-run record could not be written (a "
+            "`result_file_write_failed` warning then says why); a `-latest` copy that could not be written leaves it "
+            "set, and a `result_file_write_failed` warning names the copy.") in rule
+    assert ("Then `{onCompleteCommand}` runs, when it is set, `result_path` is not null and no "
+            "`result_file_write_failed` warning names `analyze-source-result-latest.json`, with "
+            "`--result-path={forge_data_folder}/analyze-source-result-latest.json`, and a hook failure is displayed "
+            "and never fails the run; otherwise a set hook is skipped with \"on_complete skipped: "
+            '`analyze-source-result-latest.json` was not written."') in contract
+    comments = _read(AN / "customize.toml")
+    assert "result_path null in the\n# envelope" not in comments
+    assert ("A HALT calls no hook, nor does a run whose result file or its -latest\n# copy could not be written "
+            "(result_path null, or a result_file_write_failed\n# warning naming the copy, in the envelope)") in comments
+
+
+def test_a_failed_latest_copy_leaves_result_path_and_names_the_copy(tmp_path):
+    """#891: with a folder where the `-latest` copy goes, the documented emit still exits 0 and writes the per-run
+    record: `result_path` stays set and one `result_file_write_failed` warning names the copy, the case each
+    ending's hook condition skips on."""
+    [template] = _fenced(_section(_read(GENERATE), "### 9. End the Run", "### 9b."), "json")
+    envelope, forge = _emit(tmp_path, _fill(template, VALUES), latest_blocked=True)
+    assert envelope["status"] == "success" and envelope["result_path"]
+    assert Path(envelope["result_path"]).is_file() and Path(envelope["result_path"]).parent == forge
+    failed = [w for w in envelope.get("warnings", []) if w.startswith("result_file_write_failed:")]
+    assert len(failed) == 1 and "analyze-source-result-latest.json" in failed[0], envelope.get("warnings")
+    assert (forge / "analyze-source-result-latest.json").is_dir(), "the copy was not written"
+    for path, start, end in HOOK_SECTIONS:
+        assert "warning names `analyze-source-result-latest.json`" in _section(_read(path), start, end), path.name
 
 
 @pytest.mark.parametrize("gate, marker", [("auto-scope.cohesion", "**Record the decision**"),
