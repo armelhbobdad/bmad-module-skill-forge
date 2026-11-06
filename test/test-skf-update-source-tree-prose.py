@@ -4820,6 +4820,57 @@ def test_finished_runs_fire_on_complete_and_read_only_runs_do_not(tmp_path):
     assert "warnings[] but never fail" not in hook and "it does not reach the result" in hook
 
 
+def test_the_hook_runs_only_when_this_run_wrote_the_latest_copy(tmp_path):
+    """#891: the line has no result_path, so §5b reads its warnings[]: any result_file_write_failed entry means this
+    run's update-skill-result-latest.json was not written (the emitter stops at the first write that fails), and the
+    hook is skipped with a line that says so. An emit that fails twice leaves no result contract and runs no hook.
+    With a folder where the copy goes, the documented emit exits 0 and the line names the failed copy."""
+    report = _read(REPORT)
+    five_b = _slice(report, "### 5b. Result Contract", "### 6.")
+    for token in ("When the emitter exits non-zero and no retry applies, or fails again, or no path resolved for "
+                  "`{emitEnvelopeHelper}`, this run has no result contract: display its `message` (or that the "
+                  "emitter is missing), bind no `{result_envelope_line}`, and skip the hook as below.",
+                  "`result_file_write_failed` (a result file the emitter could not write; the hook then does not run)",
+                  "is non-empty, the emitter exited 0 and the line's `warnings[]` hold no entry that starts with "
+                  "`result_file_write_failed` (the emitter wrote both result files), invoke it:",
+                  "The line has no `result_path`: any `result_file_write_failed` entry means this run's "
+                  "`update-skill-result-latest.json` was not written, since the emitter stops at the first write that "
+                  "fails.",
+                  "An interactive run reads the line for this check without displaying it.",
+                  "When `{onCompleteCommand}` is non-empty but the hook does not run, skip it and say why:\n\n"
+                  '- The run has no result contract (above): "on_complete skipped: no result contract was written '
+                  '({the reason})".\n'
+                  '- The line holds such an entry: "on_complete skipped: `update-skill-result-latest.json` was not '
+                  'written."\n',
+                  "The hook never gets a `-latest` copy this run failed to write."):
+        assert token in five_b, token
+    assert "invoke it after the emitter wrote both result files" not in five_b
+    assert "an earlier run's `-latest` copy" not in five_b
+    # the warnings[] field rule lists the entry the hook reads
+    [rule] = [line for line in five_b.splitlines() if line.startswith("- `warnings[]`:")]
+    assert "`result_file_write_failed`" in rule
+    command = "{onCompleteCommand} --result-path={forge_version}/update-skill-result-latest.json"
+    assert five_b.index("hold no entry that starts with") < five_b.index(command) < five_b.index("on_complete skipped")
+    assert "nor when a run halts or did not write its -latest copy." in _read(CUSTOMIZE)
+    emit = _fence(five_b, "uv run {emitEnvelopeHelper} emit --workflow skf-update-skill")
+    payload = _sample(_heredoc(_fence(five_b, 'cat > "{run_dir}/result-context.json"')))
+    run_dir = tmp_path / "skf-update-skill-a1B2c3D4"
+    run_dir.mkdir()
+    forge_version = tmp_path / "forge" / "lib" / "1.0.1"
+    (forge_version / "update-skill-result-latest.json").mkdir(parents=True)
+    argv = _cmd_args(emit, "emitEnvelopeHelper", {"run_dir": str(run_dir), "forge_version": str(forge_version)})
+    payload = {**payload, "version": "1.0.1", "previous_version": "1.0.0", "update_mode": "normal",
+               "files_written": ["SKILL.md", "metadata.json"]}
+    code, out, err = _emit(argv, payload)
+    assert code == 0, err
+    line = json.loads(out.split("SKF_UPDATE_RESULT_JSON: ", 1)[1])["skf_update"]
+    assert line["status"] == "success" and "result_path" not in line
+    failed = [w for w in line["warnings"] if w.startswith("result_file_write_failed")]
+    assert len(failed) == 1 and "update-skill-result-latest.json" in failed[0], line["warnings"]
+    [per_run] = [p for p in forge_version.iterdir() if p.name != "update-skill-result-latest.json"]
+    assert per_run.is_file() and (forge_version / "update-skill-result-latest.json").is_dir()
+
+
 def test_the_headless_result_line_is_the_runs_last_line():
     """Step 5b enhancement-1: report.md §5b binds the emitter's line to `{result_envelope_line}` rather than display
     it, so the shared health check shows it last (the final message `claude -p` prints); §1, §1a and §1b print

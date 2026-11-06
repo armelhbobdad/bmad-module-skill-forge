@@ -1951,6 +1951,11 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
                   "`--result-path=<result file>`", "the hook is skipped when the emitter wrote no result file",
                   "`--result-path=<skill package>/quick-skill-result-latest.json`",
                   "the skill package is that file's folder", "or did not write that `-latest` copy",
+                  "Analyze Source, Create Skill and Update Skill pass their `-latest` copy too "
+                  "(`<forge_data_folder>/analyze-source-result-latest.json`, "
+                  "`<version folder>/create-skill-result-latest.json` and "
+                  "`<version folder>/update-skill-result-latest.json`), and skip the hook, with a line that says so, "
+                  "when the run did not write it.",
                   "Campaign passes `--report-path=<report>`", "Stack Skill runs the command with no argument",
                   "Setup Forge and Verify Stack carry it out as an instruction",
                   "A failing command never fails the workflow"):

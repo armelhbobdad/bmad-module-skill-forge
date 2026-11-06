@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-analyze-source, skf-create-skill, skf-update-skill
+summary: |
+  When the `-latest` copy of the result file could not be written, Analyze Source, Create Skill and Update Skill still called the `on_complete` hook with that path, which then held an earlier run's record or no file. The hook now runs only when the run wrote that copy, and otherwise is skipped with a line that says why, as Quick Skill already does. Create Skill also skips it when the per-run record could not be written, and Update Skill when the result contract could not be written at all.
+issues: [891]
+prs: [893]

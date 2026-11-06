@@ -248,7 +248,8 @@ def test_the_report_step_binds_the_emitter_and_the_hook_itself():
     assert hook_call == f"{activation_call}.on_complete"
     assert "on_complete" in tomllib.loads(_read(CS / "customize.toml"))["workflow"]
     assert ("When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's result contract (its `emit` "
-            "exited 0), run it") in hook
+            "exited 0, the line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` "
+            "entry naming `create-skill-result-latest.json`), run it") in hook
     assert hook.index(hook_call) < hook.index("When `{onCompleteCommand}` is non-empty")
     # One wording for the incomplete install, wherever the step names it.
     assert "resolved no path" not in report and "no `{emitEnvelopeHelper}`" not in report
@@ -457,8 +458,22 @@ def test_on_complete_is_a_shell_command_run_only_after_a_result_contract():
     assert "TS test-skill" not in toml and "EX export" not in toml
     five = _section(_read(REFS / "report.md"), "### 5. Result Contract", "### 6.")
     assert "downstream-skill chain" not in five
-    assert "the emitter wrote this brief's result contract (its `emit` exited 0), run it as a shell command" in five
+    assert ("the emitter wrote this brief's result contract (its `emit` exited 0, the line's `result_path` is not "
+            "null and its `warnings` hold no `result_file_write_failed` entry naming `create-skill-result-latest.json`), "
+            "run it as a shell command") in five
     assert "on_complete skipped for `{name}`: no result contract was written" in five
+    # #891: the skip cases are one list, each with its own line: no successful emit, or one that did not write
+    # the -latest copy
+    assert ("When `{onCompleteCommand}` is non-empty but the hook does not run, `--result-path` would name a missing "
+            "file or an earlier compile's: skip the hook and display the line for its case:\n\n") in five
+    assert ('- No `emit` succeeded (no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice): '
+            '"on_complete skipped for `{name}`: no result contract was written ({the reason})".\n') in five
+    assert ("- `emit` exited 0, but the line's `result_path` is null (the per-run record was not written) or a "
+            "`result_file_write_failed` warning names `create-skill-result-latest.json` (the copy alone failed): "
+            '"on_complete skipped for `{name}`: `create-skill-result-latest.json` was not written".\n') in five
+    assert "skip the hook too" not in five
+    assert ("a brief that halts, or whose result file or its -latest copy was\n# not written, gets no call"
+            in toml)
     rules = _section(_read(REFS / "report.md"), "## Rules", "## MANDATORY SEQUENCE")
     assert "except in §5's fallback when no path in `{emitEnvelopeProbeOrder}` exists" in rules
     load_rules = _section(_read(REFS / "load-brief.md"), "## Rules", "## MANDATORY SEQUENCE")
@@ -488,6 +503,23 @@ def test_the_documented_result_payload_is_schema_valid(tmp_path):
     assert latest["skill"] == "skf-create-skill" and latest["run_id"] == "run00001"
     assert latest["headless_decisions"] == [] and "timestamp" in latest
     assert envelope["result_path"] == next(p for p in forge.iterdir() if p.name != "create-skill-result-latest.json").as_posix()
+    # #891: a folder where the -latest copy goes. The emit still exits 0 and keeps result_path, and one warning
+    # names the copy: §5's hook condition skips on it.
+    run_dir = tmp_path / "skf-create-skill-run00002"
+    run_dir.mkdir()
+    blocked = tmp_path / "forge" / "demo" / "1.0.1"
+    (blocked / "create-skill-result-latest.json").mkdir(parents=True)
+    proc = subprocess.run([sys.executable, str(EMITTER), "emit", "--workflow", "skf-create-skill", "--run-dir",
+                           str(run_dir), "--result-dir", str(blocked)], input=json.dumps(payload),
+                          capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    envelope = json.loads(proc.stdout.strip().split(": ", 1)[1])
+    [per_run] = [p for p in blocked.iterdir() if p.name != "create-skill-result-latest.json"]
+    assert envelope["result_path"] == per_run.as_posix() and per_run.is_file()
+    failed = [w for w in envelope.get("warnings", []) if w.startswith("result_file_write_failed:")]
+    assert len(failed) == 1 and "create-skill-result-latest.json" in failed[0], envelope.get("warnings")
+    assert ("warning names `create-skill-result-latest.json` (the copy alone failed): \"on_complete skipped for "
+            "`{name}`: `create-skill-result-latest.json` was not written\"") in five
 
 
 # --------------------------------------------------------------------------

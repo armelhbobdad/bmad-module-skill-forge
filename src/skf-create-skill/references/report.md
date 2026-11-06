@@ -126,13 +126,18 @@ The evidence report in `outputs` carries the `## Auto-Decisions` audit table: a 
 uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow.on_complete
 ```
 
-When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's result contract (its `emit` exited 0), run it as a shell command from `{project-root}`, for this brief:
+When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's result contract (its `emit` exited 0, the line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` entry naming `create-skill-result-latest.json`), run it as a shell command from `{project-root}`, for this brief:
 
 ```bash
 {onCompleteCommand} --result-path={forge_version}/create-skill-result-latest.json
 ```
 
-The hook runs after the contract, so a git-add, registry registration or notifier sees a complete package. A hook failure never fails the brief, since the skill is written and its result contract is final: display "on_complete failed for `{name}`: {its exit code and first stderr line}" and go on. When the emitter wrote no result contract for this brief (no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice), `--result-path` would name a missing file or an earlier compile's: skip the hook and display "on_complete skipped for `{name}`: no result contract was written ({the reason})". When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+The hook runs after the contract, so a git-add, registry registration or notifier sees a complete package. A hook failure never fails the brief, since the skill is written and its result contract is final: display "on_complete failed for `{name}`: {its exit code and first stderr line}" and go on. When `{onCompleteCommand}` is non-empty but the hook does not run, `--result-path` would name a missing file or an earlier compile's: skip the hook and display the line for its case:
+
+- No `emit` succeeded (no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice): "on_complete skipped for `{name}`: no result contract was written ({the reason})".
+- `emit` exited 0, but the line's `result_path` is null (the per-run record was not written) or a `result_file_write_failed` warning names `create-skill-result-latest.json` (the copy alone failed): "on_complete skipped for `{name}`: `create-skill-result-latest.json` was not written".
+
+When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
 
 **Remove the run folder.** The brief finished, so outside `--batch` delete `{run_dir}` (`rm -rf "{run_dir}"`); under `--batch`, batch-mode.md §3 reads the staged `result-context.json` there and removes the folder itself. A halted brief keeps its folder, with the decisions it recorded and its staged payloads.
 
