@@ -13,7 +13,8 @@ that ledger (#583, #541). These tests pin that wiring and run it:
   after the gate is counted apart from the blocking ones;
 - a stale name is a fabricated signature only when the documented
   classify-stale call finds no such name in the file the skill cites
-  (#583's decision); one the source still declares outside the surface is
+  (#583's decision) and no alias of a name that file declares (#886); one
+  the source still declares outside the surface is
   a documented extra, an Info `observation` at its declaration, unless a
   brief scoped it out (#678); and each per-export record gap-ledger.py
   writes from the run files, as the prose calls it, names its export;
@@ -895,7 +896,10 @@ class TestStaleNameLineCheck:
     #698: the call passes the documented inventory, so that a module named
     after a name the skill documents as a function, hook, class, interface,
     enum or type does not declare it, and an example, script or migration
-    folder right below the package root is never walked."""
+    folder right below the package root is never walked.
+    #886: a name the cited file does not define, which an export list renames
+    to it from a name that file declares, is `aliased`, not fabricated, and so
+    a documented extra at the alias."""
 
     CALL = ('uv run {verifyProvenanceCompletenessHelper} classify-stale --names "{run_dir}/coverage.json" '
             '--provenance "{forge_provenance_map}" --source-root "{source_path}" '
@@ -979,6 +983,36 @@ class TestStaleNameLineCheck:
         for surface in (None, self._surface(extraction=False)):
             [record] = gap_ledger.from_coverage(cov, surface=surface, stale=[out], skill_dir=None)
             assert record["severity"] == ("Critical" if expected[0] == "Critical" else "Medium"), record
+
+    def test_an_alias_of_the_cited_declaration_is_a_documented_extra(self, tmp_path: pathlib.Path) -> None:
+        """#886: oms-storybook documents `Entry`, cited at the `API_Entry` declaration a multi-line
+        `export type { ... }` list renames to it. The classify-stale call finds the alias, and §5b's coverage
+        call records an Info `observation` at it, never a Critical `fabricated-signature` gap; §4c's line check
+        of its citation, which the provenance-line append no longer drops, is an Info `provenance-unverified`
+        gap, so nothing blocks the hard gate."""
+        files = {"pkg/package.json": "{}\n", "pkg/api.ts": "export interface API_Entry {}\n",
+                 "pkg/root.ts": "export type {\n  API_Entry as Entry,\n} from './api';\n"}
+        [out] = self._classify(tmp_path, files, ["Entry"],
+                               [{"export_name": "Entry", "source_file": "pkg/api.ts", "source_line": 1}],
+                               {"Entry": "interface"})
+        assert (out["fabricated"], out["reason"], out["defined_at"]) == (False, "aliased", "pkg/root.ts:2"), out
+        cov = json.loads((tmp_path / "run" / "coverage.json").read_bytes())
+        records = gap_ledger.from_coverage(cov, surface=self._surface(), stale=[out], skill_dir=None)
+        assert [(r["severity"], r["category"], r["source"]) for r in records] == [
+            ("Info", "observation", "pkg/root.ts:2")], records
+        # §4c's verify call over the same map, then the provenance-line append's records
+        metadata = _write_json(tmp_path / "metadata.json", {"exports": ["Entry"]})
+        verified = tmp_path / "run" / "provenance-verify.json"
+        proc = subprocess.run([sys.executable, str(VERIFY_PROVENANCE), "verify", "--metadata", str(metadata),
+                               "--provenance", str(tmp_path / "provenance-map.json"), "--source-root",
+                               tmp_path.as_posix(), "-o", str(verified)],
+                              capture_output=True, text=True, encoding="utf-8")
+        assert proc.returncode in (0, 1), proc.stderr  # exit 1 means findings
+        line = gap_ledger.without_fabricated(
+            {"records": records}, gap_ledger.from_provenance_line(json.loads(verified.read_bytes())))
+        assert [(r["severity"], r["category"], r["source"]) for r in line] == [
+            ("Info", "provenance-unverified", "pkg/api.ts:1")], line
+        assert not [r for r in records + line if r["severity"] in gap_ledger.BLOCKING]
 
     def test_each_row_of_the_documented_extra_matrix(self, tmp_path: pathlib.Path) -> None:
         """#678's matrix, through the classify-stale call and §5b's coverage call, over a map whose entries

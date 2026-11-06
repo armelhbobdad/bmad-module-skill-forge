@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's documented inventory no longer records a function written with empty parentheses in running text or a description cell, such as `instrument()` in a Purpose column, as a form that takes no argument. The inventory contract tells the reader to leave `params` and `usage_signature` out for such a mention, and the signature comparison rules say it claims nothing, so a function with a required parameter no longer gets a Critical `signature-mismatch` gap from it. A description cell is any table cell but an export table's first cell and a cell in a column that writes the call or signature, such as Signature, Props, Params, Parameters, Arguments, Usage, Syntax or Example. A `name()` the skill writes in a heading, an export table's first cell, such a column or a fenced example is still a form, compared as before.
+issues: [887]

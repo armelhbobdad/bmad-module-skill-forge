@@ -125,6 +125,19 @@ Covers:
     keeps it, the homonym that then settles, validate-inventory.py's whole
     result read, the kinds pinned to its enum, and exit 2 on an inventory
     that is missing or holds no `exports` list
+  - classify-stale's alias (#886): a name no cited file defines that an
+    export-list item (on one line, in a multi-line list, or in a local
+    list after its import) or a Python `from X import L as NAME` item (on
+    one line, in parentheses or after a backslash) renames from a name the
+    cited file declares is `aliased`, not fabricated, at the alias, beside
+    a homonym too, and a cited module with no default export does not
+    settle it first; a homonym (with `as NAME` in a comment or a string
+    too), a list item whose comment or string alone holds the rename, a TS
+    type assertion, `default as NAME`, `const NAME = L`, `type NAME = L`,
+    an import then a re-export, Python `NAME = L`, an alias of a name the
+    cited file lacks or of the cited module itself, a missing cited file
+    and a lookup error keep it fabricated with both null, and an error in
+    its own lookup clears no settled name
   - declared_line (#682): the defined_at rule for one file, read below the
     source root or from lines given (a dunder, a renaming alias, a module
     or package named after the name, that module rule optional), None for
@@ -3986,6 +3999,127 @@ class TestDefinedAt:
         mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov), "--source-root", str(src)])
         [out] = json.loads(capsys.readouterr().out)
         assert (out["fabricated"], out["defined_at"]) == (True, None)
+
+    # #886: oms-storybook's `export type { API_Entry as Entry }`, with `Entry` cited at the declaration it renames
+    # (`defaults` is for the type-assertion probe: a name the cited file declares)
+    TS_API = {"pkg/package.json": "{}\n", "pkg/api.ts": "export interface API_Entry {}\nexport const defaults = {};\n"}
+    ENTRY = [{"export_name": "Entry", "source_file": "pkg/api.ts", "source_line": 1}]
+
+    @staticmethod
+    def _verdict(out: dict) -> tuple:
+        return out["fabricated"], out["reason"], out["defined_at"], out["declared_in"]
+
+    @pytest.mark.parametrize("root, line", [
+        ("export type {\n  API_Entry as Entry,\n} from './api';\n", 2),
+        ("export { API_Entry as Entry };\n", 1),
+        ("import type { API_Entry } from './api';\n\nexport { API_Entry as Entry };\n", 3),
+    ], ids=["multi-line-list", "one-line-list", "local-list-after-its-import"])
+    def test_an_export_list_alias_of_the_cited_declaration_is_not_fabricated(self, tmp_path: Path, capsys,
+                                                                            root: str, line: int) -> None:
+        out = _classified(tmp_path, capsys, {**self.TS_API, "pkg/root.ts": root}, ["Entry"], self.ENTRY)["Entry"]
+        alias = f"pkg/root.ts:{line}"
+        assert self._verdict(out) == (False, "aliased", alias, [alias])
+        assert out["source"] == "pkg/api.ts:1"  # the citation itself is unchanged
+
+    @pytest.mark.parametrize("init, line", [
+        ("from .impl import _Impl as Impl\n", 1),
+        ("from .impl import (\n    _Impl as Impl,\n)\n", 2),
+        ("from .impl import _A, \\\n    _Impl as Impl\n", 2),
+    ], ids=["one-line", "parenthesized", "backslash-continued"])
+    def test_a_python_import_alias_of_the_cited_declaration_is_not_fabricated(self, tmp_path: Path, capsys,
+                                                                             init: str, line: int) -> None:
+        files = {"pkg/__init__.py": init, "pkg/impl.py": "class _Impl:\n    pass\n\n\nclass _A:\n    pass\n"}
+        entries = [{"export_name": "Impl", "source_file": "pkg/impl.py", "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, ["Impl"], entries)["Impl"]
+        alias = f"pkg/__init__.py:{line}"
+        assert self._verdict(out) == (False, "aliased", alias, [alias])
+
+    def test_an_alias_beside_a_homonym_is_at_the_alias(self, tmp_path: Path, capsys) -> None:
+        files = {**self.TS_API, "pkg/a.ts": "export interface Entry {}\n",
+                 "pkg/root.ts": "export { API_Entry as Entry };\n"}
+        out = _classified(tmp_path, capsys, files, ["Entry"], self.ENTRY)["Entry"]
+        assert self._verdict(out) == (False, "aliased", "pkg/root.ts:1", ["pkg/a.ts:1", "pkg/root.ts:1"])
+
+    def test_a_cited_module_with_no_default_export_does_not_settle_a_suspect(self, tmp_path: Path,
+                                                                            capsys) -> None:
+        # `api.ts` is the module `api`, which would settle `api` at its line 1 before the walk found the alias
+        files = {"pkg/package.json": "{}\n", "pkg/api.ts": "export function createApi() {}\n",
+                 "pkg/root.ts": "export { createApi as api } from './api';\n"}
+        entries = [{"export_name": "api", "source_file": "pkg/api.ts", "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, ["api"], entries)["api"]
+        assert self._verdict(out) == (False, "aliased", "pkg/root.ts:1", ["pkg/root.ts:1"])
+
+    @pytest.mark.parametrize("root, cited, api", [
+        ("export interface Entry {}\n", "pkg/api.ts", None),
+        ("export { Other as Entry } from './other';\n", "pkg/api.ts", None),
+        ("export { API_Entry as Entry };\n", "pkg/gone.ts", None),
+        ("export interface Entry {} // not API_Entry as Entry\n", "pkg/api.ts", None),
+        ("export const Entry = 'API_Entry as Entry';\n", "pkg/api.ts", None),
+        ("export const Entry = defaults as Entry;\n", "pkg/api.ts", None),
+        # the module `api` declares no `api` line: no module or package so named counts
+        ("import * as api from './api';\nexport { api as Entry };\n", "pkg/api.ts", None),
+        # the hit is a list item: only the comment or the string holds `API_Entry as Entry`
+        ("export {\n  Other as Entry, // was, API_Entry as Entry\n} from './other';\n", "pkg/api.ts", None),
+        ("export {\n  Other as Entry, 'a, API_Entry as Entry, b' as c,\n} from './other';\n", "pkg/api.ts", None),
+        # `default` renames the default export, which no line declares by that name
+        ("export { default as Entry } from './api';\n", "pkg/api.ts",
+         "interface API_Entry {}\nexport { API_Entry as default };\n"),
+        ("export { default as Entry } from './api';\n", "pkg/api.ts",
+         "const API_Entry = {};\nexports.default = API_Entry;\n"),
+        # the renames the rule does not cover
+        ("import { defaults } from './api';\nexport const Entry = defaults;\n", "pkg/api.ts", None),
+        ("import type { API_Entry } from './api';\nexport type Entry = API_Entry;\n", "pkg/api.ts", None),
+        ("import { API_Entry as Entry } from './api';\nexport { Entry };\n", "pkg/api.ts", None),
+    ], ids=["homonym", "alias-of-another-name", "cited-file-missing", "homonym-with-a-comment",
+            "homonym-with-a-string", "type-assertion", "namespace-of-the-cited-module", "list-item-comment",
+            "list-item-string", "default-as-NAME-export-list", "default-as-NAME-commonjs", "const-NAME-is-L",
+            "type-NAME-is-L", "import-then-re-export"])
+    def test_an_alias_of_a_name_the_cited_file_lacks_stays_fabricated(self, tmp_path: Path, capsys, root: str,
+                                                                     cited: str, api: str | None) -> None:
+        files = {**self.TS_API, "pkg/root.ts": root, **({"pkg/api.ts": api} if api else {})}
+        entries = [{"export_name": "Entry", "source_file": cited, "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, ["Entry"], entries)["Entry"]
+        assert self._verdict(out) == (True, "not-defined", None, None)
+
+    @pytest.mark.parametrize("init", [
+        "from . import impl as Impl\n",  # the module `impl`: no module or package so named counts
+        "from .other import (\n    Other as Impl,  # was, _Impl as Impl\n)\n",
+        "from .impl import _Impl\n\nImpl = _Impl\n",
+    ], ids=["alias-of-the-cited-module", "list-item-comment", "NAME-is-L"])
+    def test_a_python_rename_the_rule_does_not_cover_stays_fabricated(self, tmp_path: Path, capsys,
+                                                                      init: str) -> None:
+        files = {"pkg/__init__.py": init, "pkg/impl.py": "class _Impl:\n    pass\n"}
+        entries = [{"export_name": "Impl", "source_file": "pkg/impl.py", "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, ["Impl"], entries)["Impl"]
+        assert self._verdict(out) == (True, "not-defined", None, None)
+
+    def test_a_lookup_error_keeps_an_alias_fabricated(self, tmp_path: Path, capsys,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+        def fail(path: Path) -> str:
+            raise OSError(13, "denied", str(path))
+
+        monkeypatch.setattr(mod, "_read_source", fail)
+        files = {**self.TS_API, "pkg/root.ts": "export { API_Entry as Entry };\n"}
+        out = _classified(tmp_path, capsys, files, ["Entry"], self.ENTRY)["Entry"]
+        assert self._verdict(out) == (True, "not-defined", None, None)
+
+    def test_an_error_in_the_alias_lookup_clears_no_settled_name(self, tmp_path: Path, capsys,
+                                                                monkeypatch: pytest.MonkeyPatch) -> None:
+        # only the walk the suspect `Entry` needs reads root.ts: `Foo`, settled by its cited file, keeps its line
+        real_read = mod._read_source
+
+        def fail(path: Path) -> str:
+            if path.name == "root.ts":
+                raise OSError(13, "denied", str(path))
+            return real_read(path)
+
+        monkeypatch.setattr(mod, "_read_source", fail)
+        files = {**self.TS_API, "pkg/foo.ts": "export interface Foo {}\n",
+                 "pkg/root.ts": "export { API_Entry as Entry };\n"}
+        entries = [*self.ENTRY, {"export_name": "Foo", "source_file": "pkg/foo.ts", "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, ["Foo", "Entry"], entries)
+        assert self._verdict(out["Foo"]) == (False, "defined", "pkg/foo.ts:1", None)
+        assert self._verdict(out["Entry"]) == (True, "not-defined", None, None)
 
     def test_a_dotted_name_is_not_looked_up(self, tmp_path: Path, capsys) -> None:
         files = {**PKG, "pkg/app.py": "def update():\n    pass\n"}

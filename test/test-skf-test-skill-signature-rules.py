@@ -32,6 +32,10 @@ and none of the `difference` tags. These tests keep:
   both forms state it, the file (not coverage-check.md §1) saying what a form
   may leave out, and each export's form read alone (#843);
 - a partial label in a table's column header labelling each of its rows;
+- a name written with empty parentheses in running text or a description
+  cell (any cell but an export table's first cell and a call or signature
+  column, by role) read as a mention, no form, in the contract and the
+  rules alike, a heading or first cell `name()` staying a form (#887);
 - a usage form read as what it writes, in the call-example rule, and a
   name documented in several forms compared with each form by its own
   rules, a mismatch reported for each form that does not match, on §2's
@@ -171,7 +175,9 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
     assert "Three kinds of form do not claim a complete parameter list:" in reading
     assert ("It is compared as a call: each argument it passes must exist, by position or by name, and every required "
             "parameter must be passed; an optional parameter it leaves out is no difference.") in reading
-    assert "An empty call `X()` is one too, so it matches a source whose parameters are all optional." in reading
+    assert ("An empty call `X()` written as a call example (in a heading, an export table's first cell, a call or "
+            "signature column or a fenced example, never a mention) is one too, so it matches a source whose "
+            "parameters are all optional.") in reading
     assert ("An ellipsis (`...` or `\u2026`) in a list stands for members it does not show and claims nothing about "
             "them") in reading
     assert "`(...)` and `(tasks, data, dataset, ...)` leave out no parameter." in reading
@@ -544,6 +550,34 @@ def test_a_partial_label_in_a_table_header_labels_each_row():
     contract = _paragraph(_read(REFS / "inventory-contract.md"), "The contract `validate-inventory.py` checks")
     assert ("not rest or variadic syntax; a label in a table's column header, such as `Props (simplified)`, labels "
             "each of its rows) carries `signature_form: \"partial\"`") in contract
+
+
+def test_an_empty_parenthesized_mention_is_no_form():
+    """#887: oms-storybook's Purpose cell reads `instrument()` wraps functions. A reader that took the mention for an
+    empty call recorded `params: ""`, and `instrument`, which takes a required parameter, got a Critical
+    `signature-mismatch`. A name written with empty parentheses in running text or a description cell is a mention:
+    the contract leaves `params` and `usage_signature` out for it, and the rules say, in a paragraph of their own
+    before the forms that claim no complete parameter list, that it claims nothing. Both define a description cell by
+    its column's role, the places #888 proposes to script, and keep a heading or an export table's first cell that
+    writes `name()` a form, so a correct zero-argument signature there is still compared."""
+    mention = "A name written with empty parentheses in running text or a description cell is a mention, not a form"
+    cell = ("A description cell is any table cell but an export table's first cell and a cell whose column writes the "
+            "call or signature, by its role (Signature, Props, Params, Parameters, Arguments, Usage, Syntax, Example "
+            "and the like); a heading or an export table's first cell that writes `name()` is a form")
+    contract_text = _read(REFS / "inventory-contract.md")
+    contract = _paragraph(contract_text, "The contract `validate-inventory.py` checks")
+    assert (f"{mention}: its entry leaves `params` and `usage_signature` out (a cell reading \"`instrument()` wraps "
+            f"functions\"). {cell}, recorded as written.") in contract
+    assert contract.index("and leaves a key out when the skill documents nothing for it.") < contract.index(
+        mention), "after the rule for a key the skill documents nothing for"
+    rules = _read(RULES)
+    paragraph = _paragraph(rules, mention)
+    assert paragraph == f"{mention}: it claims nothing and is not compared. {cell}, an empty call (below).", paragraph
+    reading = _section("Reading a form")
+    assert reading.index(paragraph) < reading.index("Three kinds of form do not claim a complete parameter list:"), \
+        "before the forms that claim no complete parameter list, not inside the call-example rule"
+    for text in (contract_text, rules):
+        assert "\u2014" not in text and "\u2013" not in text, "no em or en dash"
 
 
 def test_the_fallback_scan_compares_by_the_rules_file():
