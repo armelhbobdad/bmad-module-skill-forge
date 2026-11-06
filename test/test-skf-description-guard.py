@@ -904,7 +904,8 @@ class TestQuickSkillGuardProse:
         section = _slice(text, "### 4. Validate SKILL.md via skill-check", "### 5. ")
         capture = section.index(
             'uv run {descriptionGuardHelper} capture "{skill_package}/SKILL.md" > "{run_dir}/description-guard.json"\n')
-        fix = section.index('npx skill-check check "{skill_package}" --fix --format json\n')
+        fix = section.index('npx skill-check check "{skill_package}" --fix --format json > "{run_dir}/skill-check.json" '
+                            '2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"\n')
         verify = section.index(
             'uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" '
             '--captured-file "{run_dir}/description-guard.json"\n'

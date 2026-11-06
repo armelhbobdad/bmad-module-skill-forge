@@ -29,6 +29,8 @@
 - validate §4 splits the body by one rule set (#600), and customize.toml
   names its override files by {project-root} and says how to drop the
   persistent_facts default (#596).
+- validate §5's SNYK_TOKEN branch names its sign: skill-check exits
+  non-zero and its stderr names `SNYK_TOKEN` (#885).
 - Version Reconciliation, and update-skill's init §6c with it, reads the
   source's version through the extractor's quick mode, so a release-time
   placeholder such as 0.0.0-development keeps the brief's version (v4.0.0
@@ -800,6 +802,13 @@ def test_validate_splits_the_body_by_one_rule_set():
     for stale in ("last resort", "last-resort", "Vercel", "Tier 1 preservation check:", "Anchor validation",
                   "Restoring from staging backup", "restore it immediately"):
         assert stale not in four, stale
+
+
+def test_the_security_scan_names_the_sign_of_a_missing_token():
+    """#885: the SNYK_TOKEN branch says what a run reads to take it, so a token failure is not read as `pass`."""
+    five = _section(_read(REFS / "validate.md"), "### 5. Security Scan", "### 6. ")
+    (branch,) = [line for line in five.splitlines() if line.startswith("**If security scan fails due to missing")]
+    assert "(skill-check exits non-zero and its stderr names `SNYK_TOKEN`)" in branch
 
 
 # --------------------------------------------------------------------------
