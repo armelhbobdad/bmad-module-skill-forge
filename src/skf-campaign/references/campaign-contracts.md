@@ -51,7 +51,7 @@ Every write to `_campaign-state.yaml` goes through `scripts/campaign-state.py`. 
 | `set-skill` | step-05, step-10, step-resume | a skill's `status`, `quality_score`, `skill_path`, `brief_path` or `export` outcome (`--export`); `active` stamps `started_at` once, `completed` stamps `completed_at`, `pending` clears both and the `export` outcome |
 | `append-workarounds` | step-05 | entries of a skill's `workarounds_applied`, each once |
 | `apply-batch` | step-06 | the Tier B batch from its line-to-skill map: `--start`, `--results-file` or `--no-results` |
-| `set-campaign` | steps 07 to 09 | `architecture_doc_path`, and the capstone, verification or refinement summary read from the sub-skill's envelope line (`capstone.verified` with the verification) |
+| `set-campaign` | steps 07 to 09 | `architecture_doc_path`, and the capstone, verification or refinement summary read from the sub-skill's envelope line (`capstone.verified` with the verification); null for a stage skipped on purpose (`--no-<field>`) or a sub-skill that printed no line (`--no-result <field>`, a `not_recorded` row with halt reason `no-result`) |
 | `set-stage` | steps 05, 10, 11 | `current_stage` alone |
 | `recover` | step-resume | `.bak` over the primary, when `.bak` validates (exit 9 otherwise) |
 | `archive` | SKILL.md (overwrite) | nothing: it moves the state, its `.bak` and the brief into a new folder under `archive/` and returns it |

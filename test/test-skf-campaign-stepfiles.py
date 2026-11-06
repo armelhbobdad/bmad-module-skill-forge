@@ -278,6 +278,49 @@ def test_verify_saves_the_timestamped_report() -> None:
     assert "`report_latest_path` from the envelope" not in outcome
 
 
+@pytest.mark.parametrize(
+    "name, section, code, line, field, stage, skip",
+    [
+        ("step-07-capstone.md", 4, "SS", "SKF_STACK_RESULT_JSON", "capstone", 6, "§2 found no skill to compose"),
+        ("step-08-verify.md", 5, "VS", "SKF_VERIFY_STACK_RESULT_JSON", "verification", 7, "§3 skipped VS"),
+        ("step-09-refine.md", 5, "RA", "SKF_REFINE_ARCHITECTURE_RESULT_JSON", "refinement", 8, "§3 skipped RA"),
+    ],
+    ids=["step-07", "step-08", "step-09"],
+)
+def test_a_sub_skill_with_no_line_is_recorded_no_result(
+    name: str, section: int, code: str, line: str, field: str, stage: int, skip: str
+) -> None:
+    # #890: a run that printed no result line has no result to read (output-contract-schema.md), so the
+    # stage is recorded failed with `no-result`; `--no-<field>` is only for a stage skipped on purpose.
+    text = _step(name)
+    invoke, record = _section(text, section - 1), _section(text, section)
+    # A HARD HALT prints the sub-skill's `error` line on stderr: it is read, never taken for no line.
+    assert f"Keep the `{line}` line it prints for §{section}" in invoke
+    assert f"on stdout, or on stderr when {code} halts." in invoke
+    assert "prints on stdout for" not in invoke
+    call = "uv run {stateScript} set-campaign --state-file {stateFile}"
+    assert (f"When {skip}, record no {field} instead: `{call} --no-{field} --stage {stage}`.") in record
+    assert (f"When {code} printed no `{line}` line on stdout or stderr, there is no result to read, whatever its "
+            f"exit code: record it with `{call} --no-result {field} --stage {stage}`, log \"no {line} line "
+            f"(exit <code>)\" with {code}'s exit code (type `event`), and go on.") in record
+    if code != "SS":
+        # The failure bullet covers a line that failed, never a run with no line (an empty heredoc halts).
+        assert (f"**On {code} failure** (a line whose `status` is `error` or whose `exit_code` is non-zero): the "
+                f"helper sets `campaign.{field}` to `null` and names it in `not_recorded`; log that line's "
+                "`exit_code` and `halt_reason` (type `event`).") in record
+        assert "a non-zero exit, an `error` envelope" not in record
+        assert "from the envelope or stderr" not in record
+    assert text.count(f"--no-{field}") == 1
+    output = text.split("## OUTPUT", 1)[1]
+    assert '"skipped"' in output and "\"failed (<halt_reason>)\" from the helper's `not_recorded` row" in output
+    # The fallback campaign-report.py's export cell uses: the halt reason, else the exit code, else none.
+    assert (f"That row's `halt_reason` fills it (`failed (no-result)` when {code} printed no line); when that is "
+            "null, show `failed (exit <exit_code>)`, or `failed (no exit code)` when the exit code is null too.") in output
+    for gone in ("printed no envelope, or", "no result envelope", "or no envelope"):
+        assert gone not in text, gone
+    assert "\u2014" not in text and "\u2013" not in text
+
+
 def test_verify_records_verify_stacks_verdicts() -> None:
     text = _step("step-08-verify.md")
     outcome = _section(text, 5)

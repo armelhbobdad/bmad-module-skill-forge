@@ -747,6 +747,100 @@ class TestSetCampaign:
         rc, err = _run(capsys, "set-campaign", "--state-file", str(path), "--capstone", "-")
         assert (rc, err["code"]) == (2, "input-unreadable")
 
+    # #890: a sub-skill that printed no result line has no result to read, so steps 07 to 09 record the
+    # stage failed with the halt reason `no-result`, apart from a stage skipped on purpose (--no-<field>).
+    RECORDED_SUMMARIES = {
+        "capstone": {"skill_path": "skills/demo-stack", "quality_score": 88, "verified": True,
+                     "completed_at": STAMP},
+        "verification": {"report_path": "fr-demo.md", "overall_verdict": "FEASIBLE", "coverage_percentage": 90.0,
+                         "recommendation_count": 1},
+        "refinement": {"refined_path": "docs/refined.md", "gap_count": 1, "issue_count": 0, "improvement_count": 2},
+    }
+
+    def _summarised(self, tmp_path: pathlib.Path, stage: int) -> pathlib.Path:
+        state = _state(stage=stage)
+        state["campaign"].update(json.loads(json.dumps(self.RECORDED_SUMMARIES)))
+        return _write(tmp_path, state)
+
+    @pytest.mark.parametrize("field, stage", [("capstone", 6), ("verification", 7), ("refinement", 8)])
+    def test_no_result_records_null_with_its_reason(self, tmp_path, capsys, field, stage):
+        path = self._summarised(tmp_path, stage - 1)
+        rc, out = _run(capsys, "set-campaign", "--state-file", str(path), "--no-result", field, "--stage", str(stage))
+        assert rc == 0
+        assert out["recorded"] == []
+        assert out["not_recorded"] == [{"field": field, "status": None, "halt_reason": "no-result", "exit_code": None}]
+        state = _read(path)
+        expected = {**self.RECORDED_SUMMARIES, field: None}
+        if field == "verification":
+            expected["capstone"] = {**self.RECORDED_SUMMARIES["capstone"], "verified": None}
+        assert {key: state["campaign"][key] for key in self.RECORDED_SUMMARIES} == expected
+        assert state["campaign"]["current_stage"] == stage
+        assert mod.validation_errors(state) == []
+
+    def test_no_result_verification_resets_the_capstone_verified(self, tmp_path, capsys):
+        path = self._summarised(tmp_path, 6)
+        rc, out = _run(capsys, "set-campaign", "--state-file", str(path), "--no-result", "verification",
+                       "--stage", "7")
+        assert rc == 0
+        assert out["changed"] == ["campaign.verification", "campaign.capstone.verified", "campaign.current_stage=7"]
+        capstone = _read(path)["campaign"]["capstone"]
+        assert capstone == {**self.RECORDED_SUMMARIES["capstone"], "verified": None}
+
+    SS_LINE = 'SKF_STACK_RESULT_JSON: {"status":"success","skill_package":"skills/demo-stack","quality_score":88}\n'
+    VS_LINE = 'SKF_VERIFY_STACK_RESULT_JSON: {"status":"success","overall_verdict":"FEASIBLE","exit_code":0}\n'
+    RA_LINE = 'SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success","refined_path":"docs/refined.md","exit_code":0}\n'
+
+    @pytest.mark.parametrize(
+        "field, flag, line",
+        [("capstone", ["--no-capstone"], SS_LINE), ("capstone", ["--capstone", "-"], SS_LINE),
+         ("verification", ["--no-verification"], VS_LINE), ("verification", ["--verification", "-"], VS_LINE),
+         ("refinement", ["--no-refinement"], RA_LINE), ("refinement", ["--refinement", "-"], RA_LINE)],
+        ids=["no-capstone", "capstone-envelope", "no-verification", "verification-envelope", "no-refinement",
+             "refinement-envelope"],
+    )
+    def test_no_result_and_the_field_flag_do_not_combine(self, tmp_path, capsys, monkeypatch, field, flag, line):
+        path = _write(tmp_path, _state(stage=5))
+        before = path.read_bytes()
+        _stdin(monkeypatch, line)
+        rc, err = _run(capsys, "set-campaign", "--state-file", str(path), *flag, "--no-result", field,
+                       "--stage", "6")
+        assert (rc, err["code"]) == (2, "input-invalid")
+        assert path.read_bytes() == before and not _bak(path).exists()
+        assert sys.stdin.read() == line
+
+    def test_an_envelope_and_another_fields_no_result_go_together(self, tmp_path, capsys, monkeypatch):
+        path = self._summarised(tmp_path, 5)
+        _stdin(monkeypatch, self.SS_LINE)
+        rc, out = _run(capsys, "set-campaign", "--state-file", str(path), "--capstone", "-",
+                       "--no-result", "verification", "--stage", "6")
+        assert rc == 0
+        assert out["recorded"] == ["capstone"]
+        assert out["not_recorded"] == [
+            {"field": "verification", "status": None, "halt_reason": "no-result", "exit_code": None}]
+        campaign = _read(path)["campaign"]
+        assert campaign["capstone"] == {"skill_path": "skills/demo-stack", "quality_score": 88, "verified": None,
+                                        "completed_at": STAMP}
+        assert campaign["verification"] is None
+        assert campaign["refinement"] == self.RECORDED_SUMMARIES["refinement"]
+
+    def test_no_result_field_is_closed(self, tmp_path):
+        path = _write(tmp_path, _state(stage=5))
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["set-campaign", "--state-file", str(path), "--no-result", "skills"])
+        assert exc.value.code == 2
+
+    def test_a_skip_and_a_no_result_keep_their_rows(self, tmp_path, capsys):
+        path = self._summarised(tmp_path, 7)
+        rc, out = _run(capsys, "set-campaign", "--state-file", str(path), "--no-verification",
+                       "--no-result", "refinement", "--stage", "8")
+        assert rc == 0
+        assert out["not_recorded"] == [
+            {"field": "verification", "status": None, "halt_reason": None, "exit_code": None},
+            {"field": "refinement", "status": None, "halt_reason": "no-result", "exit_code": None},
+        ]
+        campaign = _read(path)["campaign"]
+        assert campaign["verification"] is None and campaign["refinement"] is None
+
 
 class TestRecoverAndLog:
     def test_recover_copies_a_valid_backup_over_a_corrupt_primary(self, tmp_path, capsys):
