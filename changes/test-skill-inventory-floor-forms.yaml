@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory floor now records the signature a skill writes in a fixed, complete form, not only the name: a function declaration in a cited code block, the leading code span of a `Signature` or `Signatures` cell, and a code-only heading or the export-table first-cell span that writes the name as one call such as `fetch(url): Promise<T>`, with nothing else in the span. `validate-inventory.py --floor` refuses an inventory where no entry of that name carries the form, so the pinned names carry the same form in every run (the signature check still skips a `method` entry and an alternative form it drops). `Props`, `Params` and `Parameters` cells, usage forms and forms written only in prose stay the reader's. Because a pinned form no longer changes between runs, a skill whose pinned form is wrong can now stop at the hard gate on it in a run that used to pass.
+migration: |
+  If a skill now stops at the hard gate on a `signature-mismatch` for a form it writes in a cited declaration, a `Signature` cell, a code-only heading or an export table's first cell, correct that form in the skill (the run's `inventory-floor.json` gives each origin's file, line and `signature`), then run Test Skill again. If that `signature` misreads what the skill writes at that line, the floor is wrong: report it as a bug, with the line and the `signature`.
+issues: [888]

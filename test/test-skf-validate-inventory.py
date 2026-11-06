@@ -559,10 +559,17 @@ def test_cli_a_package_without_skill_md_exits_1(tmp_path):
 FLOOR_SCRIPT = SCRIPT.parent / "load-coverage-inputs.py"
 
 
+def _floor_origin(file, line, form, signature=None):
+    origin = {"file": file, "line": line, "form": form}
+    if signature is not None:
+        origin["signature"] = signature
+    return origin
+
+
 def _floor(*names):
-    """A floor whose names each come with origins: (name, [(file, line, form), ...])."""
+    """A floor whose names each come with origins: (name, [(file, line, form[, signature]), ...])."""
     return {"files": ["SKILL.md"], "names": [
-        {"name": name, "kindLabel": None, "origins": [{"file": f, "line": ln, "form": form} for f, ln, form in origins]}
+        {"name": name, "kindLabel": None, "origins": [_floor_origin(*origin) for origin in origins]}
         for name, origins in names]}
 
 
@@ -609,6 +616,125 @@ def test_any_entry_keeps_a_floor_name_whatever_its_kind(tmp_path):
     assert r["floor"] == {"names": 1, "checked": 1, "absent": []}
 
 
+FORM_TABLE = ("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"
+              "| `fetchData` | function | `(url: string, retries?: number) => Promise<Data>` |\n")
+FORM = {"params": "url: string, retries?: number", "return_type": "Promise<Data>"}
+FORM_VIOLATION = ('floor: `fetchData` is documented at SKILL.md:5 (table-row) with the signature '
+                  '{"params": "url: string, retries?: number", "return_type": "Promise<Data>"}, but no inventory '
+                  'entry of that name carries it; copy it as given')
+
+
+def _signed(*entries, references=None):
+    """An inventory of (name, kind, fields) entries."""
+    data = {"exports": [{"name": n, "kind": k, **fields} for n, k, fields in entries], "cross_check_mismatches": []}
+    if references is not None:
+        data["references"] = references
+    return json.dumps(data)
+
+
+def test_a_floor_form_the_inventory_changes_fails(tmp_path):
+    """#888: an origin's `signature`, the form the skill writes there in a fixed form, must be carried by an entry
+    of that name, whatever its kind: each field it pins non-blank read as form_key reads it (whitespace runs as one
+    space, a list joined with `, `, a blank or null field as absent; a `usage_signature` is not read), a blank
+    pinned return leaving the entry's free. An inventory whose only entry of the name writes another form fails
+    with exit 2, the violation naming the origin and the signature, and leaves no inventory file; the form copied,
+    beside an extra prose entry, validates. Another name's entry carrying the form does not carry it, each checked
+    origin of a name needs its own form, a name left out fails on its name and its form, and an unlisted
+    reference's form is not checked."""
+    pkg = _package(tmp_path, FORM_TABLE)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(floor.read_bytes())["names"][0]["origins"] == [_floor_origin("SKILL.md", 5, "table-row", FORM)]
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(("fetchData", "function", {"params": "url: string",
+                                                            "return_type": "Promise<Data>"})).encode("utf-8"))
+    out.write_bytes(b"{}")
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [FORM_VIOLATION]
+    assert result["floor"] == {"names": 1, "checked": 1, "absent": []} and result["inventory"] is None
+    assert not out.exists()
+
+    read = mod.read_floor(floor)
+    prose = ("fetchData", "function", {"params": "url", "return_type": "Promise<Data>", "description": "In prose."})
+    for copied in ({"params": "url:  string,\n  retries?: number", "return_type": " Promise<Data> "},
+                   {"params": ["url: string", "retries?: number"], "return_type": "Promise<Data>"},
+                   {**FORM, "usage_signature": "fetchData(url)", "signature_form": "full"}):
+        for kind in ("function", "constant"):
+            r = mod.validate_inventory(_signed(prose, ("fetchData", kind, copied)), pkg, read)
+            assert r["valid"] is True, (copied, kind, r["violations"])
+            assert r["floor"] == {"names": 1, "checked": 1, "absent": []}
+    # A blank pinned field leaves the entry's free: an origin with no return is carried with or without one.
+    floor = _floor(("connect", [("SKILL.md", 3, "heading", {"params": "url", "return_type": ""})]))
+    for returned in (None, "", "Socket"):
+        r = mod.validate_inventory(_signed(("connect", "function", {"params": "url", "return_type": returned})),
+                                   floor=floor)
+        assert r["valid"] is True, (returned, r["violations"])
+    r = mod.validate_inventory(_signed(("connect", "function", {"params": "url, opts", "return_type": "Socket"})),
+                               floor=floor)
+    assert r["violations"] == [
+        'floor: `connect` is documented at SKILL.md:3 (heading) with the signature {"params": "url", '
+        '"return_type": ""}, but no inventory entry of that name carries it; copy it as given']
+    # Another name's entry carrying the form does not carry it for this name.
+    floor = _floor(("fetchData", [("SKILL.md", 5, "table-row", FORM)]))
+    r = mod.validate_inventory(_signed(("fetchData", "function", {"params": "url"}), ("getData", "function", FORM)),
+                               floor=floor)
+    assert r["valid"] is False and r["violations"] == [FORM_VIOLATION]
+    # Each checked origin of a name needs its own form; an unlisted reference's origin needs none.
+    other = {"params": "url: string", "return_type": "Data"}
+    floor = _floor(("fetchData", [("SKILL.md", 5, "table-row", FORM), ("references/api.md", 8, "heading", other),
+                                  ("references/b.md", 2, "heading", {"params": "x", "return_type": "Y"})]))
+    listed = ["references/api.md"]
+    r = mod.validate_inventory(_signed(("fetchData", "function", FORM), references=listed), floor=floor)
+    assert r["valid"] is False and r["violations"] == [
+        'floor: `fetchData` is documented at references/api.md:8 (heading) with the signature {"params": '
+        '"url: string", "return_type": "Data"}, but no inventory entry of that name carries it; copy it as given']
+    r = mod.validate_inventory(_signed(("fetchData", "function", FORM), ("fetchData", "function", other),
+                                       references=listed), floor=floor)
+    assert r["valid"] is True and r["floor"] == {"names": 1, "checked": 1, "absent": []}
+    # A name left out fails on its name and on its form; an unlisted reference's form is not checked.
+    floor = _floor(("fetchData", [("SKILL.md", 5, "table-row", FORM)]),
+                   ("helper", [("references/api.md", 2, "heading", {"params": "x", "return_type": ""})]))
+    r = mod.validate_inventory(_signed(("other", "function", {})), floor=floor)
+    assert r["valid"] is False and r["floor"] == {"names": 2, "checked": 1, "absent": ["fetchData"]}
+    assert r["violations"] == [
+        "floor: `fetchData` is documented at SKILL.md:5 (table-row), but no inventory entry lists it",
+        FORM_VIOLATION]
+
+
+def test_a_pinned_form_after_shared_members_is_carried(tmp_path):
+    """#888: the contract has each of several names whose members the skill states once carry that shared text,
+    then `; `, then its own members in its `params`. The floor pins the row's own Signature cell, so a `params`
+    that opens with the shared text and `; ` carries it, as the pinned form copied alone does; a `params` that
+    only ends with the pinned text, with no `; ` before it, does not."""
+    pkg = _package(tmp_path, "# Demo\n\nEach model has the base fields `id, scope=Scope()`.\n\n"
+                             "| Class | Kind | Signature |\n| --- | --- | --- |\n"
+                             "| `Note` | class | `(content, title=None)` |\n| `Task` | class | `(title, done=False)` |\n")
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert [(n["name"], [o.get("signature") for o in n["origins"]]) for n in read["names"]] == [
+        ("Note", [{"params": "content, title=None", "return_type": ""}]),
+        ("Task", [{"params": "title, done=False", "return_type": ""}])]
+    for note, task in (("id, scope=Scope(); content, title=None", "id, scope=Scope(); title, done=False"),
+                       ("content, title=None", ["id", "scope=Scope(); title", "done=False"])):
+        r = mod.validate_inventory(_signed(("Note", "class", {"params": note}), ("Task", "class", {"params": task})),
+                                   pkg, read)
+        assert r["valid"] is True, (note, task, r["violations"])
+    r = mod.validate_inventory(_signed(("Note", "class", {"params": "id, content, title=None"}),
+                                       ("Task", "class", {"params": "title, done=False"})), pkg, read)
+    assert r["valid"] is False and r["violations"] == [
+        'floor: `Note` is documented at SKILL.md:7 (table-row) with the signature {"params": "content, title=None", '
+        '"return_type": ""}, but no inventory entry of that name carries it; copy it as given']
+
+
 def test_a_floor_name_of_an_unlisted_reference_is_not_checked():
     """A floor name counts only through SKILL.md or a reference the inventory lists; the first such origin is
     the one the violation names."""
@@ -650,8 +776,16 @@ def test_an_inventory_that_keeps_the_floor_passes():
     assert "floor" not in mod.validate_inventory(_entries(("fetchData", "nope")), floor=floor)
 
 
-@pytest.mark.parametrize("content", [None, b"{not json", b'{"names": [{"name": "x"}]}', b"[]"],
-                         ids=["missing", "not-json", "no-origins", "not-an-object"])
+@pytest.mark.parametrize("content", [
+    None, b"{not json", b'{"names": [{"name": "x"}]}', b"[]",
+    b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
+    b'"signature": {"params": ["a"], "return_type": ""}}]}]}',
+    b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
+    b'"signature": {"params": "a"}}]}]}',
+    b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
+    b'"signature": {"params": "a", "return_type": "", "usage_signature": "a()"}}]}]}',
+], ids=["missing", "not-json", "no-origins", "not-an-object", "bad-signature", "signature-without-a-return",
+        "signature-with-an-extra-key"])
 def test_an_unreadable_floor_file_exits_1(tmp_path, content):
     response = tmp_path / "inventory-response.txt"
     response.write_bytes(_inventory("real").encode("utf-8"))

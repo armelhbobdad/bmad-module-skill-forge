@@ -217,8 +217,15 @@ def test_census_without_a_skill_md_exits_1(tmp_path):
 # --------------------------------------------------------------------------
 
 
-def _origin(file: str, line: int, form: str) -> dict:
-    return {"file": file, "line": line, "form": form}
+def _origin(file: str, line: int, form: str, signature: dict | None = None) -> dict:
+    origin = {"file": file, "line": line, "form": form}
+    if signature is not None:
+        origin["signature"] = signature
+    return origin
+
+
+def _signature(params: str, return_type: str = "") -> dict:
+    return {"params": params, "return_type": return_type}
 
 
 API_TABLE = (
@@ -243,15 +250,17 @@ API_TABLE = (
 def test_floor_lists_export_table_first_column_names(tmp_path):
     """Every code span in the first cell of an export table's row, a leading `new ` and everything from the first
     `(` or `<` cut, with the row's Kind cell as written; another column's span, a cell with no span and a Prop
-    table give none."""
+    table give none. A first cell that writes a call is the origin's signature (#888)."""
     out = mod.floor(str(_skill(tmp_path, "# Demo\n", {"api.md": API_TABLE})))
     assert out["files"] == ["SKILL.md", "references/api.md"]
     assert out["names"] == [
         {"name": "Client", "kindLabel": "class", "origins": [_origin("references/api.md", 6, "table-row")]},
-        {"name": "connect", "kindLabel": None, "origins": [_origin("references/api.md", 11, "table-row")]},
+        {"name": "connect", "kindLabel": None,
+         "origins": [_origin("references/api.md", 11, "table-row", _signature("url"))]},
         {"name": "fetchAll", "kindLabel": "function", "origins": [_origin("references/api.md", 3, "table-row")]},
         {"name": "fetchData", "kindLabel": "function", "origins": [_origin("references/api.md", 3, "table-row")]},
-        {"name": "request", "kindLabel": "function", "origins": [_origin("references/api.md", 5, "table-row")]},
+        {"name": "request", "kindLabel": "function",
+         "origins": [_origin("references/api.md", 5, "table-row", _signature("url", "Promise<T>"))]},
         {"name": "useQuery", "kindLabel": "hook", "origins": [_origin("references/api.md", 4, "table-row")]},
     ]
     assert out["summary"] == {"names": 6, "byForm": {"table-row": 6, "heading": 0, "declaration": 0}}
@@ -284,7 +293,8 @@ def test_floor_keeps_the_first_kind_label_in_origin_order(tmp_path):
 
 def test_floor_reads_code_only_headings(tmp_path):
     """A heading whose whole text is one code span; a heading with other words, a dotted name, and a heading in
-    the frontmatter, an HTML comment or a fenced block give none."""
+    the frontmatter, an HTML comment or a fenced block give none. A heading that writes a call is the origin's
+    signature (#888)."""
     body = ("---\nname: demo\n# `fm`\n---\n# Demo\n\n"         # 1-6
             "### `Meta<T>`\n\n"                               # 7
             "## Testing with `mount`\n\n"                     # 9
@@ -295,7 +305,7 @@ def test_floor_reads_code_only_headings(tmp_path):
     out = mod.floor(str(_skill(tmp_path, body)))
     assert out["names"] == [
         {"name": "Meta", "kindLabel": None, "origins": [_origin("SKILL.md", 7, "heading")]},
-        {"name": "render", "kindLabel": None, "origins": [_origin("SKILL.md", 11, "heading")]},
+        {"name": "render", "kindLabel": None, "origins": [_origin("SKILL.md", 11, "heading", _signature("ui"))]},
     ]
 
 
@@ -501,6 +511,192 @@ def test_floor_is_byte_identical_across_runs(tmp_path):
         _origin("SKILL.md", 3, "heading"), _origin("SKILL.md", 15, "declaration"),
         _origin("references/api.md", 3, "table-row")]}
     assert [n["name"] for n in out["names"]] == sorted(n["name"] for n in out["names"])
+
+
+FIXED_FORMS = (
+    "# Demo\n"                                                                   # 1
+    "\n"                                                                         # 2
+    "Cited [SRC:src/a.py:L1], [AST:src/b.ts:L1] and [SRC:src/c.rs:L1].\n"        # 3
+    "\n"                                                                         # 4
+    "```python\n"                                                                # 5
+    "# src/a.py:L1\n"                                                            # 6
+    "def f(a: int = 1,\n"                                                        # 7
+    "    b: str = \"#x\") -> R: ...\n"                                           # 8
+    "def build(): ...\n"                                                         # 9
+    "class Model:\n"                                                             # 10
+    "    pass\n"                                                                 # 11
+    "def p(x) \\\n"                                                              # 12
+    "    -> R: ...\n"                                                            # 13
+    "```\n"                                                                      # 14
+    "\n"                                                                         # 15
+    "```ts\n"                                                                    # 16
+    "// src/b.ts:1\n"                                                            # 17
+    "export declare function d(x: T): void;\n"                                   # 18
+    "export function g(): { a: T } {\n"                                          # 19
+    "  return x;\n"                                                              # 20
+    "}\n"                                                                        # 21
+    "export function open(x: T): {\n"                                            # 22
+    "  a: T\n"                                                                   # 23
+    "} {\n"                                                                      # 24
+    "export const arrow = (x: T): R => x;\n"                                     # 25
+    "export function check(x: unknown): asserts x is { a: T } {\n"               # 26
+    "export function either(x: T): A | {\n"                                      # 27
+    "export function sel(sel: (s: S) => T): (state: S) => { value: S } {\n"      # 28
+    "export function thunk(): () => { a: number } {\n"                           # 29
+    "export function ctor(): new () => { a: T } {\n"                             # 30
+    "export function keys(): keyof { a: 1 } {\n"                                 # 31
+    "export function cond<T>(x: T): T extends U ? { a: 1 } : never {\n"          # 32
+    "export function dangling(x: T): Promise<A> |\n"                             # 33
+    "  B {\n"                                                                    # 34
+    "```\n"                                                                      # 35
+    "\n"                                                                         # 36
+    "```rust\n"                                                                  # 37
+    "// src/c.rs:L1\n"                                                           # 38
+    "pub fn w<'a, T>(x: &'a T) -> &'a str where T: Clone {\n"                    # 39
+    "```\n"                                                                      # 40
+    "\n"                                                                         # 41
+    "```go\n"                                                                    # 42
+    "// [SRC:src/d.go:L1]\n"                                                     # 43
+    "func New(opts Options) (*Client, error) {\n"                                # 44
+    "type Config struct{}\n"                                                     # 45
+    "func Any() interface{} {\n"                                                 # 46
+    "func Make() struct{ a int } {\n"                                            # 47
+    "func Chain(hs ...Handler) func(http.Handler) http.Handler {\n"              # 48
+    "func WithTimeout(d time.Duration) func(*Options) {\n"                       # 49
+    "func G1(f func(int) int) func(int) int {\n"                                 # 50
+    "```\n"                                                                      # 51
+    "\n"                                                                         # 52
+    "| Export | Kind | Signature | Props |\n"                                    # 53
+    "| --- | --- | --- | --- |\n"                                                # 54
+    "| `pick` | function | `(x: A \\| B) => C` picks one | |\n"                  # 55
+    "| `useQuery<T>()` | hook | | |\n"                                           # 56
+    "| `new Client(opts)` | class | `new Client(opts: O)` | |\n"                 # 57
+    "| `Meta<T>` | type | `Meta<T>` | |\n"                                       # 58
+    "| `one`, `two` | function | `(x) => y` | |\n"                               # 59
+    "| `Enhancer` | type | `ArgTypesEnhancer<Renderer>` | |\n"                   # 60
+    "| `Docs` | component | | `{ context }: DocsProps`, both required |\n"       # 61
+    "| `bare` | function | | |\n"                                                # 62
+    "| `fetch(url): Promise<T>` | function | `(url: string) => Response` | |\n"  # 63
+    "| `useData(key).data` | hook | | |\n"                                       # 64
+    "| `overload(a) / overload(a, b)` | function | | |\n"                        # 65
+    "| `since` | function | `(a) => R // since v2` | |\n"                        # 66
+    "| `alias` (same as `http.request(opts)`) | function | | |\n"                # 67
+    "| `typed(x): Typed` | function | `Typed<X>` | |\n"                          # 68
+    "| `other` | function | `elsewhere(a): B` | |\n"                             # 69
+    "| `useStore().getState()` | hook | | |\n"                                   # 70
+    "| `get(k)` | function | `client.get(k, default=None) -> str` | |\n"         # 71
+    "| `Client2(opts)` | class | `new Client2(opts: ClientOptions)` | |\n"       # 72
+    "| `run(a, b)` | function | `await run(a, b): Promise<R>` | |\n"             # 73
+    "| `useQ(key)` | hook | `const { data } = useQ(key, fn, opts?)` | |\n"       # 74
+    "| `make(a)` | function | `make(a, b) // overload` | |\n"                    # 75
+    "\n"                                                                         # 76
+    "| Function | Signatures |\n"                                                # 77
+    "| --- | --- |\n"                                                            # 78
+    "| `multi` | `<T>(a: T[]) -> T` |\n"                                         # 79
+    "\n"                                                                         # 80
+    "| Hook | Params | Returns |\n"                                              # 81
+    "| --- | --- | --- |\n"                                                      # 82
+    "| `useThing` | `key: string` | `Thing` |\n"                                 # 83
+    "\n"                                                                         # 84
+    "| API | Parameters |\n"                                                     # 85
+    "| --- | --- |\n"                                                            # 86
+    "| `call` | `(a, b)` |\n"                                                    # 87
+    "\n"                                                                         # 88
+    "| Component | Props (simplified) | Purpose |\n"                             # 89
+    "| --- | --- | --- |\n"                                                      # 90
+    "| `Simple` | `{ a }` | Renders. |\n"                                        # 91
+    "\n"                                                                         # 92
+    "### `render(ui, options?): Result`\n"                                       # 93
+    "\n"                                                                         # 94
+    "### `Bare`\n"                                                               # 95
+    "\n"                                                                         # 96
+    "### `empty()`\n"                                                            # 97
+    "\n"                                                                         # 98
+    "### `chain(x).value`\n"                                                     # 99
+)
+
+
+def test_floor_records_each_fixed_form(tmp_path):
+    """#888: an origin whose place writes the name"s signature in a complete fixed form carries it as `signature`:
+    a cited function declaration (its split parameter list joined, its body cut before the return is read, a TS
+    object return kept), a table row"s Signature or Signatures cell (its leading code span, `\\|` read as `|`), else
+    the one first-cell span that gives the row"s name, and a code-only heading. A wrong pin would be forced into the
+    inventory, so anything short of a complete form pins nothing: a bare first cell or heading, an empty call, a
+    generic-only span, a constructor, a row naming two names, any Props, Params or Parameters cell (a labelled
+    `Props (simplified)` one too), a type row whose Signature cell has no parameter group, text after the group
+    (`useData(key).data`, an overload pair, a trailing comment, a chained call), another export"s span in the
+    first cell or the Signature cell, a `const` arrow, a non-function declaration, one whose brackets do not close,
+    one whose body opener follows `interface`, `struct`, `|`, `is`, `=>`, `keyof` or `?`, one that ends mid-type
+    (`Promise<A> |`, Python's `\\`), and a Go function returning a `func(...)` type. A Signature cell with no group
+    falls back to the row's own first-cell form; one whose call the floor refuses (`client.get(k) -> str`, `new`,
+    `await`, a destructuring, a trailing comment) does not, so a shorter first-cell call is never pinned in its
+    place. The same skill gives the same bytes."""
+    root = _skill(tmp_path, FIXED_FORMS)
+    out = mod.floor(str(root))
+    assert {n["name"]: [(o["line"], o.get("signature")) for o in n["origins"]] for n in out["names"]} == {
+        "Any": [(46, None)],
+        "Bare": [(95, None)],
+        "Chain": [(48, None)],
+        "Client": [(57, None)],
+        "Client2": [(72, None)],
+        "Config": [(45, None)],
+        "Docs": [(61, None)],
+        "Enhancer": [(60, None)],
+        "G1": [(50, None)],
+        "Make": [(47, None)],
+        "Meta": [(58, None)],
+        "Model": [(10, None)],
+        "New": [(44, _signature("opts Options", "(*Client, error)"))],
+        "Simple": [(91, None)],
+        "WithTimeout": [(49, None)],
+        "alias": [(67, None)],
+        "arrow": [(25, None)],
+        "bare": [(62, None)],
+        "build": [(9, None)],
+        "call": [(87, None)],
+        "chain": [(99, None)],
+        "check": [(26, None)],
+        "cond": [(32, None)],
+        "ctor": [(30, None)],
+        "d": [(18, _signature("x: T", "void"))],
+        "dangling": [(33, None)],
+        "either": [(27, None)],
+        "empty": [(97, None)],
+        "f": [(7, _signature('a: int = 1, b: str = "#x"', "R"))],
+        "fetch": [(63, _signature("url: string", "Response"))],
+        "g": [(19, _signature("", "{ a: T }"))],
+        "get": [(71, None)],
+        "keys": [(31, None)],
+        "make": [(75, None)],
+        "multi": [(79, _signature("a: T[]", "T"))],
+        "one": [(59, None)],
+        "open": [(22, None)],
+        "other": [(69, None)],
+        "overload": [(65, None)],
+        "p": [(12, None)],
+        "pick": [(55, _signature("x: A | B", "C"))],
+        "render": [(93, _signature("ui, options?", "Result"))],
+        "run": [(73, None)],
+        "sel": [(28, None)],
+        "since": [(66, None)],
+        "thunk": [(29, None)],
+        "two": [(59, None)],
+        "typed": [(68, _signature("x", "Typed"))],
+        "useData": [(64, None)],
+        "useQ": [(74, None)],
+        "useQuery": [(56, None)],
+        "useStore": [(70, None)],
+        "useThing": [(83, None)],
+        "w": [(39, _signature("x: &'a T", "&'a str"))],
+    }
+    # an origin with no form carries no `signature` key at all
+    assert all(("signature" in o) == (o.get("signature") is not None) for n in out["names"] for o in n["origins"])
+    first, second = tmp_path / "floor-1.json", tmp_path / "floor-2.json"
+    for target in (first, second):
+        proc = _run("floor", "--skill-dir", str(root), "--output", str(target))
+        assert proc.returncode == 0, proc.stderr
+    assert first.read_bytes() == second.read_bytes()
+    assert json.loads(first.read_bytes()) == out
 
 
 def test_floor_without_skill_md_exits_1(tmp_path):

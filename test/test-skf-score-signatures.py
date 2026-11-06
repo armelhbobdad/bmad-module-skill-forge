@@ -1738,6 +1738,20 @@ def test_entries_that_say_the_same_thing_are_one_form(entries, forms):
     assert mod.documented_signatures(entries) == {"Canvas": forms[0]}
 
 
+def test_the_form_helpers_are_the_validators():
+    """#888: validate-inventory.py's floor check reads a floor origin's form as this script tells two entries
+    apart, so the helpers and the signature field list live there and this script reads them from it."""
+    inventory = mod._inventory()
+    assert "SIGNATURE_FIELDS = " not in SCRIPT.read_text(encoding="utf-8") and not hasattr(mod, "SIGNATURE_FIELDS")
+    entry = {"name": "f", "kind": "function", "params": "a", "return_type": "R", "usage_signature": "f(a)",
+             "description": "x", "signature_form": "partial"}
+    assert list(mod._form(entry)) == [*inventory.SIGNATURE_FIELDS, "signature_form"]
+    for value in (None, "a,\n  b", ["a", {"b": 1}], {"x": 2}, 3):
+        assert mod._field_text(value) == inventory.field_text(value)
+    fields = {"params": ["a", "b"], "return_type": "  ", "usage_signature": None, "signature_form": "partial"}
+    assert mod._form_key(fields) == inventory.form_key(fields) == (("params", "a, b"),)
+
+
 @pytest.mark.parametrize("entries, documented", [
     ([{"name": "helper", "kind": "function", "params": ""}, HELPER], HELPER),
     ([{"name": "helper", "kind": "function", "return_type": "number"}, HELPER], HELPER),

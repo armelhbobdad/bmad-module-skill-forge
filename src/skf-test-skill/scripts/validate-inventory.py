@@ -53,7 +53,19 @@ kept when any inventory entry has that name, whatever its kind: kinds stay
 the reader's. Each checked name not
 kept is a violation naming its first checked origin, and the inventory is
 invalid, as for a fabricated name, so the prompt re-dispatches the subagent
-with the names it left out.
+with the names it left out. A checked origin that carries a `signature`
+(#888: the `params` and `return_type` the skill writes there in a fixed
+form) is carried when an entry of that name, whatever its kind, reads as it
+does: each of `params` and `return_type` the signature pins non-blank gives
+the same field_text (whitespace runs as one space, a list's items joined
+with `, `, a null field as blank), and a `params` that opens with the shared
+text the contract has several names' entries carry, then `; `, carries the
+pinned one after it. A field the signature leaves blank, and the entry's
+other fields, a `usage_signature` among them, are not read.
+Each checked origin no entry carries is a violation naming the origin and
+its signature, for a name left out too, and the inventory is invalid: the
+form is never overwritten, so the re-dispatched subagent copies it as
+given.
 
 An entry's optional `signature_form` says how the skill presents its
 signature: `partial` only when the skill labels the form partial (a
@@ -86,7 +98,10 @@ directly in references/ writes it as a fixed string, case-sensitive, never
 inside a longer identifier (the Export match rule of
 skf-scan-skill-md-structure.py usage-scope): on a side where the name ends
 in a letter, digit, `_` or `$`, the next character may not be one of those.
-So `get` is found in `get(url)` but not in `target` or `getAll`.
+So `get` is found in `get(url)` but not in `target` or `getAll`. The form
+helpers `field_text` and `form_key` are shared too: score-signatures.py
+tells an entry's forms apart with them, and the floor check reads a floor
+origin's `signature` with `field_text`.
 
 The skill-citation scan is shared too: `_skill_cited_files` (with
 `_cited_path`, `skill_markdown_files` and `_SKILL_CITATION_RE`) gives the
@@ -145,12 +160,15 @@ Output (stdout, one object):
   }
 
 Exit codes:
-  0  inventory valid (every sampled name found, every checked floor name kept)
+  0  inventory valid (every sampled name found, every checked floor name
+     kept and every checked floor signature carried)
   1  no input provided, the --input file cannot be read, the
      --skill-package folder holds no readable SKILL.md, or the --floor file
-     cannot be read or is not a floor (usage error)
+     cannot be read or is not a floor, a malformed `signature` among them
+     (usage error)
   2  inventory invalid (parse failure, schema violation, a sampled name
-     absent or a floor name left out; result JSON emitted)
+     absent, a floor name left out or a floor signature no entry carries;
+     result JSON emitted)
 """
 
 from __future__ import annotations
@@ -206,6 +224,13 @@ OTHER_SIDE_SHAPES = (
 # Kinds whose documented item also needs its parameters and return type to
 # be complete (the docs-only Export Coverage rule).
 SIGNATURE_KINDS = ("function", "method")
+
+# An entry's signature fields, the ones form_key reads (score-signatures.py reads them from here).
+SIGNATURE_FIELDS = ("params", "return_type", "usage_signature")
+
+# The fields of a floor origin's `signature` (#888), each a string, and the
+# ones the floor check compares with an entry's.
+FLOOR_SIGNATURE_FIELDS = ("params", "return_type")
 
 # Characters that continue an identifier in the languages SKF documents
 # (`$` for JS/TS names such as `$state`).
@@ -409,6 +434,25 @@ def spot_check(inventory, skill_package_path):
     }
 
 
+# --- Signature forms ----------------------------------------------------------
+
+
+def field_text(value: object) -> str:
+    """A signature field as one text: a list's items joined with `, `, whitespace runs as one space, "" for null."""
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        value = ", ".join(v if isinstance(v, str) else json.dumps(v, sort_keys=True) for v in value)
+    return " ".join(value.split()) if isinstance(value, str) else json.dumps(value, sort_keys=True)
+
+
+def form_key(fields: dict) -> tuple:
+    """What a form says, for telling two entries apart (field_text), a
+    null, blank or empty key read as absent, and the `signature_form` label
+    left out (score-signatures.py's documented_forms keeps the full one)."""
+    return tuple((f, field_text(fields[f])) for f in SIGNATURE_FIELDS if f in fields and field_text(fields[f]))
+
+
 # --- Floor ------------------------------------------------------------------
 
 
@@ -416,10 +460,17 @@ class FloorError(Exception):
     """The --floor file cannot be read or is not a floor: exit 1."""
 
 
+def _is_signature(value):
+    """A floor origin's `signature`: an object of exactly the strings `params` and `return_type`."""
+    return (isinstance(value, dict) and sorted(value) == sorted(FLOOR_SIGNATURE_FIELDS)
+            and all(isinstance(value[f], str) for f in FLOOR_SIGNATURE_FIELDS))
+
+
 def _is_origin(origin):
     return (isinstance(origin, dict) and isinstance(origin.get("file"), str) and bool(origin["file"])
             and isinstance(origin.get("line"), int) and not isinstance(origin["line"], bool)
-            and isinstance(origin.get("form"), str))
+            and isinstance(origin.get("form"), str)
+            and ("signature" not in origin or _is_signature(origin["signature"])))
 
 
 def read_floor(path):
@@ -436,7 +487,8 @@ def read_floor(path):
             and isinstance(item.get("origins"), list) and all(_is_origin(o) for o in item["origins"])
             for item in names):
         raise FloorError(f"{path} is not a floor: `names` must give each name's `name` and `origins` "
-                         "(each a file, a line and a form)")
+                         "(each a file, a line and a form, and an optional `signature` of the strings "
+                         "`params` and `return_type`)")
     return data
 
 
@@ -450,33 +502,60 @@ def _listed_path(ref, skill_package_path):
     return _cited_path(ref)
 
 
+def _carries(entry, signature):
+    """Whether an entry carries a floor origin's signature: each field it pins non-blank has the same field_text
+    there, a `params` that opens with members the skill states once for several names (the contract's shared
+    text, then `; `) included."""
+    for field in FLOOR_SIGNATURE_FIELDS:
+        wanted, given = field_text(signature[field]), field_text(entry.get(field))
+        if wanted and given != wanted and not (field == "params" and given.endswith("; " + wanted)):
+            return False
+    return True
+
+
 def floor_check(inventory, floor, skill_package_path=None):
-    """The floor names the inventory leaves out: (the `floor` result, its violations).
+    """The floor names and signatures the inventory leaves out: (the `floor` result, its violations).
 
     A floor name is checked when one of its origins is SKILL.md or a file
     the inventory's `references` lists (the spot-check's files, an absolute
     path inside `skill_package_path` matched by its path relative to it),
     and kept when any inventory entry has that name, whatever its kind. A
-    name left out is a violation naming its first checked origin.
+    name left out is a violation naming its first checked origin. Then each
+    checked origin with a `signature` is carried when an entry of that name,
+    whatever its kind, gives the same field_text to each field the
+    signature pins non-blank (a blank pinned `return_type` leaves the
+    entry's free; a `params` may open with shared text and `; `, _carries);
+    one no entry carries is a violation naming the origin and the
+    signature, for a name left out too.
     """
     listed = inventory.get("references")
     files = {"SKILL.md"} | {_listed_path(ref, skill_package_path)
                             for ref in (listed if isinstance(listed, list) else [])
                             if isinstance(ref, str) and ref.strip()}
-    kept = {e.get("name") for e in inventory.get("exports") or [] if isinstance(e, dict)}
+    entries = [e for e in inventory.get("exports") or [] if isinstance(e, dict)]
+    kept = {e.get("name") for e in entries}
     names = floor.get("names") or []
-    checked, absent, violations = 0, [], []
+    checked, absent, violations, signed = 0, [], [], []
     for item in names:
         origins = [o for o in item["origins"] if _cited_path(o["file"]) in files]
         if not origins:
             continue
         checked += 1
         name = item["name"]
+        signed += [(name, o) for o in origins if "signature" in o]
         if name in kept:
             continue
         absent.append(name)
         where = f"{origins[0]['file']}:{origins[0]['line']} ({origins[0]['form']})"
         violations.append(f"floor: `{name}` is documented at {where}, but no inventory entry lists it")
+    for name, origin in signed:
+        signature = {f: origin["signature"][f] for f in FLOOR_SIGNATURE_FIELDS}
+        if any(_carries(e, signature) for e in entries if e.get("name") == name):
+            continue
+        where = f"{origin['file']}:{origin['line']} ({origin['form']})"
+        violations.append(f"floor: `{name}` is documented at {where} with the signature "
+                          f"{json.dumps(signature, ensure_ascii=False)}, but no inventory entry of that name "
+                          "carries it; copy it as given")
     return {"names": len(names), "checked": checked, "absent": absent}, violations
 
 
@@ -782,7 +861,7 @@ def _build_parser():
     parser.add_argument(
         "--floor",
         metavar="PATH",
-        help="Check the inventory keeps the names of this load-coverage-inputs.py floor file.",
+        help="Check the inventory keeps the names and signatures of this load-coverage-inputs.py floor file.",
     )
     return parser
 

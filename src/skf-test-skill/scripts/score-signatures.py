@@ -245,7 +245,6 @@ from pathlib import Path, PurePosixPath
 # Surface kinds that count toward total_types. A Rust struct is a class and a
 # trait an interface; `type` is a type alias.
 TYPE_KINDS = frozenset({"interface", "type", "enum", "class", "struct", "trait"})
-SIGNATURE_FIELDS = ("params", "return_type", "usage_signature")
 MISMATCH_FIELDS = ("name", "line", "source_sig", "documented_sig", "issue")
 # The optional `difference` a judge tags a mismatch with, defined in
 # references/signature-comparison-rules.md (Difference tags): only the
@@ -518,7 +517,7 @@ def _has_signature(entry: dict) -> bool:
         return True
     return any(
         isinstance(entry.get(f), list) or (isinstance(entry.get(f), str) and entry[f].strip())
-        for f in SIGNATURE_FIELDS
+        for f in _inventory().SIGNATURE_FIELDS
     )
 
 
@@ -552,26 +551,23 @@ def _rank(fields: dict) -> tuple[bool, bool, bool]:
 
 def _form(entry: dict) -> dict:
     """The documented signature fields of one inventory entry, with its `signature_form` when it has one."""
-    fields = {f: entry[f] for f in SIGNATURE_FIELDS if f in entry}
+    fields = {f: entry[f] for f in _inventory().SIGNATURE_FIELDS if f in entry}
     if entry.get("signature_form") is not None:
         fields["signature_form"] = entry["signature_form"]
     return fields
 
 
 def _field_text(value: object) -> str:
-    """A signature field as one text: a list's items joined with `, `, whitespace runs as one space, "" for null."""
-    if value is None:
-        return ""
-    if isinstance(value, list):
-        value = ", ".join(v if isinstance(v, str) else json.dumps(v, sort_keys=True) for v in value)
-    return " ".join(value.split()) if isinstance(value, str) else json.dumps(value, sort_keys=True)
+    """A signature field as one text (validate-inventory.py's field_text, which the floor check reads too): a
+    list's items joined with `, `, whitespace runs as one space, "" for null."""
+    return _inventory().field_text(value)
 
 
 def _form_key(fields: dict) -> tuple:
-    """What a form says, for telling two entries apart (_field_text), a
-    null, blank or empty key read as absent, and the `signature_form` label
-    left out (documented_forms keeps the full one)."""
-    return tuple((f, _field_text(fields[f])) for f in SIGNATURE_FIELDS if f in fields and _field_text(fields[f]))
+    """What a form says, for telling two entries apart (validate-inventory.py's form_key, which the floor check
+    reads too): a null, blank or empty key read as absent, and the `signature_form` label left out
+    (documented_forms keeps the full one)."""
+    return _inventory().form_key(fields)
 
 
 def documented_forms(inventory: list[dict]) -> dict[str, list[dict]]:
