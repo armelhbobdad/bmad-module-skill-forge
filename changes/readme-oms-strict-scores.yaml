@@ -1,3 +1,4 @@
 type: docs
 summary: |
   The README's reference-output paragraph no longer quotes the old 99.0% to 99.49% range for oh-my-skills. It now gives the strict Skill Forge 4.0.0 results that Verifying a Skill already quotes: oms-cocoindex passes at 100% and oms-cognee at 99%, while oms-uitripled and oms-storybook-react-vite are blocked, and every report is published, failing ones included. Like that page, it now calls oh-my-skills a public record of what the pipeline gets right and where its test still falls short, not proof that the pipeline does what it says.
+prs: [900]
