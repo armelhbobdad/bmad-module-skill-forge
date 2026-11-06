@@ -124,6 +124,15 @@ summarize
   "succeeded", "failed", "status", "fail_fast_triggered", "exit_code",
   "summary_path"}, with "warnings" when a summary file could not be
   written. A batch already summarized prints its event again.
+  The batch's result is that event and the file its summary_path names
+  (with summary_path null, when the per-batch file could not be written,
+  the event and batch.jsonl; a summary_write_failed warning beside a set
+  summary_path means only the copy failed): <stem>-latest.json holds the
+  last batch summary written, which may be another batch's, so it never
+  stands for this batch, and a batch cut off before summarize leaves it in
+  place. A summarize on a run folder that is gone (a batch whose targets
+  all succeeded, summarized and removed) exits 1, naming the per-batch
+  file whose input_file (or input_briefs) is this batch's.
 
 The batch file is one JSON object per line, so a write cut short spoils at
 most its own line, which is skipped when read: the next write ends that
@@ -628,10 +637,14 @@ def summary_event(summary: dict) -> dict:
 
 def cmd_summarize(run_dir: Path, output_dir: Path) -> dict:
     if not (run_dir / BATCH_FILE).exists() and not run_dir.exists():
-        stem = SUMMARY_STEMS[CREATE_WORKFLOW if run_dir.name.startswith(f"{CREATE_WORKFLOW}-") else WORKFLOW]
+        create = run_dir.name.startswith(f"{CREATE_WORKFLOW}-")
+        stem = SUMMARY_STEMS[CREATE_WORKFLOW if create else WORKFLOW]
+        names = "input_briefs name its briefs" if create else "input_file names its batch file"
         raise BatchError(f"no batch in {run_dir.as_posix()}: a batch whose targets all succeeded removes its "
-                         f"run folder once summarized; its summary is "
-                         f"{(output_dir / f'{stem}-latest.json').as_posix()}")
+                         f"run folder once summarized; its summary is the {stem}-<YYYYMMDD-HHmmss>.json in "
+                         f"{output_dir.as_posix()} whose {names}, and "
+                         f"{(output_dir / f'{stem}-latest.json').as_posix()} holds the last batch summary "
+                         f"written, which may be another batch's")
     state = load(run_dir)
     name = workflow(state)
     if state["summary"] is not None:

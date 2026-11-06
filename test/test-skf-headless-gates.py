@@ -48,7 +48,14 @@ printed no result line. So:
   `never with`;
 - each skill's headless contract (the sixteen places HEADLESS_CONTRACTS
   names) says a run that printed no envelope line has no result to read,
-  whatever the process exit code.
+  whatever the process exit code;
+- each `--batch` contract (the two skills BATCH_CONTRACTS names: the
+  Headless row of SKILL.md and the "Reading a batch" paragraph of
+  references/batch-mode.md, and the user docs' "Reading the result lines"
+  paragraph) says a batch's result is its `batch_summary` event and the
+  file its `summary_path` names, a batch that printed no such event has no
+  batch result, whatever the process exit code, and its `-latest` copy is
+  never read in its place (#889).
 """
 
 from __future__ import annotations
@@ -441,6 +448,30 @@ HEADLESS_CONTRACTS = {
     "skf-update-skill": "references/invocation-contract.md",
     "skf-verify-stack": "SKILL.md",
 }
+# The batch reading rule (#889), word for word in each --batch contract: a batch is read from its own summary event.
+BATCH_NO_RESULT = "A batch that printed no `batch_summary` event has no batch result, whatever the process exit code"
+# Batches share `_batch/`, and another terminal may run another batch, so the copy may be a later batch's too.
+BATCH_ANOTHER = "holds the last batch summary written, which may be another batch's"
+# Per skill: its -latest batch summary copy as the Headless row names it (Quick Skill's SKILL.md names no result
+# file, which test-skf-quick-skill-contract.py checks) and as references/batch-mode.md names it, the phases of the
+# halt line a batch prints of its own (a failed batch, not a cut-off one), the targets that printed no event, and
+# the next step after a cut-off batch (Quick Skill takes a new run folder, so it starts over; Create Skill finds its
+# batch folder again from the same briefs while it has no summary, and start begins a new batch once it has one).
+BATCH_CONTRACTS = {
+    "skf-quick-skill": ("the batch summary's `-latest` copy", "`quick-skill-batch-latest.json`",
+                        "(phase `batch-mode`, or `on-activation`)",
+                        ("and a target with no event did not run in this session",),
+                        ("starts over from the first target",)),
+    "skf-create-skill": ("`create-skill-batch-latest.json`", "`create-skill-batch-latest.json`",
+                         "(phase `batch-mode`)",
+                         ("a brief the plan listed as not compiled ended failed with its message",
+                          "and any other target with no event did not run in this session"),
+                         ("run `--batch` again with the same briefs: while the batch has no summary, it finds the "
+                          "batch folder again and goes on with the brief it was working on",
+                          "If `summarize` already ran but its event never reached the caller, `start` begins a new "
+                          "batch from the first brief", "the per-batch file in `{skills_output_folder}/_batch/` whose "
+                          "`input_briefs` match")),
+}
 
 
 def _paragraphs(text: str):
@@ -544,3 +575,57 @@ def test_every_headless_contract_says_a_run_with_no_line_has_no_result(skill):
     if rel == "SKILL.md":
         [row] = [line for line in _read(SRC / skill / rel).splitlines() if line.startswith("| **Headless** |")]
         assert NO_RESULT in row, f"{skill}: the reading rule belongs in the Headless row"
+
+
+@pytest.mark.parametrize("skill", sorted(BATCH_CONTRACTS))
+def test_batch_contracts_say_a_batch_with_no_summary_has_no_result(skill):
+    """#889: a batch cut off before `summarize` leaves another batch's -latest summary in place."""
+    row_copy, latest, phases, no_event, next_step = BATCH_CONTRACTS[skill]
+    # a printed event wins over a halt line after it (Create Skill §4 halts on a summarize a compaction repeated)
+    after = "A printed `batch_summary` event stays the batch's result even if a halt line follows it"
+    # a batch refused with no halt line (Quick Skill's python3/uv check, no emitter) is not called cut off alone
+    halt = (f"a halt line of its own {phases} says why it stopped, and with no halt line it was cut off or could not "
+            "print its halt line")
+    rule = (BATCH_NO_RESULT, "`batch_summary` event and the summary file its `summary_path` names",
+            f"that copy {BATCH_ANOTHER}", after, halt, "A target it printed a `done` or `fail` event for ended as "
+            "that event says", "a target with a `start` event and no end event has no result", *no_event)
+    [row] = [line for line in _read(SRC / skill / "SKILL.md").splitlines() if line.startswith("| **Headless** |")]
+    assert NO_RESULT in row, f"{skill}: the run's own rule stays in the Headless row"
+    for token in (*rule, f"never {row_copy} in its place"):
+        assert token in row, f"{skill} Headless row: {token}"
+    [reading] = [p for _, p in _paragraphs(_read(SRC / skill / "references" / "batch-mode.md"))
+                 if p.startswith("**Reading a batch.**")]
+    # the event comes before the health check, so it is never a `claude -p` run's final message
+    stream = ("The event comes before the health check, so a caller reads it from the session's output stream "
+              "(`claude -p --output-format stream-json`) or transcript, not from the final message")
+    for token in (*rule, f"never {latest} in its place", stream, *next_step):
+        assert token in reading, f"{skill} batch-mode.md: {token}"
+    # a null path: the per-batch file was not written, so the event and the batch file; a set path with the
+    # warning: only the copy failed, and the named file still stands
+    assert ("When the event's `summary_path` is null, the per-batch file was not written (its `summary_write_failed` "
+            "warning says why): the event and `{batch_dir}/batch.jsonl`") in reading, skill
+    assert ("A `summary_write_failed` warning beside a set `summary_path` means only the `-latest` copy failed: the "
+            "file it names is still the batch's result") in reading, skill
+    assert reading.count(f"never {latest}") == 2, f"{skill}: the null summary_path clause names the copy too"
+    assert "an earlier one" not in row + reading, f"{skill}: the copy may be a later or concurrent batch's too"
+    [docs] = [p for _, p in _paragraphs(_read(REPO / "docs" / "workflows.md"))
+              if p.startswith("**Reading the result lines.**")]
+    for token in (BATCH_NO_RESULT, "`quick-skill-batch-latest.json` or `create-skill-batch-latest.json`: each "
+                  f"{BATCH_ANOTHER}", "(the event plus the batch run folder's `batch.jsonl` when `summary_path` is "
+                  "null)", stream, after, "a halt line of its own (phase `batch-mode`, or `on-activation` for Quick "
+                  "Skill) says why it stopped, and with no halt line it was cut off or could not print its halt line",
+                  "a Quick Skill batch starts over from the first target, and a Create Skill batch run with the same "
+                  "briefs goes on with the brief it was working on"):
+        assert token in docs, f"docs/workflows.md: {token}"
+    for text in (row, reading, docs):
+        assert "\u2014" not in text and "\u2013" not in text, skill
+
+
+@pytest.mark.parametrize("skill", sorted(BATCH_CONTRACTS))
+def test_batch_contracts_list_the_batch_summary_among_their_outputs(skill):
+    """#889: each Outputs row names the batch summary a --batch run writes (Quick Skill's names no file)."""
+    [outputs] = [line for line in _read(SRC / skill / "SKILL.md").splitlines() if line.startswith("| **Outputs** |")]
+    assert "under `--batch` the batch summary" in outputs, skill
+    if skill == "skf-create-skill":
+        assert ("; and under `--batch` the batch summary (`create-skill-batch-{YYYYMMDD-HHmmss}.json` and its "
+                "`-latest.json` copy in `{skills_output_folder}/_batch/`) |") in outputs

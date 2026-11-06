@@ -759,7 +759,9 @@ def test_quick_skill_headless_block_names_the_success_envelope():
     batch = _paragraph(block, "**Batch mode (`--batch <file>`).**")
     for token in ("each target runs steps 1 to 6", "the health check runs once, after the batch summary",
                   "the highest exit code among its failed targets (`0` when none failed)",
-                  "`--fail-fast` stops it at the first failed target", "writes no summary and exits `2`, or `4`"):
+                  "`--fail-fast` stops it at the first failed target", "writes no summary and exits `2`, or `4`",
+                  "The batch's result is the file that event's `summary_path` names",
+                  "the `-latest` copy holds the last batch summary written, which may be another batch's"):
         assert token in batch, token
 
 
@@ -1551,7 +1553,9 @@ def test_create_skill_documents_the_brief_lookup_the_batch_and_its_result_line()
     for token in ("folders of briefs", "Every brief is validated before the first one compiles",
                   "with the validator's first message", "an earlier brief of the batch already has",
                   "A HARD HALT ends only its own brief", "`create-skill-batch-latest.json`",
-                  "the highest exit code among its briefs, `0` when every brief finished", "goes on where it stopped"):
+                  "the highest exit code among its briefs, `0` when every brief finished", "goes on where it stopped",
+                  "Its result is the file its `batch_summary` event's `summary_path` names",
+                  "the `-latest.json` copy holds the last batch summary written, which may be another batch's"):
         assert token in batch_doc, token
     assert "Ecosystem check" not in section and "Load brief → Extract" in section
     doc = _read(WORKFLOWS)

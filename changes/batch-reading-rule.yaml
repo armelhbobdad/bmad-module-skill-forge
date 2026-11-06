@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-quick-skill, skf-create-skill
+summary: |
+  A Quick Skill or Create Skill `--batch` run now says how a caller reads it: the `batch_summary` event, printed before the health check, and the summary file its `summary_path` names, never `quick-skill-batch-latest.json` or `create-skill-batch-latest.json`, which may be another batch's. A batch that printed no `batch_summary` event, as when a headless session ends partway, has no batch result unless it printed a halt line of its own, and each target ended as its `done` or `fail` event says. After a cut-off batch, a Quick Skill batch runs again from its first target, while a Create Skill `--batch` run with the same briefs goes on with the brief it was working on.
+issues: [889]
