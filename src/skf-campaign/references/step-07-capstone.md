@@ -50,7 +50,7 @@ Invoke `skf-create-stack-skill` with `--headless` and these inputs, so it asks n
 - `stack_name`: the `stack_name` that `uv run {manifestScript} --stack-name {stateFile}` prints, the campaign name as a skill name cut to leave room for the `-stack` SS appends; when it prints null, leave the input out and SS names the stack `{project_name}-stack`
 - `architecture_doc_path`: `campaign.architecture_doc_path`, only when state sets it
 
-Keep the `SKF_STACK_RESULT_JSON` line it prints for §4, which records it. On `status` `error`, or no envelope, log its `halt_reason` (or "no result envelope", type `event`): verification and the campaign report still run.
+Keep the `SKF_STACK_RESULT_JSON` line it prints for §4, which records it: on stdout, or on stderr when SS halts. On `status` `error`, log its `halt_reason` (type `event`); a run with that line on neither stream is recorded in §4. Verification and the campaign report still run either way.
 
 ### §4: Record the Capstone and Complete the Stage
 
@@ -69,10 +69,10 @@ From a `success` envelope it sets `campaign.capstone`, the campaign-level summar
 - `campaign.capstone.verified`: `null` for now; set by the verify stage (step-08) once the stack is checked
 - `campaign.capstone.completed_at`: the time of the write, from the clock
 
-An `error` envelope sets `campaign.capstone` to `null` (the helper names it in `not_recorded`). When §2 found no skill to compose, or SS printed no envelope, record no capstone instead: `uv run {stateScript} set-campaign --state-file {stateFile} --no-capstone --stage 6`.
+An `error` envelope sets `campaign.capstone` to `null` (the helper names it in `not_recorded`). When §2 found no skill to compose, record no capstone instead: `uv run {stateScript} set-campaign --state-file {stateFile} --no-capstone --stage 6`. When SS printed no `SKF_STACK_RESULT_JSON` line on stdout or stderr, there is no result to read, whatever its exit code: record it with `uv run {stateScript} set-campaign --state-file {stateFile} --no-result capstone --stage 6`, log "no SKF_STACK_RESULT_JSON line (exit <code>)" with SS's exit code (type `event`), and go on.
 
 The capstone is a derived artifact: it is **not** tracked as a skill entry in the `skills[]` array. The constituent skill list and any verbose detail are reported in the step output and are available to downstream steps (verify, refine).
 
 ## OUTPUT
 
-Display capstone summary: stack skill name, path, quality score, and the list of constituent skills. Chain to `{nextStepFile}`.
+Display capstone summary: stack skill name, path, quality score, and the list of constituent skills, or "skipped" when §2 found no skill to compose, or "failed (<halt_reason>)" from the helper's `not_recorded` row. That row's `halt_reason` fills it (`failed (no-result)` when SS printed no line); when that is null, show `failed (exit <exit_code>)`, or `failed (no exit code)` when the exit code is null too. Chain to `{nextStepFile}`.

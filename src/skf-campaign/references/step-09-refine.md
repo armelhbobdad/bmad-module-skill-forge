@@ -56,7 +56,7 @@ skf-refine-architecture --headless --architecture-doc <arch_path> --vs-report-pa
 - `--vs-report-path`: `campaign.verification.report_path` from §3, or `none` when state holds no report path.
 - `--scope-skills`: comma-separated names of completed campaign skills (from `skills[]` where `status == "completed"`). Optional but improves focus by limiting refinement scope to campaign-relevant skills.
 
-Keep the `SKF_REFINE_ARCHITECTURE_RESULT_JSON` line it prints on stdout for §5. Its fields are defined once, by `shared/scripts/schemas/skf-refine-architecture-result-envelope.v1.json` (in the SKF module: `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development); §5 reads `status`, `refined_path`, `gap_count`, `issue_count` and `improvement_count` from it.
+Keep the `SKF_REFINE_ARCHITECTURE_RESULT_JSON` line it prints for §5: on stdout, or on stderr when RA halts. Its fields are defined once, by `shared/scripts/schemas/skf-refine-architecture-result-envelope.v1.json` (in the SKF module: `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development); §5 reads `status`, `refined_path`, `gap_count`, `issue_count` and `improvement_count` from it.
 
 ### §5: Record the RA Outcome and Complete the Stage
 
@@ -75,8 +75,8 @@ SKF_RESULT
 - `campaign.refinement.issue_count`: from the envelope
 - `campaign.refinement.improvement_count`: from the envelope
 
-**On RA failure** (a non-zero exit, an `error` envelope): the helper sets `campaign.refinement` to `null` and names it in `not_recorded`; log the exit code and `halt_reason` (from the envelope or stderr, type `event`). Refinement failure does NOT block the campaign: the campaign continues to export with whatever state exists. When RA printed no envelope, or §3 skipped it, record no refinement instead: `uv run {stateScript} set-campaign --state-file {stateFile} --no-refinement --stage 8`.
+**On RA failure** (a line whose `status` is `error` or whose `exit_code` is non-zero): the helper sets `campaign.refinement` to `null` and names it in `not_recorded`; log that line's `exit_code` and `halt_reason` (type `event`). Refinement failure does NOT block the campaign: the campaign continues to export with whatever state exists. When §3 skipped RA, record no refinement instead: `uv run {stateScript} set-campaign --state-file {stateFile} --no-refinement --stage 8`. When RA printed no `SKF_REFINE_ARCHITECTURE_RESULT_JSON` line on stdout or stderr, there is no result to read, whatever its exit code: record it with `uv run {stateScript} set-campaign --state-file {stateFile} --no-result refinement --stage 8`, log "no SKF_REFINE_ARCHITECTURE_RESULT_JSON line (exit <code>)" with RA's exit code (type `event`), and go on.
 
 ## OUTPUT
 
-Display refinement summary: refined architecture path (or "skipped" if architecture doc was not found), gap count, issue count, and improvement count. Chain to `{nextStepFile}`.
+Display refinement summary: refined architecture path (or "skipped" if architecture doc was not found, or "failed (<halt_reason>)" from the helper's `not_recorded` row), gap count, issue count, and improvement count. That row's `halt_reason` fills it (`failed (no-result)` when RA printed no line); when that is null, show `failed (exit <exit_code>)`, or `failed (no exit code)` when the exit code is null too. Chain to `{nextStepFile}`.

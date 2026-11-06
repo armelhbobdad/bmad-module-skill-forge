@@ -80,8 +80,13 @@ Operations:
                     summary read from the sub-skill's result envelope line
                     (a file or `-`; the line's SKF_*_RESULT_JSON: prefix is
                     optional). A success envelope is recorded; an error
-                    envelope, or --no-capstone and the like, records null.
-                    A recorded verification also sets capstone.verified.
+                    envelope, or --no-capstone and the like (a stage
+                    skipped on purpose), records null. --no-result <field>
+                    (repeatable) records a sub-skill that printed no result
+                    line: null, with halt reason no-result in its
+                    not_recorded row; it does not go with that field's
+                    --<field> or --no-<field>. A recorded verification also
+                    sets capstone.verified.
   recover           Copy a .bak that validates over the primary (step-resume).
   archive           Move the state, its .bak and the brief, each one that
                     exists, into archive/<campaign name>-<UTC stamp>/ beside
@@ -130,7 +135,8 @@ CLI:
       --entry <text> [--entry <text> ...] [--stage <N>]
   uv run campaign-state.py set-campaign --state-file <p> [--architecture-doc-path <p>] \\
       [--capstone <p|-> | --no-capstone] [--verification <p|-> | --no-verification] \\
-      [--refinement <p|-> | --no-refinement] [--stage <N>]
+      [--refinement <p|-> | --no-refinement] \\
+      [--no-result capstone|verification|refinement ...] [--stage <N>]
   uv run campaign-state.py recover --state-file <p>
   uv run campaign-state.py archive --state-file <p> --brief-file <p>
   uv run campaign-state.py log --log-file <p> --type <decision|auto|event> --text <entry>
@@ -161,8 +167,8 @@ Exit codes (each is the campaign's HALT code for the same class):
   2  invalid input: a missing or unreadable input file, an unknown skill,
      output from another script that holds an error, a gate the gate script
      rejects, a state that init would overwrite, a brief template that is
-     no YAML mapping, export flags that do not go together, or an archive
-     folder that exists
+     no YAML mapping, export flags or set-campaign flags that do not go
+     together, or an archive folder that exists
   3  invalid state: the state is missing, malformed or fails the schema, or
      the change would make it fail (nothing written)
   4  apply-plan: a plan the stages cannot follow (circular-deps)
@@ -787,6 +793,11 @@ SUMMARIES = (("capstone", _capstone), ("verification", _verification), ("refinem
 
 
 def op_set_campaign(args: argparse.Namespace) -> dict:
+    no_result = set(args.no_result or ())
+    for field, _build in SUMMARIES:
+        if field in no_result and (getattr(args, field) is not None or getattr(args, f"no_{field}")):
+            raise StateError(EXIT_INPUT, "input-invalid",
+                             f"--no-result {field} does not go with --{field} or --no-{field}")
     envelopes = {}
     for field, _build in SUMMARIES:
         source = getattr(args, field)
@@ -812,6 +823,9 @@ def op_set_campaign(args: argparse.Namespace) -> dict:
             elif getattr(args, f"no_{field}"):
                 value = None
                 not_recorded.append({"field": field, "status": None, "halt_reason": None, "exit_code": None})
+            elif field in no_result:
+                value = None
+                not_recorded.append({"field": field, "status": None, "halt_reason": "no-result", "exit_code": None})
             else:
                 continue
             campaign[field] = value
@@ -1054,6 +1068,9 @@ def build_parser() -> argparse.ArgumentParser:
         group = p.add_mutually_exclusive_group()
         group.add_argument(f"--{field}", help=f"the {field} sub-skill's result envelope line, a file or -")
         group.add_argument(f"--no-{field}", action="store_true", help=f"record campaign.{field} as null")
+    p.add_argument("--no-result", action="append", choices=[f for f, _ in SUMMARIES], metavar="FIELD",
+                   help="record the field as null with halt reason no-result: its sub-skill printed no "
+                        "result line (repeat for several; not with that field's --FIELD or --no-FIELD)")
 
     command("recover", "copy a valid .bak over the primary", stage=None)
 
