@@ -120,15 +120,23 @@ Record format violations as **WARNING** findings.
 
 ### 9. Security Scan (if skill-check available)
 
-Run: `npx skill-check check <skill-dir> --format json` (security scan enabled by default).
+Run: `npx skill-check check <skill-dir> --format json > "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"` (security scan enabled by default), so stdout, stderr and the exit code are read apart.
 
-Record security findings as advisory **WARNING** findings — they do not block the report.
+**If `{run_dir}/skill-check.json` does not start with a JSON object**, skill-check stopped before it validated (exit 2 on a config, option or plugin error): record no finding, only the §10 note "security scan skipped: skill-check failed ({the stderr line that names the cause, or its last line})". Otherwise stdout can go on after the JSON (a `Wrote <path>` line when the project config sets a report path), so read only the JSON object at its start.
 
-**If unavailable:** Skip with note in validation results.
+**Read the JSON, not the exit code.** skill-check exits 1 when `summary.errorCount` is above 0, when `--strict` or `--fail-on-warning` is passed and `summary.warningCount` is above 0 (this call passes neither), or when the scan exits non-zero, and 2 when no scan runner starts, so a non-zero exit is not a security finding. skill-check 1.2.0 puts no security key in the JSON. The scan exited non-zero, which without `--ci` means it did not finish, when skill-check exits 1 although `summary.errorCount` is 0: stderr is then the scan's last lines (its tail), even when blank. On exit 0, stderr is never a scan tail (npm and Node warnings can be there); when exit 1 has another cause, stderr is a scan tail only when it holds the scanner's own lines, such as its token message or a finding code. A finding code is `[`, a capital letter, three digits and `]` (such as `[E001]`), the codes skill-check's own scan summary counts. Read the scan from stderr and the exit code, the first that applies:
+
+- **Could not run:** skill-check exits 2, the call stopped before it exited, or the scan exited non-zero and its tail carries no finding code. Record no finding, only a note in the §10 validation results: "security scan skipped: SNYK_TOKEN not configured" when the tail says to set the `SNYK_TOKEN` environment variable (the scanner prints "To use Agent Scan, set the SNYK_TOKEN environment variable."), otherwise "security scan skipped: scanner could not run ({the stderr line that names the cause, or its last line})", or "security scan skipped: scanner exited non-zero with no output" when stderr is blank.
+- **Findings:** `security[]` holds findings, or the tail carries finding codes.
+- **Neither:** record the §10 note "security scan exited 0; skill-check 1.2.0 does not pass the scan's findings on". Without `--ci`, agent-scan also exits 0 when its analysis fails (a 401 from a bad token, a 429, a network error), so this does not show that the scan found nothing (#892).
+
+Record security findings as advisory **WARNING** findings: they do not block the report.
+
+**If unavailable:** Skip, with the note "security scan skipped: skill-check unavailable" in the §10 validation results.
 
 ### 10. Display Validation Results
 
-Report the validation outcome. If all checks passed, state so and name what was verified: file presence (`{count}/{count}`), SKILL.md structure, metadata.json fields, the `{lib_count}` library + `{pair_count}` integration reference files, and complete confidence-tier coverage. If there were findings, report the `{warning_count}` finding(s) — each with severity, description, and file path — plus files present/expected and warning/error counts; when errors include missing files, note this may indicate a write failure in step 07.
+Report the validation outcome. If all checks passed, state so and name what was verified: file presence (`{count}/{count}`), SKILL.md structure, metadata.json fields, the `{lib_count}` library + `{pair_count}` integration reference files, and complete confidence-tier coverage. If there were findings, report the `{warning_count}` finding(s), each with severity, description, and file path, plus files present/expected and warning/error counts; when errors include missing files, note this may indicate a write failure in step 07. In both cases, list each §9 security scan note.
 
 ### 11. Auto-Proceed to Next Step
 

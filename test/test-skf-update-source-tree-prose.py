@@ -119,6 +119,9 @@ brief's when metadata.json records none, for Category B's runner; under
 public-api, merge, write.md's `exports[]` and `apply` keep only the names
 `records` marks public; the manifest names the file a moved export left.
 
+And the #885 fix: write.md §7 records `Security: SKIP` when skill-check
+exits non-zero and its stderr names `SNYK_TOKEN`.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -5422,6 +5425,15 @@ def test_the_report_reads_the_validation_write_recorded():
     assert _fence(six, "uv run {updateActiveSymlinkHelper} verify").split() == [
         "uv", "run", "{updateActiveSymlinkHelper}", "verify", "\\", "--skill-group", "{skill_group}", "\\",
         "--version", "{version}"]
+
+
+def test_the_security_skip_names_the_sign_of_a_missing_token():
+    """#885: §7 records `Security: SKIP` on a sign it names, so a token failure is not read as a pass."""
+    run = _slice(_read(WRITE), '- Run `npx skill-check check "{skill_package}" --fix --format json` **inside the §0 '
+                               'guard**', "\n")
+    assert "Read the JSON, not the exit code" in run
+    assert ("When the scan could not run (no `SNYK_TOKEN`: skill-check exits non-zero and its stderr names "
+            "`SNYK_TOKEN`), record `Security: SKIP (SNYK_TOKEN not configured)`.") in run
 
 
 def test_the_evidence_records_live_in_the_run_folder():

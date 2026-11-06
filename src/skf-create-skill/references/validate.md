@@ -221,7 +221,7 @@ npx skill-check check <staging-skill-dir> --format json
 
 Record any security warnings in evidence-report. Security findings are advisory — they do not block artifact generation. If the full validation re-run produces a different quality score than section 2, update the evidence-report with the newer score.
 
-**If security scan fails due to missing SNYK_TOKEN:**
+**If security scan fails due to missing SNYK_TOKEN** (skill-check exits non-zero and its stderr names `SNYK_TOKEN`):
 
 Display: "Security scan requires a Snyk Enterprise API token ([docs](https://docs.snyk.io/snyk-api/authentication-for-api)). Set `SNYK_TOKEN=your-token` in environment or `.env`, then re-run [SF] Setup Forge. Without Enterprise, use `--no-security-scan` to skip. Security scanning is optional and does not block skill compilation."
 
