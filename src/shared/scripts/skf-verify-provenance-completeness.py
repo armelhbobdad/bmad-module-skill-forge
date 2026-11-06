@@ -455,7 +455,8 @@ Subcommands:
          "source": "<source_file>:<source_line>" | "<source_file>" | null,
          "defined_at": "<path>:<line>" | null,
          "declared_in": ["<path>:<line>", ...] | null,
-         "reason": "not-defined" | "defined" | "unchecked" | "no-entry",
+         "reason": "not-defined" | "aliased" | "defined" | "unchecked"
+                   | "no-entry",
          "entries": [{"source_file": "<as recorded>",
                       "source_line": <as recorded>,
                       "line_check": "checked" | "file-missing"
@@ -469,9 +470,30 @@ Subcommands:
     `fabricated` is true, with reason `not-defined`, when the name has an
     entry and every entry's `line_check` is `file-missing`, or `checked`
     with an empty `definition_lines`: the export is in neither the surface
-    nor the cited file. Otherwise the reason is `defined` (a cited file
-    defines the name), `unchecked` (no rule could check a cited file, and
-    none defines it) or `no-entry` (the map has no entry for the name).
+    nor the cited file, and no item of an export list or of a Python
+    `from X import` clause elsewhere renames to it a name that file
+    declares. Such an alias (`export { API_Entry as Entry }` or
+    `export type { ... }`, on one line or an item of a multi-line list;
+    `from X import L as NAME`, on one line or an item in parentheses or
+    after a backslash) gives the reason `aliased` and `fabricated` false:
+    the first of the name's declarations the lookup below finds (its
+    `declared_in`, else the cited file's) that is such an item
+    `L as NAME`, where a file of a `checked` entry of the name declares
+    `L` by the same rule (no module or package so named counting), is its
+    `defined_at`. A TS/JS line is read with its comments removed and its
+    one-line strings blanked, a Python line with its `#` comment cut.
+    Neither the rename's `from` module nor `L`'s own binding is resolved,
+    so an `L` that another file declares under the same name counts too.
+    Any other rename stays fabricated: `export { default as NAME }`,
+    `const NAME = L`, `type NAME = L`, an import then an export of NAME,
+    Python `NAME = L`, a TS type assertion (`x as NAME`) and `as NAME` in
+    a comment or a string; and so does a name whose cited file is the
+    module so named and itself the export (a column-0 `export default` or
+    `module.exports =`), which settles it at its line 1, so no walk looks
+    for an alias elsewhere.
+    Otherwise the reason is `defined` (a cited file defines the name),
+    `unchecked` (no rule could check a cited file, and none defines it) or
+    `no-entry` (the map has no entry for the name).
     An entry with no `source_file` (update-skill writes one for an
     `unknown` NEW_EXPORT) cites no file to check: its `line_check` is
     `no-file`, which, like a skipped or unreadable check, neither proves
@@ -483,7 +505,8 @@ Subcommands:
     `defined_at` is where the source declares a name that is not
     fabricated, so test-skill can tell a documented extra (a name outside
     the surface that the source still declares) from stale documentation;
-    a fabricated name is not looked up (null). A declaration is a line at
+    a fabricated name has none and no `declared_in` (both null), the
+    lookup reading it only for an alias. A declaration is a line at
     column 0 that the definition-line rules match with imports left out:
     a `def`, `class`, assignment, annotation, type alias, TS/JS
     declaration, `exports.NAME =`, or an alias that renames
@@ -498,9 +521,12 @@ Subcommands:
     `const NAME = require(...)`, `const { NAME } = require(...)`,
     `exports.NAME = require(...)`, `{ NAME: require(...) }`), an
     indented line and any line of a Python
-    file that does not tokenize never count. A module or package named
-    NAME (`NAME.py`, `NAME/__init__.py`, a TS/JS `NAME.<ext>` or
-    `NAME/index.<ext>`) declares NAME too: at its line 1 when no line of it
+    file that does not tokenize never count (an item of a multi-line list
+    counts at its own line, the list's opening line at column 0, so an
+    `aliased` name's `defined_at` is its rename's line). A module or
+    package named NAME (`NAME.py`, `NAME/__init__.py`, a TS/JS
+    `NAME.<ext>` or `NAME/index.<ext>`) declares NAME too: at its line 1
+    when no line of it
     declares NAME, unless `--inventory` gives NAME a `function`, `hook`,
     `class`, `interface`, `enum` or `type` kind (any of its kinds, when it
     gives several; a `method` kind is not read), no entry of NAME is a
@@ -524,10 +550,12 @@ Subcommands:
     and `defined_at` is the one item when the list has exactly one and no
     walked Python file that does not tokenize holds the name (a homonym,
     two files or more, gives null: test-skill decides it by the files the
-    skill cites). The walk reads, sorted by path, every file below the
-    walk root: the deepest folder that the files of the map's entries
-    share, widened to its package root (Python: the nearest folder at or
-    above it that holds `__init__.py`, then up while the parent holds
+    skill cites), save for an `aliased` name, whose `defined_at` is its
+    alias whatever the list holds. The walk reads, sorted by path, every
+    file below the walk root: the deepest folder that the files of the
+    map's entries share, widened to its package root (Python: the nearest
+    folder at or above it that holds `__init__.py`, then up while the
+    parent holds
     one, never the source root itself; TS/JS: the nearest folder at or
     above it that holds `package.json`), leaving out the entries whose
     file lies outside every package; the source root when none lies in
@@ -551,9 +579,12 @@ Subcommands:
     skips, those walk-only ones aside. The path is relative to the source
     root. A dotted name, or a map whose entries cite files
     but no Python or TS/JS one, is not looked up (`defined_at` and
-    `declared_in` null, as for a fabricated name), and a filesystem error
-    during the lookup gives every name null in both (the exit code stays
-    0).
+    `declared_in` null, as for a fabricated name). A filesystem error
+    during the lookup of the names that are not fabricated gives each of
+    them null in both (the exit code stays 0). The `not-defined` names are
+    looked up apart, after the others and whether or not that lookup
+    failed: an error in their walk or their alias check keeps only them
+    fabricated, and clears no other name's answer.
 
   kind-at --file <path> --line <n> --recipes <recipes>
           [--language <lang>] [--name <export_name>]
@@ -2360,6 +2391,8 @@ STALE_NOT_DEFINED = "not-defined"
 STALE_DEFINED = "defined"
 STALE_UNCHECKED = "unchecked"
 STALE_NO_ENTRY = "no-entry"
+# a not-defined name a declaration renames to it from a name a cited file declares
+STALE_ALIASED = "aliased"
 
 
 def stale_names(data: object) -> list[str]:
@@ -2745,6 +2778,68 @@ def baseline_gaps(
     return gaps, unchecked
 
 
+# A one-line TS/JS string literal, blanked before an export list is read.
+_JS_STRING_RE = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"|`(?:[^`\\]|\\.)*`")
+_JS_IDENT_RE = re.compile(r"[A-Za-z_$][\w$]*")
+
+
+def _renamed_locals(lines: list[str], index: int, name: str, family: str) -> list[str]:
+    """The names line `index` (from 0) of a file renames to `name` as an item
+    of an export list (`export { L as NAME }` or `export type { ... }`, on
+    one line or an item of a multi-line list) or of a Python
+    `from X import` clause (on one line, or an item of one in parentheses
+    or continued with a backslash): each `L` an identifier other than
+    `name`, and in TS/JS other than `default` (`export { default as NAME }`
+    renames the default export, no declared name). A TS/JS line is read
+    with its `//` and `/* */` comments removed and each one-line string
+    blanked, a Python line with its `#` comment cut (a `from X import`
+    clause holds no string). The list opens at the nearest column-0
+    `export {` (`from X import`) at or above the line, and must not close
+    above it. Empty for any other line: `as NAME` in a comment or a string,
+    a TS type assertion (`const NAME = x as NAME`), `import { L as NAME }`
+    and Python's `import M as NAME` rename nothing here. Neither the `from`
+    module nor the binding of `L` is resolved: the caller takes `L` as
+    the name a cited file declares."""
+    if not 0 <= index < len(lines) or not re.search(
+        rf"(?<![\w$])as\s+{re.escape(name)}(?![\w$])", lines[index]
+    ):
+        return []
+    python = family == "python"
+    if python:
+        code = [line.split("#", 1)[0] for line in lines[: index + 1]]
+        opener, close, item_re = _PY_FROM_IMPORT_RE, ")", _PY_IMPORT_ITEM_RE
+    else:
+        code = [_JS_STRING_RE.sub('""', line) for line in _js_code_lines(lines[: index + 1])]
+        opener, close, item_re = _JS_EXPORT_LIST_RE, "}", _JS_EXPORT_ITEM_RE
+    for start in range(index, -1, -1):
+        opened = opener.match(code[start]) if _is_column_0(code[start]) else None
+        if opened is not None:
+            break
+        if start < index and close in code[start]:
+            return []  # a list that closes above the line holds it not
+    else:
+        return []
+    head = opened.group(1)
+    if start < index:
+        # an item of a list the opening line leaves open: in parentheses, or
+        # a Python clause each of whose lines above ends with a backslash
+        continued = all(line.rstrip().endswith("\\") for line in code[start:index])
+        if close in head or (python and not head.lstrip().startswith("(") and not continued):
+            return []
+        head = code[index]
+    locals_: list[str] = []
+    for item in head.split(close, 1)[0].replace("(", " ").replace("\\", " ").split(","):
+        found = item_re.match(item.strip())
+        if found is None or found.group(2) != name:
+            continue
+        local = found.group(1)
+        if local == name or (not python and local == "default"):
+            continue
+        if (_PY_IDENT_RE if python else _JS_IDENT_RE).fullmatch(local):
+            locals_.append(local)
+    return locals_
+
+
 class _DeclarationLookup:
     """Where the source declares the stale names (classify-stale's
     `defined_at`): a column-0 declaration, an alias that renames included, a
@@ -2766,7 +2861,10 @@ class _DeclarationLookup:
     on its path and the same skips but the walk-only ones, judged below the
     walk root when it lies there. The walk runs once for all the names no
     cited file settles: each file is read once, and only a file whose text
-    holds a name goes through the rules. Any error of the filesystem raises
+    holds a name goes through the rules. `renamed` then tells which of a
+    name's declarations is an alias of a name a cited file declares (an
+    item of an export list or of a Python `from X import` clause), from
+    the lines the lookup read. Any error of the filesystem raises
     (`_LOOKUP_ERRORS`)."""
 
     def __init__(self, entries: list[dict], source_root: Path) -> None:
@@ -2786,6 +2884,9 @@ class _DeclarationLookup:
         # the cited files read, kept for the walk: a few files at most
         self._cited: dict[tuple[str, ...], list[str] | None] = {}
         self._cited_cache = _SourceCache()
+        # during the suspects' pass only (`keep_declaring`): the lines of each
+        # file a declaration was found in, by path, which `renamed` reads
+        self._declaring: dict[str, list[str]] | None = None
 
     # -- the walk root ------------------------------------------------------
 
@@ -2921,8 +3022,8 @@ class _DeclarationLookup:
                     found.append((*below, filename))
         return sorted(found)
 
-    @staticmethod
     def _first(
+        self,
         parts: tuple[str, ...],
         lines: list[str],
         name: str,
@@ -2931,11 +3032,16 @@ class _DeclarationLookup:
     ) -> str | None:
         """`file:line` of the first line of a file that declares `name`, else,
         with `module_fallback`, its line 1 when it is the module or package
-        so named (`declared_line`)."""
+        so named (`declared_line`). After `keep_declaring`, the file's lines
+        are kept for `renamed`."""
         line = declared_line(
             parts, name, lines=lines, cache=cache, module_fallback=module_fallback
         )
-        return f"{'/'.join(parts)}:{line}" if line is not None else None
+        if line is None:
+            return None
+        if self._declaring is not None:
+            self._declaring['/'.join(parts)] = lines
+        return f"{'/'.join(parts)}:{line}"
 
     # -- the answer ---------------------------------------------------------
 
@@ -3018,6 +3124,36 @@ class _DeclarationLookup:
                     hits[name].append(hit)
         return {name: sorted(_without_stubs(h)) for name, h in hits.items()}, unsure
 
+    def keep_declaring(self) -> None:
+        """From now on, keep the lines of each file a declaration is found in,
+        for `renamed`: the suspects' pass, which comes last."""
+        self._declaring = {}
+
+    def renamed(self, name: str, hits: list[str], files: list[str]) -> str | None:
+        """The first of `hits` (`file:line` declarations of `name` the lookup
+        found, sorted) whose line renames to `name`, as an item of an export
+        list or of a Python `from X import` clause (`_renamed_locals`), a
+        name `L` one of `files` (source_file values, as recorded) declares:
+        `declared_line` gives `L` a line of that file, no module or package
+        so named counting. The lines are the ones the lookup read after
+        `keep_declaring` (`_first`), never read again. None when no hit is
+        such an alias."""
+        cited = list(dict.fromkeys(filter(None, map(_cited_parts, files))))
+        for hit in sorted(hits):
+            file, _, number = hit.rpartition(":")
+            lines, family = (self._declaring or {}).get(file), _rule_family(file)
+            if lines is None or family is None or not number.isdigit():
+                continue
+            for local in _renamed_locals(lines, int(number) - 1, name, family):
+                for parts in cited:
+                    source = self._cited_lines(parts)
+                    if source is not None and declared_line(
+                        parts, local, lines=source, cache=self._cited_cache,
+                        module_fallback=False,
+                    ) is not None:
+                        return hit
+        return None
+
 
 def inventory_kinds(data: object, path: str) -> dict[str, frozenset[str]]:
     """name -> the kinds a documented inventory gives it (`--inventory`):
@@ -3054,18 +3190,26 @@ def classify_stale(
     """The fabricated-signature test for each stale name: the definition-lines
     rules at every provenance entry whose raw `export_name` is the name, and
     for a name that is not fabricated, where the source declares it
-    (`defined_at`, and `declared_in` when the walk looked for it). The
-    classify-stale section of the module docstring gives each reason, what
-    a `no-file` entry means, which entry gives `source` and how
-    `defined_at` and `declared_in` are found. `kinds` (`inventory_kinds`,
-    None without `--inventory`) keeps a name of a `NO_MODULE_KINDS` kind
-    from a module or package so named, unless an entry of the name is a
-    `module` or `package` one.
+    (`defined_at`, and `declared_in` when the walk looked for it). A name
+    the cited files do not define is looked up too, after the others and
+    in a lookup of its own (an error there keeps it fabricated and clears
+    no other name), with no module or package so named counting unless it
+    is the export, and is `aliased`, not fabricated, when one of its
+    declarations is an export-list or `from X import` item renaming to it
+    a name a `checked` entry's file declares (`_DeclarationLookup.renamed`);
+    any other such name keeps both null. The classify-stale section of the
+    module docstring gives each reason, what a `no-file` entry means, which
+    entry gives `source` and how `defined_at` and `declared_in` are found.
+    `kinds` (`inventory_kinds`, None without `--inventory`) keeps a name of
+    a `NO_MODULE_KINDS` kind from a module or package so named, unless an
+    entry of the name is a `module` or `package` one.
     """
     entries = [e for e in prov.get("entries") or [] if isinstance(e, dict)]
     results: list[dict] = []
-    # the names to look up (never a fabricated one): name -> its cited files
+    # the names to look up that are not fabricated: name -> its cited files
     cited: dict[str, list[str]] = {}
+    # the not-defined names an alias may clear: name -> its checked entries' files
+    suspects: dict[str, list[str]] = {}
     # the names a module so named does not declare
     strict: set[str] = set()
     for name in names:
@@ -3097,7 +3241,12 @@ def classify_stale(
             reason = STALE_UNCHECKED
         source = next(filter(None, map(_entry_citation, mine)), None)
         fabricated = reason == STALE_NOT_DEFINED
-        if not fabricated:
+        if fabricated:
+            # a missing file declares nothing an alias could rename
+            checked = [c["source_file"] for c in checks if c["line_check"] == "checked"]
+            if checked:
+                suspects[name] = checked
+        else:
             cited[name] = [f for f in map(_entry_file, mine) if f is not None]
             documented = (kinds or {}).get(name, frozenset())
             if documented & NO_MODULE_KINDS and not any(map(_module_entry, mine)):
@@ -3113,16 +3262,43 @@ def classify_stale(
                 "entries": checks,
             }
         )
+    lookup: _DeclarationLookup | None = None
     try:
-        found, declared = _DeclarationLookup(entries, source_root).find(
-            cited, frozenset(strict)
-        )
+        lookup = _DeclarationLookup(entries, source_root)
+        found, declared = lookup.find(cited, frozenset(strict))
     except _LOOKUP_ERRORS:
         # a lookup that fails proves nothing: every name stays null
         found, declared = {}, {}
+    # the suspects' own lookup, after: an error there clears no name settled
+    # above, and keeps every suspect fabricated
+    aliased: dict[str, str] = {}
+    suspect_declared: dict[str, list[str]] = {}
+    if suspects and lookup is not None:
+        try:
+            # a suspect is strict: a cited module so named settles it before
+            # the walk only when it is the export
+            lookup.keep_declaring()
+            suspect_found, suspect_declared = lookup.find(suspects, frozenset(suspects))
+            for name, files in suspects.items():
+                hits = suspect_declared[name] if name in suspect_declared else (
+                    [suspect_found[name]] if name in suspect_found else []
+                )
+                hit = lookup.renamed(name, hits, files)
+                if hit is not None:
+                    aliased[name] = hit
+        except _LOOKUP_ERRORS:
+            aliased, suspect_declared = {}, {}
     for item in results:
-        item["defined_at"] = found.get(item["name"])
-        item["declared_in"] = declared.get(item["name"])
+        name = item["name"]
+        if name in suspects:
+            if name in aliased:
+                item.update(
+                    fabricated=False, reason=STALE_ALIASED,
+                    defined_at=aliased[name], declared_in=suspect_declared.get(name),
+                )
+            continue  # any other suspect stays fabricated, both null
+        item["defined_at"] = found.get(name)
+        item["declared_in"] = declared.get(name)
     return results
 
 
