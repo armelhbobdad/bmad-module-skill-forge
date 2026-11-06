@@ -527,14 +527,62 @@ def test_summarize_twice_prints_the_same_event(batch, capsys, tmp_path):
     assert len(list((tmp_path / "o").glob("quick-skill-batch-2*.json"))) == 1
 
 
-def test_a_removed_batch_folder_names_its_summary(batch, capsys, tmp_path):
+def test_a_removed_batch_folder_points_to_its_per_batch_summary(batch, capsys, tmp_path):
+    """#889: the message names the per-batch file whose input_file is this batch's, never the -latest copy alone."""
     file, run_dir = batch
+    out_dir = tmp_path / "o"
     _run(capsys, "start", str(file), "--run-dir", str(run_dir))
     _finish(run_dir, capsys, ["success", "success", "success"])
-    _run(capsys, "summarize", "--run-dir", str(run_dir), "--output-dir", str(tmp_path / "o"))
-    code, out, err = _run(capsys, "summarize", "--run-dir", str(run_dir), "--output-dir", str(tmp_path / "o"))
+    _, event, _ = _run(capsys, "summarize", "--run-dir", str(run_dir), "--output-dir", str(out_dir))
+    code, out, err = _run(capsys, "summarize", "--run-dir", str(run_dir), "--output-dir", str(out_dir))
     assert (code, out) == (1, None)
-    assert (tmp_path / "o" / "quick-skill-batch-latest.json").as_posix() in json.loads(err)["message"]
+    message = json.loads(err)["message"]
+    assert (out_dir / "quick-skill-batch-latest.json").as_posix() in message
+    assert (f"its summary is the quick-skill-batch-<YYYYMMDD-HHmmss>.json in {out_dir.as_posix()} whose input_file "
+            "names its batch file") in message
+    assert "holds the last batch summary written, which may be another batch's" in message
+    # the file the message points to is this batch's: its input_file is the batch file
+    assert json.loads(Path(event["summary_path"]).read_text(encoding="utf-8"))["input_file"] == str(file.absolute())
+    # a Create Skill batch folder points to the file whose input_briefs name its briefs
+    with pytest.raises(mod.BatchError) as refused:
+        mod.cmd_summarize(tmp_path / "skf-create-skill-batch-0123456789ab", out_dir)
+    assert (f"its summary is the create-skill-batch-<YYYYMMDD-HHmmss>.json in {out_dir.as_posix()} whose "
+            "input_briefs name its briefs") in str(refused.value)
+
+
+def test_a_batch_cut_off_before_summarize_leaves_the_earlier_latest_summary(tmp_path, capsys):
+    """#889: batch B, cut off after `next` handed out its second target, printed no batch_summary event and wrote
+    no summary, so the output folder holds batch A's files alone and the -latest copy is A's summary."""
+    out = tmp_path / "o"
+    file_a = tmp_path / "a.txt"
+    file_a.write_text("lodash\n", encoding="utf-8")
+    run_a = tmp_path / "skf-quick-skill-a"
+    _run(capsys, "start", str(file_a), "--run-dir", str(run_a))
+    _finish(run_a, capsys, ["success"])
+    _, event_a, _ = _run(capsys, "summarize", "--run-dir", str(run_a), "--output-dir", str(out))
+    file_b = tmp_path / "b.txt"
+    file_b.write_text("zod\nhono\nky\n", encoding="utf-8")
+    run_b = tmp_path / "skf-quick-skill-b"
+    _run(capsys, "start", str(file_b), "--run-dir", str(run_b))
+    printed = []
+    _, nxt, err = _run(capsys, "next", "--run-dir", str(run_b))
+    printed.append(err)
+    _success(Path(nxt["run_dir"]))
+    _, _, err = _run(capsys, "record", "--run-dir", str(run_b), "--batch", str(nxt["batch"]), "--target", "stderr")
+    printed.append(err)
+    _, nxt, err = _run(capsys, "next", "--run-dir", str(run_b))
+    printed.append(err)  # the session ends here: hono started, never recorded, and summarize never runs
+    events = [json.loads(line) for chunk in printed for line in chunk.splitlines() if line.strip()]
+    assert [(e["target"], e["status"]) for e in events] == [("zod", "start"), ("zod", "done"), ("hono", "start")]
+    assert not any("batch_summary" in e for e in events), "B printed no batch_summary event: no batch result"
+    assert sorted(p.name for p in out.iterdir()) == sorted([Path(event_a["summary_path"]).name,
+                                                            "quick-skill-batch-latest.json"])
+    latest = json.loads((out / "quick-skill-batch-latest.json").read_text(encoding="utf-8"))
+    assert latest["input_file"] == str(file_a.absolute()) != str(file_b.absolute())
+    assert [r["target"] for r in latest["results"]] == ["lodash"], "the -latest copy is A's, not B's"
+    state_b = mod.load(run_b)
+    assert state_b["summary"] is None
+    assert sorted(state_b["results"]) == [1], "hono has a start event and no end event: it has no result"
 
 
 def test_two_batches_that_end_in_one_second_keep_both_summaries(tmp_path, capsys, monkeypatch):
@@ -562,6 +610,9 @@ def test_a_summary_that_cannot_be_written_keeps_the_batch_file(batch, capsys, tm
     assert code == 0 and event["summary_path"] is None
     assert event["warnings"][0].startswith("summary_write_failed:")
     assert (run_dir / "batch.jsonl").is_file(), "with no summary file, the batch file is the only record"
+    # #889: with summary_path null, the event and batch.jsonl are the batch's result (batch-mode.md §4)
+    kept = mod.load(run_dir)
+    assert kept["summary"]["summary_path"] is None and sorted(kept["results"]) == [1, 2, 3]
 
 
 # --------------------------------------------------------------------------

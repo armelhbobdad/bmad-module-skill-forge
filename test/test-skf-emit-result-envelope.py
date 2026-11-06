@@ -1585,6 +1585,11 @@ def test_output_contract_tells_consumers_to_read_the_runs_own_line():
     assert "it holds the last run whose emitter wrote this copy" in text
     # a tool that looks up a skill's last run, rather than one it started, may still read the copy
     assert "A tool that looks up the last run of a skill rather than one it started" in consumers
+    # #889: a --batch run is read from its own summary event, never its -batch-latest.json copy
+    assert ("Under `--batch` (skf-quick-skill, skf-create-skill), a batch's result is its `batch_summary` event and "
+            "the summary file its `summary_path` names, never the `quick-skill-batch-latest.json` or "
+            "`create-skill-batch-latest.json` copy: that copy holds the last batch summary written, which may be "
+            "another batch's, and a batch that printed no `batch_summary` event has no batch result") in consumers
 
 
 def test_docstring_names_every_envelope_block_field_and_sink_file():
