@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `signature-mismatch` for a form it writes in a cited declaration, a `Signature` cell, a code-only heading or an export table's first cell, correct that form in the skill (the run's `inventory-floor.json` gives each origin's file, line and `signature`), then run Test Skill again. If that `signature` misreads what the skill writes at that line, the floor is wrong: report it as a bug, with the line and the `signature`.
 issues: [888]
+prs: [898]
