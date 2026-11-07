@@ -11,10 +11,11 @@ and the §1a ground-truth spot-check folded into the script (#598 item 5):
 the first, middle and last names after a sort, looked up as whole names in
 SKILL.md and the listed reference files, so an export named `$state` or
 `a.b` is neither a shell variable nor a regex, and an absent name makes the
-inventory invalid. Each entry with a compared form gives its place, `at`
-(#918): a line of SKILL.md or a listed reference that writes its name, the
-floor's origin where the floor pins its signature, and the form's own
-citations are read there.
+inventory invalid. Each entry with a compared form is asked for its place,
+`at` (#918): a line of SKILL.md or a listed reference that writes its name,
+the floor's origin where the floor pins its signature, and the form's own
+citations are read there. A missing or bad `at` is a warning, never a
+refusal: the bad one is dropped, so plan leaves that form unbound.
 """
 
 from __future__ import annotations
@@ -895,8 +896,11 @@ def test_each_form_gives_the_place_it_starts():
     reference, kept as the package names it. Without the package only its shape and its file are checked."""
     r = mod.validate_inventory(_places(_form_entry("./SKILL.md:3"), _form_entry("references\\api.md:5"),
                                        _form_entry(" SKILL.md:7 ", usage_signature="run_pipeline(steps)")))
-    assert r["valid"] is True, r["violations"]
+    assert r["valid"] is True and r["warnings"] == [], r["violations"]
     assert [e["at"] for e in r["inventory"]["exports"]] == ["SKILL.md:3", "references/api.md:5", "SKILL.md:7"]
+
+
+UNBOUND = "the form is compared as one whose citations name no declaration"
 
 
 @pytest.mark.parametrize("entry", [
@@ -907,12 +911,13 @@ def test_each_form_gives_the_place_it_starts():
     {"name": "Note", "kind": "class", "params": "id; content"},
     {"name": "run", "kind": "function", "params": "a", "at": None},
 ], ids=["params", "empty-function-params", "empty-list", "usage", "class-params", "null"])
-def test_an_entry_with_a_form_and_no_at_is_refused(entry):
+def test_an_entry_with_a_form_and_no_at_is_a_warning(entry):
+    """#918: a form with no place is still compared, unbound, so the inventory stays valid and the entry is
+    listed in `warnings`; a JSON null `at` is no `at`, and is left out of the inventory."""
     r = mod.validate_inventory(_places(entry))
-    assert r["valid"] is False and r["inventory"] is None
-    assert r["violations"] == [
-        f"exports[0] (`{entry['name']}`) carries a form but no `at`: give the place the skill writes it, "
-        "\"<path>:<line>\" (SKILL.md or a listed reference, and the line the form starts on)"]
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == [f"exports[0] (`{entry['name']}`) carries a form but no `at`, so {UNBOUND}"]
+    assert "at" not in r["inventory"]["exports"][0]
 
 
 @pytest.mark.parametrize("entry", [
@@ -923,7 +928,8 @@ def test_an_entry_with_a_form_and_no_at_is_refused(entry):
     {"name": "Card", "kind": "constant", "usage_signature": "  "},
 ], ids=["method", "blank-class-params", "data-constant", "return-type-only", "blank-usage"])
 def test_an_entry_plan_compares_no_form_of_needs_no_at(entry):
-    assert mod.validate_inventory(_places(entry))["valid"] is True
+    r = mod.validate_inventory(_places(entry))
+    assert r["valid"] is True and r["warnings"] == []
     assert mod.compared_form(entry) is False
 
 
@@ -936,16 +942,20 @@ def test_an_entry_plan_compares_no_form_of_needs_no_at(entry):
     ("README.md:1", "`at` names \"README.md\", no file the inventory reads"),
     ("references/other.md:1", "`at` names \"references/other.md\", no file the inventory reads"),
 ], ids=["no-line", "line-0", "an-L", "no-path", "a-number", "another-file", "an-unlisted-reference"])
-def test_a_bad_at_is_refused(at, violation):
-    """Any entry's `at`, one a method gives too, is "<path>:<line>" in a file the inventory reads."""
-    for entry in (_form_entry(at), {"name": "get", "kind": "method", "at": at}):
+def test_a_bad_at_is_dropped_with_a_warning(at, violation):
+    """Any entry's `at`, one a method gives too, is "<path>:<line>" in a file the inventory reads. One that is not
+    never refuses the inventory: it is dropped, so the inventory carries no bad `at`, and listed in `warnings`."""
+    for entry, left in ((_form_entry(at), f"; it is dropped and {UNBOUND}"),
+                        ({"name": "get", "kind": "method", "at": at}, "; it is dropped")):
         r = mod.validate_inventory(_places(entry))
-        assert r["valid"] is False
-        [message] = r["violations"]
+        assert r["valid"] is True and r["violations"] == [], r["violations"]
+        [message] = r["warnings"]
         assert message.startswith(f"exports[0] (`{entry['name']}`): ") and violation in message, message
+        assert message.endswith(left), message
+        assert "at" not in r["inventory"]["exports"][0]
 
 
-@pytest.mark.parametrize("at, valid", [
+@pytest.mark.parametrize("at, good", [
     ("SKILL.md:3", True),       # the prose line
     ("SKILL.md:6", True),       # the fenced block's declaration line
     ("SKILL.md:7", True),       # another line of the block, which writes the name
@@ -957,17 +967,22 @@ def test_a_bad_at_is_refused(at, violation):
     ("references/api.md:3", False),
 ], ids=["prose", "declaration", "in-the-block", "table-row", "heading", "fence", "after-the-block", "past-the-end",
         "header-row"])
-def test_an_at_is_a_line_that_writes_the_name(tmp_path, at, valid):
+def test_an_at_is_a_line_that_writes_the_name(tmp_path, at, good):
     """#918: with the package, an `at` is a line of its file that writes the entry's name outside its citations,
-    or a line in the body of a fenced block that writes it."""
+    or a line in the body of a fenced block that writes it. Any other is dropped with a warning, and the inventory
+    stays valid."""
     pkg = _package(tmp_path, PLACES_SKILL, {"api.md": PLACES_REFERENCE})
     r = mod.validate_inventory(_places(_form_entry(at)), pkg)
-    assert r["valid"] is valid, r["violations"]
-    if not valid:
-        [message] = r["violations"]
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    [entry] = r["inventory"]["exports"]
+    if good:
+        assert r["warnings"] == [] and entry["at"] == at
+    else:
+        [message] = r["warnings"]
         assert message.startswith(f"exports[0] (`run_pipeline`): `at` {json.dumps(at)} ")
         assert ("past the end of SKILL.md (11 lines)" in message if at == "SKILL.md:12"
                 else "is a line that does not write `run_pipeline`" in message), message
+        assert message.endswith(f"; it is dropped and {UNBOUND}") and "at" not in entry, message
 
 
 def test_a_name_only_a_citation_writes_is_not_on_the_line(tmp_path):
@@ -975,41 +990,50 @@ def test_a_name_only_a_citation_writes_is_not_on_the_line(tmp_path):
     citations, so the citation line after the block is not the form's place."""
     pkg = _package(tmp_path, PLACES_SKILL, {"api.md": PLACES_REFERENCE})
     r = mod.validate_inventory(_places(_form_entry("SKILL.md:11")), pkg)
-    assert r["violations"] == ["exports[0] (`run_pipeline`): `at` \"SKILL.md:11\" is a line that does not write "
-                               "`run_pipeline`: give the line the form starts on"]
+    assert r["warnings"] == ["exports[0] (`run_pipeline`): `at` \"SKILL.md:11\" is a line that does not write "
+                             f"`run_pipeline`; it is dropped and {UNBOUND}"]
     r = mod.validate_inventory(_places(_form_entry("SKILL.md:7", name="missing")), pkg)
-    assert r["violations"][-1] == (
+    assert r["warnings"] == [
         "exports[0] (`missing`): `at` \"SKILL.md:7\" is a line that does not write `missing`, nor does the fenced "
-        "block that holds it: give the line the form starts on")
+        f"block that holds it; it is dropped and {UNBOUND}"]
 
 
-def test_an_at_in_a_listed_file_that_cannot_be_read_is_refused(tmp_path):
+def test_an_at_in_a_listed_file_that_cannot_be_read_is_dropped(tmp_path):
     pkg = _package(tmp_path, PLACES_SKILL)
     r = mod.validate_inventory(_places(_form_entry("references/api.md:1"), references=["references/api.md"]), pkg)
-    assert r["violations"] == ["exports[0] (`run_pipeline`): `at` \"references/api.md:1\" names a file that cannot "
-                               "be read"]
+    assert r["valid"] is True and "at" not in r["inventory"]["exports"][0]
+    assert r["warnings"] == ["exports[0] (`run_pipeline`): `at` \"references/api.md:1\" names a file that cannot "
+                             f"be read; it is dropped and {UNBOUND}"]
 
 
-def test_the_cli_refuses_a_missing_at_and_writes_no_inventory(tmp_path):
+@pytest.mark.parametrize("at, warning", [
+    (None, f"exports[0] (`run_pipeline`) carries a form but no `at`, so {UNBOUND}"),
+    ("SKILL.md:11", "exports[0] (`run_pipeline`): `at` \"SKILL.md:11\" is a line that does not write "
+                    f"`run_pipeline`; it is dropped and {UNBOUND}"),
+    ("SKILL.md:6", None),
+], ids=["missing", "bad", "good"])
+def test_the_cli_writes_the_inventory_with_no_bad_at(tmp_path, at, warning):
+    """#918: a missing or bad `at` exits 0 with its warning, and the inventory --output writes leaves the bad one
+    out; a good one is kept."""
     pkg = _package(tmp_path, PLACES_SKILL)
     response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
-    response.write_bytes(_places(_form_entry(None), references=()).encode("utf-8"))
-    out.write_bytes(b"{}")
-    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
-                           "--output", str(out)], capture_output=True, text=True, encoding="utf-8")
-    assert proc.returncode == 2, proc.stdout + proc.stderr
-    assert json.loads(proc.stdout)["violations"][0].startswith("exports[0] (`run_pipeline`) carries a form but no")
-    assert not out.exists()
-    response.write_bytes(_places(_form_entry("SKILL.md:6"), references=()).encode("utf-8"))
+    response.write_bytes(_places(_form_entry(at), references=()).encode("utf-8"))
     proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
                            "--output", str(out)], capture_output=True, text=True, encoding="utf-8")
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert json.loads(out.read_bytes())["exports"][0]["at"] == "SKILL.md:6"
+    assert json.loads(proc.stdout)["warnings"] == ([] if warning is None else [warning])
+    [entry] = json.loads(out.read_bytes())["exports"]
+    assert entry.get("at") == ("SKILL.md:6" if warning is None else None)
+
+
+PINNED = ('floor: `fetchData` is documented at {} (table-row) with the signature {{"params": "url: string, '
+          'retries?: number", "return_type": "Promise<Data>"}}')
 
 
 def test_a_floor_signature_is_carried_at_its_origin(tmp_path):
     """#918: where the floor pins a form's origin, the entry that carries its signature gives that origin as its
-    `at`; one that carries it elsewhere is refused, naming the `at` to give."""
+    `at`. One that carries it elsewhere is a warning, never a refusal: its `at` is dropped, so plan leaves the form
+    unbound, and the inventory stays valid."""
     pkg = _package(tmp_path, FORM_TABLE + "\nAlso `fetchData(url: string, retries?: number)` in prose.\n")
     floor = tmp_path / "inventory-floor.json"
     proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
@@ -1017,13 +1041,31 @@ def test_a_floor_signature_is_carried_at_its_origin(tmp_path):
     assert proc.returncode == 0, proc.stderr
     read = mod.read_floor(floor)
     r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, "at": "SKILL.md:7"})), pkg, read)
-    assert r["valid"] is False and r["violations"] == [
-        'floor: `fetchData` is documented at SKILL.md:5 (table-row) with the signature {"params": "url: string, '
-        'retries?: number", "return_type": "Promise<Data>"}, but no inventory entry that carries it gives `at` '
-        '"SKILL.md:5": give the entry of that place `at` "SKILL.md:5"']
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == [PINNED.format("SKILL.md:5") + ', but exports[0], which carries it, gives `at` '
+                             f'"SKILL.md:7"; it is dropped and {UNBOUND}']
+    assert "at" not in r["inventory"]["exports"][0]
     r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, "at": "SKILL.md:7"}),
                                        ("fetchData", "function", {**FORM, "at": "./SKILL.md:5"})), pkg, read)
-    assert r["valid"] is True, r["violations"]
+    assert r["valid"] is True and r["warnings"] == [], r["violations"]
+    assert [e["at"] for e in r["inventory"]["exports"]] == ["SKILL.md:7", "SKILL.md:5"]
+
+
+def test_a_floor_signature_carried_at_another_origin_keeps_that_place(tmp_path):
+    """#918: the floor pins one form at two places, and one entry carries it at the first. Its `at` is a pinned
+    origin of that form, so it is kept; the second origin, which no entry gives as its `at`, is a warning of its
+    own, its citations not read."""
+    pkg = _package(tmp_path, FORM_TABLE, {"api.md": FORM_TABLE})
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, "at": "SKILL.md:5"}),
+                                       references=["references/api.md"]), pkg, mod.read_floor(floor))
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == [PINNED.format("references/api.md:5") + ', but no inventory entry that carries it gives '
+                             '`at` "references/api.md:5", so the citations there are not read']
+    assert r["inventory"]["exports"][0]["at"] == "SKILL.md:5"
 
 
 @pytest.mark.parametrize("line, citations", [

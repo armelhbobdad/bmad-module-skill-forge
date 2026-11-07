@@ -320,6 +320,9 @@ def test_a_bound_form_is_compared_with_its_own_declaration_alone():
             "line the declaration or call starts on (a `def` or `class` line, not a decorator above it), never a "
             "fence.") in contract
     assert "a form that writes only a `return_type` gives no `at`" in contract
+    assert ("A missing or bad `at` (malformed, in another file, on a line that does not write the name, or not the "
+            "place `inventory-floor.json` gives that form's `signature`) leaves its form unbound in the same way, and "
+            "the validator lists it in its `warnings` instead of refusing the inventory.") in contract
     assert "has that form as its entry, with that place as its `at`, whatever its kind" in contract
     spec = importlib.util.spec_from_file_location("validate_inventory_contract_example",
                                                   TEST_SKILL / "scripts" / "validate-inventory.py")

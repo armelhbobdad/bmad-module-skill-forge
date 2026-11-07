@@ -1782,6 +1782,37 @@ def test_a_form_bound_to_nothing_is_planned_as_before(tmp_path, tree, inventory)
     assert "bound" not in _homonym_check(json.loads(plan.stdout))
 
 
+def test_a_form_whose_place_validation_drops_is_planned_unbound(tmp_path):
+    """#918: an `at` validate-inventory.py finds bad never refuses the inventory; it drops it with a warning. The
+    lightweight form's `at` names the line after its form, which does not write `run_pipeline` but cites the
+    lightweight runner: read as given, plan would bind the form there. Validated, the inventory keeps the entry
+    without that `at`, and plan leaves the form unbound, byte for byte the plan of an inventory with no `at`."""
+    tree = {"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n{APART}\n\n"
+                        f"`run_pipeline(steps, *, data=None, context=None)`.\n\n{APART}\n\n"
+                        f"The steps run in order [AST:{LIGHTWEIGHT}:L37].\n"}
+    misplaced = _run_pipeline(lightweight_at="SKILL.md:11")
+    raw = json.loads(_homonym_plan(tmp_path / "raw", tree, inventory=misplaced).stdout)
+    assert _homonym_check(raw)["bound"] == [LIGHTWEIGHT_BOUND], "the bad place, read as given, binds"
+    skill = tmp_path / "skill"
+    for rel, text in tree.items():
+        _write(skill / rel, text)
+    response = _write(tmp_path / "inventory-response.txt", {"exports": misplaced, "cross_check_mismatches": []})
+    inventory = tmp_path / "inventory.json"
+    proc = subprocess.run([sys.executable, str(SCRIPTS / "validate-inventory.py"), "--input", response,
+                           "--skill-package", str(skill), "--output", str(inventory)], capture_output=True,
+                          text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["warnings"] == [
+        "exports[1] (`run_pipeline`): `at` \"SKILL.md:11\" is a line that does not write `run_pipeline`; it is "
+        "dropped and the form is compared as one whose citations name no declaration"]
+    validated = json.loads(inventory.read_bytes())["exports"]
+    assert [e.get("at") for e in validated] == ["SKILL.md:3", None]
+    plan = _homonym_plan(tmp_path / "validated", tree, inventory=validated)
+    assert "bound" not in _homonym_check(json.loads(plan.stdout))
+    without = _homonym_plan(tmp_path / "without", tree, inventory=_run_pipeline(None, None))
+    assert plan.stdout == without.stdout
+
+
 def test_a_form_is_bound_to_one_of_two_surface_records(tmp_path):
     """#918 with #830's candidates: composeStories has records in react and vue3. Each form's own citation names
     one of them, so each is bound to its own, while the check, whose citations name both files, keeps every record
@@ -2162,6 +2193,7 @@ def test_a_function_only_a_lazy_re_export_reaches_is_compared_where_its_form_cit
                            "--skill-package", str(skill), "--output", str(inventory)], capture_output=True,
                           text=True, encoding="utf-8")
     assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["warnings"] == [], "each of the six places writes the name"
     plan = tmp_path / "signature-plan.json"
     proc = _run("plan", "--inventory", str(inventory), "--surface", str(surface), "--skill-dir", str(skill),
                 "--output", str(plan))

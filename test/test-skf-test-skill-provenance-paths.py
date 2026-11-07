@@ -1463,12 +1463,12 @@ def test_an_invalid_inventory_is_redispatched_once_then_halts_with_its_reason():
     assert "Re-dispatch the §1 subagent once, with the script's `violations[]` appended" in failures
     assert "(an absent name as a name the skill does not write, a floor name as one it must keep)" in failures
     assert 'HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`)' in section
-    assert ("failed {schema validation | the ground-truth spot-check | the place (`at`) check | the floor check} "
-            "twice") in section
+    assert "failed {schema validation | the ground-truth spot-check | the floor check} twice" in section
+    assert "place (`at`) check" not in section, "a missing or bad place is a warning, never a halt (#918)"
     assert "SKF_TEST_RESULT_JSON" not in _read(COVERAGE), "the emitter prints the line"
     table = _flow(_slice(_read(CONTRACT), "| `halt_reason` | Raised by |", "When the emitter itself"))
     assert ("| `inventory-invalid` | coverage-check.md §1a: the documented inventory failed its schema check, "
-            "spot-check, place (`at`) check or floor check twice |") in table
+            "spot-check or floor check twice |") in table
 
 
 def test_the_spot_check_is_the_scripts():
@@ -1507,8 +1507,12 @@ def test_the_floor_runs_before_the_inventory_subagent():
         assert rule not in flow, rule
     assert "first cell" in _flow(runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py").__doc__)
     section1a = _flow(_slice(text, "#### 1a. Parent-Side Schema Validation", "### 1b."))
-    assert ("refuses it when it leaves out a floor name those files write, or an origin's `signature` at its "
-            "origin, or when an entry's `at` is missing or is no line of those files that writes its name.") in section1a
+    assert ("refuses it when it leaves out a floor name those files write, or an origin's `signature`.") in section1a
+    # #918: a missing or bad place is a warning, its forms named in the Coverage Analysis section's notes.
+    assert ("- `valid` true (exit 0): every later command reads `{run_dir}/inventory.json`. Its `warnings` name each "
+            "form whose place (`at`) is missing or bad, dropped so §2 binds the form to no declaration: list their "
+            "count and names in §5's notes, the forms left unbound for want of a place.") in section1a
+    assert "{the notes §1a to §4b add to this section}" in text
     contract = _flow(_read(INVENTORY_CONTRACT))
     assert ("and keeps one `kind` in every place. An entry whose `params` or `usage_signature` the signature check "
             "compares") in contract

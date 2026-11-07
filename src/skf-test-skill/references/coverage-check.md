@@ -92,14 +92,14 @@ When the subagent returned the JSON rather than the path, or the file is absent 
 
 #### 1a. Parent-Side Schema Validation + Spot-Check
 
-Before anything consumes the inventory, `{validateInventoryScript}` checks it against the §1 contract (a wrapping fence stripped), spot-checks sampled names against SKILL.md and the subagent's listed reference files, and refuses it when it leaves out a floor name those files write, or an origin's `signature` at its origin, or when an entry's `at` is missing or is no line of those files that writes its name. The look-up is the script's, never a grep: an export named `$state` or `a.b` is neither a shell variable nor a regex.
+Before anything consumes the inventory, `{validateInventoryScript}` checks it against the §1 contract (a wrapping fence stripped), spot-checks sampled names against SKILL.md and the subagent's listed reference files, and refuses it when it leaves out a floor name those files write, or an origin's `signature`. The look-up is the script's, never a grep: an export named `$state` or `a.b` is neither a shell variable nor a regex.
 
 ```bash
 uv run {validateInventoryScript} --input "{run_dir}/inventory-response.txt" --skill-package "{resolved_skill_package}" --output "{run_dir}/inventory.json" --floor "{run_dir}/inventory-floor.json"
 ```
 
-- `valid` true (exit 0): every later command reads `{run_dir}/inventory.json`.
-- `valid` false (exit 2), or exit 1: load `{coverageBranchesFile}` and follow its **Inventory Failures** section. Invalid a second time: HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`): "coverage-check: the subagent inventory failed {schema validation | the ground-truth spot-check | the place (`at`) check | the floor check} twice: {the violations joined}."
+- `valid` true (exit 0): every later command reads `{run_dir}/inventory.json`. Its `warnings` name each form whose place (`at`) is missing or bad, dropped so §2 binds the form to no declaration: list their count and names in §5's notes, the forms left unbound for want of a place.
+- `valid` false (exit 2), or exit 1: load `{coverageBranchesFile}` and follow its **Inventory Failures** section. Invalid a second time: HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`): "coverage-check: the subagent inventory failed {schema validation | the ground-truth spot-check | the floor check} twice: {the violations joined}."
 
 ### 1b. Cross-Check Split-Body Consistency
 
@@ -289,7 +289,7 @@ Exit 0: write its output unchanged where the section below places it. Exit 2 is 
 
 {the render output}
 
-{the notes §2 to §4b add to this section}
+{the notes §1a to §4b add to this section}
 ```
 
 ### 5b. Record the Coverage Gaps
