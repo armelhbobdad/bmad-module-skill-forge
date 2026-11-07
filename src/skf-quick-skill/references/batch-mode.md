@@ -75,6 +75,14 @@ uv run {quickBatchHelper} next --run-dir "{batch_dir}"
 - **`"status": "record"`**: target `batch` ended, its payload staged, before §3 recorded it (a compaction came between its envelope and §3): go to §3 with that `batch`, never running it again.
 - **`"status": "done"`**: no target is pending, or `--fail-fast` ended the batch after a failed target. Go to §4.
 
+If it exits non-zero (the target's run folder cannot be created, or the batch file is gone or unreadable), the batch cannot go on: display "**The batch stopped:** {its `message`}" and HARD HALT with **exit code 4 (write-failure)**: no other target runs and the health check does not run. Emit with nothing to stage in, as §1 does:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --target stderr <<'SKF_JSON'
+{"phase": "batch-mode", "halt_reason": "write-failure", "reason": "The batch stopped: <its message, one line>", "skill_package": null}
+SKF_JSON
+```
+
 ### 3. Record the Target
 
 Every target ends here: step 6 §4 returns here when the target finishes, and every HARD HALT of steps 1 to 6 returns here after its envelope (`references/halt-contract.md`, In `--batch`), the step 5 ownership halt included. Control returns here even when the step that ended the target reads as the end of the run. Record it:
@@ -83,7 +91,13 @@ Every target ends here: step 6 §4 returns here when the target finishes, and ev
 uv run {quickBatchHelper} record --run-dir "{batch_dir}" --batch {batch} --target stderr
 ```
 
-`{batch}` is the number §2's `next` printed. The helper reads how the target ended from what its run folder staged for the emitter (`halt.json`, or step 6's `result-context.json`), appends the outcome to the batch file, removes the run folder of a target that succeeded, and prints the target's `done` or `fail` event on stderr: display it verbatim. Then go back to §2. If it exits non-zero, its `message` names what is missing: stage the payload the target ended with, record again, then go back to §2.
+`{batch}` is the number §2's `next` printed. The helper reads how the target ended from what its run folder staged for the emitter (`halt.json`, or step 6's `result-context.json`), appends the outcome to the batch file, removes the run folder of a target that succeeded, and prints the target's `done` or `fail` event on stderr: display it verbatim. Then go back to §2. If it exits non-zero, its `message` names what is missing: stage the payload the target ended with and record again, once. If it exits non-zero a second time (the batch file cannot be written, or the staged `halt.json` is not JSON or names a `halt_reason` that maps to no exit code), the outcome cannot be kept and the batch cannot go on: display "**The batch stopped:** {its `message`}" and HARD HALT with **exit code 4 (write-failure)**. This halt ends the batch, not only the target: do not go back to §2, which would hand the same target back, no other target runs and the health check does not run. Emit with nothing to stage in, as §1 does:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --target stderr <<'SKF_JSON'
+{"phase": "batch-mode", "halt_reason": "write-failure", "reason": "The batch stopped: <its message, one line>", "skill_package": null}
+SKF_JSON
+```
 
 ### 4. Batch Summary
 
@@ -92,6 +106,14 @@ uv run {quickBatchHelper} summarize --run-dir "{batch_dir}" --output-dir "{batch
 ```
 
 The helper counts the targets, sets the batch status and exit code, writes the summary files below, appends the final status to the batch file (and removes the batch run folder when no target failed), and prints the `batch_summary` event on stderr: display it verbatim. Then print step 7's `start` event and load, read in full and execute `{healthCheckStepFile}`: the health check runs once per batch, here. The batch ends with the event's `exit_code`.
+
+If `summarize` exits non-zero (a target is still pending, or the batch file is gone or unreadable), it wrote no summary file: display "**The batch stopped:** {its `message`}" and HARD HALT with **exit code 4 (write-failure)**: the health check does not run. When an earlier `summarize` already printed the `batch_summary` event (a compaction came before the health check), that event stays the batch's result (**Reading a batch.** below). Emit with nothing to stage in, as §1 does:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --target stderr <<'SKF_JSON'
+{"phase": "batch-mode", "halt_reason": "write-failure", "reason": "The batch stopped: <its message, one line>", "skill_package": null}
+SKF_JSON
+```
 
 **Reading a batch.** Under `--batch`, a caller reads the batch's `batch_summary` event and the summary file its `summary_path` names, never `quick-skill-batch-latest.json` in its place: that copy holds the last batch summary written, which may be another batch's. The event comes before the health check, so a caller reads it from the session's output stream (`claude -p --output-format stream-json`) or transcript, not from the final message. A printed `batch_summary` event stays the batch's result even if a halt line follows it. A batch that printed no `batch_summary` event has no batch result, whatever the process exit code: a halt line of its own (phase `batch-mode`, or `on-activation`) says why it stopped, and with no halt line it was cut off or could not print its halt line. A target it printed a `done` or `fail` event for ended as that event says; a target with a `start` event and no end event has no result, and a target with no event did not run in this session. When the event's `summary_path` is null, the per-batch file was not written (its `summary_write_failed` warning says why): the event and `{batch_dir}/batch.jsonl`, which the helper then keeps, are the batch's result, never `quick-skill-batch-latest.json`. A `summary_write_failed` warning beside a set `summary_path` means only the `-latest` copy failed: the file it names is still the batch's result. After a cut-off batch, run the batch again: each run takes a new run folder (SKILL.md On Activation step 1), so it starts over from the first target.
 
@@ -156,4 +178,4 @@ Batch mode emits per-target boundary events on stderr in addition to the per-ste
 
 Without `--fail-fast`, the batch runs every target, whatever an earlier target's outcome, and exits with the batch summary's `exit_code`: `0` when `failed == 0`, otherwise the highest exit code among the failed targets. Automators that branch on the single-target exit-code map read each target's own code in `results[]`. With `--fail-fast`, the batch stops at the first failed target and exits with that target's code.
 
-A batch refused before its first target writes no batch summary. It exits with code `2` when `--description` or `--exports` was passed with `--batch` (or `--language-hint` or `--scope-hint`), §1 cannot read the batch file or `skf-quick-batch.py` is missing, and with code `4` when §1 cannot write the batch run folder.
+A batch refused before its first target writes no batch summary. It exits with code `2` when `--description` or `--exports` was passed with `--batch` (or `--language-hint` or `--scope-hint`), §1 cannot read the batch file or `skf-quick-batch.py` is missing, and with code `4` when §1 cannot write the batch run folder. A batch that stops because `next`, a second `record` or `summarize` fails (§2 to §4) exits with code `4` and writes no batch summary then; a `batch_summary` event an earlier `summarize` already printed stays the batch's result.
