@@ -126,23 +126,28 @@ cites (never read; default `metadata.json`):
             first that writes it as an export, the first tier that holds
             the name winning: (1) its first origin in the documented
             inventory's floor (load-coverage-inputs.py floor); (2) a
-            column-0 declaration of it in a fenced block of a language
-            floor's `_declared_names` reads (JS/TS, Python, Rust, Go),
-            cited or not, outside an HTML comment and a data block (json, yaml...);
-            (3) a heading, or the first cell of a table whose header's
-            first cell names exports (floor's table headers), whose text is
-            the name or holds a code span floor reads as the name; (4) a
-            line whose inline code span is the name, or the name directly
-            followed by `(`. Tiers 2 to 4 read SKILL.md, then every .md file
-            under references/, subfolders included, in path order, outside
-            the frontmatter (3 and 4 outside fenced code and HTML comments
-            too); within a tier the first file, then its lowest line, wins.
-            A bare word, or a span that holds the name among other words
-            (`uitripled add`), documents nothing; with no such line, or
-            without --skill-dir, the Source is `SKILL.md`. Floor's
-            InputError (no SKILL.md, or a top-level file it cannot read or
-            decode) leaves tier 1 empty, and a skill file that cannot be
-            read leaves tiers 2 to 4 empty. One whose
+            heading, or the first cell of a table whose header's first
+            cell names exports (floor's table headers), whose text is the
+            name or holds a code span floor reads as the name; (3) a line
+            whose inline code span is the name, or the name directly
+            followed by `(`; (4) a column-0 declaration of it in a fenced
+            block of a language floor's `_declared_names` reads (JS/TS,
+            Python, Rust, Go), cited or not, so a def an example writes
+            under the name is cited only when nothing above documents it;
+            (5) a line of a fenced block that holds the name as a whole
+            quoted string (`"name"` or `'name'`), such as an `__all__` item.
+            Tiers 2 to 5 read SKILL.md, then every .md file under
+            references/, subfolders included, in path order, outside the
+            frontmatter (2 and 3 outside fenced code and HTML comments, 4
+            and 5 inside a fence outside an HTML comment and a data block
+            (json, yaml...)); within a tier the first file, then its lowest
+            line, wins. A bare word, a span that holds the name among other
+            words (`uitripled add`), or a quoted string outside a fence or
+            holding other words too (`"add x"`) documents nothing; with no
+            such line, or without --skill-dir, the Source is `SKILL.md`.
+            Floor's InputError (no SKILL.md, or a top-level file it cannot
+            read or decode) leaves tier 1 empty, and a skill file that
+            cannot be read leaves tiers 2 to 5 empty. One whose
             `excluded.outsideScope` row says the brief
             scopes its file out (`excludeGlob`, the `scope.exclude` glob
             that matches it, or `outsideInclude`, no `scope.include` glob
@@ -406,6 +411,9 @@ EFFORT = {
 _ID_RE = re.compile(r"^GAP-(\d{3,})$")
 _STAGE_RE = re.compile(r"^[a-z][a-z0-9-]*$")
 _RUN_ID_FROM_NAME = re.compile(r"^test-findings-(.+)\.json$")
+# A whole quoted string, `"name"` or `'name'`. The lookahead lets matches overlap, so an apostrophe earlier on the
+# line (`don't 'add'`) does not swallow the next string; the text between two strings is a harmless extra key.
+_QUOTED_RE = re.compile(r"""(?=(["'])([^"'\n]+)\1)""")
 
 
 class LedgerError(Exception):
@@ -913,26 +921,33 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
       1. its first origin in the documented inventory's floor
          (load-coverage-inputs.py `floor`: SKILL.md and the top-level
          references/*.md);
-      2. a column-0 public declaration of it in a fenced code block (floor's
-         `_declared_names`), cited or not, outside an HTML comment and a data
-         block;
-      3. a heading, or the first cell of a table whose header's first cell is
+      2. a heading, or the first cell of a table whose header's first cell is
          one of floor's `FLOOR_TABLE_HEADERS`, whose stripped text is the name
          or holds a code span floor's `_floor_name` reads as the name;
-      4. a line whose inline code span, stripped, is the name, or the name
-         directly followed by `(`.
+      3. a line whose inline code span, stripped, is the name, or the name
+         directly followed by `(`;
+      4. a column-0 public declaration of it in a fenced code block (floor's
+         `_declared_names`), cited or not, so a def an example writes under
+         the name (a connector author's own `mount_table_target`) is cited
+         only when nothing above documents it;
+      5. a raw (unmasked) line of a fenced code block that holds the name as a
+         whole quoted string (`"name"` or `'name'`), such as an `__all__`
+         item; it only replaces the bare `SKILL.md` fallback.
 
-    Tiers 2 to 4 read SKILL.md, then every .md file under references/,
+    Tiers 2 to 5 read SKILL.md, then every .md file under references/,
     subfolders included, in path order (locate-export-segments.py
-    `skill_files`), never the frontmatter, tiers 3 and 4 outside fenced code
-    and HTML comments; within a tier the first file, then its lowest line,
-    wins. A bare word, or a span that holds the name among other words
-    (`uitripled add`), documents nothing. An input a tier cannot read is
-    skipped: floor's InputError (no SKILL.md, a file that is not UTF-8)
-    leaves tier 1 empty, an unreadable file tiers 2 to 4."""
+    `skill_files`), never the frontmatter: tiers 2 and 3 outside fenced code
+    and HTML comments, tiers 4 and 5 inside a fence outside an HTML comment
+    and a data block (json, yaml...). Within a tier the first file, then its
+    lowest line, wins. A bare word, a span that holds the name among other
+    words (`uitripled add`), or a quoted string outside a fence or holding
+    other words too (`"add x"`) documents nothing. An input a tier cannot
+    read is skipped: floor's InputError (no SKILL.md, a file that is not
+    UTF-8) leaves tier 1 empty, an unreadable file tiers 2 to 5."""
     coverage = _sibling("load-coverage-inputs.py")
     segments = _sibling("locate-export-segments.py")
-    tiers: list[dict[str, str]] = [{}, {}, {}, {}]
+    # In merge order: floor, heading or export-table cell, code span, fenced declaration, quoted string.
+    tiers: list[dict[str, str]] = [{}, {}, {}, {}, {}]
     try:
         for entry in coverage.floor(str(skill_dir))["names"]:
             origin = entry["origins"][0]
@@ -943,8 +958,9 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
         files = segments.skill_files(skill_dir)
     except OSError:
         files = []
-    # floor's fence filter: a fence in an HTML comment or a data block declares nothing, and a Svelte block's
-    # `export let` is a component prop. Unlike floor, an unheaded fence counts.
+    # floor's fence filter: a fence in an HTML comment or a data block declares and quotes nothing, and a Svelte
+    # block's `export let` is a component prop. Unlike floor, an unheaded fence counts; a Svelte, shell or untagged
+    # fence's quoted strings count too.
     js_family = segments.JS_FAMILY - {"svelte"}
     for rel, lines in files:
         start = segments._frontmatter_end(lines)
@@ -954,9 +970,13 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
             language = segments._language(info)
             if opening in comments or language in segments.DATA_LANGUAGES:
                 continue
-            masked = segments.mask_code("\n".join(lines[opening + 1:closing]), language).split("\n")
+            raw = lines[opening + 1:closing]
+            masked = segments.mask_code("\n".join(raw), language).split("\n")
             for offset, declared in coverage._declared_names(masked, language, js_family):
-                tiers[1].setdefault(declared, f"{rel}:{opening + offset + 2}")
+                tiers[3].setdefault(declared, f"{rel}:{opening + offset + 2}")
+            for offset, line in enumerate(raw):
+                for match in _QUOTED_RE.finditer(line):
+                    tiers[4].setdefault(match.group(2), f"{rel}:{opening + offset + 2}")
         headings, prose = segments._prose(lines, start, code)
         shaped = [(index, text) for index, _level, text, _above in headings]
         written = list(shaped)
@@ -968,12 +988,12 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
         for index, text in sorted(shaped):
             for key in [text.strip()] + [coverage._floor_name(span) for span in segments._inline_code(text)]:
                 if key:
-                    tiers[2].setdefault(key, f"{rel}:{index + 1}")
+                    tiers[1].setdefault(key, f"{rel}:{index + 1}")
         for index, text in sorted(written):
             for span in map(str.strip, segments._inline_code(text)):
                 for key in (span, span.split("(", 1)[0] if "(" in span else None):
                     if key:
-                        tiers[3].setdefault(key, f"{rel}:{index + 1}")
+                        tiers[2].setdefault(key, f"{rel}:{index + 1}")
     found: dict[str, str] = {}
     for tier in tiers:
         for key, line in tier.items():

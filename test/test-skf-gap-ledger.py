@@ -47,13 +47,15 @@ counts and the Gap Report is rendered from:
     documents the name, in SKILL.md or a reference file, else with `the
     skill`, never a bare `SKILL.md`, while a fabricated name's Source stays
     the file its provenance cites
-  - the line that documents a stale name (#922): the first that writes it
-    as an export (its floor origin, else a fenced declaration, else a
-    heading or an export table's first cell, else a code span that is the
-    name or opens its call), in SKILL.md or any reference file, nested
-    ones included; never the frontmatter, a bare word, a span that holds
-    the name among other words, a fence in an HTML comment or a data
-    block; an unreadable input is skipped, and the floor is read once
+  - the line that documents a stale name (#922, #966, #972): the first
+    that writes it as an export (its floor origin, else a heading or an
+    export table's first cell, else a code span that is the name or opens
+    its call, else a fenced declaration, else a whole quoted string in a
+    fenced block such as an `__all__` item), in SKILL.md or any reference
+    file, nested ones included; never the frontmatter, a bare word, a span
+    that holds the name among other words, a quoted string in prose or
+    holding other words, a fence in an HTML comment or a data block; an
+    unreadable input is skipped, and the floor is read once
   - an aliased name's provenance line (#911): with --stale, an unverified
     line of a name classify-stale marks `aliased` names the alias and asks
     to record the rename if no other entry already has its `export_name`,
@@ -1189,6 +1191,9 @@ class TestCoverageAdapter:
     UITRIPLED_CATALOG = ("# Catalog\n\n## Standalone CLI internals (`uitripled add`)\n\n```ts\n"
                          "export async function add(name: string): Promise<void>\n```\n")
     SEE = "# demo\n\nSee references.\n"
+    # #966: oms-cocoindex's shape, names written only as quoted items of a fenced `__all__` list
+    EXPORT_LIST = ("# Connectors\n\n```python\n__all__ = [\n    \"ColumnDef\", \"ManagedConnection\",\n"
+                   "    'connect',\n]\n```\n")
 
     @staticmethod
     def _skill_package(root: Path, files: dict[str, str | bytes]) -> Path:
@@ -1203,9 +1208,9 @@ class TestCoverageAdapter:
         # the floor first: a whole-span heading of a top-level reference before SKILL.md's unheaded fence
         ({"SKILL.md": "# demo\n\n```python\ndef get():\n    pass\n```\n",
           "references/api.md": "# API\n\n### `get(key)`\n\nReads a key.\n"}, "get", "references/api.md:3"),
-        # an unheaded fenced declaration before a heading of an earlier file
+        # a heading of an earlier file before an unheaded fenced declaration (#972)
         ({"SKILL.md": "# demo\n\n## get\n\nReads a key.\n",
-          "references/a.md": "# A\n\n```python\ndef get():\n    pass\n```\n"}, "get", "references/a.md:4"),
+          "references/a.md": "# A\n\n```python\ndef get():\n    pass\n```\n"}, "get", "SKILL.md:3"),
         # a nested reference: a fenced declaration, or a row of a table whose first column names exports
         ({"SKILL.md": SEE, "references/integrations/x.md": "# X\n\n```ts\nexport function get(key: string) {}\n```\n"},
          "get", "references/integrations/x.md:4"),
@@ -1237,10 +1242,42 @@ class TestCoverageAdapter:
          "SKILL.md:3"),
         # a dotted name's code spans: the lowest line wins, a paragraph before a later heading
         ({"SKILL.md": "# demo\n\nCall `Task.run(x)`.\n\n## `Task.run`\n"}, "Task.run", "SKILL.md:3"),
-    ], ids=["issue-922", "floor-first", "fence-before-heading", "nested-fence", "nested-table-row", "first-file",
+        # #966: a name written only as a quoted item of a fenced `__all__` list, double or single quotes
+        ({"SKILL.md": SEE, "references/connectors.md": EXPORT_LIST}, "ManagedConnection",
+         "references/connectors.md:5"),
+        ({"SKILL.md": SEE, "references/connectors.md": EXPORT_LIST}, "connect", "references/connectors.md:6"),
+        # a quoted string after an apostrophe, and in an untagged, a Svelte and a shell fence
+        ({"SKILL.md": SEE, "references/a.md": "# A\n\n```python\n# don't use 'add' here\n```\n"}, "add",
+         "references/a.md:4"),
+        ({"SKILL.md": SEE, "references/a.md": "# A\n\n```\nnames = ['add']\n```\n"}, "add", "references/a.md:4"),
+        ({"SKILL.md": SEE, "references/a.md": "# A\n\n```svelte\nconst names = ['add'];\n```\n"}, "add",
+         "references/a.md:4"),
+        ({"SKILL.md": SEE, "references/a.md": "# A\n\n```bash\nnpx uitripled \"add\" x\n```\n"}, "add",
+         "references/a.md:4"),
+        # #972: a connector author's own def in an unheaded fence, the export's heading in a reference
+        ({"SKILL.md": ("# demo\n\n```python\n_P = register_provider(\"my_db\", Handler())\n\n"
+                       "async def mount_table_target(db_key, *, table_name):\n    pass\n```\n"),
+          "references/target-state.md": "# Target state\n\n## mount_table_target\n\nMounts a table.\n"},
+         "mount_table_target", "references/target-state.md:3"),
+        # #972: in one file, a later code span before an earlier fenced def
+        ({"SKILL.md": SEE,
+          "references/target-state.md": ("# Target state\n\n```python\nasync def mount_table_target(db_key):\n"
+                                         "    pass\n```\n\n"
+                                         "Connectors expose helpers like `mount_table_target(...)`.\n")},
+         "mount_table_target", "references/target-state.md:8"),
+        # a fenced declaration of a later file before a quoted string of an earlier one
+        ({"SKILL.md": "# demo\n\n```python\n__all__ = [\"get\"]\n```\n",
+          "references/a.md": "# A\n\n```python\ndef get():\n    pass\n```\n"}, "get", "references/a.md:4"),
+        # oms-uitripled's `add`: the call in a list item after the export's declaration
+        ({"SKILL.md": UITRIPLED_SKILL,
+          "references/catalog.md": UITRIPLED_CATALOG + "\n- `add(name)` installs an item.\n"}, "add",
+         "references/catalog.md:9"),
+    ], ids=["issue-922", "floor-first", "heading-before-fence", "nested-fence", "nested-table-row", "first-file",
             "lowest-line", "paragraph-span", "list-item-call", "table-cell-span", "continuation-line",
             "export-shaped-before-span", "option-table-first-cell", "svelte-prop", "two-floor-origins",
-            "dotted-lowest-line"])
+            "dotted-lowest-line", "export-list-item", "export-list-single-quote", "quoted-after-apostrophe",
+            "quoted-untagged-fence", "quoted-svelte-fence", "quoted-bash-fence", "connector-author-def",
+            "span-after-def", "declaration-before-quoted", "uitripled-call-after-declaration"])
     def test_the_documenting_line_writes_the_name_as_an_export(self, tmp_path: Path, files: dict, name: str,
                                                                expected: str):
         skill = self._skill_package(tmp_path / "skill", files)
@@ -1275,14 +1312,17 @@ class TestCoverageAdapter:
 
     def test_a_name_written_only_as_a_word_documents_nothing(self, tmp_path: Path):
         """The frontmatter, a bare word, a code span that holds the name among other words or before a space, a
-        heading that holds a span with the name among other words, a span in an HTML comment, a fence in one, a
-        data block and a shell line never document `add`: the skill does, at `SKILL.md`."""
+        heading that holds a span with the name among other words, a span in an HTML comment, a fence in one (its
+        declaration or quoted string), a data block (json, yaml), an unquoted shell line, a quoted string in prose and
+        a fenced quoted string that holds other words too never document `add`: the skill does, at `SKILL.md`."""
         skill = self._skill_package(tmp_path / "skill", {"SKILL.md": (
-            "---\nname: demo\ndescription: Use `add` to install, as \"npx shadcn@latest add x\" does.\n---\n"
-            "# demo\n\nRun add to install, or `uitripled add`.\n\n## CLI (`uitripled add`)\n\n"
+            "---\nname: demo\ndescription: Use `add` to install, as \"npx shadcn@latest add x\" does; "
+            "pass \"add\" to it.\n---\n"
+            "# demo\n\nRun add to install, or `uitripled add`. Pass \"add\" to it.\n\n## CLI (`uitripled add`)\n\n"
             "- `addAll()` and `add (x)` are other calls.\n\n<!-- `add` -->\n\n"
-            "<!--\n```ts\nexport function add() {}\n```\n-->\n\n```json\n{\"add\": 1}\n```\n\n"
-            "```bash\nnpx uitripled add x\n```\n")})
+            "<!--\n```ts\nexport function add() {}\nconst names = [\"add\"];\n```\n-->\n\n"
+            "```json\n{\"add\": 1}\n```\n\n```yaml\nnames: ['add']\n```\n\n"
+            "```bash\nnpx uitripled add x\n```\n\n```python\nprint(\"add x\")\n```\n")})
         assert mod._documenting_line(skill, "add") is None
         [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["add"]}, skill_dir=str(skill))
         assert (record["source"], record["issue"]) == (
@@ -1310,9 +1350,11 @@ class TestCoverageAdapter:
         def unreadable(root):
             raise PermissionError(13, "Permission denied", str(root))
 
-        skill = self._skill_package(tmp_path / "unreadable", {"SKILL.md": "# demo\n\n### `get(key)`\n\n" + fence})
+        skill = self._skill_package(tmp_path / "unreadable", {
+            "SKILL.md": "# demo\n\n### `get(key)`\n\n" + fence + "\n```python\n__all__ = [\"keep\"]\n```\n"})
         monkeypatch.setattr(mod._sibling("locate-export-segments.py"), "skill_files", unreadable)
         assert (mod._documenting_line(skill, "get"), mod._documenting_line(skill, "put")) == ("SKILL.md:3", None)
+        assert mod._documenting_line(skill, "keep") is None
 
     def test_the_floor_is_read_once_per_call(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         """The lines that document the stale names are read once, not once a name; without the skill package or
