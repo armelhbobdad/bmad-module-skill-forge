@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  When a skill states members several names share once and places one of a name's own members before or among them, Test Skill's inventory now records that name's whole parameter list in the skill's order, so a correct order is no longer reported as a Critical reordered list. A place the inventory floor pins keeps its pinned parameters after the shared text.
+issues: [917]
+prs: [990]

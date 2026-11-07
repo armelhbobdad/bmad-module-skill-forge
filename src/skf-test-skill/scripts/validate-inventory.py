@@ -114,10 +114,11 @@ back so the prompt consumes it directly instead of re-parsing the raw response.
 It also reports each documented item's completeness, the docs-only Export
 Coverage rule: an item (one name and kind) is complete when it has a
 non-empty `description` and, for a function or a method, `params` (a string
-or a list, empty when the function takes none) and a non-empty
-`return_type`. A missing description makes an item incomplete; it never
-makes the inventory invalid. reconcile-coverage.py's docsOnly branch scores
-with the same rule.
+or a list, empty when the function takes none) or a non-blank
+`usage_signature` (#916: the contract records a call there whole; a list
+with a non-blank usage), and a non-empty `return_type`. A missing
+description makes an item incomplete; it never makes the inventory
+invalid. reconcile-coverage.py's docsOnly branch scores with the same rule.
 
 Shared helpers. The other coverage scripts load these from this file rather
 than keep copies: `strip_fences` (score-signatures.py), `completeness`
@@ -810,7 +811,9 @@ def missing_fields(entry):
     if not _filled(entry.get("description")):
         missing.append("description")
     if entry.get("kind") in SIGNATURE_KINDS:
-        if not isinstance(entry.get("params"), (str, list)):
+        usage = entry.get("usage_signature")
+        if not isinstance(entry.get("params"), (str, list)) and not any(
+                map(_filled, usage if isinstance(usage, list) else [usage])):
             missing.append("params")
         if not _filled(entry.get("return_type")):
             missing.append("return_type")

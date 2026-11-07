@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory now records a table that documents one component's props (`| Prop | Type | Default | Description |`, or with a Required column) as an entry of its own, at the heading or caption above it that writes the component's name, its rows one object type of `prop: Type` members with no default, Required or `?` mark. The scored signature check now compares it with the component's props: a prop the source lacks, a contradicted type or a required own prop left out is a mismatch, and an optional own prop the table leaves out is an `omitted-optional` difference, Critical unless the table is labelled partial; optionality is not compared. Before, one table could give a false Critical, a match or no check, by how the reader flattened it. This can block a skill that passed.
+migration: |
+  If Test Skill now stops at the hard gate on a props table, correct the prop names or types the source contradicts, add the required props it leaves out, and add the optional props it leaves out or label the table partial in its column header (for example `Props (simplified)`), then run Test Skill again.
+issues: [931]
+prs: [990]
