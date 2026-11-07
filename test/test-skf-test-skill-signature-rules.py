@@ -45,6 +45,10 @@ and none of the `difference` tags. These tests keep:
   parameters, the arrow's destructuring that same parameter, so a form may
   write it either way, and a partial destructuring reading as no narrower
   type (#928);
+- a call to a class compared with its constructor, an instance's call with
+  its `__call__`, an alias's with its class's, a source's leading receiver
+  never compared and a callee's `*args` and `**kwargs` taking any extra
+  argument (#968);
 - a declaration whose parameter list is written only in a package outside
   the source tree left uncompared and counted as matching, as such a
   component's props are (#925);
@@ -427,6 +431,64 @@ def test_a_positional_caller_and_a_python_keyword_caller_are_read_as_they_call()
     assert ("The names of Python's `*args` and `**kwargs` are never compared (`**kwargs` against `**options` is no "
             "difference), and the parameters after `*` or `*args` are compared by name, not order.") in reading
     assert "A positional-only `/` or keyword-only `*` marker the form leaves out is not compared" in reading
+
+
+def test_a_call_to_a_class_is_compared_with_its_constructor():
+    """#968: no rule said what a call to a class, an instance or a class alias is compared with, that a leading `self`
+    takes no argument, or what a callee's `*args` and `**kwargs` accept. Read as the call rule is written,
+    `Mem0Source("x")` bound `"x"` to `self` and `Task(fn, max_chunk_size=512)` passed a keyword no parameter names, so
+    a correct call could be a Critical mismatch that blocks the hard gate; oms-cognee's report (three such calls) and
+    oms-cocoindex's (`fn = _FunctionDecorator()` called through `__call__`'s overloads, `Symbol = core.Symbol` over a
+    stub's `__new__(cls, name: str)`) passed them on the judge's reading alone. A call to a class is compared with its
+    constructor's parameters after `self`, a dataclass's, attrs class's, pydantic model's or NamedTuple's generated
+    fields included (a pydantic model's keyword-only); an instance's with its `__call__`; an alias's with its class's.
+    The receiver rule is score-signatures.py's, so both name one receiver set: the source's leading receiver is never
+    compared and the form's own is dropped only when the source leads with one. A callee's `*args` or `**kwargs`
+    takes any extra argument, and a constructor written only outside the source tree counts as matching (#925)."""
+    reading = _section("Reading a form")
+    opening = "A call to a class is compared with its constructor"
+    constructor = ("A call to a class is compared with its constructor: in Python, the parameters after `self` of the "
+                   "`__init__` the class declares, else those after `cls` of its `__new__`, else its nearest base's in "
+                   "method resolution order (`object`'s takes none); a dataclass, attrs class, pydantic model or "
+                   "NamedTuple that declares no `__init__` with the fields it generates, in declaration order, base "
+                   "fields first, a default marking a field optional, a field kept out of the constructor "
+                   "(`init=False`, a `ClassVar`) none of them, and a pydantic model's keyword-only; a TS/JS class with "
+                   "its `constructor(...)`, else its nearest base's; a class in another language with the constructor "
+                   "it declares.")
+    form = "Any other form that documents a class is compared with that same constructor."
+    component = "A component is compared by its props (Components), not its constructor."
+    instance = ("A call to an instance is compared with its class's `__call__` (`fn = _FunctionDecorator()`, then "
+                "`fn(memo=True)`), its overloads read as Overload sets says, and a name bound to a class with that "
+                "class's constructor (`Symbol = core.Symbol`, whose stub declares `__new__(cls, name: str)`).")
+    receivers = "(`self`, `cls`, `&self`, `this: T`)"
+    receiver = (f"A leading receiver the source writes {receivers} is never compared, and a form's own leading "
+                "receiver is dropped only when the source leads with one too: `(self, a)` against `def f(a)` is a "
+                "mismatch.")
+    variadics = ("An argument past the parameters a declaration takes by position exists when it takes `*args`, a "
+                 "TS/JS `...args` or Go's `...T`, and a keyword no parameter names exists when it takes `**kwargs`, so "
+                 "`Task(fn, max_chunk_size=512)` matches `__init__(self, executable, *args, **kwargs)`; a pass-through "
+                 "`__init__(self, *args, **kwargs)` is compared as written, so any call matches it.")
+    outside = ("A class whose constructor is written only in a package outside the source tree (one that declares none "
+               "over another package's base, such as `Exception`, or that a metaclass from there builds) has its "
+               "parameters left uncompared and counts as matching, as such a declaration does (below); a class "
+               "with generated fields is still compared with them, and one whose bases declare no constructor "
+               "before `object` takes none.")
+    for sentence in (constructor, form, component, instance, receiver, variadics, outside):
+        assert sentence in reading, sentence
+    assert reading.index("The names of Python's") < reading.index(opening) \
+        < reading.index("The source's declaration decides"), "after the variadic names, before the declaration decides"
+    # right after the paragraph on Python's variadic names, and one copy
+    rules = _read(RULES)
+    paragraphs = rules.split("\n\n")
+    [names] = [i for i, p in enumerate(paragraphs) if p.startswith("The names of Python's `*args` and `**kwargs`")]
+    assert paragraphs[names + 1].startswith(opening), paragraphs[names + 1]
+    assert rules.count("A call to a class is compared") == 1, "one copy"
+    # the outside-tree rule it points at ("below") stays below it
+    assert reading.index(outside) < reading.index(
+        "A declaration whose parameter list is written only in a package outside the source tree")
+    # the rules and the script name one receiver set
+    assert receivers in _paragraph(rules, opening)
+    assert receivers in _flow(_read(SCORE_SIGNATURES)), "score-signatures.py's docstring names the same receivers"
 
 
 def test_the_split_body_cross_check_compares_what_both_forms_write():
