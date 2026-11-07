@@ -604,6 +604,31 @@ def test_a_dropped_floor_name_fails_and_removes_the_inventory(tmp_path):
     assert not out.exists()
 
 
+def test_a_dropped_bracket_generic_floor_name_fails(tmp_path):
+    """#915: an export table's first cell that writes a Python or Go generic (`App[P, R]`) pins its name, so an
+    inventory that leaves it out is a violation naming it and its origin, exit 2, and no inventory file is left."""
+    pkg = _package(tmp_path, "# Demo\n\n| Export | Kind |\n| --- | --- |\n| `App[P, R]` | class |\n"
+                             "| `ContextKey[T]` | class |\n")
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(_inventory("ContextKey").encode("utf-8"))
+    out = tmp_path / "inventory.json"
+    out.write_bytes(b"{}")
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [
+        "floor: `App` is documented at SKILL.md:5 (table-row), but no inventory entry lists it"]
+    assert result["floor"] == {"names": 2, "checked": 2, "absent": ["App"]}
+    assert result["spotCheck"]["absent"] == [] and result["inventory"] is None
+    assert not out.exists()
+
+
 def test_any_entry_keeps_a_floor_name_whatever_its_kind(tmp_path):
     """Kinds stay the reader's: a skill's own `| get | method |` row is kept by a `method` entry."""
     pkg = _package(tmp_path, "# Demo\n\n| Function | Kind |\n| --- | --- |\n| `get` | method |\n")

@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory floor now cuts a name at its first `[` as it does at `(` and `<`, so an export-table first cell or a code-only heading that writes a Python or Go generic, such as `App[P, R]`, pins `App`, and a call written that way, such as `first[T](xs: list[T]) -> T`, pins its form too when it writes its return after `->`, `=>`, `→` or `:`, or writes no return, so a Go generic call such as `Index[T any](s []T, v T) int` pins only its name. `validate-inventory.py --floor` then refuses an inventory that leaves such a name out, so Export Coverage stops dropping generic exports unchecked. A TypeScript array type such as `Foo[]` still pins no name. Because the floor now holds more names, a skill that passed before can now stop at the hard gate on one of them.
+migration: |
+  If a skill now stops at the hard gate on a gap for a name it writes with square brackets in an export table's first cell or a code-only heading, document that name correctly or remove it from the skill, then run Test Skill again. The run's `inventory-floor.json` lists each name's `origins`, so find the line that put the name in the floor; when it is not an export, change that line rather than document a name that is not an export. If the run stops on a `signature-mismatch` for a form such a call writes, correct that form in the skill (the origin's `signature` in `inventory-floor.json` gives what the floor read), or, if that `signature` misreads the line, report it as a bug with the line and the `signature`.
+issues: [915]
