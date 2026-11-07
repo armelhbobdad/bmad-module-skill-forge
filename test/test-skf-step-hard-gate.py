@@ -1482,6 +1482,38 @@ class TestOutputFormats:
             f"**Remediation:** {record['remediation']}",
         ]
 
+    def test_exports_cross_checked_is_the_validators_count(self, text: str, tmp_path: pathlib.Path) -> None:
+        """#920: the Reference Consistency line read a `{count}` no stage defined and no script wrote, so it was
+        counted by hand. It now names `crossChecked.count` in `{run_dir}/inventory.json`, a key validate-inventory.py
+        writes into the inventory, and the contract tells the reader it writes none."""
+        section = _slice(text, "Only rendered when `references/` directory exists", "## Coherence Analysis")
+        block = _fence(section, "**Exports Cross-Checked:**")
+        line = re.search(r"^\*\*Exports Cross-Checked:\*\* \{(\w+)\.(\w+)\}$", block, flags=re.MULTILINE)
+        assert line and line.group(1, 2) == ("crossChecked", "count")
+        assert "{count}" not in line.group(0)
+        assert ("**Exports Cross-Checked** is `crossChecked.count` from `{run_dir}/inventory.json`, which "
+                "`scripts/validate-inventory.py` writes: the inventory's names that two or more of the files it reads "
+                "write, never counted by hand.") in _flow(section)
+        contract = _flow(_read(REFS / "inventory-contract.md"))
+        assert ('`validate-inventory.py` adds `crossChecked` to the inventory it writes, `{"count": <int>, "names": '
+                "[<name>, ...]}`: each inventory name, once, that two or more of the files it reads write (SKILL.md "
+                "and each file `references` lists), by the spot-check's name match outside `[AST:]`, `[SRC:]` and "
+                "`[EXT:]` citations, so a mention in prose counts. The reader writes no `crossChecked`; the validator "
+                "replaces one it finds.") in contract
+        # The key the format names is the one the validator writes, on a two-file package.
+        validator = _load("skf_validate_inventory_for_step_test", TS_DIR / "scripts" / "validate-inventory.py")
+        pkg = tmp_path / "pkg"
+        (pkg / "references").mkdir(parents=True)
+        (pkg / "SKILL.md").write_text("# Demo\n\n`shared()` and `own()`.\n", encoding="utf-8")
+        (pkg / "references" / "api.md").write_text("`shared(n)`\n", encoding="utf-8")
+        raw = json.dumps({"exports": [{"name": "own", "kind": "function"}, {"name": "shared", "kind": "function"}],
+                          "cross_check_mismatches": [], "references": ["references/api.md"],
+                          "crossChecked": {"count": 9, "names": []}})
+        result = validator.validate_inventory(raw, str(pkg))
+        assert result["valid"] is True, result["violations"]
+        key, field = line.group(1, 2)
+        assert result["inventory"][key] == {field: 1, "names": ["shared"]}
+
 
 # ---------------------------------------------------------------------------
 # SKILL.md and the invocation contract (#600: the headless sections live in
