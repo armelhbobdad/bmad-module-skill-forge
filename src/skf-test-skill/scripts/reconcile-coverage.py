@@ -16,8 +16,13 @@ It covers the four branches §2c enumerates:
 
   * "barrel"  (enumerated path) — intersect documented_set against the source
     barrel_set: Documented = |documented_set ∩ barrel_set|,
-    Missing = barrel_set − documented_set, Stale = documented_set − barrel_set,
-    Export Coverage = |Documented| / |barrel_set| * 100.
+    Missing = barrel_set − documented_set, Export Coverage = |Documented| /
+    |barrel_set| * 100, Stale = documented_set − (barrel_set ∪ `allSet`).
+    `allSet` is the whole public surface: the `all` set and every name on
+    the surface's export records, since a nested Python entry's names leave
+    `all` but keep their records. So a documented name the counted set
+    leaves out but the source exports (a Tier B name) is neither counted nor
+    stale. Without `allSet`, Stale = documented_set − barrel_set.
 
   * "scalar"  (§2b's scalar branch, stats.effective_denominator): the
     denominator is effective_denominator, Missing = max(0, denominator −
@@ -34,10 +39,9 @@ It covers the four branches §2c enumerates:
     present, or `verifiedNumerator`; `missing` lists no name.
     Stale: on a surface read from the source (`sourceRead`, its
     `guards.deflation.applicable`, or a counted set), documented_set − (S ∪
-    the whole public surface, `allSet`, the `all` set: a nested package's
-    name is in the scope sets alone), so a documented name outside S that
-    the source exports is neither counted nor stale; else not enumerable
-    (empty).
+    `allSet`, the whole public surface, as on the barrel branch), so a
+    documented name outside S that the source exports is neither counted
+    nor stale; else not enumerable (empty).
 
   * "stack"   (skill_type == "stack", empty source barrel): look each
     composition-surface name (provenance-map cited contracts, ::-excluded, or
@@ -83,9 +87,12 @@ each sets the input field it names and wins over the same field in the JSON:
   --inventory PATH      exports: the validated inventory validate-inventory.py
                         wrote with --output
   --surface PATH        barrelSet: one name set of load-coverage-inputs.py
-                        surface, chosen by --surface-set (default "all"),
-                        with what the scalar branch reads: surfaceSet (that
-                        name), allSet (its `all` set), sourceRead (its
+                        surface, chosen by --surface-set (default "all");
+                        allSet, the whole surface both branches find a
+                        stale name against (its `all` set and every name on
+                        its `exports` records, a nested entry's included);
+                        and what the scalar branch reads: surfaceSet (that
+                        name), sourceRead (its
                         `guards.deflation.applicable`) and setCounted (its
                         `denominator.setCounted`, when --surface-set names
                         its `denominator.surfaceSet`)
@@ -107,7 +114,7 @@ Input schema (one object):
     "barrelSet": ["a", "b", ...],                          # barrel, scalar: resolved name set
     "perFileResults": [ {"exports_found": ["a", ...]} ],   # barrel: union'd if no barrelSet
     "surfaceSet": "tier_a_include",                        # scalar: barrelSet's name (null or "" is "all")
-    "allSet": ["a", "b", "c", ...],                        # scalar: the whole public surface
+    "allSet": ["a", "b", "c", ...],                        # barrel, scalar: the whole public surface (stale)
     "sourceRead": <bool>,                                  # scalar: the surface was read from the source
     "setCounted": <bool>,                                  # scalar: count barrelSet (a trusted scope set)
     "denominatorValue": <int>,                             # scalar/stack: resolved denominator
@@ -297,6 +304,9 @@ def _validate(inp):
     if source == "barrel":
         if inp.get("barrelSet") is None and inp.get("perFileResults") is None:
             return "barrel branch requires either `barrelSet` or `perFileResults`"
+        all_set = inp.get("allSet")
+        if all_set is not None and not isinstance(all_set, list):
+            return "barrel branch: `allSet` must be a list of names"
     elif source == "docsOnly":
         if not isinstance(inp.get("exports"), list):
             return "docsOnly branch requires the §1 inventory `exports` (or --inventory)"
@@ -343,15 +353,28 @@ def _reads_surface(inp):
     return inp.get("barrelSet") is not None and (inp.get("sourceRead") is True or inp.get("setCounted") is True)
 
 
+def _whole(inp, named):
+    """The whole source surface both branches find a stale name against: the counted set `named` and `allSet`
+    (from --surface, the `all` set and every name on the surface's export records, so a nested Python entry's
+    names count though they leave `all`). The counted set is always part of it.
+
+    >>> sorted(_whole({"allSet": ["alpha", "tierB", "nested", "", 3]}, {"alpha", "scoped"}))
+    ['alpha', 'nested', 'scoped', 'tierB']
+    >>> sorted(_whole({}, {"alpha"}))
+    ['alpha']
+    """
+    return named | {n for n in inp.get("allSet") or [] if isinstance(n, str) and n}
+
+
 def _scalar_surface(inp, denominator):
     """What the scalar branch reads from a surface read from the source: the stale names, the documented names
-    (S ∪ `allSet`, where a nested package's name sits in the scope sets alone) lacks, and, when it counts its
-    named set S (`setCounted`, a non-empty scope set), the documented names S holds, the names of S the skill
-    does not document and the set's size, with the warnings. The denominator stays the stored count."""
+    the whole surface (`_whole`: S and `allSet`) lacks, and, when it counts its named set S (`setCounted`, a
+    non-empty scope set), the documented names S holds, the names of S the skill does not document and the
+    set's size, with the warnings. The denominator stays the stored count."""
     documented_set = build_documented_set(inp.get("exports"))
     named = {n for n in inp["barrelSet"] if isinstance(n, str) and n}
     set_name = _surface_set_name(inp)
-    whole = named | {n for n in inp.get("allSet") or [] if isinstance(n, str) and n}
+    whole = _whole(inp, named)
     warnings = []
     counted = inp.get("setCounted") is True and set_name != "all"
     if counted and not named:
@@ -414,7 +437,8 @@ def reconcile(inp, doc_text=None):
             )
         documented_names = documented_set & barrel_set
         missing = sorted(barrel_set - documented_set)
-        stale = sorted(documented_set - barrel_set)
+        # A documented name the counted set leaves out but the whole surface holds is neither counted nor stale.
+        stale = sorted(documented_set - _whole(inp, barrel_set))
         denominator = len(barrel_set)
         documented = len(documented_names)
         return {
@@ -799,11 +823,15 @@ def apply_file_inputs(inp, args):
             raise InputFileError(f"--surface {args.surface} has no name set `{args.surface_set}`")
         inp["barrelSet"] = names
         # The scalar branch counts the set only when the surface trusts it (`denominator.setCounted`, for the set
-        # it picked), and finds a stale name on any surface read from the source, against the whole public
-        # surface (the `all` set), not the set it counts.
+        # it picked). Both branches find a stale name against the whole public surface (`allSet`), not the set
+        # they count: the `all` set and every name on an `exports` record, since a nested Python entry's names
+        # leave `all` but keep their records (score-signatures.py's `signature_universe` rule). A scoped-out
+        # name has no record, so it stays stale.
         inp["surfaceSet"] = args.surface_set
         if isinstance(sets.get("all"), list):
-            inp["allSet"] = sets["all"]
+            records = data.get("exports") if isinstance(data.get("exports"), list) else []
+            on_records = [r.get("name") for r in records if isinstance(r, dict)]
+            inp["allSet"] = sorted({n for n in sets["all"] + on_records if isinstance(n, str) and n})
         guards = data.get("guards")
         deflation = guards.get("deflation") if isinstance(guards, dict) else None
         inp["sourceRead"] = isinstance(deflation, dict) and deflation.get("applicable") is True
