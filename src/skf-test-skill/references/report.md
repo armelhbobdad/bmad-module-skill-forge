@@ -186,9 +186,10 @@ for heading in '## Test Summary' '## Coverage Analysis' '## Coherence Analysis' 
   printf '%s: ' "$heading"; grep -cxF "$heading" "{outputFile}"
 done
 printf 'placeholders: '; grep -c '^<!-- Populated by' "{outputFile}"
+printf 'title: '; grep -cxF '# Test Report: {skill_name}' "{outputFile}"
 ```
 
-Each heading must print 1, standing alone on exactly one line, and `placeholders` must print 0. A run the hard gate blocked has all six: step 4c §3 wrote the Completeness Score section in scoring's place. On a heading whose count is not 1, or a placeholder left, HALT (`halt_reason: "report-anchor-missing"`, phase `report:anchors`) with "report anchor missing: {each heading whose count is not 1, with its count}, or {N} placeholder comments left; the section was not written once by its owning step".
+Each heading must print 1, standing alone on exactly one line, `placeholders` must print 0, and `title` must print 1 (the H1 init.md §6c filled). A run the hard gate blocked has all six: step 4c §3 wrote the Completeness Score section in scoring's place. On a heading whose count is not 1, a placeholder left, or a `title` count other than 1, HALT (`halt_reason: "report-anchor-missing"`, phase `report:anchors`) with "report anchor missing: {each heading whose count is not 1, with its count}, {placeholder_count} placeholder comments left, or a `title` count of {title_count} (the report does not hold `# Test Report: {skill_name}` once); the section or title was not written once by its owning step".
 
 **Find the health check** unless `no_health_check` is true (the `--no-health-check` flag): resolve `{healthCheckFile}` ← first existing path in `{healthCheckProbeOrder}`. It ends the run (§7), so check it now, while a HALT still leaves the previous run's report and result files in place. If neither candidate exists, HALT (`halt_reason: "health-check-missing"`, phase `report:health-check`):
 

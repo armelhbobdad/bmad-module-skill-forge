@@ -25,9 +25,10 @@ nextWorkflow: ''
 Each stage writes its section in place of the heading below that it owns and
 the placeholder comment under that heading, so every heading occurs once.
 Before the result files are written, report.md §4c checks that each heading
-occurs exactly once and that no placeholder comment is left: a stage that
-skipped its section stops the run there. Do not reorder or delete the
-headings or their placeholder comments.
+occurs exactly once, that no placeholder comment is left and that the title
+above names the skill (init.md §6c fills it): a stage that skipped its
+section stops the run there. Do not change the title line, and do not
+reorder or delete the headings or their placeholder comments.
 
 Heading / owning step:
   Test Summary        → detect-mode §2
