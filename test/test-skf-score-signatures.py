@@ -2015,20 +2015,50 @@ def test_a_form_at_a_shared_place_is_bound_by_its_other_places(tmp_path):
      [(0, CORE, 274)]),
     ([REACT_FORM, {"name": "composeStory", "kind": "function", "params": "story, componentAnnotations"}],
      [(0, CORE, 274)]),
+    ([REACT_FORM, {"name": "composeStories", "kind": "method", "owner": "portable", "params": "stories"}],
+     [(0, CORE, 274)]),
     ([{**REACT_FORM, "params": "csfExports"}, {**REACT_FORM, "params": "csfExports, projectAnnotations"},
       {**REACT_FORM, "params": "csfExports, projectAnnotations, composeStoryFn"}], []),
 ], ids=["one-form-written-twice", "one-form-and-its-partial-label", "an-entry-with-no-form",
-        "another-name-s-form", "overloads-of-one-declaration"])
+        "another-name-s-form", "a-method-of-the-name", "overloads-of-one-declaration"])
 def test_only_two_forms_of_the_name_that_differ_share_a_place(tmp_path, entries, bound):
     """#918: entries that say the same thing at one place (the partial label aside) are one form, and their place
-    still binds it; an entry with no form writes no form there, and another name's form is no form of this name.
-    A row of several overloads of one declaration writes forms that differ, so it binds none of them: each is
-    compared as one with no own citation, as before #918 bound any."""
+    still binds it; an entry with no form writes no form there, another name's form is no form of this name, and
+    neither is a `method` of the name (a method, never compared as the name's form). A row of several overloads of
+    one of the name's two declarations writes forms that differ, so it binds none of them: each is compared as one
+    with no own citation, as before #918 bound any."""
     inventory = [{**entry, "at": "references/core-api.md:3"} for entry in entries]
     exports = [*CORE_COMPOSE_RECORDS, {"name": "composeStory", "kind": "function", "file": CORE, "line": 90,
                                        "signatureLine": "export function composeStory(", "origin": "extraction"}]
     plan = _plan_in(tmp_path, {"references/core-api.md": CORE_API}, inventory, exports, names=["composeStories"])
     assert _bound(plan, "composeStories") == bound
+
+
+CORE_PER_FILE = {"name": "composeStories", "kind": None, "file": CORE, "line": None, "signatureLine": None,
+                 "origin": "per-file"}
+
+
+@pytest.mark.parametrize("exports, others, bound", [
+    (CORE_COMPOSE_RECORDS[:1], None, [(0, CORE, 274), (1, CORE, 274)]),
+    ([CORE_PER_FILE, *CORE_COMPOSE_RECORDS[:1]], None, [(0, CORE, 274), (1, CORE, 274)]),
+    ([*CORE_COMPOSE_RECORDS[:1], {**CORE_COMPOSE_RECORDS[0], "line": 300}], None, []),
+    (CORE_COMPOSE_RECORDS[:1], CORE_COMPOSE_RECORDS[1:], []),
+    ([*CORE_COMPOSE_RECORDS[:1], {**CORE_PER_FILE, "file": REACT}], None, []),
+], ids=["one-declaration", "a-per-file-record-beside-it", "two-lines-of-one-file", "an-other-declaration-elsewhere",
+        "a-per-file-record-in-another-file"])
+def test_a_shared_place_of_a_name_declared_once_still_binds(tmp_path, exports, others, bound):
+    """#918 (oms-storybook-react-vite actions, mocked and spyOn): a row of a name's overloads writes forms that
+    differ, but a name declared once, in one file and at one line there (a per-file record with no line beside it
+    is no other declaration), has no other declaration its citation could bind a form to. Its shared place keeps
+    its citations, so each form is bound to that declaration, at its line, where the check of mocked and spyOn
+    gives none. A name declared at two lines of one file, or in two files (an `otherDeclarations` entry or a
+    per-file record with no line included), gives a shared place's forms no citation."""
+    at = "references/core-api.md:3"
+    inventory = [{**CORE_FORM, "at": at}, {**REACT_FORM, "at": at}]
+    plan = _plan_in(tmp_path, {"references/core-api.md": CORE_API}, inventory, exports, others)
+    assert _bound(plan, "composeStories") == bound
+    if exports[0] is CORE_PER_FILE:
+        assert plan["files"][0]["checks"][0]["line"] is None, "the line-less record's check gives the judge none"
 
 
 # #918, a citation in a declaration's body (oms-cognee references/pipelines-and-datapoints.md): the extraction
@@ -2092,12 +2122,16 @@ def test_a_declaration_s_span_ends_before_the_next_one_in_its_file(tmp_path, cit
 @pytest.mark.parametrize("cited, bound", [
     (f"[AST:{REACT}:L60-L70]", [(0, REACT, 40)]),
     (f"[AST:{REACT}:L95]", [(0, REACT, 90)]),
+    (f"[AST:{REACT}:L90]", [(0, REACT, 90)]),
+    (f"[AST:{REACT}:L89]", [(0, REACT, 40)]),
     (f"[AST:{REACT}:L80-L95]", []),
     (f"[AST:{REACT}:L60] [AST:{REACT}:L95]", []),
-], ids=["the-first-one-s-body", "the-second-one-s-body", "a-range-over-both", "a-line-of-each"])
+], ids=["the-first-one-s-body", "the-second-one-s-body", "the-second-one-s-line", "the-first-one-s-last-line",
+        "a-range-over-both", "a-line-of-each"])
 def test_a_citation_of_two_declarations_bodies_names_both(tmp_path, cited, bound):
-    """#918: two declarations of the name in one file each span up to the next. A citation names each one it holds
-    a line of, and a form whose citations name both is bound to neither."""
+    """#918: two declarations of the name in one file each span up to the next: the first ends on the line before
+    the second's, which names the second alone. A citation names each one it holds a line of, and a form whose
+    citations name both is bound to neither."""
     twice = [*COMPOSE_RECORDS, {**COMPOSE_RECORDS[1], "line": 90}]
     tree = {"SKILL.md": f"# Demo\n\n`composeStories(x)` {cited}\n"}
     plan = _plan_in(tmp_path, tree, [{**COMPOSE, "at": "SKILL.md:3"}], twice)

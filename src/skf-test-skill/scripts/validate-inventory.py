@@ -155,10 +155,11 @@ line to its last one (a citation of a function's body names it as one of
 its `def` line does; score-signatures.py ends a span before the next
 declaration the surface records in its file). score-signatures.py plan
 binds a form to the one declaration of its name they name (with
-`parse_at`, `compared_form` and `skill_markdown_by_path`), but never by
-the citations of a place where the inventory gives the name two forms that
-differ (a row that quotes another declaration's form as a contrast): there
-each form is bound only by its other places, if any.
+`parse_at`, `compared_form` and `skill_markdown_by_path`), but, for a
+name declared more than once, never by the citations of a place where the
+inventory gives the name two forms that differ (a row that quotes another
+declaration's form as a contrast): there each form is bound only by its
+other places, if any.
 
 CLI usage (mirrors reconcile-coverage.py):
   uv run validate-inventory.py --input <response file> [--output <inventory file>]

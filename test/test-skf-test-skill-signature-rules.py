@@ -304,7 +304,8 @@ def test_a_bound_form_is_compared_with_its_own_declaration_alone():
             "inventory gives the name, on the block's first non-blank line when it is a comment and on the first "
             "non-blank line after its closing fence unless that line writes the name.") in rule
     assert ("A citation names a declaration when it cites the declaration's file at a line or in an `L` range that "
-            "holds its line or a line of its body; one with no line names every declaration in its file.") in bound
+            "holds its line or a later one before the next declaration the surface records in its file; one with no "
+            "line names every declaration in its file.") in bound
     assert bound.endswith("Compare a bound form with its bound declaration alone, read in full at its `file` and "
                           "`line` as above, whatever the check's `candidates`, and report its mismatch there, `file` "
                           "and `line` on the mismatch object."), bound
@@ -320,10 +321,10 @@ def test_a_bound_form_is_compared_with_its_own_declaration_alone():
             "line the declaration or call starts on (a `def` or `class` line, not a decorator above it), never a "
             "fence.") in contract
     assert "a form that writes only a `return_type` gives no `at`" in contract
-    assert ("when they name exactly one, at its line or in its body (otherwise as it compares any form). A place "
-            "that writes two forms of the name that differ (a row that documents one declaration's form and quotes "
-            "another's as a contrast) gives neither of them a citation, so each is bound only by its other "
-            "places") in contract
+    assert ("when they name exactly one, at its line or below it, before the next declaration the surface records "
+            "in its file (otherwise as it compares any form). For a name declared more than once, a place that writes "
+            "two of its forms that differ (a row that documents one declaration's form and quotes another's as a "
+            "contrast) gives neither of them a citation, so each is bound only by its other places") in contract
     assert ("A missing or bad `at` (malformed, in another file, on a line that does not write the name, or not the "
             "place `inventory-floor.json` gives that form's `signature`) leaves its form unbound in the same way, and "
             "the validator lists it in its `warnings` instead of refusing the inventory.") in contract

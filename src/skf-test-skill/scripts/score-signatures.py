@@ -687,8 +687,9 @@ def _shared_places(inventory: list[dict]) -> dict[str, set[tuple[str, int]]]:
     """{name: each place (parse_at's (path, line)) where the inventory's
     entries give the name two or more forms that differ (_form_key), such as a
     table row that documents one declaration's form and quotes another's as a
-    contrast}. The citations of such a place bind none of its forms (#918):
-    they cannot say which form they are for. Entries that say the same thing
+    contrast}. For a name declared more than once, the citations of such a
+    place bind none of its forms (#918): they cannot say which form they are
+    for (_bindings). Entries that say the same thing
     at one place are one form, so their place is not shared; a `method`, and
     an entry with no form, write no form of the name."""
     keys: dict[tuple[str, tuple[str, int]], set[tuple]] = {}
@@ -830,8 +831,11 @@ def _bindings(name: str, records: list[dict], others: list[dict], places: list[l
     other places in that file (of `every` place the inventory gives it,
     _places_by_name) as those a fenced block's own citations must not be
     shared with; a place in `shared` (_shared_places: one that writes two
-    forms of the name that differ) gives none, so a form written only there
-    is compared as one with no own citation. One names a declaration as
+    forms of the name that differ) gives none when the name is declared more
+    than once (in two files, or at two lines of one), so a form written only
+    there is compared as one with no own citation. A name declared once
+    keeps them: they can bind a form to no other declaration, and give the
+    judge the line of the one there is. One names a declaration as
     cites_declaration says: its file, with no line, or at a line or in a
     range that holds a line of its span, from its line to the line before
     the next declaration `located` records in that file (_span_end). A form
@@ -844,11 +848,15 @@ def _bindings(name: str, records: list[dict], others: list[dict], places: list[l
             seen.add(key)
             declarations.append(declaration)
     ends = [_span_end(located, _record_file(d), d.get("line")) for d in declarations]
+    # declared once (one file, at most one line in it, a per-file record with no line beside it): no other
+    # declaration a shared place's citation could bind a form to, so its shared places still bind
+    homonyms = (len({_path(_record_file(d)) for d in declarations}) > 1
+                or sum(_is_line(d.get("line")) for d in declarations) > 1)
     bound = []
     for index, at in enumerate(places):
         citations = set()
         for path, line in at:
-            if (path, line) in shared:
+            if homonyms and (path, line) in shared:
                 continue
             others_there = {other for where, other in every if where == path and other != line}
             citations |= inventory.form_citations(texts.get(path) or [], line, name, others_there)
@@ -868,8 +876,9 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
     own citations name one declaration of the name, a surface record or one
     of `others` (the surface's `otherDeclarations`), to it (_bindings), a
     place that writes two of its forms that differ giving none of them a
-    citation (_shared_places) and the next declaration `exports` or `others`
-    records in a file ending the span of the one before it (_span_end). A
+    citation (_shared_places) when the name is declared more than once, and
+    the next declaration `exports` or `others` records in a file ending the
+    span of the one before it (_span_end). A
     name documented in several forms carries the others that list members
     as `alternatives` (documented_forms)."""
     forms = _forms_and_places(inventory)
