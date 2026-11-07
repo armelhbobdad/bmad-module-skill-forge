@@ -47,6 +47,13 @@ counts and the Gap Report is rendered from:
     documents the name, in SKILL.md or a reference file, else with `the
     skill`, never a bare `SKILL.md`, while a fabricated name's Source stays
     the file its provenance cites
+  - the line that documents a stale name (#922): the first that writes it
+    as an export (its floor origin, else a fenced declaration, else a
+    heading or an export table's first cell, else a code span that is the
+    name or opens its call), in SKILL.md or any reference file, nested
+    ones included; never the frontmatter, a bare word, a span that holds
+    the name among other words, a fence in an HTML comment or a data
+    block; an unreadable input is skipped, and the floor is read once
 """
 
 from __future__ import annotations
@@ -1167,6 +1174,161 @@ class TestCoverageAdapter:
         assert record["category"] == category and record["issue"].endswith(tail), record
         assert record["issue"].startswith(f"{subject} documents `{name}`, which "), record
         assert not record["issue"].startswith("SKILL.md documents")
+
+    # #922: the line that documents a stale name is the first that writes it as an export. oms-uitripled's
+    # shape: the frontmatter, a shell line and a heading write `add` as a word; the reference declares it.
+    UITRIPLED_SKILL = ("---\nname: demo\ndescription: Use `add` to install, as \"npx shadcn@latest add x\" does.\n"
+                       "---\n# demo\n\n```bash\nnpx uitripled add x\n```\n\n## CLI (`uitripled add`)\n\n"
+                       "Run `uitripled add` to install.\n")
+    UITRIPLED_CATALOG = ("# Catalog\n\n## Standalone CLI internals (`uitripled add`)\n\n```ts\n"
+                         "export async function add(name: string): Promise<void>\n```\n")
+    SEE = "# demo\n\nSee references.\n"
+
+    @staticmethod
+    def _skill_package(root: Path, files: dict[str, str | bytes]) -> Path:
+        root.mkdir(parents=True, exist_ok=True)
+        for rel, text in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_bytes(text if isinstance(text, bytes) else text.encode("utf-8"))
+        return root
+
+    @pytest.mark.parametrize("files, name, expected", [
+        ({"SKILL.md": UITRIPLED_SKILL, "references/catalog.md": UITRIPLED_CATALOG}, "add", "references/catalog.md:6"),
+        # the floor first: a whole-span heading of a top-level reference before SKILL.md's unheaded fence
+        ({"SKILL.md": "# demo\n\n```python\ndef get():\n    pass\n```\n",
+          "references/api.md": "# API\n\n### `get(key)`\n\nReads a key.\n"}, "get", "references/api.md:3"),
+        # an unheaded fenced declaration before a heading of an earlier file
+        ({"SKILL.md": "# demo\n\n## get\n\nReads a key.\n",
+          "references/a.md": "# A\n\n```python\ndef get():\n    pass\n```\n"}, "get", "references/a.md:4"),
+        # a nested reference: a fenced declaration, or a row of a table whose first column names exports
+        ({"SKILL.md": SEE, "references/integrations/x.md": "# X\n\n```ts\nexport function get(key: string) {}\n```\n"},
+         "get", "references/integrations/x.md:4"),
+        ({"SKILL.md": SEE,
+          "references/integrations/x.md": "# X\n\n| Function | Purpose |\n| --- | --- |\n| `get(key)` | Reads. |\n"},
+         "get", "references/integrations/x.md:5"),
+        # in one tier the first file wins, then the lowest line: a plain first cell before a heading's span
+        ({"SKILL.md": "# demo\n\nSee below.\n\n## get\n", "references/a.md": "## get\n"}, "get", "SKILL.md:5"),
+        ({"SKILL.md": "# demo\n\n| Function | Purpose |\n| --- | --- |\n| get | Reads. |\n\n## Reading with `get`\n"},
+         "get", "SKILL.md:5"),
+        # no export-shaped line: a paragraph, a list item, a table cell or a paragraph's next line whose code
+        # span is the name, or the name and its parameters
+        ({"SKILL.md": "# demo\n\nThe store has `get`.\n"}, "get", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nThe calls:\n\n- Call `get(key)` to read.\n"}, "get", "SKILL.md:5"),
+        ({"SKILL.md": "# demo\n\n| Option | Meaning |\n| --- | --- |\n| `cache` | read by `get` |\n"}, "get",
+         "SKILL.md:5"),
+        ({"SKILL.md": "# demo\n\nThe store reads a key\nwith `get(key)`.\n"}, "get", "SKILL.md:4"),
+        # an export-shaped line of a later file before a code span of an earlier one
+        ({"SKILL.md": "# demo\n\n`get(key)` reads.\n", "references/api.md": "# API\n\n## get\n"}, "get",
+         "references/api.md:3"),
+        # a table whose header's first cell does not name exports: its first cell is a code span, not a heading
+        ({"SKILL.md": "# demo\n\n| Option | Meaning |\n| --- | --- |\n| `get` | an option |\n",
+          "references/api.md": "# API\n\n## get\n"}, "get", "references/api.md:3"),
+        # a Svelte block's `export let` is a component prop, not a declaration
+        ({"SKILL.md": "# demo\n\n```svelte\nexport let get = 1;\n```\n",
+          "references/api.md": "# API\n\n`get` reads.\n"}, "get", "references/api.md:3"),
+        # a name with two floor origins is cited at the first
+        ({"SKILL.md": "# demo\n\n### `get(key)`\n", "references/api.md": "# API\n\n### `get(key)`\n"}, "get",
+         "SKILL.md:3"),
+        # a dotted name's code spans: the lowest line wins, a paragraph before a later heading
+        ({"SKILL.md": "# demo\n\nCall `Task.run(x)`.\n\n## `Task.run`\n"}, "Task.run", "SKILL.md:3"),
+    ], ids=["issue-922", "floor-first", "fence-before-heading", "nested-fence", "nested-table-row", "first-file",
+            "lowest-line", "paragraph-span", "list-item-call", "table-cell-span", "continuation-line",
+            "export-shaped-before-span", "option-table-first-cell", "svelte-prop", "two-floor-origins",
+            "dotted-lowest-line"])
+    def test_the_documenting_line_writes_the_name_as_an_export(self, tmp_path: Path, files: dict, name: str,
+                                                               expected: str):
+        skill = self._skill_package(tmp_path / "skill", files)
+        assert mod._documenting_line(skill, name) == expected
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]}, skill_dir=str(skill))
+        assert (record["source"], record["issue"]) == (
+            expected, f"`{expected}` documents `{name}`, which the enumerated source API surface lacks")
+        assert record["remediation"].endswith(f"documentation at {expected}: the enumerated source surface does not "
+                                              "export it.")
+
+    def test_the_append_cli_cites_the_declaration_not_the_frontmatter(self, ledger: Path, tmp_path: Path):
+        """#922 through `append --from coverage --skill-dir`: oms-uitripled's `add` was cited at its frontmatter;
+        without --skill-dir the skill documents it, as before."""
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": self.UITRIPLED_SKILL,
+                                                         "references/catalog.md": self.UITRIPLED_CATALOG})
+        coverage = write_json(tmp_path / "coverage.json", {"branch": "enumerated", "missing": [], "stale": ["add"]})
+        proc = from_file(ledger, "coverage-check", "coverage", coverage, skill_dir=skill)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        [record] = ledger_records(ledger)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: add",
+                                    "references/catalog.md:6", "add")]
+        assert record["issue"] == ("`references/catalog.md:6` documents `add`, which the enumerated source API "
+                                   "surface lacks")
+        assert record["remediation"] == ("Check `add` against the source and update or remove its documentation at "
+                                         "references/catalog.md:6: the enumerated source surface does not export it.")
+        other = tmp_path / "2.0.0" / f"test-findings-{RUN_ID}.json"
+        proc = from_file(other, "coverage-check", "coverage", coverage)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        [record] = ledger_records(other)
+        assert (record["source"], record["issue"]) == (
+            "SKILL.md", "the skill documents `add`, which the enumerated source API surface lacks")
+
+    def test_a_name_written_only_as_a_word_documents_nothing(self, tmp_path: Path):
+        """The frontmatter, a bare word, a code span that holds the name among other words or before a space, a
+        heading that holds a span with the name among other words, a span in an HTML comment, a fence in one, a
+        data block and a shell line never document `add`: the skill does, at `SKILL.md`."""
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": (
+            "---\nname: demo\ndescription: Use `add` to install, as \"npx shadcn@latest add x\" does.\n---\n"
+            "# demo\n\nRun add to install, or `uitripled add`.\n\n## CLI (`uitripled add`)\n\n"
+            "- `addAll()` and `add (x)` are other calls.\n\n<!-- `add` -->\n\n"
+            "<!--\n```ts\nexport function add() {}\n```\n-->\n\n```json\n{\"add\": 1}\n```\n\n"
+            "```bash\nnpx uitripled add x\n```\n")})
+        assert mod._documenting_line(skill, "add") is None
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["add"]}, skill_dir=str(skill))
+        assert (record["source"], record["issue"]) == (
+            "SKILL.md", "the skill documents `add`, which the enumerated source API surface lacks")
+        assert record["remediation"] == ("Check `add` against the source and update or remove its documentation at "
+                                         "SKILL.md: the enumerated source surface does not export it.")
+
+    def test_an_input_that_cannot_be_read_is_skipped(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """No SKILL.md, or a reference that is not UTF-8, leaves the floor out and the other tiers answer; a file
+        that cannot be read leaves those out and the floor answers. Nothing raises."""
+        coverage = mod._sibling("load-coverage-inputs.py")
+        fence = "```python\ndef put():\n    pass\n```\n"
+        skill = self._skill_package(tmp_path / "no-skill-md", {"references/api.md": "# API\n\n" + fence})
+        assert mod._documenting_line(skill, "put") == "references/api.md:4"
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["put"]}, skill_dir=str(skill))
+        assert record["source"] == "references/api.md:4"
+
+        skill = self._skill_package(tmp_path / "not-utf-8", {"SKILL.md": "# demo\n\n## Reading with `get`\n",
+                                                              "references/bad.md": b"# Bad \xff\n\n" + fence.encode()})
+        with pytest.raises(coverage.InputError):
+            coverage.floor(str(skill))
+        assert (mod._documenting_line(skill, "get"), mod._documenting_line(skill, "put")) == (
+            "SKILL.md:3", "references/bad.md:4")
+
+        def unreadable(root):
+            raise PermissionError(13, "Permission denied", str(root))
+
+        skill = self._skill_package(tmp_path / "unreadable", {"SKILL.md": "# demo\n\n### `get(key)`\n\n" + fence})
+        monkeypatch.setattr(mod._sibling("locate-export-segments.py"), "skill_files", unreadable)
+        assert (mod._documenting_line(skill, "get"), mod._documenting_line(skill, "put")) == ("SKILL.md:3", None)
+
+    def test_the_floor_is_read_once_per_call(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+        """The lines that document the stale names are read once, not once a name; without the skill package or
+        a stale name, never."""
+        coverage = mod._sibling("load-coverage-inputs.py")
+        calls: list[str] = []
+        real = coverage.floor
+
+        def counted(skill_dir: str) -> dict:
+            calls.append(skill_dir)
+            return real(skill_dir)
+
+        monkeypatch.setattr(coverage, "floor", counted)
+        skill = self._skill_package(tmp_path / "skill", {
+            "SKILL.md": "# demo\n\n### `get(key)`\n\n```python\ndef put():\n    pass\n```\n"})
+        records = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["get", "put", "nowhere"]},
+                                    skill_dir=str(skill))
+        assert [r["source"] for r in records] == ["SKILL.md:3", "SKILL.md:6", "SKILL.md"]
+        assert calls == [str(skill)]
+        mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["get"]})
+        mod.from_coverage({"branch": "enumerated", "missing": [], "stale": []}, skill_dir=str(skill))
+        assert calls == [str(skill)]
 
     # #678: a homonym classify-stale cannot settle is decided by the skill's own citations.
     HOMONYM = {"name": "Task", "fabricated": False, "source": None, "defined_at": None,

@@ -121,10 +121,29 @@ cites (never read; default `metadata.json`):
             --signatures result lists in `comparedNames`). `excluded` is
             read once a stale name that is not fabricated needs it, and a
             malformed one is then INVALID_INPUT. Any other is a Medium `stale-documentation` gap
-            `Stale documentation: {name}` at the first line of SKILL.md,
-            then of references/*.md in path order, that writes the name
-            (validate-inventory.py's match, with --skill-dir), else
-            `SKILL.md`. One whose `excluded.outsideScope` row says the brief
+            `Stale documentation: {name}` at the line that documents the
+            name (with --skill-dir), else `SKILL.md`. That line is the
+            first that writes it as an export, the first tier that holds
+            the name winning: (1) its first origin in the documented
+            inventory's floor (load-coverage-inputs.py floor); (2) a
+            column-0 declaration of it in a fenced block of a language
+            floor's `_declared_names` reads (JS/TS, Python, Rust, Go),
+            cited or not, outside an HTML comment and a data block (json, yaml...);
+            (3) a heading, or the first cell of a table whose header's
+            first cell names exports (floor's table headers), whose text is
+            the name or holds a code span floor reads as the name; (4) a
+            line whose inline code span is the name, or the name directly
+            followed by `(`. Tiers 2 to 4 read SKILL.md, then every .md file
+            under references/, subfolders included, in path order, outside
+            the frontmatter (3 and 4 outside fenced code and HTML comments
+            too); within a tier the first file, then its lowest line, wins.
+            A bare word, or a span that holds the name among other words
+            (`uitripled add`), documents nothing; with no such line, or
+            without --skill-dir, the Source is `SKILL.md`. Floor's
+            InputError (no SKILL.md, or a top-level file it cannot read or
+            decode) leaves tier 1 empty, and a skill file that cannot be
+            read leaves tiers 2 to 4 empty. One whose
+            `excluded.outsideScope` row says the brief
             scopes its file out (`excludeGlob`, the `scope.exclude` glob
             that matches it, or `outsideInclude`, no `scope.include` glob
             covering it) has its own issue, naming the entry point and the
@@ -778,8 +797,10 @@ _SIBLINGS: dict[str, object] = {}
 
 def _sibling(filename: str):
     """A script beside this one, loaded once: validate-inventory.py (the
-    documented-name match the stale-documentation Source uses, and the
-    skill-citation scan the homonym pick reads)."""
+    skill-citation scan the homonym pick reads), load-coverage-inputs.py
+    (the documented inventory's floor, and its fence and table readers)
+    and locate-export-segments.py (the skill's files and line model), the
+    last two for the line that documents a stale name."""
     module = _SIBLINGS.get(filename)
     if module is None:
         path = Path(__file__).resolve().parent / filename
@@ -874,21 +895,85 @@ def _provenance_sources(provenance: dict | None) -> dict[str, str]:
     return sources
 
 
+def _documenting_lines(skill_dir: Path) -> dict[str, str]:
+    """name -> the `file:line` that documents it as an export, the first tier
+    that holds the name winning:
+
+      1. its first origin in the documented inventory's floor
+         (load-coverage-inputs.py `floor`: SKILL.md and the top-level
+         references/*.md);
+      2. a column-0 public declaration of it in a fenced code block (floor's
+         `_declared_names`), cited or not, outside an HTML comment and a data
+         block;
+      3. a heading, or the first cell of a table whose header's first cell is
+         one of floor's `FLOOR_TABLE_HEADERS`, whose stripped text is the name
+         or holds a code span floor's `_floor_name` reads as the name;
+      4. a line whose inline code span, stripped, is the name, or the name
+         directly followed by `(`.
+
+    Tiers 2 to 4 read SKILL.md, then every .md file under references/,
+    subfolders included, in path order (locate-export-segments.py
+    `skill_files`), never the frontmatter, tiers 3 and 4 outside fenced code
+    and HTML comments; within a tier the first file, then its lowest line,
+    wins. A bare word, or a span that holds the name among other words
+    (`uitripled add`), documents nothing. An input a tier cannot read is
+    skipped: floor's InputError (no SKILL.md, a file that is not UTF-8)
+    leaves tier 1 empty, an unreadable file tiers 2 to 4."""
+    coverage = _sibling("load-coverage-inputs.py")
+    segments = _sibling("locate-export-segments.py")
+    tiers: list[dict[str, str]] = [{}, {}, {}, {}]
+    try:
+        for entry in coverage.floor(str(skill_dir))["names"]:
+            origin = entry["origins"][0]
+            tiers[0].setdefault(entry["name"], f"{origin['file']}:{origin['line']}")
+    except coverage.InputError:
+        pass
+    try:
+        files = segments.skill_files(skill_dir)
+    except OSError:
+        files = []
+    # floor's fence filter: a fence in an HTML comment or a data block declares nothing, and a Svelte block's
+    # `export let` is a component prop. Unlike floor, an unheaded fence counts.
+    js_family = segments.JS_FAMILY - {"svelte"}
+    for rel, lines in files:
+        start = segments._frontmatter_end(lines)
+        blocks, code = segments._fenced_blocks(lines, start)
+        comments = coverage._html_comment_lines(lines, start, code)
+        for opening, closing, info in blocks:
+            language = segments._language(info)
+            if opening in comments or language in segments.DATA_LANGUAGES:
+                continue
+            masked = segments.mask_code("\n".join(lines[opening + 1:closing]), language).split("\n")
+            for offset, declared in coverage._declared_names(masked, language, js_family):
+                tiers[1].setdefault(declared, f"{rel}:{opening + offset + 2}")
+        headings, prose = segments._prose(lines, start, code)
+        shaped = [(index, text) for index, _level, text, _above in headings]
+        written = list(shaped)
+        for block in prose:
+            written += [(i, lines[i]) for i in range(block["start"], block["end"] + 1)]
+            if block["kind"] == "table-row" and block["header"] is not None:
+                if coverage._header_word(coverage._cells(block["header"])[0]) in coverage.FLOOR_TABLE_HEADERS:
+                    shaped.append((block["start"], coverage._cells(lines[block["start"]])[0]))
+        for index, text in sorted(shaped):
+            for key in [text.strip()] + [coverage._floor_name(span) for span in segments._inline_code(text)]:
+                if key:
+                    tiers[2].setdefault(key, f"{rel}:{index + 1}")
+        for index, text in sorted(written):
+            for span in map(str.strip, segments._inline_code(text)):
+                for key in (span, span.split("(", 1)[0] if "(" in span else None):
+                    if key:
+                        tiers[3].setdefault(key, f"{rel}:{index + 1}")
+    found: dict[str, str] = {}
+    for tier in tiers:
+        for key, line in tier.items():
+            found.setdefault(key, line)
+    return found
+
+
 def _documenting_line(skill_dir: Path, name: str) -> str | None:
-    """The first line of SKILL.md, then of references/*.md in path order,
-    that writes `name` (validate-inventory.py's match), as `file:line`."""
-    pattern = _sibling("validate-inventory.py").name_pattern(name)
-    refs = skill_dir / "references"
-    files = [skill_dir / "SKILL.md"] + (sorted(refs.glob("*.md")) if refs.is_dir() else [])
-    for path in files:
-        try:
-            text = path.read_bytes().decode("utf-8-sig", errors="replace")
-        except OSError:
-            continue
-        for number, line in enumerate(text.split("\n"), start=1):
-            if pattern.search(line):
-                return f"{path.relative_to(skill_dir).as_posix()}:{number}"
-    return None
+    """The `file:line` that documents `name` as an export in the skill at
+    `skill_dir` (`_documenting_lines`), else None."""
+    return _documenting_lines(skill_dir).get(name)
 
 
 def _documents(doc: str | None, name: str) -> str:
@@ -1120,10 +1205,13 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
         if not isinstance(stale, list):
             raise AdapterError("--stale is not classify-stale JSON (a list)")
         classified = {i["name"]: i for i in stale if isinstance(i, dict) and isinstance(i.get("name"), str)}
-    for name in _names(cov, "stale", "--input"):
+    names = _names(cov, "stale", "--input")
+    # the lines that document each name, read once for every stale name
+    documenting = _documenting_lines(Path(skill_dir)) if skill_dir and names else {}
+    for name in names:
         item = classified.get(name) or {}
         cited = item.get("source")
-        doc = _documenting_line(Path(skill_dir), name) if skill_dir else None
+        doc = documenting.get(name)
         if item.get("fabricated") is True:
             if not isinstance(cited, str) or not cited:
                 # a Critical gap needs the line it cites: never downgrade it
