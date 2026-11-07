@@ -25,9 +25,11 @@ reading files and writing one JSON object:
             signature is read only where the place writes it in a fixed
             form (Signatures, below). A name is a plain
             identifier (`[A-Za-z_$][\\w$]*`) once a leading `new ` and
-            everything from the first `(` or `<` are cut, so `Meta<T>`,
-            `fetch(url): Promise<T>` and `new Client(opts)` give `Meta`,
-            `fetch` and `Client`. A dotted or `::` name gives none, so a
+            everything from the first `(`, `<` or `[` are cut, so
+            `Meta<T>`, `App[P, R]`, `fetch(url): Promise<T>` and
+            `new Client(opts)` give `Meta`, `App`, `fetch` and `Client`;
+            an empty `[]` at the cut (a TS array type, `Foo[]`) gives
+            none. A dotted or `::` name gives none, so a
             namespace-style skill such as zod (`z.object`) gets no table
             floor. The forms, read outside the frontmatter and HTML
             comments (a table row or heading inside fenced code gives none):
@@ -614,12 +616,16 @@ def census(skill_dir: str) -> dict:
 
 
 def _floor_name(text: str) -> str | None:
-    """The plain identifier `text` writes once a leading `new ` and everything from the first `(` or `<` are
-    cut; None for any other text, a dotted or `::` name among them."""
+    """The plain identifier `text` writes once a leading `new ` and everything from the first `(`, `<` or `[` are
+    cut; None for any other text, a dotted or `::` name and an array type (`Foo[]`, an empty `[]` at the cut)
+    among them."""
     text = text.strip()
     if text.startswith("new "):
         text = text[4:]
-    text = re.split(r"[(<]", text, maxsplit=1)[0].strip()
+    cut = re.match(r"([^(<\[]*)(\[\s*\])?", text)
+    if cut.group(2):
+        return None
+    text = cut.group(1).strip()
     return text if PLAIN_IDENTIFIER_RE.fullmatch(text) else None
 
 

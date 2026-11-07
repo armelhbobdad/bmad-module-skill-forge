@@ -249,7 +249,7 @@ API_TABLE = (
 
 def test_floor_lists_export_table_first_column_names(tmp_path):
     """Every code span in the first cell of an export table's row, a leading `new ` and everything from the first
-    `(` or `<` cut, with the row's Kind cell as written; another column's span, a cell with no span and a Prop
+    `(`, `<` or `[` cut, with the row's Kind cell as written; another column's span, a cell with no span and a Prop
     table give none. A first cell that writes a call is the origin's signature (#888)."""
     out = mod.floor(str(_skill(tmp_path, "# Demo\n", {"api.md": API_TABLE})))
     assert out["files"] == ["SKILL.md", "references/api.md"]
@@ -307,6 +307,46 @@ def test_floor_reads_code_only_headings(tmp_path):
         {"name": "Meta", "kindLabel": None, "origins": [_origin("SKILL.md", 7, "heading")]},
         {"name": "render", "kindLabel": None, "origins": [_origin("SKILL.md", 11, "heading", _signature("ui"))]},
     ]
+
+
+BRACKET_NAMES = (
+    "# Demo\n"                                                                  # 1
+    "\n"                                                                        # 2
+    "| Export | Kind |\n"                                                       # 3
+    "| --- | --- |\n"                                                           # 4
+    "| `App[P, R]` | class |\n"                                                 # 5
+    "| `LiveMapFeed[K, V]` / `LiveMapView[K, V]` | class |\n"                   # 6
+    "| `first[T](xs: list[T]) -> T` | function |\n"                             # 7
+    "| `Foo[]`, `Arr[][]`, `Gap[ ]` | type |\n"                                 # 8
+    "| `Meta<T>` | type |\n"                                                    # 9
+    "| `Foo<T>[]` | type |\n"                                                   # 10
+    "| `a.b[T]` | function |\n"                                                 # 11
+    "\n"                                                                        # 12
+    "### `Box[T]`\n"                                                            # 13
+    "\n"                                                                        # 14
+    "### `Map[K comparable, V any](m map[K]V) []K`\n"                           # 15
+)
+
+
+def test_floor_cuts_a_name_at_a_bracket(tmp_path):
+    """A Python or Go generic is cut at its first `[` as at `(` and `<` (#915): `App[P, R]` gives `App`, in a
+    table's first cell or a code-only heading, and a call written that way pins its form, but a Go call whose
+    return follows its group with no separator (line 15's `Map`) pins only its name, as any call does that writes
+    its return without `->`, `=>`, `→` or `:`. An empty `[]` at the cut (a TS array type, `Foo[]`, `Arr[][]`,
+    `Gap[ ]`) gives none; `Foo<T>[]` is cut at `<` first, and a dotted name gives none as before."""
+    out = mod.floor(str(_skill(tmp_path, BRACKET_NAMES)))
+    assert out["names"] == [
+        {"name": "App", "kindLabel": "class", "origins": [_origin("SKILL.md", 5, "table-row")]},
+        {"name": "Box", "kindLabel": None, "origins": [_origin("SKILL.md", 13, "heading")]},
+        {"name": "Foo", "kindLabel": "type", "origins": [_origin("SKILL.md", 10, "table-row")]},
+        {"name": "LiveMapFeed", "kindLabel": "class", "origins": [_origin("SKILL.md", 6, "table-row")]},
+        {"name": "LiveMapView", "kindLabel": "class", "origins": [_origin("SKILL.md", 6, "table-row")]},
+        {"name": "Map", "kindLabel": None, "origins": [_origin("SKILL.md", 15, "heading")]},
+        {"name": "Meta", "kindLabel": "type", "origins": [_origin("SKILL.md", 9, "table-row")]},
+        {"name": "first", "kindLabel": "function",
+         "origins": [_origin("SKILL.md", 7, "table-row", _signature("xs: list[T]", "T"))]},
+    ]
+    assert out["summary"] == {"names": 8, "byForm": {"table-row": 6, "heading": 2, "declaration": 0}}
 
 
 CITED_BLOCKS = (
