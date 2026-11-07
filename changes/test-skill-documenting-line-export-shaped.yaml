@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  A stale name's gap in Test Skill's Gap Report now cites the line that documents the name as an export: its line in the inventory floor, else a declaration of it in a fenced code block, else a heading or an export table's first cell that names it, else a line whose code span is the name or opens its call (`get` or `get(key)`), read from `SKILL.md` and every Markdown file under `references/`, subfolders included. It used to cite the first line that wrote the name as a word, frontmatter and prose included, so oms-uitripled's `add` read "`SKILL.md:7` documents `add`", the frontmatter's `npx shadcn@latest add`, instead of `references/catalog.md:110`. A name the skill writes only as a word, or inside a longer code span such as `uitripled add`, now has an Issue that reads "the skill documents", and a Medium `stale-documentation` gap for it has Source `SKILL.md`. The Issue of every stale-name gap, and the Source and remediation of a Medium `stale-documentation` gap, move to that line.
+issues: [922]
