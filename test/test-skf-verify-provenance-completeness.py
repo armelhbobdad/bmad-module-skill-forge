@@ -4210,6 +4210,30 @@ class TestDefinedAt:
     BUTTON = {"pkg/package.json": "{}\n",
               "pkg/Button.tsx": "export function ButtonComponent() {}\nexport default ButtonComponent;\n"}
     PURE = {"pkg/__init__.py": "", "pkg/_pure.py": "class _Impl:\n    pass\n"}
+    # #954: a rename of a rename across files, `Impl` cited at `pkg/impl/_core.py:1`, `Entry` at `pkg/api.ts:1`
+    PY_CHAIN = {"pkg/__init__.py": "from .impl import _Impl as Impl\n",
+                "pkg/impl/__init__.py": "from ._core import _CoreImpl as _Impl\n",
+                "pkg/impl/_core.py": "class _CoreImpl:\n    pass\n"}
+    TS_CHAIN = {**TS_API, "pkg/internal.ts": "export { API_Entry as Internal } from './api';\n",
+                "pkg/root.ts": "export { Internal as Entry } from './internal';\n"}
+    # a middle file that renames `L` and declares none at column 0: a compatibility try/except import, an import
+    # then a plain re-export, and three steps (`Impl` cited at `pkg/_core.py:1`) mixing a column-0 import, a
+    # try/except import and a `L = M.L2`
+    PY_CHAIN_TRY = {**PY_CHAIN, "pkg/impl/_pure.py": "class _CoreImpl:\n    pass\n",
+                    "pkg/impl/__init__.py": "try:\n    from ._core import _CoreImpl as _Impl\n"
+                                            "except ImportError:\n    from ._pure import _CoreImpl as _Impl\n"}
+    TS_CHAIN_REEXPORT = {**TS_CHAIN,
+                         "pkg/internal.ts": "import { API_Entry as Internal } from './api';\nexport { Internal };\n"}
+    PY_CHAIN_MIXED = {"pkg/__init__.py": "from .mid import _Mid as Impl\n",
+                      "pkg/mid.py": "try:\n    from ._deep import _Deep as _Mid\nexcept ImportError:\n    raise\n",
+                      "pkg/_deep.py": "from . import _core\n_Deep = _core._CoreImpl\n",
+                      "pkg/_core.py": "class _CoreImpl:\n    pass\n"}
+    # a chain inside the renaming file: the first step's `L` has no module, and that file renames it again
+    PY_CHAIN_SELF = {"pkg/__init__.py": "from ._core import _CoreImpl\n_Impl = _CoreImpl\nImpl = _Impl\n",
+                     "pkg/_core.py": "class _CoreImpl:\n    pass\n"}
+    TS_CHAIN_SELF = {**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+                     "pkg/root.ts": "import { createEntry } from './api';\nconst inner = createEntry;\n"
+                                    "export const Entry = inner;\n"}
 
     @pytest.mark.parametrize("files, name, cited, alias, declared_in", [
         # `default as NAME`: the cited file's column-0 `export default`, `export { X as default }` or
@@ -4306,6 +4330,92 @@ class TestDefinedAt:
           "pkg/__init__.py": "import sys\nif sys.version_info >= (3, 11):\n    from ._other import _Impl as Impl\n"
                              "elif sys.version_info >= (3, 8):\n    from ._pure import _Impl as Impl\n"},
          "Impl", "pkg/_pure.py", "pkg/__init__.py:5", ["pkg/__init__.py:3"]),
+        # #954: a rename of a rename, followed through the files it resolves to the cited declaration: a middle
+        # `__init__.py` that renames by import, by `L = M.L2` (`M` bound by `from . import M`) or by `L = L2`
+        (PY_CHAIN, "Impl", "pkg/impl/_core.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"]),
+        ({**PY_CHAIN, "pkg/impl/__init__.py": "from . import _core\n_Impl = _core._Impl\n",
+          "pkg/impl/_core.py": "class _Impl:\n    pass\n"},
+         "Impl", "pkg/impl/_core.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"]),
+        ({**PY_CHAIN, "pkg/impl/__init__.py": "from ._core import _CoreImpl\n\n_Impl = _CoreImpl\n"},
+         "Impl", "pkg/impl/_core.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"]),
+        (TS_CHAIN, "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        # three steps, the last a `const B = A` of an import
+        ({**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+          "pkg/mid.ts": "import { createEntry } from './api';\nexport const Inner = createEntry;\n",
+          "pkg/internal.ts": "export { Inner as Internal } from './mid';\n",
+          "pkg/root.ts": "export { Internal as Entry } from './internal';\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        # a generic alias that passes its bare parameters on in order
+        ({**TS_API, "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry<T> = API_Entry<T>;\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        ({**TS_API,
+          "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry<K, V> = API_Entry<K, V>;\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        # an annotated `const`, `let` or Python name
+        ({**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+          "pkg/root.ts": "import { createEntry } from './api';\nexport const Entry: typeof createEntry = createEntry;\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        ({**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+          "pkg/root.ts": "import { createEntry } from './api';\nlet Entry: (x?: number) => void = createEntry\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        ({**PY_IMPL, "pkg/__init__.py": "from .impl import _Impl\n\nImpl: type[_Impl] = _Impl\n"},
+         "Impl", "pkg/impl.py", "pkg/__init__.py:3", ["pkg/__init__.py:3"]),
+        # a block header's one-line body (`_speedups` declares another `_Impl`, so line 2 is passed)
+        ({**PY_IMPL, "pkg/__init__.py": "try: from .impl import _Impl as Impl\nexcept ImportError: pass\n"},
+         "Impl", "pkg/impl.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"]),
+        ({**PURE, "pkg/_speedups.py": "class _Impl:\n    pass\n",
+          "pkg/__init__.py": "try:\n    from ._speedups import _Impl as Impl\n"
+                             "except ImportError: from ._pure import _Impl as Impl  # pure Python\n"},
+         "Impl", "pkg/_pure.py", "pkg/__init__.py:3", ["pkg/__init__.py:2"]),
+        # an import one level in a module-level `with` or `finally` block
+        ({**PY_IMPL, "pkg/__init__.py": "import contextlib\n\nwith contextlib.suppress(ImportError):\n"
+                                        "    from .impl import _Impl as Impl\n"},
+         "Impl", "pkg/impl.py", "pkg/__init__.py:4", ["pkg/__init__.py:4"]),
+        ({**PY_IMPL, "pkg/__init__.py": "try:\n    import _speedups\nfinally:\n    from .impl import _Impl as Impl\n"},
+         "Impl", "pkg/impl.py", "pkg/__init__.py:4", ["pkg/__init__.py:4"]),
+        # a middle file that renames the same `L` from two modules, the second cited
+        ({"pkg/__init__.py": "from .impl import _Impl as Impl\n",
+          "pkg/impl/__init__.py": "from ._pure import _CoreImpl as _Impl\ntry:\n"
+                                  "    from ._speedups import _CoreImpl as _Impl\nexcept ImportError:\n    pass\n",
+          "pkg/impl/_pure.py": "class _CoreImpl:\n    pass\n", "pkg/impl/_speedups.py": "class _CoreImpl:\n    pass\n"},
+         "Impl", "pkg/impl/_speedups.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"]),
+        # an annotated `L: <type> = M.L2` middle step
+        ({**PY_CHAIN, "pkg/impl/__init__.py": "from . import _core\n_Impl: type = _core._Impl\n",
+          "pkg/impl/_core.py": "class _Impl:\n    pass\n"},
+         "Impl", "pkg/impl/_core.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"]),
+        # a generic alias with a trailing comma in its parameters
+        ({**TS_API, "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry<T,> = API_Entry<T>;\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        # the one-line body of an `if`, `else`, `with` or `finally` header
+        ({**PY_IMPL, "pkg/__init__.py": "import sys\nif sys.version_info >= (3, 8): from .impl import _Impl as Impl\n"},
+         "Impl", "pkg/impl.py", "pkg/__init__.py:2", ["pkg/__init__.py:2"]),
+        ({**PY_IMPL, "pkg/__init__.py": "import sys\nif sys.version_info >= (3, 8):\n    pass\n"
+                                        "else: from .impl import _Impl as Impl\n"},
+         "Impl", "pkg/impl.py", "pkg/__init__.py:4", ["pkg/__init__.py:4"]),
+        ({**PY_IMPL, "pkg/__init__.py": "import contextlib\n"
+                                        "with contextlib.suppress(ImportError): from .impl import _Impl as Impl\n"},
+         "Impl", "pkg/impl.py", "pkg/__init__.py:2", ["pkg/__init__.py:2"]),
+        ({**PY_IMPL, "pkg/__init__.py": "try:\n    import _speedups\nfinally: from .impl import _Impl as Impl\n"},
+         "Impl", "pkg/impl.py", "pkg/__init__.py:3", ["pkg/__init__.py:3"]),
+        # a header's one-line import binds nothing, as an indented one: `_Impl` resolves to no file
+        ({**PY_IMPL, "pkg/other.py": "class _Impl:\n    pass\n",
+          "pkg/__init__.py": "try: from .other import _Impl\nexcept ImportError: pass\n\nImpl = _Impl\n"},
+         "Impl", "pkg/impl.py", "pkg/__init__.py:4", ["pkg/__init__.py:4"]),
+        # a middle file that renames `L` only by a form the per-file reader reads, declaring no `L` at column 0:
+        # a compatibility try/except import, an import then a plain re-export, and three steps mixing forms
+        (PY_CHAIN_TRY, "Impl", "pkg/impl/_core.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"]),
+        (TS_CHAIN_REEXPORT, "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        (PY_CHAIN_MIXED, "Impl", "pkg/_core.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"]),
+        # a chain inside the renaming file, then out of it
+        (PY_CHAIN_SELF, "Impl", "pkg/_core.py", "pkg/__init__.py:3", ["pkg/__init__.py:3"]),
+        (TS_CHAIN_SELF, "Entry", "pkg/api.ts", "pkg/root.ts:3", ["pkg/root.ts:3"]),
+        # a middle `L = M.L2` whose `M` a dotted module holds (`from .sub import _core`), or an `as` alias binds
+        ({**PY_CHAIN, "pkg/impl/__init__.py": "from .sub import _core\n_Impl = _core._Impl\n",
+          "pkg/impl/sub/__init__.py": "", "pkg/impl/sub/_core.py": "class _Impl:\n    pass\n"},
+         "Impl", "pkg/impl/sub/_core.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"]),
+        ({**PY_CHAIN, "pkg/impl/__init__.py": "from . import _core as core\n_Impl = core._Impl\n",
+          "pkg/impl/_core.py": "class _Impl:\n    pass\n"},
+         "Impl", "pkg/impl/_core.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"]),
     ], ids=["default-as-NAME-export-list", "default-as-NAME-commonjs", "default-as-NAME-export-default",
             "default-as-NAME-react-barrel", "const-NAME-is-L", "let-NAME-is-L-no-semicolon", "type-NAME-is-L",
             "python-NAME-is-L", "import-then-re-export", "import-type-then-re-export",
@@ -4315,7 +4425,16 @@ class TestDefinedAt:
             "cited-in-dist", "cited-in-build", "cited-in-vendor", "cited-in-_vendor", "cited-in-tests",
             "cited-in-testing", "package-name", "missing-path", "re-exporting-barrel",
             "multi-line-import-then-re-export", "var-NAME-is-L", "if-else-import-first-resolves-elsewhere",
-            "if-elif-import-first-resolves-elsewhere"])
+            "if-elif-import-first-resolves-elsewhere", "python-chain-import", "python-chain-member",
+            "python-chain-NAME-is-L", "ts-chain", "ts-chain-three-steps", "generic-type-alias",
+            "generic-type-alias-two-parameters", "annotated-const", "annotated-let-no-semicolon",
+            "python-annotated-NAME-is-L", "one-line-try-body", "one-line-except-body", "with-block-import",
+            "finally-block-import", "python-chain-middle-renames-from-two-modules",
+            "python-chain-annotated-member", "generic-type-alias-trailing-comma", "one-line-if-body",
+            "one-line-else-body", "one-line-with-body", "one-line-finally-body", "one-line-body-binds-nothing",
+            "python-chain-try-except-middle", "ts-chain-import-then-re-export-middle",
+            "python-chain-three-mixed-steps", "python-chain-in-the-renaming-file", "ts-chain-in-the-renaming-file",
+            "python-chain-member-of-a-submodule", "python-chain-member-import-as"])
     def test_a_rename_of_the_cited_declaration_is_aliased_at_the_rename(self, tmp_path: Path, capsys,
                                                                       files: dict[str, str], name: str, cited: str,
                                                                       alias: str, declared_in: list[str]) -> None:
@@ -4338,12 +4457,51 @@ class TestDefinedAt:
         ({**PY_IMPL, "pkg/__init__.py": "from .impl import _Impl\n\nImpl = _Impl\n"}, "Impl", "pkg/impl.py", "_Impl"),
         ({**BUTTON, "pkg/index.ts": "export { ButtonComponent as Button } from './Button';\n"},
          "Button", "pkg/Button.tsx", "ButtonComponent"),
+        # #954: a chain's end, the name the cited file declares, not the `L` of the first step at `defined_at`
+        (PY_CHAIN, "Impl", "pkg/impl/_core.py", "_CoreImpl"),
+        (TS_CHAIN, "Entry", "pkg/api.ts", "API_Entry"),
+        (PY_CHAIN_TRY, "Impl", "pkg/impl/_core.py", "_CoreImpl"),
+        (TS_CHAIN_REEXPORT, "Entry", "pkg/api.ts", "API_Entry"),
+        (PY_CHAIN_MIXED, "Impl", "pkg/_core.py", "_CoreImpl"),
+        ({**TS_API, "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry<T> = API_Entry<T>;\n"},
+         "Entry", "pkg/api.ts", "API_Entry"),
+        ({**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+          "pkg/root.ts": "import { createEntry } from './api';\nexport const Entry: typeof createEntry = createEntry;\n"},
+         "Entry", "pkg/api.ts", "createEntry"),
+        ({**PY_IMPL, "pkg/__init__.py": "from .impl import _Impl\n\nImpl: type[_Impl] = _Impl\n"},
+         "Impl", "pkg/impl.py", "_Impl"),
+        ({**PY_CHAIN, "pkg/impl/__init__.py": "from . import _core\n_Impl = _core._Impl\n",
+          "pkg/impl/_core.py": "class _Impl:\n    pass\n"}, "Impl", "pkg/impl/_core.py", "_Impl"),
+        ({**PY_CHAIN, "pkg/impl/__init__.py": "from ._core import _CoreImpl\n\n_Impl = _CoreImpl\n"},
+         "Impl", "pkg/impl/_core.py", "_CoreImpl"),
+        ({**PY_CHAIN, "pkg/impl/__init__.py": "from . import _core\n_Impl: type = _core._Impl\n",
+          "pkg/impl/_core.py": "class _Impl:\n    pass\n"}, "Impl", "pkg/impl/_core.py", "_Impl"),
+        (PY_CHAIN_SELF, "Impl", "pkg/_core.py", "_CoreImpl"),
+        (TS_CHAIN_SELF, "Entry", "pkg/api.ts", "createEntry"),
+        ({**TS_API,
+          "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry<K, V> = API_Entry<K, V>;\n"},
+         "Entry", "pkg/api.ts", "API_Entry"),
+        ({**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+          "pkg/mid.ts": "import { createEntry } from './api';\nexport const Inner = createEntry;\n",
+          "pkg/internal.ts": "export { Inner as Internal } from './mid';\n",
+          "pkg/root.ts": "export { Internal as Entry } from './internal';\n"},
+         "Entry", "pkg/api.ts", "createEntry"),
+        # a chain that ends at the cited file's default export
+        ({**TS_API, "pkg/api.ts": "export default function createEntry() {}\n",
+          "pkg/internal.ts": "export { default as Internal } from './api';\n",
+          "pkg/root.ts": "export { Internal as Entry } from './internal';\n"}, "Entry", "pkg/api.ts", "default"),
     ], ids=["default-as-NAME", "default-import-then-re-export", "const-NAME-is-L", "import-then-re-export",
-            "quoted-L", "python-NAME-is-L", "cited-module-is-the-export"])
+            "quoted-L", "python-NAME-is-L", "cited-module-is-the-export", "python-chain", "ts-chain",
+            "python-chain-try-except-middle", "ts-chain-import-then-re-export-middle",
+            "python-chain-three-mixed-steps", "generic-type-alias", "annotated-const", "python-annotated-NAME-is-L",
+            "python-chain-member", "python-chain-NAME-is-L", "python-chain-annotated-member",
+            "python-chain-in-the-renaming-file", "ts-chain-in-the-renaming-file", "generic-type-alias-two-parameters",
+            "ts-chain-three-steps", "ts-chain-ends-at-default"])
     def test_an_aliased_item_renames_the_name_its_alias_renames(self, tmp_path: Path, capsys, files: dict[str, str],
                                                                  name: str, cited: str, renames: str) -> None:
-        """#911: `renames` holds the `L` the rename at `defined_at` renames, as the cited file declares it (a
-        quoted side unquoted, `default` for a default export), for test-skill's provenance line gap."""
+        """#911: `renames` holds the name the cited file declares where the rename's chain ends, for a one-step
+        rename the `L` the rename at `defined_at` renames (a quoted side unquoted, `default` for a default export),
+        for test-skill's provenance line gap."""
         entries = [{"export_name": name, "source_file": cited, "source_line": 1}]
         out = _classified(tmp_path, capsys, files, [name], entries)[name]
         assert (out["reason"], out["renames"]) == ("aliased", renames)
@@ -4431,6 +4589,71 @@ class TestDefinedAt:
          "Entry", "pkg/api.ts"),
         ({**TS_API, "pkg/other.mts": "export interface API_Entry {}\n",
           "pkg/root.mts": "export { API_Entry as Entry } from './other.mjs';\n"}, "Entry", "pkg/api.ts"),
+        # #954: a chain that loops, leaves the files the resolver reads or ends at another declaration
+        ({**PY_IMPL, "pkg/__init__.py": "from .a import _A as Impl\n", "pkg/a.py": "from .b import _B as _A\n",
+          "pkg/b.py": "from .a import _A as _B\n"}, "Impl", "pkg/impl.py"),
+        ({**TS_API, "pkg/a.ts": "export { B as A } from './b';\n", "pkg/b.ts": "export { A as B } from './a';\n",
+          "pkg/root.ts": "export { A as Entry } from './a';\n"}, "Entry", "pkg/api.ts"),
+        ({**TS_CHAIN, "pkg/internal.ts": "export { API_Entry as Internal } from '@scope/api';\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_CHAIN, "pkg/internal.ts": "export { API_Entry as Internal } from './missing';\n"},
+         "Entry", "pkg/api.ts"),
+        ({**PY_CHAIN, "pkg/impl/__init__.py": "from somepkg import _CoreImpl as _Impl\n"},
+         "Impl", "pkg/impl/_core.py"),
+        ({**TS_CHAIN, "pkg/other.ts": "export interface API_Entry {}\n",
+          "pkg/internal.ts": "export { API_Entry as Internal } from './other';\n"}, "Entry", "pkg/api.ts"),
+        ({**TS_CHAIN, "pkg/internal.ts": "export interface Internal {}\n"}, "Entry", "pkg/api.ts"),
+        ({**PY_IMPL, "pkg/__init__.py": "from .mid import _Mid as Impl\n",
+          "pkg/mid.py": "from .other import _Impl as _Mid\n", "pkg/other.py": "class _Impl:\n    pass\n"},
+         "Impl", "pkg/impl.py"),
+        # a generic alias whose parameters are swapped, instantiated, constrained or defaulted
+        ({**TS_API,
+          "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry<K, V> = API_Entry<V, K>;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry = API_Entry<string>;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_API,
+          "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry<T extends object> = API_Entry<T>;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_API,
+          "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry<T = string> = API_Entry<T>;\n"},
+         "Entry", "pkg/api.ts"),
+        # an annotated call
+        ({**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+          "pkg/root.ts": "import { createEntry } from './api';\n"
+                         "export const Entry: typeof createEntry = createEntry();\n"}, "Entry", "pkg/api.ts"),
+        ({**PY_IMPL, "pkg/__init__.py": "from .impl import _Impl\n\nImpl: type[_Impl] = _Impl()\n"},
+         "Impl", "pkg/impl.py"),
+        # `NAME = M.L2` at the documented name's own line: a step of a chain only
+        ({**PY_IMPL, "pkg/__init__.py": "from . import impl\n\nImpl = impl._Impl\n"}, "Impl", "pkg/impl.py"),
+        # an import two levels deep in a `with` block
+        ({**PY_IMPL, "pkg/__init__.py": "import contextlib\n\nwith contextlib.suppress(ImportError):\n"
+                                        "    if True:\n        from .impl import _Impl as Impl\n"},
+         "Impl", "pkg/impl.py"),
+        # an annotation that would run past a `,` that opens another declarator, a `=` or a `;`
+        ({**TS_API,
+          "pkg/root.ts": "import { API_Entry } from './api';\nexport let Entry: number, Other = API_Entry;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_API,
+          "pkg/root.ts": "import { API_Entry } from './api';\nexport const Entry: T = make(), Other = API_Entry;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**PY_IMPL, "pkg/__init__.py": "from .impl import _Impl\n\nImpl: int; Other = _Impl\n"},
+         "Impl", "pkg/impl.py"),
+        ({**PY_IMPL, "pkg/__init__.py": "from .impl import _Impl\n\nImpl: T = f(base=_Impl\n)\n"},
+         "Impl", "pkg/impl.py"),
+        # an annotation type that holds a `;`
+        ({**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+          "pkg/root.ts": "import { createEntry } from './api';\n"
+                         "export const Entry: { (): void; extra?: number } = createEntry;\n"}, "Entry", "pkg/api.ts"),
+        # a middle `L = M.L2` whose `M` an `import a.b as M` binds
+        ({**PY_CHAIN, "pkg/impl/__init__.py": "import pkg.impl._core as _core\n_Impl = _core._Impl\n",
+          "pkg/impl/_core.py": "class _Impl:\n    pass\n"}, "Impl", "pkg/impl/_core.py"),
+        # the one-line body of a `def` or a `class` header
+        ({**PY_IMPL, "pkg/__init__.py": "def load(): from .impl import _Impl as Impl\n"}, "Impl", "pkg/impl.py"),
+        ({**PY_IMPL, "pkg/__init__.py": "class Box: from .impl import _Impl as Impl\n"}, "Impl", "pkg/impl.py"),
+        # a generic alias with parameters and no arguments
+        ({**TS_API, "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry<T> = API_Entry;\n"},
+         "Entry", "pkg/api.ts"),
     ], ids=["export-list-from-another-file", "export-list-from-another-file-js-specifier",
             "local-list-of-another-file's-import", "re-export-of-another-file's-import",
             "python-from-another-module", "python-NAME-is-L-from-another-module", "default-as-NAME-uncited-module",
@@ -4441,13 +4664,40 @@ class TestDefinedAt:
             "export-list-of-L-declared-in-the-renaming-file", "python-NAME-is-L-declared-in-the-renaming-file",
             "python-absolute-in-package-module", "python-relative-package", "python-parent-relative-module",
             "python-from-dot-import", "export-list-from-another-folder-index", "export-list-from-a-parent-folder",
-            "type-NAME-is-L-of-a-hoisted-import", "export-list-from-an-mjs-specifier"])
+            "type-NAME-is-L-of-a-hoisted-import", "export-list-from-an-mjs-specifier", "python-chain-cycle",
+            "ts-chain-cycle", "ts-chain-leaves-for-a-package", "ts-chain-leaves-for-a-missing-path",
+            "python-chain-leaves-for-a-package", "ts-chain-ends-at-another-file", "ts-chain-ends-at-its-middle-file",
+            "python-chain-ends-at-another-file", "generic-type-alias-swapped", "generic-type-alias-instantiated",
+            "generic-type-alias-constrained", "generic-type-alias-defaulted", "annotated-const-call",
+            "python-annotated-call", "python-NAME-is-a-member-at-the-documented-name",
+            "python-with-import-two-levels-deep", "let-annotation-then-another-declarator",
+            "const-annotation-then-another-declarator", "python-annotation-then-a-semicolon",
+            "python-annotation-then-a-call", "annotation-type-holds-a-semicolon",
+            "python-chain-member-of-an-import-as", "python-def-one-line-body", "python-class-one-line-body",
+            "generic-type-alias-parameters-without-arguments"])
     def test_a_rename_of_another_declaration_stays_fabricated(self, tmp_path: Path, capsys, files: dict[str, str],
                                                               name: str, cited: str) -> None:
         entries = [{"export_name": name, "source_file": cited, "source_line": 1}]
         out = _classified(tmp_path, capsys, files, [name], entries)[name]
         assert self._verdict(out) == (True, "not-defined", None, None)
         assert "renames" not in out
+
+    @pytest.mark.parametrize("files, cited, alias, alias_at", [
+        ({**PY_IMPL, "pkg/__init__.py": "from .a import _A as Loop\nfrom .impl import _Impl as Impl\n",
+          "pkg/a.py": "from .b import _B as _A\n", "pkg/b.py": "from .a import _A as _B\n"},
+         "pkg/impl.py", "Impl", "pkg/__init__.py:2"),
+        ({**TS_API, "pkg/a.ts": "export { B as A } from './b';\n", "pkg/b.ts": "export { A as B } from './a';\n",
+          "pkg/root.ts": "export { A as Loop } from './a';\nexport { API_Entry as Entry } from './api';\n"},
+         "pkg/api.ts", "Entry", "pkg/root.ts:2"),
+    ], ids=["python", "ts"])
+    def test_a_chain_that_loops_ends_and_keeps_another_suspect_s_alias(self, tmp_path: Path, capsys,
+                                                                     files: dict[str, str], cited: str, alias: str,
+                                                                     alias_at: str) -> None:
+        # #954: the visited set ends the loop, so the suspects' pass raises no error that would clear every alias
+        entries = [{"export_name": name, "source_file": cited, "source_line": 1} for name in ("Loop", alias)]
+        out = _classified(tmp_path, capsys, files, ["Loop", alias], entries)
+        assert self._verdict(out["Loop"]) == (True, "not-defined", None, None)
+        assert self._verdict(out[alias]) == (False, "aliased", alias_at, [alias_at])
 
     def test_an_error_reading_a_resolved_module_keeps_the_name_fabricated(self, tmp_path: Path, capsys,
                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
@@ -4470,6 +4720,31 @@ class TestDefinedAt:
         out = _classified(tmp_path, capsys, files, ["Foo", "Entry"], entries)
         assert self._verdict(out["Foo"]) == (False, "defined", "pkg/foo.ts:1", None)
         assert self._verdict(out["Entry"]) == (True, "not-defined", None, None)
+
+    def test_an_error_reading_a_chain_s_middle_file_keeps_the_name_fabricated(self, tmp_path: Path, capsys,
+                                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+        # #954: only the chain's second step reads vendor/mid.ts, which the walk skips; root.ts renames
+        # internal.ts's `Internal`, which renames vendor/mid.ts's `Mid`, which renames the cited `API_Entry`
+        files = {**self.TS_API, "pkg/foo.ts": "export interface Foo {}\n",
+                 "pkg/vendor/mid.ts": "export { API_Entry as Mid } from '../api';\n",
+                 "pkg/internal.ts": "export { Mid as Internal } from './vendor/mid';\n",
+                 "pkg/root.ts": "export { Internal as Entry } from './internal';\n"}
+        entries = [*self.ENTRY, {"export_name": "Foo", "source_file": "pkg/foo.ts", "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, ["Foo", "Entry"], entries)
+        assert self._verdict(out["Entry"]) == (False, "aliased", "pkg/root.ts:1", ["pkg/root.ts:1"])
+        assert out["Entry"]["renames"] == "API_Entry"  # the chain's end, the name the cited file declares
+        real_read = mod._read_source
+
+        def fail(path: Path) -> str:
+            if path.parent.name == "vendor":
+                raise OSError(13, "denied", str(path))
+            return real_read(path)
+
+        monkeypatch.setattr(mod, "_read_source", fail)
+        out = _classified(tmp_path, capsys, files, ["Foo", "Entry"], entries)
+        assert self._verdict(out["Foo"]) == (False, "defined", "pkg/foo.ts:1", None)
+        assert self._verdict(out["Entry"]) == (True, "not-defined", None, None)
+        assert "renames" not in out["Entry"]
 
     @pytest.mark.parametrize("root, cited, api", [
         ("export interface Entry {}\n", "pkg/api.ts", None),

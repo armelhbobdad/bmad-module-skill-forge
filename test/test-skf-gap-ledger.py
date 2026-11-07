@@ -2020,9 +2020,9 @@ class TestProvenanceAndCoherenceAdapters:
             ("Info", "provenance-unverified", "Provenance line not verified for Entry", "pkg/api.ts:1", "Entry"),
             ("Info", "provenance-unverified", "Provenance line not verified for fetch", "lib/api.py:40", "fetch")]
         assert records[0]["remediation"] == (
-            "`Entry` is an alias: `pkg/root.ts:2` renames `API_Entry` to it, and no line of `pkg/api.ts` defines "
-            "`Entry`. If no other entry already has `export_name` `API_Entry`, record the rename in this provenance "
-            "entry: set `export_name` to `API_Entry`, add `reexported_as` `Entry`, cite the line that declares "
+            "`Entry` is an alias of `API_Entry`, which a cited file declares; the source declares the alias at "
+            "`pkg/root.ts:2`, and no line of `pkg/api.ts` defines `Entry`. If no other entry already has "
+            "`export_name` `API_Entry`, record the rename in this provenance entry: set `export_name` to `API_Entry`, add `reexported_as` `Entry`, cite the line that declares "
             "`API_Entry` and move the citations of `Entry` to that line. Or cite the alias: set `source_file` to "
             "`pkg/root.ts` and `source_line` to `2`, and move the citations of `Entry` there.")
         assert records[0]["issue"] == (
@@ -2043,8 +2043,8 @@ class TestProvenanceAndCoherenceAdapters:
                         self.ALIASED | {"renames": ""}):
             [record, _] = mod.from_provenance_line(self.ALIAS_VERIFY, [unnamed])
             assert record["remediation"] == (
-                "`Entry` is an alias: `pkg/root.ts:2` renames a name a cited file declares to it, and no line of "
-                "`pkg/api.ts` defines `Entry`. If no other entry already has that name as its `export_name`, record "
+                "`Entry` is an alias of a name a cited file declares; the source declares the alias at "
+                "`pkg/root.ts:2`, and no line of `pkg/api.ts` defines `Entry`. If no other entry already has that name as its `export_name`, record "
                 "the rename in this provenance entry: set `export_name` to a name a cited file declares, add "
                 "`reexported_as` `Entry`, cite the line that declares a name a cited file declares and move the "
                 "citations of `Entry` to that line. Or cite the alias: set `source_file` to `pkg/root.ts` and "
@@ -2057,8 +2057,8 @@ class TestProvenanceAndCoherenceAdapters:
         stale = [self.ALIASED | {"renames": "default", "defined_at": "pkg/a:b/root.ts:12"}]
         [record, _] = mod.from_provenance_line(self.ALIAS_VERIFY, stale)
         assert record["remediation"] == (
-            "`Entry` is an alias: `pkg/a:b/root.ts:12` renames `default` to it, and no line of `pkg/api.ts` defines "
-            "`Entry`. Cite the alias: set `source_file` to `pkg/a:b/root.ts` and `source_line` to `12`, and move "
+            "`Entry` is an alias of `default`, which a cited file declares; the source declares the alias at "
+            "`pkg/a:b/root.ts:12`, and no line of `pkg/api.ts` defines `Entry`. Cite the alias: set `source_file` to `pkg/a:b/root.ts` and `source_line` to `12`, and move "
             "the citations of `Entry` there.")
         for gone in ("record the rename", "reexported_as", "set `export_name`"):
             assert gone not in record["remediation"].lower(), gone
@@ -2072,11 +2072,32 @@ class TestProvenanceAndCoherenceAdapters:
         already has `export_name` L (the map keys on it), and gives citing the alias line as the other option."""
         [record, _] = mod.from_provenance_line(self.ALIAS_VERIFY, [self.ALIASED | {"renames": renames}])
         assert record["remediation"] == (
-            f"`Entry` is an alias: `pkg/root.ts:2` renames `{renames}` to it, and no line of `pkg/api.ts` defines "
-            f"`Entry`. If no other entry already has `export_name` `{renames}`, record the rename in this "
-            f"provenance entry: set `export_name` to `{renames}`, add `reexported_as` `Entry`, cite the line that "
+            f"`Entry` is an alias of `{renames}`, which a cited file declares; the source declares the alias at "
+            f"`pkg/root.ts:2`, and no line of `pkg/api.ts` defines `Entry`. If no other entry already has "
+            f"`export_name` `{renames}`, record the rename in this provenance entry: set `export_name` to `{renames}`, add `reexported_as` `Entry`, cite the line that "
             f"declares `{renames}` and move the citations of `Entry` to that line. Or cite the alias: set "
             "`source_file` to `pkg/root.ts` and `source_line` to `2`, and move the citations of `Entry` there.")
+
+    def test_a_chain_alias_names_the_declared_name_not_the_line_s_rename(self):
+        """#954: classify-stale follows a rename chain, so `renames` is the name the cited file declares where
+        the chain ends, not the name the `defined_at` line renames: `pkg/__init__.py:1` reads `from .impl import
+        _Impl as Impl`, and `pkg/impl/__init__.py` renames the cited `_CoreImpl` to `_Impl`. The head says only
+        what holds for a chain: `Impl` is an alias of `_CoreImpl`, declared at the line, which renames
+        `_Impl`."""
+        verify = {"stale": [{"export_name": "Impl", "source_file": "pkg/impl/_core.py", "source_line": 1,
+                             "reason": "line-not-definition", "definition_lines": []}]}
+        chain = {"name": "Impl", "fabricated": False, "source": "pkg/impl/_core.py:1",
+                 "defined_at": "pkg/__init__.py:1", "declared_in": ["pkg/__init__.py:1"], "reason": "aliased",
+                 "entries": [], "renames": "_CoreImpl"}
+        [record] = mod.from_provenance_line(verify, [chain])
+        assert record["remediation"] == (
+            "`Impl` is an alias of `_CoreImpl`, which a cited file declares; the source declares the alias at "
+            "`pkg/__init__.py:1`, and no line of `pkg/impl/_core.py` defines `Impl`. If no other entry already "
+            "has `export_name` `_CoreImpl`, record the rename in this provenance entry: set `export_name` to "
+            "`_CoreImpl`, add `reexported_as` `Impl`, cite the line that declares `_CoreImpl` and move the "
+            "citations of `Impl` to that line. Or cite the alias: set `source_file` to `pkg/__init__.py` and "
+            "`source_line` to `1`, and move the citations of `Impl` there.")
+        assert "renames `_CoreImpl`" not in record["remediation"]
 
     @pytest.mark.parametrize("stale", [
         [],
@@ -2121,7 +2142,9 @@ class TestProvenanceAndCoherenceAdapters:
         assert proc.returncode == 0, proc.stdout
         [entry, fetch] = ledger_records(ledger)
         assert (entry["export"], entry["source"]) == ("Entry", "pkg/api.ts:1")
-        assert entry["remediation"].startswith("`Entry` is an alias: `pkg/root.ts:2` renames `API_Entry` to it")
+        assert entry["remediation"].startswith(
+            "`Entry` is an alias of `API_Entry`, which a cited file declares; the source declares the alias at "
+            "`pkg/root.ts:2`")
         assert fetch["remediation"].startswith("Open `lib/api.py` and confirm that line 40 defines `fetch`;")
 
     def test_a_fabricated_export_takes_no_provenance_line_gap(self, tmp_path: Path):
