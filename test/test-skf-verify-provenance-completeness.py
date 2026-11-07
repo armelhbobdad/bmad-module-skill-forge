@@ -133,11 +133,29 @@ Covers:
     a homonym too, and a cited module with no default export does not
     settle it first; a homonym (with `as NAME` in a comment or a string
     too), a list item whose comment or string alone holds the rename, a TS
-    type assertion, `default as NAME`, `const NAME = L`, `type NAME = L`,
-    an import then a re-export, Python `NAME = L`, an alias of a name the
-    cited file lacks or of the cited module itself, a missing cited file
-    and a lookup error keep it fabricated with both null, and an error in
-    its own lookup clears no settled name
+    type assertion, an alias of a name the cited file lacks or of the
+    cited module itself, a missing cited file and a lookup error keep it
+    fabricated with both null, and an error in its own lookup clears no
+    settled name
+  - classify-stale's rename forms (#910): `default as NAME` (over
+    `export { X as default }`, `exports.default =`, a column-0
+    `export default`, the React barrel), `const`, `let` or `type NAME = L`
+    and Python `NAME = L`, an import that renames then a plain re-export
+    (a default import too), a quoted side, a comment that opens the line,
+    a Python import one level in a column-0 `try`/`except` or `if`/`else`
+    block (in parentheses too, the first that passes), a file that declares
+    the name before it renames to it (listed at the first line, aliased at
+    the rename), a cited module that is itself the export, a cited file in
+    `dist`, `build`, `vendor`, `_vendor`, `tests` or `testing`, and a
+    module the resolver cannot read (a package name, a missing path, a
+    barrel that re-exports `L`) are `aliased` at the rename; a rename whose
+    `from` (`./other`, `./other.js`, Python `.other`) or binding import
+    resolves to another file declaring `L`, `default as NAME` from an
+    uncited module, `NAME = L` with an `L` no cited file declares, a call,
+    a value that goes on over the next line, and a Python import in a
+    `def`, a `class` or two levels deep stay fabricated with both null; an
+    error reading a file a rename resolves to keeps it fabricated and
+    clears no settled name
   - classify-stale's cited files and docs folders (#924): a file the map
     cites read in any folder the walk skips (tests, dist, build, vendor,
     node_modules, a hidden one) while an uncited name in or beside it stays
@@ -4179,6 +4197,234 @@ class TestDefinedAt:
         out = _classified(tmp_path, capsys, files, ["api"], entries)["api"]
         assert self._verdict(out) == (False, "aliased", "pkg/root.ts:1", ["pkg/root.ts:1"])
 
+    # #910: every form that renames the cited declaration, its `L` resolved through the rename's `from` or the
+    # import that binds it. `Impl` is cited at `pkg/impl.py:1` unless a row says otherwise.
+    PY_IMPL = {"pkg/__init__.py": "", "pkg/impl.py": "class _Impl:\n    pass\n"}
+    API_DEFAULT = "export interface API_Entry {}\nexport default API_Entry;\n"
+    BUTTON = {"pkg/package.json": "{}\n",
+              "pkg/Button.tsx": "export function ButtonComponent() {}\nexport default ButtonComponent;\n"}
+    PURE = {"pkg/__init__.py": "", "pkg/_pure.py": "class _Impl:\n    pass\n"}
+
+    @pytest.mark.parametrize("files, name, cited, alias, declared_in", [
+        # `default as NAME`: the cited file's column-0 `export default`, `export { X as default }` or
+        # `exports.default =` (#929's rule)
+        ({**TS_API, "pkg/root.ts": "export { default as Entry } from './api';\n",
+          "pkg/api.ts": "interface API_Entry {}\nexport { API_Entry as default };\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        ({**TS_API, "pkg/root.ts": "export { default as Entry } from './api';\n",
+          "pkg/api.ts": "const API_Entry = {};\nexports.default = API_Entry;\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        ({**TS_API, "pkg/root.ts": "export { default as Entry } from './api';\n", "pkg/api.ts": API_DEFAULT},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        ({"pkg/package.json": "{}\n", "pkg/index.ts": "export { default as Button } from './Button';\n",
+          "pkg/Button.tsx": "function ButtonComponent() {}\nexport default ButtonComponent;\n"},
+         "Button", "pkg/Button.tsx", "pkg/index.ts:1", ["pkg/Button.tsx:1", "pkg/index.ts:1"]),
+        # `NAME = L`, `L` a bare identifier bound by an import of the cited file
+        ({**TS_API, "pkg/root.ts": "import { defaults } from './api';\nexport const Entry = defaults;\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        ({**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+          "pkg/root.ts": "import { createEntry } from './api';\nlet Entry = createEntry\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        ({**TS_API, "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry = API_Entry;\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        ({**PY_IMPL, "pkg/__init__.py": "from .impl import _Impl\n\nImpl = _Impl\n"},
+         "Impl", "pkg/impl.py", "pkg/__init__.py:3", ["pkg/__init__.py:3"]),
+        # an import that renames, then a plain re-export, at the export
+        ({**TS_API, "pkg/root.ts": "import { API_Entry as Entry } from './api';\nexport { Entry };\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        ({**TS_API, "pkg/root.ts": "import type { API_Entry as Entry } from './api';\nexport type { Entry };\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        ({**TS_API, "pkg/api.ts": API_DEFAULT, "pkg/root.ts": "import Entry from './api';\nexport {\n  Entry,\n};\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:3", ["pkg/root.ts:3"]),
+        # a string that is the whole side, and a comment that opens the line
+        ({**TS_API, "pkg/root.ts": "export { API_Entry as \"Entry\" } from './api';\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        ({**TS_API, "pkg/root.ts": "export { 'API_Entry' as Entry } from './api';\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        ({**TS_API, "pkg/root.ts": "/* public */ export { API_Entry as Entry } from './api';\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        # a compatibility import one level in a column-0 block: the first that passes (`_speedups` is a C
+        # extension, unresolved, so step 1 passes it; `_new` too)
+        ({**PURE, "pkg/__init__.py": "try:\n    from ._speedups import _Impl as Impl\n"
+                                     "except ImportError:\n    from ._pure import _Impl as Impl\n"},
+         "Impl", "pkg/_pure.py", "pkg/__init__.py:2", ["pkg/__init__.py:2"]),
+        ({**PURE, "pkg/_speedups.py": "class _Impl:\n    pass\n",
+          "pkg/__init__.py": "try:\n    from ._speedups import _Impl as Impl\n"
+                             "except ImportError:\n    from ._pure import _Impl as Impl\n"},
+         "Impl", "pkg/_pure.py", "pkg/__init__.py:4", ["pkg/__init__.py:2"]),
+        ({**PURE, "pkg/__init__.py": "import sys\nif sys.version_info >= (3, 11):\n"
+                                     "    from ._new import _Impl as Impl\nelse:\n    from ._pure import _Impl as Impl\n"},
+         "Impl", "pkg/_pure.py", "pkg/__init__.py:3", ["pkg/__init__.py:3"]),
+        ({**PURE, "pkg/__init__.py": "try:\n    from ._pure import (\n        _A,\n        _Impl as Impl,\n    )\n"
+                                     "except ImportError:\n    pass\n"},
+         "Impl", "pkg/_pure.py", "pkg/__init__.py:4", ["pkg/__init__.py:4"]),
+        # a file that declares the name before it renames to it: listed at the first, aliased at the rename
+        ({**PY_IMPL, "pkg/__init__.py": "Impl = None\nfrom .impl import _Impl as Impl\n"},
+         "Impl", "pkg/impl.py", "pkg/__init__.py:2", ["pkg/__init__.py:1"]),
+        # a cited module that is itself the export no longer settles the name at its line 1 before the walk
+        ({**BUTTON, "pkg/index.ts": "export { ButtonComponent as Button } from './Button';\n"},
+         "Button", "pkg/Button.tsx", "pkg/index.ts:1", ["pkg/Button.tsx:1", "pkg/index.ts:1"]),
+        # a cited file in a folder the walk skips (#924), the rename outside it
+        ({"pkg/package.json": "{}\n", "pkg/dist/api.d.ts": "export interface API_Entry {}\n",
+          "pkg/index.ts": "export { API_Entry as Entry } from './dist/api';\n"},
+         "Entry", "pkg/dist/api.d.ts", "pkg/index.ts:1", ["pkg/index.ts:1"]),
+        ({"pkg/package.json": "{}\n", "pkg/build/api.js": "export function API_Entry() {}\n",
+          "pkg/index.js": "export { API_Entry as Entry } from './build/api.js';\n"},
+         "Entry", "pkg/build/api.js", "pkg/index.js:1", ["pkg/index.js:1"]),
+        *[({"pkg/__init__.py": f"from .{folder}.{module} import _Impl as Impl\n",
+            f"pkg/{folder}/{module}.py": "class _Impl:\n    pass\n"},
+           "Impl", f"pkg/{folder}/{module}.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"])
+          for folder, module in (("vendor", "x"), ("_vendor", "x"), ("tests", "helpers"), ("testing", "_utils"))],
+        # a module the resolver cannot read keeps step 1: a package name, a path with no file, a barrel that
+        # re-exports `L` (it declares none)
+        ({**TS_API, "pkg/root.ts": "export { API_Entry as Entry } from '@scope/api';\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        ({**TS_API, "pkg/root.ts": "export { API_Entry as Entry } from './missing';\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        ({**TS_API, "pkg/internal.ts": "export { API_Entry } from './api';\n",
+          "pkg/root.ts": "export { API_Entry as Entry } from './internal';\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        # a multi-line import that renames, then a plain re-export; `var NAME = L`
+        ({**TS_API,
+          "pkg/root.ts": "import {\n  defaults,\n  API_Entry as Entry,\n} from './api';\nexport { Entry };\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:5", ["pkg/root.ts:5"]),
+        ({**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+          "pkg/root.ts": "import { createEntry } from './api';\nvar Entry = createEntry;\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        # an `else` or `elif` block import after one that resolves to another file declaring `_Impl`
+        ({**PURE, "pkg/_other.py": "class _Impl:\n    pass\n",
+          "pkg/__init__.py": "import sys\nif sys.version_info >= (3, 11):\n    from ._other import _Impl as Impl\n"
+                             "else:\n    from ._pure import _Impl as Impl\n"},
+         "Impl", "pkg/_pure.py", "pkg/__init__.py:5", ["pkg/__init__.py:3"]),
+        ({**PURE, "pkg/_other.py": "class _Impl:\n    pass\n",
+          "pkg/__init__.py": "import sys\nif sys.version_info >= (3, 11):\n    from ._other import _Impl as Impl\n"
+                             "elif sys.version_info >= (3, 8):\n    from ._pure import _Impl as Impl\n"},
+         "Impl", "pkg/_pure.py", "pkg/__init__.py:5", ["pkg/__init__.py:3"]),
+    ], ids=["default-as-NAME-export-list", "default-as-NAME-commonjs", "default-as-NAME-export-default",
+            "default-as-NAME-react-barrel", "const-NAME-is-L", "let-NAME-is-L-no-semicolon", "type-NAME-is-L",
+            "python-NAME-is-L", "import-then-re-export", "import-type-then-re-export",
+            "default-import-then-re-export", "quoted-NAME", "quoted-L", "comment-opens-the-line",
+            "try-except-import", "try-except-import-first-resolves-elsewhere", "if-else-import",
+            "parenthesized-block-import", "declared-before-the-rename", "cited-module-is-the-export",
+            "cited-in-dist", "cited-in-build", "cited-in-vendor", "cited-in-_vendor", "cited-in-tests",
+            "cited-in-testing", "package-name", "missing-path", "re-exporting-barrel",
+            "multi-line-import-then-re-export", "var-NAME-is-L", "if-else-import-first-resolves-elsewhere",
+            "if-elif-import-first-resolves-elsewhere"])
+    def test_a_rename_of_the_cited_declaration_is_aliased_at_the_rename(self, tmp_path: Path, capsys,
+                                                                      files: dict[str, str], name: str, cited: str,
+                                                                      alias: str, declared_in: list[str]) -> None:
+        entries = [{"export_name": name, "source_file": cited, "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, [name], entries)[name]
+        assert self._verdict(out) == (False, "aliased", alias, declared_in)
+
+    @pytest.mark.parametrize("files, name, cited", [
+        # `L` resolves to another file that declares it: not the cited declaration
+        ({**TS_API, "pkg/other.ts": "export interface API_Entry {}\n",
+          "pkg/root.ts": "export type { API_Entry as Entry } from './other';\n"}, "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/other.ts": "export interface API_Entry {}\n",
+          "pkg/root.ts": "export type { API_Entry as Entry } from './other.js';\n"}, "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/other.ts": "export interface API_Entry {}\n",
+          "pkg/root.ts": "import type { API_Entry } from './other';\nexport type { API_Entry as Entry };\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/other.ts": "export interface API_Entry {}\n",
+          "pkg/root.ts": "import { API_Entry as Entry } from './other';\nexport { Entry };\n"}, "Entry", "pkg/api.ts"),
+        ({**PY_IMPL, "pkg/other.py": "class _Impl:\n    pass\n",
+          "pkg/__init__.py": "from .other import _Impl as Impl\n"}, "Impl", "pkg/impl.py"),
+        ({**PY_IMPL, "pkg/other.py": "class _Impl:\n    pass\n",
+          "pkg/__init__.py": "from .other import _Impl\n\nImpl = _Impl\n"}, "Impl", "pkg/impl.py"),
+        # the default export of a module the map does not cite
+        ({**TS_API, "pkg/other.ts": "export default function Other() {}\n",
+          "pkg/root.ts": "export { default as Entry } from './other';\n"}, "Entry", "pkg/api.ts"),
+        # `NAME = L` with an `L` no cited file declares, and a value that is not a bare identifier
+        ({**TS_API, "pkg/root.ts": "import { makeEntry } from '@scope/x';\nexport const Entry = makeEntry;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+          "pkg/root.ts": "import { createEntry } from './api';\nexport const Entry = createEntry();\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+          "pkg/root.ts": "import { createEntry } from './api';\nexport const Entry = createEntry\n  .bind(null);\n"},
+         "Entry", "pkg/api.ts"),
+        # an import in a `def`, in a `class`, or two levels deep in a block
+        ({**PY_IMPL, "pkg/__init__.py": "def load():\n    from .impl import _Impl as Impl\n    return Impl\n"},
+         "Impl", "pkg/impl.py"),
+        ({**PY_IMPL, "pkg/__init__.py": "class Box:\n    from .impl import _Impl as Impl\n"}, "Impl", "pkg/impl.py"),
+        ({**PY_IMPL, "pkg/__init__.py": "try:\n    if True:\n        from .impl import _Impl as Impl\n"
+                                        "except ImportError:\n    pass\n"}, "Impl", "pkg/impl.py"),
+        # a rename of a namespace import's module: it binds no name, so it renames none
+        ({**TS_API, "pkg/other.ts": "export const x = 1;\n",
+          "pkg/root.ts": "import * as API_Entry from './other';\nexport const Entry = API_Entry;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/other.ts": "export const x = 1;\n",
+          "pkg/root.ts": "import API_Entry = require('./other');\nexport const Entry = API_Entry;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/other.ts": "export const x = 1;\n",
+          "pkg/root.ts": "import * as API_Entry from './other';\nexport { API_Entry as Entry };\n"},
+         "Entry", "pkg/api.ts"),
+        ({**PY_IMPL, "pkg/other.py": "X = 1\n", "pkg/__init__.py": "import pkg.other as _Impl\n\nImpl = _Impl\n"},
+         "Impl", "pkg/impl.py"),
+        # a rename of an `L` the renaming file declares itself
+        ({**TS_API, "pkg/root.ts": "interface API_Entry { x: 1 }\nexport type Entry = API_Entry;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/root.ts": "interface API_Entry { x: 1 }\nexport { API_Entry as Entry };\n"},
+         "Entry", "pkg/api.ts"),
+        ({**PY_IMPL, "pkg/__init__.py": "class _Impl:\n    pass\n\n\nImpl = _Impl\n"}, "Impl", "pkg/impl.py"),
+        # each module form the resolver reads, resolved to another file that declares `L`
+        ({**PY_IMPL, "pkg/other.py": "class _Impl:\n    pass\n",
+          "pkg/__init__.py": "from pkg.other import _Impl as Impl\n"}, "Impl", "pkg/impl.py"),
+        ({**PY_IMPL, "pkg/other/__init__.py": "class _Impl:\n    pass\n",
+          "pkg/__init__.py": "from .other import _Impl as Impl\n"}, "Impl", "pkg/impl.py"),
+        ({**PY_IMPL, "pkg/other.py": "class _Impl:\n    pass\n",
+          "pkg/sub/__init__.py": "from ..other import _Impl as Impl\n"}, "Impl", "pkg/impl.py"),
+        ({**PY_IMPL, "pkg/sub/__init__.py": "class _Impl:\n    pass\n",
+          "pkg/sub/x.py": "from . import _Impl as Impl\n"}, "Impl", "pkg/impl.py"),
+        ({**TS_API, "pkg/other/index.ts": "export interface API_Entry {}\n",
+          "pkg/root.ts": "export { API_Entry as Entry } from './other';\n"}, "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/other.ts": "export interface API_Entry {}\n",
+          "pkg/sub/root.ts": "export { API_Entry as Entry } from '../other';\n"}, "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/other.ts": "export interface API_Entry {}\n",
+          "pkg/root.ts": "export type Entry = API_Entry;\nimport type { API_Entry } from './other';\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_API, "pkg/other.mts": "export interface API_Entry {}\n",
+          "pkg/root.mts": "export { API_Entry as Entry } from './other.mjs';\n"}, "Entry", "pkg/api.ts"),
+    ], ids=["export-list-from-another-file", "export-list-from-another-file-js-specifier",
+            "local-list-of-another-file's-import", "re-export-of-another-file's-import",
+            "python-from-another-module", "python-NAME-is-L-from-another-module", "default-as-NAME-uncited-module",
+            "const-NAME-is-L-no-cited-file-declares", "const-NAME-is-a-call", "const-NAME-is-L-going-on",
+            "python-import-in-a-def", "python-import-in-a-class", "python-import-two-levels-deep",
+            "const-NAME-is-a-namespace-import", "const-NAME-is-an-import-require", "export-list-of-a-namespace-import",
+            "python-NAME-is-a-module-import", "type-NAME-is-L-declared-in-the-renaming-file",
+            "export-list-of-L-declared-in-the-renaming-file", "python-NAME-is-L-declared-in-the-renaming-file",
+            "python-absolute-in-package-module", "python-relative-package", "python-parent-relative-module",
+            "python-from-dot-import", "export-list-from-another-folder-index", "export-list-from-a-parent-folder",
+            "type-NAME-is-L-of-a-hoisted-import", "export-list-from-an-mjs-specifier"])
+    def test_a_rename_of_another_declaration_stays_fabricated(self, tmp_path: Path, capsys, files: dict[str, str],
+                                                              name: str, cited: str) -> None:
+        entries = [{"export_name": name, "source_file": cited, "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, [name], entries)[name]
+        assert self._verdict(out) == (True, "not-defined", None, None)
+
+    def test_an_error_reading_a_resolved_module_keeps_the_name_fabricated(self, tmp_path: Path, capsys,
+                                                                         monkeypatch: pytest.MonkeyPatch) -> None:
+        # only the alias check reads vendor/api.ts, a barrel no entry cites and the walk skips: read, it declares
+        # no API_Entry, and step 1 would clear the name
+        files = {**self.TS_API, "pkg/foo.ts": "export interface Foo {}\n",
+                 "pkg/vendor/api.ts": "export { API_Entry } from '../api';\n",
+                 "pkg/root.ts": "export { API_Entry as Entry } from './vendor/api';\n"}
+        entries = [*self.ENTRY, {"export_name": "Foo", "source_file": "pkg/foo.ts", "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, ["Foo", "Entry"], entries)
+        assert self._verdict(out["Entry"]) == (False, "aliased", "pkg/root.ts:1", ["pkg/root.ts:1"])
+        real_read = mod._read_source
+
+        def fail(path: Path) -> str:
+            if path.parent.name == "vendor":
+                raise OSError(13, "denied", str(path))
+            return real_read(path)
+
+        monkeypatch.setattr(mod, "_read_source", fail)
+        out = _classified(tmp_path, capsys, files, ["Foo", "Entry"], entries)
+        assert self._verdict(out["Foo"]) == (False, "defined", "pkg/foo.ts:1", None)
+        assert self._verdict(out["Entry"]) == (True, "not-defined", None, None)
+
     @pytest.mark.parametrize("root, cited, api", [
         ("export interface Entry {}\n", "pkg/api.ts", None),
         ("export { Other as Entry } from './other';\n", "pkg/api.ts", None),
@@ -4191,19 +4437,9 @@ class TestDefinedAt:
         # the hit is a list item: only the comment or the string holds `API_Entry as Entry`
         ("export {\n  Other as Entry, // was, API_Entry as Entry\n} from './other';\n", "pkg/api.ts", None),
         ("export {\n  Other as Entry, 'a, API_Entry as Entry, b' as c,\n} from './other';\n", "pkg/api.ts", None),
-        # `default` renames the default export, which no line declares by that name
-        ("export { default as Entry } from './api';\n", "pkg/api.ts",
-         "interface API_Entry {}\nexport { API_Entry as default };\n"),
-        ("export { default as Entry } from './api';\n", "pkg/api.ts",
-         "const API_Entry = {};\nexports.default = API_Entry;\n"),
-        # the renames the rule does not cover
-        ("import { defaults } from './api';\nexport const Entry = defaults;\n", "pkg/api.ts", None),
-        ("import type { API_Entry } from './api';\nexport type Entry = API_Entry;\n", "pkg/api.ts", None),
-        ("import { API_Entry as Entry } from './api';\nexport { Entry };\n", "pkg/api.ts", None),
     ], ids=["homonym", "alias-of-another-name", "cited-file-missing", "homonym-with-a-comment",
             "homonym-with-a-string", "type-assertion", "namespace-of-the-cited-module", "list-item-comment",
-            "list-item-string", "default-as-NAME-export-list", "default-as-NAME-commonjs", "const-NAME-is-L",
-            "type-NAME-is-L", "import-then-re-export"])
+            "list-item-string"])
     def test_an_alias_of_a_name_the_cited_file_lacks_stays_fabricated(self, tmp_path: Path, capsys, root: str,
                                                                      cited: str, api: str | None) -> None:
         files = {**self.TS_API, "pkg/root.ts": root, **({"pkg/api.ts": api} if api else {})}
@@ -4214,8 +4450,7 @@ class TestDefinedAt:
     @pytest.mark.parametrize("init", [
         "from . import impl as Impl\n",  # the module `impl`: no module or package so named counts
         "from .other import (\n    Other as Impl,  # was, _Impl as Impl\n)\n",
-        "from .impl import _Impl\n\nImpl = _Impl\n",
-    ], ids=["alias-of-the-cited-module", "list-item-comment", "NAME-is-L"])
+    ], ids=["alias-of-the-cited-module", "list-item-comment"])
     def test_a_python_rename_the_rule_does_not_cover_stays_fabricated(self, tmp_path: Path, capsys,
                                                                       init: str) -> None:
         files = {"pkg/__init__.py": init, "pkg/impl.py": "class _Impl:\n    pass\n"}

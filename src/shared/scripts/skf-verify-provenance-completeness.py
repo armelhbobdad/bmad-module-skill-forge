@@ -475,27 +475,67 @@ Subcommands:
     `fabricated` is true, with reason `not-defined`, when the name has an
     entry and every entry's `line_check` is `file-missing`, or `checked`
     with an empty `definition_lines`: the export is in neither the surface
-    nor the cited file, and no item of an export list or of a Python
-    `from X import` clause elsewhere renames to it a name that file
-    declares. Such an alias (`export { API_Entry as Entry }` or
-    `export type { ... }`, on one line or an item of a multi-line list;
-    `from X import L as NAME`, on one line or an item in parentheses or
-    after a backslash) gives the reason `aliased` and `fabricated` false:
-    the first of the name's declarations the lookup below finds (its
-    `declared_in`, else the cited file's) that is such an item
-    `L as NAME`, where a file of a `checked` entry of the name declares
-    `L` by the same rule (no module or package so named counting), is its
-    `defined_at`. A TS/JS line is read with its comments removed and its
-    one-line strings blanked, a Python line with its `#` comment cut.
-    Neither the rename's `from` module nor `L`'s own binding is resolved,
-    so an `L` that another file declares under the same name counts too.
-    Any other rename stays fabricated: `export { default as NAME }`,
-    `const NAME = L`, `type NAME = L`, an import then an export of NAME,
-    Python `NAME = L`, a TS type assertion (`x as NAME`) and `as NAME` in
-    a comment or a string; and so does a name whose cited file is the
-    module so named and itself the export (a column-0 `export default` or
-    `module.exports =`), which settles it at its line 1, so no walk looks
-    for an alias elsewhere.
+    nor the cited file, and no line elsewhere renames to it the
+    declaration a cited file holds. Such a rename gives the reason
+    `aliased` and `fabricated` false, and its line is the `defined_at`:
+    the first, per file of the name's declarations the lookup below finds
+    (its `declared_in`, else the cited file's) and per candidate line of
+    that file in order, that renames to NAME a name `L` which a file of a
+    `checked` entry of the name declares by the same rule (no module or
+    package so named counting; for `L` `default`, a column-0
+    `export default`, `export { X as default }` or `exports.default =`).
+    The renames read:
+      - an export-list item `L as NAME` (`export { ... }`,
+        `export type { ... }`, on one line or an item of a multi-line
+        list), `L` `default` when the list has a `from`
+        (`export { default as NAME } from './m'`), a string side unquoted
+        only when the string is the whole side (`L as "NAME"`,
+        `"L" as NAME`), the list's opening line at column 0 as written, so
+        that a comment may open it;
+      - a local `export { NAME }` or `export type { NAME }` item without
+        `as`, when a column-0 import binds NAME to another name
+        (`import { L as NAME }`, or `import NAME from`, `L` `default`), at
+        the export;
+      - a column-0 `const`, `let` or `var NAME = L` or `type NAME = L`,
+        exported or not, `L` a bare identifier and the statement ending on
+        its line;
+      - a Python `from X import L as NAME` item (on one line, in
+        parentheses or after a backslash), the statement at column 0 or
+        one level in a column-0 `try`, `except`, `else`, `if` or `elif`
+        block, as compatibility imports are written, and a column-0 Python
+        `NAME = L`, `L` a bare identifier.
+    A TS/JS line is read with its comments removed (an export list split
+    on a copy whose one-line strings are blanked), a Python line with its
+    `#` comment cut. `L` comes from the rename's `from` module, else from
+    the column-0 import that binds `L`, whose imported name `L` becomes
+    (`default` for a default import; a namespace import binds none). The
+    module is resolved below the source root, under the lookup's guards
+    for a cited file: a TS/JS `./` or `../` module from the renaming
+    file's folder, as the path itself, a `.js`-family path's TypeScript
+    twin (`./m.js` names `m.ts`), `<path><ext>` or `<path>/index<ext>`
+    (`.d.ts` included); a Python relative module from the file's folder
+    (`.` the folder's own `__init__`), or an absolute one below the parent
+    of the file's package root, as `m.py`, `m.pyi`, `m/__init__.py` or
+    `m/__init__.pyi`. An `L` with no module that the renaming file
+    declares itself resolves to that file. When the files the rename
+    resolves to declare `L`, one of them must be a cited file, so a rename
+    of another file's same-named `L` stays fabricated. When the module
+    resolves to no file (a package name, never looked up in
+    `node_modules`, a tsconfig `paths` alias, a package `exports` map, a
+    path with no such file) or to files that declare no `L` (a barrel that
+    re-exports it), any cited file that declares `L` clears the name. The
+    suspects' cited pass settles no such name at line 1 of a cited module
+    or package so named before the walk, even when the module is itself
+    the export (a column-0 `export default` or `module.exports =`), so the
+    walk always runs; the walk keeps its module rule, so `declared_in` may
+    list that module at its line 1 when the walk reads its folder. Any
+    other rename stays fabricated: a TS type assertion (`x as NAME`), a
+    call or any other expression (`const NAME = make()`, `NAME = a.b`),
+    `export * as NAME from`, Python `import M as NAME`, a rename of a
+    module (`import * as L`, `from . import L as NAME`: no module or
+    package so named declares `L`), a rename inside a `def`, a `class` or
+    a deeper block, `as NAME` in a comment or a string, and a
+    `default as NAME` whose module has only `module.exports =`.
     Otherwise the reason is `defined` (a cited file defines the name),
     `unchecked` (no rule could check a cited file, and none defines it) or
     `no-entry` (the map has no entry for the name).
@@ -531,8 +571,14 @@ Subcommands:
     `default` a column-0 `export default` line counts whatever follows it,
     an import or an imported local included (an item of a multi-line list
     counts at its own line, the list's opening line at column 0, so an
-    `aliased` name's `defined_at` is its rename's line). A module or
-    package named NAME (`NAME.py`, `NAME/__init__.py`, a TS/JS
+    `aliased` name's `defined_at` is its rename's line). For a
+    `not-defined` name the alias check reads more lines than this rule: a
+    file's candidate lines are every column-0 line that declares the name,
+    a Python `from X import L as NAME` item one level in a column-0
+    `try`, `except`, `else`, `if` or `elif` block, and a TS/JS local
+    `export { NAME }` item when a column-0 import binds NAME to another
+    name, and its `declared_in` lists the file at the first of them. A
+    module or package named NAME (`NAME.py`, `NAME/__init__.py`, a TS/JS
     `NAME.<ext>` or `NAME/index.<ext>`) declares NAME too: at its line 1
     when no line of it
     declares NAME, unless `--inventory` gives NAME a `function`, `hook`,
@@ -2802,66 +2848,429 @@ def baseline_gaps(
     return gaps, unchecked
 
 
-# A one-line TS/JS string literal, blanked before an export list is read.
+# A one-line TS/JS string literal: an export list is split into items on a
+# copy of its lines whose strings are blanked, quotes and length kept.
 _JS_STRING_RE = re.compile(r"'(?:[^'\\]|\\.)*'|\"(?:[^\"\\]|\\.)*\"|`(?:[^`\\]|\\.)*`")
 _JS_IDENT_RE = re.compile(r"[A-Za-z_$][\w$]*")
+# The `from` clause after an export list's closing brace, and its module.
+_JS_FROM_RE = re.compile(r"""^\s*from\s*(["'])([^"']*)\1""")
+# An import statement (not `import(...)` nor `import.meta`); its clause
+# and module (`import X, { a as b } from './m'`); `import X = ...`; a
+# side-effect import (`import './m'`); an item of its brace list.
+_JS_IMPORT_RE = re.compile(r"^\s*import(?![\w$])(?!\s*[(.])")
+_JS_IMPORT_CLAUSE_RE = re.compile(
+    r"""^\s*import\s+(?:type\s+(?!from(?![\w$])))?(.*?)\s*(?<![\w$])from\s*(["'])([^"']*)\2""",
+    re.S,
+)
+_JS_IMPORT_EQUALS_RE = re.compile(r"^\s*import\s+(?:type\s+)?([\w$]+)\s*=(?!=)")
+_JS_IMPORT_BARE_RE = re.compile(r"""^\s*import\s*["']""")
+_JS_IMPORT_ITEM_RE = re.compile(rf"^(?:type\s+)?({_JS_NAME_OR_STRING})(?:\s+as\s+([\w$]+))?$")
+_JS_IMPORT_DEFAULT_RE = re.compile(r"^([\w$]+)\s*(?:,|$)")
+_JS_IMPORT_NAMESPACE_RE = re.compile(r"^\*\s*as\s+([\w$]+)")
+# `const|let|var NAME = L` and `type NAME = L`, exported or not: (NAME, L,
+# the `;` when the line ends the statement).
+_JS_NAME_IS_RE = re.compile(
+    r"^\s*(?:export\s+)?(?:const|let|var|type)\s+([\w$]+)\s*=(?![=>])\s*([A-Za-z_$][\w$]*)\s*(;?)$"
+)
+# A line that begins with one of these goes on with the value above it (a
+# member, an operator, a call, an index or a tagged template).
+_JS_VALUE_GOES_ON = _JS_CONTINUATION_START | frozenset("([`")
+# Python's `from X import ...`, with its module.
+_PY_FROM_CLAUSE_RE = re.compile(r"^\s*from\s+([\w.]+)\s+import\s+(.*)$")
+# The column-0 header of a block whose body may hold a compatibility import.
+_PY_BLOCK_HEADER_RE = re.compile(r"^(?:try|except|else|if|elif)(?!\w)")
+# The files a relative TS/JS module names, after the path itself:
+# `<path><ext>`, then `<path>/index<ext>`.
+_TSJS_MODULE_EXTENSIONS = (".ts", ".tsx", ".d.ts", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs")
+# The TypeScript files a `.js`-family module names (`./m.js` is `m.ts`).
+_TSJS_TWINS = {
+    ".js": (".ts", ".tsx", ".d.ts"), ".jsx": (".tsx",), ".mjs": (".mts", ".d.mts"),
+    ".cjs": (".cts", ".d.cts"),
+}
+
+# One name an import binds: (line from 1, local name, imported name, module).
+# A namespace import binds its local name to no imported name (None).
+_Binding = tuple[int, str, str | None, str | None]
 
 
-def _renamed_locals(lines: list[str], index: int, name: str, family: str) -> list[str]:
-    """The names line `index` (from 0) of a file renames to `name` as an item
-    of an export list (`export { L as NAME }` or `export type { ... }`, on
-    one line or an item of a multi-line list) or of a Python
-    `from X import` clause (on one line, or an item of one in parentheses
-    or continued with a backslash): each `L` an identifier other than
-    `name`, and in TS/JS other than `default` (`export { default as NAME }`
-    renames the default export, no declared name). A TS/JS line is read
-    with its `//` and `/* */` comments removed and each one-line string
-    blanked, a Python line with its `#` comment cut (a `from X import`
-    clause holds no string). The list opens at the nearest column-0
-    `export {` (`from X import`) at or above the line, and must not close
-    above it. Empty for any other line: `as NAME` in a comment or a string,
-    a TS type assertion (`const NAME = x as NAME`), `import { L as NAME }`
-    and Python's `import M as NAME` rename nothing here. Neither the `from`
-    module nor the binding of `L` is resolved: the caller takes `L` as
-    the name a cited file declares."""
-    if not 0 <= index < len(lines) or not re.search(
-        rf"(?<![\w$])as\s+{re.escape(name)}(?![\w$])", lines[index]
-    ):
-        return []
-    python = family == "python"
-    if python:
-        code = [line.split("#", 1)[0] for line in lines[: index + 1]]
-        opener, close, item_re = _PY_FROM_IMPORT_RE, ")", _PY_IMPORT_ITEM_RE
-    else:
-        code = [_JS_STRING_RE.sub('""', line) for line in _js_code_lines(lines[: index + 1])]
-        opener, close, item_re = _JS_EXPORT_LIST_RE, "}", _JS_EXPORT_ITEM_RE
-    for start in range(index, -1, -1):
-        opened = opener.match(code[start]) if _is_column_0(code[start]) else None
-        if opened is not None:
-            break
-        if start < index and close in code[start]:
-            return []  # a list that closes above the line holds it not
-    else:
-        return []
-    head = opened.group(1)
-    if start < index:
-        # an item of a list the opening line leaves open: in parentheses, or
-        # a Python clause each of whose lines above ends with a backslash
-        continued = all(line.rstrip().endswith("\\") for line in code[start:index])
-        if close in head or (python and not head.lstrip().startswith("(") and not continued):
+def _js_blanked(code: str) -> str:
+    """A comment-free TS/JS line with each one-line string's contents
+    blanked, its quotes and its length kept."""
+    return _JS_STRING_RE.sub(lambda m: m[0][0] + " " * (len(m[0]) - 2) + m[0][-1], code)
+
+
+def _js_export_sides(item: str) -> tuple[str, str | None] | None:
+    """(own name, the name after `as`, None without one) of an export-list
+    item, a string side unquoted only when the string is the whole side
+    (`L as "NAME"`, `"L" as NAME`). None for any other text."""
+    m = _JS_EXPORT_ITEM_RE.match(item.strip())
+    if m is None:
+        return None
+    own, exposed = (s[1:-1] if s and s[:1] in "'\"" else s for s in (m.group(1), m.group(2)))
+    return own, exposed
+
+
+def _js_export_lists(
+    lines: list[str], code: list[str]
+) -> list[tuple[list[tuple[int, str]], str | None]]:
+    """Each export list (`export { ... }`, `export type { ... }`) whose
+    opening line is at column 0 as written (a comment may open the line):
+    its items, as (line from 1, the item's comment-free text), and the
+    module its `from` names, None for a local list. `code` holds the lines
+    with comments removed (`_js_code_lines`). The list is split on a copy
+    whose strings are blanked (`_js_blanked`), so a comma or a brace in a
+    string splits nothing, and an item keeps its strings."""
+    blank = [_js_blanked(c) for c in code]
+    lists: list[tuple[list[tuple[int, str]], str | None]] = []
+    i, n = 0, len(code)
+    while i < n:
+        opened = _JS_EXPORT_LIST_RE.match(blank[i]) if _is_column_0(lines[i]) else None
+        if opened is None:
+            i += 1
+            continue
+        j, col, items = i, opened.start(1), []
+        while True:
+            segment = blank[j][col:]
+            end = segment.find("}")
+            pos = col
+            for piece in (segment if end < 0 else segment[:end]).split(","):
+                text = code[j][pos : pos + len(piece)].strip()
+                if text:
+                    items.append((j + 1, text))
+                pos += len(piece) + 1
+            if end >= 0 or j + 1 >= n:
+                break
+            j, col = j + 1, 0
+        module = None
+        if end >= 0:
+            after, k = code[j][col + end + 1 :], j + 1
+            while not after.strip() and k < n:  # `}` then `from` on the next line
+                after, k = code[k], k + 1
+            found = _JS_FROM_RE.match(after)
+            module = found.group(2) if found else None
+        lists.append((items, module))
+        i = j + 1
+    return lists
+
+
+def _js_import_bindings(lines: list[str], code: list[str]) -> list[_Binding]:
+    """The names each column-0 import binds (`_Binding`): `import X from`
+    binds X to the imported name `default`, `import { L as X }` binds X to
+    L and `import { X }` X to X, on one line or over several, and a
+    namespace import (`import * as X`, `import X = ...`) binds X to none."""
+    found: list[_Binding] = []
+    i, n = 0, len(code)
+    while i < n:
+        opens = _is_column_0(lines[i]) and _JS_IMPORT_RE.match(code[i]) is not None
+        if not opens or _JS_IMPORT_BARE_RE.match(code[i]):
+            i += 1
+            continue
+        j, text = i, code[i]
+        while "{" in text and "}" not in text and j + 1 < n:
+            j += 1
+            text += "\n" + code[j]
+        clause = _JS_IMPORT_CLAUSE_RE.match(text)
+        if clause is None and j + 1 < n and _JS_FROM_RE.match(code[j + 1]):
+            j += 1
+            text += "\n" + code[j]
+            clause = _JS_IMPORT_CLAUSE_RE.match(text)
+        line = i + 1
+        if clause is not None:
+            names, module = clause.group(1).strip(), clause.group(3)
+            default = _JS_IMPORT_DEFAULT_RE.match(names)
+            if default is not None:
+                found.append((line, default.group(1), "default", module))
+                names = names[default.end() :].strip()
+            if names.startswith("*"):
+                namespace = _JS_IMPORT_NAMESPACE_RE.match(names)
+                if namespace is not None:
+                    found.append((line, namespace.group(1), None, module))
+            elif names.startswith("{"):
+                for item in names[1:].split("}", 1)[0].split(","):
+                    m = _JS_IMPORT_ITEM_RE.match(item.strip())
+                    if m is None:
+                        continue
+                    imported = m.group(1)
+                    imported = imported[1:-1] if imported[:1] in "'\"" else imported
+                    local = m.group(2) or imported
+                    if _JS_IDENT_RE.fullmatch(local):
+                        found.append((line, local, imported, module))
+        else:
+            equals = _JS_IMPORT_EQUALS_RE.match(text)
+            if equals is not None:
+                found.append((line, equals.group(1), None, None))
+        i = j + 1
+    return found
+
+
+def _py_block_imports(lines: list[str], code: list[str], starts: set[int]) -> set[int]:
+    """The lines (from 1) on which a `from X import` statement starts one
+    level under a column-0 `try`, `except`, `else`, `if` or `elif` (a
+    compatibility import), never in a `def`, a `class` or deeper. `code`
+    holds the lines with their `#` comments cut, `starts` the statement
+    starts (`_py_statement_starts`)."""
+    found: set[int] = set()
+    header, level = False, None
+    for number in sorted(starts):
+        text = lines[number - 1]
+        if _is_column_0(text):
+            header, level = _PY_BLOCK_HEADER_RE.match(code[number - 1]) is not None, None
+            continue
+        indent = len(text) - len(text.lstrip())
+        if level is None:
+            level = indent  # the block's first statement sets its level
+        if header and indent == level and _PY_FROM_CLAUSE_RE.match(code[number - 1]):
+            found.add(number)
+    return found
+
+
+def _py_from_clauses(
+    code: list[str], starts: set[int], keep: Callable[[int], bool]
+) -> list[tuple[int, str, list[tuple[int, str]]]]:
+    """(line from 1, module, items) of each `from X import` statement that
+    starts on a line `keep` accepts, an item as (line from 1, its text):
+    on one line, in parentheses or continued with a backslash."""
+    clauses: list[tuple[int, str, list[tuple[int, str]]]] = []
+    i, n = 0, len(code)
+    while i < n:
+        opened = _PY_FROM_CLAUSE_RE.match(code[i]) if i + 1 in starts and keep(i + 1) else None
+        if opened is None:
+            i += 1
+            continue
+        rest, items, j = opened.group(2).strip(), [], i
+        paren = rest.startswith("(")
+        if paren:
+            rest = rest[1:]
+        while True:
+            if paren:
+                done = ")" in rest
+                piece = rest.split(")", 1)[0]
+            else:
+                piece = rest.rstrip()
+                done = not piece.endswith("\\")
+                piece = piece if done else piece[:-1]
+            items += [(j + 1, t.strip()) for t in piece.split(",") if t.strip()]
+            if done or j + 1 >= n:
+                break
+            j += 1
+            rest = code[j]
+        clauses.append((i + 1, opened.group(1), items))
+        i = j + 1
+    return clauses
+
+
+class _Renames:
+    """The renames one file makes, read once for the suspects' lookup (see
+    `renames`), and the lines it adds to a name's declarations
+    (`candidates`). `parts` is the file's path below the source root,
+    `lines` its lines, `cache` the `_SourceCache` its rules ran with. A
+    TS/JS line is read with its comments removed and an export list split
+    with its strings blanked (`_js_export_lists`), a Python line with its
+    `#` comment cut; a Python file that does not tokenize renames
+    nothing."""
+
+    def __init__(self, parts: tuple[str, ...], lines: list[str], cache: _SourceCache) -> None:
+        self.parts = parts
+        self.lines = lines
+        self.text = "\n".join(lines)
+        path = Path(*parts)
+        self.python = _rule_family(parts[-1]) == "python"
+        self.starts: set[int] | None = None
+        if self.python:
+            self.code = [line.split("#", 1)[0] for line in lines]
+            self.starts = cache.py_statement_starts(path, lines)
+        else:
+            self.code = cache.js_code_lines(path, lines)
+        self._clauses: list[tuple[int, str, list[tuple[int, str]]]] | None = None
+        self._lists: list[tuple[list[tuple[int, str]], str | None]] | None = None
+        self._bindings: list[_Binding] | None = None
+
+    # -- reading, once per file ---------------------------------------------
+
+    def _py_clauses(self) -> list[tuple[int, str, list[tuple[int, str]]]]:
+        """The `from X import` statements at column 0 or one level in a
+        column-0 block (`_py_block_imports`)."""
+        if self._clauses is None:
+            if self.starts is None:
+                self._clauses = []
+            else:
+                blocks = _py_block_imports(self.lines, self.code, self.starts)
+                self._clauses = _py_from_clauses(
+                    self.code, self.starts,
+                    lambda n: _is_column_0(self.lines[n - 1]) or n in blocks,
+                )
+        return self._clauses
+
+    def _js_lists(self) -> list[tuple[list[tuple[int, str]], str | None]]:
+        if self._lists is None:
+            self._lists = _js_export_lists(self.lines, self.code)
+        return self._lists
+
+    def _imports(self) -> list[_Binding]:
+        """The names the file's column-0 imports bind (`_Binding`)."""
+        if self._bindings is None:
+            if not self.python:
+                self._bindings = _js_import_bindings(self.lines, self.code)
+            elif self.starts is None:
+                self._bindings = []
+            else:
+                found: list[_Binding] = []
+                for start, module, items in self._py_clauses():
+                    if not _is_column_0(self.lines[start - 1]):
+                        continue
+                    for _, item in items:
+                        m = _PY_IMPORT_ITEM_RE.match(item)
+                        if m is not None and _PY_IDENT_RE.fullmatch(m.group(1)):
+                            found.append((start, m.group(2) or m.group(1), m.group(1), module))
+                for number in sorted(self.starts):
+                    m = _PY_IMPORT_RE.match(self.code[number - 1])
+                    if m is None or not _is_column_0(self.lines[number - 1]):
+                        continue
+                    for item in m.group(1).split(","):
+                        bound = _PY_IMPORT_ITEM_RE.match(item.strip())
+                        if bound is not None:  # `import a.b as c`, `import a`: a namespace
+                            local = bound.group(2) or bound.group(1).split(".", 1)[0]
+                            found.append((number, local, None, None))
+                found.sort(key=lambda b: b[0])
+                self._bindings = found
+        return self._bindings
+
+    def binding(self, local: str, number: int) -> tuple[str | None, str | None] | None:
+        """(imported name, module) of the column-0 import that binds `local`
+        for line `number` (from 1): the last one at or above it, else, in
+        TS/JS, where imports are hoisted, the first below. The imported name
+        is None for a namespace import (it binds no name). None when no
+        import binds it."""
+        above = below = None
+        for line, name, imported, module in self._imports():
+            if name != local:
+                continue
+            if line <= number:
+                above = (imported, module)
+            elif below is None:
+                below = (imported, module)
+        return above if above is not None or self.python else below
+
+    def _bound(self, local: str, number: int) -> tuple[str | None, str | None]:
+        """`local` as a rename's `L` with no `from`: the imported name and
+        module of the import that binds it (no name for a namespace import),
+        else `local` and no module."""
+        return self.binding(local, number) or (local, None)
+
+    def _goes_on(self, index: int) -> bool:
+        """True when the TS/JS statement on line `index` (from 0) goes on
+        with the next line that holds code."""
+        for code in self.code[index + 1 :]:
+            if code.strip():
+                return code.lstrip()[0] in _JS_VALUE_GOES_ON
+        return False
+
+    # -- the answers --------------------------------------------------------
+
+    def candidates(self, name: str, cache: _SourceCache, module_fallback: bool) -> list[int]:
+        """The lines (from 1, sorted) of the file the suspects' lookup reads
+        for `name`: every column-0 line that declares it (`declared_line`'s
+        rule; with `module_fallback`, line 1 of the module or package so
+        named when none does), a Python `from X import L as NAME` item one
+        level in a column-0 `try`, `except`, `else`, `if` or `elif` block,
+        and a TS/JS local export-list item `NAME` without `as` when a
+        column-0 import binds NAME to another name (`import { L as NAME }`,
+        `import NAME from`)."""
+        if not name or "." in name:
             return []
-        head = code[index]
-    locals_: list[str] = []
-    for item in head.split(close, 1)[0].replace("(", " ").replace("\\", " ").split(","):
-        found = item_re.match(item.strip())
-        if found is None or found.group(2) != name:
-            continue
-        local = found.group(1)
-        if local == name or (not python and local == "default"):
-            continue
-        if (_PY_IDENT_RE if python else _JS_IDENT_RE).fullmatch(local):
-            locals_.append(local)
-    return locals_
+        path = Path(*self.parts)
+        top, _ = _line_matches(path.suffix.lower(), path, self.lines, name, cache, True)
+        found = set(top)
+        if not found and module_fallback and _module_name(self.parts) == name:
+            found.add(1)
+        esc = re.escape(name)
+        if self.python:
+            if re.search(rf"(?<!\w)as\s+{esc}(?!\w)", self.text):
+                found.update(
+                    line for _, _, items in self._py_clauses() for line, item in items
+                    if self._py_renames(item, name) is not None
+                )
+        elif re.search(rf"(?<![\w$])(?:as|import(?:\s+type)?)\s+{esc}(?![\w$])", self.text) and any(
+            local == name and imported not in (None, name)
+            for _, local, imported, _ in self._imports()
+        ):
+            found.update(
+                line for items, module in self._js_lists() if module is None
+                for line, item in items if _js_export_sides(item) == (name, None)
+            )
+        return sorted(found)
+
+    @staticmethod
+    def _py_renames(item: str, name: str) -> str | None:
+        """`L` of a `from X import` item `L as NAME`, L another identifier."""
+        m = _PY_IMPORT_ITEM_RE.match(item)
+        if m is None or m.group(2) != name or m.group(1) == name:
+            return None
+        return m.group(1) if _PY_IDENT_RE.fullmatch(m.group(1)) else None
+
+    def renames(self, number: int, name: str) -> list[tuple[str, str | None]]:
+        """(`L`, the module it comes from, None when unknown) for each
+        rename to `name` on line `number` (from 1), `L` an identifier other
+        than `name`:
+
+        - an export-list item `L as NAME` (`export { ... }`, `export type
+          { ... }`, the list's opening line at column 0 as written, a string
+          side unquoted when the string is the whole side), `L` `default`
+          included when the list has a `from`;
+        - a local export-list item `NAME` without `as`, when a column-0
+          import binds NAME to another name (`import { L as NAME }`, or
+          `import NAME from`, `L` `default`);
+        - a column-0 `const`, `let` or `var NAME = L` or `type NAME = L`,
+          exported or not, `L` a bare identifier and the statement ending
+          there;
+        - a Python `from X import L as NAME` item, the statement at column 0
+          or one level in a column-0 `try`, `except`, `else`, `if` or `elif`
+          block, and a column-0 `NAME = L`, `L` a bare identifier.
+
+        The module is the list's or the clause's `from`; a rename with none
+        takes the column-0 import that binds `L` (`binding`), `L` becoming
+        its imported name, and a namespace import's name renames nothing.
+        Empty for any other line: `as NAME` in a comment or a string, a TS
+        type assertion (`const NAME = x as NAME`), a call or any other
+        expression, a Python `import M as NAME` and a rename inside a `def`
+        or a `class`."""
+        if not 0 < number <= len(self.lines):
+            return []
+        found: list[tuple[str | None, str | None]] = []
+        index = number - 1
+        if self.python:
+            for _, module, items in self._py_clauses():
+                for line, item in items:
+                    local = self._py_renames(item, name) if line == number else None
+                    if local is not None:
+                        found.append((local, module))
+            starts = self.starts or set()
+            if number in starts and _is_column_0(self.lines[index]):
+                m = re.match(rf"^{re.escape(name)}\s*=(?!=)\s*([A-Za-z_]\w*)\s*$", self.code[index])
+                if m is not None and m.group(1) != name:
+                    found.append(self._bound(m.group(1), number))
+            return [(local, module) for local, module in found if local is not None]
+        for items, module in self._js_lists():
+            for line, item in items:
+                sides = _js_export_sides(item) if line == number else None
+                if sides is None:
+                    continue
+                own, exposed = sides
+                if exposed is None and own == name and module is None:
+                    bound = self.binding(name, number)  # a plain re-export of an import
+                    if bound is not None and bound[0] != name:
+                        found.append(bound)
+                elif exposed == name and own != name and _JS_IDENT_RE.fullmatch(own):
+                    if module is not None:
+                        found.append((own, module))
+                    elif own != "default":
+                        found.append(self._bound(own, number))
+        m = _JS_NAME_IS_RE.match(self.code[index]) if _is_column_0(self.lines[index]) else None
+        if m is not None and m.group(1) == name and m.group(2) != name and (
+            m.group(3) or not self._goes_on(index)
+        ):
+            found.append(self._bound(m.group(2), number))
+        return [(local, module) for local, module in found if local is not None]
 
 
 class _DeclarationLookup:
@@ -2886,10 +3295,14 @@ class _DeclarationLookup:
     path and under a name `_lookup_skips_file` accepts (`_readable_below`).
     The walk runs once for all the names no cited file settles: each file is
     read once, and only a file whose text holds a name goes through the
-    rules. `renamed` then tells which of a name's declarations is an alias
-    of a name a cited file declares (an item of an export list or of a
-    Python `from X import` clause), from the lines the lookup read. Any
-    error of the filesystem raises (`_LOOKUP_ERRORS`)."""
+    rules. In the suspects' pass (`keep_declaring`), a file's declarations
+    are its candidate lines (`_Renames.candidates`: every column-0
+    declaring line, a Python compatibility import one level in a column-0
+    block and a TS/JS re-export of a renaming import), the file listed at
+    the first, and `renamed` then tells which of a name's candidate lines
+    is an alias of the declaration a cited file holds, from the lines the
+    lookup read, reading too the files a rename's `from` resolves to
+    (`_resolve`). Any error of the filesystem raises (`_LOOKUP_ERRORS`)."""
 
     def __init__(self, entries: list[dict], source_root: Path) -> None:
         self.root = source_root
@@ -2908,9 +3321,13 @@ class _DeclarationLookup:
         # the cited files read, kept for the walk: a few files at most
         self._cited: dict[tuple[str, ...], list[str] | None] = {}
         self._cited_cache = _SourceCache()
-        # during the suspects' pass only (`keep_declaring`): the lines of each
-        # file a declaration was found in, by path, which `renamed` reads
-        self._declaring: dict[str, list[str]] | None = None
+        # during the suspects' pass only (`keep_declaring`): the renames of
+        # each file a declaration was found in, by path, and each (path, name)
+        # its candidate lines, which `renamed` reads
+        self._declaring: dict[str, _Renames] | None = None
+        self._candidates: dict[tuple[str, str], list[int]] = {}
+        # the files a rename's `from` resolves to and the renaming files, that no entry cites
+        self._resolved: dict[tuple[str, ...], list[str] | None] = {}
 
     # -- the walk root ------------------------------------------------------
 
@@ -2991,6 +3408,74 @@ class _DeclarationLookup:
             self._cited[parts] = _text_lines(_read_source(path)) if readable else None
         return self._cited[parts]
 
+    def _lines_of(self, parts: tuple[str, ...]) -> list[str] | None:
+        """The lines of a file the alias check reads, a cited one or one a
+        rename's `from` resolves to, under `_reads_cited`'s guards, or the
+        renaming file, whose lines `renamed` keeps; each file read once."""
+        if parts in self._cited:
+            return self._cited[parts]
+        if parts not in self._resolved:
+            readable = self._reads_cited(parts)
+            path = self.root.joinpath(*parts)
+            self._resolved[parts] = _text_lines(_read_source(path)) if readable else None
+        return self._resolved[parts]
+
+    def _declares(self, parts: tuple[str, ...], local: str) -> bool:
+        """True when a file declares `local` by `declared_line`'s rule, no
+        module or package so named counting."""
+        lines = self._lines_of(parts)
+        return lines is not None and declared_line(
+            parts, local, lines=lines, cache=self._cited_cache, module_fallback=False
+        ) is not None
+
+    def _resolve(self, parts: tuple[str, ...], module: str) -> list[tuple[str, ...]]:
+        """The files below the source root that a rename's module names, from
+        the renaming file `parts`, each one the lookup may read
+        (`_reads_cited`). TS/JS: a `./` or `../` module only, from the file's
+        folder: the path itself, a `.js`-family path's TypeScript twin
+        (`./m.js` names `m.ts`), `<path><ext>` and `<path>/index<ext>`
+        (`_TSJS_MODULE_EXTENSIONS`). Python: a relative module (`.m`, `..m`,
+        `.` the folder's own `__init__`) from the file's folder, or an
+        absolute one below the parent of the file's package root
+        (`_package_root`): `m.py`, `m.pyi`, `m/__init__.py` and
+        `m/__init__.pyi`. Empty for a bare package name, a tsconfig `paths`
+        alias, a module that climbs out of the source root and one with no
+        such file."""
+        if _rule_family(parts[-1]) == "python":
+            dots = len(module) - len(module.lstrip("."))
+            names = module[dots:].split(".") if module[dots:] else []
+            if any(not n for n in names):
+                return []
+            if dots:
+                if dots > len(parts):
+                    return []
+                base = parts[: len(parts) - dots]
+            else:
+                root = self._package_root(self._real_folder(parts[:-1]), "python")
+                if root is None or not names:
+                    return []
+                base = root[:-1]
+            here = (*base, *names)
+            tried = [(*here[:-1], here[-1] + ext) for ext in (".py", ".pyi")] if names else []
+            tried += [(*here, "__init__.py"), (*here, "__init__.pyi")]
+        else:
+            if module not in (".", "..") and not module.startswith(("./", "../")):
+                return []  # a package name or a `paths` alias: not read
+            path = posixpath.normpath(posixpath.join(*parts[:-1], module))
+            if path == ".." or path.startswith("../"):
+                return []
+            here = () if path == "." else tuple(path.split("/"))
+            tried = []
+            if here:
+                stem, ext = posixpath.splitext(here[-1])
+                if ext.lower() in TSJS_EXTENSIONS:
+                    tried.append(here)
+                    twins = _TSJS_TWINS.get(ext.lower(), ())
+                    tried += [(*here[:-1], stem + twin) for twin in twins]
+                tried += [(*here[:-1], here[-1] + ext) for ext in _TSJS_MODULE_EXTENSIONS]
+            tried += [(*here, "index" + ext) for ext in _TSJS_MODULE_EXTENSIONS]
+        return [p for p in dict.fromkeys(tried) if self._reads_cited(p)]
+
     def _is_package_root(self, folder: tuple[str, ...], filenames: list[str]) -> bool:
         """True when a walked folder (its `filenames`) is a package root of a
         family the walk reads, as `_package_root` finds one: TS/JS, a folder
@@ -3050,21 +3535,31 @@ class _DeclarationLookup:
     ) -> str | None:
         """`file:line` of the first line of a file that declares `name`, else,
         with `module_fallback`, its line 1 when it is the module or package
-        so named (`declared_line`). After `keep_declaring`, the file's lines
-        are kept for `renamed`."""
-        line = declared_line(
-            parts, name, lines=lines, cache=cache, module_fallback=module_fallback
-        )
-        if line is None:
+        so named (`declared_line`). After `keep_declaring`, the first of the
+        file's candidate lines (`_Renames.candidates`, which adds a Python
+        compatibility import and a TS/JS re-export of a renaming import),
+        each kept, with the file's renames, for `renamed`."""
+        file = "/".join(parts)
+        if self._declaring is None:
+            line = declared_line(
+                parts, name, lines=lines, cache=cache, module_fallback=module_fallback
+            )
+            return None if line is None else f"{file}:{line}"
+        renames = self._declaring.get(file) or _Renames(parts, lines, cache)
+        candidates = renames.candidates(name, cache, module_fallback)
+        if not candidates:
             return None
-        if self._declaring is not None:
-            self._declaring['/'.join(parts)] = lines
-        return f"{'/'.join(parts)}:{line}"
+        self._declaring[file] = renames
+        self._candidates[(file, name)] = candidates
+        return f"{file}:{candidates[0]}"
 
     # -- the answer ---------------------------------------------------------
 
     def find(
-        self, cited: dict[str, list[str]], strict: frozenset[str] = frozenset()
+        self,
+        cited: dict[str, list[str]],
+        strict: frozenset[str] = frozenset(),
+        cited_fallback: bool = True,
     ) -> tuple[dict[str, str], dict[str, list[str]]]:
         """For the names of `cited` (name -> the source_file values its
         entries record): name -> `file:line` for each one the source
@@ -3073,7 +3568,10 @@ class _DeclarationLookup:
         cited file settles). A dotted name is never looked up, and a name of
         `strict` takes no line 1 from a module or package so named that is
         not itself the export (`_exports_itself`), in a cited file or in
-        the walk."""
+        the walk. Without `cited_fallback` (the suspects' pass), a cited
+        file takes no line 1 from its module or package so named, the export
+        or not, so that the walk runs and finds the renames; the walk keeps
+        its module rule."""
         found: dict[str, str] = {}
         if not self.families:
             return found, {}
@@ -3085,7 +3583,8 @@ class _DeclarationLookup:
                 lines = self._cited_lines(parts)
                 hit = None if lines is None else self._first(
                     parts, lines, name, self._cited_cache,
-                    name not in strict or _exports_itself(parts, "\n".join(lines)),
+                    cited_fallback
+                    and (name not in strict or _exports_itself(parts, "\n".join(lines))),
                 )
                 if hit is not None:
                     found[name] = hit
@@ -3143,33 +3642,56 @@ class _DeclarationLookup:
         return {name: sorted(_without_stubs(h)) for name, h in hits.items()}, unsure
 
     def keep_declaring(self) -> None:
-        """From now on, keep the lines of each file a declaration is found in,
-        for `renamed`: the suspects' pass, which comes last."""
+        """From now on, keep the candidate lines and the renames of each file
+        a declaration is found in, for `renamed`: the suspects' pass, which
+        comes last."""
         self._declaring = {}
+        self._candidates = {}
 
-    def renamed(self, name: str, hits: list[str], files: list[str]) -> str | None:
-        """The first of `hits` (`file:line` declarations of `name` the lookup
-        found, sorted) whose line renames to `name`, as an item of an export
-        list or of a Python `from X import` clause (`_renamed_locals`), a
-        name `L` one of `files` (source_file values, as recorded) declares:
-        `declared_line` gives `L` a line of that file, no module or package
-        so named counting. The lines are the ones the lookup read after
-        `keep_declaring` (`_first`), never read again. None when no hit is
-        such an alias."""
+    def _aliases(
+        self, parts: tuple[str, ...], local: str, module: str | None,
+        cited: list[tuple[str, ...]],
+    ) -> bool:
+        """True when a rename in the file `parts` of `local` from `module`
+        (None when unknown) renames the declaration a cited file holds: when
+        the files the module resolves to (`_resolve`) declare `local`, one
+        of them must be cited; otherwise (a package name, a path that names
+        no file, a file that declares no `local`, such as a barrel that
+        re-exports it) a cited file must declare `local`. A `local` with no
+        module that the file `parts` declares itself resolves to that file,
+        which must be cited. No module or package so named counts."""
+        if module is None and self._declares(parts, local):
+            return parts in cited
+        resolved = self._resolve(parts, module) if module else []
+        resolved = [p for p in resolved if self._declares(p, local)]
+        if resolved:
+            return any(p in cited for p in resolved)
+        return any(self._declares(p, local) for p in cited)
+
+    def renamed(
+        self, name: str, hits: list[str], files: list[str]
+    ) -> tuple[str, str] | None:
+        """(`file:line`, `L`) of the first rename to `name` that is an alias
+        of the declaration of `L` a file of `files` (source_file values, as
+        recorded) holds (`_aliases`): per file of `hits` (`file:line`
+        declarations of `name` the lookup found, sorted), per candidate
+        line in order (`_Renames.candidates`), each rename the line makes
+        (`_Renames.renames`). The lines are the ones the lookup read after
+        `keep_declaring` (`_first`), never read again; a file a rename's
+        module resolves to is read once. None when no line is such an
+        alias."""
         cited = list(dict.fromkeys(filter(None, map(_cited_parts, files))))
         for hit in sorted(hits):
             file, _, number = hit.rpartition(":")
-            lines, family = (self._declaring or {}).get(file), _rule_family(file)
-            if lines is None or family is None or not number.isdigit():
+            renames = (self._declaring or {}).get(file)
+            if renames is None or not number.isdigit():
                 continue
-            for local in _renamed_locals(lines, int(number) - 1, name, family):
-                for parts in cited:
-                    source = self._cited_lines(parts)
-                    if source is not None and declared_line(
-                        parts, local, lines=source, cache=self._cited_cache,
-                        module_fallback=False,
-                    ) is not None:
-                        return hit
+            if renames.parts not in self._cited:  # read already, and `_aliases` may check it
+                self._resolved.setdefault(renames.parts, renames.lines)
+            for line in self._candidates.get((file, name), [int(number)]):
+                for local, module in renames.renames(line, name):
+                    if self._aliases(renames.parts, local, module, cited):
+                        return f"{file}:{line}", local
         return None
 
 
@@ -3211,11 +3733,12 @@ def classify_stale(
     (`defined_at`, and `declared_in` when the walk looked for it). A name
     the cited files do not define is looked up too, after the others and
     in a lookup of its own (an error there keeps it fabricated and clears
-    no other name), with no module or package so named counting unless it
-    is the export, and is `aliased`, not fabricated, when one of its
-    declarations is an export-list or `from X import` item renaming to it
-    a name a `checked` entry's file declares (`_DeclarationLookup.renamed`);
-    any other such name keeps both null. The classify-stale section of the
+    no other name), with no line 1 from a cited module or package so named,
+    and none in the walk unless it is the export, and is `aliased`, not
+    fabricated, when one of its candidate lines renames to it the
+    declaration a `checked` entry's file holds (`_DeclarationLookup.renamed`,
+    which resolves the rename's `from`); any other such name keeps both
+    null. The classify-stale section of the
     module docstring gives each reason, what a `no-file` entry means, which
     entry gives `source` and how `defined_at` and `declared_in` are found.
     `kinds` (`inventory_kinds`, None without `--inventory`) keeps a name of
@@ -3293,17 +3816,19 @@ def classify_stale(
     suspect_declared: dict[str, list[str]] = {}
     if suspects and lookup is not None:
         try:
-            # a suspect is strict: a cited module so named settles it before
-            # the walk only when it is the export
+            # a suspect is strict, and a cited module so named never settles
+            # it before the walk, which finds the renames
             lookup.keep_declaring()
-            suspect_found, suspect_declared = lookup.find(suspects, frozenset(suspects))
+            suspect_found, suspect_declared = lookup.find(
+                suspects, frozenset(suspects), cited_fallback=False
+            )
             for name, files in suspects.items():
                 hits = suspect_declared[name] if name in suspect_declared else (
                     [suspect_found[name]] if name in suspect_found else []
                 )
-                hit = lookup.renamed(name, hits, files)
-                if hit is not None:
-                    aliased[name] = hit
+                alias = lookup.renamed(name, hits, files)
+                if alias is not None:
+                    aliased[name] = alias[0]  # the rename's line; alias[1] is `L`
         except _LOOKUP_ERRORS:
             aliased, suspect_declared = {}, {}
     for item in results:
