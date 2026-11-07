@@ -447,6 +447,34 @@ def test_result_path_says_which_failed_write_nulls_it():
         assert ("when the per-run record could not be written (a result_file_write_failed warning says why); "
                 "a -latest copy that could not be written leaves it set, and a result_file_write_failed warning "
                 "names the copy") in descriptions[name], name
+        # The emitter writes nothing into a --result-dir that names no folder, and adds no warning for it.
+        assert ("when --result-dir names no folder (nothing is written, and no warning is added), and when the "
+                "per-run record could not be written") in descriptions[name], name
+
+
+def test_quick_skill_names_its_batch_level_lines_and_a_null_run_id():
+    """A --batch run also prints halt lines of its own (batch-mode.md: the on-activation refusal, the batch-mode
+    halts), and the emitter stamps run_id only from --run-dir, which On Activation's run-folder halt and batch
+    mode's write-failure halts do not pass."""
+    schema = _load(SCHEMA_DIR / "skf-quick-skill-result-envelope.v1.json")
+    top = schema["description"]
+    assert "A --batch run prints one per target, and a batch-level halt line of its own" in top
+    assert "phase on-activation when a single-target flag came with --batch" in top
+    assert "phase batch-mode when the batch cannot start or stops because next, a second record or summarize" in top
+    run_id = schema["properties"]["run_id"]["description"]
+    assert ("Null on a line emitted without --run-dir (On Activation's run-folder halt, batch mode's write-failure "
+            "halts).") in run_id
+
+
+def test_update_skill_names_the_result_file_warning_it_can_carry():
+    """skf-update-skill's line carries result_file_write_failed (report.md records it itself), never
+    result_dir_ignored, which the emitter adds only for a workflow with no result file stem."""
+    schema = _load(SCHEMA_DIR / "skf-update-result-envelope.v1.json")
+    assert _meta(schema)["result_file"]
+    warnings = schema["properties"]["skf_update"]["properties"]["warnings"]["description"]
+    assert ("result_file_write_failed (a result file not written, or a version forge folder not created), etc. "
+            "Empty when none.") in warnings
+    assert "result_dir_ignored" not in warnings
 
 
 # ---------------------------------------------------------------------------

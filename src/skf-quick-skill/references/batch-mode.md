@@ -173,9 +173,10 @@ Batch mode emits per-target boundary events on stderr in addition to the per-ste
 ```
 {"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":"<path>"}
 {"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":null,"warnings":["summary_write_failed: <dir>: <reason>"],"batch_file":"<path>"}
+{"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":"<path>","warnings":["<summary_write_failed or batch_file_write_failed>: <dir>: <reason>"]}
 ```
 
-When the per-batch summary file cannot be written, `summary_path` is null and `batch_file` names `{batch_dir}/batch.jsonl`, which then holds the batch's result.
+When the per-batch summary file cannot be written, `summary_path` is null and `batch_file` names `{batch_dir}/batch.jsonl`, which then holds the batch's result. When `summary_path` is set and the event still carries `warnings`, a later write failed: `summary_write_failed` means only the `-latest` copy failed, and `batch_file_write_failed` that only the summary line could not be added to `{batch_dir}/batch.jsonl`. The file `summary_path` names stays the batch's result.
 
 ## Exit code
 

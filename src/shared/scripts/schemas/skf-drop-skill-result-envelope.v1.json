@@ -102,7 +102,7 @@
     },
     "result_path": {
       "type": ["string", "null"],
-      "description": "The per-run result file the emitter wrote for a finished drop, {skills_output_folder}/drop-skill-result-<YYYYMMDD-HHmmss>.json (UTC), beside its drop-skill-result-latest.json copy. Stamped by the emitter, never typed. Null for a dry run and a HALT, which write no result file, and when the per-run record could not be written (a result_file_write_failed warning says why); a -latest copy that could not be written leaves it set, and a result_file_write_failed warning names the copy."
+      "description": "The per-run result file the emitter wrote for a finished drop, {skills_output_folder}/drop-skill-result-<YYYYMMDD-HHmmss>.json (UTC), beside its drop-skill-result-latest.json copy. Stamped by the emitter, never typed. Null for a dry run and a HALT, which write no result file, when --result-dir names no folder (nothing is written, and no warning is added), and when the per-run record could not be written (a result_file_write_failed warning says why); a -latest copy that could not be written leaves it set, and a result_file_write_failed warning names the copy."
     },
     "exit_code": {
       "type": "integer",

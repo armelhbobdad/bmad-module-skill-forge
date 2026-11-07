@@ -1161,6 +1161,8 @@ def test_no_result_files_when_the_folder_does_not_exist(demo, monkeypatch, capsy
                           result_dir=str(tmp_path / "not-created-yet"))
     assert env["result_path"] is None
     assert not (tmp_path / "not-created-yet").exists()
+    # Nothing is written and no warning is added: eight result_path descriptions say so.
+    assert env["warnings"] == []
 
 
 def test_a_failed_record_write_is_a_warning(demo, monkeypatch, capsys):
@@ -1246,6 +1248,25 @@ def test_no_report_step_ties_any_failed_write_to_a_null_result_path():
     assert "after the emitter wrote the per-run record" in refine
     assert "after the emitter wrote the per-run record" in texts["skf-export-skill/references/summary.md"]
     assert "the per-run result file is written" in texts["skf-refine-architecture/customize.toml"]
+
+
+def test_the_latest_copy_and_the_hooks_follow_the_per_run_record():
+    """Test Skill's invocation contract qualifies the blocked run's -latest copy as its report step does, and
+    Audit's on_complete comment and Rename's hook paragraph tie the hook to the per-run record, the
+    `result_path` each hook checks, never to both result files."""
+    src = ROOT / "src"
+    contract = (src / "skf-test-skill" / "references" / "invocation-contract.md").read_text(encoding="utf-8")
+    assert ("so its `skf-test-skill-result-latest.json` holds that FAIL, not an earlier run's verdict, unless the "
+            "run's line holds a `result_file_write_failed` warning (the emitter stops at the first write that "
+            "fails).") in contract
+    audit = (src / "skf-audit-skill" / "customize.toml").read_text(encoding="utf-8")
+    comments = " ".join(re.sub(r"^# ?", "", line) for line in audit.splitlines() if line.startswith("#"))
+    assert "after the emitter wrote the per-run record (`result_path` not null)" in comments
+    assert "It never runs on a halt, nor when the per-run record could not be written." in comments
+    assert "the result files" not in comments and "the result file could not be written" not in comments
+    rename = (src / "skf-rename-skill" / "references" / "report.md").read_text(encoding="utf-8")
+    assert "The hook runs after the emitter wrote the per-run record (`result_path` not null)" in rename
+    assert "after the result files are written" not in rename
 
 
 @pytest.mark.parametrize("run_name,stamped", [

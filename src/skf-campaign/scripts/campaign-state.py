@@ -438,8 +438,11 @@ def read_envelope(source: str, label: str) -> dict | None:
     """A sub-skill's result envelope: the last SKF_*_RESULT_JSON line, or bare JSON.
 
     None when that payload does not parse or is not a JSON object, which
-    set-campaign records as result-unreadable. An empty payload, or input it
-    cannot read or decode, is still exit 2.
+    set-campaign records as result-unreadable. json.loads raises ValueError
+    on a payload it cannot parse (JSONDecodeError is one, an integer of more
+    than 4,300 digits another) and RecursionError on nesting too deep for
+    it; both read as a payload that does not parse. An empty payload, or
+    input it cannot read or decode, is still exit 2.
     """
     text = read_text(source, label)
     lines = [line for line in text.splitlines() if "_RESULT_JSON:" in line and "SKF_" in line]
@@ -448,7 +451,7 @@ def read_envelope(source: str, label: str) -> dict | None:
         raise StateError(EXIT_INPUT, "input-unreadable", f"{label} holds no result envelope")
     try:
         data = json.loads(payload)
-    except json.JSONDecodeError:
+    except (ValueError, RecursionError):
         return None
     return data if isinstance(data, dict) else None
 

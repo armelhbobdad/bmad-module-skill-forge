@@ -1030,3 +1030,34 @@ class TestQuickSkillGuardProse:
         # no calling stage loads the protocol any more (#600 leanness-5): §0 holds every rule it acts on
         assert "no stage loads this file at run time" in centralized
         assert "when this file cannot be loaded" not in centralized
+
+
+CS_VALIDATE = REPO_ROOT / "src" / "skf-create-skill" / "references" / "validate.md"
+CS_FIX_CALL = "npx skill-check check <staging-skill-dir> --fix --format json {security_scan_flag}"
+
+
+def test_create_skill_runs_its_fix_call_inside_the_guard() -> None:
+    """Create Skill's §2 holds its one `--fix` call inside the guard block, between the capture and the
+    verify-restore, so a run read top to bottom hashes and captures SKILL.md before skill-check can rewrite it."""
+    text = _read(CS_VALIDATE)
+    assert text.count(CS_FIX_CALL) == 1, "the --fix call appears once in the file"
+    two = _slice(text, "### 2. Validate & Auto-Fix", "### 3. ")
+    hash_call = "uv run {hashContentHelper} hash <staging-skill-dir>/SKILL.md"
+    marks = [two.index(hash_call), two.index("uv run {descriptionGuardHelper} capture"), two.index(CS_FIX_CALL),
+             two.index("uv run {descriptionGuardHelper} verify-restore"), two.rindex(hash_call)]
+    assert marks == sorted(marks), "hash, capture, --fix, verify-restore, hash"
+    assert f"# Phase 2: run skill-check\n{CS_FIX_CALL}\n" in two
+    assert "see command block above" not in text
+    # the call sits in the guard's own fenced block, the only bash block that names it
+    blocks = [block for block in two.split("```bash\n")[1:] if CS_FIX_CALL in block.split("```", 1)[0]]
+    assert len(blocks) == 1 and "uv run {descriptionGuardHelper} capture" in blocks[0].split("```", 1)[0]
+
+
+def test_create_skill_section8_fills_the_auto_fixed_line() -> None:
+    """compile renders the Auto-Fixed Issues line before §2 ran, so §8 names it among the lines it fills."""
+    eight = _slice(_read(CS_VALIDATE), "### 8. Update Evidence Report", "### 9. ")
+    opening = eight.split("\n\n", 2)[1]
+    assert opening.startswith("Write the validation results into the staged")
+    first = opening.split(": step 7 promotes", 1)[0]
+    assert "in place of the `[PENDING: populated by step 6]` placeholders compile left" in first
+    assert "and of the line under `## Auto-Fixed Issues`, which compile wrote before §2 ran" in first

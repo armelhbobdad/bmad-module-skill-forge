@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/armelhbobdad/bmad-module-skill-forge/src/shared/scripts/schemas/skf-quick-skill-result-envelope.v1.json",
   "title": "SKF_QUICK_SKILL_RESULT_JSON envelope (v1)",
-  "description": "Single-line JSON document skf-quick-skill prints, prefixed with the literal 'SKF_QUICK_SKILL_RESULT_JSON: ': on stdout when a run finishes (step 6, finalize), and on stderr at every HARD HALT. The shared emitter (skf-emit-result-envelope.py) builds both from a staged payload, so pipelines branch on status, exit_code and halt_reason without parsing the human-readable output. A --batch run prints one per target.",
+  "description": "Single-line JSON document skf-quick-skill prints, prefixed with the literal 'SKF_QUICK_SKILL_RESULT_JSON: ': on stdout when a run finishes (step 6, finalize), and on stderr at every HARD HALT. The shared emitter (skf-emit-result-envelope.py) builds both from a staged payload, so pipelines branch on status, exit_code and halt_reason without parsing the human-readable output. A --batch run prints one per target, and a batch-level halt line of its own when the batch stops outside a target: phase on-activation when a single-target flag came with --batch, phase batch-mode when the batch cannot start or stops because next, a second record or summarize failed.",
   "$defs": {
     "skf-envelope": {
       "description": "The shared emitter's settings for this workflow, read by skf-emit-result-envelope.py: the workflow, the line's prefix, the wrapper, the status a halt carries, the exit code of each halt_reason and the result file stem. Nothing in the schema references this entry, so it constrains no envelope.",
@@ -207,7 +207,7 @@
     },
     "run_id": {
       "type": ["string", "null"],
-      "description": "The run folder's id, stamped by the emitter; a --batch target's is the batch run's id and the target's number."
+      "description": "The run folder's id, stamped by the emitter; a --batch target's is the batch run's id and the target's number. Null on a line emitted without --run-dir (On Activation's run-folder halt, batch mode's write-failure halts)."
     },
     "result_path": {
       "type": ["string", "null"],

@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-campaign
+summary: |
+  When Create Stack Skill, Verify Stack or Refine Architecture printed a result line holding an integer of more than 4,300 digits or nesting too deep to decode, `set-campaign` exited 1 with a Python traceback and the campaign stopped. Campaign now records that stage as failed with `result-unreadable` and goes on, as it does for any other line it cannot parse.

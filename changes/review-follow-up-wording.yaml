@@ -1,0 +1,4 @@
+type: fixed
+scope: skf-quick-skill, skf-update-skill, skf-test-skill, skf-audit-skill, skf-rename-skill, skf-drop-skill, skf-analyze-source, skf-export-skill, skf-refine-architecture, skf-create-stack-skill, skf-verify-stack, skf-create-skill
+summary: |
+  Quick Skill now says its summary carries `security_result`, that a `--batch` run can also print a batch-level halt line, that `run_id` is null on a line emitted without a run folder, and that a batch summary event can name its file beside a warning; Update Skill's schema names `result_file_write_failed`. Test, Audit, Rename and Drop Skill tie their `-latest` copy, hook and `result_path` to the per-run record, eight schemas say a `--result-dir` that names no folder leaves `result_path` null with no warning, and the workflows guide says a `pass` from Create Skill, Stack Skill or Update Skill does not show the scan found nothing.
