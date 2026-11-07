@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a no-parameter form, correct the documented return type, or the parameters a `params: ""` form leaves out, then run Test Skill again.
 issues: [914]
+prs: [992]

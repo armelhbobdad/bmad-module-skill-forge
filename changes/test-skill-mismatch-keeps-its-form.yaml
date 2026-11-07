@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a mismatch a partial label used to lower, correct the form the gap names, or mark it partial where the skill presents it as partial, then run Test Skill again.
 issues: [919]
+prs: [992]
