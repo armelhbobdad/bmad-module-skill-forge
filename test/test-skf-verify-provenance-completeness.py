@@ -138,6 +138,13 @@ Covers:
     cited file lacks or of the cited module itself, a missing cited file
     and a lookup error keep it fabricated with both null, and an error in
     its own lookup clears no settled name
+  - classify-stale's cited files and docs folders (#924): a file the map
+    cites read in any folder the walk skips (tests, dist, build, vendor,
+    node_modules, a hidden one) while an uncited name in or beside it stays
+    unfound; a cited test file, test configuration file or `*.min.js` still
+    not read; `docs`, `examples` and `benchmarks` skipped only as the first
+    folder below the walk root or a package root, walked deeper down
+    (Storybook's `code/addons/docs/`) and when one holds a cited file
   - declared_line (#682): the defined_at rule for one file, read below the
     source root or from lines given (a dunder, a renaming alias, a module
     or package named after the name, that module rule optional), None for
@@ -3607,10 +3614,10 @@ class TestDefinedAt:
 
     @pytest.mark.parametrize("rel", [
         "pkg/modules/migrations/m.py", "pkg/cli/samples/m.py", "pkg/sub/scripts/m.py", "pkg/a/example/m.js",
-        "pkg/a/bench/m.py",
+        "pkg/a/bench/m.py", "pkg/a/docs/m.ts", "pkg/sub/examples/m.py", "pkg/a/benchmarks/m.py",
     ], ids=lambda rel: rel.replace("/", "-"))
     def test_a_first_folder_skip_is_walked_deeper_down(self, tmp_path: Path, capsys, rel: str) -> None:
-        # example, scripts, migrations and the like are skipped only as the first folder below the walk root
+        # example, scripts, migrations, docs and the like are skipped only as the first folder below the walk root
         files = {**PKG, rel: _declares(rel)}
         assert _defined_at(tmp_path, capsys, files, ["X"], [MAIN_ENTRY, TS_ENTRY]) == {"X": f"{rel}:1"}
 
@@ -3638,7 +3645,7 @@ class TestDefinedAt:
 
     def test_the_first_folder_skip_holds_below_each_package_root(self, tmp_path: Path, capsys) -> None:
         """A walk root wider than one package: a monorepo whose map cites two workspace packages, and a map
-        citing two top-level Python packages. Each package's own example, script or migration folder is
+        citing two top-level Python packages. Each package's own example, script, migration or docs folder is
         skipped (and an e2e folder anywhere), while such a folder deeper in a package is walked."""
         files = {"package.json": "{}", "packages/a/package.json": "{}", "packages/b/package.json": "{}",
                  "packages/a/src/index.ts": "export function run() {}\n",
@@ -3646,11 +3653,12 @@ class TestDefinedAt:
                  "packages/a/example/old.ts": "export function oldApi() {}\n",
                  "packages/a/e2e/h.ts": "export function helper() {}\n",
                  "packages/b/scripts/build.ts": "export function build() {}\n",
+                 "packages/a/docs/old.ts": "export function oldDoc() {}\n",
                  "packages/a/src/scripts/live.ts": "export function live() {}\n"}
         entries = [{"export_name": "run", "source_file": "packages/a/src/index.ts", "source_line": 1},
                    {"export_name": "stop", "source_file": "packages/b/src/index.ts", "source_line": 1}]
-        assert _found(tmp_path / "ts", capsys, files, ["oldApi", "helper", "build", "live"], entries) == {
-            "oldApi": (None, []), "helper": (None, []), "build": (None, []),
+        assert _found(tmp_path / "ts", capsys, files, ["oldApi", "helper", "build", "oldDoc", "live"], entries) == {
+            "oldApi": (None, []), "helper": (None, []), "build": (None, []), "oldDoc": (None, []),
             "live": ("packages/a/src/scripts/live.ts:1", ["packages/a/src/scripts/live.ts:1"])}
         files = {"a/__init__.py": "", "a/main.py": "def run():\n    pass\n", "b/__init__.py": "",
                  "b/main.py": "def stop():\n    pass\n", "a/migrations/__init__.py": "",
@@ -3690,10 +3698,54 @@ class TestDefinedAt:
         entries = [{"export_name": "main", "source_file": "examples/pkg/main.py", "source_line": 1}]
         assert _defined_at(tmp_path / "tests", capsys, files, ["X"], entries) == {"X": "examples/pkg/m.py:1"}
 
-    def test_a_cited_file_in_a_skipped_place_is_not_read_either(self, tmp_path: Path, capsys) -> None:
-        files = {**PKG, "pkg/tests/m.py": "class X:\n    pass\n"}
-        entries = [MAIN_ENTRY, {"export_name": "X", "source_file": "pkg/tests/m.py", "source_line": 1}]
-        assert _defined_at(tmp_path, capsys, files, ["X"], entries) == {"X": None}
+    @pytest.mark.parametrize("rel", [
+        "pkg/tests/m.py", "pkg/dist/m.js", "pkg/build/m.py", "pkg/vendor/m.py", "pkg/node_modules/m.js",
+        "pkg/.hidden/m.py",
+    ], ids=lambda rel: rel.replace("/", "-"))
+    def test_a_cited_file_in_any_skipped_folder_is_read(self, tmp_path: Path, capsys, rel: str) -> None:
+        """#924: the walk alone skips these folders. A file the map cites in one settles its name's
+        defined_at, while a name no entry cites, declared in that file or beside it, is still not found."""
+        sibling = rel.replace("/m.", "/n.")
+        files = {**PKG, rel: _declares(rel) + _declares(rel).replace("X", "Y"),
+                 sibling: _declares(sibling).replace("X", "Z")}
+        entries = [MAIN_ENTRY, {"export_name": "X", "source_file": rel, "source_line": 1}]
+        assert _found(tmp_path, capsys, files, ["X", "Y", "Z"], entries) == {
+            "X": (f"{rel}:1", None), "Y": (None, []), "Z": (None, [])}
+
+    @pytest.mark.parametrize("rel", [
+        "pkg/tests/test_m.py", "pkg/docs/m.test.ts", "pkg/dist/m.min.js", "pkg/conftest.py", "pkg/m.spec.js",
+    ], ids=lambda rel: rel.replace("/", "-"))
+    def test_a_cited_test_file_is_still_not_read(self, tmp_path: Path, capsys, rel: str) -> None:
+        # whatever its folder, a test file, a test configuration file or a minified bundle is never read
+        files = {**PKG, rel: _declares(rel)}
+        entries = [MAIN_ENTRY, {"export_name": "X", "source_file": rel, "source_line": 1}]
+        assert _found(tmp_path, capsys, files, ["X"], entries) == {"X": (None, [])}
+
+    def test_a_cited_file_under_a_nested_docs_folder_settles_defined_at(self, tmp_path: Path, capsys) -> None:
+        """#924, Storybook 10.3.5: the map's entries share only `code/`, so the walk root is `code/` and
+        `addons/docs/` lies two folders below it. The cited file settles CheckboxControl, and the walk finds
+        RadioControl, which no entry cites, in the same addon."""
+        files = {"code/package.json": "{}", "code/core/package.json": "{}",
+                 "code/core/src/index.ts": "export function start() {}\n",
+                 "code/addons/docs/package.json": "{}",
+                 "code/addons/docs/src/controls.ts": "import { x } from './x';\n\nexport const CheckboxControl = 1;\n",
+                 "code/addons/docs/src/blocks/radio.ts": "export const RadioControl = 2;\n"}
+        entries = [{"export_name": "start", "source_file": "code/core/src/index.ts", "source_line": 1},
+                   {"export_name": "CheckboxControl", "source_file": "code/addons/docs/src/controls.ts",
+                    "source_line": 3}]
+        assert _found(tmp_path, capsys, files, ["CheckboxControl", "RadioControl"], entries) == {
+            "CheckboxControl": ("code/addons/docs/src/controls.ts:3", None),
+            "RadioControl": ("code/addons/docs/src/blocks/radio.ts:1", ["code/addons/docs/src/blocks/radio.ts:1"])}
+
+    @pytest.mark.parametrize("folder", ["docs", "examples", "benchmarks"])
+    def test_a_docs_folder_that_holds_a_cited_file_is_walked(self, tmp_path: Path, capsys, folder: str) -> None:
+        # right below the walk root, a first-folder skip like scripts/: its cited file is read and it is walked
+        files = {"package.json": "{}", "src/index.ts": "export function run() {}\n",
+                 f"{folder}/x.ts": "export function shown() {}\n", f"{folder}/y.ts": "export function also() {}\n"}
+        entries = [{"export_name": "run", "source_file": "src/index.ts", "source_line": 1},
+                   {"export_name": "shown", "source_file": f"{folder}/x.ts", "source_line": 1}]
+        assert _found(tmp_path, capsys, files, ["shown", "also"], entries) == {
+            "shown": (f"{folder}/x.ts:1", None), "also": (f"{folder}/y.ts:1", [f"{folder}/y.ts:1"])}
 
     def test_clustered_entries_widen_to_the_package_root(self, tmp_path: Path, capsys) -> None:
         # every entry under cognee/api/v1/: the walk still reads cognee/modules/
@@ -4511,14 +4563,18 @@ class TestLookupSkipsPinnedToTheirSources:
         assert mod.LOOKUP_EXTRA_FOLDERS == {"_vendor", "testing", "fixtures", "__mocks__", "site-packages", "env",
                                             "bower_components", "esm", "cjs", "umd"}
         assert mod.LOOKUP_SKIPPED_FOLDERS == (set(mod.EXCLUDED_DIR_NAMES) | mod._VENDORED_SEGMENTS
-                                              | mod.TEST_FOLDERS | mod.PY_NON_CORE_TOPS | mod.LOOKUP_EXTRA_FOLDERS)
+                                              | mod.TEST_FOLDERS | mod.LOOKUP_EXTRA_FOLDERS)
+        # #924: docs, examples and benchmarks are first-folder skips (LOOKUP_TOP_FOLDERS), not skipped everywhere
+        assert not mod.PY_NON_CORE_TOPS & mod.LOOKUP_SKIPPED_FOLDERS
         assert "lib" not in mod.LOOKUP_SKIPPED_FOLDERS
         assert mod._lookup_skips_file("bundle.min.js") and not mod._lookup_skips_file("admin.js")
 
     def test_the_first_folder_skips_are_the_walks_alone(self) -> None:
-        # #698: skipped only right below the walk root, and never by the cited-file check (LOOKUP_SKIPPED_FOLDERS)
+        # #698: skipped only right below the walk root and a package root, never wherever they lie
+        # (LOOKUP_SKIPPED_FOLDERS); #924: the runner's own top-folder skips (PY_NON_CORE_TOPS) are among them
         assert mod.LOOKUP_TOP_FOLDERS == {"example", "demo", "demos", "sample", "samples", "scripts", "playground",
-                                          "bench", "benchmark", "migrations"}
+                                          "bench", "benchmark", "migrations", "docs", "examples", "benchmarks"}
+        assert mod.PY_NON_CORE_TOPS <= mod.LOOKUP_TOP_FOLDERS
         assert mod.LOOKUP_WALK_FOLDERS == {"e2e", "__fixtures__"}
         walk_only = mod.LOOKUP_TOP_FOLDERS | mod.LOOKUP_WALK_FOLDERS
         assert not walk_only & mod.LOOKUP_SKIPPED_FOLDERS
