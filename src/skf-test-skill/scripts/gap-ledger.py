@@ -115,8 +115,7 @@ cites (never read; default `metadata.json`):
             name it (outside the citations), or on the next non-blank line
             after one, cite exactly one of those files: the gap
             is at that file's `declared_in` item, and two cited or none
-            leave it Medium. The documented extra's issue names the line
-            that documents it (with --skill-dir) and its remediation asks no
+            leave it Medium. The documented extra's remediation asks no
             change (update-skill never routes it) and says whether signature
             scoring compared its documented signature (a name the
             --signatures result lists in `comparedNames`). `excluded` is
@@ -132,8 +131,11 @@ cites (never read; default `metadata.json`):
             file and line, and remediation: to keep the documentation,
             narrow that exclude glob (a removal needs a `demoted-exclude`
             amendment) or widen `scope.include`, else remove it. A row the
-            brief does not explain keeps the wording above. Scalar and
-            stack branches: a
+            brief does not explain keeps the wording above. Every stale
+            name's issue (fabricated, documented extra, stale documentation
+            or scoped out) opens with the line that documents it, as
+            `file:line` (with --skill-dir), else with `the skill`, whatever
+            its Source. Scalar and stack branches: a
             `missingCount` above 0 is one Medium `missing-export` gap
             `{missingCount} of {denominator} exports not documented` at
             `{meta}`, except that a scalar count taken from the verified
@@ -889,6 +891,11 @@ def _documenting_line(skill_dir: Path, name: str) -> str | None:
     return None
 
 
+def _documents(doc: str | None, name: str) -> str:
+    """The subject of a stale name's Issue: the line that documents it, else the skill."""
+    return f"{f'`{doc}`' if doc else 'the skill'} documents `{name}`"
+
+
 def _scoped_out_by(row: dict) -> bool:
     """Whether an `excluded.outsideScope` row says the brief scopes its file
     out: a file, with the `scope.exclude` glob that matches it
@@ -1069,8 +1076,8 @@ def _scoped_out_gap(name: str, row: dict, doc: str | None, brief: str) -> dict:
         f"Decide whether `{name}` belongs on the surface: `{brief}` scopes out `{at}`, where it is defined, since "
         f"{' and '.join(causes)}. To keep its documentation, {' and '.join(fixes)}; else remove the documentation "
         f"of `{name}` at {doc or 'SKILL.md'}.",
-        issue=f"{f'`{doc}`' if doc else 'SKILL.md'} documents `{name}`, which {who} exports and `{at}` defines, a "
-              f"file `{brief}` scopes out (`excluded.outsideScope`)",
+        issue=f"{_documents(doc, name)}, which {who} exports and `{at}` defines, a file `{brief}` scopes out "
+              "(`excluded.outsideScope`)",
         export=name)
 
 
@@ -1116,6 +1123,7 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
     for name in _names(cov, "stale", "--input"):
         item = classified.get(name) or {}
         cited = item.get("source")
+        doc = _documenting_line(Path(skill_dir), name) if skill_dir else None
         if item.get("fabricated") is True:
             if not isinstance(cited, str) or not cited:
                 # a Critical gap needs the line it cites: never downgrade it
@@ -1124,14 +1132,13 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
                 "Critical", "fabricated-signature", f"Fabricated signature: {name}", cited,
                 f"Remove `{name}` from SKILL.md and references/, or correct it to the export the source "
                 f"defines: no file its provenance cites defines it (`{cited}`).",
-                issue=f"SKILL.md documents `{name}`, which the source API surface lacks and the cited "
-                      "file does not define",
+                issue=f"{_documents(doc, name)}, which the source API surface lacks and the cited file does "
+                      "not define",
                 export=name))
             continue
         if not outside_read:
             outside, outside_read = _outside_scope(surface), True
         extra = _documented_extra_at(name, item, outside, skill_dir)
-        doc = _documenting_line(Path(skill_dir), name) if skill_dir else None
         if extra:
             declared, among = extra
             # a homonym: the one declaring file the skill's own citations name
@@ -1146,8 +1153,8 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
                 "Info", "observation", f"Documented extra: {name}", declared,
                 f"No change: `{name}` is a documented extra, a name the source still declares at "
                 f"`{declared}` outside the enumerated surface, and its documentation stays. {checked}",
-                issue=f"{f'`{doc}`' if doc else 'the skill'} documents `{name}`, which the enumerated source API "
-                      f"surface lacks and the source still declares{picked}",
+                issue=f"{_documents(doc, name)}, which the enumerated source API surface lacks and the source "
+                      f"still declares{picked}",
                 export=name))
             continue
         if outside is not None and name in outside and _scoped_out_by(outside[name]):
@@ -1158,7 +1165,7 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
             "Medium", "stale-documentation", f"Stale documentation: {name}", doc or "SKILL.md",
             f"Check `{name}` against the source and update or remove its documentation at "
             f"{doc or 'SKILL.md'}: the enumerated source surface does not export it.",
-            issue=f"SKILL.md documents `{name}`, which the enumerated source API surface lacks",
+            issue=f"{_documents(doc, name)}, which the enumerated source API surface lacks",
             export=name))
     return records
 
