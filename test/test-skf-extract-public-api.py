@@ -3367,9 +3367,10 @@ class TestNamespaceMembers:
              "file": "cog/migration/export.py", "line": 1},
             {"name": "TOOL_LIMIT", "language": "python", "entry": "cog/__init__.py", "file": "cog/api/tools/tools.py",
              "line": 1}]
+        # #969: the outside_scope row names the namespace it came through; the gap rows above do not
         assert diff["outside_scope"] == [
             {"name": "import_legacy", "language": "python", "entry": "cog/__init__.py",
-             "file": "cog/migration/legacy.py", "line": 1}]
+             "file": "cog/migration/legacy.py", "line": 1, "namespace": "migration"}]
         # Task and EXPORT_FORMATS once, cognify, delete, the 3 tools members (toolbox's are the same), 2 more of
         # pipelines, export_dataset and import_legacy; the empty module none
         assert out["counts"]["exports_public_api"] == 11
@@ -3437,6 +3438,32 @@ class TestNamespaceMembers:
         assert out["counts"]["exports_public_api"] == 4
         assert diff["extraction_gaps"] == [] and diff["outside_scope"] == []
 
+    @pytest.mark.parametrize("binds", ["from . import start_server\n", "from .start_server import server\n"],
+                             ids=["binds-the-submodule", "cognees-form"])
+    def test_a_member_named_like_its_namespace(self, tmp_path, capsys, binds) -> None:
+        """#969: cognee's visualize package passes on its start_visualization_server submodule, which imports
+        the function of its own name from a file out of scope. The member's outside_scope row names the
+        namespace it came through, so gap-ledger.py can tell it from the module a skill documents."""
+        root = _tree(tmp_path, {
+            "pkg/__init__.py": "from .api.visualize import start_server, other\n",
+            "pkg/api/__init__.py": "",
+            "pkg/api/visualize/__init__.py": binds + "\n\ndef other():\n    pass\n",
+            "pkg/api/visualize/start_server.py": (
+                "from pkg.shared.utils import start_server\n\n\ndef server():\n    pass\n"),
+            "pkg/shared/utils.py": "def start_server():\n    pass\n",
+        })
+        _, out = _full(capsys, root, "--exclude", "pkg/shared/**")
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert (public["start_server"]["via"], public["start_server"]["file"]) == (
+            "namespace", "pkg/api/visualize/start_server.py")
+        assert public["start_server"]["members"] == [_member("start_server", "pkg/shared/utils.py", 1),
+                                                     _member("server", "pkg/api/visualize/start_server.py", 4)]
+        assert diff["outside_scope"] == [
+            {"name": "start_server", "language": "python", "entry": "pkg/__init__.py", "file": "pkg/shared/utils.py",
+             "line": 1, "namespace": "start_server"}]
+        assert diff["extraction_gaps"] == []
+
 
 class TestMemberDiff:
     def test_members_are_diffed_by_name_or_local_and_file(self) -> None:
@@ -3458,7 +3485,9 @@ class TestMemberDiff:
             exports, surfaces, entries, {"p/__init__.py", "p/a.py", "p/b.py", "p/c.py", "p/x.py"})
         assert [(info["name"], info["file"], info["entry"]) for _, info in gaps] == [
             ("same", "p/c.py", "p/__init__.py"), ("ext", None, "p/__init__.py")]
-        assert [(info["name"], info["file"]) for _, info in outside] == [("far", "vendor/d.py")]
+        # #969: a member's row names its namespace
+        assert [(info["name"], info["file"], info["namespace"]) for _, info in outside] == [
+            ("far", "vendor/d.py", "ns")]
         assert public[("python", "old")]["members"] is None
         assert mod._public_keys(public) == {("python", "top", "p/a.py"), ("python", "alias", "p/b.py"),
                                             ("python", "same", "p/c.py"), ("python", "far", "vendor/d.py"),

@@ -106,9 +106,12 @@ cites (never read; default `metadata.json`):
             `extraction` object, not `no-ast-grep`, `truncated` or
             `fallback.needed`: only such an extraction fills
             `excluded.outsideScope`, the names a brief scoped out) and its
-            `excluded.outsideScope` list does not list
-            it: an Info `observation` gap `Documented extra: {name}` at
-            `defined_at`. With no `defined_at`, a homonym (its `declared_in`
+            `excluded.outsideScope` list does not list it (a row of a
+            namespace's member named like its namespace, whose `namespace`
+            is its `name`, #969, does not count unless its `file` is the
+            one the gap would be at): an Info `observation` gap
+            `Documented extra: {name}` at `defined_at`. With no
+            `defined_at`, a homonym (its `declared_in`
             lists several declaring files) is one too, with --skill-dir,
             when the skill's `[AST:path:L<n>]` and `[SRC:path:L<n>]`
             citations on the lines of SKILL.md and references/**/*.md that
@@ -148,13 +151,16 @@ cites (never read; default `metadata.json`):
             Floor's InputError (no SKILL.md, or a top-level file it cannot
             read or decode) leaves tier 1 empty, and a skill file that
             cannot be read leaves tiers 2 to 5 empty. One whose
-            `excluded.outsideScope` row says the brief
-            scopes its file out (`excludeGlob`, the `scope.exclude` glob
-            that matches it, or `outsideInclude`, no `scope.include` glob
-            covering it) has its own issue, naming the entry point and the
-            file and line, and remediation: to keep the documentation,
-            narrow that exclude glob (a removal needs a `demoted-exclude`
-            amendment) or widen `scope.include`, else remove it. A row the
+            `excluded.outsideScope` row says the brief scopes its file out
+            (`excludeGlob`, the `scope.exclude` glob that matches it, or
+            `outsideInclude`, no `scope.include` glob covering it), unless
+            that row is a namespace's member named like its namespace (its
+            `namespace` is its `name`, #969) whose `file` is not the one a
+            documented extra's gap would be at, has its own issue, naming the
+            entry point and the file and line, and remediation: to keep the
+            documentation, narrow that exclude glob (a removal needs a
+            `demoted-exclude` amendment) or widen `scope.include`, else
+            remove it. A row the
             brief does not explain keeps the wording above. Every stale
             name's issue (fabricated, documented extra, stale documentation
             or scoped out) opens with the line that documents it, as
@@ -1022,7 +1028,8 @@ def _scoped_out_by(row: dict) -> bool:
                  or row.get("outsideInclude") is True))
 
 
-def _outside_scope(surface: dict | None) -> dict[str, dict] | None:
+def _outside_scope(surface: dict | None, stale: dict[str, dict] | None = None,
+                   skill_dir: str | None = None) -> dict[str, dict] | None:
     """The names a surface result's `excluded.outsideScope` lists (defined in
     a file out of scope), each with its row: the first the brief explains
     (`_scoped_out_by`), else the first with a file, else its first. None
@@ -1030,7 +1037,13 @@ def _outside_scope(surface: dict | None) -> dict[str, dict] | None:
     (no `extraction` object) or from one that did not read the whole scope
     (a `no-ast-grep` status, a `truncated` run, or `fallback.needed`): only
     an extraction fills that list, so the names a brief scoped out are then
-    unknown."""
+    unknown. A namespace's member that has the namespace's own name (its
+    `namespace` is its `name`, #969), such as a function a submodule
+    imports from a file out of scope, is no row here: the documented name
+    is the submodule, which no brief scoped out, while another row of the
+    name still lists it. It stays when its `file` is the one the classified
+    stale item of its name (`stale`) says the source declares it in, where
+    `_documented_extra_at` would put the gap: that name is the member."""
     excluded = (surface or {}).get("excluded")
     if excluded is None:
         return None
@@ -1054,10 +1067,25 @@ def _outside_scope(surface: dict | None) -> dict[str, dict] | None:
     outside: dict[str, dict] = {}
     for row in rows:
         if isinstance(row, dict) and isinstance(row.get("name"), str):
+            if (isinstance(row.get("namespace"), str) and row["namespace"] and row["namespace"] == row["name"]
+                    and not _declared_in_file(row, (stale or {}).get(row["name"]) or {}, skill_dir)):
+                continue  # the member, not the module the skill documents by that name
             known = outside.get(row["name"])
             if known is None or rank(row) > rank(known):
                 outside[row["name"]] = row
     return outside
+
+
+def _declared_in_file(row: dict, item: dict, skill_dir: str | None) -> bool:
+    """Whether a stale item says the source declares its name in an
+    `excluded.outsideScope` row's file: its `defined_at`, or its one cited
+    `declared_in` item, the place `_documented_extra_at` reads whatever the
+    brief scopes out (an empty `outside`)."""
+    at = _documented_extra_at(row["name"], item, {}, skill_dir)
+    if not at or not isinstance(row.get("file"), str) or not row["file"]:
+        return False
+    cited_path = _sibling("validate-inventory.py")._cited_path
+    return cited_path(at[0].rsplit(":", 1)[0]) == cited_path(row["file"])
 
 
 # The extensions classify-stale reads a `defined_at` in.
@@ -1079,7 +1107,9 @@ def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
     single cited declaring file (two or more cited, none, or no --skill-dir),
     a `defined_at` or `declared_in` item not a Python or TS/JS `file:line`, a
     dotted name, no surface or one without an extraction, or a name a brief
-    scoped out."""
+    scoped out (a namespace's member named like its namespace scopes out
+    nothing: `_outside_scope` drops its row, #969, unless its file is the
+    one this returns)."""
     if outside is None or name in outside or "." in name:
         return None
     defined_at = item.get("defined_at")
@@ -1256,7 +1286,7 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
                 export=name))
             continue
         if not outside_read:
-            outside, outside_read = _outside_scope(surface), True
+            outside, outside_read = _outside_scope(surface, classified, skill_dir), True
         extra = _documented_extra_at(name, item, outside, skill_dir)
         if extra:
             declared, among = extra

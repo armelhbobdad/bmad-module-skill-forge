@@ -174,10 +174,12 @@ reading files and writing one JSON object:
                             same name and file), less the outside_scope
                             names (defined in a file out of scope), which
                             `excluded.outsideScope` lists with their file,
-                            line and entry point and, when the brief
-                            scopes the file out, why: the scope.exclude
-                            glob that matches it (`excludeGlob`) or no
-                            scope.include glob covering it
+                            line and entry point and, for a namespace's
+                            member, the namespace (`namespace`) and, when
+                            the brief scopes the file out, why: the
+                            scope.exclude glob that matches it
+                            (`excludeGlob`) or no scope.include glob
+                            covering it
                             (`outsideInclude`); exports[] only gives each name's
                             kind, line and signature line (a local export
                             list's item: its binding's declaration_line and
@@ -1342,13 +1344,19 @@ def _outside_row(row: dict, scope: dict) -> dict:
     it does (#796): `excludeGlob`, the first scope.exclude glob that matches
     the file, and `outsideInclude`, true when scope.include has globs and
     none matches it. Neither (null and false) when the brief does not
-    explain it, such as a file no recipe reads or no file at all."""
+    explain it, such as a file no recipe reads or no file at all. A
+    namespace's member also keeps the namespace it came through
+    (`namespace`, #969) when the row gives it as a non-empty string, and
+    no such key otherwise."""
     file = row.get("file") if isinstance(row.get("file"), str) and row.get("file") else None
     path = _norm(file) if file else None
-    return {"name": row.get("name"), "file": file, "line": row.get("line"), "entry": row.get("entry"),
-            "excludeGlob": next((g for g in scope["exclude"] if glob_match(path, g)), None) if path else None,
-            "outsideInclude": bool(path and scope["include"]
-                                   and not any(glob_match(path, g) for g in scope["include"]))}
+    out = {"name": row.get("name"), "file": file, "line": row.get("line"), "entry": row.get("entry"),
+           "excludeGlob": next((g for g in scope["exclude"] if glob_match(path, g)), None) if path else None,
+           "outsideInclude": bool(path and scope["include"]
+                                  and not any(glob_match(path, g) for g in scope["include"]))}
+    if isinstance(row.get("namespace"), str) and row["namespace"]:
+        out["namespace"] = row["namespace"]
+    return out
 
 
 def from_extraction(data: dict, language: str | None = None, brief: dict | None = None) -> dict:
