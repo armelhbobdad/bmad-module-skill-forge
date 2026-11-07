@@ -119,8 +119,9 @@ brief's when metadata.json records none, for Category B's runner; under
 public-api, merge, write.md's `exports[]` and `apply` keep only the names
 `records` marks public; the manifest names the file a moved export left.
 
-And the #885 fix: write.md §7 records `Security: SKIP` when skill-check
-exits non-zero and its stderr names `SNYK_TOKEN`.
+And the #934 fix: write.md §7 captures skill-check's stdout, stderr and
+exit code in the run folder and records the `Security` row from them by
+Quick Skill's rule, the first that applies: SKIP, WARN, then PASS.
 
 And the #901 fix: write.md §7 hashes SKILL.md before and after the guarded
 `--fix` call and re-reads it when the two hashes differ, since skill-check
@@ -5694,13 +5695,73 @@ def test_the_report_reads_the_validation_write_recorded():
         "--version", "{version}"]
 
 
-def test_the_security_skip_names_the_sign_of_a_missing_token():
-    """#885: §7 records `Security: SKIP` on a sign it names, so a token failure is not read as a pass."""
-    run = _slice(_read(WRITE), '- Run `npx skill-check check "{skill_package}" --fix --format json` **inside the §0 '
-                               'guard**', "\n")
-    assert "Read the JSON, not the exit code" in run
-    assert ("When the scan could not run (no `SNYK_TOKEN`: skill-check exits non-zero and its stderr names "
-            "`SNYK_TOKEN`), record `Security: SKIP (SNYK_TOKEN not configured)`.") in run
+# The line agent-scan prints with no SNYK_TOKEN, as Quick Skill's contract test records it (#885); Quick Skill's
+# step is the rule write.md §7 ports (#934).
+NO_TOKEN_LINE = "To use Agent Scan, set the SNYK_TOKEN environment variable."
+QUICK_WRITE = SRC / "skf-quick-skill" / "references" / "write-and-validate.md"
+
+
+def test_the_security_scan_reads_its_exit_code_and_tail():
+    """#934: §7 captures the guarded call's stdout, stderr and exit code in the run folder and records the `Security`
+    row by Quick Skill's rule, the first that applies, so exit 2, a stopped call or another scan that did not finish
+    reads SKIP and finding codes in the stderr tail read WARN, where only a stderr naming SNYK_TOKEN did before."""
+    seven = _slice(_read(WRITE), "### 7. Run Post-Write Validation", "### 8.")
+    run = _slice(seven, '- Run `npx skill-check check "{skill_package}" --fix --format json` **inside the §0 guard**',
+                 "\n")
+    # the call keeps its arguments, the capture in its own code span after it
+    capture = '`> "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"`'
+    assert run.startswith('- Run `npx skill-check check "{skill_package}" --fix --format json` **inside the §0 '
+                          f'guard**, with its output captured apart ({capture} after it). ')
+    assert ("Read the JSON, not the exit code: the quality score (`scores[].score`, the entry matching the skill, or a "
+            "top-level `qualityScore` on an older skill-check), the remaining `diagnostics[]` and the security "
+            "findings, from the JSON object at the start of `{run_dir}/skill-check.json`") in run
+    rule = _slice(seven, "- **Security scan:** ", "\n- **Context sync after --fix:**")
+    assert "npx" not in rule, "skill-check runs only in the two calls the run-once test counts"
+    quick = _slice(_read(QUICK_WRITE), "### 4. Validate SKILL.md via skill-check", "### 5. ")
+    facts = quick[quick.index("skill-check 1.2.0 puts no security key in the JSON."):]
+    end = "the codes skill-check's own scan summary counts."
+    facts = facts[:facts.index(end) + len(end)]
+    assert facts in rule, "the exit-code facts and the finding code are Quick Skill's, word for word"
+    assert "so a non-zero exit is not a security finding" in rule
+    assert ("Record the Validation Summary's `Security` row from `{run_dir}/skill-check.stderr` and the exit code, the "
+            "first that applies:") in rule
+    labels = [rule.index(f"\n  - **{word}:** ") for word in ("SKIP", "WARN", "PASS")]
+    assert labels == sorted(labels), "the first that applies: SKIP, then WARN, then PASS"
+    skip, warn, clean = (rule[a:b] for a, b in zip(labels, labels[1:] + [len(rule)]))
+    # No token: exit 1, no error, a tail that asks for SNYK_TOKEN, the row as before.
+    assert ("Record `Security: SKIP (SNYK_TOKEN not configured)` when the tail says to set the `SNYK_TOKEN` environment "
+            f'variable (the scanner prints "{NO_TOKEN_LINE}")') in skip
+    # No runner: exit 2, noted by its cause line.
+    assert ("skill-check exits 2" in skip and "`Security: SKIP (scanner could not run ({the stderr line that names the "
+            "cause, or its last line}))`" in skip)
+    # Stopped call: no "skill-check exited" line; the guard still restores and SKILL.md is hashed again.
+    assert ("the call stopped before it exited" in skip
+            and 'When no "skill-check exited" line came back, the shell tool stopped the call before skill-check '
+                "finished (a cold `uvx mcp-scan` install can outlast its timeout): still run the guard's "
+                "`verify-restore` and the second `hash` call below before reading `{run_dir}/skill-check.json`." in run)
+    # Scan failed: exit 1 with no error and no finding code in the tail, or a blank one.
+    assert ("or the scan exited non-zero and its tail carries no finding code." in skip
+            and "`Security: SKIP (scanner exited non-zero with no output)` when stderr is blank" in skip)
+    # Findings: finding codes in the tail (or `security[]`), each an advisory warning.
+    assert ("`security[]` holds findings, or the tail carries finding codes. Record `Security: WARN ({each "
+            "finding})`, each finding an advisory warning.") in warn
+    # Clean: exit 0, npm warnings on stderr are no tail; the row says what an exit 0 shows.
+    assert ("otherwise. The scan exited 0 and skill-check reported no finding. Record `Security: PASS (scan exited 0; "
+            "skill-check 1.2.0 does not pass the scan's findings on)`." in clean
+            and "On exit 0, stderr is never a scan tail (npm and Node warnings can be there)" in rule)
+    # Analysis error: a 401 or 429 exits 0 and still reads PASS (#892).
+    assert ("Without `--ci`, agent-scan also exits 0 when its analysis fails (a 401 from a bad token, a 429, a "
+            "network error), so this does not show that the scan found nothing (#892).") in clean
+    # Errors only: exit 1 with errors and no scanner line is no tail.
+    assert ("when exit 1 has another cause, stderr is a scan tail only when it holds the scanner's own lines, such as "
+            "its token message or a finding code") in rule
+    # No skill-check: the row as before.
+    assert "`Security: SKIP (skill-check unavailable)`" in _slice(seven, "**If skill-check is unavailable:**", "\n")
+    # The row the Validation Summary takes: the first word the report maps, the note after it; the old sign is gone.
+    assert ("`Diff`, and `Security` as the security scan rule above reads it (its first word `PASS`, `WARN` or `SKIP`, "
+            "its note in parentheses after it)") in seven
+    assert "its stderr names `SNYK_TOKEN`" not in seven
+    assert "\u2014" not in run + rule and "\u2013" not in run + rule
 
 
 def test_write_rereads_skill_md_when_fix_changed_it():

@@ -283,7 +283,7 @@ t2_future_count: {N}
 - Schema: {pass/fail} (quality score: {score}/100)
 - Frontmatter: {pass/fail}
 - Body: {pass/fail} {body split applied if applicable}
-- Security: {pass/warn/skipped}
+- Security: {pass/warn/skipped} ({the note §5's Security row gives})
 - Description angle brackets: {none | re-sanitized ({count} substitutions) | not checked — no description}
 - Tessl Review: {tessl_summary}
 - Metadata: {pass/fail}
