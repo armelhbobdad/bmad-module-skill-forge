@@ -3,3 +3,4 @@ scope: skf-quick-skill
 summary: |
   A Quick Skill `--batch` run used to end with no halt line when the batch helper could not hand out the next target or write the batch summary, and to go back to the same target again and again when a target's outcome could not be recorded. It now stops with exit code `4` (`write-failure`) and a halt line of phase `batch-mode`, as a Create Skill `--batch` run already does, and the health check does not run.
 issues: [903]
+prs: [937]
