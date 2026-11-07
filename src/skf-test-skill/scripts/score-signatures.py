@@ -123,8 +123,9 @@ ratios and the gap records of the wrong signatures.
              `difference` "annotation-contradicted" (the documented return
              type is the one the body returns, the declared annotation says
              otherwise) whose facts check: the documented entry states a
-             return type (a non-blank `return_type`, or a `documented_sig`
-             that writes one); `documented_sig` and `source_sig` write the
+             return type (a `return_type`, or the return a `documented_sig`
+             writes, that is neither blank nor a list of value names:
+             _states_return); `documented_sig` and `source_sig` write the
              same parameters as signature-comparison-rules.md reads them
              (_parameter_difference, below); `evidence_line` comes after the
              declaration line (of the name's surface records at the
@@ -364,6 +365,33 @@ LITERAL_TYPES = (
 # documented parameters are props callers set by name.
 POSITIONAL_EXTENSIONS = frozenset({".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs", ".go", ".rs",
                                    ".java", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp"})
+# The builtin type names that start lowercase, by the source files of their language: Python, TS/JS (and the
+# script of a .vue, .svelte or .astro file), Go, Rust, the C family (Java, C, C++) and C#. A parenthesized,
+# bracketed or braced list of lowercase names writes a return type when one of them is a type name of the file's
+# language (`(str, int)`, Go's `(int, error)`, `[string, number]`), else names of values, which state none
+# (signature-comparison-rules.md, Annotations; _states_return). A file of a language with no table, or none,
+# checks the names of every table (ALL_LOWERCASE_TYPES).
+LOWERCASE_TYPES = {extension: names for extensions, names in (
+    ((".py", ".pyi"), frozenset({"str", "int", "float", "complex", "bool", "bytes", "bytearray", "memoryview", "list",
+                                 "dict", "set", "frozenset", "tuple", "object", "type", "range", "slice"})),
+    ((*TS_JS_EXTENSIONS, ".vue", ".svelte", ".astro"),
+     frozenset({"string", "number", "boolean", "bigint", "symbol", "object", "any", "unknown", "never", "void",
+                "undefined", "null"})),
+    ((".go",), frozenset({"bool", "byte", "rune", "string", "error", "any", "comparable", "int", "int8", "int16",
+                          "int32", "int64", "uint", "uint8", "uint16", "uint32", "uint64", "uintptr", "float32",
+                          "float64", "complex64", "complex128"})),
+    ((".rs",), frozenset({"bool", "char", "str", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32",
+                          "u64", "u128", "usize", "f32", "f64"})),
+    ((".java", ".c", ".h", ".cc", ".cpp", ".cxx", ".hpp"),
+     frozenset({"int", "long", "short", "char", "float", "double", "void", "bool", "boolean", "byte", "string",
+                "object"})),
+    ((".cs",), frozenset({"bool", "byte", "sbyte", "char", "decimal", "double", "float", "int", "uint", "nint",
+                          "nuint", "long", "ulong", "short", "ushort", "object", "string", "dynamic", "void"})),
+) for extension in extensions}
+ALL_LOWERCASE_TYPES = frozenset().union(*LOWERCASE_TYPES.values())
+# A list of value names (_states_return): its brackets, and a bare name that starts lowercase.
+VALUE_LIST_BRACKETS = {"(": ")", "[": "]", "{": "}"}
+VALUE_NAME_RE = re.compile(r"[a-z][\w$]*", re.ASCII)
 # The grades of a mismatch, most severe first: one declaration reported
 # twice keeps the most severe.
 GRADES = ("Critical", "Low", "Info")
@@ -1425,11 +1453,33 @@ def _returns(lines: list[str], number: int, declaration_line: int) -> bool:
     return False
 
 
+def _states_return(text: object, extension: str = "") -> bool:
+    """Whether `text`, a `return_type` or the return a documented signature
+    writes (_signature_parts), states a return type in a file of
+    `extension`, as signature-comparison-rules.md (Annotations) reads it:
+    not when it is blank or no text, nor when it is a parenthesized,
+    bracketed or braced list of value names (`(nodes, edges)`,
+    `[state, setState]`, `{ data, error }`), each item a bare name that
+    starts lowercase and is no type name of the file's language
+    (LOWERCASE_TYPES; every table for another language or ""). A single
+    name (`result`), a list of types (`(str, int)`), a list that writes a
+    type among its names and any other text state one."""
+    if not isinstance(text, str) or not text.strip():
+        return False
+    text = text.strip()
+    if VALUE_LIST_BRACKETS.get(text[0]) != text[-1]:
+        return True
+    types = LOWERCASE_TYPES.get(extension, ALL_LOWERCASE_TYPES)
+    names = [item.strip() for item in text[1:-1].split(",")]
+    return not all(VALUE_NAME_RE.fullmatch(name) and name not in types for name in names)
+
+
 def contradiction_fact(entry: dict, documented: dict, file: str, declaration_line: int,
                        next_line: int | None = None, source_root: str | None = None) -> str | None:
     """The first fact an annotation-contradicted mismatch rests on that does
     not check, None when each does: the documented entry states a return
-    type (a non-blank `return_type`, or a `documented_sig` that writes one);
+    type (a `return_type`, or the return a `documented_sig` writes, that is
+    neither blank nor a list of value names: _states_return);
     `documented_sig` and `source_sig` write the same parameters, as the
     comparison rules read them in a file of `file`'s language
     (_parameter_difference, which compares the texts before the return when
@@ -1444,7 +1494,7 @@ def contradiction_fact(entry: dict, documented: dict, file: str, declaration_lin
     documented_params, documented_return = _signature_parts(entry["documented_sig"], extension)
     source_params, _ = _signature_parts(entry["source_sig"], extension)
     return_type = documented.get("return_type")
-    if not (isinstance(return_type, str) and return_type.strip()) and not documented_return:
+    if not _states_return(return_type, extension) and not _states_return(documented_return, extension):
         return "the documented signature states no return type"
     difference = _parameter_difference(entry["documented_sig"], entry["source_sig"], extension)
     if difference is not None:

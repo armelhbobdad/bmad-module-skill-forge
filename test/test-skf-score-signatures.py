@@ -636,17 +636,29 @@ LATER_FUNCTION = {"name": "stop_server", "kind": "function", "file": VIZ_FILE, "
     ({**CONTRADICTED, "documented_sig": "(port: int = 8001)"}, VIZ_TEXT,
      {"entry": {k: v for k, v in VIZ.items() if k != "return_type"}},
      "the documented signature states no return type"),
+    # ... nor does one whose return names values (#957), after the arrow or in `return_type`
+    ({**CONTRADICTED, "documented_sig": "(port: int = 8001) → (server, stop)"}, VIZ_TEXT,
+     {"entry": {k: v for k, v in VIZ.items() if k != "return_type"}},
+     "the documented signature states no return type"),
+    ({**CONTRADICTED, "documented_sig": "(port: int = 8001) → [server, stop]"}, VIZ_TEXT,
+     {"entry": {k: v for k, v in VIZ.items() if k != "return_type"}},
+     "the documented signature states no return type"),
+    ({**CONTRADICTED, "documented_sig": "(port: int = 8001)"}, VIZ_TEXT,
+     {"entry": {**VIZ, "return_type": "(server, stop)"}},
+     "the documented signature states no return type"),
 ], ids=["line-not-a-return", "line-before-the-declaration", "the-declaration-line", "past-the-end", "no-such-file",
         "a-comment", "a-return-in-a-later-function", "a-parameter-difference", "a-parameter-count", "a-parameter-name",
         "an-optionality-the-list-states", "typed-parameters-swapped", "a-name-after-a-star-marker",
-        "no-parameter-group", "no-documented-return-type"])
+        "no-parameter-group", "no-documented-return-type", "a-value-name-list", "a-bracketed-value-name-list",
+        "a-value-name-return-type"])
 def test_a_contradiction_whose_facts_do_not_check_is_critical(tmp_path, mismatch, text, kwargs, fact):
-    """The tag alone never lowers a grade: a documented entry with no return type, a parameter difference the rules
-    compare (a type both sides write, the count, a name, an optionality the documented list states, or, for a
-    signature with no parameter group, its text before the return), an evidence line before the declaration or
-    past the next one, or, with --source-root, one that does not start with `return` (a comment does not) or that
-    the file lacks, is graded as an untagged mismatch, and a warning names the fact that failed (for the
-    parameters, both texts before the return and why they differ) at the declaration's line."""
+    """The tag alone never lowers a grade: a documented entry with no return type (none at all, or, #957, a list of
+    value names after the arrow or in `return_type`), a parameter difference the rules compare (a type both sides
+    write, the count, a name, an optionality the documented list states, or, for a signature with no parameter
+    group, its text before the return), an evidence line before the declaration or past the next one, or, with
+    --source-root, one that does not start with `return` (a comment does not) or that the file lacks, is graded as
+    an untagged mismatch, and a warning names the fact that failed (for the parameters, both texts before the
+    return and why they differ) at the declaration's line."""
     proc, gaps = _contradiction_run(tmp_path, mismatch, text, **kwargs)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     out = json.loads(proc.stdout)
@@ -660,7 +672,90 @@ def test_a_contradiction_whose_facts_do_not_check_is_critical(tmp_path, mismatch
     assert fact in warning and "tagged annotation-contradicted" in warning and "(Critical)" in warning, warning
 
 
-RUN_PARALLEL_FILE = "cognee/modules/pipelines/operations/run_parallel.py"
+@pytest.mark.parametrize("text, extension, states", [
+    ("(nodes, edges)", ".py", False), ("(nodes)", ".py", False), ("[state, setState]", ".ts", False),
+    ("{ data, error }", ".tsx", False),
+    ("str", ".py", True), ("(str, int)", ".py", True), ("(int, error)", ".go", True), ("[string, number]", ".ts", True),
+    ("result", ".py", True), ("(nodes: list[Node], edges)", ".py", True), ("HTML str", ".py", True),
+    ("[S, Dispatch<SetStateAction<S>>]", ".ts", True), ("{ data: T; error: E }", ".ts", True),
+    ("(a, b)[0]", ".py", True),
+    ("(usize, usize)", ".rs", True), ("(boolean, boolean)", ".java", True), ("(data, error)", ".java", False),
+    ("(decimal, decimal)", ".cs", True),
+    # a TS/JS table also reads the script of a .vue, .svelte or .astro file, where Go's `error` names a value
+    ("{ data, error }", ".vue", False),
+    # a file of a language with no table, or none, checks every table: Go's `error` keeps the list a stated return
+    ("{ data, error }", "", True), ("{ data, error }", ".kt", True),
+    ("", ".py", False), ("   ", ".py", False), (None, ".py", False), (["nodes", "edges"], ".py", False),
+], ids=["parenthesized-names", "one-name-in-parentheses", "bracketed-names", "braced-names", "a-type", "a-type-list",
+        "a-go-result-list", "a-ts-tuple", "a-single-name", "a-typed-name-among-names", "a-description-and-a-type",
+        "a-generic-tuple", "an-object-type-literal", "an-indexed-list", "a-rust-tuple", "a-c-family-list",
+        "a-go-type-name-in-a-c-family-file", "a-cs-tuple", "a-vue-file", "no-file", "a-language-with-no-table",
+        "blank", "whitespace", "none", "not-text"])
+def test_a_return_written_as_value_names_states_none(text, extension, states):
+    """#957: signature-comparison-rules.md (Annotations) reads a parenthesized, bracketed or braced list of value
+    names as no return type, and so does the script: a list reads as names of values only when each item is a bare
+    name that starts lowercase and is no builtin type name of the file's language (every language's, for a file of
+    none). A type alone or in a list, a single name, a list that writes a type among its names, a description
+    followed by a type and any other text state one; a blank return, or no text, states none, as before."""
+    assert mod._states_return(text, extension) is states
+
+
+@pytest.mark.parametrize("documented_sig", [
+    "(port: int = 8001) -> (str, int)", "(port: int = 8001) -> result",
+    "(port: int = 8001) -> (nodes: list[Node], edges)", "(port: int = 8001) -> HTML str",
+], ids=["a-type-list", "a-single-name", "a-typed-name-among-names", "a-description-and-a-type"])
+def test_a_contradiction_whose_return_writes_a_type_keeps_its_facts(tmp_path, documented_sig):
+    """#957: a return that writes a type (or a single name) still states one, so with no `return_type` the
+    contradiction's facts check and `score` grades it Info, with no warning, as before."""
+    mismatch = {**CONTRADICTED, "documented_sig": documented_sig}
+    assert mod.contradiction_fact(mismatch, {}, VIZ_FILE, 12) is None
+    proc, _ = _contradiction_run(tmp_path, mismatch, entry={k: v for k, v in VIZ.items() if k != "return_type"})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert [(m["difference"], m["severity"]) for m in out["mismatches"]] == [("annotation-contradicted", "Info")]
+    assert not any("annotation-contradicted" in w for w in out["warnings"]), out["warnings"]
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, file, severity", [
+    ("(key: string) => { data, error }", "(key: string) => Promise<X>", "src/use-fetch.tsx", "Critical"),
+    ("(init: S): [state, setState]", "(init: S): [S, Dispatch<SetStateAction<S>>]", "src/use-state.ts", "Critical"),
+    ("(init: S): [string, number]", "(init: S): [S, number]", "src/use-state.ts", "Info"),
+    ("Start(port int) (int, error)", "Start(port int) error", "pkg/s.go", "Info"),
+], ids=["a-braced-list-in-a-tsx-file", "a-bracketed-list-in-a-ts-file", "a-ts-tuple", "a-go-result-list"])
+def test_the_mismatch_s_file_says_how_its_language_reads_a_return(tmp_path, documented_sig, source_sig, file,
+                                                                  severity):
+    """#957, end to end: the file a mismatch is reported at gives the return check its language. In a TS file a
+    braced or bracketed list of value names states no return type, so the tag is refused and the mismatch is
+    Critical, while a list of the language's types (`[string, number]`, Go's `(int, error)`) states one and stays
+    an Info observation."""
+    record = {**VIZ_SURFACE["exports"][0], "file": file}
+    proc, _ = _contradiction_run(tmp_path, {**CONTRADICTED, "documented_sig": documented_sig, "source_sig": source_sig},
+                                 surface_records=[record], file=file,
+                                 entry={k: v for k, v in VIZ.items() if k != "return_type"})
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert [m["severity"] for m in out["mismatches"]] == [severity], out["warnings"]
+    if severity == "Critical":
+        assert any("the documented signature states no return type" in w and "(Critical)" in w
+                   for w in out["warnings"]), out["warnings"]
+    else:
+        assert not any("annotation-contradicted" in w for w in out["warnings"]), out["warnings"]
+
+
+def test_a_return_stated_in_either_place_keeps_a_contradiction_s_facts():
+    """#957: the documented entry states a return type when its `return_type` or its signature's return does, so a
+    list of value names in one place and a type in the other keeps the facts. `return_type` is read in the file's
+    language too: in a TSX file `{ data, error }` there names values."""
+    assert mod.contradiction_fact({**CONTRADICTED, "documented_sig": "(port: int = 8001) -> (str, int)"},
+                                  {"return_type": "(server, stop)"}, VIZ_FILE, 12) is None
+    assert mod.contradiction_fact({**CONTRADICTED, "documented_sig": "(port: int = 8001) -> (server, stop)"},
+                                  {"return_type": "Server"}, VIZ_FILE, 12) is None
+    assert mod.contradiction_fact({**CONTRADICTED, "documented_sig": "(key: string)",
+                                   "source_sig": "(key: string) => Promise<X>"}, {"return_type": "{ data, error }"},
+                                  "src/use-fetch.tsx", 12) == "the documented signature states no return type"
+
+
+RUN_PARALLEL_FILE ="cognee/modules/pipelines/operations/run_parallel.py"
 RUN_PARALLEL_LINES = [f"# line {n}" for n in range(1, 20)]
 RUN_PARALLEL_LINES[7] = "def run_tasks_parallel(tasks: list[Task]) -> Callable[[Any], Generator[Any, Any, Any]]:"
 RUN_PARALLEL_LINES[14] = "    return Task(parallel_run)"
