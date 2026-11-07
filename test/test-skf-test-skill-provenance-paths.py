@@ -2581,12 +2581,12 @@ CARVED_TO_BRANCHES = {
         "pinned source settles it for the other side. At State 1 and the Forge tier or above, with `workspaceDrift` "
         "not `overridden`, load `{signatureRulesFile}` and set the two forms its `issue` gives against the export's "
         "declaration at the `file` and `line` `surface.json` gives, by its rules, when that one declaration decides "
-        "(no overload set, no second declaring file): when `{reference_file}`'s form agrees and the other side's "
-        "does not, the Source is the other side, `SKILL.md:{skill_md_line}` or `{other_file}:{other_line}`. Its "
-        "remediation names the file to edit and the file and line whose form it takes, citing the declaration's "
-        "`file:line`; when both forms agree with it, it says so and names what differs; when neither does, or "
-        "nothing decides, it says no source settled it and names `{reference_file}` to edit, taking the other side's "
-        "form (`{other_file}`'s, for two references)."
+        "(no overload set, no second declaring file, no `otherDeclarations` entry of the export's name): when "
+        "`{reference_file}`'s form agrees and the other side's does not, the Source is the other side, "
+        "`SKILL.md:{skill_md_line}` or `{other_file}:{other_line}`. Its remediation names the file to edit and the "
+        "file and line whose form it takes, citing the declaration's `file:line`; when both forms agree with it, it "
+        "says so and names what differs; when neither does, or nothing decides, it says no source settled it and "
+        "names `{reference_file}` to edit, taking the other side's form (`{other_file}`'s, for two references)."
     )],
 }
 
