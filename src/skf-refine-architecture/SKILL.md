@@ -77,7 +77,7 @@ When `{headless_mode}` is true, step 6 prints one `SKF_REFINE_ARCHITECTURE_RESUL
    uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
-   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-refine-architecture.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` for §5 to record.
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-refine-architecture.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` for §5 to record.
 
    Bind each path scalar, taking the bundled default when the merged value is empty or absent:
 

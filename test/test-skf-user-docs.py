@@ -1910,7 +1910,10 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
                   "adds a warning naming `customization_resolver_unavailable` and its reason to the run's warnings",
                   "Campaign logs it in its decision log", "an interactive Export Skill run only prints it",
                   "In a project with SKF alone, that script is missing",
-                  "`customization_resolver_unavailable: not found`"):
+                  "`customization_resolver_unavailable: not found`",
+                  # #965: a missing SKF helper names itself, so it never reads as a missing core resolver.
+                  "`customization_resolver_unavailable: SKF helper skf-resolve-customization.py not found`",
+                  "reinstall SKF"):
         assert token in resolver, token
     forger = _paragraph(customizing, "Ferris reads `_bmad/custom/skf-forger.toml`")
     # Ferris resolves `--key agent`: his override opens with `[agent]`, not the `[workflow]` the opening names.
