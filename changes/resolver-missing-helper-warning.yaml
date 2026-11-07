@@ -3,3 +3,4 @@ scope: all workflows, skf-forger
 summary: |
   When a workflow, or Ferris, cannot find SKF's own customization helper, it now warns `customization_resolver_unavailable: SKF helper skf-resolve-customization.py not found` instead of the bare `not found` that a missing BMAD core resolver also gave. A bare `customization_resolver_unavailable: not found` is unchanged and now always means BMAD core's customization script is missing, as in a project with SKF alone. Reinstall SKF when the new warning appears.
 issues: [965]
+prs: [979]
