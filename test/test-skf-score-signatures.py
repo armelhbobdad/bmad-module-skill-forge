@@ -1999,6 +1999,107 @@ def test_one_declaration_recorded_twice_binds_a_form(tmp_path):
     assert _homonym_check(plan)["bound"] == [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]
 
 
+# #921: after a `readByEye` rerun of `surface`, a name has the extraction's record and a per-file (by-eye) record with
+# no line in one file. The extraction's line wins there: the check, its candidates and its bindings use it, and a
+# record with no line stands in only for a file the extraction gave no line for.
+CONFIG = "src/pkg/config.py"
+LEGACY = "src/pkg/legacy.py"
+CONFIGURE_SIG = "def configure(path, *, strict=False):"
+CONFIGURE_RECORD = {"name": "configure", "kind": "function", "file": CONFIG, "line": 132,
+                    "signatureLine": CONFIGURE_SIG, "origin": "extraction"}
+CONFIGURE_BY_EYE = {"name": "configure", "kind": None, "file": CONFIG, "line": None, "signatureLine": None,
+                    "origin": "per-file"}
+LEGACY_RECORD = {"name": "configure", "kind": "function", "file": LEGACY, "line": 20,
+                 "signatureLine": "def configure(path):", "origin": "extraction"}
+# A `--name` record: no file, no line.
+CONFIGURE_NAMED = {"name": "configure", "kind": None, "file": None, "line": None, "signatureLine": None,
+                   "origin": "by-eye"}
+CONFIGURE_FORM = {"name": "configure", "kind": "function", "params": "path, *, strict=False"}
+CONFIGURE_FORMS = [{**CONFIGURE_FORM, "at": "SKILL.md:3"},
+                   {"name": "configure", "kind": "function", "params": "path", "at": "SKILL.md:7"}]
+# SKILL.md's line 3 writes the first form and cites its file with no line; its line 7 writes the second and cites
+# the legacy declaration at its line.
+CONFIGURE_SKILL = (f"# Demo\n\n`configure(path, *, strict=False)` reads the settings [AST:{CONFIG}].\n\n{APART}\n\n"
+                   f"`configure(path)` is the legacy reader [AST:{LEGACY}:L20].\n")
+
+
+def test_a_record_with_a_line_sorts_before_a_line_less_one_of_its_file():
+    """#921: of a name's records in one file, the extraction's, with a line, comes before a by-eye one with none, in
+    either input order, and a record with no file (or a blank one) stays last. A line that is no line number sorts
+    as none, so it never breaks the sort."""
+    blank = {**CONFIGURE_BY_EYE, "file": "  "}
+    for exports in ([CONFIGURE_BY_EYE, CONFIGURE_RECORD, CONFIGURE_NAMED, blank],
+                    [CONFIGURE_NAMED, blank, CONFIGURE_RECORD, CONFIGURE_BY_EYE]):
+        assert mod._records_by_name(exports)["configure"] == [CONFIGURE_RECORD, CONFIGURE_BY_EYE,
+                                                               CONFIGURE_NAMED, blank]
+    textual = {**CONFIGURE_RECORD, "line": "132"}
+    assert mod._records_by_name([textual, CONFIGURE_RECORD])["configure"] == [CONFIGURE_RECORD, textual]
+
+
+@pytest.mark.parametrize("exports, at, candidates", [
+    ([CONFIGURE_RECORD, CONFIGURE_BY_EYE], (CONFIG, 132, CONFIGURE_SIG), []),
+    ([CONFIGURE_BY_EYE, CONFIGURE_RECORD], (CONFIG, 132, CONFIGURE_SIG), []),
+    ([{**CONFIGURE_BY_EYE, "file": f"./{CONFIG}"}, CONFIGURE_RECORD], (CONFIG, 132, CONFIGURE_SIG), []),
+    ([CONFIGURE_BY_EYE, CONFIGURE_RECORD, LEGACY_RECORD], (CONFIG, 132, CONFIGURE_SIG),
+     [(CONFIG, 132), (LEGACY, 20)]),
+    ([CONFIGURE_RECORD, {**CONFIGURE_BY_EYE, "file": LEGACY}], (CONFIG, 132, CONFIGURE_SIG),
+     [(CONFIG, 132), (LEGACY, None)]),
+    ([CONFIGURE_BY_EYE], (CONFIG, None, None), []),
+    ([CONFIGURE_BY_EYE, {**CONFIGURE_RECORD, "line": 300}, CONFIGURE_RECORD], (CONFIG, 132, CONFIGURE_SIG), []),
+    ([CONFIGURE_NAMED, {**CONFIGURE_BY_EYE, "file": "  "}, CONFIGURE_BY_EYE], (CONFIG, None, None), []),
+], ids=["extraction-then-by-eye", "by-eye-then-extraction", "a-by-eye-path-spelled-with-dot-slash",
+        "a-homonym-the-skill-does-not-settle", "a-line-less-record-alone-in-its-file", "a-by-eye-record-alone",
+        "two-lines-of-one-file", "records-with-no-file"])
+def test_the_extraction_s_line_wins_in_its_file(tmp_path, exports, at, candidates):
+    """#921: a by-eye record with no line sorted before the extraction's record of its file, so the check was
+    planned at it with `line` and `signatureLine` null, and the judge had to find the declaration by hand; beside a
+    homonym it was also a candidate with no line. The check now sits at the extraction's record, however either
+    writes the file's path, and the candidates of a name the skill's citations do not settle are its declarations.
+    A line-less record still stands in for a file no record gives a line (it stays a candidate, or alone is the
+    check), and a record with no file is never planned over one with a file."""
+    tree = {"SKILL.md": f"# Demo\n\n`configure` reads the settings [AST:{CONFIG}:L132] or the legacy ones "
+                        f"[AST:{LEGACY}:L20].\n"}
+    plan = _plan_in(tmp_path, tree, [CONFIGURE_FORM], exports)
+    assert plan["compared"] == 1
+    [group] = plan["files"]
+    [check] = group["checks"]
+    assert (group["file"], check["line"], check["signatureLine"]) == at
+    assert [(c["file"], c["line"]) for c in check.get("candidates", [])] == candidates
+
+
+@pytest.mark.parametrize("exports", [
+    [{**CONFIGURE_BY_EYE, "file": f"./{CONFIG}"}, CONFIGURE_RECORD, LEGACY_RECORD],
+    [CONFIGURE_BY_EYE, CONFIGURE_RECORD, LEGACY_RECORD],
+], ids=["a-by-eye-path-spelled-with-dot-slash", "a-by-eye-record-of-the-same-spelling"])
+def test_the_cited_file_s_check_keeps_the_extraction_s_line(tmp_path, exports):
+    """#921: of a homonym's files, the skill cites only the extraction's on a line that names it, so the check sits
+    in that file, at the extraction's record there, not at a by-eye record of it with no line (one whose `./`
+    spelling sorts first by raw path included), and lists no candidates."""
+    tree = {"SKILL.md": f"# Demo\n\n`configure` reads the settings [AST:{CONFIG}:L132].\n"}
+    plan = _plan_in(tmp_path, tree, [CONFIGURE_FORM], exports)
+    [group] = plan["files"]
+    [check] = group["checks"]
+    assert (group["file"], check["line"], check["signatureLine"]) == (CONFIG, 132, CONFIGURE_SIG)
+    assert "candidates" not in check
+
+
+@pytest.mark.parametrize("exports, bound", [
+    ([CONFIGURE_BY_EYE, CONFIGURE_RECORD], [(0, CONFIG, 132)]),
+    ([{**CONFIGURE_BY_EYE, "file": f"./{CONFIG}"}, CONFIGURE_RECORD], [(0, CONFIG, 132)]),
+    ([CONFIGURE_BY_EYE, CONFIGURE_RECORD, LEGACY_RECORD], [(0, CONFIG, 132), (1, LEGACY, 20)]),
+    ([CONFIGURE_BY_EYE, {**CONFIGURE_RECORD, "line": 300}, CONFIGURE_RECORD], []),
+], ids=["a-file-only-citation", "a-file-only-citation-beside-a-dot-slash-record", "a-homonym-each-form-cited",
+        "two-lines-of-one-file"])
+def test_a_by_eye_record_beside_the_extraction_s_is_no_other_declaration(tmp_path, exports, bound):
+    """#921 with #918: a by-eye record with no line beside the extraction's record of its file counted as a second
+    declaration there, so a form whose citation names that file with no line named two and was bound to nothing,
+    beside a homonym too. It is now the one declaration the extraction records there, so the form is bound to it, at
+    its line. A file the extraction records at two lines still has two declarations a citation of the file names,
+    and binds nothing."""
+    plan = _plan_in(tmp_path, {"SKILL.md": CONFIGURE_SKILL}, CONFIGURE_FORMS, exports)
+    assert _bound(plan, "configure") == bound
+
+
 def test_two_entries_of_one_form_bind_it_by_all_their_places(tmp_path):
     """Two entries that say the same thing are one form: its own citations are those of both places, so one place
     that names the runner binds it, and a second place that names the orchestrator leaves it bound to neither. A
@@ -2146,14 +2247,14 @@ def test_a_shared_place_of_a_name_declared_once_still_binds(tmp_path, exports, o
     differ, but a name declared once, in one file and at one line there (a per-file record with no line beside it
     is no other declaration), has no other declaration its citation could bind a form to. Its shared place keeps
     its citations, so each form is bound to that declaration, at its line, where the check of mocked and spyOn
-    gives none. A name declared at two lines of one file, or in two files (an `otherDeclarations` entry or a
+    gave none before #921. A name declared at two lines of one file, or in two files (an `otherDeclarations` entry or a
     per-file record with no line included), gives a shared place's forms no citation."""
     at = "references/core-api.md:3"
     inventory = [{**CORE_FORM, "at": at}, {**REACT_FORM, "at": at}]
     plan = _plan_in(tmp_path, {"references/core-api.md": CORE_API}, inventory, exports, others)
     assert _bound(plan, "composeStories") == bound
     if exports[0] is CORE_PER_FILE:
-        assert plan["files"][0]["checks"][0]["line"] is None, "the line-less record's check gives the judge none"
+        assert plan["files"][0]["checks"][0]["line"] == 274, "the extraction's line wins in its file (#921)"
 
 
 # #918, a citation in a declaration's body (oms-cognee references/pipelines-and-datapoints.md): the extraction

@@ -38,13 +38,19 @@ ratios and the gap records of the wrong signatures.
          names of a Python sub-package load-coverage-inputs.py keeps out of
          `all` (excluded.nestedEntries) keep their checks. A check sits at the
          name's first surface record (one with a file before one with none
-         or a blank one). For a name the surface records in more than one
-         file, --skill-dir (the skill package) picks the record whose file
-         the skill cites on a line that names it
+         or a blank one and, in one file, one with a line before one with
+         none). A line-less record of a file another of the name's records
+         gives a line, as _path reads both, is skipped (_lined_records), a
+         `./src/a.py` one that sorts first by raw path beside `src/a.py` at a
+         line included: it is never the check's record, never a candidate
+         and never a declaration. For a name the surface records in more
+         than one file, --skill-dir (the skill package) picks the record
+         whose file the skill cites on a line that names it
          (validate-inventory.py's _skill_cited_files) when exactly one of
          those files is cited; otherwise the check stays at the first record
-         and lists every record with a file as `candidates` for the judge to
-         read. With --skill-dir a form is also bound (#918) to the one
+         and lists every record with a file, a skipped one aside, as
+         `candidates` for the judge to read. With --skill-dir a form is also
+         bound (#918) to the one
          declaration of its name its own citations name: the citations of
          the places the inventory's `at` gives its entries
          (validate-inventory.py's form_citations): on that line; on the
@@ -70,11 +76,12 @@ ratios and the gap records of the wrong signatures.
          names both. The extraction records no declaration's last line, so a
          span runs past its body, over any helper the surface does not
          record, to the next declaration it does.
-         The declarations are the name's surface records with a file and its
-         `otherDeclarations` (one the extraction records in a file no record
-         of the name names, such as a same-named function a lazy re-export
-         passes on, which no entry point exports), each once per file and
-         line. A form whose citations name exactly one is listed in the
+         The declarations are the name's surface records with a file, a
+         skipped line-less one aside, and its `otherDeclarations` (one the
+         extraction records in a file no record of the name names, such as a
+         same-named function a lazy re-export passes on, which no entry point
+         exports), each once per file and line. A form whose citations name
+         exactly one is listed in the
          check's `bound` with its index and that declaration, and the judge
          compares it with that declaration alone, whatever the check's
          location and candidates; a form whose citations name none or two,
@@ -784,14 +791,31 @@ def _record_file(record: dict) -> str:
 
 
 def _records_by_name(exports: list[dict]) -> dict[str, list[dict]]:
-    """{name: its surface records}, by file then line, a record with no file
-    last: a by-eye record never stands in for the file an extraction names."""
+    """{name: its surface records}, by file then line: a record with no file
+    last and, in one file, a record with a line before one with none, so a
+    by-eye record stands in neither for the file an extraction names nor for
+    the line it records there (#921; a file the two write differently, such
+    as `./src/a.py` and `src/a.py`, is _lined_records's to settle)."""
     by_name: dict[str, list[dict]] = {}
-    for record in sorted(exports, key=lambda r: (not _record_file(r), _record_file(r), r.get("line") or 0)):
+    for record in sorted(exports, key=lambda r: (not _record_file(r), _record_file(r), not _is_line(r.get("line")),
+                                                 r.get("line") if _is_line(r.get("line")) else 0)):
         name = record.get("name")
         if isinstance(name, str) and name:
             by_name.setdefault(name, []).append(record)
     return by_name
+
+
+def _lined_records(records: list[dict]) -> list[dict]:
+    """`records` (a name's surface records, never its `otherDeclarations`)
+    less each one with a file and no line whose file, as _path reads both,
+    holds another of them with a line (#921): after a `readByEye` rerun of
+    `surface`, the extraction's record and a by-eye one with no line share
+    a file, and the extraction's line wins there. A record with no file is
+    kept (it sorts last), and so is a line-less record of a file none of
+    `records` gives a line, which still stands in for that file."""
+    lined = {_path(_record_file(r)) for r in records if _record_file(r) and _is_line(r.get("line"))}
+    return [r for r in records
+            if not _record_file(r) or _is_line(r.get("line")) or _path(_record_file(r)) not in lined]
 
 
 def signature_universe(names: list[str], exports: list[dict]) -> set[str]:
@@ -815,11 +839,15 @@ def _candidate(record: dict) -> dict:
 def _check_at(name: str, records: list[dict], skill_dir: str | None,
               texts: list[list[str]] | None) -> tuple[dict, list[dict] | None]:
     """(the surface record the check of `name` is planned at, the candidates
-    the judge reads, or None). One file among `records`: the first record.
-    Several: the record whose file the skill cites on a line that names
-    `name` when exactly one of them is cited (the first such record), else
-    the first record, with every record that names a file as a candidate.
-    `texts` is the skill's Markdown, read once (skill_markdown_lines)."""
+    the judge reads, or None), of `records` less a line-less one of a file
+    another of them gives a line (_lined_records, before the first record is
+    picked: a `./` spelling of the file sorts first). One file among them:
+    the first record. Several: the record whose file the skill cites on a
+    line that names `name` when exactly one of them is cited (the first
+    such record), else the first record, with every record that names a
+    file as a candidate. `texts` is the skill's Markdown, read once
+    (skill_markdown_lines)."""
+    records = _lined_records(records)
     first = records[0] if records else {}
     filed = [r for r in records if _record_file(r)]
     if len(filed) < 2 or len({_path(_record_file(r)) for r in filed}) < 2:
@@ -851,9 +879,10 @@ def _bindings(name: str, records: list[dict], others: list[dict], places: list[l
     """The forms of `name` bound to a declaration (#918): {"form": its index
     (0 `documented`, n the nth alternative), "file", "line",
     "signatureLine"} for each form whose own citations name exactly one of
-    the name's declarations, its surface `records` with a file and its
-    `others` (the surface's `otherDeclarations`), each once per file and
-    line. A form's own citations are those of the places its entries write
+    the name's declarations, its surface `records` with a file (less a
+    line-less one of a file another of them gives a line, _lined_records)
+    and its `others` (the surface's `otherDeclarations`), each once per file
+    and line. A form's own citations are those of the places its entries write
     it (`places`, from their `at`), in the skill's Markdown `texts` by path,
     as validate-inventory.py's form_citations reads them, with the name's
     other places in that file (of `every` place the inventory gives it,
@@ -870,14 +899,15 @@ def _bindings(name: str, records: list[dict], others: list[dict], places: list[l
     whose citations name none, or two, is bound to nothing."""
     inventory = _inventory()
     declarations, seen = [], set()
-    for declaration in [r for r in records if _record_file(r)] + others:
+    for declaration in [r for r in _lined_records(records) if _record_file(r)] + others:
         key = (_path(_record_file(declaration)), declaration.get("line"))
         if key not in seen:
             seen.add(key)
             declarations.append(declaration)
     ends = [_span_end(located, _record_file(d), d.get("line")) for d in declarations]
-    # declared once (one file, at most one line in it, a per-file record with no line beside it): no other
-    # declaration a shared place's citation could bind a form to, so its shared places still bind
+    # declared once (one file, at most one line in it, a per-file record with no line beside it, one kept only when
+    # no surface record there has a line): no other declaration a shared place's citation could bind a form to, so
+    # its shared places still bind
     homonyms = (len({_path(_record_file(d)) for d in declarations}) > 1
                 or sum(_is_line(d.get("line")) for d in declarations) > 1)
     bound = []
