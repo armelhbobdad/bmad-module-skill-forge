@@ -46,6 +46,11 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     no file never wins, and a mismatch found at a candidate names its `file`;
     end to end (#830), the runner and the surface give a name two monorepo
     packages define one record per file, so the cited one is compared
+  - offers a same-named declaration no entry point exports (#918, the
+    surface's `otherDeclarations`) as a candidate beside the record when the
+    skill cites its file for the name, never as the planned record; a
+    mismatch found there is recorded at it, and score reads its lines as a
+    record's, while it joins no name, set or count
   - compares a signature documented with no argument (#794): `params` of
     `""` or `[]` is a signature, and of a name listed twice the entry with
     non-empty `params` or a usage form (#826) is compared
@@ -1648,6 +1653,236 @@ def test_one_mismatch_per_candidate_keeps_the_closest():
     out = mod.score([COMPOSE], ["composeStories"], COMPOSE_RECORDS,
                     [{"file": REACT, "signature_mismatches": [far, {**near, "difference": None}]}])
     assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(REACT, "Critical")], "first on a tie"
+
+
+# #918: cognee's two run_pipeline functions. The surface records the orchestrator once, as a `pipelines` namespace
+# member; the lightweight runner, which a lazy `__getattr__` passes on and no entry point exports, is an other
+# declaration. The skill documents both, each form cited to its own file.
+ORCHESTRATOR = "cognee/modules/pipelines/operations/pipeline.py"
+LIGHTWEIGHT = "cognee/modules/pipelines/operations/run_pipeline.py"
+ORCHESTRATOR_RECORD = {"name": "run_pipeline", "kind": "function", "file": ORCHESTRATOR, "line": 53,
+                       "signatureLine": "async def run_pipeline(", "origin": "extraction"}
+LIGHTWEIGHT_DECLARATION = {"name": "run_pipeline", "kind": "function", "file": LIGHTWEIGHT, "line": 37,
+                           "signatureLine": "async def run_pipeline("}
+HOMONYMS = {"exports": [ORCHESTRATOR_RECORD], "otherDeclarations": [LIGHTWEIGHT_DECLARATION],
+            "sets": {"all": ["run_pipeline"]}}
+RUN_PIPELINE = [
+    {"name": "run_pipeline", "kind": "function", "params": "tasks=None, data=None, datasets=None",
+     "description": "The dataset-aware orchestrator."},
+    {"name": "run_pipeline", "kind": "function", "params": "steps, *, data=None, context=None", "return_type": "list",
+     "description": "The lightweight runner."},
+]
+ORCHESTRATOR_LINE = f"`run_pipeline(tasks=None, data=None, datasets=None)` runs a pipeline [AST:{ORCHESTRATOR}:L53]."
+LIGHTWEIGHT_LINE = (f"`from cognee.pipelines import run_pipeline` gives the lightweight runner "
+                    f"`run_pipeline(steps, *, data=None, context=None) -> list` [AST:{LIGHTWEIGHT}:L37].")
+HOMONYM_CANDIDATES = [{"file": ORCHESTRATOR, "line": 53, "signatureLine": "async def run_pipeline("},
+                      {"file": LIGHTWEIGHT, "line": 37, "signatureLine": "async def run_pipeline("}]
+
+
+def _homonym_plan(tmp_path: Path, tree: dict[str, str] | None, surface: dict = HOMONYMS) -> dict:
+    """plan over RUN_PIPELINE and `surface`, with the skill `tree` as --skill-dir (none when None)."""
+    args = []
+    if tree is not None:
+        for rel, text in tree.items():
+            _write(tmp_path / "skill" / rel, text)
+        args = ["--skill-dir", str(tmp_path / "skill")]
+    inventory = _write(tmp_path / "inventory.json", {"exports": RUN_PIPELINE, "cross_check_mismatches": []})
+    proc = _run("plan", "--inventory", inventory, "--surface", _write(tmp_path / "surface.json", surface), *args)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stdout)
+
+
+@pytest.mark.parametrize("tree", [
+    {"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n\n{LIGHTWEIGHT_LINE}\n"},
+    {"SKILL.md": f"# Demo\n\n{LIGHTWEIGHT_LINE}\n"},
+    {"SKILL.md": "# Demo\n\nSee references.\n",
+     "references/pipelines.md": f"### Lightweight runner: run_pipeline\n\n[SRC:./{LIGHTWEIGHT}:L37-L45]\n"},
+], ids=["both-cited", "only-the-other-declaration-cited", "a-heading-then-its-citation"])
+def test_a_cited_other_declaration_joins_the_check_as_a_candidate(tmp_path, tree):
+    """#918 (oms-cognee run_pipeline): the skill cites the lightweight runner's file for the name, so the judge
+    reads both declarations and a form matches when it matches either. The check stays at the orchestrator, the
+    surface's record, even when the skill cites only the other file; the extra never becomes the planned record."""
+    plan = _homonym_plan(tmp_path, tree)
+    assert plan["compared"] == 1
+    assert plan["files"] == [{"file": ORCHESTRATOR, "checks": [{
+        "name": "run_pipeline", "line": 53, "signatureLine": "async def run_pipeline(",
+        "documented": {"params": "tasks=None, data=None, datasets=None"},
+        "alternatives": [{"params": "steps, *, data=None, context=None", "return_type": "list"}],
+        "candidates": HOMONYM_CANDIDATES}]}]
+
+
+@pytest.mark.parametrize("tree", [
+    {"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n"},
+    {"SKILL.md": f"# Demo\n\nThe steps run in order [AST:{LIGHTWEIGHT}:L46].\n\n{ORCHESTRATOR_LINE}\n"},
+    None,
+], ids=["not-cited", "cited-on-a-line-that-does-not-name-it", "no-skill-dir"])
+def test_an_other_declaration_the_skill_does_not_cite_for_the_name_adds_nothing(tmp_path, tree):
+    """#918: an other declaration whose file the skill never cites on a line that writes the name, or a plan with
+    no --skill-dir, leaves the check as a surface without other declarations plans it: at the record, with no
+    candidate."""
+    plan = _homonym_plan(tmp_path / "with", tree)
+    without = _homonym_plan(tmp_path / "without", tree, {k: v for k, v in HOMONYMS.items()
+                                                          if k != "otherDeclarations"})
+    assert plan == without
+    [check] = plan["files"][0]["checks"]
+    assert plan["files"][0]["file"] == ORCHESTRATOR and "candidates" not in check
+
+
+ORCHESTRATOR_V2 = "cognee/modules/pipelines/operations/pipeline_v2.py"
+
+
+@pytest.mark.parametrize("cited, planned, candidates", [
+    # the citation settles the records at the orchestrator: the uncited record stays out, the extra joins
+    ([ORCHESTRATOR, LIGHTWEIGHT], ORCHESTRATOR, [(ORCHESTRATOR, 53), (LIGHTWEIGHT, 37)]),
+    # no record file cited: every record, then the extra
+    ([LIGHTWEIGHT], ORCHESTRATOR, [(ORCHESTRATOR, 53), (ORCHESTRATOR_V2, 10), (LIGHTWEIGHT, 37)]),
+    ([ORCHESTRATOR_V2, LIGHTWEIGHT], ORCHESTRATOR_V2, [(ORCHESTRATOR_V2, 10), (LIGHTWEIGHT, 37)]),
+], ids=["one-record-file-cited", "only-the-extra-cited", "the-second-record-file-cited"])
+def test_an_extra_beside_records_in_two_files_keeps_the_citation_s_choice(tmp_path, cited, planned, candidates):
+    """#918: with records in two files, an extra never undoes what the citation settled (#781): the check sits at
+    the one cited record file and offers that file's record and the extra, never the record the skill did not
+    cite; with no record file cited it sits at the first record and offers every record, then the extra."""
+    other = {**ORCHESTRATOR_RECORD, "file": ORCHESTRATOR_V2, "line": 10}
+    lines = "\n\n".join(f"`run_pipeline(...)` [AST:{file}:L1]" for file in cited)
+    plan = _homonym_plan(tmp_path, {"SKILL.md": f"# Demo\n\n{lines}\n"},
+                         {**HOMONYMS, "exports": [ORCHESTRATOR_RECORD, other]})
+    [group] = plan["files"]
+    [check] = group["checks"]
+    assert group["file"] == planned
+    assert [(c["file"], c["line"]) for c in check["candidates"]] == candidates
+
+
+def test_other_declarations_written_twice_are_one_candidate():
+    """#918: candidates are once per file and line, however the path is written."""
+    record, candidates = mod._check_at(
+        "run_pipeline", [ORCHESTRATOR_RECORD], None, [[LIGHTWEIGHT_LINE]],
+        [LIGHTWEIGHT_DECLARATION, {**LIGHTWEIGHT_DECLARATION, "file": "./" + LIGHTWEIGHT}])
+    assert (record, candidates) == (ORCHESTRATOR_RECORD, None), "no --skill-dir: no extra"
+    record, candidates = mod._check_at(
+        "run_pipeline", [ORCHESTRATOR_RECORD], ".", [[LIGHTWEIGHT_LINE]],
+        [LIGHTWEIGHT_DECLARATION, {**LIGHTWEIGHT_DECLARATION, "file": "./" + LIGHTWEIGHT}])
+    assert record == ORCHESTRATOR_RECORD and candidates == HOMONYM_CANDIDATES
+
+
+LIGHTWEIGHT_MISMATCH = {"name": "run_pipeline", "line": 37, "file": LIGHTWEIGHT, "form": 1,
+                        "source_sig": "(steps: list[BoundTask], *, data: Any = None, context: dict | None = None) "
+                                      "-> list",
+                        "documented_sig": "(steps, *, data=None, context=None) -> list[Any]",
+                        "issue": "the return type is `list`, not `list[Any]`"}
+
+
+def test_a_mismatch_at_a_cited_other_declaration_is_recorded_there(tmp_path):
+    """#918: the judge read both candidates and the lightweight form matched neither: the mismatch it reports at the
+    lightweight runner's file, from the orchestrator's group, is recorded there, at its line, with no warning.
+    Without the plan the file is no file the check offered, as before: a warning, at the result's file."""
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n{ORCHESTRATOR_LINE}\n\n{LIGHTWEIGHT_LINE}\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": RUN_PIPELINE, "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", HOMONYMS)
+    plan = tmp_path / "signature-plan.json"
+    assert _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", str(tmp_path / "skill"),
+                "--output", str(plan)).returncode == 0
+    results = _write(tmp_path / "s.txt", json.dumps({"file": ORCHESTRATOR,
+                                                     "signature_mismatches": [LIGHTWEIGHT_MISMATCH]}))
+    gaps = tmp_path / "signature-gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan), "--results", results,
+                "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, 37, "Critical")]
+    assert not any("run_pipeline" in w for w in out["warnings"]), out["warnings"]
+    [gap] = json.loads(gaps.read_text(encoding="utf-8"))
+    assert (gap["source"], gap["title"]) == (f"{LIGHTWEIGHT}:37", "Signature mismatch: run_pipeline (form 2 of 2)")
+    # the other declaration is no name, set or count
+    assert (out["comparedNames"], out["totalDocumented"], out["totalTypes"]) == (["run_pipeline"], 1, 0)
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
+    assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(ORCHESTRATOR, 37)]
+    assert any(f"`{LIGHTWEIGHT}`, no file the plan offered its check at" in w for w in out["warnings"])
+
+
+CONTRADICTED_RUNNER = {**LIGHTWEIGHT_MISMATCH, "difference": "annotation-contradicted",
+                       "source_sig": "(steps, *, data=None, context=None) -> list",
+                       "issue": "the annotation says `list`; the body returns the steps' results"}
+
+
+@pytest.mark.parametrize("line, evidence, others, severity, fact", [
+    # the declaration line is the extra's, 37, so a body line after it holds the evidence
+    (40, 38, [LIGHTWEIGHT_DECLARATION], "Info", None),
+    (40, 38, [], "Critical", "evidence_line 38 is before the declaration"),
+    # a second offered declaration in that file, at 60, bounds the first one's body
+    (37, 62, [LIGHTWEIGHT_DECLARATION, {**LIGHTWEIGHT_DECLARATION, "line": 60}], "Critical",
+     "evidence_line 62 is not before the next declaration in the file, at line 60"),
+    (37, 62, [LIGHTWEIGHT_DECLARATION], "Info", None),
+], ids=["declaration-line-from-the-extra", "no-extra-line", "next-declaration-from-an-extra", "no-later-extra"])
+def test_an_offered_other_declaration_locates_the_lines_a_record_would(line, evidence, others, severity, fact):
+    """#918: at an extra's file, score reads the declaration line and the next declaration from the other
+    declarations the plan offered, as it reads a surface record's (no --source-root: the line order alone)."""
+    offered = {"run_pipeline": [ORCHESTRATOR, LIGHTWEIGHT]}
+    mismatch = {**CONTRADICTED_RUNNER, "line": line, "evidence_line": evidence}
+    out = mod.score([RUN_PIPELINE[1]], ["run_pipeline"], [ORCHESTRATOR_RECORD],
+                    [{"file": ORCHESTRATOR, "signature_mismatches": [{**mismatch, "form": 0}]}],
+                    offered=offered, others=others)
+    assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, severity)]
+    found = [w for w in out["warnings"] if "run_pipeline" in w]
+    assert (len(found) == 1 and fact in found[0]) if fact else found == [], found
+
+
+def test_an_other_declaration_the_plan_did_not_offer_locates_nothing():
+    """#918: an other declaration whose file no check offered is never read, so a line at the result's file stays
+    the surface record's."""
+    out = mod.score([RUN_PIPELINE[1]], ["run_pipeline"], [ORCHESTRATOR_RECORD],
+                    [{"file": LIGHTWEIGHT, "signature_mismatches": [
+                        {**CONTRADICTED_RUNNER, "file": None, "form": 0, "line": 40, "evidence_line": 38}]}],
+                    offered={"run_pipeline": [ORCHESTRATOR]}, others=[LIGHTWEIGHT_DECLARATION])
+    assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, "Critical")]
+    assert any("evidence_line 38 is before the declaration" in w for w in out["warnings"])
+
+
+# #918 end to end: the cognee shape, a namespace member and a lazy `__getattr__` re-export of a same-named function.
+HOMONYM_TREE = {
+    "cognee/__init__.py": "from .modules import pipelines\n",
+    "cognee/modules/__init__.py": "",
+    "cognee/modules/pipelines/__init__.py": "from .operations.pipeline import run_pipeline\n",
+    "cognee/modules/pipelines/operations/__init__.py": "",
+    ORCHESTRATOR: "async def run_pipeline(tasks=None, data=None, datasets=None):\n    yield tasks\n",
+    LIGHTWEIGHT: "async def run_pipeline(steps, *, data=None, context=None) -> list:\n    return [data]\n",
+    "cognee/pipelines/__init__.py": ("def __getattr__(name):\n    if name == \"run_pipeline\":\n"
+                                     "        from cognee.modules.pipelines.operations.run_pipeline import run_pipeline\n"
+                                     "        return run_pipeline\n    raise AttributeError(name)\n"),
+}
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+def test_a_function_only_a_lazy_re_export_reaches_is_compared_where_the_skill_cites_it(tmp_path):
+    """#918 (oms-cognee run_pipeline): the runner gives the orchestrator as the `pipelines` namespace's member and
+    records the lightweight runner only in exports[]; the surface lists it as an other declaration, and the plan
+    hands the judge both, since the skill cites each form's file."""
+    source = tmp_path / "src"
+    for rel, text in HOMONYM_TREE.items():
+        _write(source / rel, text)
+    extraction, surface = tmp_path / "extract-full.json", tmp_path / "surface.json"
+    proc = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source),
+                           "--scope-type", "public-api", "--tier", "Forge", "--head-cap", "0", "--output",
+                           str(extraction)], capture_output=True, text=True, timeout=600)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    proc = subprocess.run([sys.executable, str(LOADER), "surface", "--extraction", str(extraction), "--output",
+                           str(surface)], capture_output=True, text=True, timeout=600)
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(surface.read_text(encoding="utf-8"))
+    assert [(r["name"], r["file"], r["line"]) for r in data["exports"]] == [("run_pipeline", ORCHESTRATOR, 1)]
+    assert data["otherDeclarations"] == [{"name": "run_pipeline", "kind": "function", "file": LIGHTWEIGHT, "line": 1,
+                                          "signatureLine": LIGHTWEIGHT_DECLARATION["signatureLine"] + "steps, *, "
+                                          "data=None, context=None) -> list:"}]
+    _write(tmp_path / "skill" / "SKILL.md",
+           f"# Demo\n\n{ORCHESTRATOR_LINE.replace('L53', 'L1')}\n\n{LIGHTWEIGHT_LINE.replace('L37', 'L1')}\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": RUN_PIPELINE, "cross_check_mismatches": []})
+    proc = _run("plan", "--inventory", inventory, "--surface", str(surface), "--skill-dir", str(tmp_path / "skill"))
+    assert proc.returncode == 0, proc.stderr
+    [group] = json.loads(proc.stdout)["files"]
+    [check] = group["checks"]
+    assert (group["file"], check["line"]) == (ORCHESTRATOR, 1)
+    assert [(c["file"], c["line"]) for c in check["candidates"]] == [(ORCHESTRATOR, 1), (LIGHTWEIGHT, 1)]
 
 
 def test_empty_params_on_a_kind_that_takes_none_is_no_signature():

@@ -44,8 +44,19 @@ ratios and the gap records of the wrong signatures.
          (validate-inventory.py's _skill_cited_files) when exactly one of
          those files is cited; otherwise the check stays at the first record
          and lists every record with a file as `candidates` for the judge to
-         read. Also the whole documented-signature map, and each name's
-         alternatives, for the fallback scan that has no surface lines yet.
+         read. A declaration of the name the surface lists in
+         `otherDeclarations` (#918: one the extraction records in a file no
+         record of the name names, such as a same-named function a lazy
+         re-export passes on, which no entry point exports) whose file the
+         skill cites on such a line is an extra: the check stays at a
+         surface record (the cited one when exactly one record file is
+         cited, else the first), and its `candidates` are the records the
+         citation leaves (that file's, else every record with a file), then
+         each extra, once per file and line, so a form matches when it
+         matches any of them. An extra is never the planned record, and
+         without --skill-dir there is none. Also the whole
+         documented-signature map, and each name's alternatives, for the
+         fallback scan that has no surface lines yet.
   score  the categories. Reads every subagent result, checks its schema,
          and computes:
            Signature Accuracy = matching / compared * 100, where compared is
@@ -91,7 +102,9 @@ ratios and the gap records of the wrong signatures.
              declaration line (of the name's surface records at the
              mismatch's file, the closest at or before the mismatch's
              `line`, else the first; with none, the mismatch's `line`) and
-             before the next surface record in that file; and, with
+             before the next surface record in that file (an other
+             declaration whose file the plan offered for its name's check
+             counts as a surface record of that name in both); and, with
              --source-root, that line of the file under it starts with
              `return`, or is the declaration line itself with its
              expression body after its parameters (an arrow function's
@@ -160,10 +173,13 @@ ratios and the gap records of the wrong signatures.
 Inputs, all files in the run folder:
   --inventory  the validated inventory validate-inventory.py wrote (--output)
   --surface    load-coverage-inputs.py surface output: `exports[]` (name,
-               kind, file, line, signatureLine) and the name `sets`;
-               --surface-set picks the set (default "all") score's Type
-               Coverage counts, while plan and Signature Accuracy compare
-               the signature universe whichever set it picks
+               kind, file, line, signatureLine), the name `sets` and
+               `otherDeclarations` (the same fields; plan's extras, and
+               the lines score locates at an extra's file, never a name it
+               compares or counts); --surface-set picks the set (default
+               "all") score's Type Coverage counts, while plan and
+               Signature Accuracy compare the signature universe whichever
+               set it picks
   --results    a subagent result, as the subagent returned it (a wrapping
                markdown fence is stripped), repeatable. One object, or a
                list of them:
@@ -191,7 +207,8 @@ Inputs, all files in the run folder:
                                        for 0)
   --skill-dir  plan only: the skill package under test (the folder that
                holds SKILL.md), whose citations pick the declaration of a
-               name the surface records in several files
+               name the surface records in several files, and the other
+               declarations that join a check's candidates
   --plan       score only: the plan's output, whose checks name the files a
                mismatch of each name may be recorded at
   --source-root  score only: the local source tree the judges read (a
@@ -210,7 +227,8 @@ Output (stdout; --output also writes it, --gaps-output writes the records):
           "signatureLine", "documented": {...}, "alternatives": [{...}]
           (only when the name has another form that lists members),
           "candidates": [{"file", "line", "signatureLine"}] (only when the
-          citation does not settle the declaration)}]}],
+          citation does not settle the declaration, or the skill cites an
+          other declaration of the name)}]}],
           "documentedSignatures": {...}, "documentedAlternatives": {name:
           [{...}], for each name with alternatives}}
   score: {"valid": true, "signatureAccuracy", "matchingSignatures",
@@ -382,6 +400,17 @@ def load_surface(path: str, surface_set: str) -> tuple[list[str], list[dict], li
 
     exports = data.get("exports") if isinstance(data.get("exports"), list) else []
     return name_set(surface_set), [e for e in exports if isinstance(e, dict)], name_set("all")
+
+
+def load_other_declarations(path: str) -> list[dict]:
+    """The surface's `otherDeclarations` (#918): each declaration of a
+    surface name, in a file none of its records names, that the extraction
+    records and no entry point exports. Each one with a name and a file;
+    [] when the surface has none (an older surface included)."""
+    data = _read_json(path, "--surface")
+    items = data.get("otherDeclarations") if isinstance(data, dict) else None
+    return [d for d in (items if isinstance(items, list) else [])
+            if isinstance(d, dict) and isinstance(d.get("name"), str) and d["name"] and _record_file(d)]
 
 
 def load_plan(path: str) -> dict[str, list[str]]:
@@ -647,41 +676,73 @@ def _path(file: str) -> str:
     return _inventory()._cited_path(file)
 
 
+def _candidate(record: dict) -> dict:
+    """A record or an other declaration as a check's candidate."""
+    return {"file": _record_file(record), "line": record.get("line"), "signatureLine": record.get("signatureLine")}
+
+
 def _check_at(name: str, records: list[dict], skill_dir: str | None,
-              texts: list[list[str]] | None) -> tuple[dict, list[dict] | None]:
+              texts: list[list[str]] | None, others: list[dict] | None = None) -> tuple[dict, list[dict] | None]:
     """(the surface record the check of `name` is planned at, the candidates
     the judge reads, or None). One file among `records`: the first record.
     Several: the record whose file the skill cites on a line that names
     `name` when exactly one of them is cited (the first such record), else
     the first record, with every record that names a file as a candidate.
-    `texts` is the skill's Markdown, read once (skill_markdown_lines)."""
+    `texts` is the skill's Markdown, read once (skill_markdown_lines).
+
+    `others`, the name's other declarations (the surface's
+    `otherDeclarations`, #918), add the extras: each one whose file the
+    skill cites on such a line, when it is no file of `records`. With
+    extras the check stays at a record, never an extra: the cited record
+    when exactly one file of `records` is cited, else the first; its
+    candidates are the records the citation leaves (that file's, else every
+    record that names a file), then the extras, once per file and line, so
+    a form matches when it matches any of them. Without `skill_dir` there
+    is no extra."""
     first = records[0] if records else {}
     filed = [r for r in records if _record_file(r)]
-    if len(filed) < 2 or len({_path(_record_file(r)) for r in filed}) < 2:
-        return first, None
-    if skill_dir is not None:
-        cited = {_path(_record_file(r)) for r in filed} & _inventory()._skill_cited_files(Path(skill_dir), name, texts)
-        if len(cited) == 1:
+    paths = {_path(_record_file(r)) for r in filed}
+    cited = (_inventory()._skill_cited_files(Path(skill_dir), name, texts)
+             if skill_dir is not None and (len(paths) > 1 or others) else set())
+    # A same-named declaration no entry point exports, in a file the skill cites for the name (#918).
+    extras = [d for d in others or [] if _path(_record_file(d)) in cited - paths]
+    if not extras:
+        if len(filed) < 2 or len(paths) < 2:
+            return first, None
+        if len(paths & cited) == 1:
             return next(r for r in filed if _path(_record_file(r)) in cited), None
-    return first, [{"file": _record_file(r), "line": r.get("line"), "signatureLine": r.get("signatureLine")}
-                   for r in filed]
+        return first, [_candidate(r) for r in filed]
+    # The records the citation leaves: the one cited file's when it settles them, else every one with a file.
+    settled = paths & cited if len(paths & cited) == 1 else paths
+    pool = [r for r in filed if _path(_record_file(r)) in settled]
+    candidates, seen = [], set()
+    for item in pool + extras:
+        key = (_path(_record_file(item)), item.get("line"))
+        if key not in seen:
+            seen.add(key)
+            candidates.append(_candidate(item))
+    return (pool[0] if pool else first), candidates
 
 
-def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], skill_dir: str | None = None) -> dict:
+def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], skill_dir: str | None = None,
+         others: list[dict] | None = None) -> dict:
     """The comparisons over the signature universe of `names` (the `all`
     set) and `exports`; none without a surface (`names` None). `skill_dir`,
     the skill package, settles which declaration a name the surface records
-    in several files is compared with (_check_at). A name documented in
-    several forms carries the others that list members as `alternatives`
-    (documented_forms)."""
+    in several files is compared with, and which of `others` (the surface's
+    `otherDeclarations`) join a check's candidates (_check_at). A name
+    documented in several forms carries the others that list members as
+    `alternatives` (documented_forms)."""
     forms = documented_forms(inventory)
     files: dict[str, list[dict]] = {}
     compared = 0
     if names is not None:
         by_name = _records_by_name(exports)
+        others_by_name = _records_by_name(others or [])
         texts = _inventory().skill_markdown_lines(Path(skill_dir)) if skill_dir is not None else None
         for name in sorted(signature_universe(names, exports) & set(forms)):
-            record, candidates = _check_at(name, by_name.get(name) or [], skill_dir, texts)
+            record, candidates = _check_at(name, by_name.get(name) or [], skill_dir, texts,
+                                           others_by_name.get(name))
             compared += 1
             check = {
                 "name": name,
@@ -740,16 +801,18 @@ def _lines_in(exports: list[dict], file: str) -> list[int]:
 
 def _declaration_line(by_name: dict[str, list[dict]], name: str, file: str, line: int) -> int:
     """The line `name` is declared at in `file`: of its surface records there
-    (the plan's check, or the candidate it offered), the closest one at or
-    before the mismatch's `line` (a name declared twice in one file), else
-    the first; with none there, the mismatch's own `line`."""
+    (the plan's check, or the candidate it offered, an other declaration the
+    plan offered included), the closest one at or before the mismatch's
+    `line` (a name declared twice in one file), else the first; with none
+    there, the mismatch's own `line`."""
     lines = _lines_in(by_name.get(name) or [], file)
     before = [at for at in lines if at <= line]
     return max(before) if before else min(lines, default=line)
 
 
 def _next_declaration(exports: list[dict], file: str, line: int) -> int | None:
-    """The line of the first surface record in `file` after `line`, None when there is none."""
+    """The line of the first surface record in `file` after `line` (an other declaration the plan offered
+    included), None when there is none."""
     return min((at for at in _lines_in(exports, file) if at > line), default=None)
 
 
@@ -1355,7 +1418,8 @@ def _form_gap_record(m: dict, index: int, forms: list[dict]) -> dict:
 
 def score(inventory: list[dict], names: list[str], exports: list[dict], results: list[dict],
           type_names: list[str] | None = None, offered: dict[str, list[str]] | None = None,
-          source_root: str | None = None, planned: dict[str, list[dict]] | None = None) -> dict:
+          source_root: str | None = None, planned: dict[str, list[dict]] | None = None,
+          others: list[dict] | None = None) -> dict:
     """The two categories: Signature Accuracy over the signature universe of
     `names` (the `all` set) and `exports`, Type Coverage over `type_names`
     when given, else over `names`. A fallback scan's exports_found join the
@@ -1365,8 +1429,16 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     annotation-contradicted mismatch's `evidence_line` is checked in. A
     mismatch is graded against the documented form its `form` names: of
     documented_forms, or of `planned` (read from --plan) for a name it
-    holds, with a warning where the two differ."""
+    holds, with a warning where the two differ. `others` (the surface's
+    `otherDeclarations`, #918) locate lines alone: one whose file `offered`
+    names for its name's check is read as a surface record of that name
+    where a declaration line or the next declaration in a file is looked up,
+    and joins no name, set or count."""
     by_name = _records_by_name(exports)
+    # The records a line is located among: the surface's, and each other declaration the plan offered a check at.
+    located = exports + [d for d in others or [] if offered is not None and d.get("name") in offered
+                         and _record_file(d) and _is_offered_file(offered[d["name"]], _record_file(d))]
+    located_by_name = _records_by_name(located)
     # A fallback scan reports its own names and types.
     fallback_types = {n for r in results for n in r.get("types_found") or []}
     surface = set(names) | {n for r in results for n in r.get("exports_found") or []}
@@ -1431,9 +1503,9 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
             # The facts of an annotation-contradicted mismatch, checked once and handed to grade().
             fact = None
             if difference == CONTRADICTED:
-                at_line = _declaration_line(by_name, name, file, entry["line"])
+                at_line = _declaration_line(located_by_name, name, file, entry["line"])
                 fact = contradiction_fact(entry, form, file, at_line,
-                                          _next_declaration(exports, file, at_line), source_root)
+                                          _next_declaration(located, file, at_line), source_root)
                 warning = (f"{file}:{at_line}: the mismatch for `{name}` is tagged {CONTRADICTED}, but {fact}: "
                            "graded as an untagged mismatch (Critical)")
                 if fact is not None and warning not in warnings:
@@ -1515,14 +1587,15 @@ def _write_json(path: str, payload) -> None:
 
 def _cmd_plan(args: argparse.Namespace) -> tuple[dict, int]:
     inventory = load_inventory(args.inventory)
-    names, exports = (None, [])
+    names, exports, others = (None, [], [])
     if args.surface is not None:
         _, exports, names = load_surface(args.surface, args.surface_set)
+        others = load_other_declarations(args.surface)
     if args.skill_dir is not None:
         if not args.skill_dir.strip():
             raise InputError("--skill-dir is empty: pass the skill package (the folder that holds SKILL.md)")
         _read_text(str(Path(args.skill_dir) / "SKILL.md"), "--skill-dir")
-    out = plan(inventory, names, exports, args.skill_dir)
+    out = plan(inventory, names, exports, args.skill_dir, others)
     if args.output:
         _write_json(args.output, out)
     return out, 0
@@ -1542,7 +1615,7 @@ def _cmd_score(args: argparse.Namespace) -> tuple[dict, int]:
     offered = load_plan(args.plan) if args.plan is not None else None
     planned = load_plan_forms(args.plan) if args.plan is not None else None
     out = score(inventory, names, exports, results, None if args.surface_set == "all" else chosen, offered,
-                args.source_root, planned)
+                args.source_root, planned, load_other_declarations(args.surface))
     if args.output:
         _write_json(args.output, out)
     if args.gaps_output:
@@ -1564,7 +1637,8 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="a surface name set, which must exist (default: all); the plan compares the signature "
                         "universe whichever set it names")
     p.add_argument("--skill-dir", help="the skill package under test: its citations pick the declaration of a name "
-                                       "the surface records in several files")
+                                       "the surface records in several files, and the other declarations a check's "
+                                       "candidates take")
     p.add_argument("--output", help="also write the plan to this file")
     p.set_defaults(func=_cmd_plan)
 

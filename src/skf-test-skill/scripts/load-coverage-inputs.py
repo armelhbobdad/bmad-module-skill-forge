@@ -268,6 +268,21 @@ without `*` reaches) and `root` (the names the root entry points reach),
 each through the entry point of any of the name's definitions.
 reconcile-coverage.py and score-signatures.py --surface-set pick one.
 
+Other declarations (surface `otherDeclarations`, #918): for each name with
+a record (a nested Python top's included), each declaration of the name
+the extraction's exports[] holds (under the name, or under the name an
+aliased record's defining file gives it, `local`, as the record lookup
+reads it; a re-export row declares nothing) in a file none of the name's
+records names and no scope.exclude glob matches, as {name, kind, file,
+line, signatureLine}, its line and signature line taken as a record's
+are; sorted, each once, and [] with none, with no extraction or with one
+the per-file scan replaces. Such a declaration is a same-named function no
+entry point exports, as cognee's lightweight `run_pipeline`, which a lazy
+`__getattr__` passes on beside the orchestrator a namespace exports. They
+are no records: they join no set, no count and no guard, and only
+score-signatures.py reads them, plan offering one as a check's candidate
+where the skill cites its file for the name.
+
 Candidates and guards (with an extraction, --brief or --metadata): each
 set's count, the metadata `stats.effective_denominator` (--metadata), and
 the extractor's own effective_denominator and its basis; for the
@@ -1186,6 +1201,49 @@ def _members_in_place(public: list[dict]) -> list[dict]:
     return expanded
 
 
+def _declared_at(row: dict) -> tuple:
+    """(line, signature line) of an extraction's exports[] row, as a record
+    takes them: a local `export { ... }` list's item at the declaration it
+    names (#836), its `declaration_line` and `declaration_signature_line`
+    (both from that one pair), when it has that line; else its own
+    `source_line` and `signature_line`."""
+    if isinstance(row.get("declaration_line"), int):
+        return row["declaration_line"], row.get("declaration_signature_line")
+    return row.get("source_line"), row.get("signature_line")
+
+
+OTHER_DECLARATION_KEYS = ("name", "kind", "file", "line", "signatureLine")
+
+
+def other_declarations(records: list[dict], declarations: list[dict], aliases: dict[str, set[str]],
+                       excludes: list[str]) -> list[dict]:
+    """The other declarations of the surface names (#918): for each name
+    `records` holds, each of `declarations` (an extraction's exports[] rows,
+    a re-export left out) recorded under the name, or under a name an
+    aliased record's defining file gives it (`aliases`), in a file no
+    record of the name names and no exclude glob matches, as {name, kind,
+    file, line, signatureLine}, sorted, each once. They are no records:
+    only score-signatures.py reads them."""
+    files: dict[str, set[str]] = {}
+    for record in records:
+        files.setdefault(record["name"], set()).update([_norm(record["file"])] if record.get("file") else [])
+    by_export: dict[str, list[dict]] = {}
+    for declaration in declarations:
+        by_export.setdefault(declaration["exportName"], []).append(declaration)
+    found = set()
+    for name, own in files.items():
+        for looked in {name} | aliases.get(name, set()):
+            for d in by_export.get(looked, []):
+                path = _norm(d["file"])
+                if path in own or any(glob_match(path, g) for g in excludes):
+                    continue
+                line = d["line"] if isinstance(d["line"], int) and not isinstance(d["line"], bool) else None
+                found.add((name, d["kind"] if isinstance(d["kind"], str) else None, d["file"], line,
+                           d["signatureLine"] if isinstance(d["signatureLine"], str) else None))
+    ordered = sorted(found, key=lambda t: (t[0], t[2], t[3] or 0, t[1] or "", t[4] or ""))
+    return [dict(zip(OTHER_DECLARATION_KEYS, t)) for t in ordered]
+
+
 # The runner's file issues for a file it could not open at all: no one can read it by eye either.
 UNREADABLE_ISSUES = frozenset({"missing", "unreadable"})
 
@@ -1274,7 +1332,8 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
     unmatched_tier_a = _globs(recorded.get("unmatched_tier_a_include"))
     extraction = _extraction_summary(data, language)
     if extraction["fallback"]["needed"]:
-        return {"records": [], "nestedRecords": [], "sets": {}, "outside": [], "nested": [],
+        return {"records": [], "nestedRecords": [], "declarations": [], "aliases": {}, "sets": {}, "outside": [],
+                "nested": [],
                 "staleScope": {"unmatchedInclude": unmatched, "unmatchedTierAInclude": unmatched_tier_a,
                                "restored": []},
                 "gaps": [], "scope": scope, "scopeType": recorded.get("type"), "umbrella": dict(NO_UMBRELLA),
@@ -1325,6 +1384,8 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
     index = {(e.get("export_name"), e.get("source_file")): e
              for e in data.get("exports") or [] if isinstance(e, dict)}
     records, nested_records = [], []
+    # The names an aliased record's defining file gives it, for the other declarations (#918).
+    aliases: dict[str, set[str]] = {}
     for info in public:
         name, file = info["name"], info.get("file")
         if (name, file) in outside_keys:
@@ -1336,18 +1397,26 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
             continue
         # An aliased re-export (`export { Options as Config }`) is recorded
         # under the name its defining file gives it, `local`.
-        found = index.get((info.get("local") or name, file)) or index.get((name, file))
+        local = info.get("local")
+        if isinstance(local, str) and local and local != name:
+            aliases.setdefault(name, set()).add(local)
+        found = index.get((local or name, file)) or index.get((name, file))
         kind = found.get("export_type") if found else None
-        # A local `export { ... }` list's item is planned at the declaration it
-        # names (#836): the line and the signature line both come from that pair.
-        if found and isinstance(found.get("declaration_line"), int):
-            line, signature_line = found["declaration_line"], found.get("declaration_signature_line")
-        elif found:
-            line, signature_line = found.get("source_line"), found.get("signature_line")
-        else:
-            line, signature_line = info.get("line"), None
+        line, signature_line = _declared_at(found) if found else (info.get("line"), None)
         (nested_records if info.get("entry") in nested else records).append(
             _record(name, None if kind == "re-export" else kind, file, line, signature_line, "extraction"))
+
+    # Every declaration exports[] records, a re-export row left out (it declares nothing): the other
+    # declarations of a surface name come from these (#918).
+    declarations = []
+    for e in data.get("exports") or []:
+        if not isinstance(e, dict) or e.get("export_type") == "re-export":
+            continue
+        name, file = e.get("export_name"), e.get("source_file")
+        if isinstance(name, str) and name and isinstance(file, str) and file.strip():
+            line, signature_line = _declared_at(e)
+            declarations.append({"exportName": name, "kind": e.get("export_type"), "file": file, "line": line,
+                                 "signatureLine": signature_line})
 
     # The umbrella ratio reads the public rows alone: an other definition is no root barrel name there.
     root_names = [p for p in _members_in_place(rows["public"]) if p.get("entry") in root_files]
@@ -1362,6 +1431,8 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
     return {
         "records": records,
         "nestedRecords": nested_records,
+        "declarations": declarations,
+        "aliases": aliases,
         "sets": sets,
         "outside": [_outside_row(o, scope) for o in outside],
         "nested": [{"entry": top, "within": nested[top], "names": nested_names[top]} for top in sorted(nested)],
@@ -1606,6 +1677,9 @@ def surface(args: argparse.Namespace) -> dict:
     scope = extracted["scope"] if extracted is not None and any(extracted["scope"].values()) else None
     if scope is None:
         scope = brief["scope"] if brief is not None else _scope(None, None, None)
+    # Each other declaration of a surface name (#918), for the signature plan alone: no record, set or count.
+    others = (other_declarations(records, extracted["declarations"], extracted["aliases"], scope["exclude"])
+              if extracted is not None else [])
     # A tier A glob the runner lists as matching no file counts no name, and
     # so does one whose folder or file differs from every scope.include
     # glob's before any `*` or `?` (`gen/**` beside `src/**`) or one a
@@ -1749,6 +1823,7 @@ def surface(args: argparse.Namespace) -> dict:
             "brief": args.brief, "fold": bool(args.fold),
         },
         "exports": records,
+        "otherDeclarations": others,
         "sets": sets,
         **out,
         "warnings": warnings,
