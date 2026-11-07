@@ -155,9 +155,9 @@ def test_the_defect_key_examples_name_real_things():
     assert "`--orphan-action`" in _read(src / "skf-setup" / "references" / "auto-index.md")
     contract = _read(src / "skf-test-skill" / "references" / "inventory-contract.md")
     # The missing-rule example names its case in the step file's own words: the rule for a `const` holding a
-    # component exists, the one for a `const` holding a function does not.
+    # component exists. Whether the contract later adds the function case (#970) does not matter here: the example
+    # only has to use the step file's own words.
     assert "A `const` holding a component" in contract
-    assert "holding a function" not in contract
     # The sample's second key is that file's own rule term.
     assert "shared text" in contract
 
@@ -308,6 +308,7 @@ def test_a_differently_named_report_is_safe_but_unlinked():
     assert ("changes the fingerprint. So does a report that names the same defect by another thing than an earlier "
             "report did.") in caught
     assert "safe but unlinked" in caught
+
 
 def test_the_seen_cache_is_written_under_the_new_fingerprint():
     text = _read(SHARED_HEALTH_CHECK)
