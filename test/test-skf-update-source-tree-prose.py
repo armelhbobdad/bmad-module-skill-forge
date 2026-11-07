@@ -2457,6 +2457,7 @@ def test_write_adds_the_cited_export_entry_and_names_the_drift(tmp_path, capsys)
     skill_package.mkdir(parents=True)
     (skill_package / "metadata.json").write_bytes(json.dumps({"exports": ["search"]}).encode("utf-8"))
     values = {"update_type": "gap-driven", "forge_version": str(forge_version), "run_dir": str(run_dir),
+              "provenance_map_path": str(forge_version / "provenance-map.json"),
               "skill_name": "lib", "generation_date": "2026-10-01T10:00:00Z", "test_report_run_id": "r1",
               "forge_tier": "Forge", "manual_sections_preserved": "0", "map_source_commit": "abc",
               "map_source_ref": "v1", "head_short_sha": "1234567", "pinned_short_sha": "abcdef0",
@@ -2477,6 +2478,57 @@ def test_write_adds_the_cited_export_entry_and_names_the_drift(tmp_path, capsys)
     assert (written["test_report_run_id"], written["source_commit"]) == ("r1", "abc")
     # the exports[] §2's metadata call writes: the name apply mapped joins the ones metadata.json held
     assert json.loads((run_dir / "metadata-lists.json").read_bytes())["exports"] == ["search", "fresh"]
+
+
+def test_write_apply_reads_the_map_init_bound(tmp_path):
+    """#948: `apply` reads `{provenance_map_path}`, the map init.md §4 bound (the current version's, else the flat one
+    an older skill keeps in `{forge_data_folder}/{skill_name}/`), and writes `{forge_version}/provenance-map.json`. It
+    read `{forge_version}/provenance-map.json`, so a repair of a flat-forge skill, whose version folder holds no map,
+    exited 1 and halted at `write:provenance-map`; in a new-version run it reads the bytes merge.md §6b step 6 copied."""
+    call = _apply_call()
+    assert '[--provenance-map "{provenance_map_path}"]' in call
+    assert '--provenance-map "{forge_version}/provenance-map.json"' not in call
+    assert '-o "{forge_version}/provenance-map.json"' in call
+    lead = _slice(_write_3(), "### 3. Write Updated provenance-map.json", "```bash")
+    for token in ("it reads `{provenance_map_path}`, the map the update started from",
+                  "the same bytes `apply` reads",
+                  "In a repair `{provenance_map_path}` is the only map there is"):
+        assert token in lead, token
+    assert "Bind `{provenance_map_path}` to the path found" in _read(INIT)
+    # a gap-driven repair of a flat-forge skill: the map is flat, the version folder holds only the test report
+    group = tmp_path / "forge data" / "lib"
+    forge_version = group / "1.0.0"
+    forge_version.mkdir(parents=True)
+    (forge_version / "test-report-lib-r1.md").write_bytes(b"report\n")
+    old = {"export_name": "search", "export_type": "function", "source_library": "lib", "source_file": "pkg/api.py",
+           "source_line": 5, "confidence": "T1", "extraction_method": "ast-grep",
+           "ast_node_type": "function_definition", "signature_source": "T1"}
+    flat_map = group / "provenance-map.json"
+    flat_map.write_bytes(json.dumps({"entries": [old]}).encode("utf-8"))
+    flat_bytes = flat_map.read_bytes()
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    (run_dir / "reextract-records.json").write_bytes(json.dumps({"mode": "gap-driven", "verification": [
+        {"export_name": "fresh", "gap_category": "NEW_EXPORT", "severity": "High", "verification": "verified",
+         "in_map": False, "map_entry": None, "source_citation": {"file": "pkg/new.py", "line": 3},
+         "reachability": "public"}], "files": []}).encode("utf-8"))
+    (run_dir / "merge-records.json").write_bytes(json.dumps({"exports": [
+        {"export_name": "fresh", "export_type": "function", "params": ["x"]}]}).encode("utf-8"))
+    skill_package = tmp_path / "skills" / "lib" / "1.0.0" / "lib"
+    skill_package.mkdir(parents=True)
+    (skill_package / "metadata.json").write_bytes(json.dumps({"exports": ["search"]}).encode("utf-8"))
+    values = {"update_type": "gap-driven", "forge_version": str(forge_version), "run_dir": str(run_dir),
+              "provenance_map_path": str(flat_map), "skill_name": "lib", "generation_date": "2026-10-01T10:00:00Z",
+              "test_report_run_id": "r1", "forge_tier": "Forge", "manual_sections_preserved": "0",
+              "map_source_commit": "abc", "map_source_ref": "v1", "skill_package": str(skill_package)}
+    argv = _argv_with(call, "buildChangeManifestHelper", values, keep=(
+        "--provenance-map", "--reextract-records", "--merge-records", "--test-report-run-id"))
+    code, out = _run_script(BUILD_MANIFEST, argv)
+    assert code == 0 and out["status"] == "written", out
+    written = json.loads((forge_version / "provenance-map.json").read_bytes())
+    assert [e["export_name"] for e in written["entries"]] == ["search", "fresh"]
+    assert written["entries"][0] == old
+    assert flat_map.read_bytes() == flat_bytes, "the flat map changed"
 
 
 def test_new_entry_labels_pass_the_stats_helper():
@@ -2945,6 +2997,7 @@ def test_write_keeps_a_documented_defensive_halt(tmp_path):
          "in_map": False, "map_entry": None}]}).encode("utf-8"))
     (tmp_path / "metadata.json").write_bytes(b'{"exports": []}\n')
     values = {"update_type": "gap-driven", "forge_version": str(forge_version), "run_dir": str(run_dir),
+              "provenance_map_path": str(forge_version / "provenance-map.json"),
               "skill_name": "lib", "generation_date": "2026-10-01T10:00:00Z", "forge_tier": "Quick",
               "manual_sections_preserved": "0", "map_source_commit": "", "map_source_ref": "",
               "skill_package": str(tmp_path)}
@@ -3034,6 +3087,7 @@ def test_a_public_api_update_maps_and_documents_only_its_public_surface(tmp_path
     (forge_version / "provenance-map.json").write_bytes(b'{"entries": []}\n')
     (tmp_path / "metadata.json").write_bytes(b'{"exports": []}\n')
     values = {"update_type": "incremental", "forge_version": str(forge_version), "run_dir": str(run_dir),
+              "provenance_map_path": str(forge_version / "provenance-map.json"),
               "skill_name": "lib", "generation_date": "2026-10-01T10:00:00Z", "forge_tier": "Forge",
               "manual_sections_preserved": "0", "map_source_commit": "", "map_source_ref": "",
               "skill_package": str(tmp_path)}
@@ -3078,6 +3132,7 @@ def test_write_writes_metadata_json_through_its_documented_calls(tmp_path, monke
     (run_dir / "new-files.json").write_bytes(json.dumps({"new_files": [{"source_file": "tools/new.py",
                                                                          "kind": "script"}]}).encode("utf-8"))
     values = {"update_type": "incremental", "forge_version": str(forge_version), "run_dir": str(run_dir),
+              "provenance_map_path": str(forge_version / "provenance-map.json"),
               "skill_name": "lib", "generation_date": "2026-10-01T10:00:00Z", "forge_tier": "Forge",
               "manual_sections_preserved": "0", "map_source_commit": "bbb", "map_source_ref": "v1",
               "skill_package": str(skill_package), "source_root": str(src), "new_version": "1.1.0",

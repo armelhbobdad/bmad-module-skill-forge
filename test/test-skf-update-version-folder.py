@@ -369,6 +369,78 @@ def test_version_folder_steps_run_against_the_real_helpers(tmp_path):
         assert json.loads(flip.stdout)["status"] == "flipped"
 
 
+def _copy_forge_files(step6: str, group: Path, old_forge: Path, new_forge: Path) -> None:
+    """merge.md §6b step 6 as written: each file it names from the previous version's forge folder, else from the
+    flat folder when init.md §4 bound `{provenance_map_path}` to the flat map; copied, never moved."""
+    versioned_map, flat_map = old_forge / "provenance-map.json", group / "provenance-map.json"
+    provenance_map_path = versioned_map if versioned_map.is_file() else flat_map if flat_map.is_file() else None
+    new_forge.mkdir(parents=True)
+    for name in re.findall(r"`([\w.-]+\.(?:json|md|yaml))`", step6):
+        if (old_forge / name).is_file():
+            shutil.copy2(old_forge / name, new_forge / name)
+        elif provenance_map_path == flat_map and (group / name).is_file():
+            shutil.copy2(group / name, new_forge / name)
+
+
+def test_new_forge_folder_takes_a_flat_forge_skills_files(tmp_path):
+    """#948: an older skill keeps its provenance map, evidence report and extraction rules flat in
+    `{forge_data_folder}/{skill_name}/`, where init.md §4 finds the map. Step 6 copied the three only from
+    `{forge_version}`, so the new forge folder started empty and write.md §3's `apply` exited 1 on the missing map.
+    It now takes each from `{forge_version}` when it is there, else from the flat folder when the map came from
+    there, and leaves the originals in place."""
+    step6 = _step(_merge_6b(), 6)
+    for token in ("from `{forge_version}` when it is there",
+                  "else from `{forge_data_folder}/{skill_name}/` when it is there and init.md §4 bound "
+                  "`{provenance_map_path}` to that flat folder's map",
+                  "Copy, never move: the previous version's files and the flat ones stay as they are",
+                  "the extraction rules record how the skill was extracted"):
+        assert token in step6, token
+    assert step6.index("from `{forge_version}`") < step6.index("else from `{forge_data_folder}/{skill_name}/`")
+    # no audit-skill file reads extraction-rules.yaml
+    assert "audit-skill reads the extraction rules" not in _read(MERGE)
+    # the binding the rule keys on: init.md §4 falls back to the flat map
+    four = _slice(_read(INIT), "**Find `{forge_data_folder}/{skill_name}/{active_version}/provenance-map.json`**",
+                  "\n")
+    assert ("fall back to `{forge_data_folder}/{skill_name}/provenance-map.json`. Bind `{provenance_map_path}` to "
+            "the path found") in four
+
+    names = ("provenance-map.json", "evidence-report.md", "extraction-rules.yaml")
+
+    def layout(case: str, flat: dict, versioned: dict) -> dict:
+        group = tmp_path / case / "lib"
+        old_forge, new_forge = group / "1.0.0", group / "1.0.1"
+        _write(old_forge / "test-report-lib-x.md", "report\n")
+        _write(group / "skill-brief.yaml", "name: lib\n")
+        _write(group / "test-report-lib-old.md", "old report\n")
+        for name, text in flat.items():
+            _write(group / name, text)
+        for name, text in versioned.items():
+            _write(old_forge / name, text)
+        before = {p.relative_to(group).as_posix(): p.read_bytes() for p in group.rglob("*") if p.is_file()}
+        _copy_forge_files(step6, group, old_forge, new_forge)
+        after = {p.relative_to(group).as_posix(): p.read_bytes() for p in group.rglob("*")
+                 if p.is_file() and new_forge not in p.parents}
+        assert after == before, f"{case}: a source file moved or changed"
+        return {p.name: p.read_text(encoding="utf-8") for p in new_forge.iterdir()}
+
+    # flat forge data: the three come from the flat folder, which keeps them
+    copied = layout("flat", {n: f"flat {n}\n" for n in names}, {})
+    assert copied == {n: f"flat {n}\n" for n in names}
+    # a versioned skill with stale flat copies: only the versioned files, as before
+    copied = layout("versioned", {n: f"stale {n}\n" for n in names}, {n: f"v {n}\n" for n in names})
+    assert copied == {n: f"v {n}\n" for n in names}
+    # mixed: each file from where the rule says
+    copied = layout("mixed", {n: f"flat {n}\n" for n in names}, {"evidence-report.md": "v evidence\n"})
+    assert copied == {"provenance-map.json": "flat provenance-map.json\n", "evidence-report.md": "v evidence\n",
+                      "extraction-rules.yaml": "flat extraction-rules.yaml\n"}
+    # a flat file that is absent is not copied
+    copied = layout("absent", {n: f"flat {n}\n" for n in names[:2]}, {})
+    assert sorted(copied) == ["evidence-report.md", "provenance-map.json"]
+    # degraded: no map anywhere, so no flat fallback
+    copied = layout("degraded", {n: f"flat {n}\n" for n in names[1:]}, {})
+    assert copied == {}
+
+
 def test_manual_inventory_stays_out_of_every_version_folder(tmp_path):
     """A live update left `.manual-inventory.json` in the previous version's forge folder, which §6b keeps unchanged.
 
