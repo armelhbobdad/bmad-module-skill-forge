@@ -4784,6 +4784,13 @@ def test_a_headless_run_needs_the_skill_name(tmp_path):
     assert listed == ["lib"]
 
 
+def _emit_line(five_b: str) -> str:
+    """The `emit` call of report.md §5b's fence, whose first line creates the version's forge folder (#907)."""
+    fence = _fence(five_b, "uv run {emitEnvelopeHelper} emit --workflow skf-update-skill")
+    [line] = [line for line in fence.splitlines() if line.startswith("uv run {emitEnvelopeHelper} emit ")]
+    return line
+
+
 def test_finished_runs_fire_on_complete_and_read_only_runs_do_not(tmp_path):
     """No-change and normal finishes write the result files and fire on_complete; detect-only and dry-run write none
     and fire nothing, and customize.toml says so (#585 update part; W1 determinism-2 and enhancement-4)."""
@@ -4803,7 +4810,7 @@ def test_finished_runs_fire_on_complete_and_read_only_runs_do_not(tmp_path):
     for gone in ("Construct the envelope from in-context state", "update-skill-result-{YYYYMMDD-HHmmss}.json` (UTC "
                  "timestamp, resolution to seconds) and a copy"):
         assert gone not in five_b, gone
-    emit = _fence(five_b, "uv run {emitEnvelopeHelper} emit --workflow skf-update-skill")
+    emit = _emit_line(five_b)
     payload = _sample(_heredoc(_fence(five_b, 'cat > "{run_dir}/result-context.json"')))
     run_dir = tmp_path / "skf-update-skill-a1B2c3D4"
     run_dir.mkdir()
@@ -4839,7 +4846,8 @@ def test_the_hook_runs_only_when_this_run_wrote_the_latest_copy(tmp_path):
     five_b = _slice(report, "### 5b. Result Contract", "### 6.")
     for token in ("When the emitter exits non-zero and no retry applies, or fails again, or no path resolved for "
                   "`{emitEnvelopeHelper}`, this run has no result contract: display its `message` (or that the "
-                  "emitter is missing), bind no `{result_envelope_line}`, and skip the hook as below.",
+                  "emitter is missing), bind no `{result_envelope_line}` when the run is interactive, when no emitter "
+                  "resolved or when the failure line below fails too, and skip the hook as below.",
                   "`result_file_write_failed` (a result file the emitter could not write; the hook then does not run)",
                   "is non-empty, the emitter exited 0 and the line's `warnings[]` hold no entry that starts with "
                   "`result_file_write_failed` (the emitter wrote both result files), invoke it:",
@@ -4862,7 +4870,7 @@ def test_the_hook_runs_only_when_this_run_wrote_the_latest_copy(tmp_path):
     command = "{onCompleteCommand} --result-path={forge_version}/update-skill-result-latest.json"
     assert five_b.index("hold no entry that starts with") < five_b.index(command) < five_b.index("on_complete skipped")
     assert "nor when a run halts or did not write its -latest copy." in _read(CUSTOMIZE)
-    emit = _fence(five_b, "uv run {emitEnvelopeHelper} emit --workflow skf-update-skill")
+    emit = _emit_line(five_b)
     payload = _sample(_heredoc(_fence(five_b, 'cat > "{run_dir}/result-context.json"')))
     run_dir = tmp_path / "skf-update-skill-a1B2c3D4"
     run_dir.mkdir()
@@ -4905,7 +4913,7 @@ def test_the_result_line_carries_the_security_row(tmp_path):
     assert prop["enum"] == ["pass", "warn", "skipped"]
     assert "PASS as 'pass', WARN as 'warn', SKIP as 'skipped'" in prop["description"]
     assert "Absent on 'no-changes', 'detect-only' and 'dry-run'" in prop["description"]
-    emit = _fence(five_b, "uv run {emitEnvelopeHelper} emit --workflow skf-update-skill")
+    emit = _emit_line(five_b)
     base = {**_sample(template), "version": "1.0.0", "previous_version": "1.0.0", "update_mode": "normal"}
     # §1's no-change finish: no scan ran, so neither the line nor the result file carries the field
     no_change = {key: value for key, value in base.items() if key != "security_result"}
@@ -4927,6 +4935,208 @@ def test_the_result_line_carries_the_security_row(tmp_path):
             assert "security_result" not in latest["summary"]
         else:
             assert "security_result" in err
+
+
+def _hook_runs(code: int, line: dict) -> bool:
+    """§5b's hook check: the emitter exited 0 and no warnings[] entry starts with result_file_write_failed."""
+    return code == 0 and not any(w.startswith("result_file_write_failed") for w in line["warnings"])
+
+
+def test_the_result_folder_is_created_before_the_emit(tmp_path):
+    """#907: §1's no-change exit emits into `{forge_version}`, which a skill whose provenance map is still flat may
+    lack, and into a missing folder the emitter writes no result file and raises no warning, so the hook got a -latest
+    path that was not there. §5b's fence creates the folder first, as Verify Stack's does, and a folder that cannot
+    be created records the warning that skips the hook."""
+    report = _read(REPORT)
+    five_b = _slice(report, "### 5b. Result Contract", "### 6.")
+    lead = _slice(five_b, "Then, from `{project-root}`, create the version's forge folder", "\n")
+    for token in ("and run the emitter with the run folder and that folder",
+                  "The emitter writes result files only into a folder that exists, and §1's no-change exit may find "
+                  "none when the skill's provenance map is still flat",
+                  "a folder that cannot be created leaves a `result_file_write_failed` warning, so the hook does not "
+                  "run:"):
+        assert token in lead, token
+    lines = _fence(five_b, "uv run {emitEnvelopeHelper} emit --workflow skf-update-skill").splitlines()
+    assert len(lines) == 2 and lines[1] == _emit_line(five_b)
+    mkdir, record = lines[0].split(" || ")
+    assert mkdir == 'mkdir -p "{forge_version}"'
+    assert record == ('uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+                      "'result_file_write_failed: cannot create the version forge folder'")
+    # §1's no-change payload, through "as §5b does"
+    one = _slice(report, "### 1. Handle No-Change Shortcut", "### 1a.")
+    assert 'with `status: "no-changes"` in the payload and `--result-dir "{forge_version}"`' in one
+    assert "write its result contract and fire the hook as §5b does" in one
+    summary = json.loads(re.search(r"an empty `outputs` and `summary` `(\{[^`]+\})`", one).group(1))
+    staged = _sample(_heredoc(_fence(five_b, 'cat > "{run_dir}/result-context.json"')))
+    payload = {**staged, "status": "no-changes", "version": "1.0.0", "previous_version": "1.0.0",
+               "update_mode": "normal", "files_written": [],
+               "result_contract": {**staged["result_contract"], "outputs": [], "summary": summary}}
+    payload.pop("security_result", None)  # §1 runs no scan, so its line leaves the field out (#902)
+    warning = re.search(r"--warning '([^']+)'", record).group(1)
+
+    def run(name: str, folder) -> tuple[Path, Path, tuple[int, str, str]]:
+        run_dir = tmp_path / name / "skf-update-skill-a1B2c3D4"
+        run_dir.mkdir(parents=True)
+        forge_version = tmp_path / name / "forge" / "lib" / "1.0.0"
+        folder(forge_version, run_dir)
+        values = {"run_dir": str(run_dir), "forge_version": str(forge_version)}
+        return forge_version, run_dir, _emit(_cmd_args(_emit_line(five_b), "emitEnvelopeHelper", values), payload)
+
+    def line_of(out: str) -> dict:
+        return json.loads(out.split("SKF_UPDATE_RESULT_JSON: ", 1)[1])["skf_update"]
+
+    # before the fix: into a missing folder the emit exits 0, warns nothing and writes nothing, and the hook ran
+    forge_version, _, (code, out, err) = run("absent", lambda forge, run_dir: None)
+    assert code == 0, err
+    assert line_of(out)["warnings"] == [] and not forge_version.exists()
+    assert _hook_runs(code, line_of(out))
+
+    # the folder is missing: mkdir makes it, the emit writes both result files, no warning, and the hook runs
+    def created(forge, run_dir):
+        forge.mkdir(parents=True, exist_ok=True)
+
+    forge_version, _, (code, out, err) = run("created", created)
+    assert code == 0, err
+    line = line_of(out)
+    assert line["status"] == "no-changes" and line["warnings"] == [] and _hook_runs(code, line)
+    names = sorted(p.name for p in forge_version.iterdir())
+    assert len(names) == 2 and names[1] == "update-skill-result-latest.json", names
+    assert re.fullmatch(r"update-skill-result-\d{8}-\d{6}\.json", names[0]), names
+    latest = json.loads((forge_version / "update-skill-result-latest.json").read_bytes())
+    assert latest["summary"] == summary
+
+    # the folder exists (merge.md §6b made it): mkdir -p changes nothing, and the emit writes as before
+    def existing(forge, run_dir):
+        forge.mkdir(parents=True)
+        forge.mkdir(parents=True, exist_ok=True)
+
+    forge_version, _, (code, out, err) = run("existing", existing)
+    assert code == 0 and _hook_runs(code, line_of(out)), err
+    assert (forge_version / "update-skill-result-latest.json").is_file()
+
+    # a file where the folder goes: mkdir fails, the record call leaves one warning, nothing is written, no hook
+    def blocked(forge, run_dir):
+        forge.parent.mkdir(parents=True)
+        forge.write_bytes(b"not a folder\n")
+        with pytest.raises(OSError):
+            forge.mkdir(parents=True, exist_ok=True)
+        proc = subprocess.run([sys.executable, str(EMITTER), *_argv(record, "emitEnvelopeHelper", {
+            "run_dir": str(run_dir)})], capture_output=True, encoding="utf-8")
+        assert proc.returncode == 0, proc.stderr
+
+    forge_version, _, (code, out, err) = run("blocked", blocked)
+    assert code == 0, err
+    line = line_of(out)
+    assert [w for w in line["warnings"] if w.startswith("result_file_write_failed")] == [warning]
+    assert warning == "result_file_write_failed: cannot create the version forge folder"
+    assert forge_version.is_file() and sorted(p.name for p in forge_version.parent.iterdir()) == ["1.0.0"]
+    assert not _hook_runs(code, line)
+
+
+def test_a_headless_emit_that_fails_twice_prints_a_failure_line(tmp_path):
+    """#908: an emit that fails for good used to bind no `{result_envelope_line}`, so a headless run ended with no
+    SKF_UPDATE_RESULT_JSON line and no reason. A headless run whose emitter resolved now prints a
+    halted-for-write-failure line through emit-halt, with no --result-dir, binds it, skips the hook and goes on to
+    §6, undoing nothing; an interactive run, a missing emitter or a failure line that fails too still bind none."""
+    report = _read(REPORT)
+    five_b = _slice(report, "### 5b. Result Contract", "### 6.")
+    assert five_b.count("In `{headless_mode}`, ") == 1
+    narrowed = ("bind no `{result_envelope_line}` when the run is interactive, when no emitter resolved or when the "
+                "failure line below fails too, and skip the hook as below.")
+    lead = ("A headless run whose emitter resolved then prints a failure line in place of the result line, so a "
+            "pipeline learns why the run has none.")
+    assert five_b.index(narrowed) < five_b.index(lead) < five_b.index("- `status`:")
+    paragraph = _slice(five_b, lead, "\n")
+    for token in ("From `{project-root}`, run `emit-halt` with the values staged in `{run_dir}/result-context.json`",
+                  "with no `--result-dir` (with one, `emit-halt` would overwrite `update-skill-result-latest.json`)"):
+        assert token in paragraph, token
+    halt = _fence(five_b, "uv run {emitEnvelopeHelper} emit-halt")
+    assert halt.startswith('uv run {emitEnvelopeHelper} emit-halt --workflow skf-update-skill --run-dir "{run_dir}" '
+                           "<<'SKF_JSON'\n")
+    assert "--result-dir" not in halt and _unquoted_placeholders(halt, "emitEnvelopeHelper") == []
+    after = _slice(five_b, "Leave `files_written` out when the emitter's message names it", "\n")
+    for token in ("(the line then holds `[]`)", "as init.md's halt procedure does: escape `\"` and `\\`, and write "
+                  "every path with `/`", "Bind `{result_envelope_line}` to the line it prints and do not display it "
+                  "here: the shared health check displays it as the run's last line.",
+                  "When it exits non-zero or prints no line, bind nothing.",
+                  "skip the hook with the no-result-contract line below, then go on to §6.",
+                  "The failure line undoes nothing: what this run wrote stays in place."):
+        assert token in after, token
+    # the hook's own skip lines, which the failure line reuses, are unchanged and come after the hook command
+    assert "on_complete skipped" not in _slice(five_b, lead, "**Post-finalization hook.**")
+    # the field rules name the failure line
+    status_rule = _slice(five_b, "- `status`:", "\n")
+    assert ('the failure line above prints `"halted-for-write-failure"` at `error.phase` `report:result-contract`'
+            in status_rule)
+    error_rule = _slice(five_b, "- `error`:", "\n")
+    assert ('null on every exit this step prints except the failure line above, which carries '
+            '`{phase: "report:result-contract", path, reason}`') in error_rule
+    # the schema, the Headless row and the docs say so; the enum and the properties are unchanged
+    status = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["status"]
+    assert ("and a write.md §8/§8a active-link failure, and a headless result contract report.md §5b could not write "
+            "(error.phase 'report:result-contract', printed after the run's last write, so nothing is undone), "
+            "concurrent-run when") in status["description"]
+    assert status["enum"] == STATUS_ENUM
+    sentence = ("A headless run whose emitter refused its result line for good ends on a `halted-for-write-failure` "
+                "line instead, with `error.phase` `report:result-contract` and an `error.reason` that starts "
+                "`result-contract-not-written`, and nothing it wrote is undone.")
+    row = _slice(_read(CONTRACT), "| **Headless** |", "\n")
+    assert sentence in row and "at step 6 or at a HALT" in row
+    docs = _slice(_slice(_read(REPO_ROOT / "docs" / "workflows.md"), "### Update Skill (US)", "**Agent:**"),
+                  "**Headless:**", "\n")
+    assert sentence in docs
+
+    run_dir = tmp_path / "skf-update-skill-a1B2c3D4"
+    run_dir.mkdir()
+    forge_version = tmp_path / "forge" / "lib" / "1.0.1"
+    forge_version.mkdir(parents=True)
+    values = {"run_dir": str(run_dir), "forge_version": str(forge_version)}
+    staged = {**_sample(_heredoc(_fence(five_b, 'cat > "{run_dir}/result-context.json"'))), "version": "1.0.1",
+              "previous_version": "1.0.0", "update_mode": "normal", "files_written": ["SKILL.md", "metadata.json"]}
+    # the emit fails for good: exit 1, no line, no result file
+    code, out, err = _emit(_cmd_args(_emit_line(five_b), "emitEnvelopeHelper", values), {**staged,
+                                                                                         "status": "succeeded"})
+    assert code == 1 and out == "", out
+    message = json.loads(err)["message"]
+    assert list(forge_version.iterdir()) == []
+    template = _sample(_heredoc(halt))
+    assert {"status", "phase", "path", "reason", "skill_name", "version", "previous_version", "update_mode",
+            "files_written"} <= set(template)
+    assert template["reason"].startswith("result-contract-not-written: ")
+
+    def failure_line(payload: dict) -> tuple[int, str, str]:
+        return _emit(_cmd_args(halt, "emitEnvelopeHelper", {"run_dir": str(run_dir)}), payload)
+
+    # the documented fence, filled from the staged payload: a halted-for-write-failure line and no file
+    payload = {**template, "path": forge_version.as_posix(), "reason": f"result-contract-not-written: {message}",
+               "skill_name": staged["skill_name"], "version": staged["version"],
+               "previous_version": staged["previous_version"], "update_mode": staged["update_mode"],
+               "files_written": staged["files_written"]}
+    code, out, err = failure_line(payload)
+    assert code == 0, err
+    assert out.startswith("SKF_UPDATE_RESULT_JSON: ") and out.count("\n") == 1
+    line = json.loads(out.split("SKF_UPDATE_RESULT_JSON: ", 1)[1])["skf_update"]
+    assert line["status"] == "halted-for-write-failure"
+    assert line["error"]["phase"] == "report:result-contract"
+    assert line["error"]["reason"].startswith("result-contract-not-written: ") and message in line["error"]["reason"]
+    assert line["error"]["path"] == forge_version.as_posix()
+    assert (line["version"], line["previous_version"], line["files_written"]) == ("1.0.1", "1.0.0",
+                                                                                  ["SKILL.md", "metadata.json"])
+    assert list(forge_version.iterdir()) == [] and "result_path" not in line
+    # a message that names files_written: the key is left out, and the line holds []
+    code, out, err = _emit(_cmd_args(_emit_line(five_b), "emitEnvelopeHelper", values), {**staged,
+                                                                                         "files_written": ["bogus"]})
+    assert code == 1 and out == ""
+    message = json.loads(err)["message"]
+    assert "files_written" in message
+    code, out, err = failure_line({k: v for k, v in {**payload, "reason": f"result-contract-not-written: {message}"}
+                                   .items() if k != "files_written"})
+    assert code == 0, err
+    assert json.loads(out.split("SKF_UPDATE_RESULT_JSON: ", 1)[1])["skf_update"]["files_written"] == []
+    # a failure line that fails too prints nothing to bind
+    code, out, err = failure_line({**payload, "files_written": ["bogus"]})
+    assert code == 1 and out == ""
+    assert list(forge_version.iterdir()) == []
 
 
 def test_the_headless_result_line_is_the_runs_last_line():
@@ -5139,7 +5349,9 @@ def test_the_run_state_calls_quote_every_path():
         (_fence(init, "uv run {runStateHelper} rollback"), "runStateHelper"),
         (_fence(detect, "uv run {buildChangeManifestHelper} build --doc-hashes"), "buildChangeManifestHelper"),
         (_fence(write, "uv run {compareDocHashesHelper} refresh-hashes"), "compareDocHashesHelper"),
-        (_fence(report, "uv run {emitEnvelopeHelper} emit --workflow"), "emitEnvelopeHelper"),
+        *[(line, "emitEnvelopeHelper") for line in _fence(report, "uv run {emitEnvelopeHelper} emit --workflow")
+          .splitlines() if "uv run {emitEnvelopeHelper}" in line],
+        (_fence(report, "uv run {emitEnvelopeHelper} emit-halt"), "emitEnvelopeHelper"),
         (re.search(r"`(uv run \{skillInventoryHelper\} version next-patch [^`]*)`", report).group(1),
          "skillInventoryHelper"),
     ]

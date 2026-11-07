@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  A headless Update Skill run whose result could not be written ended with no `SKF_UPDATE_RESULT_JSON` line, so a pipeline could not tell why. It now ends on a `halted-for-write-failure` line with `error.phase` `report:result-contract` and the emitter's message. The version the run wrote stays in place.
+issues: [908]
