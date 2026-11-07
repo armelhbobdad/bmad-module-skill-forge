@@ -43,6 +43,10 @@ counts and the Gap Report is rendered from:
     one Medium `denominator-inflation` gap at the brief listing at most 50
     of them; a stale name the brief scopes out (#796) is a Medium
     `stale-documentation` gap naming its file and the brief
+  - a stale name's issue (#923): every kind opens with the line that
+    documents the name, in SKILL.md or a reference file, else with `the
+    skill`, never a bare `SKILL.md`, while a fabricated name's Source stays
+    the file its provenance cites
 """
 
 from __future__ import annotations
@@ -901,11 +905,60 @@ class TestCoverageAdapter:
             ("Medium", "stale-documentation", "Stale documentation: get", "references/api.md:3", "get"),
             ("Medium", "stale-documentation", "Stale documentation: nowhere", "SKILL.md", "nowhere"),
         ]
+        # #923: each issue opens with the line that documents the name, else the skill, never a bare SKILL.md
+        assert [r["issue"] for r in records] == [
+            "the skill documents `ghost`, which the source API surface lacks and the cited file does not define",
+            "`references/api.md:3` documents `get`, which the enumerated source API surface lacks",
+            "the skill documents `nowhere`, which the enumerated source API surface lacks",
+        ]
 
     def test_without_classify_stale_every_stale_name_is_medium(self):
         records = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["ghost"]})
         assert brief(records) == [("Medium", "stale-documentation", "Stale documentation: ghost", "SKILL.md",
                                    "ghost")]
+        # without the skill package, the issue names no file
+        assert records[0]["issue"] == "the skill documents `ghost`, which the enumerated source API surface lacks"
+
+    def test_a_stale_name_written_in_a_reference_file_names_that_line(self, ledger: Path, tmp_path: Path):
+        """#923: the issue opens with the line its Source cites, in references/, as the CLI writes it."""
+        skill = tmp_path / "skill"
+        (skill / "references").mkdir(parents=True)
+        (skill / "SKILL.md").write_bytes(b"# demo\n\nSee references.\n")
+        (skill / "references" / "connectors.md").write_bytes(b"# Connectors\n\n`ColumnDef(name)` names a column.\n")
+        coverage = write_json(tmp_path / "coverage.json", {"branch": "enumerated", "missing": [],
+                                                           "stale": ["ColumnDef"]})
+        proc = from_file(ledger, "coverage-check", "coverage", coverage, skill_dir=skill)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        [record] = ledger_records(ledger)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: ColumnDef",
+                                    "references/connectors.md:3", "ColumnDef")]
+        assert record["issue"] == ("`references/connectors.md:3` documents `ColumnDef`, which the enumerated source "
+                                   "API surface lacks")
+        assert record["remediation"] == ("Check `ColumnDef` against the source and update or remove its documentation "
+                                         "at references/connectors.md:3: the enumerated source surface does not "
+                                         "export it.")
+
+    def test_a_fabricated_names_issue_names_the_line_that_documents_it(self, tmp_path: Path):
+        """#923: the issue names the line that writes the name, here in references/, while the Source stays the
+        file its provenance cites; without the skill package the issue names no file."""
+        skill = tmp_path / "skill"
+        (skill / "references").mkdir(parents=True)
+        (skill / "SKILL.md").write_bytes(b"# demo\n\nSee references.\n")
+        (skill / "references" / "api.md").write_bytes(b"# API\n\nThe calls.\n\n`ghost(key)` reads a key.\n")
+        cov = {"branch": "enumerated", "missing": [], "stale": ["ghost"]}
+        stale = [{"name": "ghost", "fabricated": True, "source": "src/a.py:3", "reason": "not-defined"}]
+        [record] = mod.from_coverage(cov, stale=stale, skill_dir=str(skill))
+        assert brief([record]) == [("Critical", "fabricated-signature", "Fabricated signature: ghost", "src/a.py:3",
+                                    "ghost")]
+        assert record["issue"] == ("`references/api.md:5` documents `ghost`, which the source API surface lacks and "
+                                   "the cited file does not define")
+        assert record["remediation"] == ("Remove `ghost` from SKILL.md and references/, or correct it to the export "
+                                         "the source defines: no file its provenance cites defines it "
+                                         "(`src/a.py:3`).")
+        [record] = mod.from_coverage(cov, stale=stale)
+        assert record["source"] == "src/a.py:3"
+        assert record["issue"] == ("the skill documents `ghost`, which the source API surface lacks and the cited "
+                                   "file does not define")
 
     # #678: a stale name classify-stale finds declared is a documented extra, given a surface built from an
     # extraction (the only input that fills `excluded.outsideScope`).
@@ -1005,8 +1058,9 @@ class TestCoverageAdapter:
                                      surface=self.BRIEFED_SURFACE, stale=self.RESCOPED)
         assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: Rescoped", "SKILL.md",
                                     "Rescoped")]
-        assert record["issue"] == ("SKILL.md documents `Rescoped`, which the entry point `pkg/__init__.py` exports "
-                                   "and `pkg/old/r.py:2` defines, a file `data/skill-brief.yaml` scopes out "
+        # no line documents it without the skill package: the issue names no file (#923)
+        assert record["issue"] == ("the skill documents `Rescoped`, which the entry point `pkg/__init__.py` "
+                                   "exports and `pkg/old/r.py:2` defines, a file `data/skill-brief.yaml` scopes out "
                                    "(`excluded.outsideScope`)")
         assert record["remediation"] == (
             "Decide whether `Rescoped` belongs on the surface: `data/skill-brief.yaml` scopes out `pkg/old/r.py:2`, "
@@ -1028,7 +1082,7 @@ class TestCoverageAdapter:
                "outsideInclude": True}
         record = self._rescoped(row)
         # no line: the file alone; no entry point named: any
-        assert record["issue"] == ("SKILL.md documents `Rescoped`, which an entry point exports and `lib/r.py` "
+        assert record["issue"] == ("the skill documents `Rescoped`, which an entry point exports and `lib/r.py` "
                                    "defines, a file `data/skill-brief.yaml` scopes out (`excluded.outsideScope`)")
         assert record["remediation"] == (
             "Decide whether `Rescoped` belongs on the surface: `data/skill-brief.yaml` scopes out `lib/r.py`, where "
@@ -1078,6 +1132,41 @@ class TestCoverageAdapter:
                                     surface=self.EXCLUDED_SURFACE, stale=stale)
         assert brief(records) == [("Critical", "fabricated-signature", "Fabricated signature: ghost", "src/a.py:3",
                                    "ghost")]
+
+    @pytest.mark.parametrize("kind", ["fabricated", "stale-documentation", "scoped-out", "documented-extra"])
+    @pytest.mark.parametrize("written, subject", [
+        (None, "the skill"),
+        ("", "the skill"),
+        ("SKILL.md", "`SKILL.md:3`"),
+        ("references/connectors.md", "`references/connectors.md:3`"),
+    ], ids=["no-skill-dir", "written-nowhere", "in-skill-md", "in-references"])
+    def test_no_stale_names_issue_opens_with_a_bare_skill_md(self, tmp_path: Path, kind: str, written: str | None,
+                                                             subject: str):
+        """#923: every kind of stale-name gap opens its issue with the line that documents the name, else with
+        the skill, whatever its Source."""
+        category, name, tail, inputs = {
+            "fabricated": ("fabricated-signature", "ghost", "the cited file does not define",
+                           {"stale": [{"name": "ghost", "fabricated": True, "source": "src/a.py:3"}]}),
+            "stale-documentation": ("stale-documentation", "nowhere", "the enumerated source API surface lacks", {}),
+            "scoped-out": ("stale-documentation", "Rescoped", "scopes out (`excluded.outsideScope`)",
+                           {"surface": self.BRIEFED_SURFACE, "stale": self.RESCOPED}),
+            "documented-extra": ("observation", "Task", "the source still declares",
+                                 {"surface": self.EXCLUDED_SURFACE, "stale": [
+                                     {"name": "Task", "fabricated": False, "source": None,
+                                      "defined_at": "pkg/tasks/task.py:4"}]}),
+        }[kind]
+        skill = None
+        if written is not None:
+            skill = tmp_path / "skill"
+            (skill / "references").mkdir(parents=True)
+            (skill / "SKILL.md").write_bytes(b"# demo\n\nSee references.\n")
+            if written:
+                (skill / written).write_bytes(f"# Doc\n\n`{name}(x)` is documented here.\n".encode("utf-8"))
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]},
+                                     skill_dir=str(skill) if skill else None, **inputs)
+        assert record["category"] == category and record["issue"].endswith(tail), record
+        assert record["issue"].startswith(f"{subject} documents `{name}`, which "), record
+        assert not record["issue"].startswith("SKILL.md documents")
 
     # #678: a homonym classify-stale cannot settle is decided by the skill's own citations.
     HOMONYM = {"name": "Task", "fabricated": False, "source": None, "defined_at": None,
