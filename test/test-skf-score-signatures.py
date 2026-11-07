@@ -59,11 +59,13 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
   - compares a signature documented with no argument (#794): `params` of
     `""` or `[]` is a signature, and of a name listed twice the entry with
     non-empty `params` or a usage form (#826) is compared
-  - offers a name's other documented forms that list members as its
-    check's `alternatives` (#826), one form per meaning, grades each
-    mismatch against the form its `form` names, by that form's own label,
-    and keeps every form's mismatch; with --plan the forms are the plan's;
-    and compares a component `constant` the inventory gives a usage form (#837)
+  - offers a name's other documented forms that list members, or state a
+    return type (#914), as its check's `alternatives` (#826), one form per
+    meaning, grades each mismatch against the form its `form` names, by that
+    form's own label when its `documented_sig` quotes that form, and keeps
+    every form's mismatch, at its own form when it quotes none (#919); with
+    --plan the forms are the plan's; and compares a component `constant`
+    the inventory gives a usage form (#837)
 The surface fixture is load-coverage-inputs.py surface output built from a
 --mode full extraction, so a recipe's internal match is never compared.
 """
@@ -2469,6 +2471,22 @@ def test_an_unbound_form_is_never_recorded_at_an_other_declaration(tmp_path):
     assert any(f"`{LIGHTWEIGHT}`, no file the plan offered its check at" in w for w in out["warnings"])
 
 
+@pytest.mark.parametrize("documented_sig", ["steps, data -> list[Any]", "run_pipeline(steps, data) -> list[Any]"],
+                         ids=["bare", "with-the-name"])
+def test_a_misquoted_bound_form_stays_at_its_declaration(tmp_path, documented_sig):
+    """#919: the judge compared the lightweight form, bound to the runner, but wrote a `documented_sig` that quotes
+    no form. The mismatch was moved to form 0 and recorded at the orchestrator's declaration, `(form 1 of 2)`; it
+    now keeps form 1, so it is recorded at the runner's declaration, titled by its own form, with a warning."""
+    out = _homonym_score(tmp_path, [{**LIGHTWEIGHT_MISMATCH, "documented_sig": documented_sig}])
+    assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, 37, "Critical")]
+    [gap] = out["gaps"]
+    assert (gap["source"], gap["title"]) == (f"{LIGHTWEIGHT}:37", "Signature mismatch: run_pipeline (form 2 of 2)")
+    assert gap["issue"].endswith("(documented form 2 of 2: `(steps, *, data=None, context=None) -> list`)")
+    assert [w for w in out["warnings"] if "run_pipeline" in w] == [
+        f"{LIGHTWEIGHT}:37: a signature mismatch for `run_pipeline` names `form` 1, whose text its `documented_sig` "
+        "is not, nor any other form's: graded against form 1 as a full form"]
+
+
 CONTRADICTED_RUNNER = {**LIGHTWEIGHT_MISMATCH, "difference": "annotation-contradicted",
                        "source_sig": "(steps, *, data=None, context=None) -> list",
                        "issue": "the annotation says `list`; the body returns the steps' results"}
@@ -2810,26 +2828,122 @@ def test_the_form_helpers_are_the_validators():
     assert mod._form_key(fields) == inventory.form_key(fields) == (("params", "a, b"),)
 
 
-@pytest.mark.parametrize("entries, documented", [
-    ([{"name": "helper", "kind": "function", "params": ""}, HELPER], HELPER),
-    ([{"name": "helper", "kind": "function", "return_type": "number"}, HELPER], HELPER),
-    ([{"name": "helper", "kind": "function", "params": "", "return_type": "number"}, HELPER], HELPER),
-    ([HELPER, {"name": "helper", "kind": "function", "params": [], "return_type": "void"}], HELPER),
+@pytest.mark.parametrize("entries, forms", [
+    ([{"name": "helper", "kind": "function", "params": ""}, HELPER], [HELPER]),
+    ([{"name": "helper", "kind": "function", "return_type": "number"}, HELPER], [HELPER, {"return_type": "number"}]),
+    ([{"name": "helper", "kind": "function", "params": "", "return_type": "number"}, HELPER],
+     [HELPER, {"params": "", "return_type": "number"}]),
+    ([HELPER, {"name": "helper", "kind": "function", "params": [], "return_type": "void"}],
+     [HELPER, {"params": [], "return_type": "void"}]),
     ([{"name": "helper", "kind": "function", "params": "", "signature_form": "full"},
-      {**HELPER, "signature_form": "partial"}], {**HELPER, "signature_form": "partial"}),
+      {**HELPER, "signature_form": "partial"}], [{**HELPER, "signature_form": "partial"}]),
     ([{"name": "helper", "kind": "function", "params": ""},
-      {"name": "helper", "kind": "function", "params": [], "return_type": "void"}], {"params": ""}),
+      {"name": "helper", "kind": "function", "params": [], "return_type": "void"}],
+     [{"params": ""}, {"params": [], "return_type": "void"}]),
+    ([HELPER, {"name": "helper", "kind": "function", "return_type": "(nodes, edges)"}], [HELPER]),
+    ([HELPER, {"name": "helper", "kind": "function", "params": "", "return_type": "  "}], [HELPER]),
 ], ids=["empty-then-full", "no-params-then-full", "empty-with-a-return-type-then-full", "full-then-empty-list",
-        "empty-full-then-partial", "two-empty"])
-def test_a_form_that_lists_no_members_is_never_an_alternative(entries, documented):
+        "empty-full-then-partial", "two-empty", "a-value-name-return", "a-blank-return"])
+def test_a_form_that_lists_no_members_is_an_alternative_only_when_it_states_a_return(entries, forms):
     """A form with empty or no `params` and no usage form says nothing of what the name takes: a declaration that
-    takes none would match it and hide a wrong parameter list. So it is never an alternative, and each row of the
-    rank test above is planned with its `documented` form alone."""
-    expected = {f: documented[f] for f in ("params", "return_type", "signature_form") if f in documented}
-    assert mod.documented_forms(entries) == {"helper": [expected]}
+    takes none would match it and hide a wrong parameter list. So it never stands as `documented` beside a form
+    that lists members, and the rank test above keeps each row's `documented` form. It is an alternative only when
+    it states a return type (#914), after every form that lists members, so the return it states is compared too;
+    a blank return, or one written as names of values, states none, and such a form is never offered."""
+    expected = [{f: form[f] for f in ("params", "return_type", "signature_form") if f in form} for form in forms]
+    assert mod.documented_forms(entries) == {"helper": expected}
+    assert mod.documented_signatures(entries) == {"helper": expected[0]}
     [check] = mod.plan(entries, ["helper"], [{"name": "helper", "kind": "function", "file": "src/helper.ts",
                                               "line": 1}])["files"][0]["checks"]
-    assert check["documented"] == expected and "alternatives" not in check
+    assert check["documented"] == expected[0]
+    assert check.get("alternatives") == (expected[1:] or None)
+
+
+DEFAULT_ENV_USAGE = {"name": "default_env", "kind": "function", "usage_signature": "coco.default_env()",
+                     "description": "SKILL.md's call example."}
+DEFAULT_ENV_RETURN = {"name": "default_env", "kind": "function", "params": "", "return_type": "Environment",
+                      "description": "The reference file's signature."}
+DEFAULT_ENV_SURFACE = {"exports": [{"name": "default_env", "kind": "function", "file": "coco/env.py", "line": 12,
+                                    "signatureLine": "def default_env() -> EnvironmentSettings:",
+                                    "origin": "extraction"}],
+                       "sets": {"all": ["default_env"]}}
+
+
+def test_a_no_parameter_form_that_states_a_return_is_compared(tmp_path):
+    """#914: a skill gives `coco.default_env()` as a call example and, in a reference file, `params: ""` with
+    `return_type: "Environment"`. The plan held the call example alone, so the documented return type was never
+    compared and a wrong one passed. The return-stating form is now offered after it, and its mismatch, however the
+    judge writes the form (bare, with the name or the receiver before its group, or as its return alone), is one
+    Critical gap of form 2, with no `form` warning."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DEFAULT_ENV_USAGE, DEFAULT_ENV_RETURN],
+                                                     "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", DEFAULT_ENV_SURFACE)
+    plan_path = tmp_path / "signature-plan.json"
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(plan_path))
+    assert proc.returncode == 0, proc.stderr
+    [check] = json.loads(proc.stdout)["files"][0]["checks"]
+    assert check["documented"] == {"usage_signature": "coco.default_env()"}
+    assert check["alternatives"] == [{"params": "", "return_type": "Environment"}]
+    for sig in ("() -> Environment", "default_env() -> Environment", "coco.default_env() -> Environment",
+                "-> Environment"):
+        mismatch = {"name": "default_env", "line": 12, "form": 1, "source_sig": "() -> EnvironmentSettings",
+                    "documented_sig": sig, "issue": "the source returns `EnvironmentSettings`"}
+        results = _write(tmp_path / "s.txt", json.dumps({"file": "coco/env.py", "signature_mismatches": [mismatch]}))
+        proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan_path),
+                    "--results", results)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        out = json.loads(proc.stdout)
+        [gap] = out["gapRecords"]
+        assert (gap["severity"], gap["title"]) == ("Critical", "Signature mismatch: default_env (form 2 of 2)"), sig
+        assert gap["issue"].endswith("(documented form 2 of 2: `() -> Environment`)"), gap["issue"]
+        assert (out["matchingSignatures"], out["totalDocumented"]) == (0, 1)
+        assert not any("`form`" in w for w in out["warnings"]), out["warnings"]
+    # the call example written without its receiver still quotes form 0: each form keeps its own gap
+    results = [{"file": "coco/env.py", "signature_mismatches": [
+        {"name": "default_env", "line": 12, "form": 0, "source_sig": "() -> EnvironmentSettings",
+         "documented_sig": "default_env()", "issue": "`coco` does not export `default_env`"},
+        {"name": "default_env", "line": 12, "form": 1, "source_sig": "() -> EnvironmentSettings",
+         "documented_sig": "() -> Environment", "issue": "the source returns `EnvironmentSettings`"}]}]
+    out = mod.score([DEFAULT_ENV_USAGE, DEFAULT_ENV_RETURN], ["default_env"], DEFAULT_ENV_SURFACE["exports"], results)
+    assert [g["title"] for g in out["gapRecords"]] == ["Signature mismatch: default_env (form 1 of 2)",
+                                                       "Signature mismatch: default_env (form 2 of 2)"]
+    assert not any("`form`" in w for w in out["warnings"]), out["warnings"]
+    # a form with no `params` key is written by its return alone
+    no_params = mod.documented_forms([HELPER, {"name": "helper", "kind": "function", "return_type": "number"}])
+    assert [mod._form_text(f) for f in no_params["helper"]] == ["(x: number) -> number", "-> number"]
+    assert mod._form_text({"return_type": "number"}) == "-> number"
+
+
+def test_quotes_reads_a_name_before_the_group_and_an_empty_list():
+    """#919: a judge writes the form it compared as the rules read a `documented_sig`, often with the name, or a
+    dotted receiver and the name, before the parameters; and a form with blank or absent `params` reads as `()`.
+    Each such text quotes its form, while `()` never quotes a form that gives only a usage, and a keyword, type
+    parameters or a path before the group are no name: such a text quotes nothing."""
+    empty = {"params": "", "return_type": "Environment"}
+    rows = [
+        ("Client.run(tasks, data)", {"params": "tasks, data"}, True),
+        ("run_pipeline(tasks=None, data=None, datasets=None)", {"params": "tasks=None, data=None, datasets=None"},
+         True),
+        ("Canvas({ of })", {"params": "{ of }"}, True),
+        ("Canvas({ of?: Export })", {"params": "{ of?: Export }", "signature_form": "partial"}, True),
+        ("()", empty, True),
+        ("() -> Environment", empty, True),
+        ("default_env() -> Environment", empty, True),
+        ("coco.default_env() -> Environment", empty, True),
+        ("-> Environment", empty, True),
+        ("()", {"return_type": "number"}, True),
+        ("()", {"params": []}, True),
+        ("coco.default_env()", {"usage_signature": "coco.default_env()"}, True),
+        ("default_env()", {"usage_signature": "coco.default_env()"}, True),
+        ("f(a)", {"usage_signature": "mod.f(a)"}, True),
+        ("()", {"usage_signature": "coco.default_env()"}, False),
+        ("()", {"params": "", "usage_signature": "coco.default_env()"}, False),
+        ("def f(a)", {"params": "a"}, False),
+        ("f<T>(a)", {"params": "a"}, False),
+        ("Type::new(a)", {"params": "a"}, False),
+        ("run_pipeline(steps, data)", {"params": "steps, *, data=None, context=None"}, False),
+    ]
+    assert [(sig, mod._quotes(sig, form)) for sig, form, _ in rows] == [(sig, quotes) for sig, _, quotes in rows]
 
 
 @pytest.mark.parametrize("first, label, severity", [
@@ -2918,18 +3032,22 @@ def test_each_form_that_does_not_match_is_reported(tmp_path, order):
 
 TYPED_FULL = {"name": "Canvas", "kind": "function", "params": "{ of?: Export; meta?: Meta }"}
 TYPED_PARTIAL = {"name": "Canvas", "kind": "function", "params": "{ of?: Export }", "signature_form": "partial"}
+# Two partial forms: the typed list, form 0 (it lists parameters), then the usage.
+PARTIAL_FIRST = [{**TYPED_FULL, "signature_form": "partial"}, {**CANVAS_USAGE, "signature_form": "partial"}]
 
 
 @pytest.mark.parametrize("form, sig, severity", [
     (1, "({ of?: Export; meta?: Meta })", "Critical"),
     (1, "({  of?: Export  })", "Info"),
     (0, "{ of?: Export }", "Info"),
-], ids=["index-of-the-partial-quoting-the-full-form", "honest-index", "index-of-the-full-quoting-the-partial-form"])
+    (1, "Canvas({ of?: Export })", "Info"),
+], ids=["index-of-the-partial-quoting-the-full-form", "honest-index", "index-of-the-full-quoting-the-partial-form",
+        "name-before-the-group"])
 def test_a_form_label_lowers_a_grade_only_for_the_form_the_mismatch_quotes(form, sig, severity):
     """A judge that compared the full typed list but names `form` 1, the partial one (counting from 1, say), would
     turn a Critical into an Info by the index alone. The partial label lowers the grade only when the mismatch's
-    `documented_sig` is that form's text (whitespace runs as one, outer parentheses off); otherwise a warning, and
-    the mismatch is graded against the form it quotes."""
+    `documented_sig` is that form's text (whitespace runs as one, outer parentheses off, the name before the
+    group left off, #919); otherwise a warning, and the mismatch is graded against the form it quotes."""
     mismatch = {"name": "Canvas", "line": 12, "form": form, "difference": "omitted-optional",
                 "source_sig": "(props: { of?: Export; meta?: Meta; className?: string })", "documented_sig": sig,
                 "issue": "the typed list leaves out the optional 'className'"}
@@ -2938,6 +3056,83 @@ def test_a_form_label_lowers_a_grade_only_for_the_form_the_mismatch_quotes(form,
     assert [m["severity"] for m in out["mismatches"]] == [severity]
     honest = (form == 1) == (severity == "Info")
     assert any("whose text its `documented_sig` is not" in w for w in out["warnings"]) is not honest
+
+
+# Six forms of one name, in rank order: four full lists, then two partial ones.
+SIX_FORMS = [{"name": "run_pipeline", "kind": "function", "params": params} for params in (
+    "tasks=None, data=None, datasets=None", "steps, *, data=None, context=None", "tasks, data", "tasks")] + [
+    {"name": "run_pipeline", "kind": "function", "params": params, "signature_form": "partial"}
+    for params in ("steps, *, data=None", "steps")]
+
+
+def _misquote(form: int, documented_sig: str, difference: str | None = None) -> dict:
+    """A mismatch of SIX_FORMS' form `form` at the orchestrator's declaration."""
+    return {"name": "run_pipeline", "line": 53, "form": form, "source_sig": "(tasks: list[Task], data=None)",
+            "documented_sig": documented_sig, "difference": difference, "issue": f"form {form} differs"}
+
+
+def test_a_mismatch_that_quotes_no_form_keeps_its_form(tmp_path):
+    """#919: two forms of one name misquoted at one declaration (the judge wrote each with the name, and left out
+    what it read as optional) were both moved to form 0, titled `(form 1 of 6)`, and the gap ledger, which tells
+    gaps apart by title, Source and `export`, kept one. A mismatch whose `documented_sig` quotes no form now keeps
+    the form its `form` names, with a warning, and is graded as a full form: a partial label never lowers what the
+    text does not quote, while the same mismatch that quotes its partial form is an Info. A misquoted `documented`
+    form that is full is graded as before, with no warning."""
+    assert [len(f) for f in mod.documented_forms(SIX_FORMS).values()] == [6]
+    mismatches = [_misquote(1, "run_pipeline(steps, data)"),
+                  _misquote(4, "run_pipeline(steps, *, data)", "omitted-optional")]
+    out = mod.score(SIX_FORMS, ["run_pipeline"], [ORCHESTRATOR_RECORD],
+                    [{"file": ORCHESTRATOR, "signature_mismatches": mismatches}])
+    assert [(m["documented_sig"], m["severity"]) for m in out["mismatches"]] == [
+        ("run_pipeline(steps, data)", "Critical"), ("run_pipeline(steps, *, data)", "Critical")]
+    gap_forms = [(g["source"], g["title"], g["issue"][g["issue"].rindex("(documented form"):])
+                 for g in out["gapRecords"]]
+    assert gap_forms == [
+        (f"{ORCHESTRATOR}:53", "Signature mismatch: run_pipeline (form 2 of 6)",
+         "(documented form 2 of 6: `(steps, *, data=None, context=None)`)"),
+        (f"{ORCHESTRATOR}:53", "Signature mismatch: run_pipeline (form 5 of 6)",
+         "(documented form 5 of 6: `(steps, *, data=None)`)")]
+    assert [w for w in out["warnings"] if "`form`" in w] == [
+        f"{ORCHESTRATOR}:53: a signature mismatch for `run_pipeline` names `form` {k}, whose text its "
+        f"`documented_sig` is not, nor any other form's: graded against form {k} as a full form" for k in (1, 4)]
+    gaps = _write(tmp_path / "signature-gaps.json", out["gapRecords"])
+    ledger = tmp_path / "test-findings-20260101T000000Z-abcdef12.json"
+    proc = subprocess.run([sys.executable, str(GAP_LEDGER), "append", "--ledger", str(ledger), "--stage",
+                           "coverage-check", "--input", gaps], capture_output=True, text=True)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert (json.loads(proc.stdout)["appended"], json.loads(proc.stdout)["duplicates"]) == (["GAP-001", "GAP-002"], [])
+    # the same omission, quoting its partial form, is an Info; a misquoted full `documented` form warns of nothing
+    for mismatch, severity, title in (
+            (_misquote(4, "run_pipeline(steps, *, data=None)", "omitted-optional"), "Info",
+             "Partial signature: run_pipeline (form 5 of 6)"),
+            (_misquote(0, "run_pipeline(tasks, data, datasets)"), "Critical",
+             "Signature mismatch: run_pipeline (form 1 of 6)")):
+        out = mod.score(SIX_FORMS, ["run_pipeline"], [ORCHESTRATOR_RECORD],
+                        [{"file": ORCHESTRATOR, "signature_mismatches": [mismatch]}])
+        assert [(m["severity"], g["title"]) for m, g in zip(out["mismatches"], out["gapRecords"])] == [
+            (severity, title)]
+        assert not any("`form`" in w for w in out["warnings"]), out["warnings"]
+
+
+@pytest.mark.parametrize("sig, severity, title", [
+    ("({ of?: Export })", "Critical", "Signature mismatch: Canvas (form 1 of 2)"),
+    ("({ of?: Export; meta?: Meta })", "Info", "Partial signature: Canvas (form 1 of 2)"),
+], ids=["quotes-no-form", "quotes-form-0"])
+def test_a_mismatch_of_a_partial_documented_form_that_quotes_no_form_is_graded_as_full(sig, severity, title):
+    """#919: `documented` is partial and the mismatch names it, `form` 0, but its `documented_sig` quotes no form:
+    it stays at form 0 and is graded as a full form, with a warning, so the partial label never lowers what the
+    text does not quote. The same omission quoting form 0 is an Info, with no warning."""
+    assert mod.documented_forms(PARTIAL_FIRST)["Canvas"] == [mod._form(f) for f in PARTIAL_FIRST]
+    mismatch = {"name": "Canvas", "line": 12, "form": 0, "difference": "omitted-optional",
+                "source_sig": "(props: { of?: Export; meta?: Meta; className?: string })", "documented_sig": sig,
+                "issue": "the typed list leaves out the optional 'className'"}
+    out = mod.score(PARTIAL_FIRST, ["Canvas"], CANVAS_SURFACE["exports"],
+                    [{"file": "code/blocks/Canvas.tsx", "signature_mismatches": [mismatch]}])
+    assert [(m["severity"], g["title"]) for m, g in zip(out["mismatches"], out["gapRecords"])] == [(severity, title)]
+    expected = [] if severity == "Info" else [
+        "code/blocks/Canvas.tsx:12: a signature mismatch for `Canvas` names `form` 0, whose text its "
+        "`documented_sig` is not, nor any other form's: graded against form 0 as a full form"]
+    assert [w for w in out["warnings"] if "`form`" in w] == expected
 
 
 def test_each_usage_of_a_list_is_a_form_of_its_own():
@@ -2981,6 +3176,22 @@ def test_a_form_the_check_did_not_offer_is_a_warning(form):
     assert [w for w in out["warnings"] if "`form`" in w] == [
         f"code/blocks/Canvas.tsx:12: a signature mismatch for `Canvas` names `form` {form}, no form its check offered "
         "(0 to 1): graded against `documented`"]
+
+
+def test_a_form_the_check_did_not_offer_names_the_judges_form_in_each_warning():
+    """A `form` past the forms the check offered, against a partial `documented` form its text does not quote: both
+    warnings name the `form` the judge wrote, never the `documented` form it is graded against."""
+    mismatch = {"name": "Canvas", "line": 12, "form": 5, "difference": "omitted-optional",
+                "source_sig": "(props: { of?: Export; meta?: Meta; className?: string })",
+                "documented_sig": "({ of?: Export })", "issue": "the typed list leaves out the optional 'className'"}
+    out = mod.score(PARTIAL_FIRST, ["Canvas"], CANVAS_SURFACE["exports"],
+                    [{"file": "code/blocks/Canvas.tsx", "signature_mismatches": [mismatch]}])
+    assert [m["severity"] for m in out["mismatches"]] == ["Critical"]
+    assert [w for w in out["warnings"] if "`form`" in w] == [
+        "code/blocks/Canvas.tsx:12: a signature mismatch for `Canvas` names `form` 5, no form its check offered "
+        "(0 to 1): graded against `documented`",
+        "code/blocks/Canvas.tsx:12: a signature mismatch for `Canvas` names `form` 5, whose text its "
+        "`documented_sig` is not, nor any other form's: graded against form 0 as a full form"]
 
 
 def test_two_declarations_in_one_file_each_keep_their_mismatch():

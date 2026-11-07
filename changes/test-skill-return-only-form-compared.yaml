@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill now compares a documented form that lists no parameters but states a return type, such as an entry with `params: ""` and `return_type: "Environment"` beside a `coco.default_env()` call example. The signature plan offered as `alternatives` only forms that list parameters or give a usage form, so the return type of a no-parameter function with a call example was never compared, and a wrong one passed. Such a form is now offered after the other forms, and the form compared as `documented` does not change; a form with no return type, or with a return written as names of values such as `(nodes, edges)`, is still not offered. Such a form's empty parameter list is compared too, since a blank `params` says the name takes none. This can block a skill that passed: a wrong return type on such a form, or parameters it leaves out, is now a Critical `signature-mismatch` gap.
+migration: |
+  If a skill now stops at the hard gate on a no-parameter form, correct the documented return type, or the parameters a `params: ""` form leaves out, then run Test Skill again.
+issues: [914]
+prs: [992]
