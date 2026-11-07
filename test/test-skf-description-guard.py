@@ -21,6 +21,11 @@ Covers:
   - quick-skill step 5 (#901): the `hash` lines that open and close the
     block tell a `--fix` rewrite from an untouched SKILL.md, a rewrite the
     guard restored and a reflow it leaves alone included
+  - create-skill validate §2 and §4 and update-skill write §7 (#951): each
+    guard call stages the snapshot in the run folder and reads it back with
+    `--captured-file`, so a description holding a double quote, backticks,
+    `$(...)` and `$HOME` round-trips byte for byte and runs nothing, and no
+    step file passes a description through a shell string
 """
 
 from __future__ import annotations
@@ -28,6 +33,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import re
 import shlex
 import shutil
 import subprocess
@@ -519,21 +525,29 @@ class TestCli:
 
 PROTOCOL_MD = REPO_ROOT / "src" / "shared" / "references" / "description-guard-protocol.md"
 # (step file, first heading after §0, evidence-report section, description kind)
-# How §0 says `capture` reads the description, and which copy the empty-snapshot rule
-# re-runs with: create-skill's step 7 promotes the staged file, so it keeps no
-# in-context copy of SKILL.md, only of the description compile sanitized.
+# How §0 says `capture` stages the description in the run folder (#951), and which copy the
+# empty-snapshot rule re-runs with: create-skill's step 7 promotes the staged file, so it
+# keeps no in-context copy of SKILL.md, only of the description compile sanitized.
 CAPTURE_PHRASES = {
-    "create-skill": ("Bind `{guarded_description}` ← `description` from each `capture`, which reads the staged "
-                     "`<staging-skill-dir>/SKILL.md` just before the tool that may rewrite it."),
-    "update-skill": ("Bind `{guarded_description}` ← `description` from each `capture`, run while "
-                     "the in-context SKILL.md copy matches the file on disk."),
+    "create-skill": ("Each `capture` writes the description it reads from the staged `<staging-skill-dir>/SKILL.md`, "
+                     "just before the tool that may rewrite it, to `{run_dir}/description-guard.json`, and each "
+                     "`verify-restore` reads it there with `--captured-file`, so the description never passes "
+                     "through a shell string. Bind `{guarded_description}` ← that file's `description`."),
+    "update-skill": ("Each `capture`, run while the in-context SKILL.md copy matches the file on disk, writes the "
+                     "description it reads from `{skill_package}/SKILL.md` to `{run_dir}/description-guard.json`, "
+                     "and each `verify-restore` reads it there with `--captured-file`, so the description never "
+                     "passes through a shell string. Bind `{guarded_description}` ← that file's `description`."),
 }
 SNAPSHOT_PHRASES = {
     "create-skill": ("If the description compile §2a sanitized is still in context (an in-context copy of the "
-                     "description, not of the file), re-run `verify-restore` with that value."),
+                     "description, not of the file), re-run `verify-restore` with that value:"),
     "update-skill": ("If the merged description is still in context (the in-context SKILL.md copy), "
-                     "re-run `verify-restore` with that value."),
+                     "re-run `verify-restore` with that value:"),
 }
+# The re-run writes the in-context value to the same file, never through a shell string, and runs once.
+SNAPSHOT_REWRITE = ("re-run `verify-restore` with that value: write `{\"description\": <that value as a JSON string>}` "
+                    "to `{run_dir}/description-guard.json` with a file write, never `echo` (the value can hold "
+                    "quotes, `$` or backticks), and run the same `verify-restore` line again, once.")
 
 GUARD_STEPS = {
     "create-skill": (
@@ -607,8 +621,10 @@ class TestGuardStepProse:
             f"evidence report ({report}).",
             "A later `verify-restore` that exits 0 with `{guard_restored}` false leaves "
             "those records in place.",
+            "so the description never passes through a shell string",
         ):
             assert phrase in section, phrase
+        assert "--captured-description" not in section
         # The per-call flag must not share a name with the record the
         # populator reads, or a later clean call would overwrite a restore.
         text = _read(path)
@@ -620,11 +636,12 @@ class TestGuardStepProse:
         section = _section0(path, end)
         rule = _slice(section, "**Empty-snapshot rule.**", "\n")
         for phrase in (
-            "`verify-restore` refuses an empty or whitespace-only `--captured-description` "
-            "(exit 1, file untouched).",
+            "`verify-restore` refuses an empty or whitespace-only description in "
+            "`{run_dir}/description-guard.json`, and a file it cannot read (exit 1, file untouched).",
             "Never re-run it with the empty value",
             SNAPSHOT_PHRASES[step],
-            "Otherwise record `description_guard_restored: false` and "
+            SNAPSHOT_REWRITE,
+            "Otherwise, or when that re-run exits 1 too, record `description_guard_restored: false` and "
             "`description_guard_refused: empty-capture` with the tool name",
             f"the evidence report ({report}) renders that as a fired guard, not as a clean run.",
         ):
@@ -646,6 +663,12 @@ def test_protocol_commands_use_the_caller_resolved_helpers() -> None:
     assert "`src/shared/scripts/skf-description-guard.py`" not in text
     guard = _slice(text, "## The Four-Phase Guard", "## Why Token-Stream Comparison")
     assert guard.count("uv run {descriptionGuardHelper} \\\n") == 2
+    # #951: both examples stage the snapshot in the run folder, as every calling step does
+    assert "uv run {descriptionGuardHelper} \\\n    capture <skill-md-path> > <run-folder>/description-guard.json\n" in guard
+    assert ("uv run {descriptionGuardHelper} \\\n    verify-restore <skill-md-path> \\\n"
+            "    --captured-file <run-folder>/description-guard.json\n") in guard
+    fenced = "".join(block.split("```", 1)[0] for block in guard.split("```bash\n")[1:])
+    assert "--captured-description" not in fenced and "{guarded_description}" not in fenced
     revalidate = _slice(text, "## Post-Restore Re-Validation (Optional)", "## Why This Protocol Is Centralized")
     assert "uv run {frontmatterValidator} <skill-md-path>" in revalidate
 
@@ -659,8 +682,32 @@ def test_protocol_keeps_the_rules_the_steps_repeat() -> None:
     rule = _slice(text, "**Empty snapshot refusal.**", "## Why Token-Stream Comparison")
     assert "`description_guard_refused: empty-capture`" in rule
     assert "Never retry with the empty value" in rule
+    # #951: the refusal names the run-folder file, and the re-run writes the value there, never via `echo`
+    assert "the `description` in `<run-folder>/description-guard.json`, or an empty `--captured-description`" in rule
+    assert "It does the same when it cannot read that file" in rule
+    assert ("write it as `{\"description\": <that value as a JSON string>}` to the same file with a file write, "
+            "never `echo`, and re-run `verify-restore` on it once.") in rule
+    assert ("Otherwise, or when that re-run exits 1 too, record `description_guard_restored: false` and "
+            "`description_guard_refused: empty-capture` (with the tool name)") in rule
     centralized = _slice(text, "## Why This Protocol Is Centralized", "## Calling Workflows")
     assert "also stated in the stage's §0" in centralized
+
+
+def test_protocol_keeps_captured_description_only_as_the_no_file_alternative() -> None:
+    """#951: `--captured-description` stays documented for a caller that holds no file and runs no shell,
+    beside the warning that a shell string must never carry a description."""
+    text = _read(PROTOCOL_MD)
+    verify = _slice(text, "### 3 + 4. Verify and Restore", "The script:")
+    assert "Every calling step passes the file, so the description never passes through a shell string." in verify
+    (alternative,) = [line for line in verify.splitlines() if line.startswith("The alternative, ")]
+    for phrase in ("The alternative, `--captured-description <value>`, is for a caller that holds no file and runs "
+                   "the helper with an argument list, without a shell.",
+                   "A shell string must never carry a description: inside double quotes the shell runs backticks "
+                   "and `$(...)`, expands `$name`, and a `\"` ends the argument or drops out of it"):
+        assert phrase in alternative, phrase
+    capture = _slice(text, "### 1. Capture", "### 2. Execute")
+    assert "never into a shell string" in capture
+    assert "Stash the `description` value" not in capture
 
 # --------------------------------------------------------------------------
 # sanitize (create-skill step 6 §6)
@@ -843,17 +890,18 @@ def _hash_of(run_dir: Path, name: str) -> str:
     return json.loads((run_dir / name).read_text(encoding="utf-8"))["content_hash"]
 
 
-def _run_step_line(call: str, skill: Path, run_dir: Path) -> subprocess.CompletedProcess:
-    """Run one of step 5 §4's guard or hash lines through bash, its placeholders filled in as
-    the model fills them: the raw path, so the line's own quotes must hold a space in it."""
+def _run_step_line(call: str, skill: Path, run_dir: Path, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    """Run one guard or hash line of a step through bash, its placeholders filled in as the
+    model fills them: the raw path, so the line's own quotes must hold a space in it."""
     helper = f"{shlex.quote(sys.executable)} {shlex.quote(str(SCRIPT_PATH))}"
     hasher = f"{shlex.quote(sys.executable)} {shlex.quote(str(HASH_SCRIPT))}"
     script = (call.replace("uv run {descriptionGuardHelper}", helper)
               .replace("uv run {hashContentHelper}", hasher)
               .replace("{skill_package}", skill.parent.as_posix())
+              .replace("<staging-skill-dir>", skill.parent.as_posix())
               .replace("{run_dir}", run_dir.as_posix()))
     return subprocess.run([shutil.which("bash") or "bash", "-c", script],
-                          capture_output=True, text=True, check=False)
+                          capture_output=True, text=True, check=False, cwd=cwd)
 
 
 @pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="runs the call through bash")
@@ -1030,6 +1078,151 @@ class TestQuickSkillGuardProse:
         # no calling stage loads the protocol any more (#600 leanness-5): §0 holds every rule it acts on
         assert "no stage loads this file at run time" in centralized
         assert "when this file cannot be loaded" not in centralized
+
+
+# --------------------------------------------------------------------------
+# Create Skill §2 and §4, Update Skill §7 (#951): the snapshot goes by file
+# --------------------------------------------------------------------------
+
+US_WRITE = REPO_ROOT / "src" / "skf-update-skill" / "references" / "write.md"
+# (step file, section start, section end) of each guard block Create Skill and Update Skill run
+GUARD_SITES = {
+    "create-skill §2": (REPO_ROOT / "src" / "skf-create-skill" / "references" / "validate.md",
+                        "### 2. Validate & Auto-Fix", "### 3. "),
+    "create-skill §4": (REPO_ROOT / "src" / "skf-create-skill" / "references" / "validate.md",
+                        "### 4. Split Oversized Body", "### 5. "),
+    "update-skill §7": (US_WRITE, "### 7. Run Post-Write Validation", "### 8."),
+}
+# The probe of #951: a double quote, backticks and `$(...)` that would run, and a `$HOME` that would expand.
+SHELL_TRICKY = 'Quotes "build it", runs `touch BT_RAN` and $(touch DS_RAN) for $HOME.'
+SITE_BODY = "\n# zod\n\n## Quick Start\n\n- `object`: builds an object schema\n"
+REWRITTEN = "---\nname: zod\ndescription: Builds schemas.\n---\n" + SITE_BODY
+GUARD_CALL = "uv run {descriptionGuardHelper} "
+
+
+def _fenced_lines(text: str) -> list[str]:
+    """Every line of every fenced block in `text`, `\\` continuations joined and whitespace runs collapsed."""
+    lines: list[str] = []
+    for block in re.findall(r"^[ \t]*```[\w-]*\n(.*?)^[ \t]*```", text, flags=re.M | re.S):
+        lines.extend(" ".join(line.split()) for line in block.replace("\\\n", " ").splitlines())
+    return lines
+
+
+def _site_guard_calls(site: str) -> tuple[str, str]:
+    """The site's capture and verify-restore lines, as its fenced guard block writes them."""
+    path, start, end = GUARD_SITES[site]
+    lines = _fenced_lines(_slice(_read(path), start, end))
+    [capture] = [line for line in lines if line.startswith(GUARD_CALL + "capture ")]
+    [verify] = [line for line in lines if line.startswith(GUARD_CALL + "verify-restore ")]
+    return capture, verify
+
+
+def test_no_step_passes_a_description_through_a_shell_string() -> None:
+    """#951: no step file hands verify-restore a description in a shell string; every fenced guard call stages
+    the snapshot in the run folder and reads it back by path, as Quick Skill does."""
+    captures, verifies = [], []
+    for path in sorted((REPO_ROOT / "src").glob("skf-*/**/*.md")):
+        rel = path.relative_to(REPO_ROOT).as_posix()
+        text = _read(path)
+        assert "--captured-description" not in text, rel
+        for line in _fenced_lines(text):
+            if line.startswith(GUARD_CALL + "capture "):
+                captures.append(rel)
+                assert line.endswith('> "{run_dir}/description-guard.json"'), (rel, line)
+            elif line.startswith(GUARD_CALL + "verify-restore "):
+                verifies.append(rel)
+                assert line.endswith('--captured-file "{run_dir}/description-guard.json"'), (rel, line)
+    expected = ["src/skf-create-skill/references/validate.md"] * 2 + [
+        "src/skf-quick-skill/references/write-and-validate.md", "src/skf-update-skill/references/write.md"]
+    assert captures == verifies == expected
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="runs the call through bash")
+@pytest.mark.parametrize("site", sorted(GUARD_SITES))
+class TestCreateUpdateGuardCall:
+    """Each Create Skill and Update Skill guard block's capture and verify-restore lines, run through bash
+    as the model fills them, with the run folder under a path that holds a space."""
+
+    def _skill(self, tmp_path: Path, site: str, description: str = SHELL_TRICKY) -> tuple[Path, Path]:
+        project = tmp_path / "Jane Doe"
+        if site.startswith("create-skill"):
+            # `<staging-skill-dir>` goes unquoted in Create Skill's lines, as its hash and shard lines do
+            skill_dir = tmp_path / "staging" / "zod"
+        else:
+            skill_dir = project / "skills" / "zod" / "3.23.8" / "zod"
+        skill_dir.mkdir(parents=True)
+        run_dir = project / "_bmad-output" / ".skf-run" / "run"
+        run_dir.mkdir(parents=True)
+        skill = skill_dir / "SKILL.md"
+        front = yaml.safe_dump({"name": "zod", "description": description}, sort_keys=False, width=10**9)
+        skill.write_text(f"---\n{front}---\n{SITE_BODY}", encoding="utf-8")
+        return skill, run_dir
+
+    @staticmethod
+    def _nothing_ran(tmp_path: Path) -> None:
+        assert not list(tmp_path.rglob("BT_RAN")) and not list(tmp_path.rglob("DS_RAN")), "the description ran"
+
+    def test_the_lines_stage_the_snapshot_in_the_run_folder(self, site: str) -> None:
+        capture, verify = _site_guard_calls(site)
+        assert capture.endswith(f"> {GUARD_FILE}"), capture
+        assert verify.endswith(f"--captured-file {GUARD_FILE}"), verify
+        assert "{guarded_description}" not in capture + verify
+
+    def test_a_rewritten_description_is_restored_byte_for_byte(self, tmp_path: Path, site: str) -> None:
+        skill, run_dir = self._skill(tmp_path, site)
+        capture, verify = _site_guard_calls(site)
+        staged = _run_step_line(capture, skill, run_dir, cwd=tmp_path)
+        assert staged.returncode == 0, staged.stderr
+        snapshot = json.loads((run_dir / "description-guard.json").read_text(encoding="utf-8"))
+        assert snapshot["description"] == SHELL_TRICKY
+        skill.write_text(REWRITTEN, encoding="utf-8")  # the tool rewrote the frontmatter
+        result = _run_step_line(verify, skill, run_dir, cwd=tmp_path)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert (payload["restored"], payload["diff_kind"]) == (True, "replaced")
+        text = skill.read_text(encoding="utf-8")
+        assert _parse_frontmatter(text)["description"] == SHELL_TRICKY
+        assert text.endswith("\n---\n" + SITE_BODY)
+        self._nothing_ran(tmp_path)
+
+    def test_an_untouched_description_is_left_alone(self, tmp_path: Path, site: str) -> None:
+        skill, run_dir = self._skill(tmp_path, site)
+        before = skill.read_bytes()
+        capture, verify = _site_guard_calls(site)
+        assert _run_step_line(capture, skill, run_dir, cwd=tmp_path).returncode == 0
+        result = _run_step_line(verify, skill, run_dir, cwd=tmp_path)
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert (payload["diverged"], payload["restored"], payload["diff_kind"]) == (False, False, "none")
+        assert skill.read_bytes() == before
+        self._nothing_ran(tmp_path)
+
+    def test_an_empty_snapshot_is_refused_then_rerun_from_a_file_write(self, tmp_path: Path, site: str) -> None:
+        skill, run_dir = self._skill(tmp_path, site, description="")
+        capture, verify = _site_guard_calls(site)
+        assert _run_step_line(capture, skill, run_dir, cwd=tmp_path).returncode == 0
+        before = skill.read_bytes()
+        refused = _run_step_line(verify, skill, run_dir, cwd=tmp_path)
+        assert refused.returncode == 1 and refused.stdout == ""
+        assert "empty or whitespace-only" in refused.stderr
+        assert skill.read_bytes() == before
+        # §0's re-run: the in-context description written to the same file, then the same line again
+        (run_dir / "description-guard.json").write_text(json.dumps({"description": SHELL_TRICKY}), encoding="utf-8")
+        result = _run_step_line(verify, skill, run_dir, cwd=tmp_path)
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)["restored"] is True
+        assert _parse_frontmatter(skill.read_text(encoding="utf-8"))["description"] == SHELL_TRICKY
+        self._nothing_ran(tmp_path)
+
+    def test_an_unreadable_snapshot_is_refused(self, tmp_path: Path, site: str) -> None:
+        skill, run_dir = self._skill(tmp_path, site)
+        before = skill.read_bytes()
+        _, verify = _site_guard_calls(site)
+        (run_dir / "description-guard.json").write_text("not JSON\n", encoding="utf-8")
+        refused = _run_step_line(verify, skill, run_dir, cwd=tmp_path)
+        assert refused.returncode == 1 and refused.stdout == ""
+        assert "is not JSON" in refused.stderr
+        assert skill.read_bytes() == before
 
 
 CS_VALIDATE = REPO_ROOT / "src" / "skf-create-skill" / "references" / "validate.md"

@@ -5843,6 +5843,31 @@ def test_write_rereads_skill_md_when_fix_changed_it():
     assert "npx" not in before + sync, "skill-check runs only in the two calls the run-once test counts"
 
 
+def test_write_guard_reads_the_snapshot_from_the_run_folder():
+    """#951: §7's one guard block, which wraps --fix, the body split and split-body --write, stages the description
+    snapshot in the run folder and reads it back with --captured-file, so no shell string carries the description;
+    §0 says so, and its empty-snapshot re-run writes the in-context value to the same file, never with `echo`."""
+    write = _read(WRITE)
+    assert "--captured-description" not in write
+    seven = _slice(write, "### 7. Run Post-Write Validation", "### 8.")
+    for line in ('uv run {descriptionGuardHelper} capture "{skill_package}/SKILL.md" > "{run_dir}/description-guard.json"\n',
+                 'uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" \\\n'
+                 '    --captured-file "{run_dir}/description-guard.json"\n'):
+        assert seven.count(line) == 1, line
+    zero = _slice(write, "### 0. Description Guard Protocol", "### 1. Verify SKILL.md Write")
+    outputs = _slice(zero, "**Guard outputs.**", "\n")
+    assert "to `{run_dir}/description-guard.json`, and each `verify-restore` reads it there with `--captured-file`, " \
+           "so the description never passes through a shell string" in outputs
+    assert "Bind `{guarded_description}` ← that file's `description`." in outputs
+    rule = _slice(zero, "**Empty-snapshot rule.**", "\n")
+    for needle in ("refuses an empty or whitespace-only description in `{run_dir}/description-guard.json`, and a file "
+                   "it cannot read (exit 1, file untouched)",
+                   "to `{run_dir}/description-guard.json` with a file write, never `echo`",
+                   "run the same `verify-restore` line again",
+                   "`description_guard_refused: empty-capture`"):
+        assert needle in rule, needle
+
+
 def test_the_evidence_records_live_in_the_run_folder():
     """The scope and targeted re-extraction records write §4 renders sit in the run folder, not in context, so a
     compacted context still reports a decision the run made (Workflow Rules: the run log)."""

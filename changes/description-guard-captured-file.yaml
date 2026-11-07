@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill, skf-update-skill
+summary: |
+  Create Skill and Update Skill now hand the description guard its copy of the description in a file in the run folder, as Quick Skill does, never in a shell string. Before, the shell read the description: a double quote broke the restore or was dropped, a `$` and the name after it became the shell's value, so the guard could even write a changed description over one `skill-check --fix` never touched, and backticks or `$(...)`, which a description quoting code can hold, ran as commands. The description is now restored exactly as it was, and nothing in it runs.
+issues: [951]
