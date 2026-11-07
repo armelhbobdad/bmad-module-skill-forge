@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  Update Skill could not write a new version of an older skill that keeps its provenance map, evidence report and extraction rules directly in its forge folder rather than in a version folder: it started the new version's forge folder without them, so the provenance-map write found no map and the run halted with nothing written. It now copies each of the three from that folder when the map it loaded came from there, and leaves the originals in place. A repair from a test report of such a skill reads that map too, when the skill's version folder exists in its forge folder.
+issues: [948]
+prs: [950]

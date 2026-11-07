@@ -255,12 +255,12 @@ It sets the `content_hash` and `recorded_at` of each `doc_sources[]` entry whose
 
 ### 3. Write Updated provenance-map.json
 
-Write `{forge_version}/provenance-map.json` with `{buildChangeManifestHelper}` `apply` (resolve it ← first existing path in `{buildChangeManifestProbeOrder}`), never by hand: it reads the map the update started from and this run's records in `{run_dir}`, and writes the whole updated map through a temporary file and one rename. When step 4 §6b created a new version, `{forge_version}` is its forge folder, which holds a copy of the previous map when there was one: write the whole updated map there, and leave the previous version's map as it was. From `{project-root}`, run:
+Write `{forge_version}/provenance-map.json` with `{buildChangeManifestHelper}` `apply` (resolve it ← first existing path in `{buildChangeManifestProbeOrder}`), never by hand: it reads `{provenance_map_path}`, the map the update started from (init.md §4: the current version's map, else the flat one an older skill keeps in `{forge_data_folder}/{skill_name}/`), and this run's records in `{run_dir}`, and writes the whole updated map through a temporary file and one rename. When step 4 §6b created a new version, `{forge_version}` is its forge folder, which holds a copy of the previous map when there was one, the same bytes `apply` reads: write the whole updated map there, and leave the previous version's map as it was. In a repair `{provenance_map_path}` is the only map there is: `apply` writes the updated map to `{forge_version}`, and a flat map stays as it was. From `{project-root}`, run:
 
 ```bash
 uv run {buildChangeManifestHelper} apply \
     --update-type "{update_type}" \
-    [--provenance-map "{forge_version}/provenance-map.json"] \
+    [--provenance-map "{provenance_map_path}"] \
     [--manifest "{run_dir}/change-manifest.json"] \
     [--category-c "{run_dir}/category-c.json"] \
     [--ccc-pairs "{run_dir}/ccc-pairs.json"] \
