@@ -27,13 +27,16 @@ ratios and the gap records of the wrong signatures.
          partial one, then, of two full or two partial forms, one that lists
          parameters before one that gives only a usage form, else the first)
          and, as `alternatives`, the name's other distinct forms that list
-         parameters or give a usage form, in that order: the judge compares
-         the declaration with each, by its own reading rules, and reports a
+         parameters or give a usage form, then those that list neither but
+         state a return type (a `return_type` neither blank nor a list of
+         value names, #914), in that order: the judge compares the
+         declaration with each, by its own reading rules, and reports a
          mismatch for each form that does not match, naming it as `form`. A
-         form that lists no member is never an alternative, and two entries
-         that say the same thing are one form (a `full` label and none, a
-         list and its items joined with `, `, whitespace runs; of two that
-         differ only by the partial label, the full one). The signature universe is the
+         form that lists no member and states no return type is never an
+         alternative, and two entries that say the same thing are one form
+         (a `full` label and none, a list and its items joined with `, `,
+         whitespace runs; of two that differ only by the partial label, the
+         full one). The signature universe is the
          surface's `all` set plus every name on its export records, so the
          names of a Python sub-package load-coverage-inputs.py keeps out of
          `all` (excluded.nestedEntries) keep their checks. A check sits at the
@@ -208,10 +211,15 @@ ratios and the gap records of the wrong signatures.
          in its title (`Signature mismatch: {name} (form n of m)`) and its
          Issue. For such a name the form's own label lowers a grade only when
          the mismatch's `documented_sig` is that form's text (whitespace runs
-         as one, outer parentheses off, a list joined): otherwise `warnings`
-         says so and the mismatch is graded against the form it quotes, or
-         `documented` when it quotes none. A Low or an Info mismatch still
-         counts as matching. A mismatch a result reports for any
+         as one, outer parentheses off, a list joined, a name or a dotted
+         receiver before the parameters left off, and a blank or absent
+         `params` read as `()` for a form with no usage form): otherwise the
+         mismatch is graded against the form it quotes, which `warnings`
+         names, or, when it quotes none, stays at the form its `form` names
+         (that form's title, Issue and bound declaration, #919) and is graded
+         as a full form, which `warnings` says when that form is not
+         `documented` or is partial. A Low or an Info mismatch still counts
+         as matching. A mismatch a result reports for any
          other name (one the skill does not document, or the surface lacks)
          is listed in `warnings` instead, and no gap.
 
@@ -270,7 +278,8 @@ Usage:
 Output (stdout; --output also writes it, --gaps-output writes the records):
   plan:  {"compared": N, "files": [{"file", "checks": [{"name", "line",
           "signatureLine", "documented": {...}, "alternatives": [{...}]
-          (only when the name has another form that lists members),
+          (only when the name has another form that lists members or
+          states a return type),
           "candidates": [{"file", "line", "signatureLine"}] (only when the
           citation does not settle the declaration), "bound": [{"form",
           "file", "line", "signatureLine"}] (only when a form's own
@@ -331,6 +340,12 @@ PYTHON_BODY_RE = re.compile(r"\s*(?:->[^:]*)?:\s*return(?![\w$])")
 TYPE_DECLARATION_RE = re.compile(r"(?:export\s+)?(?:declare\s+)?type\s")
 # Where a signature's return type starts, with no parenthesized parameters.
 RETURN_ARROW_RE = re.compile(r"->|=>|→")
+# A name, or a dotted receiver and name, before a signature's parameter group (`run_pipeline(`, `coco.default_env(`):
+# a mismatch's `documented_sig` may write it where the form writes only the parameters (_quotes).
+LEADING_NAME_RE = re.compile(r"^[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*\s*(?=\()")
+# The dotted receiver before a usage's called name (`coco.` in `coco.default_env()`): a mismatch's `documented_sig`
+# may write the call without it (_quotes).
+CALL_RECEIVER_RE = re.compile(r"^(?:[A-Za-z_$][\w$]*\s*\.\s*)+(?=[A-Za-z_$][\w$]*\s*\()")
 # The prefixes a type is compared without, as signature-comparison-rules.md's Equivalent spellings reads a name
 # with or without one: `typing.List[int]` is `List[int]`, `React.ReactNode` is `ReactNode`.
 TYPE_PREFIX_RE = re.compile(r"(?<![\w.$])(?:typing|collections\.abc|React)\.")
@@ -665,6 +680,14 @@ def _lists_members(fields: dict) -> bool:
     return _lists_params(fields) or _gives_usage(fields)
 
 
+def _gives_return(fields: dict) -> bool:
+    """A `return_type` that states a return type (_states_return, in every
+    language's reading: a list of value names such as `(nodes, edges)`, and
+    a blank one, state none): an entry that says what the name gives back,
+    even when it lists no member (#914)."""
+    return _states_return(_field_text(fields.get("return_type")))
+
+
 def _rank(fields: dict) -> tuple[bool, bool, bool]:
     """How one of several entries of a name ranks, lowest compared first."""
     return not _lists_members(fields), _partial(fields), not _lists_params(fields)
@@ -717,7 +740,7 @@ def _forms_and_places(inventory: list[dict]) -> dict[str, list[tuple[dict, list[
     for name, forms in entries.items():
         # stable: of forms that rank alike, inventory order
         first, *others = sorted(forms, key=lambda form: _rank(form[0]))
-        out[name] = [first, *(f for f in others if _lists_members(f[0]))]
+        out[name] = [first, *(f for f in others if _lists_members(f[0]) or _gives_return(f[0]))]
     return out
 
 
@@ -746,9 +769,9 @@ def _shared_places(inventory: list[dict]) -> dict[str, set[tuple[str, int]]]:
 
 def _places_by_name(inventory: list[dict]) -> dict[str, set[tuple[str, int]]]:
     """{name: every place the inventory gives it, (its path, its line) from
-    an entry's good `at`}, a form plan drops (one that lists no member, after
-    another) and an entry with no form included; a `method` is no place of
-    its name."""
+    an entry's good `at`}, a form plan drops (one that lists no member and
+    states no return type, after another) and an entry with no form
+    included; a `method` is no place of its name."""
     spots: dict[str, set[tuple[str, int]]] = {}
     for entry in inventory:
         name, place = entry.get("name"), _inventory().parse_at(entry.get("at"))
@@ -767,12 +790,16 @@ def documented_forms(inventory: list[dict]) -> dict[str, list[dict]]:
     before a partial one (a form the skill also gives in full is held to
     it), then, of two full or two partial forms, one that lists parameters
     is compared before one that gives only a usage form, else the first.
-    The first is the documented signature; the others that list members
-    follow it, in that order, as the alternatives the judge compares too (a
-    skill that documents a name briefly in one place and in full in
-    another). A form that lists no member is never an alternative. Two
-    entries that say the same thing (_form_key) are one form; of two that
-    differ only by the partial label, the full one (the stricter) stands."""
+    The first is the documented signature; the others that list members or
+    state a return type (_gives_return) follow it, in that order, as the
+    alternatives the judge compares too (a skill that documents a name
+    briefly in one place and in full in another, or a call example beside a
+    form that states only what it returns, #914): one that lists no member
+    ranks after every one that does, so it never changes the documented
+    signature. A form that lists no member and states no return type is
+    never an alternative. Two entries that say the same thing (_form_key)
+    are one form; of two that differ only by the partial label, the full one
+    (the stricter) stands."""
     return {name: [fields for fields, _ in forms] for name, forms in _forms_and_places(inventory).items()}
 
 
@@ -941,7 +968,7 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
     the next declaration `exports` or `others` records in a file ending the
     span of the one before it (_span_end). A
     name documented in several forms carries the others that list members
-    as `alternatives` (documented_forms)."""
+    or state a return type as `alternatives` (documented_forms)."""
     forms = _forms_and_places(inventory)
     spots = _places_by_name(inventory)
     shared = _shared_places(inventory)
@@ -1617,14 +1644,18 @@ def _gap_record(m: dict) -> dict:
 
 
 def _form_text(form: dict) -> str:
-    """A documented form on one line: its usage form, else its parameters and return type."""
+    """A documented form on one line: its usage form, else its parameters and return type (`-> R` alone for a form
+    with no `params` that writes a return type)."""
     def text(value: object, sep: str = ", ") -> str:
         return sep.join(str(v) for v in value) if isinstance(value, list) else str(value)
     if _gives_usage(form):
         return text(form["usage_signature"], "; ")
     return_type = form.get("return_type")
     tail = f" -> {text(return_type)}" if isinstance(return_type, (str, list)) and text(return_type).strip() else ""
-    return f"({text(form.get('params', ''))}){tail}"
+    params = form.get("params")
+    if params is None and tail:
+        return tail.lstrip()
+    return f"({text('' if params is None else params)}){tail}"
 
 
 def _sig_text(text: str) -> str:
@@ -1636,13 +1667,20 @@ def _sig_text(text: str) -> str:
 
 
 def _quotes(documented_sig: str, form: dict) -> bool:
-    """Whether `documented_sig` is the text of `form`: its parameters (a list joined), or one of its usages, whole
-    or before the return type it writes."""
+    """Whether `documented_sig` is the text of `form`: its parameters (a list joined; blank or absent, `()`, for a
+    form with no usage form, so `()` never quotes a usage-only form), or one of its usages, whole or before the
+    return type it writes, with or without a name or a dotted receiver before its parameter group
+    (`run_pipeline(tasks, data)`, `coco.default_env()`: #919); a usage also reads without its dotted receiver, its
+    name kept (`default_env()` quotes `coco.default_env()`)."""
     usage = form.get("usage_signature")
-    texts = {_sig_text(_field_text(form.get("params")))} | {
-        _sig_text(u) for u in (usage if isinstance(usage, list) else [usage]) if isinstance(u, str)}
-    texts.discard("")
-    return bool({_sig_text(documented_sig), _sig_text(_signature_parts(documented_sig)[0])} & texts)
+    usages = [" ".join(u.split()) for u in (usage if isinstance(usage, list) else [usage]) if isinstance(u, str)]
+    texts = {_sig_text(t) for u in usages for t in (u, CALL_RECEIVER_RE.sub("", u, count=1))} - {""}
+    params = _sig_text(_field_text(form.get("params")))
+    if params or not _gives_usage(form):
+        texts.add(params)
+    head = _signature_parts(documented_sig)[0]
+    named = LEADING_NAME_RE.sub("", head, count=1)
+    return bool({_sig_text(documented_sig), _sig_text(head), _sig_text(named)} & texts)
 
 
 def _form_gap_record(m: dict, index: int, forms: list[dict]) -> dict:
@@ -1655,26 +1693,33 @@ def _form_gap_record(m: dict, index: int, forms: list[dict]) -> dict:
     return record
 
 
-def _form_index(name: str, entry: dict, forms: list[dict]) -> tuple[int, list[str]]:
+def _form_index(name: str, entry: dict, forms: list[dict]) -> tuple[int, bool, list[str]]:
     """(the index of the documented form `entry`, a mismatch of `name`, is
-    graded against, the notes that say why it is not the one its `form`
-    names): an index past `forms` is `documented`; for a name with several
-    forms, one whose text its `documented_sig` is not (_quotes) gives way to
-    the form it quotes, else `documented`."""
+    graded against, whether its label may lower the grade, the notes that
+    say why the form or its grading is not the one its `form` names): an
+    index past `forms` is `documented`; for a name with several forms, one
+    whose text its `documented_sig` is not (_quotes) gives way to the form
+    it quotes, else it stays (its title, Issue and bound declaration are
+    that form's, #919) and its label lowers nothing: it is graded as a full
+    form, with a note when it is not `documented` or is partial."""
     notes = []
-    index = entry.get("form") or 0
+    # the judge's own `form`, which a note names even when it is past `forms`
+    index = named = entry.get("form") or 0
     if index >= len(forms):
         notes.append(f"a signature mismatch for `{name}` names `form` {index}, no form its check offered "
                      f"(0 to {len(forms) - 1}): graded against `documented`")
         index = 0
     if len(forms) > 1 and not _quotes(entry["documented_sig"], forms[index]):
         quoted = next((j for j, f in enumerate(forms) if _quotes(entry["documented_sig"], f)), None)
-        if quoted is not None or index != 0:
-            target = "documented" if quoted is None else f"form {quoted}, the one it quotes"
-            notes.append(f"a signature mismatch for `{name}` names `form` {index}, whose text its "
-                         f"`documented_sig` is not: graded against {target}")
-            index = quoted or 0
-    return index, notes
+        if quoted is not None:
+            notes.append(f"a signature mismatch for `{name}` names `form` {named}, whose text its "
+                         f"`documented_sig` is not: graded against form {quoted}, the one it quotes")
+            return quoted, True, notes
+        if index != 0 or _partial(forms[index]):
+            notes.append(f"a signature mismatch for `{name}` names `form` {named}, whose text its "
+                         f"`documented_sig` is not, nor any other form's: graded against form {index} as a full form")
+        return index, False, notes
+    return index, True, notes
 
 
 def score(inventory: list[dict], names: list[str], exports: list[dict], results: list[dict],
@@ -1734,7 +1779,7 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
                 continue
             # The documented form the mismatch is reported for: 0 is `documented`, n the check's nth alternative.
             # A form's own label lowers a grade only for the form the mismatch quotes as `documented_sig`.
-            index, notes = _form_index(name, entry, forms[name])
+            index, quoted, notes = _form_index(name, entry, forms[name])
             # A bound form is compared with its bound declaration alone: its mismatch is taken there (#918).
             at = bound.get(name, {}).get(index)
             if at is not None:
@@ -1752,6 +1797,9 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
                 if f"{file}:{line}: {note}" not in warnings:
                     warnings.append(f"{file}:{line}: {note}")
             form = forms[name][index]
+            if not quoted:
+                # A text that quotes no form never earns that form's partial label (#919).
+                form = {f: v for f, v in form.items() if f != "signature_form"}
             # Each usage of a list is a form of its own: one key per documented text.
             key = (name, file, line, index, _sig_text(entry["documented_sig"]))
             difference = entry.get("difference")

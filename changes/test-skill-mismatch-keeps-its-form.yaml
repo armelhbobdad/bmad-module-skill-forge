@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's scoring script now keeps a signature mismatch at the documented form the judge names when its `documented_sig` quotes no form's text, instead of moving it to the first form. Two mismatches of different forms of one name at one declaration were both titled `(form 1 of n)`, so the gap ledger, which tells gaps apart by title, Source and `export`, kept only one, and a mismatch of a form bound to its own declaration was recorded at the first form's declaration. Each now keeps its own form's title, Issue and declaration, with a warning; a mismatch that quotes another form's text still moves to that form. A `documented_sig` that writes the name or a dotted receiver before the parameters, such as `run_pipeline(tasks, data)`, or `()` for a form with no parameters, now quotes that form. This can block a skill that passed: a mismatch of a name documented in several forms that quotes no form is graded as a full form, so a partial label no longer lowers it from Critical to Info, and a gap the ledger dropped as a duplicate is now its own.
+migration: |
+  If a skill now stops at the hard gate on a mismatch a partial label used to lower, correct the form the gap names, or mark it partial where the skill presents it as partial, then run Test Skill again.
+issues: [919]
