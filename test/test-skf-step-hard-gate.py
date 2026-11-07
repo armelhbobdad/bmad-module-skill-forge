@@ -700,6 +700,32 @@ class TestStagesRecordTheirGaps:
             # #832: a citation whose file the pinned source lacks reaches R5 at the map's file:line too
             ("Low", "provenance-line", "Provenance file is missing for gone", "src/old.py:3", "gone")]
 
+    def test_the_provenance_line_gap_of_an_aliased_name_names_the_alias(
+            self, values: dict[str, str], tmp_path: pathlib.Path) -> None:
+        """#911: §5b's provenance-line call passes classify-stale's result, so the unverified line of a name a
+        rename declares names the alias and asks to record the rename, at the same title and Source."""
+        run = tmp_path / "run"
+        _write_json(run / "provenance-verify.json", {"stale": [
+            {"export_name": "Entry", "source_file": "pkg/api.ts", "source_line": 1, "reason": "line-not-definition",
+             "definition_lines": []},
+            {"export_name": "fetch", "source_file": "src/api.py", "source_line": 40, "reason": "line-not-definition",
+             "definition_lines": []}]})
+        _write_json(run / "stale.json", [
+            {"name": "Entry", "fabricated": False, "source": "pkg/api.ts:1", "defined_at": "pkg/root.ts:2",
+             "declared_in": ["pkg/root.ts:2"], "reason": "aliased", "entries": [], "renames": "API_Entry"}])
+        call = _ledger_call(COVERAGE_FILE, "--from provenance-line", keep=("--stale",))
+        assert '--stale "{run_dir}/stale.json"' in call
+        proc = _run(call, values | {"{run_dir}": run.as_posix()})
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        entry, fetch = _ledger_records(values)
+        assert (entry["severity"], entry["category"], entry["title"], entry["source"], entry["export"]) == (
+            "Info", "provenance-unverified", "Provenance line not verified for Entry", "pkg/api.ts:1", "Entry")
+        assert entry["remediation"].startswith("`Entry` is an alias: `pkg/root.ts:2` renames `API_Entry` to it")
+        for needle in ("If no other entry already has `export_name` `API_Entry`, record the rename",
+                       "set `export_name` to `API_Entry`", "add `reexported_as` `Entry`"):
+            assert needle in entry["remediation"], needle
+        assert fetch["remediation"].startswith("Open `src/api.py` and confirm that line 40 defines `fetch`;")
+
     def test_a_split_body_gap_cites_the_side_the_source_contradicts(self) -> None:
         """#778: §1b no longer makes the body authoritative; §5b, where the pinned source can settle it, cites the
         file the export's one declaration contradicts, inside the package in every case, and falls back to the
@@ -989,7 +1015,7 @@ class TestStaleNameLineCheck:
         `export type { ... }` list renames to it. The classify-stale call finds the alias, and §5b's coverage
         call records an Info `observation` at it, never a Critical `fabricated-signature` gap; §4c's line check
         of its citation, which the provenance-line append no longer drops, is an Info `provenance-unverified`
-        gap, so nothing blocks the hard gate."""
+        gap, which names the alias and the rename to record (#911), so nothing blocks the hard gate."""
         files = {"pkg/package.json": "{}\n", "pkg/api.ts": "export interface API_Entry {}\n",
                  "pkg/root.ts": "export type {\n  API_Entry as Entry,\n} from './api';\n"}
         [out] = self._classify(tmp_path, files, ["Entry"],
@@ -1009,9 +1035,14 @@ class TestStaleNameLineCheck:
                               capture_output=True, text=True, encoding="utf-8")
         assert proc.returncode in (0, 1), proc.stderr  # exit 1 means findings
         line = gap_ledger.without_fabricated(
-            {"records": records}, gap_ledger.from_provenance_line(json.loads(verified.read_bytes())))
+            {"records": records}, gap_ledger.from_provenance_line(json.loads(verified.read_bytes()), stale=[out]))
         assert [(r["severity"], r["category"], r["source"]) for r in line] == [
             ("Info", "provenance-unverified", "pkg/api.ts:1")], line
+        # #911: the gap names the alias and the rename to record, not a line of the file that never defines it
+        assert line[0]["remediation"].startswith(
+            "`Entry` is an alias: `pkg/root.ts:2` renames `API_Entry` to it, and no line of `pkg/api.ts` defines "
+            "`Entry`."), line
+        assert "set `export_name` to `API_Entry`, add `reexported_as` `Entry`" in line[0]["remediation"]
         assert not [r for r in records + line if r["severity"] in gap_ledger.BLOCKING]
 
     def test_each_row_of_the_documented_extra_matrix(self, tmp_path: pathlib.Path) -> None:

@@ -1023,7 +1023,10 @@ NOT_ROUTED_REASONS = {
     "provenance-unverified": (
         "the line-check rules could not verify the line, or the recorded line is not a number, so a person checks "
         "by hand which line defines the export and, when it is not the recorded one, sets its provenance "
-        "`source_line` to that line"),
+        "`source_line` to that line; when the gap names an alias, no line of the cited file defines the export, so "
+        "a person records the rename in its provenance entry (`export_name` the name the alias renames, "
+        "`reexported_as` the export) only when no other entry has that `export_name` and the alias does not "
+        "rename a default export, and otherwise cites the alias line, as the remediation says"),
     "denominator-inflation": (
         "it concerns the brief's scope and the count design, which a person decides in the skill brief, as the "
         "gap's remediation says"),

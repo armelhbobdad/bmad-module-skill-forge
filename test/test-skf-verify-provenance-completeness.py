@@ -156,6 +156,9 @@ Covers:
     `def`, a `class` or two levels deep stay fabricated with both null; an
     error reading a file a rename resolves to keeps it fabricated and
     clears no settled name
+  - classify-stale's `renames` (#911): an `aliased` item names the `L` its
+    rename renames (`API_Entry`, `_Impl`, `default` for a default export,
+    a quoted side unquoted), and no other item has the key
   - classify-stale's cited files and docs folders (#924): a file the map
     cites read in any folder the walk skips (tests, dist, build, vendor,
     node_modules, a hidden one) while an uncited name in or beside it stays
@@ -4147,6 +4150,7 @@ class TestDefinedAt:
         mod.main(["classify-stale", "--names", str(names), "--provenance", str(prov), "--source-root", str(src)])
         [out] = json.loads(capsys.readouterr().out)
         assert (out["fabricated"], out["defined_at"]) == (True, None)
+        assert "renames" not in out
 
     # #886: oms-storybook's `export type { API_Entry as Entry }`, with `Entry` cited at the declaration it renames
     # (`defaults` is for the type-assertion probe: a name the cited file declares)
@@ -4168,6 +4172,7 @@ class TestDefinedAt:
         alias = f"pkg/root.ts:{line}"
         assert self._verdict(out) == (False, "aliased", alias, [alias])
         assert out["source"] == "pkg/api.ts:1"  # the citation itself is unchanged
+        assert out["renames"] == "API_Entry"  # #911: the name the alias renames, for test-skill's gap
 
     @pytest.mark.parametrize("init, line", [
         ("from .impl import _Impl as Impl\n", 1),
@@ -4181,6 +4186,7 @@ class TestDefinedAt:
         out = _classified(tmp_path, capsys, files, ["Impl"], entries)["Impl"]
         alias = f"pkg/__init__.py:{line}"
         assert self._verdict(out) == (False, "aliased", alias, [alias])
+        assert out["renames"] == "_Impl"
 
     def test_an_alias_beside_a_homonym_is_at_the_alias(self, tmp_path: Path, capsys) -> None:
         files = {**self.TS_API, "pkg/a.ts": "export interface Entry {}\n",
@@ -4316,6 +4322,45 @@ class TestDefinedAt:
         entries = [{"export_name": name, "source_file": cited, "source_line": 1}]
         out = _classified(tmp_path, capsys, files, [name], entries)[name]
         assert self._verdict(out) == (False, "aliased", alias, declared_in)
+        assert isinstance(out["renames"], str) and out["renames"], out
+
+    @pytest.mark.parametrize("files, name, cited, renames", [
+        ({**TS_API, "pkg/root.ts": "export { default as Entry } from './api';\n", "pkg/api.ts": API_DEFAULT},
+         "Entry", "pkg/api.ts", "default"),
+        ({**TS_API, "pkg/api.ts": API_DEFAULT, "pkg/root.ts": "import Entry from './api';\nexport { Entry };\n"},
+         "Entry", "pkg/api.ts", "default"),
+        ({**TS_API, "pkg/root.ts": "import { defaults } from './api';\nexport const Entry = defaults;\n"},
+         "Entry", "pkg/api.ts", "defaults"),
+        ({**TS_API, "pkg/root.ts": "import { API_Entry as Entry } from './api';\nexport { Entry };\n"},
+         "Entry", "pkg/api.ts", "API_Entry"),
+        ({**TS_API, "pkg/root.ts": "export { 'API_Entry' as Entry } from './api';\n"}, "Entry", "pkg/api.ts",
+         "API_Entry"),
+        ({**PY_IMPL, "pkg/__init__.py": "from .impl import _Impl\n\nImpl = _Impl\n"}, "Impl", "pkg/impl.py", "_Impl"),
+        ({**BUTTON, "pkg/index.ts": "export { ButtonComponent as Button } from './Button';\n"},
+         "Button", "pkg/Button.tsx", "ButtonComponent"),
+    ], ids=["default-as-NAME", "default-import-then-re-export", "const-NAME-is-L", "import-then-re-export",
+            "quoted-L", "python-NAME-is-L", "cited-module-is-the-export"])
+    def test_an_aliased_item_renames_the_name_its_alias_renames(self, tmp_path: Path, capsys, files: dict[str, str],
+                                                                 name: str, cited: str, renames: str) -> None:
+        """#911: `renames` holds the `L` the rename at `defined_at` renames, as the cited file declares it (a
+        quoted side unquoted, `default` for a default export), for test-skill's provenance line gap."""
+        entries = [{"export_name": name, "source_file": cited, "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, [name], entries)[name]
+        assert (out["reason"], out["renames"]) == ("aliased", renames)
+
+    def test_only_an_aliased_item_has_renames(self, tmp_path: Path, capsys) -> None:
+        """#911: the key is an aliased item's alone; a defined, fabricated, no-entry or unchecked item has none."""
+        files = {**self.TS_API, "pkg/root.ts": "export type {\n  API_Entry as Entry,\n} from './api';\n"}
+        entries = [*self.ENTRY, {"export_name": "defaults", "source_file": "pkg/api.ts", "source_line": 2},
+                   {"export_name": "Ghost", "source_file": "pkg/api.ts", "source_line": 1},
+                   {"export_name": "Gone", "source_file": "pkg/gone.ts", "source_line": 1},
+                   {"export_name": "Loose", "source_file": None, "source_line": None}]
+        out = _classified(tmp_path, capsys, files, ["Entry", "defaults", "Ghost", "Gone", "Unmapped", "Loose"],
+                          entries)
+        assert {n: (o["reason"], o.get("renames")) for n, o in out.items()} == {
+            "Entry": ("aliased", "API_Entry"), "defaults": ("defined", None), "Ghost": ("not-defined", None),
+            "Gone": ("not-defined", None), "Unmapped": ("no-entry", None), "Loose": ("unchecked", None)}
+        assert [n for n, o in out.items() if "renames" in o] == ["Entry"]
 
     @pytest.mark.parametrize("files, name, cited", [
         # `L` resolves to another file that declares it: not the cited declaration
@@ -4402,6 +4447,7 @@ class TestDefinedAt:
         entries = [{"export_name": name, "source_file": cited, "source_line": 1}]
         out = _classified(tmp_path, capsys, files, [name], entries)[name]
         assert self._verdict(out) == (True, "not-defined", None, None)
+        assert "renames" not in out
 
     def test_an_error_reading_a_resolved_module_keeps_the_name_fabricated(self, tmp_path: Path, capsys,
                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
