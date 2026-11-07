@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   The Issue of a `stale-documentation` or `fabricated-signature` gap in Test Skill's Gap Report now names the line that documents the name, as a documented extra's Issue already did: a name written only in a reference file reads "`references/connectors.md:9` documents `ColumnDef`", where it used to read "SKILL.md documents `ColumnDef`". When no line of `SKILL.md` or a top-level reference file writes the name, the Issue says "the skill documents", including for a name the brief scopes out. Titles, Sources and remediations are unchanged.
 issues: [923]
+prs: [942]
