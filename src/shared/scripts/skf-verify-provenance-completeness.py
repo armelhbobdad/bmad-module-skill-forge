@@ -509,6 +509,11 @@ Subcommands:
         `type NAME<P1, ...> = L<P1, ...>` whose arguments are its bare
         parameters, the same names in the same order, exported or not,
         `L` a bare identifier and the statement ending on its line;
+      - for NAME `default`, a column-0 `export default L` (the `;`
+        optional), `L` a bare identifier that a column-0 import or
+        declaration of the same file binds and the statement ending on its
+        line (`import { createEntry } from './api'` then
+        `export default createEntry;`);
       - a Python `from X import L as NAME` item (on one line, in
         parentheses or after a backslash), the statement at column 0, one
         level in a column-0 `try`, `except`, `else`, `if`, `elif`, `with`
@@ -536,12 +541,14 @@ Subcommands:
     renames it (a middle file): each candidate line of `L` there that
     renames it, by a form above (an export-list alias, a compatibility
     import in a block or on one line, an import then a plain re-export,
-    an assignment of a bare `L`, annotated or not) or by a Python
-    column-0 `L = M.L2`, annotated or not, whose `M` a column-0
-    `from X import M` binds (the module `X` joined with `M`, `.` prefixes
-    kept), is the next step, read and resolved the same way, until a step
-    reaches a cited file that declares its name (an alias) or none does
-    (fabricated, so a rename of another file's same-named `L` stays
+    an assignment of a bare `L`, annotated or not, an `export default L`
+    of a bound `L`, which a rename of `default` reaches:
+    `export { default as NAME } from`, or `import NAME from` re-exported)
+    or by a Python column-0 `L = M.L2`, annotated or not, whose `M` a
+    column-0 `from X import M` binds (the module `X` joined with `M`, `.`
+    prefixes kept), is the next step, read and resolved the same way, until
+    a step reaches a cited file that declares its name (an alias) or none
+    does (fabricated, so a rename of another file's same-named `L` stays
     fabricated). Each (file, name) pair, a resolved file that declares
     or renames the name, is followed once per first rename, so a chain that
     loops ends, fabricated. When the first rename's module resolves to no
@@ -559,10 +566,14 @@ Subcommands:
     fabricated: a TS type assertion (`x as NAME`), a
     call or any other expression (`const NAME = make()`, and `NAME = a.b`
     at the documented name's own line: `L = M.L2` is only a later step of
-    a chain), a generic alias whose parameters are constrained, defaulted,
-    swapped or instantiated (`type NAME<T extends X> = L<T>`,
-    `type NAME<T = X> = L<T>`, `type NAME<K, V> = L<V, K>`,
-    `type NAME = L<string>`), `export * as NAME from`, Python
+    a chain), a default export of any other expression
+    (`export default make();`, an object, an arrow, a value that goes on
+    to the next line, an indented `export default L`, an `L` no import or
+    declaration of the file binds), a generic alias whose parameters are
+    constrained, defaulted, swapped or instantiated
+    (`type NAME<T extends X> = L<T>`, `type NAME<T = X> = L<T>`,
+    `type NAME<K, V> = L<V, K>`, `type NAME = L<string>`),
+    `export * as NAME from`, Python
     `import M as NAME`, a rename of a module (`import * as L`,
     `from . import L as NAME`: no module or package so named declares
     `L`), a rename inside a `def`, a `class` or a deeper block (two levels
@@ -2915,6 +2926,10 @@ _JS_NAME_IS_RE = re.compile(
     r"|type\s+(?P<type>[\w$]+)(?:\s*<(?P<params>[^<>]*)>)?)"
     r"\s*(?<![=!])=(?![=>])\s*(?P<value>[A-Za-z_$][\w$]*)(?:\s*<(?P<args>[^<>]*)>)?\s*(?P<end>;?)$"
 )
+# `export default L`, `L` a bare identifier, and the `;` when the line ends
+# the statement (`end`): for the name `default`, `renames` reads it as a
+# rename of `L` when an import or a declaration of the same file binds `L`.
+_JS_EXPORT_DEFAULT_IS_RE = re.compile(r"^\s*export\s+default\s+(?P<value>[A-Za-z_$][\w$]*)\s*(?P<end>;?)\s*$")
 # A line that begins with one of these goes on with the value above it (a
 # member, an operator, a call, an index or a tagged template).
 _JS_VALUE_GOES_ON = _JS_CONTINUATION_START | frozenset("([`")
@@ -3150,6 +3165,7 @@ class _Renames:
     def __init__(self, parts: tuple[str, ...], lines: list[str], cache: _SourceCache) -> None:
         self.parts = parts
         self.lines = lines
+        self.cache = cache
         self.text = "\n".join(lines)
         path = Path(*parts)
         self.python = _rule_family(parts[-1]) == "python"
@@ -3310,6 +3326,11 @@ class _Renames:
           `type NAME<P1, ...> = L<P1, ...>` whose arguments are its bare
           parameters, the same names in the same order, exported or not,
           `L` a bare identifier and the statement ending there;
+        - for `name` `default`, a column-0 `export default L`
+          (`_JS_EXPORT_DEFAULT_IS_RE`, the `;` optional), `L` a bare
+          identifier and the statement ending there: `L` taken from the
+          import that binds it (`binding`) or, when the file declares `L`
+          (`declared_line`, no module so named), from the file itself;
         - a Python `from X import L as NAME` item, the statement at column 0,
           one level in a column-0 `try`, `except`, `else`, `if`, `elif`,
           `with` or `finally` block or as such a header's one-line body
@@ -3323,11 +3344,14 @@ class _Renames:
         Empty for any other line: `as NAME` in a comment or a string, a TS
         type assertion (`const NAME = x as NAME`), a call or any other
         expression (`NAME = a.b` included: `member` reads it, as a step of
-        a chain only), a generic alias whose parameters are constrained,
-        defaulted, swapped or instantiated (`type NAME<T extends X> =
-        L<T>`, `type NAME<K, V> = L<V, K>`, `type NAME = L<string>`), a
-        Python `import M as NAME` and a rename inside a `def` or a
-        `class`."""
+        a chain only), a default export of anything but a bare `L` an
+        import or a declaration of the file binds (`export default make()`,
+        an object, an arrow, a value that goes on to the next line, a
+        namespace import's `L`), a generic alias whose parameters are
+        constrained, defaulted, swapped or instantiated (`type NAME<T
+        extends X> = L<T>`, `type NAME<K, V> = L<V, K>`, `type NAME =
+        L<string>`), a Python `import M as NAME` and a rename inside a
+        `def` or a `class`."""
         if not 0 < number <= len(self.lines):
             return []
         found: list[tuple[str | None, str | None]] = []
@@ -3366,6 +3390,17 @@ class _Renames:
             and _js_passes_parameters(m["params"], m["args"])
         ):
             found.append(self._bound(m["value"], number))
+        m = (
+            _JS_EXPORT_DEFAULT_IS_RE.match(self.code[index])
+            if name == "default" and _is_column_0(self.lines[index]) else None
+        )
+        if m is not None and m["value"] != name and (m["end"] or not self._goes_on(index)):
+            bound = self.binding(m["value"], number)  # a namespace import's (None, module) renames nothing
+            if bound is not None:
+                found.append(bound)
+            elif declared_line(self.parts, m["value"], lines=self.lines, cache=self.cache,
+                               module_fallback=False) is not None:
+                found.append((m["value"], None))
         return [(local, module) for local, module in found if local is not None]
 
     def member(self, number: int, name: str) -> tuple[str, str] | None:
@@ -3423,9 +3458,11 @@ class _DeclarationLookup:
     renames read include an annotated `const`, `let` or `var` or Python
     `NAME: <type> = L`, a generic `type NAME<P1, ...> = L<P1, ...>`, an
     import one level in a `with` or `finally` block or as a block header's
-    one-line body, and a middle step `L = M.L2`; a chain that leaves the
-    resolved files, loops or ends at another declaration, a constrained,
-    defaulted, swapped or instantiated generic and a call stay fabricated.
+    one-line body, a column-0 `export default L` of an `L` an import or a
+    declaration of the file binds, and a middle step `L = M.L2`; a chain
+    that leaves the resolved files, loops or ends at another declaration,
+    a constrained, defaulted, swapped or instantiated generic, a call and
+    a default export of any other expression stay fabricated.
     Any error of the filesystem raises (`_LOOKUP_ERRORS`)."""
 
     def __init__(self, entries: list[dict], source_root: Path) -> None:
@@ -3755,7 +3792,9 @@ class _DeclarationLookup:
                 continue
             if lines is None:
                 lines = _text_lines(text)
-            cache = _SourceCache()  # this file's rules only: nothing kept
+            # this file's rules only; a declaring file's `_Renames` keeps it
+            # for `renamed`
+            cache = _SourceCache()
             path = Path(*parts)
             if path.suffix.lower() in PYTHON_EXTENSIONS and (
                 cache.py_statement_starts(path, lines) is None
@@ -3813,17 +3852,18 @@ class _DeclarationLookup:
         Otherwise the chain follows each of them that declares `local` or
         renames it (`_steps`: an export-list alias, a compatibility import
         in a block or on one line, an import then a plain re-export, an
-        assignment of a bare `L`, annotated or not, or a Python
-        `local = M.L2`): each rename is the next step, until a step reaches
-        a cited file that declares its name, or none does. When no file
-        declares `local` (a package name, a path that names no file, a file
-        that declares no `local`, such as a barrel that re-exports it), a
-        cited file that declares `local` clears the name at the `first`
-        rename only; at a later step that case ends the chain unless a
-        resolved file renames `local`. `seen` holds the (file, name) pairs
-        the chain followed, each a resolved file that declares or renames
-        the name, fresh for each first rename: a chain that comes back to
-        one (a loop) ends. No module or package so named counts."""
+        assignment of a bare `L`, annotated or not, an `export default L`
+        of a bound `L`, or a Python `local = M.L2`): each rename is the
+        next step, until a step reaches a cited file that declares its
+        name, or none does. When no file declares `local` (a package name,
+        a path that names no file, a file that declares no `local`, such as
+        a barrel that re-exports it), a cited file that declares `local`
+        clears the name at the `first` rename only; at a later step that
+        case ends the chain unless a resolved file renames `local`. `seen`
+        holds the (file, name) pairs the chain followed, each a resolved
+        file that declares or renames the name, fresh for each first
+        rename: a chain that comes back to one (a loop) ends. No module or
+        package so named counts."""
         resolved = [parts] if module is None else self._resolve(parts, module) if module else []
         declaring = [p for p in resolved if self._declares(p, local)]
         if not declaring and first and any(self._declares(p, local) for p in cited):
@@ -3923,9 +3963,11 @@ def classify_stale(
     include an annotated `const`, `let` or `var` or Python
     `NAME: <type> = L`, a generic `type NAME<P1, ...> = L<P1, ...>`, an
     import one level in a `with` or `finally` block or as a block header's
-    one-line body, and a middle step `L = M.L2`; a chain that leaves the
-    resolved files, loops or ends at another declaration, a constrained,
-    defaulted, swapped or instantiated generic and a call stay fabricated.
+    one-line body, a column-0 `export default L` of an `L` an import or a
+    declaration of the file binds, and a middle step `L = M.L2`; a chain
+    that leaves the resolved files, loops or ends at another declaration,
+    a constrained, defaulted, swapped or instantiated generic, a call and
+    a default export of any other expression stay fabricated.
     The classify-stale section of the module docstring gives each reason,
     what a `no-file` entry means, which entry gives `source` and how
     `defined_at` and `declared_in` are found. `kinds` (`inventory_kinds`,

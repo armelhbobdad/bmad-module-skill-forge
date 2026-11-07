@@ -4234,6 +4234,13 @@ class TestDefinedAt:
     TS_CHAIN_SELF = {**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
                      "pkg/root.ts": "import { createEntry } from './api';\nconst inner = createEntry;\n"
                                     "export const Entry = inner;\n"}
+    # #974: a middle file that exports as its default a bare `L` an import or a declaration of its own binds
+    TS_CHAIN_DEFAULT = {**TS_API, "pkg/api.ts": "export function createEntry() {}\n",
+                        "pkg/mid.ts": "import { createEntry } from './api';\nexport default createEntry;\n",
+                        "pkg/root.ts": "export { default as Entry } from './mid';\n"}
+    # #974: a documented `default` whose own line is `export default L`, `x` cited at `pkg/a.ts:1`
+    TS_DEFAULT_OF_X = {"pkg/package.json": "{}\n", "pkg/a.ts": "export const x = 1;\n",
+                       "pkg/b.ts": "import { x } from './a';\nexport default x;\n"}
 
     @pytest.mark.parametrize("files, name, cited, alias, declared_in", [
         # `default as NAME`: the cited file's column-0 `export default`, `export { X as default }` or
@@ -4416,6 +4423,23 @@ class TestDefinedAt:
         ({**PY_CHAIN, "pkg/impl/__init__.py": "from . import _core as core\n_Impl = core._Impl\n",
           "pkg/impl/_core.py": "class _Impl:\n    pass\n"},
          "Impl", "pkg/impl/_core.py", "pkg/__init__.py:1", ["pkg/__init__.py:1"]),
+        # #974: a middle `export default L` of an import (with or without its `;`, the import hoisted from below),
+        # of a name the middle file declares, or of a default import; a documented `default` at its own such line
+        (TS_CHAIN_DEFAULT, "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        ({**TS_CHAIN_DEFAULT, "pkg/mid.ts": "import { createEntry } from './api';\nexport default createEntry\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        ({**TS_CHAIN_DEFAULT, "pkg/mid.ts": "export default createEntry;\nimport { createEntry } from './api';\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        ({**TS_CHAIN_DEFAULT,
+          "pkg/mid.ts": "import { createEntry } from './api';\nconst inner = createEntry;\nexport default inner;\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        ({**TS_CHAIN_DEFAULT, "pkg/api.ts": "export default function createEntry() {}\n",
+          "pkg/mid.ts": "import createEntry from './api';\nexport default createEntry;\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:1", ["pkg/root.ts:1"]),
+        # a default import of the middle file, re-exported
+        ({**TS_CHAIN_DEFAULT, "pkg/root.ts": "import Entry from './mid';\nexport { Entry };\n"},
+         "Entry", "pkg/api.ts", "pkg/root.ts:2", ["pkg/root.ts:2"]),
+        (TS_DEFAULT_OF_X, "default", "pkg/a.ts", "pkg/b.ts:2", ["pkg/b.ts:2"]),
     ], ids=["default-as-NAME-export-list", "default-as-NAME-commonjs", "default-as-NAME-export-default",
             "default-as-NAME-react-barrel", "const-NAME-is-L", "let-NAME-is-L-no-semicolon", "type-NAME-is-L",
             "python-NAME-is-L", "import-then-re-export", "import-type-then-re-export",
@@ -4434,7 +4458,11 @@ class TestDefinedAt:
             "one-line-else-body", "one-line-with-body", "one-line-finally-body", "one-line-body-binds-nothing",
             "python-chain-try-except-middle", "ts-chain-import-then-re-export-middle",
             "python-chain-three-mixed-steps", "python-chain-in-the-renaming-file", "ts-chain-in-the-renaming-file",
-            "python-chain-member-of-a-submodule", "python-chain-member-import-as"])
+            "python-chain-member-of-a-submodule", "python-chain-member-import-as",
+            "ts-chain-export-default-middle", "ts-chain-export-default-middle-no-semicolon",
+            "ts-chain-export-default-middle-hoisted-import", "ts-chain-export-default-of-a-declaration-middle",
+            "ts-chain-export-default-of-a-default-import-middle",
+            "ts-chain-default-import-of-an-export-default-middle", "documented-default-is-export-default-L"])
     def test_a_rename_of_the_cited_declaration_is_aliased_at_the_rename(self, tmp_path: Path, capsys,
                                                                       files: dict[str, str], name: str, cited: str,
                                                                       alias: str, declared_in: list[str]) -> None:
@@ -4490,13 +4518,29 @@ class TestDefinedAt:
         ({**TS_API, "pkg/api.ts": "export default function createEntry() {}\n",
           "pkg/internal.ts": "export { default as Internal } from './api';\n",
           "pkg/root.ts": "export { Internal as Entry } from './internal';\n"}, "Entry", "pkg/api.ts", "default"),
+        # #974: a chain through a middle `export default L`, and a documented `default` at its own such line
+        (TS_CHAIN_DEFAULT, "Entry", "pkg/api.ts", "createEntry"),
+        ({**TS_CHAIN_DEFAULT, "pkg/mid.ts": "import { createEntry } from './api';\nexport default createEntry\n"},
+         "Entry", "pkg/api.ts", "createEntry"),
+        ({**TS_CHAIN_DEFAULT, "pkg/mid.ts": "export default createEntry;\nimport { createEntry } from './api';\n"},
+         "Entry", "pkg/api.ts", "createEntry"),
+        ({**TS_CHAIN_DEFAULT,
+          "pkg/mid.ts": "import { createEntry } from './api';\nconst inner = createEntry;\nexport default inner;\n"},
+         "Entry", "pkg/api.ts", "createEntry"),
+        ({**TS_CHAIN_DEFAULT, "pkg/api.ts": "export default function createEntry() {}\n",
+          "pkg/mid.ts": "import createEntry from './api';\nexport default createEntry;\n"},
+         "Entry", "pkg/api.ts", "default"),
+        (TS_DEFAULT_OF_X, "default", "pkg/a.ts", "x"),
     ], ids=["default-as-NAME", "default-import-then-re-export", "const-NAME-is-L", "import-then-re-export",
             "quoted-L", "python-NAME-is-L", "cited-module-is-the-export", "python-chain", "ts-chain",
             "python-chain-try-except-middle", "ts-chain-import-then-re-export-middle",
             "python-chain-three-mixed-steps", "generic-type-alias", "annotated-const", "python-annotated-NAME-is-L",
             "python-chain-member", "python-chain-NAME-is-L", "python-chain-annotated-member",
             "python-chain-in-the-renaming-file", "ts-chain-in-the-renaming-file", "generic-type-alias-two-parameters",
-            "ts-chain-three-steps", "ts-chain-ends-at-default"])
+            "ts-chain-three-steps", "ts-chain-ends-at-default", "ts-chain-export-default-middle",
+            "ts-chain-export-default-middle-no-semicolon", "ts-chain-export-default-middle-hoisted-import",
+            "ts-chain-export-default-of-a-declaration-middle", "ts-chain-export-default-of-a-default-import-middle",
+            "documented-default-is-export-default-L"])
     def test_an_aliased_item_renames_the_name_its_alias_renames(self, tmp_path: Path, capsys, files: dict[str, str],
                                                                  name: str, cited: str, renames: str) -> None:
         """#911: `renames` holds the name the cited file declares where the rename's chain ends, for a one-step
@@ -4654,6 +4698,33 @@ class TestDefinedAt:
         # a generic alias with parameters and no arguments
         ({**TS_API, "pkg/root.ts": "import type { API_Entry } from './api';\nexport type Entry<T> = API_Entry;\n"},
          "Entry", "pkg/api.ts"),
+        # #974: a middle default export of any other expression, of an `L` nothing binds or a namespace import
+        # binds, an indented one, or one whose chain ends at another declaration; a documented `default` whose
+        # own `export default x` binds no `x`
+        ({**TS_CHAIN_DEFAULT, "pkg/mid.ts": "import { createEntry } from './api';\nexport default createEntry();\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_CHAIN_DEFAULT, "pkg/mid.ts": "import { createEntry } from './api';\nexport default { createEntry };\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_CHAIN_DEFAULT,
+          "pkg/mid.ts": "import { createEntry } from './api';\nexport default () => createEntry;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_CHAIN_DEFAULT,
+          "pkg/mid.ts": "import { createEntry } from './api';\nexport default createEntry\n  .bind(null);\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_CHAIN_DEFAULT, "pkg/mid.ts": "import { createEntry } from './api';\n  export default createEntry;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_CHAIN_DEFAULT, "pkg/mid.ts": "export default createEntry;\n"}, "Entry", "pkg/api.ts"),
+        ({**TS_CHAIN_DEFAULT, "pkg/mid.ts": "import * as createEntry from './api';\nexport default createEntry;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_CHAIN_DEFAULT, "pkg/mid.ts": "function createEntry() {}\nexport default createEntry;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_CHAIN_DEFAULT, "pkg/other.ts": "export function createEntry() {}\n",
+          "pkg/mid.ts": "import { createEntry } from './other';\nexport default createEntry;\n"},
+         "Entry", "pkg/api.ts"),
+        # a middle file whose default export is its own default import (a loop)
+        ({**TS_CHAIN_DEFAULT, "pkg/mid.ts": "import self from './mid';\nexport default self;\n"},
+         "Entry", "pkg/api.ts"),
+        ({**TS_DEFAULT_OF_X, "pkg/b.ts": "export default x;\n"}, "default", "pkg/a.ts"),
     ], ids=["export-list-from-another-file", "export-list-from-another-file-js-specifier",
             "local-list-of-another-file's-import", "re-export-of-another-file's-import",
             "python-from-another-module", "python-NAME-is-L-from-another-module", "default-as-NAME-uncited-module",
@@ -4674,7 +4745,13 @@ class TestDefinedAt:
             "const-annotation-then-another-declarator", "python-annotation-then-a-semicolon",
             "python-annotation-then-a-call", "annotation-type-holds-a-semicolon",
             "python-chain-member-of-an-import-as", "python-def-one-line-body", "python-class-one-line-body",
-            "generic-type-alias-parameters-without-arguments"])
+            "generic-type-alias-parameters-without-arguments", "ts-chain-export-default-call-middle",
+            "ts-chain-export-default-object-middle", "ts-chain-export-default-arrow-middle",
+            "ts-chain-export-default-going-on-middle", "ts-chain-export-default-indented-middle",
+            "ts-chain-export-default-unbound-middle", "ts-chain-export-default-namespace-import-middle",
+            "ts-chain-export-default-of-its-own-declaration-middle",
+            "ts-chain-export-default-of-another-file's-import-middle", "ts-chain-export-default-self-loop-middle",
+            "documented-default-is-export-default-unbound"])
     def test_a_rename_of_another_declaration_stays_fabricated(self, tmp_path: Path, capsys, files: dict[str, str],
                                                               name: str, cited: str) -> None:
         entries = [{"export_name": name, "source_file": cited, "source_line": 1}]
