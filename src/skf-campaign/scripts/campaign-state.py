@@ -81,12 +81,21 @@ Operations:
                     (a file or `-`; the line's SKF_*_RESULT_JSON: prefix is
                     optional). A success envelope is recorded; an error
                     envelope, or --no-capstone and the like (a stage
-                    skipped on purpose), records null. --no-result <field>
-                    (repeatable) records a sub-skill that printed no result
-                    line: null, with halt reason no-result in its
-                    not_recorded row; it does not go with that field's
-                    --<field> or --no-<field>. A recorded verification also
-                    sets capstone.verified.
+                    skipped on purpose), records null. A line that does
+                    not parse, is not a JSON object, or has no string
+                    `status` or integer `exit_code` records null with halt
+                    reason result-unreadable in its not_recorded row (an
+                    empty line, or a file it cannot read or decode, is
+                    still exit 2). --no-result <field> (repeatable) records
+                    a sub-skill that printed no result line: null, with
+                    halt reason no-result in its not_recorded row; it does
+                    not go with that field's --<field> or --no-<field>.
+                    Each field it writes also sets
+                    campaign.stage_outcomes.<field>: `completed` with the
+                    envelope's exit_code, `skipped` for --no-<field>, or
+                    `failed` with the not_recorded row's halt_reason and
+                    exit_code. A recorded verification also sets
+                    capstone.verified.
   recover           Copy a .bak that validates over the primary (step-resume).
   archive           Move the state, its .bak and the brief, each one that
                     exists, into archive/<campaign name>-<UTC stamp>/ beside
@@ -150,7 +159,9 @@ Output (one JSON object on stdout):
              "last_updated", "current_stage", "changed": [...]} plus the
              operation's own keys (init: "quality_gate", "brief_file", null
              without --brief-out; apply-batch: "activated", "skipped",
-             "completed", "failed"; set-campaign: "recorded", "not_recorded")
+             "completed", "failed"; set-campaign: "recorded", and
+             "not_recorded", one {"field", "status", "halt_reason",
+             "exit_code"} row for each field it set to null)
   recover:  {"op", "state_file", "backup_file", "recovered", "last_updated",
              "current_stage"}
   archive:  {"op", "archive_dir", "moved": [...]}
@@ -423,8 +434,13 @@ def read_json(source: str, label: str) -> dict:
     return data
 
 
-def read_envelope(source: str, label: str) -> dict:
-    """A sub-skill's result envelope: the last SKF_*_RESULT_JSON line, or bare JSON."""
+def read_envelope(source: str, label: str) -> dict | None:
+    """A sub-skill's result envelope: the last SKF_*_RESULT_JSON line, or bare JSON.
+
+    None when that payload does not parse or is not a JSON object, which
+    set-campaign records as result-unreadable. An empty payload, or input it
+    cannot read or decode, is still exit 2.
+    """
     text = read_text(source, label)
     lines = [line for line in text.splitlines() if "_RESULT_JSON:" in line and "SKF_" in line]
     payload = lines[-1].split("_RESULT_JSON:", 1)[1].strip() if lines else text.strip()
@@ -432,11 +448,9 @@ def read_envelope(source: str, label: str) -> dict:
         raise StateError(EXIT_INPUT, "input-unreadable", f"{label} holds no result envelope")
     try:
         data = json.loads(payload)
-    except json.JSONDecodeError as exc:
-        raise StateError(EXIT_INPUT, "input-unreadable", f"{label} is not a result envelope: {exc}") from exc
-    if not isinstance(data, dict):
-        raise StateError(EXIT_INPUT, "input-unreadable", f"{label} is not a JSON object")
-    return data
+    except json.JSONDecodeError:
+        return None
+    return data if isinstance(data, dict) else None
 
 
 def _skills_by_name(state: dict) -> dict[str, dict]:
@@ -792,6 +806,25 @@ def _refinement(envelope: dict, stamp: str) -> dict | None:
 SUMMARIES = (("capstone", _capstone), ("verification", _verification), ("refinement", _refinement))
 
 
+def _readable(envelope: dict | None) -> bool:
+    """An envelope set-campaign can read: an object with a string `status` and an integer `exit_code`.
+
+    The SS, VS and RA envelope schemas all require both, so a line missing
+    either is recorded result-unreadable, as step-10 records an Export line.
+    """
+    if not isinstance(envelope, dict):
+        return False
+    exit_code = envelope.get("exit_code")
+    return isinstance(envelope.get("status"), str) and isinstance(exit_code, int) and not isinstance(exit_code, bool)
+
+
+def _failed_outcome(row: dict) -> dict:
+    """The stage outcome of a field set-campaign did not record, from its not_recorded row."""
+    reason = row["halt_reason"]
+    return {"outcome": "failed", "halt_reason": reason if isinstance(reason, str) else None,
+            "exit_code": row["exit_code"]}
+
+
 def op_set_campaign(args: argparse.Namespace) -> dict:
     no_result = set(args.no_result or ())
     for field, _build in SUMMARIES:
@@ -811,24 +844,36 @@ def op_set_campaign(args: argparse.Namespace) -> dict:
             campaign["architecture_doc_path"] = args.architecture_doc_path
             changed.append("campaign.architecture_doc_path")
         for field, build in SUMMARIES:
-            if field in envelopes:
+            # Each branch decides the stage outcome; a failed one takes its row's halt_reason and exit_code.
+            if field in envelopes and not _readable(envelopes[field]):
+                value = None
+                row = {"field": field, "status": None, "halt_reason": "result-unreadable", "exit_code": None}
+                not_recorded.append(row)
+                outcome = _failed_outcome(row)
+            elif field in envelopes:
                 envelope = envelopes[field]
                 value = build(envelope, stamp)
                 if value is None:
-                    not_recorded.append({"field": field, "status": envelope.get("status"),
-                                         "halt_reason": envelope.get("halt_reason"),
-                                         "exit_code": envelope.get("exit_code")})
+                    row = {"field": field, "status": envelope.get("status"),
+                           "halt_reason": envelope.get("halt_reason"), "exit_code": envelope.get("exit_code")}
+                    not_recorded.append(row)
+                    outcome = _failed_outcome(row)
                 else:
                     recorded.append(field)
+                    outcome = {"outcome": "completed", "halt_reason": None, "exit_code": envelope["exit_code"]}
             elif getattr(args, f"no_{field}"):
                 value = None
                 not_recorded.append({"field": field, "status": None, "halt_reason": None, "exit_code": None})
+                outcome = {"outcome": "skipped", "halt_reason": None, "exit_code": None}
             elif field in no_result:
                 value = None
-                not_recorded.append({"field": field, "status": None, "halt_reason": "no-result", "exit_code": None})
+                row = {"field": field, "status": None, "halt_reason": "no-result", "exit_code": None}
+                not_recorded.append(row)
+                outcome = _failed_outcome(row)
             else:
                 continue
             campaign[field] = value
+            campaign.setdefault("stage_outcomes", {})[field] = outcome
             changed.append(f"campaign.{field}")
             if field == "verification" and isinstance(campaign.get("capstone"), dict):
                 verdict = (value or {}).get("overall_verdict")

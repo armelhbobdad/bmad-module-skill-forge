@@ -1268,7 +1268,7 @@ def test_campaign_doc_follows_the_state_helper_and_the_result_line():
     assert "after its final state write" in hook and "only when the report was written" in hook
     schema = json.loads(_read(SCHEMAS / "skf-campaign-result-envelope.v1.json"))
     assert {"exit_code", "halt_reason", "export_verdicts", "skills_excluded"} <= set(schema["required"])
-    for token in ("`skf-campaign-result-envelope.v1.json`", "`export_verdicts`", "`skills_excluded`",
+    for token in ("`skf-campaign-result-envelope.v1.json`", "`export_verdicts`", "`skills_excluded`", "`stage_outcomes`",
                   "the health check displays the `SKF_CAMPAIGN_RESULT_JSON` line as the run's last line",
                   "every field the schema requires"):
         assert token in doc, token

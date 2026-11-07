@@ -14,7 +14,8 @@ Output (JSON on stdout):
    "quality_scores":{"skill":score,...},"duration":"...",
    "export_verdicts":{"skill":"pass|fallback|fail",...},"skills_excluded":["skill",...],
    "skills_exported":["skill",...],
-   "export_failures":[{"skill","halt_reason","exit_code"},...]}
+   "export_failures":[{"skill","halt_reason","exit_code"},...],
+   "stage_outcomes":{"capstone|verification|refinement":{"outcome","halt_reason","exit_code"}}}
 
 `export_verdicts` holds each completed skill's quality-gate verdict at Export
 and `skills_excluded` the completed skills the gate kept from export, both
@@ -29,6 +30,14 @@ call, an exported skill by name and a failed one with that call's
 halt_reason and exit code. Both are null when the Export stage did not run
 (`campaign.current_stage` below 9). The report's Export Gate table shows the
 same outcome per skill in its Export column.
+
+`stage_outcomes` is what the capstone, verification and refinement stages
+did: the `campaign.stage_outcomes` entry campaign-state.py set-campaign
+recorded for each one, as {"outcome", "halt_reason", "exit_code"} with
+`outcome` completed, skipped or failed (null for a stage it holds no
+outcome for). It is null when the capstone stage did not run
+(`campaign.current_stage` below 6). The report's Stages section shows the
+same outcome per stage, a failure with its halt_reason, else its exit code.
 
 --context-file also writes the payload skf-emit-result-envelope.py turns into
 the campaign's SKF_CAMPAIGN_RESULT_JSON line (schemas/
@@ -116,14 +125,19 @@ def _export_record(skill: Any) -> Optional[Dict[str, Any]]:
     return record if isinstance(record, dict) and record.get("status") in ("exported", "failed") else None
 
 
+def _failed_cell(record: Dict[str, Any]) -> str:
+    """A failure as the report shows it: its halt_reason, else its exit code, else none."""
+    why = record.get("halt_reason") or (
+        f"exit {record['exit_code']}" if record.get("exit_code") is not None else "no exit code")
+    return f"failed ({why})"
+
+
 def _export_cell(record: Optional[Dict[str, Any]], verdict: str) -> str:
     if record is None:
         return "not exported" if verdict == "fail" else "N/A"
     if record["status"] == "exported":
         return "exported"
-    why = record.get("halt_reason") or (
-        f"exit {record['exit_code']}" if record.get("exit_code") is not None else "no exit code")
-    return f"failed ({why})"
+    return _failed_cell(record)
 
 
 def _export_outcomes(state: Any) -> Dict[str, Any]:
@@ -144,6 +158,44 @@ def _export_outcomes(state: Any) -> Dict[str, Any]:
             failures.append({"skill": skill["name"], "halt_reason": record.get("halt_reason"),
                              "exit_code": record.get("exit_code")})
     return {"skills_exported": exported, "export_failures": failures}
+
+
+STAGES = (("capstone", "Capstone"), ("verification", "Verification"), ("refinement", "Refinement"))
+STAGE_OUTCOMES = ("completed", "skipped", "failed")
+
+
+def _stage_record(entry: Any) -> Optional[Dict[str, Any]]:
+    """A stage outcome campaign-state.py recorded, with its three keys, or None."""
+    if not isinstance(entry, dict) or entry.get("outcome") not in STAGE_OUTCOMES:
+        return None
+    return {"outcome": entry["outcome"], "halt_reason": entry.get("halt_reason"), "exit_code": entry.get("exit_code")}
+
+
+def _stage_outcomes(state: Any) -> Optional[Dict[str, Any]]:
+    """What the capstone, verification and refinement stages did; null before stage 6 ran."""
+    campaign = state.get("campaign") if isinstance(state, dict) else None
+    stage = campaign.get("current_stage") if isinstance(campaign, dict) else None
+    if not isinstance(stage, int) or isinstance(stage, bool) or stage < 6:
+        return None
+    held = campaign.get("stage_outcomes")
+    held = held if isinstance(held, dict) else {}
+    return {field: _stage_record(held.get(field)) for field, _label in STAGES}
+
+
+def _stages_section(outcomes: Optional[Dict[str, Any]]) -> str:
+    if outcomes is None:
+        return "The capstone, verification and refinement stages have not run."
+    lines = ["| Stage | Outcome |", "|-------|---------|"]
+    for field, label in STAGES:
+        record = outcomes[field]
+        if record is None:
+            cell = "not recorded"
+        elif record["outcome"] == "failed":
+            cell = _failed_cell(record)
+        else:
+            cell = record["outcome"]
+        lines.append(f"| {label} | {cell} |")
+    return "\n".join(lines)
 
 
 def _export_gate_section(
@@ -273,6 +325,7 @@ def _compute_aggregates(
         "duration_table": "\n".join(duration_table_rows),
         "failed_skipped_section": "\n".join(failed_skipped_lines),
         "export_gate_section": _export_gate_section(classification, state),
+        "stages_section": _stages_section(_stage_outcomes(state)),
     }
 
 
@@ -324,6 +377,7 @@ def run(
             "halt_reason": "report-failure",
             **_counts(state),
             **_export_outcomes(state),
+            "stage_outcomes": _stage_outcomes(state),
             "campaign_report_path": None,
             "decision_log": decision_log,
         })
@@ -377,6 +431,7 @@ def run(
             None if classification is None else [e["name"] for e in classification["excluded"]]
         ),
         **_export_outcomes(state),
+        "stage_outcomes": _stage_outcomes(state),
     }
     _write_context(context_file, {
         "status": "success",
@@ -387,6 +442,7 @@ def run(
         "skills_excluded": result["skills_excluded"],
         "skills_exported": result["skills_exported"],
         "export_failures": result["export_failures"],
+        "stage_outcomes": result["stage_outcomes"],
         "campaign_report_path": result["report_path"],
         "decision_log": decision_log,
         "duration": result["duration"],

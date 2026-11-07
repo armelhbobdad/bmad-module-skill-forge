@@ -321,6 +321,36 @@ def test_a_sub_skill_with_no_line_is_recorded_no_result(
     assert "\u2014" not in text and "\u2013" not in text
 
 
+@pytest.mark.parametrize(
+    "name, section, code, line, field, stage, skip",
+    [
+        ("step-07-capstone.md", 4, "SS", "SKF_STACK_RESULT_JSON", "capstone", 6, "§2 found no skill to compose"),
+        ("step-08-verify.md", 5, "VS", "SKF_VERIFY_STACK_RESULT_JSON", "verification", 7, "§3 skipped VS"),
+        ("step-09-refine.md", 5, "RA", "SKF_REFINE_ARCHITECTURE_RESULT_JSON", "refinement", 8, "§3 skipped RA"),
+    ],
+    ids=["step-07", "step-08", "step-09"],
+)
+def test_a_sub_skill_with_an_unparseable_line_is_recorded_result_unreadable(
+    name: str, section: int, code: str, line: str, field: str, stage: int, skip: str
+) -> None:
+    # #905: the helper records a line it cannot read as failed with `result-unreadable` and exits 0, so the
+    # stage logs it and goes on, as step-10 does for an Export line, instead of halting on exit 2.
+    text = _step(name)
+    record = _section(text, section)
+    sentence = (f"When the helper's `not_recorded` row gives the halt reason `result-unreadable` ({code} printed a "
+                "line that does not parse, or one with no `status` or `exit_code`), log "
+                f"\"unparseable {line} line\" (type `event`) and go on.")
+    assert sentence in record
+    # It follows the no-result sentence, and names no flag: the helper sets the reason, the step only logs it.
+    no_result = f"`uv run {{stateScript}} set-campaign --state-file {{stateFile}} --no-result {field} --stage {stage}`"
+    assert record.index(no_result) < record.index(sentence)
+    assert text.count(f"--no-{field}") == 1
+    assert text.count("result-unreadable") == 1
+    for explicit in ('"halt_reason": "result-unreadable"', "--halt-reason result-unreadable"):
+        assert explicit not in text, explicit
+    assert "\u2014" not in text and "\u2013" not in text
+
+
 def test_verify_records_verify_stacks_verdicts() -> None:
     text = _step("step-08-verify.md")
     outcome = _section(text, 5)

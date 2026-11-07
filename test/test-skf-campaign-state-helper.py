@@ -683,7 +683,7 @@ class TestSetCampaign:
     def test_records_the_capstone_from_its_envelope(self, tmp_path, capsys, monkeypatch):
         path = _write(tmp_path, _state(stage=5))
         _stdin(monkeypatch, 'SKF_STACK_RESULT_JSON: {"status":"success","skill_package":"skills/demo-stack",'
-                            '"quality_score":88,"halt_reason":null}\n')
+                            '"quality_score":88,"exit_code":0,"halt_reason":null}\n')
         rc, out = _run(capsys, "set-campaign", "--state-file", str(path), "--capstone", "-", "--stage", "6")
         assert rc == 0
         state = _read(path)
@@ -694,12 +694,12 @@ class TestSetCampaign:
 
     def test_an_error_envelope_records_null(self, tmp_path, capsys, monkeypatch):
         path = _write(tmp_path, _state(stage=5))
-        _stdin(monkeypatch, 'SKF_STACK_RESULT_JSON: {"status":"error","halt_reason":"no-skills"}\n')
+        _stdin(monkeypatch, 'SKF_STACK_RESULT_JSON: {"status":"error","halt_reason":"no-skills","exit_code":5}\n')
         rc, out = _run(capsys, "set-campaign", "--state-file", str(path), "--capstone", "-", "--stage", "6")
         assert rc == 0
         assert _read(path)["campaign"]["capstone"] is None
         assert out["not_recorded"] == [{"field": "capstone", "status": "error", "halt_reason": "no-skills",
-                                        "exit_code": None}]
+                                        "exit_code": 5}]
 
     @pytest.mark.parametrize("verdict, verified", [("FEASIBLE", True), ("NOT_FEASIBLE", False)])
     def test_verification_sets_the_capstone_verified(self, tmp_path, capsys, verdict, verified):
@@ -786,7 +786,8 @@ class TestSetCampaign:
         capstone = _read(path)["campaign"]["capstone"]
         assert capstone == {**self.RECORDED_SUMMARIES["capstone"], "verified": None}
 
-    SS_LINE = 'SKF_STACK_RESULT_JSON: {"status":"success","skill_package":"skills/demo-stack","quality_score":88}\n'
+    SS_LINE = ('SKF_STACK_RESULT_JSON: {"status":"success","skill_package":"skills/demo-stack","quality_score":88,'
+               '"exit_code":0}\n')
     VS_LINE = 'SKF_VERIFY_STACK_RESULT_JSON: {"status":"success","overall_verdict":"FEASIBLE","exit_code":0}\n'
     RA_LINE = 'SKF_REFINE_ARCHITECTURE_RESULT_JSON: {"status":"success","refined_path":"docs/refined.md","exit_code":0}\n'
 
@@ -840,6 +841,122 @@ class TestSetCampaign:
         ]
         campaign = _read(path)["campaign"]
         assert campaign["verification"] is None and campaign["refinement"] is None
+
+    # #905: a line set-campaign cannot read (it does not parse, is not a JSON object, or has no `status` or
+    # `exit_code`) is recorded failed with `result-unreadable`, so the stage goes on instead of exiting 2.
+    PREFIXES = {"capstone": "SKF_STACK_RESULT_JSON: ", "verification": "SKF_VERIFY_STACK_RESULT_JSON: ",
+                "refinement": "SKF_REFINE_ARCHITECTURE_RESULT_JSON: "}
+    UNREADABLE = {
+        "truncated": '{"status":"success","exit_code":0,"report_pa',
+        "array": '["status","success"]',
+        "no-status": '{"exit_code":0,"halt_reason":null}',
+        "no-exit-code": '{"status":"success","halt_reason":null}',
+        "bool-exit-code": '{"status":"success","exit_code":true}',
+        "string-exit-code": '{"status":"success","exit_code":"0"}',
+    }
+
+    @pytest.mark.parametrize("line", list(UNREADABLE))
+    @pytest.mark.parametrize("field, stage", [("capstone", 6), ("verification", 7), ("refinement", 8)])
+    def test_an_unparseable_line_records_null_with_result_unreadable(self, tmp_path, capsys, monkeypatch,
+                                                                      field, stage, line):
+        path = self._summarised(tmp_path, stage - 1)
+        _stdin(monkeypatch, self.PREFIXES[field] + self.UNREADABLE[line] + "\n")
+        rc, out = _run(capsys, "set-campaign", "--state-file", str(path), f"--{field}", "-", "--stage", str(stage))
+        assert rc == 0
+        assert out["recorded"] == []
+        assert out["not_recorded"] == [
+            {"field": field, "status": None, "halt_reason": "result-unreadable", "exit_code": None}]
+        state = _read(path)
+        expected = {**self.RECORDED_SUMMARIES, field: None}
+        if field == "verification":
+            expected["capstone"] = {**self.RECORDED_SUMMARIES["capstone"], "verified": None}
+        assert {key: state["campaign"][key] for key in self.RECORDED_SUMMARIES} == expected
+        assert state["campaign"]["stage_outcomes"] == {
+            field: {"outcome": "failed", "halt_reason": "result-unreadable", "exit_code": None}}
+        assert state["campaign"]["current_stage"] == stage
+        assert mod.validation_errors(state) == []
+
+    @pytest.mark.parametrize("case", ["empty", "missing-file", "not-utf-8"])
+    def test_input_it_cannot_read_is_still_exit_2(self, tmp_path, capsys, monkeypatch, case):
+        path = _write(tmp_path, _state(stage=6))
+        before = path.read_bytes()
+        source = tmp_path / "vs.txt"
+        if case == "empty":
+            source.write_bytes(b"SKF_VERIFY_STACK_RESULT_JSON: \n")
+        elif case == "not-utf-8":
+            source.write_bytes(b'SKF_VERIFY_STACK_RESULT_JSON: {"status":"\x80"}\n')
+        rc, err = _run(capsys, "set-campaign", "--state-file", str(path), "--verification", str(source),
+                       "--stage", "7")
+        assert (rc, err["code"]) == (2, "input-unreadable")
+        assert path.read_bytes() == before and not _bak(path).exists()
+
+    # #906: every branch saves the stage outcome beside the summary, so a skipped, a failed and a missing
+    # stage no longer all read as null.
+    SUCCESS_LINES = {
+        "capstone": {"status": "success", "skill_package": "skills/demo-stack", "quality_score": 88,
+                     "exit_code": 0, "halt_reason": None},
+        "verification": {"status": "success", "report_path": "fr-demo.md", "overall_verdict": "FEASIBLE",
+                         "coverage_percentage": 90.0, "recommendation_count": 1, "exit_code": 0, "halt_reason": None},
+        "refinement": {"status": "success", "refined_path": "docs/refined.md", "gap_count": 1, "issue_count": 0,
+                       "improvement_count": 2, "exit_code": 0, "halt_reason": None},
+    }
+    EXPECTED_SUMMARIES = {
+        "capstone": {"skill_path": "skills/demo-stack", "quality_score": 88, "verified": None,
+                     "completed_at": STAMP},
+        "verification": RECORDED_SUMMARIES["verification"],
+        "refinement": RECORDED_SUMMARIES["refinement"],
+    }
+
+    @pytest.mark.parametrize("case, outcome, value", [
+        ("success", {"outcome": "completed", "halt_reason": None, "exit_code": 0}, "summary"),
+        ("error", {"outcome": "failed", "halt_reason": "resolution-failure", "exit_code": 3}, None),
+        ("skip", {"outcome": "skipped", "halt_reason": None, "exit_code": None}, None),
+        ("no-result", {"outcome": "failed", "halt_reason": "no-result", "exit_code": None}, None),
+    ])
+    @pytest.mark.parametrize("field, stage", [("capstone", 6), ("verification", 7), ("refinement", 8)])
+    def test_set_campaign_saves_each_stage_outcome(self, tmp_path, capsys, monkeypatch, field, stage, case,
+                                                   outcome, value):
+        path = _write(tmp_path, _state(stage=stage - 1))
+        if case == "success":
+            _stdin(monkeypatch, self.PREFIXES[field] + json.dumps(self.SUCCESS_LINES[field]) + "\n")
+            flags = [f"--{field}", "-"]
+        elif case == "error":
+            _stdin(monkeypatch, self.PREFIXES[field] + json.dumps(
+                {"status": "error", "exit_code": 3, "halt_reason": "resolution-failure"}) + "\n")
+            flags = [f"--{field}", "-"]
+        elif case == "skip":
+            flags = [f"--no-{field}"]
+        else:
+            flags = ["--no-result", field]
+        rc, out = _run(capsys, "set-campaign", "--state-file", str(path), *flags, "--stage", str(stage))
+        assert rc == 0
+        campaign = _read(path)["campaign"]
+        assert campaign[field] == (self.EXPECTED_SUMMARIES[field] if value == "summary" else None)
+        assert campaign["stage_outcomes"] == {field: outcome}
+        assert out["recorded"] == ([field] if value == "summary" else [])
+        assert "campaign.stage_outcomes" not in out["changed"]
+        assert mod.validation_errors(_read(path)) == []
+
+    @pytest.mark.parametrize("field, stage", [("capstone", 6), ("verification", 7), ("refinement", 8)])
+    def test_a_halt_reason_that_is_not_a_string_is_saved_as_null(self, tmp_path, capsys, monkeypatch, field,
+                                                                 stage):
+        path = _write(tmp_path, _state(stage=stage - 1))
+        _stdin(monkeypatch, self.PREFIXES[field] + '{"status":"error","exit_code":3,"halt_reason":5}' + "\n")
+        rc, _out = _run(capsys, "set-campaign", "--state-file", str(path), f"--{field}", "-", "--stage", str(stage))
+        assert rc == 0
+        assert _read(path)["campaign"]["stage_outcomes"][field] == {
+            "outcome": "failed", "halt_reason": None, "exit_code": 3}
+        assert mod.validation_errors(_read(path)) == []
+
+    def test_another_stages_outcome_is_kept(self, tmp_path, capsys, monkeypatch):
+        path = _write(tmp_path, _state(stage=5))
+        _stdin(monkeypatch, self.SS_LINE)
+        assert _run(capsys, "set-campaign", "--state-file", str(path), "--capstone", "-", "--stage", "6")[0] == 0
+        assert _run(capsys, "set-campaign", "--state-file", str(path), "--no-verification", "--stage", "7")[0] == 0
+        assert _read(path)["campaign"]["stage_outcomes"] == {
+            "capstone": {"outcome": "completed", "halt_reason": None, "exit_code": 0},
+            "verification": {"outcome": "skipped", "halt_reason": None, "exit_code": None},
+        }
 
 
 class TestRecoverAndLog:

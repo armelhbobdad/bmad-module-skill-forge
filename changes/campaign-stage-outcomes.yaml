@@ -1,0 +1,6 @@
+type: added
+scope: skf-campaign
+summary: |
+  Campaign now saves whether its capstone, verification and refinement stages completed, were skipped or failed, with the failure's `halt_reason` and `exit_code`, as the optional `campaign.stage_outcomes`. The report gains a Stages section and `SKF_CAMPAIGN_RESULT_JSON` an optional `stage_outcomes`, so a pipeline can tell a failed verification from a skipped one.
+issues: [906]
+prs: [939]

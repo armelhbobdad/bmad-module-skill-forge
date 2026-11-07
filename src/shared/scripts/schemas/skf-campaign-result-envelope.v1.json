@@ -147,6 +147,44 @@
       },
       "description": "Optional. Each skill whose skf-export-skill call failed, with that call's halt_reason and exit code (null when it gave none). The campaign still ends with status success, so a CI job gates on this list. Null when the Export stage did not run; absent on a HARD HALT."
     },
+    "stage_outcomes": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "required": ["capstone", "verification", "refinement"],
+      "properties": {
+        "capstone": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["outcome", "halt_reason", "exit_code"],
+          "properties": {
+            "outcome": { "type": "string", "enum": ["completed", "skipped", "failed"] },
+            "halt_reason": { "type": ["string", "null"] },
+            "exit_code": { "type": ["integer", "null"] }
+          }
+        },
+        "verification": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["outcome", "halt_reason", "exit_code"],
+          "properties": {
+            "outcome": { "type": "string", "enum": ["completed", "skipped", "failed"] },
+            "halt_reason": { "type": ["string", "null"] },
+            "exit_code": { "type": ["integer", "null"] }
+          }
+        },
+        "refinement": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["outcome", "halt_reason", "exit_code"],
+          "properties": {
+            "outcome": { "type": "string", "enum": ["completed", "skipped", "failed"] },
+            "halt_reason": { "type": ["string", "null"] },
+            "exit_code": { "type": ["integer", "null"] }
+          }
+        }
+      },
+      "description": "Optional. What the capstone, verification and refinement stages did, from the outcome campaign-state.py recorded for each one: completed, skipped (a stage skipped on purpose, such as verification with no architecture document) or failed, with the failure's halt_reason (no-result when the sub-skill printed no result line, result-unreadable when Campaign could not read it, otherwise the sub-skill's own) and exit code (null when it gave none). A stage with no recorded outcome is null. The campaign still ends with status success, so a pipeline tells a failed verification from a skipped one here. Null before the capstone stage ran; absent on a HARD HALT."
+    },
     "campaign_report_path": {
       "type": ["string", "null"],
       "minLength": 1,
