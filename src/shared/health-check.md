@@ -91,7 +91,8 @@ For each genuine finding, present it in this format:
 | **Workflow** | {workflow name} |
 | **Step File** | `src/skf-{workflow}/references/{step-file-path}` |
 | **Section** | {the specific section or instruction number — use a stable section heading slug, not line numbers} |
-| **Fingerprint** | `fp-{7-hex}` — first 7 hex chars of `sha1("{severity}|{workflow}|{step_file}|{section-slug}")` |
+| **Defect Key** | `{defect-key}`: one to four lower-case words naming the thing the fix would change (§5a sub-step 1) |
+| **Fingerprint** | `fp-{7-hex}`: first 7 hex chars of `sha1("{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}")` |
 
 **What happened:**
 {Description of the actual issue encountered during execution}
@@ -144,27 +145,32 @@ Before any submission, route each confirmed finding by severity:
 
 For each finding routed to live-submit:
 
-**1. Compute the fingerprint** — a deterministic 7-hex dedup key:
+**1. Compute the fingerprint**, a deterministic 7-hex dedup key, and the legacy fingerprint that sub-steps 2 and 4 fall back on:
 
 ```
-fp="fp-$(printf '%s|%s|%s|%s' "{severity}" "{workflow}" "{step_file}" "{section-slug}" | sha1sum | cut -c1-7)"
+fp="fp-$(printf '%s|%s|%s|%s|%s' "{severity}" "{workflow}" "{step_file}" "{section-slug}" "{defect-key}" | sha1sum | cut -c1-7)"
+legacy_fp="fp-$(printf '%s|%s|%s|%s' "{severity}" "{workflow}" "{step_file}" "{section-slug}" | sha1sum | cut -c1-7)"
 ```
 
 The `section-slug` is a kebab-case normalized section heading (e.g. `missing-staging-path`). Never include line numbers — they drift when files are edited.
 
-`sha1sum` is not on stock macOS or Windows. On macOS, use `shasum -a 1` in its place. Anywhere neither exists, this prints the same 7 hex characters, to prefix the same way:
+The `defect-key` names the defect itself, so two different defects in one section get two fingerprints while two reports of one defect get the same one. It is one to four lower-case ASCII words joined by hyphens that name the thing the fix would change, in the step file's or the code's own words: a function, a script subcommand, a field, a flag, a rule's term or a section's concept. Pick the most specific name the fix would edit; when the defect is a missing rule, name the case the rule should cover. A wrong check in `floor_check` gives `floor-check`, a misread `--orphan-action` flag gives `orphan-action`, and a missing rule for the order of a name's shared text and its own members gives `shared-text-order`. Never use a line number, a file name or path (the step file already says where), a severity, or words from this session's own story: whoever reports the same defect next must reach the same key from the source alone. If you cannot name such a thing, use the section's own subject.
+
+`legacy_fp` is the fingerprint without the key. Issues and seen-cache records made before the key existed carry it, and every defect of one severity in one section shares it, so a match on it is only ever a possible match (sub-steps 2 and 4).
+
+`sha1sum` is not on stock macOS or Windows. On macOS, use `shasum -a 1` in its place. Anywhere neither exists, this prints the same 7 hex characters, to prefix the same way (for `legacy_fp`, leave `|{defect-key}` out of its last argument):
 
 ```
-uv run python -c "import hashlib,sys; print(hashlib.sha1(sys.argv[1].encode()).hexdigest()[:7])" "{severity}|{workflow}|{step_file}|{section-slug}"
+uv run python -c "import hashlib,sys; print(hashlib.sha1(sys.argv[1].encode()).hexdigest()[:7])" "{severity}|{workflow}|{step_file}|{section-slug}|{defect-key}"
 ```
 
 **2. Check the local seen-cache** at `{seenCachePath}`:
 
 Read `{seenCachePath}`. A missing file, an empty file, or one that does not parse as JSON is an empty cache — never an error, never a reason to halt.
 
-**Presence in the cache is not the verdict.** A fingerprint whose defect was already fixed must NOT suppress: a fresh sighting of a fixed defect is a *regression*, and it is the single most valuable report this loop can produce. Look up the fingerprint and work these branches in order, stopping at the first that matches:
+**Presence in the cache is not the verdict.** A fingerprint whose defect was already fixed must NOT suppress: a fresh sighting of a fixed defect is a *regression*, and it is the single most valuable report this loop can produce. Look up `{fp}`, and only when the cache has no record for it, `{legacy_fp}` (see **Legacy records** below). Work these branches on the record found, in order, stopping at the first that matches:
 
-1. **No record for this fingerprint** → `unseen`. Go to sub-step 3.
+1. **No record under either fingerprint** → `unseen`. Go to sub-step 3.
 2. **Record with `"action": "resolved"`** → `regression`. Recorded by hand when the defect was fixed. Go to sub-step 3 and apply the regression treatment below.
 3. **Record with `"action"` of `created`, `reacted`, or `commented`, and a non-empty `issue_url`** → you must decide whether that issue is still live before you may suppress. The cache is machine-local and records only what *this* user did; the issue's own state is shared, so it is the better authority. Run exactly this, and give it a hard time bound so a hung network can never strand the run:
 
@@ -179,6 +185,8 @@ Read `{seenCachePath}`. A missing file, an empty file, or one that does not pars
 4. **Record with one of those actions but an empty `issue_url`** → `handled`. There is no issue to consult, so the local record stands.
 5. **Record with no `action`, or any other value** → `unrecognized`. Hand-edited, or written by a newer version of this file, so it cannot be confirmed handled. Go to sub-step 3 as an ordinary submission.
 
+**Legacy records.** A record found only under `{legacy_fp}` is a possible match, never a certain one: every defect of this severity in this section shares that fingerprint, so the record may be another defect's. Work the same branches on it, then change two verdicts. `handled` does not suppress: continue as `unseen` and log `"{fp}: legacy record {legacy_fp} may be another defect, reporting"`, and sub-step 4 still offers its issue while that issue is open. `regression` becomes `possible-regression`, which takes the possible form of the regression treatment below. Leave the legacy record itself untouched.
+
 **`handled` is the only verdict that suppresses.** Skip submission silently and log: `"fp-{hash}: already handled on {date}, issue {url} — skipping"`. Every other verdict proceeds to sub-step 3.
 
 **Why anything uncertain reports instead of suppressing.** A duplicate report is self-healing: the dedup Action closes it and moves the upvote to the canonical issue. A silenced regression is caught by nothing at all. When the verdict is in doubt, report.
@@ -189,15 +197,19 @@ Read `{seenCachePath}`. A missing file, an empty file, or one that does not pars
 - Add a `## Regression` section immediately above `## Finding`, containing one line: `Regression of {issue_url}, resolved {date}.` If the prior record has no `issue_url`, write `Regression of a previously resolved local finding, resolved {date}.` The `{fp}` label still ties the two together server-side.
 - Leave `## Finding` and the other one-sentence sections exactly as specified below. The backlink lives in its own section precisely so those budgets are untouched.
 
-**What this does and does not catch.** The fingerprint is `sha1` over the section slug, so a fix that renames or relocates the section it touches changes the fingerprint. Such a regression arrives as `unseen` and is reported as a first sighting, which is safe but unlinked. These branches catch the regressions that recur under the same heading in the same step file, which is the case where the old behaviour was silent.
+**Possible regression** (verdict `possible-regression` only). The resolved record was found under `{legacy_fp}`, so what was fixed may be another defect in this section. Add the same `## Regression` section, with one line: `Possibly a regression of {issue_url}, resolved {date}: that report's fingerprint has no defect key, so it may be another defect in this section.` If the prior record has no `issue_url`, write `Possibly a regression of a previously resolved local finding in this section, resolved {date}.` Leave the title unmarked, since this record cannot prove a recurrence. The two reports carry different `fp-*` labels, so this line is their only link.
+
+**What this does and does not catch.** The fingerprint is `sha1` over the section slug and the defect key, so a fix that renames or relocates the section it touches, or renames the thing the key names, changes the fingerprint. Such a regression arrives as `unseen` and is reported as a first sighting, which is safe but unlinked. These branches catch the regressions that recur under the same heading in the same step file, under the same key, which is the case where the old behaviour was silent.
 
 **3. Check GitHub CLI availability** with `gh auth status`. If `gh` is unavailable, fall through to step 5c (local fallback).
 
-**4. Remote dedup search** — one deterministic call:
+**4. Remote dedup search**: one deterministic call, and a second only when the first finds nothing:
 
 ```
 gh search issues --repo {healthCheckRepo} --state open "{fp} in:title" --json number,url,title --limit 1
 ```
+
+When it returns no issue, run it again with `{legacy_fp}` in place of `{fp}`. An issue found by `{fp}` reports this defect. An issue found only by `{legacy_fp}` was filed before fingerprints carried a defect key, and every defect of this severity in this section shares that fingerprint, so it is a possible match: the user decides at 5a-i.
 
 **5a-i. If a matching open issue exists:**
 
@@ -211,6 +223,14 @@ Present to user:
 > - **\[N]** Create a new issue anyway — only if you're certain this is a distinct defect
 > - **\[S]** Skip — don't submit this finding"
 
+**A legacy match is only a possible match.** When the issue was found by `{legacy_fp}`, present the same options under this opening instead:
+
+> "**Possible match:** #{N}: {title}
+>
+> It was filed before fingerprints carried a defect key, so its fingerprint `{legacy_fp}` is shared by every `{severity}` finding in this section, and it may report another defect. Pick **\[R]** or **\[C]** only if it reports this one, and **\[N]** if it does not. Options:"
+
+Only the user decides a legacy match. A headless run never reaches this choice, because §4 queues its findings locally without a search. A run that reaches it with no user to ask takes **\[S]**, so the finding goes to the local queue (§5c) and nothing is posted on a guess.
+
 Execute the chosen action:
 
 - **R:** `gh api -X POST /repos/{repo}/issues/{N}/reactions -f content='+1'`
@@ -218,7 +238,7 @@ Execute the chosen action:
 - **N:** Proceed to step 5a-ii.
 - **S:** Record nothing.
 
-Record the outcome to the seen-cache under the fingerprint with fields `{action, issue_url, date}`.
+Record the outcome to the seen-cache under `{fp}` with fields `{action, issue_url, date}`, also when the match was found by `{legacy_fp}`.
 
 **5a-ii. If no matching open issue exists** — create a new issue:
 
@@ -245,9 +265,11 @@ gh issue create \
 
 When sub-step 2 returned `regression`, append ` — REGRESSION` to that `--title` value, after `{short description}`, and include the `## Regression` backlink section in the body. The command above is the literal one you run, so the marker has to be in it: an instruction that the title should say REGRESSION loses to a copied command that does not.
 
+A `possible-regression` gets its `## Regression` section and no title marker.
+
 The fingerprint `{fp}` appears in both title (human-readable) and label (server-side filterable). Maintainers can query all reports for a defect via the `fp-*` label without relying on title text.
 
-After the issue is created, write the fingerprint → issue-url mapping to the seen-cache at `{seenCachePath}` so this user does not re-report it while that issue stays open.
+After the issue is created, write the `{fp}` → issue-url mapping to the seen-cache at `{seenCachePath}` so this user does not re-report it while that issue stays open.
 
 **Writing rules — non-negotiable:**
 
@@ -264,6 +286,9 @@ After the issue is created, write the fingerprint → issue-url mapping to the s
 ## Step File
 `src/skf-{workflow}/references/step-NN-name.md`
 
+## Section
+`{section-slug}`
+
 ## Severity
 `{bug | friction | gap}`
 <!-- bug: instructions were wrong or contradictory -->
@@ -272,8 +297,12 @@ After the issue is created, write the fingerprint → issue-url mapping to the s
 
 ## Fingerprint
 `{fp}`
-<!-- Deterministic dedup key: sha1(severity|workflow|step_file|section-slug)[:7]. -->
+<!-- Deterministic dedup key: sha1(severity|workflow|step_file|section-slug|defect-key)[:7], each as this issue writes it. -->
 <!-- Also applied as a label so maintainers can filter all variants server-side. -->
+
+## Defect Key
+`{defect-key}`
+<!-- One to four lower-case words naming the thing the fix would change, in the step file's or the code's own words. -->
 
 ## Finding
 <!-- ONE sentence. What is the problem? Do not explain why yet. -->
@@ -342,6 +371,8 @@ After each successful `gh issue create`, append to `{seenCachePath}`:
 Ensure the parent directory exists. This file is global across the user's machine — not per-project — so the same defect is not re-reported across different repos the user works in while its issue stays open.
 
 **Merge, never replace.** Read the existing file, set this one key, write the whole object back. A write that emits only the new key silently discards every other fingerprint the user has ever recorded.
+
+**Write under `{fp}` only.** A record under `{legacy_fp}` stays exactly as it is, whatever its action: it may be another defect's.
 
 **Read before you write, and never downgrade a `resolved` record.** Before setting the key, check whether one already exists with `"action": "resolved"`. If it does, and you are here because that resolved defect just recurred, you are recording the regression's new issue: overwrite it with `created` and the new URL, which is correct because a live issue now tracks the recurrence. In every other case leave a `resolved` record alone. The record must never move from `resolved` back to a suppressing action without a new open issue to justify it, or the next run silently re-arms the suppression the fix removed.
 
