@@ -1463,11 +1463,12 @@ def test_an_invalid_inventory_is_redispatched_once_then_halts_with_its_reason():
     assert "Re-dispatch the §1 subagent once, with the script's `violations[]` appended" in failures
     assert "(an absent name as a name the skill does not write, a floor name as one it must keep)" in failures
     assert 'HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`)' in section
-    assert "failed {schema validation | the ground-truth spot-check | the floor check} twice" in section
+    assert ("failed {schema validation | the ground-truth spot-check | the place (`at`) check | the floor check} "
+            "twice") in section
     assert "SKF_TEST_RESULT_JSON" not in _read(COVERAGE), "the emitter prints the line"
     table = _flow(_slice(_read(CONTRACT), "| `halt_reason` | Raised by |", "When the emitter itself"))
     assert ("| `inventory-invalid` | coverage-check.md §1a: the documented inventory failed its schema check, "
-            "spot-check or floor check twice |") in table
+            "spot-check, place (`at`) check or floor check twice |") in table
 
 
 def test_the_spot_check_is_the_scripts():
@@ -1509,7 +1510,8 @@ def test_the_floor_runs_before_the_inventory_subagent():
     assert ("refuses it when it leaves out a floor name those files write, or an origin's `signature` at its "
             "origin, or when an entry's `at` is missing or is no line of those files that writes its name.") in section1a
     contract = _flow(_read(INVENTORY_CONTRACT))
-    assert "and keeps one `kind` in every place. An entry that carries `params` or `usage_signature`" in contract
+    assert ("and keeps one `kind` in every place. An entry whose `params` or `usage_signature` the signature check "
+            "compares") in contract
     assert ("A place `inventory-floor.json` gives a `signature` (a cited function declaration, a Signature cell, or "
             "a heading or an export table's first cell that writes one call) has that form as its entry, with that "
             "place as its `at`, whatever its kind, its non-blank `params` and `return_type` kept as given (a "

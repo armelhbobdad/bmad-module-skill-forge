@@ -53,7 +53,8 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     alone and score takes its mismatch there, while a form bound to nothing
     is planned as before and a plan with no binding is byte for byte the
     one before; such a declaration is never the planned record or a
-    candidate, and joins no name, set or count
+    candidate, and joins no name, set or count; a neighbouring line that is
+    another place of the name never lends a form its citations
   - compares a signature documented with no argument (#794): `params` of
     `""` or `[]` is a signature, and of a name listed twice the entry with
     non-empty `params` or a usage form (#826) is compared
@@ -1740,16 +1741,14 @@ LIGHTWEIGHT_BLOCK = "```python\nasync def run_pipeline(\n    steps,\n) -> list\n
     ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n\n```python\n# [AST:{LIGHTWEIGHT}]\n"
                   "async def run_pipeline(\n    steps,\n) -> list\n```\n"},
      "SKILL.md:7", [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]),
-    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n{LIGHTWEIGHT_LINE}\n"}, "SKILL.md:4", [LIGHTWEIGHT_BOUND]),
 ], ids=["both-cited", "only-the-other-declaration-cited", "a-heading-then-its-citation", "a-range-that-holds-it",
-        "the-line-after-its-fenced-block", "a-comment-heading-its-fenced-block", "adjacent-forms"])
+        "the-line-after-its-fenced-block", "a-comment-heading-its-fenced-block"])
 def test_a_form_whose_own_citation_names_a_declaration_is_bound_to_it(tmp_path, tree, lightweight_at, bound):
     """#918 (oms-cognee run_pipeline): each form whose own citations name one declaration of the name, the
     orchestrator's surface record or the lightweight runner's other declaration, is bound to it, so the judge
     compares it with that declaration alone. The check stays at the surface's record and offers no candidate: an
     other declaration reaches the judge only through a binding, and is never the planned record, even when the
-    skill cites only it. Two forms on adjacent lines share the second one's citation (a form's next non-blank
-    line is read too), so the orchestrator's form there names both declarations and is bound to nothing."""
+    skill cites only it."""
     plan = json.loads(_homonym_plan(tmp_path, tree, inventory=_run_pipeline(lightweight_at=lightweight_at)).stdout)
     assert _homonym_check(plan)["bound"] == bound
 
@@ -1812,6 +1811,66 @@ def test_a_form_is_bound_to_one_of_two_surface_records(tmp_path):
     tree = {"SKILL.md": f"# Demo\n\n`composeStories(x)` [AST:{REACT}]\n"}
     plan = json.loads(_homonym_plan(tmp_path / "whole-file", tree, twice, [{**COMPOSE, "at": "SKILL.md:3"}]).stdout)
     assert "bound" not in plan["files"][0]["checks"][0]
+
+
+# Two forms of the name written next to each other, each test's orchestrator form first: its own citations are never
+# the other form's.
+FENCED_TWO = ("```python\nasync def run_pipeline(tasks=None, data=None, datasets=None): ...\n"
+              "async def run_pipeline(steps, *, data=None, context=None) -> list: ...\n```\n")
+
+
+@pytest.mark.parametrize("text, at, bound", [
+    (f"# Demo\n\n{ORCHESTRATOR_LINE}\n{LIGHTWEIGHT_LINE}\n", ("SKILL.md:3", "SKILL.md:4"),
+     [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]),
+    ("# Demo\n\n| Export | Signature |\n| --- | --- |\n| `run_pipeline` | `(tasks=None, data=None, datasets=None)` |\n"
+     f"| `run_pipeline` | `(steps, *, data=None, context=None) -> list` [AST:{LIGHTWEIGHT}:L37] |\n",
+     ("SKILL.md:5", "SKILL.md:6"), [LIGHTWEIGHT_BOUND]),
+    (f"# Demo\n\n{FENCED_TWO}\n`[AST:{LIGHTWEIGHT}:L37]`\n", ("SKILL.md:4", "SKILL.md:5"), []),
+    (f"# Demo\n\nTwo functions share the name:\n\n```python\n# [AST:{ORCHESTRATOR}:L53]\n"
+     "async def run_pipeline(tasks=None, data=None, datasets=None): ...\n\n"
+     f"# [AST:{LIGHTWEIGHT}:L37]\nasync def run_pipeline(steps, *, data=None, context=None) -> list: ...\n```\n",
+     ("SKILL.md:7", "SKILL.md:10"), [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]),
+    ("# Demo\n\n```python\nasync def run_pipeline(tasks=None, data=None, datasets=None): ...\n```\n\n"
+     "`cognee.pipelines` declares its own `run_pipeline`, the lightweight runner "
+     f"`run_pipeline(steps, *, data=None, context=None) -> list` [AST:{LIGHTWEIGHT}:L37].\n",
+     ("SKILL.md:4", "SKILL.md:7"), [LIGHTWEIGHT_BOUND]),
+], ids=["adjacent-lines-each-cited", "an-uncited-row-then-a-cited-row", "one-block-of-both-then-a-citation",
+        "one-block-of-both-each-under-its-comment", "a-fenced-form-then-a-note-on-the-other"])
+def test_a_neighbouring_place_s_citation_never_binds_a_form(tmp_path, text, at, bound):
+    """#918 review: a form whose own line cites nothing is never bound by the citation of a neighbouring line that is
+    another place of the name. The next table row, a note after the block that names the name and cites the other
+    declaration, and the line after a block that holds both forms are not its own, so the orchestrator's correct
+    form stays compared with its surface record, as before, never strictly with the lightweight runner; and in one
+    block that declares both, each declaration's own comment just above it binds it."""
+    inventory = _run_pipeline(*at)
+    plan = json.loads(_homonym_plan(tmp_path, {"SKILL.md": text}, inventory=inventory).stdout)
+    assert _homonym_check(plan).get("bound", []) == bound
+
+
+@pytest.mark.parametrize("second", [
+    {"name": "run_pipeline", "kind": "function", "params": "", "description": "Takes none."},
+    {"name": "run_pipeline", "kind": "function", "description": "Named, with no form."},
+], ids=["a-form-the-plan-drops", "an-entry-with-no-form"])
+def test_every_place_the_inventory_gives_the_name_shares_a_block(tmp_path, second):
+    """A block's own citations belong to its one place of the name, counted over every entry of the name with an
+    `at`: one whose form the plan drops (it lists no member, after one that does) and one with no form too."""
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n{FENCED_TWO}\n`[AST:{LIGHTWEIGHT}:L37]`\n")
+    inventory = [_run_pipeline("SKILL.md:4")[0], {**second, "at": "SKILL.md:5"}]
+    plan = mod.plan(inventory, ["run_pipeline"], [ORCHESTRATOR_RECORD], str(tmp_path / "skill"),
+                    [LIGHTWEIGHT_DECLARATION])
+    [check] = plan["files"][0]["checks"]
+    assert "alternatives" not in check and "bound" not in check
+    plan = mod.plan(inventory[:1], ["run_pipeline"], [ORCHESTRATOR_RECORD], str(tmp_path / "skill"),
+                    [LIGHTWEIGHT_DECLARATION])
+    assert plan["files"][0]["checks"][0]["bound"] == [{**LIGHTWEIGHT_BOUND, "form": 0}], "alone in its block"
+
+
+def test_one_declaration_recorded_twice_binds_a_form(tmp_path):
+    """A declaration the surface records twice, at one file and line (as a namespace member and as an export), is one
+    declaration: a form whose citation names it is bound to it, not left unbound as naming two."""
+    twice = {**HOMONYMS, "exports": [ORCHESTRATOR_RECORD, {**ORCHESTRATOR_RECORD, "origin": "namespace"}]}
+    plan = json.loads(_homonym_plan(tmp_path, {"SKILL.md": HOMONYM_SKILL}, twice).stdout)
+    assert _homonym_check(plan)["bound"] == [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]
 
 
 def test_two_entries_of_one_form_bind_it_by_all_their_places(tmp_path):
@@ -1997,6 +2056,24 @@ def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tm
     out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
     assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, "Critical")]
     assert any("evidence_line 322 is before the declaration" in w for w in out["warnings"]), out["warnings"]
+
+
+def test_a_form_bound_to_an_other_declaration_is_graded_at_its_file():
+    """#918 review: a form bound to an other declaration is graded at that declaration's file. createTest's only
+    record has no file, so the plan offers its check at none; bound to the TS declaration it cites, a renamed
+    parameter there is Low, as at a TS file the plan offered. Unbound, the same mismatch is graded at the record's
+    blank file: Critical."""
+    renamed = {"name": "createTest", "line": 330, "file": PORTABLE, "difference": "parameter-name",
+               "source_sig": "(story: Story, projectAnnotations?: Annotations): Test",
+               "documented_sig": "(story: Story, annotations?: Annotations): Test",
+               "issue": "the second parameter is `projectAnnotations`"}
+    results = [{"file": PORTABLE, "signature_mismatches": [renamed]}]
+    out = mod.score([CREATE_TEST], ["createTest"], FILELESS["exports"], results, offered={"createTest": [""]},
+                    bound={"createTest": {0: {"file": PORTABLE, "line": 319}}})
+    assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, 319, "Low")]
+    assert (out["matchingSignatures"], out["totalDocumented"]) == (1, 1)
+    out = mod.score([CREATE_TEST], ["createTest"], FILELESS["exports"], results, offered={"createTest": [""]})
+    assert [m["severity"] for m in out["mismatches"]] == ["Critical"]
 
 
 # #918 end to end: the cognee shape, a namespace member and a lazy `__getattr__` re-export of a same-named function,

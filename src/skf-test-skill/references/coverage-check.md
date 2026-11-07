@@ -99,7 +99,7 @@ uv run {validateInventoryScript} --input "{run_dir}/inventory-response.txt" --sk
 ```
 
 - `valid` true (exit 0): every later command reads `{run_dir}/inventory.json`.
-- `valid` false (exit 2), or exit 1: load `{coverageBranchesFile}` and follow its **Inventory Failures** section. Invalid a second time: HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`): "coverage-check: the subagent inventory failed {schema validation | the ground-truth spot-check | the floor check} twice: {the violations joined}."
+- `valid` false (exit 2), or exit 1: load `{coverageBranchesFile}` and follow its **Inventory Failures** section. Invalid a second time: HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`): "coverage-check: the subagent inventory failed {schema validation | the ground-truth spot-check | the place (`at`) check | the floor check} twice: {the violations joined}."
 
 ### 1b. Cross-Check Split-Body Consistency
 
@@ -156,7 +156,7 @@ A check with `candidates` reads each and reports a mismatch only when the docume
 
 A check with `alternatives` (the other forms the skill documents for the name) is compared with each of them too, as `{signatureRulesFile}` says, each mismatch naming its form as `form`.
 
-A check's `bound` lists each form (its `form` index) whose own citations name one declaration of the name: one of its surface records, or of its `surface.json` `otherDeclarations` (a same-named declaration no entry point exports, such as one a lazy re-export passes on). Its own citations are the `[AST:]` and `[SRC:]` citations at the inventory's `at`: that line or the next non-blank one, and, in a fenced block, its first line when a comment, or the first non-blank line after it. One names a declaration that cites its file at its line, or in an `L` range that holds it; with no line, every declaration in the file. Compare a bound form with its bound declaration alone, at its `file` and `line`, and report its mismatch there, `file` and `line` on the mismatch object.
+A check's `bound` lists each form (its `form` index) whose own citations name one declaration of the name: one of its surface records, or of its `surface.json` `otherDeclarations` (a same-named declaration no entry point exports, such as one a lazy re-export passes on). Its own citations are the `[AST:]` and `[SRC:]` citations at the inventory's `at`: on that line; on the next non-blank line, unless that line writes the name (another place of it, such as the next table row) or, in a fenced block, is a comment (it heads the next declaration); in a fenced block, on the comment lines just above it; and, when the block holds no other place the inventory gives the name, on the block's first non-blank line when a comment and on the first non-blank line after the block, unless that line writes the name. A citation names a declaration when it cites the declaration's file at its line or in an `L` range that holds that line; one with no line names every declaration in its file. Compare a bound form with its bound declaration alone, read in full at its `file` and `line` as above, whatever the check's `candidates`, and report its mismatch there, `file` and `line` on the mismatch object.
 
 Save each response to `{run_dir}/signatures-<n>.txt` with the Write tool. Without subagents, load `{signatureRulesFile}`, compare in the main thread by its rules and save the same JSON.
 

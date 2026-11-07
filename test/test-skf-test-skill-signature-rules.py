@@ -292,20 +292,29 @@ def test_a_bound_form_is_compared_with_its_own_declaration_alone():
     coverage = _read(COVERAGE)
     bound = _paragraph(coverage, "A check's `bound` lists each form")
     assert "of its `surface.json` `otherDeclarations`" in bound
-    assert ("Its own citations are the `[AST:]` and `[SRC:]` citations at the inventory's `at`: that line or the "
-            "next non-blank one, and, in a fenced block, its first line when a comment, or the first non-blank "
-            "line after it.") in bound
-    assert bound.endswith("Compare a bound form with its bound declaration alone, at its `file` and `line`, and "
-                          "report its mismatch there, `file` and `line` on the mismatch object."), bound
+    assert ("Its own citations are the `[AST:]` and `[SRC:]` citations at the inventory's `at`: on that line; on "
+            "the next non-blank line, unless that line writes the name (another place of it, such as the next table "
+            "row) or, in a fenced block, is a comment (it heads the next declaration); in a fenced block, on the "
+            "comment lines just above it; and, when the block holds no other place the inventory gives the name, on "
+            "the block's first non-blank line when a comment and on the first non-blank line after the block, "
+            "unless that line writes the name.") in bound
+    assert ("A citation names a declaration when it cites the declaration's file at its line or in an `L` range "
+            "that holds that line; one with no line names every declaration in its file.") in bound
+    assert bound.endswith("Compare a bound form with its bound declaration alone, read in full at its `file` and "
+                          "`line` as above, whatever the check's `candidates`, and report its mismatch there, `file` "
+                          "and `line` on the mismatch object."), bound
     section2b = _flow(_slice(coverage, "### 2b.", "### 2c."))
     assert ("A bound form's mismatch is recorded at its bound declaration, a judge that names another file listed "
             "in `warnings`; a bound declaration joins no name, set or count.") in section2b
     contract_text = _read(REFS / "inventory-contract.md")
     contract = _paragraph(contract_text, "The contract `validate-inventory.py` checks")
-    assert ("An entry that carries `params` or `usage_signature`, a `method`'s aside, gives that place as `at`, "
+    assert ("An entry whose `params` or `usage_signature` the signature check compares (a list, a non-blank "
+            "string, or a function's `params`, `\"\"` included), except a `method`, gives that place as `at`, "
             "`\"<path>:<line>\"`: its file as the package names it (`SKILL.md`, or a file `references` lists) and "
             "the line its form starts on, the table row, the heading, the prose line or, in a fenced block, the "
-            "line that opens the declaration, never a fence.") in contract
+            "line the declaration or call starts on (a `def` or `class` line, not a decorator above it), never a "
+            "fence.") in contract
+    assert "a form that writes only a `return_type` gives no `at`" in contract
     assert "has that form as its entry, with that place as its `at`, whatever its kind" in contract
     spec = importlib.util.spec_from_file_location("validate_inventory_contract_example",
                                                   TEST_SKILL / "scripts" / "validate-inventory.py")

@@ -48,7 +48,7 @@ The emitter prints a finished run's line on stdout and a halt's or a blocked run
 | `forge-tier-missing` | init.md §4 |
 | `workspace-drift` | init.md §5b |
 | `another-run-active` | init.md §6b, and the lock renewal in report.md §4c |
-| `inventory-invalid` | coverage-check.md §1a: the documented inventory failed its schema check, spot-check or floor check twice |
+| `inventory-invalid` | coverage-check.md §1a: the documented inventory failed its schema check, spot-check, place (`at`) check or floor check twice |
 | `indeterminate-surface` | coverage-check.md §2b: zero exports, an empty stack surface or a docs-only skill that documents nothing, so no score can be attached |
 | `step-completeness-violation` | step 4c §2 (a stage recorded nothing in the gap ledger) and report.md §4c |
 | `report-anchor-missing` | report.md §4c |

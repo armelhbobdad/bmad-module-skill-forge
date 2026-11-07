@@ -47,26 +47,31 @@ ratios and the gap records of the wrong signatures.
          read. With --skill-dir a form is also bound (#918) to the one
          declaration of its name its own citations name: the citations of
          the places the inventory's `at` gives its entries
-         (validate-inventory.py's form_citations: on that line or the next
-         non-blank one and, for a line in a fenced block, on the block's
-         first non-blank line when it is a comment or on the first non-blank
-         line after its closing fence), one naming a declaration when it
-         cites its file at its line, in an `L` range that holds it, or with
-         no line (cites_declaration). The declarations are the name's
-         surface records with a file and its `otherDeclarations` (one the
-         extraction records in a file no record of the name names, such as
-         a same-named function a lazy re-export passes on, which no entry
-         point exports), each once per file and line. A form whose
-         citations name exactly one is listed in the check's `bound` with
-         its index and that declaration, and the judge compares it with that
-         declaration alone, whatever the check's location and candidates; a
-         form whose citations name none or two is compared as before. An
-         other declaration is never the planned record and never a
-         candidate: it reaches the judge only as a bound form's declaration.
-         With no form bound the plan is the one a surface without
-         `otherDeclarations` gives. Also the whole documented-signature map,
-         and each name's alternatives, for the fallback scan that has no
-         surface lines yet.
+         (validate-inventory.py's form_citations): on that line; on the
+         next non-blank line, unless that line writes the name (another
+         place of it, such as the next table row) or, in a fenced block, is
+         a comment (it heads the next declaration); in a fenced block, on
+         the comment lines just above it; and, when the block holds no other
+         place the inventory gives the name, on the block's first non-blank
+         line when it is a comment and on the first non-blank line after its
+         closing fence unless that line writes the name. One names a
+         declaration when it cites its file at its line, in an `L` range
+         that holds it, or with no line (cites_declaration). The
+         declarations are the name's surface records with a file and its
+         `otherDeclarations` (one the extraction records in a file no record
+         of the name names, such as a same-named function a lazy re-export
+         passes on, which no entry point exports), each once per file and
+         line. A form whose citations name exactly one is listed in the
+         check's `bound` with its index and that declaration, and the judge
+         compares it with that declaration alone, whatever the check's
+         location and candidates; a form whose citations name none or two,
+         and a form that writes only a `return_type` (it gives no `at`), is
+         compared as before. An other declaration is never the planned
+         record and never a candidate: it reaches the judge only as a bound
+         form's declaration. With no form bound the plan is the one a
+         surface without `otherDeclarations` gives. Also the whole
+         documented-signature map, and each name's alternatives, for the
+         fallback scan that has no surface lines yet.
   score  the categories. Reads every subagent result, checks its schema,
          and computes:
            Signature Accuracy = matching / compared * 100, where compared is
@@ -665,6 +670,19 @@ def _forms_and_places(inventory: list[dict]) -> dict[str, list[tuple[dict, list[
     return out
 
 
+def _places_by_name(inventory: list[dict]) -> dict[str, set[tuple[str, int]]]:
+    """{name: every place the inventory gives it, (its path, its line) from
+    an entry's good `at`}, a form plan drops (one that lists no member, after
+    another) and an entry with no form included; a `method` is no place of
+    its name."""
+    spots: dict[str, set[tuple[str, int]]] = {}
+    for entry in inventory:
+        name, place = entry.get("name"), _inventory().parse_at(entry.get("at"))
+        if entry.get("kind") != "method" and isinstance(name, str) and name and place is not None:
+            spots.setdefault(name, set()).add(place)
+    return spots
+
+
 def documented_forms(inventory: list[dict]) -> dict[str, list[dict]]:
     """{name: [its documented signature, *its alternatives]} for each
     documented export with a signature: its distinct forms (_form), ranked.
@@ -749,19 +767,21 @@ def _check_at(name: str, records: list[dict], skill_dir: str | None,
     return first, [_candidate(r) for r in filed]
 
 
-def _bindings(records: list[dict], others: list[dict], places: list[list[tuple[str, int]]],
-              texts: dict[str, list[str]]) -> list[dict]:
-    """The forms of a name bound to a declaration (#918): {"form": its index
+def _bindings(name: str, records: list[dict], others: list[dict], places: list[list[tuple[str, int]]],
+              every: set[tuple[str, int]], texts: dict[str, list[str]]) -> list[dict]:
+    """The forms of `name` bound to a declaration (#918): {"form": its index
     (0 `documented`, n the nth alternative), "file", "line",
     "signatureLine"} for each form whose own citations name exactly one of
     the name's declarations, its surface `records` with a file and its
     `others` (the surface's `otherDeclarations`), each once per file and
     line. A form's own citations are those of the places its entries write
-    it (`places`, from their `at`), in the skill's Markdown `texts` by path
-    (validate-inventory.py's form_citations), and one names a declaration
-    as cites_declaration says: its file, at its line or in a range that
-    holds it, or with no line. A form whose citations name none, or two,
-    is bound to nothing."""
+    it (`places`, from their `at`), in the skill's Markdown `texts` by path,
+    as validate-inventory.py's form_citations reads them, with the name's
+    other places in that file (of `every` place the inventory gives it,
+    _places_by_name) as those a fenced block's own citations must not be
+    shared with; one names a declaration as cites_declaration says: its
+    file, at its line or in a range that holds it, or with no line. A form
+    whose citations name none, or two, is bound to nothing."""
     inventory = _inventory()
     declarations, seen = [], set()
     for declaration in [r for r in records if _record_file(r)] + others:
@@ -773,7 +793,8 @@ def _bindings(records: list[dict], others: list[dict], places: list[list[tuple[s
     for index, at in enumerate(places):
         citations = set()
         for path, line in at:
-            citations |= inventory.form_citations(texts.get(path) or [], line)
+            others_there = {other for where, other in every if where == path and other != line}
+            citations |= inventory.form_citations(texts.get(path) or [], line, name, others_there)
         named = [d for d in declarations
                  if inventory.cites_declaration(citations, _record_file(d), d.get("line"))]
         if len(named) == 1:
@@ -792,6 +813,7 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
     name documented in several forms carries the others that list members
     as `alternatives` (documented_forms)."""
     forms = _forms_and_places(inventory)
+    spots = _places_by_name(inventory)
     files: dict[str, list[dict]] = {}
     compared = 0
     if names is not None:
@@ -812,8 +834,9 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
                 check["alternatives"] = [fields for fields, _ in forms[name][1:]]
             if candidates:
                 check["candidates"] = candidates
-            bound = (_bindings(by_name.get(name) or [], others_by_name.get(name) or [],
-                               [at for _, at in forms[name]], texts) if texts is not None else [])
+            bound = (_bindings(name, by_name.get(name) or [], others_by_name.get(name) or [],
+                               [at for _, at in forms[name]], spots.get(name, set()), texts)
+                     if texts is not None else [])
             if bound:
                 check["bound"] = bound
             files.setdefault(_record_file(record), []).append(check)

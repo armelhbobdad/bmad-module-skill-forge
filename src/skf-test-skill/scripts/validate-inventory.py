@@ -79,12 +79,13 @@ signature.
 An entry's `at` (#918) is the place the skill writes its form,
 "<path>:<line>": the file as the package names it, SKILL.md or a file the
 inventory's `references` lists (normalized as a pair's file is, and left in
-the entry that way), and the line the form starts on. Each entry that
-carries a form score-signatures.py plan compares (compared_form: no
-`method`, with a `params` or `usage_signature` list or non-blank string, or
-a function's `params` string, `""` included) carries one; a missing `at`, an
-`at` (on any entry) that is no "<path>:<line>" with a line from 1, and one in
-another file are each a schema violation naming the entry. With
+the entry that way), and the line the form starts on. Each entry whose
+`params` or `usage_signature` score-signatures.py plan compares
+(compared_form: no `method`, with a `params` or `usage_signature` list or
+non-blank string, or a function's `params` string, `""` included) carries
+one; a missing `at`, an `at` (on any entry) that is no "<path>:<line>" with
+a line from 1, and one in another file are each a schema violation naming
+the entry. With
 --skill-package each `at` must also be a line of its file that writes the
 entry's name outside its citations (the documented-name match), or, for a
 line inside a fenced block (the fences load-coverage-inputs.py floor reads,
@@ -95,7 +96,9 @@ are each a violation naming the entry. With --floor, a checked origin with a
 inventory is then invalid, as for any other violation, and the prompt
 re-dispatches the subagent. score-signatures.py plan reads the citations of
 each form's place (form_citations) to compare it with the declaration they
-name.
+name. A form that writes only a `return_type` gives no `at`, so it is never
+bound: plan compares it as it compares a form whose citations name no
+declaration.
 
 Distinct from reconcile-coverage.py (coverage numerator arithmetic) and
 compute-score.py (weight tables): this script only validates the *shape* of the
@@ -132,14 +135,18 @@ next non-blank line. gap-ledger.py reads it to pick the declaration of a
 stale homonym, score-signatures.py to plan a signature check at the
 declaration the skill cites. A form's own citations are shared the same way
 (#918): `form_citations` gives the citations of the form an `at` places, on
-its line or the next non-blank one and, for a line inside a fenced block, on
-the block's first non-blank line when it is a comment or on the first
-non-blank line after its closing fence, each with the lines it covers (a
-citation with no `:L<n>` covers its whole file), and `cites_declaration`
-says whether they name a declaration: its file, at its line or in a range
-that holds it. score-signatures.py plan binds a form to the one declaration
-of its name they name (with `parse_at`, `compared_form` and
-`skill_markdown_by_path`).
+its line; on the next non-blank line, unless that line writes the name (it
+is another place of the name, such as the next table row) or, inside a
+fenced block, is a comment (it heads the next declaration); for a line
+inside a fenced block, on the comment lines just above it in the block;
+and, when the block holds no other place the inventory gives the name, on
+the block's first non-blank line when it is a comment and on the first
+non-blank line after its closing fence unless that line writes the name.
+Each comes with the lines it covers (a citation with no `:L<n>` covers its
+whole file), and `cites_declaration` says whether they name a declaration:
+its file, at its line or in a range that holds it. score-signatures.py plan
+binds a form to the one declaration of its name they name (with
+`parse_at`, `compared_form` and `skill_markdown_by_path`).
 
 CLI usage (mirrors reconcile-coverage.py):
   uv run validate-inventory.py --input <response file> [--output <inventory file>]
@@ -211,6 +218,7 @@ import os
 import posixpath
 import re
 import sys
+from collections.abc import Iterable
 from pathlib import Path
 
 # Fixed enum for exports[].kind — the constructs SKF documents across languages
@@ -438,7 +446,8 @@ def compared_form(entry: dict) -> bool:
     or `usage_signature` writes, so the entry carries `at`: an entry that is
     no `method` whose `params` or `usage_signature` is a list or a non-blank
     string, or, for a function, whose `params` is a string (`""`, the form
-    of one that takes none)."""
+    of one that takes none). plan also compares a form that writes only a
+    `return_type`; that one carries no `at`, so it is never bound."""
     if entry.get("kind") == "method":
         return False
     if entry.get("kind") in SIGNATURE_KINDS and isinstance(entry.get("params"), str):
@@ -471,28 +480,57 @@ def _first_filled(lines: list[str], start: int) -> str:
     return next((ln for ln in lines[start:] if ln.strip()), "")
 
 
-def form_citations(lines: list[str], line: int) -> set[tuple[str, int | None, int | None]]:
-    """The own citations of the form a skill file writes at `line` (from 1,
-    its `at`), from that file's `lines`: the `[AST:]` and `[SRC:]` citations
-    on that line or the next non-blank one (as _skill_cited_files reads a
-    line that names a name) and, for a line inside a fenced block
-    (_fence_holding), on the block's first non-blank line when it is a
-    comment, or on the first non-blank line after its closing fence. Each is
-    (its file, _cited_path; the first line it covers; the last): `:L12`
-    covers line 12, `:L12-34` and `:L12-L34` lines 12 to 34, and a citation
-    with no `:L<n>` part gives (its file, None, None), every declaration in
-    its file."""
+def _writes(pattern, line):
+    """Whether `line` writes the name `pattern` matches outside its citations (the documented-name match)."""
+    return bool(pattern.search(_ANY_CITATION_RE.sub(" ", line)))
+
+
+def form_citations(lines: list[str], line: int, name: str,
+                   others: Iterable[int] = ()) -> set[tuple[str, int | None, int | None]]:
+    """The own citations of the form of `name` a skill file writes at `line`
+    (from 1, its `at`), from that file's `lines`; `others` are the lines of
+    the other places the inventory gives `name` in that file. They are the
+    `[AST:]` and `[SRC:]` citations:
+
+    - on that line;
+    - on the next non-blank line, unless that line writes `name` outside
+      its citations (another place of the name, such as the next table
+      row, whose citations are its own) or, inside a fenced block, is a
+      comment (it heads the next declaration);
+    - for a line inside a fenced block (_fence_holding), on the comment
+      lines just above it in the block, its own heading;
+    - and, when no line of `others` is in that block's body (a block that
+      holds two places of the name gives neither its block-wide
+      citations), on the block's first non-blank line when it is a comment,
+      and on the first non-blank line after its closing fence unless that
+      line writes `name`.
+
+    Each is (its file, _cited_path; the first line it covers; the last):
+    `:L12` covers line 12, `:L12-34` and `:L12-L34` lines 12 to 34, and a
+    citation with no `:L<n>` part gives (its file, None, None), every
+    declaration in its file."""
     index = line - 1
     if not 0 <= index < len(lines):
         return set()
-    places = [lines[index], _first_filled(lines, index + 1)]
+    pattern = name_pattern(name)
     fence = _fence_holding(lines, index)
+    places = [lines[index]]
+    following = _first_filled(lines, index + 1)
+    if not _writes(pattern, following) and not (fence is not None and _COMMENT_MARKER_RE.match(following)):
+        places.append(following)
     if fence is not None:
         opening, closing = fence
-        first = _first_filled(lines[opening + 1:closing], 0)
-        if _COMMENT_MARKER_RE.match(first):
-            places.append(first)
-        places.append(_first_filled(lines, closing + 1))
+        above = index - 1
+        while above > opening and _COMMENT_MARKER_RE.match(lines[above]):
+            places.append(lines[above])
+            above -= 1
+        if not any(opening < other - 1 < closing for other in others if other != line):
+            heading = _first_filled(lines[opening + 1:closing], 0)
+            if _COMMENT_MARKER_RE.match(heading):
+                places.append(heading)
+            after = _first_filled(lines, closing + 1)
+            if not _writes(pattern, after):
+                places.append(after)
     cited: set[tuple[str, int | None, int | None]] = set()
     for text in places:
         for m in _FORM_CITATION_RE.finditer(text):
@@ -884,11 +922,6 @@ def at_violations(idx, entry, files, skill_package_path=None):
                 "`references` lists"]
     entry["at"] = f"{path}:{int(m.group(2))}"
     return []
-
-
-def _writes(pattern, line):
-    """Whether `line` writes the name `pattern` matches outside its citations (the documented-name match)."""
-    return bool(pattern.search(_ANY_CITATION_RE.sub(" ", line)))
 
 
 def place_violations(inventory, skill_package_path):

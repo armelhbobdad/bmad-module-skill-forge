@@ -1028,16 +1028,16 @@ def test_a_floor_signature_is_carried_at_its_origin(tmp_path):
 
 @pytest.mark.parametrize("line, citations", [
     (3, {("pipeline.py", 53, 53)}),                         # on the line
-    (1, {("pipeline.py", 53, 53)}),                         # on the next non-blank line
+    (1, set()),                                             # the next non-blank line writes the name: its own place
     (6, {("run_pipeline.py", 37, 37)}),                     # in a block: the first non-blank line after it
     (8, {("run_pipeline.py", 37, 37)}),
     (11, {("run_pipeline.py", 37, 37)}),
     (0, set()),
     (12, set()),
-], ids=["same-line", "next-non-blank-line", "declaration-in-a-block", "last-line-of-the-block", "the-citation-line",
-        "line-0", "past-the-end"])
+], ids=["same-line", "next-line-another-place", "declaration-in-a-block", "last-line-of-the-block",
+        "the-citation-line", "line-0", "past-the-end"])
 def test_a_form_s_own_citations(line, citations):
-    assert mod.form_citations(PLACES_SKILL.split("\n"), line) == citations
+    assert mod.form_citations(PLACES_SKILL.split("\n"), line, "run_pipeline") == citations
 
 
 def test_a_form_s_own_citations_on_the_next_line_or_a_heading_comment():
@@ -1047,13 +1047,41 @@ def test_a_form_s_own_citations_on_the_next_line_or_a_heading_comment():
              "```ts", "", "// [AST:c.ts:L9-3]", "export function run(a: A) {}", "```",
              "```py", "run(1)  # [AST:d.py:L1]", "x = run(2)", "```", "Prose [AST:e.py:L5]",
              "```py", "def run(a):", "    return a"]
-    assert mod.form_citations(lines, 1) == {("a.py", 12, 20), ("b.py", None, None)}
-    assert mod.form_citations(lines, 5) == set(), "no citation on its line or the next non-blank one"
-    assert mod.form_citations(lines, 10) == {("c.ts", 3, 9)}
+    assert mod.form_citations(lines, 1, "run") == {("a.py", 12, 20), ("b.py", None, None)}
+    assert mod.form_citations(lines, 5, "run") == set(), "no citation on its line or the next non-blank one"
+    assert mod.form_citations(lines, 10, "run") == {("c.ts", 3, 9)}
     # the block's first line is code, not a comment: only the line after the block counts
-    assert mod.form_citations(lines, 14) == {("e.py", 5, 5)}
+    assert mod.form_citations(lines, 14, "run") == {("e.py", 5, 5)}
     # an unclosed block runs to the end: no line after it
-    assert mod.form_citations(lines, 18) == set()
+    assert mod.form_citations(lines, 18, "run") == set()
+
+
+def test_a_neighbouring_line_that_is_another_place_of_the_name_is_not_read():
+    """#918 review: a neighbouring line read for a form's citations belongs to that form only. The next non-blank
+    line that writes the name (the next table row) is another place, whose citations are its own; a block that
+    holds another place of the name (`others`) gives neither form its block-wide citations, the comment heading the
+    block nor the line after it; in a block, each declaration's own heading is the comment just above it, and a
+    comment after it heads the next one; and a note after a block that names the name is a place of its own."""
+    rows = ["| `run(a)` | x |", "| `run(b)` | y [AST:b.py:L5] |"]
+    assert mod.form_citations(rows, 1, "run") == set()
+    assert mod.form_citations(rows, 2, "run") == {("b.py", 5, 5)}
+    block = ["```py", "# [AST:a.py:L1]", "def run(a): ...", "", "# [AST:b.py:L2]", "def run(b): ...", "```", "",
+             "[AST:c.py:L3]"]
+    assert mod.form_citations(block, 3, "run", {6}) == {("a.py", 1, 1)}
+    assert mod.form_citations(block, 6, "run", [3]) == {("b.py", 2, 2)}
+    # a place's own line in `others` is no other place; alone in its block, each form reads the block-wide ones
+    assert mod.form_citations(block, 3, "run", (3,)) == {("a.py", 1, 1), ("c.py", 3, 3)}
+    assert mod.form_citations(block, 6, "run") == {("a.py", 1, 1), ("b.py", 2, 2), ("c.py", 3, 3)}
+    # another place in another block leaves this block's citations to its one place
+    assert mod.form_citations(block + ["```py", "run(1)", "```"], 6, "run", {11}) == {
+        ("a.py", 1, 1), ("b.py", 2, 2), ("c.py", 3, 3)}
+    two = ["```py", "def run(a): ...", "def run(b): ...", "```", "", "[AST:c.py:L3]"]
+    assert mod.form_citations(two, 2, "run", {3}) == set()
+    assert mod.form_citations(two, 3, "run", {2}) == set()
+    note = ["```ts", "export type Mode = 'a' | 'b';", "```", "",
+            "The other package declares its own `Mode`, with one member [AST:other/types.ts:L1]"]
+    assert mod.form_citations(note, 2, "Mode") == set()
+    assert mod.form_citations(note, 5, "Mode") == {("other/types.ts", 1, 1)}
 
 
 @pytest.mark.parametrize("citations, file, line, named", [
