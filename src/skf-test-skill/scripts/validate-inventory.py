@@ -150,9 +150,15 @@ the block's first non-blank line when it is a comment and on the first
 non-blank line after its closing fence unless that line writes the name.
 Each comes with the lines it covers (a citation with no `:L<n>` covers its
 whole file), and `cites_declaration` says whether they name a declaration:
-its file, at its line or in a range that holds it. score-signatures.py plan
+its file, at a line or in a range that holds a line of its span, from its
+line to its last one (a citation of a function's body names it as one of
+its `def` line does; score-signatures.py ends a span before the next
+declaration the surface records in its file). score-signatures.py plan
 binds a form to the one declaration of its name they name (with
-`parse_at`, `compared_form` and `skill_markdown_by_path`).
+`parse_at`, `compared_form` and `skill_markdown_by_path`), but never by
+the citations of a place where the inventory gives the name two forms that
+differ (a row that quotes another declaration's form as a contrast): there
+each form is bound only by its other places, if any.
 
 CLI usage (mirrors reconcile-coverage.py):
   uv run validate-inventory.py --input <response file> [--output <inventory file>]
@@ -549,12 +555,19 @@ def form_citations(lines: list[str], line: int, name: str,
     return cited
 
 
-def cites_declaration(citations: set[tuple[str, int | None, int | None]], file: str, line: object) -> bool:
+def cites_declaration(citations: set[tuple[str, int | None, int | None]], file: str, line: object,
+                      end: int | None = None) -> bool:
     """Whether one of `citations` (form_citations) names the declaration at
     `file` and `line`: it cites that file (both read by _cited_path) with no
-    line, or at a line or in a range that holds `line`."""
+    line, or at a line or in a range that holds a line of its span, from
+    `line` to `end` (its last line; None for `line` alone). A citation of
+    the body names the function as its `def` line does, and a range over
+    two declarations names each one it holds a line of."""
     path = _cited_path(file)
-    return any(cited == path and (first is None or (_is_line(line) and first <= line <= last))
+    if not _is_line(line):
+        return any(cited == path and first is None for cited, first, _ in citations)
+    last_line = line if end is None or end < line else end
+    return any(cited == path and (first is None or (first <= last_line and line <= last))
                for cited, first, last in citations)
 
 

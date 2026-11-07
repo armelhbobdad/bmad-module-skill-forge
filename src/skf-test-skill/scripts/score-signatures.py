@@ -54,10 +54,23 @@ ratios and the gap records of the wrong signatures.
          the comment lines just above it; and, when the block holds no other
          place the inventory gives the name, on the block's first non-blank
          line when it is a comment and on the first non-blank line after its
-         closing fence unless that line writes the name. One names a
-         declaration when it cites its file at its line, in an `L` range
-         that holds it, or with no line (cites_declaration). The
-         declarations are the name's surface records with a file and its
+         closing fence unless that line writes the name. A place where the
+         inventory gives the name two forms that differ (a table row that
+         documents one declaration's form and quotes another's as a
+         contrast) gives none of them a citation: each is bound only by its
+         other places, and a form written only there is compared as one with
+         no own citation (_shared_places); two entries that say the same
+         thing at one place are one form, as everywhere. A citation names a
+         declaration when it cites its file with no line, or at a line or in
+         an `L` range that holds a line of its span (cites_declaration):
+         from its line to the line before the next declaration the surface
+         records in its file, of any name, an other declaration included, or
+         to the end of the file when none follows (_span_end). So a citation
+         of a function's body names it, and a range over two declarations
+         names both. The extraction records no declaration's last line, so a
+         span runs past its body, over any helper the surface does not
+         record, to the next declaration it does.
+         The declarations are the name's surface records with a file and its
          `otherDeclarations` (one the extraction records in a file no record
          of the name names, such as a same-named function a lazy re-export
          passes on, which no entry point exports), each once per file and
@@ -670,6 +683,28 @@ def _forms_and_places(inventory: list[dict]) -> dict[str, list[tuple[dict, list[
     return out
 
 
+def _shared_places(inventory: list[dict]) -> dict[str, set[tuple[str, int]]]:
+    """{name: each place (parse_at's (path, line)) where the inventory's
+    entries give the name two or more forms that differ (_form_key), such as a
+    table row that documents one declaration's form and quotes another's as a
+    contrast}. The citations of such a place bind none of its forms (#918):
+    they cannot say which form they are for. Entries that say the same thing
+    at one place are one form, so their place is not shared; a `method`, and
+    an entry with no form, write no form of the name."""
+    keys: dict[tuple[str, tuple[str, int]], set[tuple]] = {}
+    for entry in inventory:
+        name, place = entry.get("name"), _inventory().parse_at(entry.get("at"))
+        if (entry.get("kind") == "method" or not (isinstance(name, str) and name) or place is None
+                or not _has_signature(entry)):
+            continue
+        keys.setdefault((name, place), set()).add(_form_key(_form(entry)))
+    shared: dict[str, set[tuple[str, int]]] = {}
+    for (name, place), forms in keys.items():
+        if len(forms) > 1:
+            shared.setdefault(name, set()).add(place)
+    return shared
+
+
 def _places_by_name(inventory: list[dict]) -> dict[str, set[tuple[str, int]]]:
     """{name: every place the inventory gives it, (its path, its line) from
     an entry's good `at`}, a form plan drops (one that lists no member, after
@@ -767,8 +802,23 @@ def _check_at(name: str, records: list[dict], skill_dir: str | None,
     return first, [_candidate(r) for r in filed]
 
 
+def _span_end(located: list[dict], file: str, line: object) -> int | None:
+    """The last line of the declaration at `file` and `line`, for a citation
+    of its body: the line before the next declaration `located` (the
+    surface's records and its `otherDeclarations`, of every name) records in
+    that file, or sys.maxsize when none follows it (it runs to the end of the
+    file). The extraction records no declaration's last line, so the next
+    declaration it records bounds it, as it bounds an annotation-contradicted
+    `evidence_line` in score. None for a declaration with no line."""
+    if not _is_line(line):
+        return None
+    following = _next_declaration(located, file, line)
+    return sys.maxsize if following is None else max(line, following - 1)
+
+
 def _bindings(name: str, records: list[dict], others: list[dict], places: list[list[tuple[str, int]]],
-              every: set[tuple[str, int]], texts: dict[str, list[str]]) -> list[dict]:
+              every: set[tuple[str, int]], texts: dict[str, list[str]], shared: set[tuple[str, int]],
+              located: list[dict]) -> list[dict]:
     """The forms of `name` bound to a declaration (#918): {"form": its index
     (0 `documented`, n the nth alternative), "file", "line",
     "signatureLine"} for each form whose own citations name exactly one of
@@ -779,8 +829,12 @@ def _bindings(name: str, records: list[dict], others: list[dict], places: list[l
     as validate-inventory.py's form_citations reads them, with the name's
     other places in that file (of `every` place the inventory gives it,
     _places_by_name) as those a fenced block's own citations must not be
-    shared with; one names a declaration as cites_declaration says: its
-    file, at its line or in a range that holds it, or with no line. A form
+    shared with; a place in `shared` (_shared_places: one that writes two
+    forms of the name that differ) gives none, so a form written only there
+    is compared as one with no own citation. One names a declaration as
+    cites_declaration says: its file, with no line, or at a line or in a
+    range that holds a line of its span, from its line to the line before
+    the next declaration `located` records in that file (_span_end). A form
     whose citations name none, or two, is bound to nothing."""
     inventory = _inventory()
     declarations, seen = [], set()
@@ -789,14 +843,17 @@ def _bindings(name: str, records: list[dict], others: list[dict], places: list[l
         if key not in seen:
             seen.add(key)
             declarations.append(declaration)
+    ends = [_span_end(located, _record_file(d), d.get("line")) for d in declarations]
     bound = []
     for index, at in enumerate(places):
         citations = set()
         for path, line in at:
+            if (path, line) in shared:
+                continue
             others_there = {other for where, other in every if where == path and other != line}
             citations |= inventory.form_citations(texts.get(path) or [], line, name, others_there)
-        named = [d for d in declarations
-                 if inventory.cites_declaration(citations, _record_file(d), d.get("line"))]
+        named = [d for d, end in zip(declarations, ends)
+                 if inventory.cites_declaration(citations, _record_file(d), d.get("line"), end)]
         if len(named) == 1:
             bound.append({"form": index, **_candidate(named[0])})
     return bound
@@ -809,11 +866,15 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
     the skill package, settles which declaration a name the surface records
     in several files is compared with (_check_at), and binds each form whose
     own citations name one declaration of the name, a surface record or one
-    of `others` (the surface's `otherDeclarations`), to it (_bindings). A
+    of `others` (the surface's `otherDeclarations`), to it (_bindings), a
+    place that writes two of its forms that differ giving none of them a
+    citation (_shared_places) and the next declaration `exports` or `others`
+    records in a file ending the span of the one before it (_span_end). A
     name documented in several forms carries the others that list members
     as `alternatives` (documented_forms)."""
     forms = _forms_and_places(inventory)
     spots = _places_by_name(inventory)
+    shared = _shared_places(inventory)
     files: dict[str, list[dict]] = {}
     compared = 0
     if names is not None:
@@ -835,7 +896,8 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
             if candidates:
                 check["candidates"] = candidates
             bound = (_bindings(name, by_name.get(name) or [], others_by_name.get(name) or [],
-                               [at for _, at in forms[name]], spots.get(name, set()), texts)
+                               [at for _, at in forms[name]], spots.get(name, set()), texts,
+                               shared.get(name, set()), exports + (others or []))
                      if texts is not None else [])
             if bound:
                 check["bound"] = bound

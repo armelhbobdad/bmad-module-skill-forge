@@ -1757,8 +1757,8 @@ def test_a_form_whose_own_citation_names_a_declaration_is_bound_to_it(tmp_path, 
     ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n`run_pipeline(steps, *, data=None, context=None)`.\n"}, None),
     ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n{APART}\n\n`run_pipeline(steps, *, data=None, context=None)`."
                   f"\n\n{APART}\n\nThe steps run in order [AST:{LIGHTWEIGHT}:L37].\n"}, None),
-    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n{APART}\n\n`run_pipeline(steps)` hands each step on "
-                  f"[SRC:{LIGHTWEIGHT}:L82] [SRC:{LIGHTWEIGHT}:L89].\n"}, None),
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n{APART}\n\n`run_pipeline(steps)` needs its imports "
+                  f"[SRC:{LIGHTWEIGHT}:L12] [SRC:{LIGHTWEIGHT}:L20].\n"}, None),
     ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n{APART}\n\n`run_pipeline(steps)` imports its helpers first "
                   f"[SRC:{LIGHTWEIGHT}:L1-36].\n"}, None),
     ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM} [AST:{ORCHESTRATOR}:L53] [AST:{LIGHTWEIGHT}:L37].\n"},
@@ -1766,14 +1766,14 @@ def test_a_form_whose_own_citation_names_a_declaration_is_bound_to_it(tmp_path, 
     ({"SKILL.md": HOMONYM_SKILL}, _run_pipeline(None, None)),
     ({"SKILL.md": HOMONYM_SKILL}, _run_pipeline("references/gone.md:3", "SKILL.md:99")),
     (None, None),
-], ids=["not-cited", "cited-at-another-place", "its-file-cited-at-another-line", "a-range-that-stops-before-it",
+], ids=["not-cited", "cited-at-another-place", "its-file-cited-above-its-declaration", "a-range-that-stops-before-it",
         "both-declarations-named", "no-at", "a-place-the-skill-lacks", "no-skill-dir"])
 def test_a_form_bound_to_nothing_is_planned_as_before(tmp_path, tree, inventory):
     """#918: a form whose own citations name no declaration of the name, or two, is bound to nothing, and a plan
     with no binding is byte for byte the plan of a surface with no `otherDeclarations` and an inventory with no
-    `at`: the check at the record, with no candidate. A citation of the runner's file at another line (storybook's
-    `build`, whose prose cites the internal build.ts at L82 and L89, not its declaration at L18), or a citation
-    at a place that is not the form's, names nothing."""
+    `at`: the check at the record, with no candidate. A citation of the runner's file at lines above its
+    declaration (its imports), or a citation at a place that is not the form's, names nothing; one in its body
+    names it (test_a_citation_in_a_declaration_s_body_names_it)."""
     plan = _homonym_plan(tmp_path / "with", tree, inventory=inventory)
     bare = [{k: v for k, v in e.items() if k != "at"} for e in (RUN_PIPELINE if inventory is None else inventory)]
     without = _homonym_plan(tmp_path / "without", tree, {k: v for k, v in HOMONYMS.items()
@@ -1906,15 +1906,227 @@ def test_one_declaration_recorded_twice_binds_a_form(tmp_path):
 
 def test_two_entries_of_one_form_bind_it_by_all_their_places(tmp_path):
     """Two entries that say the same thing are one form: its own citations are those of both places, so one place
-    that names the runner binds it, and a second place that names the orchestrator leaves it bound to neither."""
+    that names the runner binds it, and a second place that names the orchestrator leaves it bound to neither. A
+    second place that is the orchestrator form's own line writes two forms that differ, so its citation binds
+    neither of them: the orchestrator's form, written only there, is left unbound, and the runner's is bound by
+    its other place."""
     tree = {"SKILL.md": f"{HOMONYM_SKILL}\n`run_pipeline(steps)`.\n"}
     lightweight = _run_pipeline()[1]
     plan = json.loads(_homonym_plan(tmp_path / "one", tree, inventory=[
         _run_pipeline()[0], lightweight, {**lightweight, "at": "SKILL.md:9"}]).stdout)
     assert _homonym_check(plan)["bound"] == [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]
-    plan = json.loads(_homonym_plan(tmp_path / "two", tree, inventory=[
-        _run_pipeline()[0], lightweight, {**lightweight, "at": "SKILL.md:3"}]).stdout)
+    cited = {"SKILL.md": f"{HOMONYM_SKILL}\n`run_pipeline(steps)` [AST:{ORCHESTRATOR}:L53].\n"}
+    plan = json.loads(_homonym_plan(tmp_path / "two", cited, inventory=[
+        _run_pipeline()[0], lightweight, {**lightweight, "at": "SKILL.md:9"}]).stdout)
     assert _homonym_check(plan)["bound"] == [ORCHESTRATOR_BOUND]
+    plan = json.loads(_homonym_plan(tmp_path / "shared", tree, inventory=[
+        _run_pipeline()[0], lightweight, {**lightweight, "at": "SKILL.md:3"}]).stdout)
+    assert _homonym_check(plan)["bound"] == [LIGHTWEIGHT_BOUND]
+
+
+def _plan_in(tmp_path: Path, tree: dict[str, str], inventory: list[dict], exports: list[dict],
+             others: list[dict] | None = None, names: list[str] | None = None) -> dict:
+    """mod.plan over `inventory`, the surface `exports` and `others`, with the skill `tree` as its skill_dir."""
+    for rel, text in tree.items():
+        _write(tmp_path / "skill" / rel, text)
+    names = names if names is not None else sorted({e["name"] for e in inventory})
+    return mod.plan(inventory, names, exports, str(tmp_path / "skill"), others)
+
+
+def _bound(plan: dict, name: str) -> list[tuple]:
+    """(form, file, line) of each form plan bound for `name`'s check."""
+    [check] = [c for group in plan["files"] for c in group["checks"] if c["name"] == name]
+    return [(b["form"], b["file"], b["line"]) for b in check.get("bound", [])]
+
+
+def _without_the_edge_rules(monkeypatch) -> None:
+    """plan as it read a form's citations before the shared-place and body-span rules: every place's citations,
+    and a declaration named at its line alone."""
+    monkeypatch.setattr(mod, "_shared_places", lambda inventory: {})
+    monkeypatch.setattr(mod, "_span_end", lambda located, file, line: None)
+
+
+# #918, a place shared by two forms (oms-storybook-react-vite references/core-api.md:102): a table row documents
+# core's composeStories and quotes React's form as a contrast, citing only core's declaration.
+CORE = "code/core/src/preview-api/modules/store/csf/portable-stories.ts"
+CORE_COMPOSE_RECORDS = [
+    {"name": "composeStories", "kind": "function", "file": CORE, "line": 274,
+     "signatureLine": "export function composeStories<TModule extends Store_CSFExports>(", "origin": "extraction"},
+    {"name": "composeStories", "kind": "function", "file": REACT, "line": 148,
+     "signatureLine": "export function composeStories<TModule extends Store_CSFExports<ReactRenderer, any>>(",
+     "origin": "extraction"},
+]
+CORE_FORM = {"name": "composeStories", "kind": "function",
+             "params": "storiesImport: TModule, globalConfig: ProjectAnnotations<Renderer>, "
+                       "composeStoryFn: ComposeStoryFn = defaultComposeStory"}
+REACT_FORM = {"name": "composeStories", "kind": "function", "params": "csfExports, projectAnnotations?"}
+CONTRAST_ROW = ("| `composeStories` | function | Core's renderer-agnostic form: `composeStories("
+                "storiesImport: TModule, globalConfig: ProjectAnnotations<Renderer>, "
+                "composeStoryFn: ComposeStoryFn = defaultComposeStory)`. "
+                "Story authors on React+Vite import `composeStories(csfExports, projectAnnotations?)` from "
+                f"`@storybook/react-vite` instead. | `[AST:{CORE}:L274]` |")
+# references/core-api.md's line 3 is the contrast row; its line 5, no place of a form, cites React's declaration, so
+# the skill cites both files on a line that names composeStories and the check offers both as candidates (#830).
+CORE_API = (f"| Export | Kind | Description | Source |\n| --- | --- | --- | --- |\n{CONTRAST_ROW}\n\n"
+            f"Story authors import `composeStories` from `@storybook/react-vite` `[AST:{REACT}:L148]`.\n")
+# SKILL.md's line 3 is a row of React's form alone.
+REACT_ROW = ("| Export | Import | Description | Source |\n| --- | --- | --- | --- |\n"
+             "| `composeStories` | `@storybook/react-vite` | `composeStories(csfExports, projectAnnotations?)`: render "
+             f"stories in Vitest | `[AST:{REACT}:L148]` |\n")
+
+
+def test_a_place_that_writes_two_forms_binds_neither(tmp_path, monkeypatch):
+    """#918 (oms-storybook-react-vite composeStories): the contrast row writes core's form and React's, and cites
+    core's declaration alone. Read for both forms, its citation bound React's form to core's declaration, where
+    the judge found core's required `globalConfig` missing: a Critical false positive. A place that writes two
+    forms of the name that differ gives neither a citation, so each is compared as one with no own citation:
+    byte for byte the plan of an inventory with no `at`, the check at the first record with both records as
+    candidates, React's form matching the one it was written for."""
+    tree = {"references/core-api.md": CORE_API}
+    at = "references/core-api.md:3"
+    inventory = [{**CORE_FORM, "at": at}, {**REACT_FORM, "at": at}]
+    plan = _plan_in(tmp_path, tree, inventory, CORE_COMPOSE_RECORDS)
+    assert _bound(plan, "composeStories") == []
+    [check] = plan["files"][0]["checks"]
+    assert [(c["file"], c["line"]) for c in check["candidates"]] == [(CORE, 274), (REACT, 148)]
+    bare = [{k: v for k, v in e.items() if k != "at"} for e in inventory]
+    assert plan == _plan_in(tmp_path / "bare", tree, bare, CORE_COMPOSE_RECORDS)
+    _without_the_edge_rules(monkeypatch)
+    assert _bound(_plan_in(tmp_path / "before", tree, inventory, CORE_COMPOSE_RECORDS), "composeStories") == [
+        (0, CORE, 274), (1, CORE, 274)], "the false positive: React's form bound to core's declaration"
+
+
+def test_a_form_at_a_shared_place_is_bound_by_its_other_places(tmp_path):
+    """#918: React's form is also written in SKILL.md's row, which cites React's declaration alone. Its own
+    citations are those of its other places, as for any form written at several places, so it is bound to
+    React's declaration; core's form, written only at the shared row, stays unbound and keeps the candidates."""
+    tree = {"references/core-api.md": CORE_API, "SKILL.md": REACT_ROW}
+    inventory = [{**CORE_FORM, "at": "references/core-api.md:3"}, {**REACT_FORM, "at": "references/core-api.md:3"},
+                 {**REACT_FORM, "at": "SKILL.md:3"}]
+    plan = _plan_in(tmp_path, tree, inventory, CORE_COMPOSE_RECORDS)
+    assert _bound(plan, "composeStories") == [(1, REACT, 148)]
+    assert "candidates" in plan["files"][0]["checks"][0]
+
+
+@pytest.mark.parametrize("entries, bound", [
+    ([REACT_FORM, REACT_FORM], [(0, CORE, 274)]),
+    ([REACT_FORM, {**REACT_FORM, "signature_form": "partial"}], [(0, CORE, 274)]),
+    ([REACT_FORM, {"name": "composeStories", "kind": "function", "description": "Named, with no form."}],
+     [(0, CORE, 274)]),
+    ([REACT_FORM, {"name": "composeStory", "kind": "function", "params": "story, componentAnnotations"}],
+     [(0, CORE, 274)]),
+    ([{**REACT_FORM, "params": "csfExports"}, {**REACT_FORM, "params": "csfExports, projectAnnotations"},
+      {**REACT_FORM, "params": "csfExports, projectAnnotations, composeStoryFn"}], []),
+], ids=["one-form-written-twice", "one-form-and-its-partial-label", "an-entry-with-no-form",
+        "another-name-s-form", "overloads-of-one-declaration"])
+def test_only_two_forms_of_the_name_that_differ_share_a_place(tmp_path, entries, bound):
+    """#918: entries that say the same thing at one place (the partial label aside) are one form, and their place
+    still binds it; an entry with no form writes no form there, and another name's form is no form of this name.
+    A row of several overloads of one declaration writes forms that differ, so it binds none of them: each is
+    compared as one with no own citation, as before #918 bound any."""
+    inventory = [{**entry, "at": "references/core-api.md:3"} for entry in entries]
+    exports = [*CORE_COMPOSE_RECORDS, {"name": "composeStory", "kind": "function", "file": CORE, "line": 90,
+                                       "signatureLine": "export function composeStory(", "origin": "extraction"}]
+    plan = _plan_in(tmp_path, {"references/core-api.md": CORE_API}, inventory, exports, names=["composeStories"])
+    assert _bound(plan, "composeStories") == bound
+
+
+# #918, a citation in a declaration's body (oms-cognee references/pipelines-and-datapoints.md): the extraction
+# records no declaration's last line, so a declaration's span runs from its line to the line before the next
+# declaration the surface records in its file, of any name, or to the end of the file.
+TYPED_ORCHESTRATOR = ("```python\nasync def run_pipeline(\n    tasks: list[Task] | None = None,\n    data=None,\n"
+                      "    datasets: list[str] | None = None,\n)\n```\n")
+LIGHTWEIGHT_USAGE = ("```python\nfrom cognee.pipelines import task, run_pipeline\n\nresults = await run_pipeline(\n"
+                     "    [classify(), extract(graph_model=KnowledgeGraph)],\n    data=raw_input,\n)\n```\n")
+# SKILL.md: the typed orchestrator block's `def` line is 4, the line after it cites the orchestrator's body (11);
+# the usage block's call is line 16, the line after it cites the runner's body (21).
+BODY_SKILL = (f"# Demo\n\n{TYPED_ORCHESTRATOR}\n`tasks` is a task list or a resolver. "
+              f"[SRC:{ORCHESTRATOR}:L70-L79]\n\n{LIGHTWEIGHT_USAGE}\n- Each step receives the previous step's "
+              f"output. [SRC:{LIGHTWEIGHT}:L46-L61]\n")
+TYPED_ORCHESTRATOR_FORM = {"name": "run_pipeline", "kind": "function",
+                           "params": "tasks: list[Task] | None = None, data=None, datasets: list[str] | None = None",
+                           "at": "SKILL.md:4"}
+LIGHTWEIGHT_USAGE_FORM = {"name": "run_pipeline", "kind": "function",
+                          "usage_signature": "run_pipeline([classify(), extract(graph_model=KnowledgeGraph)], "
+                                             "data=raw_input)", "at": "SKILL.md:16"}
+
+
+def test_a_citation_in_a_declaration_s_body_names_it(tmp_path, monkeypatch):
+    """#918 (oms-cognee run_pipeline): the typed orchestrator block is followed by a citation of pipeline.py's
+    L70-L79, inside the orchestrator declared at its L53, and the lightweight usage block by one of
+    run_pipeline.py's L46-L61, inside the runner declared at its L37. Neither range holds a `def` line, so read at
+    its line alone neither named a declaration and both forms were compared with the surface's record. A citation
+    of a declaration's body names it: each form is bound to its own function."""
+    inventory = [TYPED_ORCHESTRATOR_FORM, LIGHTWEIGHT_USAGE_FORM]
+    plan = _plan_in(tmp_path, {"SKILL.md": BODY_SKILL}, inventory, [ORCHESTRATOR_RECORD], [LIGHTWEIGHT_DECLARATION])
+    assert _bound(plan, "run_pipeline") == [(0, ORCHESTRATOR, 53), (1, LIGHTWEIGHT, 37)]
+    _without_the_edge_rules(monkeypatch)
+    plan = _plan_in(tmp_path / "before", {"SKILL.md": BODY_SKILL}, inventory, [ORCHESTRATOR_RECORD],
+                    [LIGHTWEIGHT_DECLARATION])
+    assert _bound(plan, "run_pipeline") == []
+
+
+RUN_STEPS = {"name": "run_steps", "kind": "function", "file": LIGHTWEIGHT, "line": 80,
+             "signatureLine": "async def run_steps(", "origin": "extraction"}
+
+
+@pytest.mark.parametrize("cited, exports, others, bound", [
+    ("L82", [ORCHESTRATOR_RECORD, RUN_STEPS], [LIGHTWEIGHT_DECLARATION], []),
+    ("L82", [ORCHESTRATOR_RECORD], [LIGHTWEIGHT_DECLARATION, {**RUN_STEPS, "name": "run_steps_now"}], []),
+    ("L60-L85", [ORCHESTRATOR_RECORD, RUN_STEPS], [LIGHTWEIGHT_DECLARATION], [(0, LIGHTWEIGHT, 37)]),
+    ("L79", [ORCHESTRATOR_RECORD, RUN_STEPS], [LIGHTWEIGHT_DECLARATION], [(0, LIGHTWEIGHT, 37)]),
+    ("L82", [ORCHESTRATOR_RECORD], [LIGHTWEIGHT_DECLARATION], [(0, LIGHTWEIGHT, 37)]),
+    ("L36", [ORCHESTRATOR_RECORD], [LIGHTWEIGHT_DECLARATION], []),
+], ids=["past-the-next-declaration", "past-another-name-s-other-declaration", "a-range-that-reaches-into-it",
+        "its-last-line", "no-declaration-follows-it", "the-line-above-it"])
+def test_a_declaration_s_span_ends_before_the_next_one_in_its_file(tmp_path, cited, exports, others, bound):
+    """#918: a declaration's span ends on the line before the next declaration the surface records in its file,
+    of any name, an exported one or an other declaration, and runs to the end of the file when none follows.
+    A citation past it names nothing, one that reaches into it names it."""
+    tree = {"SKILL.md": f"# Demo\n\n`run_pipeline(steps)` hands each step on [SRC:{LIGHTWEIGHT}:{cited}].\n"}
+    inventory = [{"name": "run_pipeline", "kind": "function", "params": "steps", "at": "SKILL.md:3"}]
+    plan = _plan_in(tmp_path, tree, inventory, exports, others, names=["run_pipeline"])
+    assert _bound(plan, "run_pipeline") == bound
+
+
+@pytest.mark.parametrize("cited, bound", [
+    (f"[AST:{REACT}:L60-L70]", [(0, REACT, 40)]),
+    (f"[AST:{REACT}:L95]", [(0, REACT, 90)]),
+    (f"[AST:{REACT}:L80-L95]", []),
+    (f"[AST:{REACT}:L60] [AST:{REACT}:L95]", []),
+], ids=["the-first-one-s-body", "the-second-one-s-body", "a-range-over-both", "a-line-of-each"])
+def test_a_citation_of_two_declarations_bodies_names_both(tmp_path, cited, bound):
+    """#918: two declarations of the name in one file each span up to the next. A citation names each one it holds
+    a line of, and a form whose citations name both is bound to neither."""
+    twice = [*COMPOSE_RECORDS, {**COMPOSE_RECORDS[1], "line": 90}]
+    tree = {"SKILL.md": f"# Demo\n\n`composeStories(x)` {cited}\n"}
+    plan = _plan_in(tmp_path, tree, [{**COMPOSE, "at": "SKILL.md:3"}], twice)
+    assert _bound(plan, "composeStories") == bound
+
+
+def test_the_edge_rules_change_nothing_else(tmp_path, monkeypatch):
+    """#918: on a skill where no place writes two forms of a name and no citation reads a declaration's body
+    without its line (citations at a `def` line, a range that holds it, a file with no line, the lines above a
+    declaration, one form written twice at one place), plan is what it was before the shared-place and body-span
+    rules, the check, its candidates and its `bound` alike."""
+    skill = (f"# Demo\n\n{ORCHESTRATOR_LINE}\n\n{APART}\n\n{LIGHTWEIGHT_LINE}\n\n"
+             f"`run_pipeline(steps)` and its loop [SRC:{LIGHTWEIGHT}:L30-50].\n\n"
+             f"`run_pipeline(steps, data)` imports its helpers first [SRC:{LIGHTWEIGHT}:L1-36].\n\n"
+             f"`composeStories(csfExports, projectAnnotations?)` [AST:{REACT}:L40]\n\n{APART}\n\n"
+             f"`composeStories(stories)` [AST:{VUE}]\n")
+    inventory = [*_run_pipeline("SKILL.md:3", "SKILL.md:7"),
+                 {"name": "run_pipeline", "kind": "function", "usage_signature": "run_pipeline(steps)",
+                  "at": "SKILL.md:9"},
+                 {"name": "run_pipeline", "kind": "function", "params": "steps, data", "at": "SKILL.md:11"},
+                 {**COMPOSE, "at": "SKILL.md:13"}, {**COMPOSE, "at": "SKILL.md:13"},
+                 {"name": "composeStories", "kind": "function", "usage_signature": "composeStories(stories)",
+                  "at": "SKILL.md:17"}]
+    exports = [ORCHESTRATOR_RECORD, *COMPOSE_RECORDS]
+    plan = _plan_in(tmp_path, {"SKILL.md": skill}, inventory, exports, [LIGHTWEIGHT_DECLARATION])
+    assert _bound(plan, "run_pipeline") == [(0, ORCHESTRATOR, 53), (1, LIGHTWEIGHT, 37), (3, LIGHTWEIGHT, 37)]
+    assert _bound(plan, "composeStories") == [(0, REACT, 40), (1, VUE, 12)]
+    _without_the_edge_rules(monkeypatch)
+    assert plan == _plan_in(tmp_path / "before", {"SKILL.md": skill}, inventory, exports, [LIGHTWEIGHT_DECLARATION])
 
 
 LIGHTWEIGHT_MISMATCH = {"name": "run_pipeline", "line": 37, "file": LIGHTWEIGHT, "form": 1,
@@ -2125,7 +2337,7 @@ HOMONYM_TREE = {
 # The skill, shaped as oms-cognee 1.6.2 writes run_pipeline: a usage form citing the orchestrator, a prose form of
 # the lightweight runner citing it (full-api-reference.md:264), the orchestrator's prose form citing it
 # (full-api-reference.md:269), its fenced block, then the runner's fenced block followed by the citation the fix
-# proposes (pipelines-and-datapoints.md:155 and :208) and its usage, which cites another line of its file.
+# proposes (pipelines-and-datapoints.md:155 and :208) and its usage, which cites a range of the runner's body.
 HOMONYM_SKILL_TREE = {
     "SKILL.md": (f"# Demo\n\n`async for _ in run_pipeline(tasks=tasks, data=text): pass` [SRC:{ORCHESTRATOR}:L53-L57]\n"),
     "references/api.md": (f"# API\n\n{LIGHTWEIGHT_LINE}\n\n"
@@ -2162,9 +2374,9 @@ def test_a_function_only_a_lazy_re_export_reaches_is_compared_where_its_form_cit
     """#918 (oms-cognee run_pipeline) end to end: the runner gives the orchestrator as the `pipelines` namespace's
     member and records the lightweight runner only in exports[]; the surface lists it as an other declaration. The
     inventory gives each of the six forms its place, which validate-inventory.py checks against the skill, and the
-    plan binds both lightweight forms to run_pipeline.py:37 and the orchestrator's cited forms to pipeline.py:53,
-    while the check stays at the orchestrator, and the lightweight usage, whose citation names another line, is
-    bound to nothing. A mismatch the judge reports for a lightweight form is taken at run_pipeline.py:37."""
+    plan binds the three lightweight forms to run_pipeline.py:37 (the usage by its citation of the runner's body,
+    L46-L61) and the orchestrator's cited forms to pipeline.py:53, while the check stays at the orchestrator. A
+    mismatch the judge reports for a lightweight form is taken at run_pipeline.py:37."""
     source = tmp_path / "src"
     for rel, text in HOMONYM_TREE.items():
         _write(source / rel, text)
@@ -2207,7 +2419,7 @@ def test_a_function_only_a_lazy_re_export_reaches_is_compared_where_its_form_cit
                      "tasks=None, data=None, datasets=None,", "steps, *, data=None, context=None,",
                      "run_pipeline(tasks=tasks, data=text)", "run_pipeline([step()], data=raw)"]
     assert [(b["form"], b["file"], b["line"]) for b in check["bound"]] == [
-        (0, LIGHTWEIGHT, 37), (1, ORCHESTRATOR, 53), (3, LIGHTWEIGHT, 37), (4, ORCHESTRATOR, 53)]
+        (0, LIGHTWEIGHT, 37), (1, ORCHESTRATOR, 53), (3, LIGHTWEIGHT, 37), (4, ORCHESTRATOR, 53), (5, LIGHTWEIGHT, 37)]
     mismatch = {**LIGHTWEIGHT_MISMATCH, "form": 3, "file": None, "line": 53,
                 "documented_sig": "(steps, *, data=None, context=None,) -> list"}
     results = _write(tmp_path / "s.txt", json.dumps({"file": ORCHESTRATOR, "signature_mismatches": [mismatch]}))

@@ -1165,6 +1165,28 @@ def test_a_citation_names_a_declaration_at_its_line(citations, file, line, named
     assert mod.cites_declaration(citations, file, line) is named
 
 
+@pytest.mark.parametrize("citations, line, end, named", [
+    ({("run_pipeline.py", 46, 61)}, 37, 100, True),
+    ({("run_pipeline.py", 46, 46)}, 37, 100, True),
+    ({("run_pipeline.py", 100, 120)}, 37, 100, True),
+    ({("run_pipeline.py", 30, 37)}, 37, 100, True),
+    ({("run_pipeline.py", 101, 120)}, 37, 100, False),
+    ({("run_pipeline.py", 1, 36)}, 37, 100, False),
+    ({("run_pipeline.py", 46, 61)}, 37, None, False),
+    ({("run_pipeline.py", 46, 61)}, 37, 10, False),
+    ({("run_pipeline.py", 46, 61)}, None, 100, False),
+    ({("run_pipeline.py", None, None)}, None, 100, True),
+    ({("pipeline.py", 46, 61)}, 37, 100, False),
+], ids=["a-range-of-its-body", "a-line-of-its-body", "a-range-from-its-last-line", "a-range-that-ends-at-its-line",
+        "past-its-span", "above-it", "no-span-its-line-alone", "a-span-that-ends-before-its-line-its-line-alone",
+        "no-declaration-line", "no-line-and-no-declaration-line", "another-file"])
+def test_a_citation_of_a_declaration_s_body_names_it(citations, line, end, named):
+    """#918 (oms-cognee pipelines-and-datapoints.md: run_pipeline.py:L46-L61 cites the body of the runner declared
+    at L37): a citation names a declaration when its line or range holds a line of the declaration's span, from
+    its line to `end`; with no `end`, its line alone."""
+    assert mod.cites_declaration(citations, "run_pipeline.py", line, end) is named
+
+
 def test_a_form_s_comment_marker_is_the_floor_s():
     """A fenced block's first-line comment is read with the markers the floor reads a headed block with."""
     loader = importlib.util.spec_from_file_location("skf_pin_load_coverage_inputs_comments", FLOOR_SCRIPT)
