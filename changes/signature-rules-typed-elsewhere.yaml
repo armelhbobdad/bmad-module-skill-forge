@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's signature rules now settle four forms its judges decided alone. A declaration whose parameter list is written only in a package outside the source tree, such as storybook/test's bindings destructured from a value cast to `typeof domTestingLibrary` or a const typed `typeof vitestSpyOn`, has its parameters, their optionality and its return left uncompared and counts as matching, and a const annotated with a function type declares that type's parameters, so a form may name a parameter as the type does or destructure it as the arrow does. A return written as names of values, such as `→ (nodes, edges)`, states no return type and is not compared, while `→ str` still states one. A `...props` rest in a component's destructured props form stands for every prop the form does not name, own or inherited, so a form that copies the source's destructuring no longer reads as leaving out a prop. Each of these forms now gets one verdict, so two runs on an unchanged skill agree on it.
+issues: [925, 928, 930, 932]

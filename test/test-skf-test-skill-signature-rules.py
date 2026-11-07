@@ -41,6 +41,19 @@ and none of the `difference` tags. These tests keep:
   rules, a mismatch reported for each form that does not match, on §2's
   path and the fallback scan's alike (#826); a component whose props live
   outside the source tree left uncompared (#837);
+- a const annotated with a function type declaring that type's
+  parameters, the arrow's destructuring that same parameter, so a form may
+  write it either way, and a partial destructuring reading as no narrower
+  type (#928);
+- a declaration whose parameter list is written only in a package outside
+  the source tree left uncompared and counted as matching, as such a
+  component's props are (#925);
+- a return written as names of values (`→ (nodes, edges)`) stating no
+  return type, a type name written alone, lowercase ones included, still
+  stating one (#930);
+- a rest element in a component's destructured props form standing for
+  every prop the form does not name, own or inherited, a rule of
+  Components alone (#932);
 - Create Skill naming a component's Props interface as its contract, not
   `(props: XProps) => JSX.Element`.
 
@@ -267,6 +280,55 @@ def test_a_component_whose_props_live_outside_the_source_is_checked_only_as_a_co
             "that it is a component is checked.") in components
 
 
+def test_a_const_annotated_with_a_function_type_declares_that_type_s_parameters():
+    """#928: storybook's builder-vite declares `export const start: ViteBuilder['start'] = async ({ startTime, ...
+    }) =>`, and no rule said whether a form is compared with the arrow's destructuring or with the one parameter the
+    type names, so `start(args: {...})` was a name difference for one judge and a match for another. The annotation
+    wins: the const takes the type's parameters and the arrow's destructuring is that same parameter, so a form may
+    write it either way (its types are still compared), and a destructuring that names some of the type's
+    properties, in the arrow or in the form, reads as no narrower type. Difference tags keep a destructured property
+    part of a type: such a form matches, so no tag applies."""
+    reading = _section("Reading a form")
+    declares = ("A const annotated with a function type declares that type's parameters: "
+                "`export const build: ViteBuilder['build'] = async ({ options }) => ...` takes the one parameter "
+                "`ViteBuilder['build']` names, and the arrow's destructuring is that same parameter.")
+    narrower = ("A form may name it as the type does or destructure it as the arrow does, and a destructuring that "
+                "names only some of the type's properties, in the arrow or in the form, does not read as a narrower "
+                "type.")
+    assert declares in reading
+    assert narrower in reading
+    assert reading.index("The source's declaration decides") < reading.index(declares) < reading.index(narrower) \
+        < reading.index("In the split-body cross-check"), "after the declaration decides, before the split-body check"
+    assert "a destructured property is part of a type)" in _section("Difference tags")
+
+
+def test_a_declaration_typed_only_outside_the_source_tree_counts_as_matching():
+    """#925: 67 of storybook's 181 signature checks were declarations whose parameter list is written only in another
+    package's types: storybook/test's `fireEvent` and its siblings, destructured from a value cast to
+    `typeof domTestingLibrary`, and `spyOn`, typed `typeof vitestSpyOn` (a #928 form whose type lives outside). A
+    judge cannot read that list in the source tree, so, as with a component whose props type lives there (#837), its
+    parameters, their optionality and its return are left uncompared and it counts as matching. The rule says
+    "outside the source tree", as Components does, so a type from the tree's own packages (`ViteBuilder`) stays
+    compared."""
+    reading = _section("Reading a form")
+    outside = ("A declaration whose parameter list is written only in a package outside the source tree (a binding "
+               "destructured from a value cast to `typeof domTestingLibrary`, or "
+               "`const spyOn: typeof vitestSpyOn = (...args) => ...`) has its parameters, their optionality and its "
+               "return left uncompared and counts as matching, as a component whose props type lives there does "
+               "(Components).")
+    assert outside in reading
+    assert reading.index("The source's declaration decides") < reading.index(outside) < reading.index(
+        "In the split-body cross-check"), "after the declaration decides, before the split-body check"
+    # the last sentence of #928's paragraph, so #928 names the list before this rule leaves it uncompared
+    paragraph = _paragraph(_read(RULES), "A const annotated with a function type declares that type's parameters")
+    assert paragraph.endswith(outside), paragraph
+    assert "another package" not in paragraph, "the scope is the source tree, not the export's own package"
+    # the component sentence it mirrors stays whole
+    assert ("A component whose props type lives in a package outside the source tree (`const Tabs = "
+            "TabsPrimitive.Root`) has its props left uncompared: only that it is a component is checked."
+            ) in _section("Components")
+
+
 def test_a_positional_caller_and_a_python_keyword_caller_are_read_as_they_call():
     """A left-out optional parameter before a written one shifts a positional caller, so it is a mismatch; Python's
     variadic names are never compared, and parameters after `*` are compared by name, not order."""
@@ -373,6 +435,28 @@ def test_a_component_s_own_props_are_written_in_its_package():
     assert "Values in a usage example (`variant=\"subtle\"`) are not compared." in components
 
 
+def test_a_rest_element_in_a_props_form_stands_for_the_props_it_does_not_name():
+    """#932: oh-my-skills' native-components.md copies the source's destructuring,
+    `({ className, variant = "default", ...props }: NativeButtonProps)`, and no rule said what its rest stands for,
+    so a judge could read the props it does not name (`asChild?`) as left out of a typed list. The rest stands for
+    every prop of `P` the form does not name, own or inherited, required ones included, and its own name is no prop.
+    A rule of Components alone: Reading a form gains no rest rule, and a typed props list with no rest still leaves
+    out an optional own prop as `omitted-optional`."""
+    components = _section("Components")
+    rest = ("A rest element in a component's destructured props form "
+            "(`({ className, variant = \"default\", ...props }: NativeButtonProps)`) stands for every prop of `P` the "
+            "form does not name, own or inherited, required ones included, so the form leaves none of them out, and "
+            "the rest's own name is not compared as a prop.")
+    assert rest in components
+    assert _flow(_read(RULES)).count(rest) == 1, "one copy, in Components"
+    assert components.index("and an optional inherited prop, is no difference.") < components.index(rest) \
+        < components.index("`| null` and `| undefined` on an optional prop"), "right after the props a form leaves out"
+    assert not re.search(r"\brest (?:element|member|parameter)s?\b", _section("Reading a form"), re.I), \
+        "not generalized to other destructured parameters"
+    assert ("An optional own prop a typed props list or a table leaves out is an `omitted-optional` "
+            "difference") in components
+
+
 def test_a_props_list_states_optionality_only_with_a_mark():
     """#827: a props list that states no optionality has none compared; in an object type literal one `?` makes the
     unmarked members required; a table states it by a Required column, a `?` or a Default value, never by its Type
@@ -430,6 +514,25 @@ def test_an_annotation_a_form_leaves_out_is_not_compared():
             "source.") in annotations
     assert "It holds for a return type alone, never a parameter's annotation." in annotations
     assert "is no mismatch, even when the declared annotation says otherwise" not in annotations, "#835 follow-up"
+
+
+def test_a_return_written_as_value_names_states_no_return_type():
+    """#930: oms-cognee writes `→ (nodes, edges)` for a function declared `-> tuple[list[Node], list[EdgeData]]`, and
+    the return-type bullet counts any text after an arrow as a stated return. Names of values state no return type,
+    so no return is compared (the parameters still are). A type name written alone, lowercase ones included, stays a
+    type, and "rather than types" keeps a parenthesized list of type names (`(str, int)`) a stated return."""
+    annotations = _section("Annotations")
+    values = ("- A return written as names of values rather than types, a parenthesized list of names such as "
+              "`→ (nodes, edges)` (after the arrow or in `return_type`), states no return type, so no return is "
+              "compared.")
+    assert values in annotations
+    assert ("A type name written alone stays a type, lowercase ones included: `-> list` and `→ str` state one."
+            ) in annotations
+    assert annotations.index("A return type the form does not state is not compared.") < annotations.index(values) \
+        < annotations.index("A type the source leaves unannotated"), "after the return-type bullet"
+    lines = _read(RULES).splitlines()
+    [i] = [n for n, line in enumerate(lines) if line.startswith("- A return type the form does not state")]
+    assert lines[i + 1].startswith("- A return written as names of values rather than types,"), "the next bullet"
 
 
 def test_two_spellings_of_one_type_are_no_mismatch():
