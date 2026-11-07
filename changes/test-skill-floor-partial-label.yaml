@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill halts with `inventory-invalid` because the inventory leaves out a partial label the floor pins from a table's `Signature` header, or copies that form unlabelled with no `at`, run it again; if the label is wrong, remove it from the skill's column header.
 issues: [888]
+prs: [993]
