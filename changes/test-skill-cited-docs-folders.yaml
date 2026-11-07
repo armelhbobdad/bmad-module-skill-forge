@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill now records a documented name that a file under a `docs`, `examples` or `benchmarks` folder still declares as a documented extra when the provenance map cites that file, such as Storybook's `CheckboxControl` in `code/addons/docs/src/`. `classify-stale` in `skf-verify-provenance-completeness.py` skipped those folders at every depth, the cited file included, so such a name was a Medium `stale-documentation` gap whose remediation said to remove it. It now reads a file the map cites wherever it lies, `dist`, `build`, `vendor` and `tests` included, and its walk skips `docs`, `examples` and `benchmarks` only right below the package it reads and below each package root inside it, unless the folder holds a cited file.
+issues: [924]

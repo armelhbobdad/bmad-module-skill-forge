@@ -566,18 +566,20 @@ Subcommands:
     test output lives in (`node_modules`, `dist`, `build`, `vendor`,
     `_vendor`, `tests`, `testing`, `fixtures`, `__mocks__`,
     `site-packages`, `env`, `bower_components`, `esm`, `cjs`, `umd` and
-    the like), `docs`, `examples` and `benchmarks`, each judged on the
-    path below the walk root, the end-to-end test folders `e2e` and
-    `__fixtures__` wherever they lie, and, as the first folder below the
-    walk root or below a package root inside it (a folder that holds
-    `package.json`, the top of an `__init__.py` chain), `example`, `demo`,
-    `demos`, `sample`, `samples`, `scripts`, `playground`, `bench`,
-    `benchmark` and `migrations` unless it holds a file an entry cites
-    (deeper in a package such a folder can be package code). A cited file
-    is read only inside the source root (a path that is absolute or climbs
-    out of it is not read), with no symlink on its path and under the same
-    skips, those walk-only ones aside. The path is relative to the source
-    root. A dotted name, or a map whose entries cite files
+    the like), each judged on the path below the walk root, the
+    end-to-end test folders `e2e` and `__fixtures__` wherever they lie,
+    and, as the first folder below the walk root or below a package root
+    inside it (a folder that holds `package.json`, the top of an
+    `__init__.py` chain), `example`, `demo`, `demos`, `sample`, `samples`,
+    `scripts`, `playground`, `bench`, `benchmark`, `migrations`, `docs`,
+    `examples` and `benchmarks` unless it holds a file an entry cites
+    (deeper in a package such a folder can be package code, as Storybook's
+    `code/addons/docs/`). A cited file is read in any folder, a hidden one
+    and one the walk skips included, but only inside the source root (a
+    path that is absolute or climbs out of it is not read), with no
+    symlink on its path and under a name the walk reads (no test file,
+    test configuration file or `*.min.js`). The path is relative to the
+    source root. A dotted name, or a map whose entries cite files
     but no Python or TS/JS one, is not looked up (`defined_at` and
     `declared_in` null, as for a fabricated name). A filesystem error
     during the lookup of the names that are not fabricated gives each of
@@ -2452,8 +2454,10 @@ def _stale_line_check(
 
 # The folders and files the `defined_at` walk leaves out, judged
 # case-insensitively on the path below its walk root: generated, built and
-# installed output, a vendored copy of another package, tests and their
-# configuration, docs, examples and benchmarks.
+# installed output, a vendored copy of another package, and tests and their
+# configuration. The folders are the walk's alone: a file the map cites
+# is read in any of them, a test file, its configuration or a minified
+# bundle never.
 # Keep identical to EXCLUDED_DIR_NAMES in skf-resolve-authoritative-files.py.
 EXCLUDED_DIR_NAMES = {
     "node_modules", "__pycache__", "dist", "build", ".webpack",
@@ -2491,8 +2495,7 @@ LOOKUP_EXTRA_FOLDERS = frozenset({
     "bower_components", "esm", "cjs", "umd",
 })
 LOOKUP_SKIPPED_FOLDERS = frozenset(
-    EXCLUDED_DIR_NAMES | _VENDORED_SEGMENTS | TEST_FOLDERS | PY_NON_CORE_TOPS
-    | LOOKUP_EXTRA_FOLDERS
+    EXCLUDED_DIR_NAMES | _VENDORED_SEGMENTS | TEST_FOLDERS | LOOKUP_EXTRA_FOLDERS
 )
 # The test folders the walk alone skips wherever they lie (end-to-end tests,
 # Jest's `__fixtures__` beside the code): a file the map cites in one is
@@ -2500,15 +2503,17 @@ LOOKUP_SKIPPED_FOLDERS = frozenset(
 LOOKUP_WALK_FOLDERS = frozenset({"e2e", "__fixtures__"})
 # The folders the walk alone skips as the first folder below its walk root
 # or below a package root it passes through (`_package_root`'s roots):
-# examples and demos, samples, scripts, playgrounds, benchmarks and
-# migrations, which hold code that uses or changes the package rather than
-# its API. Deeper in a package such a folder can be live package code
-# (cognee's `cognee/modules/migrations/`), so it is walked there; one that
-# holds a file the map cites is walked too, and that file is still read.
+# examples and demos, samples, scripts, playgrounds, benchmarks, migrations
+# and docs (`PY_NON_CORE_TOPS`, which skf-extract-public-api.py also leaves
+# out only as a top folder), which hold code that uses, changes or documents
+# the package rather than its API. Deeper in a package such a folder can be
+# live package code (cognee's `cognee/modules/migrations/`, Storybook's
+# `code/addons/docs/`), so it is walked there; one that holds a file the map
+# cites is walked too, and that file is still read.
 LOOKUP_TOP_FOLDERS = frozenset({
     "example", "demo", "demos", "sample", "samples", "scripts", "playground",
     "bench", "benchmark", "migrations",
-})
+}) | PY_NON_CORE_TOPS
 # The kinds of a documented inventory (validate-inventory.py's `kind`) that a
 # module cannot be: such a name takes no line 1 from a module so named. A
 # `method` is left out: reconcile-coverage.py never lists a method as stale,
@@ -2857,15 +2862,15 @@ class _DeclarationLookup:
     (`_is_package_root`) that hold no cited file, the files
     `_lookup_skips_file` names and every symlink. Only the rule families
     (Python, TS/JS) the entries cite are read (both when no entry cites a
-    file). A cited file is read inside the source root only, with no symlink
-    on its path and the same skips but the walk-only ones, judged below the
-    walk root when it lies there. The walk runs once for all the names no
-    cited file settles: each file is read once, and only a file whose text
-    holds a name goes through the rules. `renamed` then tells which of a
-    name's declarations is an alias of a name a cited file declares (an
-    item of an export list or of a Python `from X import` clause), from
-    the lines the lookup read. Any error of the filesystem raises
-    (`_LOOKUP_ERRORS`)."""
+    file). A cited file is read in any folder, a hidden one and one the walk
+    skips included, but only inside the source root, with no symlink on its
+    path and under a name `_lookup_skips_file` accepts (`_readable_below`).
+    The walk runs once for all the names no cited file settles: each file is
+    read once, and only a file whose text holds a name goes through the
+    rules. `renamed` then tells which of a name's declarations is an alias
+    of a name a cited file declares (an item of an export list or of a
+    Python `from X import` clause), from the lines the lookup read. Any
+    error of the filesystem raises (`_LOOKUP_ERRORS`)."""
 
     def __init__(self, entries: list[dict], source_root: Path) -> None:
         self.root = source_root
@@ -2951,20 +2956,14 @@ class _DeclarationLookup:
 
     # -- reading ------------------------------------------------------------
 
-    def _below_walk_root(self, parts: tuple[str, ...]) -> tuple[str, ...]:
-        depth = len(self.folder)
-        return parts[depth:] if parts[:depth] == self.folder else parts
-
     def _reads_cited(self, parts: tuple[str, ...]) -> bool:
         """True when the lookup reads a cited file: one of a family the
-        entries cite, in no skipped place, with no symlink on its path and
-        inside the source root."""
-        if _rule_family(parts[-1]) not in self.families:
-            return False
-        below = self._below_walk_root(parts)
-        if any(_lookup_skips_folder(s) for s in below[:-1]):
-            return False
-        return _readable_below(self.root, parts, self.real_root)
+        entries cite, in any folder (one the walk skips or a hidden one
+        included), with no symlink on its path, inside the source root and
+        under a name `_lookup_skips_file` accepts (`_readable_below`)."""
+        return _rule_family(parts[-1]) in self.families and _readable_below(
+            self.root, parts, self.real_root
+        )
 
     def _cited_lines(self, parts: tuple[str, ...]) -> list[str] | None:
         if parts not in self._cited:
