@@ -770,7 +770,8 @@ class TestStagesRecordTheirGaps:
                        "At State 1 and the Forge tier or above, with `workspaceDrift` not `overridden`",
                        "set the two forms its `issue` gives against the export's declaration at the `file` and "
                        "`line` `surface.json` gives",
-                       "when that one declaration decides (no overload set, no second declaring file)",
+                       "when that one declaration decides (no overload set, no second declaring file, no "
+                       "`otherDeclarations` entry of the export's name)",
                        # the other side when only the reference agrees, else the default, the reference that sorts last
                        "when `{reference_file}`'s form agrees and the other side's does not, the Source is the other "
                        "side, `SKILL.md:{skill_md_line}` or `{other_file}:{other_line}`.",

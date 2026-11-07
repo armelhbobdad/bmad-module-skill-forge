@@ -30,7 +30,9 @@ and none of the `difference` tags. These tests keep:
   its absolute path;
 - the split-body cross-check comparing a parameter's optionality only when
   both forms state it, the file (not coverage-check.md §1) saying what a form
-  may leave out, and each export's form read alone (#843);
+  may leave out, each export's form read alone (#843), and forms attributed
+  to two declarations of one name never compared with each other there
+  (#927);
 - a partial label in a table's column header labelling each of its rows;
 - a name written with empty parentheses in running text or a description
   cell (any cell but an export table's first cell and a call or signature
@@ -496,7 +498,9 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
     optionality is compared only when both forms state it, and what a form may leave out is this file's rule:
     coverage-check.md §1 no longer allows only a form labelled partial to leave a member out, and a call or a list
     of bare names may too, except where that shifts a caller's positions. An ellipsis claims nothing, as everywhere,
-    and each side's partial label is read from its own file, since the export's `signature_form` is one."""
+    and each side's partial label is read from its own file, since the export's `signature_form` is one.
+    #927: two same-named declarations are two exports, so forms attributed to different declarations of one name
+    (their own citations at `at`, or §2's `bound`) are never compared with each other there."""
     reading = _section("Reading a form")
     assert ("In the split-body cross-check both forms are documented: each is read by these rules, a type, return "
             "type or type arguments one of them leaves out are not compared, and a parameter's optionality is "
@@ -526,6 +530,31 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
             "leave out.") in section1
     assert "labels partial that leaves out only optional members" not in section1
     assert "(name, type, order, optionality)" not in section1
+    # #927: forms attributed to two declarations of one name are two exports, never compared with each other
+    rules = _read(RULES)
+    paragraph = _paragraph(rules, "In the split-body cross-check both forms are documented")
+    homonyms = ("Forms of one name attributed to different declarations of it are two exports, never compared with "
+                "each other in the split-body cross-check: their own citations, read at each form's inventory `at` as "
+                "inventory-contract.md says, name two declarations, or coverage-check.md §2's `bound` binds them to "
+                "two, a declaration being one of the name's surface records or one `surface.json` lists in "
+                "`otherDeclarations` (each judge reads the signals it has).")
+    each = ("Each is compared only with the forms attributed to its own declaration, a form attributed to neither is "
+            "a mismatch only when it contradicts the forms of both, and §2 holds a bound form to its bound "
+            "declaration alone and an unbound one to the check's candidates (below).")
+    # the section 1 reader has no surface: its default is to compare as before unless the skill shows two things
+    reader = ("A judge without the surface (coverage-check.md §1's reader) counts two declarations only when the two "
+              "forms' own citations name two different files and the skill presents the forms as different things "
+              "(another owner, module or import path); a citation of a re-export (a package `__init__` or index file "
+              "the skill shows passing the name on) names no declaration, and when unsure the forms are compared as "
+              "before.")
+    for sentence in (homonyms, reader, each):
+        assert sentence in paragraph, sentence
+    assert paragraph.index(homonyms) < paragraph.index(reader) < paragraph.index(each), "the reader's default sits between"
+    assert paragraph.endswith(each), "the #927 rule ends the split-body paragraph"
+    assert rules.count("attributed to different declarations") == 1, "one copy"
+    # the `bound` rule it points at ("below") stays below it
+    flowed = _flow(rules)
+    assert flowed.index(each) < flowed.index("A form the check binds (`bound`")
 
 
 def test_each_export_s_form_is_read_alone():
