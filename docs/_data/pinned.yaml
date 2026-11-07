@@ -51,8 +51,9 @@ skills:
     source_commit: "ba3631f2ed363a6ea50d649c34c56885af6b36fe"
     source_ref: "v1.6.2"
     upstream_commit_date: "2026-09-29"
-    # strict SKF 4.0.0 re-test of the version that ships (20261103T134151Z-12e5ccdf)
-    test_score: 99.0
+    # null: the strict SKF 7.0.0 re-test of the version that ships
+    # (20261106T224257Z-45558de5) is blocked by the hard gate, so it records no score.
+    test_score: null
     test_mode: "naive"
     confidence_tier: "Deep"
     source_authority: "community"
@@ -65,7 +66,7 @@ skills:
     source_commit: "5fe4f37a526e51516655832ec9814e7ca24ade9a"
     source_ref: "v1.0.0"
     upstream_commit_date: "2026-04-22"
-    # strict SKF 4.0.0 re-test of the version that ships (20261103T131524Z-5907fba9)
+    # strict SKF 7.0.0 re-test of the version that ships (20261106T225304Z-494ddfa2)
     test_score: 100.0
     test_mode: "naive"
     confidence_tier: "Deep"
@@ -79,9 +80,8 @@ skills:
     source_commit: "e486d3826bcd40c52db1c766966d1c8ec16df6cb"
     source_ref: "v10.3.5"
     upstream_commit_date: "2026-04-07"
-    # null: the strict SKF 4.0.0 re-test of the version that ships
-    # (20261103T131516Z-6e2b972a) is blocked by the hard gate, so it records no score.
-    test_score: null
+    # strict SKF 7.0.0 re-test of the version that ships (20261106T235200Z-cc17d5d0)
+    test_score: 98.23
     test_mode: "naive"
     confidence_tier: "Deep"
     source_authority: "community"
@@ -94,9 +94,8 @@ skills:
     source_commit: "a5ffb45be05335d2c547436664cfbfb8c22d04df"
     source_ref: "HEAD"
     upstream_commit_date: "2026-03-22"
-    # null: the strict SKF 4.0.0 report (20261103T100001Z-981f84e6) is
-    # blocked by the hard gate, so it records no score.
-    test_score: null
+    # strict SKF 7.0.0 re-test of the version that ships (20261106T225241Z-1907bdd0)
+    test_score: 100.0
     test_mode: "naive"
     confidence_tier: "Deep"
     source_authority: "community"
