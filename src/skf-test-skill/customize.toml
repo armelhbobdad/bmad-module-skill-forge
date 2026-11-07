@@ -48,6 +48,16 @@ persistent_facts = [
 #
 # Lift the canonical asset paths so orgs can substitute house-style copies
 # without forking the skill. Empty string = use the bundled default.
+#
+# The test report template init copies to the run's report. Default:
+# templates/test-report-template.md. A house-style copy may reword the prose,
+# and must keep:
+#   - the title line `# Test Report: {{skillName}}`, which init fills with
+#     the skill name;
+#   - the six `## ...` section headings, each with the `<!-- Populated by`
+#     comment under it, since each stage replaces its own placeholder.
+# The report check halts the run (`report-anchor-missing`) on a report
+# without them.
 
 test_report_template_path = ""
 

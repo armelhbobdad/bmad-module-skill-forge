@@ -320,7 +320,7 @@ nextWorkflow: ''
 ---
 ```
 
-Replace the template's frontmatter with this block (the two hold the same keys). `toolingStatus` is the `tooling_status` §3b set: score.md §3a reads it back for Cap 1. `threshold` and `thresholdSource` are the pass threshold §1b resolved and its source: score.md §1 reads them back, and score.md §7 rewrites `threshold` with the threshold the verdict was settled against. `analysisConfidence` stays empty until score.md §7, or step-hard-gate.md §3 on a run the hard gate blocks, writes the source access coverage-check resolved: `full`, `provenance-map`, `metadata-only`, `remote-only` or `docs-only`. report.md §4c halts on a report that holds none of them.
+Replace the template's frontmatter with this block (the two hold the same keys). Then replace `{{skillName}}` in the template's H1 with `{skill_name}`, so the report's title is `# Test Report: {skill_name}`: report.md §4c halts on a report without that line. `toolingStatus` is the `tooling_status` §3b set: score.md §3a reads it back for Cap 1. `threshold` and `thresholdSource` are the pass threshold §1b resolved and its source: score.md §1 reads them back, and score.md §7 rewrites `threshold` with the threshold the verdict was settled against. `analysisConfidence` stays empty until score.md §7, or step-hard-gate.md §3 on a run the hard gate blocks, writes the source access coverage-check resolved: `full`, `provenance-map`, `metadata-only`, `remote-only` or `docs-only`. report.md §4c halts on a report that holds none of them.
 
 ### 7. Report Initialization Status
 

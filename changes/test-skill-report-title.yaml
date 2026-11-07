@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill now names the skill in its report's title. The report template's title is `# Test Report: {{skillName}}`, and the step that creates the report replaced only its frontmatter, so a run could publish a report titled with the placeholder, as two oh-my-skills reports were. That step now writes the skill's name into the title, and the report check that runs before the result files are written halts with `report-anchor-missing` when the report does not hold the line `# Test Report: <skill>` exactly once.
+issues: [971]
+prs: [978]

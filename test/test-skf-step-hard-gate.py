@@ -1224,31 +1224,50 @@ class TestReportTerminalSequence:
         assert re.findall(r"'(## [^']+)'", script) == TEMPLATE_HEADINGS
         assert 'grep -cxF "$heading" "{outputFile}"' in script
         assert "grep -c '^<!-- Populated by' \"{outputFile}\"" in script
+        # #971: the H1 init.md §6c filled, counted as the exact line.
+        assert "printf 'title: '; grep -cxF '# Test Report: {skill_name}' \"{outputFile}\"" in script
         flow = _flow(check)
         assert "Count them with grep, not by eye" in flow
         assert "Each heading must print 1" in flow and "`placeholders` must print 0" in flow
+        assert "`title` must print 1" in flow and "a `title` count other than 1, HALT" in flow
+        assert "a `title` count of" in flow and "the report does not hold `# Test Report: {skill_name}` once" in flow
         assert 'HALT (`halt_reason: "report-anchor-missing"`, phase `report:anchors`)' in check
 
+    # One case per row of #971's matrix, besides the section cases: the title is the
+    # exact line `# Test Report: {skill_name}`, so a placeholder, a wrong name or a
+    # second title fails it, and a section that quotes `{{` does not. A title that only
+    # starts with the line (`demo (v1)`) fails it too: grep -x counts whole lines.
     @pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="runs the check through bash")
-    @pytest.mark.parametrize("case", ["whole", "skipped", "appended"])
+    @pytest.mark.parametrize("case", ["whole", "skipped", "appended", "untitled", "misnamed", "titled-twice",
+                                      "quotes-braces", "suffixed"])
     def test_the_section_check_counts_as_written(self, text: str, tmp_path: pathlib.Path, case: str) -> None:
         script = _fence(_slice(text, "**Check the report sections.**", "**Renew the run lock**"), "for heading in")
         report = _read(TEMPLATE_FILE)
+        if case != "untitled":
+            name = {"misnamed": "other", "suffixed": "demo (v1)"}.get(case, "demo")
+            report = report.replace("# Test Report: {{skillName}}", f"# Test Report: {name}")
+        written = "Written by its stage: `{{ value }}` is quoted." if case == "quotes-braces" else "Written by its stage."
         for placeholder in re.findall(r"^<!-- Populated by .*-->$", report, re.M):
-            if case == "whole" or "coverage-check" not in placeholder:
-                report = report.replace(placeholder, "Written by its stage.")
+            if case not in ("skipped", "appended") or "coverage-check" not in placeholder:
+                report = report.replace(placeholder, written)
         if case == "appended":
             report += "\n## Coverage Analysis\n\nAppended instead of written in place.\n"
+        if case == "titled-twice":
+            report += "\n# Test Report: demo\n\nWritten again by a stage.\n"
         path = tmp_path / f"test-report-demo-{RUN_ID}.md"
         path.write_bytes(report.encode("utf-8"))
-        proc = subprocess.run(["bash", "-c", script.replace("{outputFile}", path.as_posix())],
-                              capture_output=True, text=True, encoding="utf-8")
+        command = script.replace("{outputFile}", path.as_posix()).replace("{skill_name}", "demo")
+        proc = subprocess.run(["bash", "-c", command], capture_output=True, text=True, encoding="utf-8")
         counts = {k: int(v) for k, v in (line.rsplit(": ", 1) for line in proc.stdout.splitlines())}
-        expected = dict.fromkeys(TEMPLATE_HEADINGS, 1) | {"placeholders": 0}
+        expected = dict.fromkeys(TEMPLATE_HEADINGS, 1) | {"placeholders": 0, "title": 1}
         if case == "skipped":
             expected["placeholders"] = 1
         if case == "appended":
             expected |= {"## Coverage Analysis": 2, "placeholders": 1}
+        if case in ("untitled", "misnamed", "suffixed"):
+            expected["title"] = 0
+        if case == "titled-twice":
+            expected["title"] = 2
         assert counts == expected
 
     def test_the_inconclusive_paragraph_matches_the_order(self, text: str) -> None:
@@ -1397,6 +1416,22 @@ class TestReportTemplate:
     def test_the_comment_mentions_the_hard_gate(self, text: str) -> None:
         assert "step-hard-gate" in text
         assert not re.search(r"^## Hard Gate", text, re.MULTILINE)
+
+    def test_init_fills_the_title_the_section_check_counts(self, text: str) -> None:
+        """#971: init.md §6c fills the H1's placeholder, and report.md §4c greps for the filled line."""
+        assert text.count("{{skillName}}") == 1
+        titles = [line for line in _body(TEMPLATE_FILE).splitlines() if line.startswith("# ")]
+        assert titles == ["# Test Report: {{skillName}}"]
+        script = _fence(_slice(_read(REPORT_FILE), "**Check the report sections.**", "**Renew the run lock**"),
+                        "for heading in")
+        grepped = re.search(r"^printf 'title: '; grep -cxF '([^']+)' \"\{outputFile\}\"$", script, re.M)
+        assert grepped, "report.md §4c does not count the title"
+        assert grepped.group(1) == titles[0].replace("{{skillName}}", "{skill_name}")
+        init = _flow(_slice(_read(INIT_FILE), "**6c. Create `{outputFile}`", "### 7."))
+        assert "Replace the template's frontmatter with this block (the two hold the same keys)." in init
+        assert ("Then replace `{{skillName}}` in the template's H1 with `{skill_name}`, so the report's title is "
+                f"`{grepped.group(1)}`") in init
+        assert "that the title above names the skill" in _flow(text)
 
 
 class TestOutputFormats:
