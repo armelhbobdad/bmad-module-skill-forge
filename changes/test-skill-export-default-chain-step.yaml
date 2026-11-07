@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill no longer reports a Critical `fabricated-signature` gap for a documented name whose rename chain passes through a middle file that exports a name as its default (`import { createEntry } from './api'; export default createEntry;` in `mid.ts`, re-exported as `export { default as Entry } from './mid'`). `classify-stale` in `skf-verify-provenance-completeness.py` now reads a column-0 `export default L`, where an import or a declaration of the same file binds the bare identifier `L`, as a rename of `L` to `default`, so the chain goes on to the cited declaration and the name is `aliased`, an Info documented extra whose `renames` is the name the cited file declares. A default export of a call, an object, an arrow or any other expression still ends the chain.
+issues: [974]
+prs: [980]
