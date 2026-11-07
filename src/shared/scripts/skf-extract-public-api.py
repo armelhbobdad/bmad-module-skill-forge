@@ -457,8 +457,9 @@ them). A namespace with `members` is diffed as its members: each is found
 when a recipe found its name, or its `local` one, in its file (one with
 no file by its name alone, as a public name is), and has no row of its
 own when a public name (or another namespace's member) has its name and
-file; one with null `members`, and a member that is such a module, is no
-gap. In a family with no entry point, or only empty ones, every name the
+file; a member's own outside_scope row names its namespace (`namespace`);
+one with null `members`, and a member that is such a module, is no gap.
+In a family with no entry point, or only empty ones, every name the
 recipes found is public. A JS/TS module exports, besides the names the
 recipes match, those its column-0 `export` statements declare in a form
 no recipe matches, read from its text: `export let`, `export declare
@@ -582,7 +583,8 @@ Output JSON (stdout, or -o):
                                "local", "file", "line"}, ...],  # by name, then file
         "internal": [{"name", "language", "source_file", "source_line"}, ...],
         "extraction_gaps": [{"name", "language", "entry", "file", "line"}, ...],
-        "outside_scope": [{"name", "language", "entry", "file", "line"}, ...]},
+        "outside_scope": [{"name", "language", "entry", "file", "line",
+                           "namespace"}, ...]},  # namespace: a member's row only
     "reexport_targets": [{"name", "language", "local", "from", "entry",
                           "file", "line", "via"}, ...],
     "counts": {"exports_public_api": N,  # (family, name, file) keys
@@ -4439,9 +4441,11 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
     `members` has each member diffed in its place, found when a recipe
     found its name, or its `local` one, in its file, and given no row of
     its own when a declared name has its name and file (or another
-    namespace gave it one); one whose members are unknown (None), or a
-    member that is such a module (`opaque`), is no gap. In a family with
-    no entry point, or only empty ones, every export is public."""
+    namespace gave it one), else a row that names the namespace
+    (`namespace`, which only an outside_scope row writes out); one whose
+    members are unknown (None), or a member that is such a module
+    (`opaque`), is no gap. In a family with no entry point, or only empty
+    ones, every export is public."""
     statuses: dict[str, str] = {}
     public: dict[tuple[str, str], dict] = {}
     internal: list[dict] = []
@@ -4495,7 +4499,7 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
                     continue
                 given.add(key)
                 row = {"name": member["name"], "entry": info["entry"], "file": member["file"],
-                       "line": member["line"]}
+                       "line": member["line"], "namespace": info["name"]}
                 (gaps if member["file"] is None or member["file"] in in_scope else outside).append((family, row))
     return statuses, public, internal, gaps, outside, others
 
@@ -4946,8 +4950,11 @@ def run_full(args: argparse.Namespace) -> tuple[dict, int]:
             "extraction_gaps": [{"name": info["name"], "language": family, "entry": info["entry"],
                                  "file": info["file"], "line": info["line"]}
                                 for family, info in sorted(gaps, key=lambda g: (g[1]["name"], g[0]))],
+            # a namespace's member names its namespace (#969); a declared name's row keeps five keys
             "outside_scope": [{"name": info["name"], "language": family, "entry": info["entry"],
-                               "file": info["file"], "line": info["line"]}
+                               "file": info["file"], "line": info["line"],
+                               **({"namespace": info["namespace"]} if isinstance(info.get("namespace"), str)
+                                  and info["namespace"] else {})}
                               for family, info in sorted(outside, key=lambda g: (g[1]["name"], g[0]))],
         },
         "reexport_targets": [

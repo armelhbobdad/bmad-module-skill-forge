@@ -1976,6 +1976,24 @@ def test_an_outside_scope_row_says_why_the_brief_scopes_its_file_out(tmp_path, f
     assert (row["excludeGlob"], row["outsideInclude"]) == why
 
 
+@pytest.mark.parametrize("namespace, kept", [
+    ("legacy", True), ("tools", True), (None, False), ("", False), (3, False), ("absent", False),
+], ids=["its-own-name", "another-name", "null", "empty", "a-number", "no-key"])
+def test_a_namespace_members_row_keeps_its_namespace(tmp_path, namespace, kept):
+    """#969: a namespace's member's outside_scope row names the namespace it came through, which
+    `excluded.outsideScope` keeps beside why the brief scopes its file out, so gap-ledger.py can tell a member
+    named like its namespace from the module a skill documents; anything but a non-empty string gives no key."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["scope"]["exclude"] = ["lib/**"]
+    if namespace != "absent":
+        data["entry_point_diff"]["outside_scope"][0]["namespace"] = namespace
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", data))
+    [row] = out["excluded"]["outsideScope"]
+    expected = {"name": "legacy", "file": "lib/legacy.ts", "line": 3, "entry": "src/index.ts",
+                "excludeGlob": "lib/**", "outsideInclude": True}
+    assert row == (expected | {"namespace": namespace} if kept else expected)
+
+
 def test_a_stale_glob_restores_root_exports_only(tmp_path):
     """A non-root `exports` subpath is no standard barrel: its outside_scope
     name stays out under a stale glob, while the root entry's comes back."""

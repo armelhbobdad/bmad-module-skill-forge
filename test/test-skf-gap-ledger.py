@@ -42,7 +42,10 @@ counts and the Gap Report is rendered from:
     fires on the set the barrel branch counts, its undocumented names are
     one Medium `denominator-inflation` gap at the brief listing at most 50
     of them; a stale name the brief scopes out (#796) is a Medium
-    `stale-documentation` gap naming its file and the brief
+    `stale-documentation` gap naming its file and the brief, unless its
+    only row is a namespace's member named like its namespace (#969) in
+    a file other than the one the source declares the name in, which
+    the Scoped Out list still names
   - a stale name's issue (#923): every kind opens with the line that
     documents the name, in SKILL.md or a reference file, else with `the
     skill`, never a bare `SKILL.md`, while a fabricated name's Source stays
@@ -1140,6 +1143,106 @@ class TestCoverageAdapter:
         assert "scopes out `pkg/old/r.py:2`, where it is defined" in record["remediation"]
         assert record["issue"].endswith("`pkg/old/r.py:2` defines, a file `data/skill-brief.yaml` scopes out "
                                         "(`excluded.outsideScope`)")
+
+    # #969: cognee's visualize package passes on its start_visualization_server submodule, which imports the
+    # function of its own name from cognee/shared/utils.py. The runner lists that member outside scope; its row,
+    # as load-coverage-inputs.py writes it, names the namespace it came through.
+    COLLISION = {"name": "start_server", "file": "pkg/shared/utils.py", "line": 1, "entry": "pkg/__init__.py",
+                 "excludeGlob": "pkg/shared/**", "outsideInclude": False, "namespace": "start_server"}
+    MODULE_AT = "pkg/api/visualize/start_server.py:1"
+
+    def _collision(self, *rows: dict, defined_at: str | None = MODULE_AT, declared_in: list[str] | None = None,
+                   skill_dir: str | None = None) -> tuple[dict, dict]:
+        surface = self.BRIEFED_SURFACE | {"excluded": {"outsideScope": list(rows), "nestedEntries": []}}
+        stale = [{"name": "start_server", "fabricated": False, "source": None}
+                 | ({"defined_at": defined_at} if defined_at else {})
+                 | ({"declared_in": declared_in} if declared_in else {})]
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["start_server"]},
+                                     surface=surface, stale=stale, skill_dir=skill_dir)
+        return record, surface
+
+    def test_a_member_named_like_its_namespace_scopes_out_no_module(self):
+        """The documented module, which the source still declares, is a documented extra at its file."""
+        record, _ = self._collision(self.COLLISION)
+        assert brief([record]) == [("Info", "observation", "Documented extra: start_server", self.MODULE_AT,
+                                    "start_server")]
+        assert "scopes out" not in record["issue"] + record["remediation"]
+
+    def test_a_member_named_like_its_namespace_leaves_the_plain_gap(self):
+        """With no `defined_at` (and no single cited declaring file), the plain Medium, which blames no brief."""
+        record, _ = self._collision(self.COLLISION, defined_at=None)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: start_server", "SKILL.md",
+                                    "start_server")]
+        assert record["remediation"] == ("Check `start_server` against the source and update or remove its "
+                                         "documentation at SKILL.md: the enumerated source surface does not export "
+                                         "it.")
+        assert "scopes out" not in record["issue"]
+
+    @pytest.mark.parametrize("defined_at", ["pkg/shared/utils.py:1", "./pkg/shared/utils.py:5"],
+                             ids=["its-line", "another-line-of-its-file"])
+    def test_a_member_whose_file_declares_the_documented_name_still_scopes_it_out(self, defined_at):
+        """The amended #969 guard: the stale item says the source declares the name in the member's own file, so
+        the documented name is that member, and the #796 scoped-out Medium stands."""
+        record, _ = self._collision(self.COLLISION, defined_at=defined_at)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: start_server", "SKILL.md",
+                                    "start_server")]
+        assert "scopes out `pkg/shared/utils.py:1`, where it is defined" in record["remediation"]
+        assert record["issue"].endswith("`pkg/shared/utils.py:1` defines, a file `data/skill-brief.yaml` scopes "
+                                        "out (`excluded.outsideScope`)")
+
+    @pytest.mark.parametrize("cited, scoped_out", [("pkg/shared/utils.py", True),
+                                                   ("pkg/api/visualize/start_server.py", False)],
+                             ids=["cites-the-members-file", "cites-the-module"])
+    def test_a_homonym_whose_cited_file_is_the_members_still_scopes_it_out(self, tmp_path: Path, cited: str,
+                                                                          scoped_out: bool):
+        """With no `defined_at`, the one `declared_in` file the skill cites decides: the member's own file keeps the
+        scoped-out Medium, the module's is the documented extra."""
+        skill = tmp_path / "skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(f"# demo\n\n`start_server()` `[AST:{cited}:L1]`\n".encode("utf-8"))
+        record, _ = self._collision(self.COLLISION, defined_at=None, skill_dir=str(skill),
+                                    declared_in=[self.MODULE_AT, "pkg/shared/utils.py:1"])
+        if scoped_out:
+            assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: start_server",
+                                        "SKILL.md:3", "start_server")]
+            assert "scopes out `pkg/shared/utils.py:1`, where it is defined" in record["remediation"]
+        else:
+            assert brief([record]) == [("Info", "observation", "Documented extra: start_server", self.MODULE_AT,
+                                        "start_server")]
+            assert "scopes out" not in record["issue"] + record["remediation"]
+
+    @pytest.mark.parametrize("namespace", ["tools", None, "", 3, "absent"],
+                             ids=["another-namespace", "null", "empty", "a-number", "no-key"])
+    def test_a_row_with_no_matching_namespace_still_scopes_the_name_out(self, namespace):
+        """A member of another namespace, or a row with no usable `namespace`, scopes the name out as before."""
+        row = {k: v for k, v in self.COLLISION.items() if k != "namespace"}
+        record, _ = self._collision(row if namespace == "absent" else row | {"namespace": namespace})
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: start_server", "SKILL.md",
+                                    "start_server")]
+        assert "scopes out `pkg/shared/utils.py:1`, where it is defined" in record["remediation"]
+
+    @pytest.mark.parametrize("collision_first", [True, False], ids=["collision-first", "declared-first"])
+    def test_another_row_of_the_name_still_scopes_it_out(self, collision_first):
+        """A declared name's row of the same name (no `namespace`) still scopes it out, from that row."""
+        declared = {"name": "start_server", "file": "pkg/legacy/start.py", "line": 7, "entry": "pkg/__init__.py",
+                    "excludeGlob": "pkg/legacy/**", "outsideInclude": False}
+        rows = (self.COLLISION, declared) if collision_first else (declared, self.COLLISION)
+        record, _ = self._collision(*rows)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: start_server", "SKILL.md",
+                                    "start_server")]
+        assert "scopes out `pkg/legacy/start.py:7`, where it is defined" in record["remediation"]
+        assert "pkg/shared" not in record["issue"] + record["remediation"]
+
+    def test_a_member_named_like_its_namespace_stays_scoped_out_by_the_brief(self):
+        """The ledger reads past the member, but the surface still lists it, and reconcile-coverage.py's Coverage
+        Summary names it under Scoped Out by the Brief by its bare name."""
+        _, surface = self._collision(self.COLLISION)
+        assert surface["excluded"]["outsideScope"] == [self.COLLISION]
+        pin = importlib.util.spec_from_file_location("skf_pin_reconcile_coverage",
+                                                     SCRIPT.parent / "reconcile-coverage.py")
+        reconcile = importlib.util.module_from_spec(pin)
+        pin.loader.exec_module(reconcile)
+        assert reconcile._left_out(surface) == ["- **Scoped Out by the Brief:** `start_server` (pkg/shared/utils.py:1)"]
 
     def test_a_fabricated_name_stays_critical_whatever_its_defined_at(self):
         stale = [{"name": "ghost", "fabricated": True, "source": "src/a.py:3", "defined_at": "src/b.py:1"}]
