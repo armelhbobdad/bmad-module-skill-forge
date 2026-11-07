@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill no longer reports a documented public export as stale because the name set it counts leaves the export out. `reconcile-coverage.py` now finds a stale name against the whole source surface on both the barrel and the scalar branch: the counted set, the `all` set and every name on the `surface.json` export records. A documented Tier B name of a stratified skill and a documented name of a nested Python entry point (`excluded.nestedEntries`) the brief does not scope out are now neither counted nor stale, so they get no `stale-documentation` gap and no documented-extra note. Before, the barrel branch listed every documented name outside the counted set as stale, and both branches listed a nested entry's names, so the gap ledger told update-skill to update or remove correct documentation and the Stale Documentation count was inflated.
+issues: [912]
+prs: [985]

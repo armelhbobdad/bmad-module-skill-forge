@@ -334,8 +334,8 @@ def test_scalar_counts_only_the_documented_names_of_its_set():
 
 
 def test_scalar_reports_the_documented_names_the_source_does_not_export_as_stale():
-    """#791: the documented names the whole public surface (`all`) lacks are stale; a documented Tier B name the
-    source exports is neither counted nor stale."""
+    """#791: the documented names the whole public surface (`allSet`) lacks are stale; a documented Tier B name
+    the source exports is neither counted nor stale."""
     out = _scalar_over_set()
     assert (out["stale"], out["staleCount"], out["staleApplicable"]) == (["phantomOne", "phantomTwo"], 2, True)
     tier_b = _scalar_over_set(exports=[{"name": n, "kind": "function"} for n in DOCUMENTED + ["tierB"]])
@@ -344,11 +344,113 @@ def test_scalar_reports_the_documented_names_the_source_does_not_export_as_stale
 
 
 def test_a_nested_package_name_in_the_set_is_not_stale():
-    """A nested Python package's name sits in the scope sets, never in `all`: S ∪ `all` is the whole surface."""
+    """A nested Python package's name sits in the scope sets, never in `all`: S ∪ `allSet` is the whole surface."""
     out = _scalar_over_set(barrelSet=TIER_A + ["nested"],
                            exports=[{"name": n, "kind": "function"} for n in DOCUMENTED + ["nested"]])
     assert "nested" not in out["stale"] and "nested" in out["documentedNames"]
     assert out["stale"] == ["phantomOne", "phantomTwo"]
+
+
+# --------------------------------------------------------------------------
+# A stale name is one the whole surface lacks, on both branches (#912)
+# --------------------------------------------------------------------------
+
+
+def _barrel_over_set(**overrides):
+    """The barrel branch over the tier A set, the whole public surface beside it."""
+    inp = {"denominatorSource": "barrel", "barrelSet": TIER_A, "allSet": ALL_NAMES,
+           "exports": [{"name": n, "kind": "function"} for n in ["alpha", "beta", "tierB", "phantomOne"]]}
+    inp.update(overrides)
+    return reconcile(inp)
+
+
+def test_barrel_a_documented_tier_b_name_is_neither_counted_nor_stale():
+    """#912: the barrel branch subtracted only the set it counts, so a documented Tier B name was stale."""
+    out = _barrel_over_set()
+    assert (out["stale"], out["staleCount"], out["staleApplicable"]) == (["phantomOne"], 1, True)
+    assert "tierB" not in out["documentedNames"] and "tierB" not in out["missing"]
+    assert (out["denominator"], out["documented"], out["exportCoverage"]) == (5, 2, 40.0)
+    assert out["missing"] == ["delta", "epsilon", "gamma"]
+
+
+def test_barrel_without_the_whole_surface_keeps_todays_result():
+    """A JSON caller that gives no `allSet` finds a stale name against the counted set alone, as before."""
+    out = _barrel_over_set(allSet=None)
+    assert (out["stale"], out["denominator"], out["documented"]) == (["phantomOne", "tierB"], 5, 2)
+    bare = {"denominatorSource": "barrel", "barrelSet": TIER_A,
+            "exports": [{"name": n, "kind": "function"} for n in ["alpha", "tierB"]]}
+    assert reconcile(bare)["stale"] == ["tierB"]
+
+
+def test_barrel_refuses_an_all_set_that_is_not_a_list():
+    out = _barrel_over_set(allSet="alpha")
+    assert out == {"error": "barrel branch: `allSet` must be a list of names", "code": "INVALID_INPUT"}
+    proc = _run_cli([json.dumps({"denominatorSource": "barrel", "barrelSet": TIER_A, "allSet": "alpha"})])
+    assert proc.returncode == 2
+    assert json.loads(proc.stdout)["error"] == "barrel branch: `allSet` must be a list of names"
+
+
+@pytest.mark.parametrize("overrides, message", [
+    ({"allSet": "alpha"}, "scalar branch: `allSet` must be a list of names"),
+    ({"allSet": None}, "scalar branch on a surface read from the source requires `allSet` (the surface's `all` "
+                       "set) to find the stale names"),
+], ids=["all-not-a-list", "no-all-set"])
+def test_the_scalar_refusals_keep_their_messages(overrides, message):
+    assert _scalar_over_set(**overrides) == {"error": message, "code": "INVALID_INPUT"}
+
+
+# load-coverage-inputs.py surface output with a nested Python entry: `nested` keeps its record but leaves `all`,
+# and `scopedOut` is a name the brief scoped out (no record, in no set).
+PROBE_SURFACE = {
+    "exports": [{"name": n, "kind": "function", "file": f"pkg/{n}.py", "line": 1, "origin": "extraction"}
+                for n in ("alpha", "beta", "tierB", "nested")],
+    "sets": {"all": ["alpha", "beta", "tierB"], "tier_a_include": ["alpha", "beta"]},
+    "excluded": {"outsideScope": [{"name": "scopedOut", "file": "scripts/tool.py"}],
+                 "nestedEntries": [{"entry": "pkg/api/__init__.py", "within": "pkg/__init__.py",
+                                    "names": ["nested"]}]},
+    "guards": {"deflation": {"applicable": True, "fires": False}},
+    "denominator": {"clause": "stratified-scope", "branch": "scalar", "surfaceSet": "tier_a_include",
+                    "setCounted": True},
+}
+PROBE_DOCUMENTED = ["alpha", "tierB", "nested", "phantom"]
+
+
+def _probe(tmp_path, branch, surface_set, documented=PROBE_DOCUMENTED):
+    """reconcile-coverage.py on the probe surface through the run files, as coverage-check runs it."""
+    skill = tmp_path / "skill"
+    skill.mkdir(exist_ok=True)
+    (skill / "SKILL.md").write_bytes(" ".join(documented).encode("utf-8"))
+    inventory = _write(tmp_path / "i.json", {"exports": [{"name": n, "kind": "function"} for n in documented]})
+    args = ["--denominator-source", branch, "--inventory", inventory, "--surface-set", surface_set,
+            "--surface", _write(tmp_path / "surface.json", PROBE_SURFACE)]
+    if branch == "scalar":
+        args += ["--coverage-inputs", _write(tmp_path / "ci.json", {"effectiveDenominator": 2, "stack": None}),
+                 "--skill-dir", str(skill)]
+    proc = _run_cli(args)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return json.loads(proc.stdout)
+
+
+@pytest.mark.parametrize("branch, surface_set, numerator", [
+    ("barrel", "tier_a_include", (2, 1, ["alpha"], ["beta"])),
+    ("barrel", "all", (3, 2, ["alpha", "tierB"], ["beta"])),
+    ("scalar", "tier_a_include", (2, 1, ["alpha"], ["beta"])),
+    ("scalar", "all", (2, 4, None, [])),
+], ids=["barrel-tier-a", "barrel-all", "scalar-scope-set-lacking-nested", "scalar-all"])
+def test_a_documented_tier_b_or_nested_entry_name_is_not_stale(tmp_path, branch, surface_set, numerator):
+    """#912: a documented Tier B name and a nested entry's name (on an `exports` record, outside `all`) are in the
+    whole surface, so neither is stale on either branch; a phantom name stays stale. The numerator is unchanged."""
+    out = _probe(tmp_path, branch, surface_set)
+    assert (out["stale"], out["staleCount"], out["staleApplicable"]) == (["phantom"], 1, True)
+    assert (out["denominator"], out["documented"], out.get("documentedNames"), out["missing"]) == numerator
+
+
+@pytest.mark.parametrize("branch, surface_set", [("barrel", "tier_a_include"), ("barrel", "all"),
+                                                 ("scalar", "tier_a_include"), ("scalar", "all")])
+def test_a_scoped_out_name_stays_stale(tmp_path, branch, surface_set):
+    """An `excluded.outsideScope` name has no record and sits in no set: it is not part of the surface."""
+    out = _probe(tmp_path, branch, surface_set, documented=PROBE_DOCUMENTED + ["scopedOut"])
+    assert out["stale"] == ["phantom", "scopedOut"]
 
 
 @pytest.mark.parametrize("overrides", [
