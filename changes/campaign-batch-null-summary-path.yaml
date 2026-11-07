@@ -3,3 +3,4 @@ scope: skf-campaign, skf-quick-skill, skf-create-skill
 summary: |
   When Quick Skill could not write a Tier B batch's summary file, Campaign marked every skill of the batch failed with `no-batch-result`, even the ones Quick Skill built. The `batch_summary` event of a Quick Skill or Create Skill `--batch` run whose `summary_path` is null now also gives `batch_file`, the path of the batch run folder's `batch.jsonl`. Campaign reads each target's result from that file and logs the `summary_write_failed` warning, so the skills Quick Skill built are recorded completed with their skill path and quality score.
 issues: [904]
+prs: [938]
