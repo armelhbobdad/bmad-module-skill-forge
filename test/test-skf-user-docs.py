@@ -764,6 +764,7 @@ def test_quick_skill_headless_block_names_the_success_envelope():
     for token in ("each target runs steps 1 to 6", "the health check runs once, after the batch summary",
                   "the highest exit code among its failed targets (`0` when none failed)",
                   "`--fail-fast` stops it at the first failed target", "writes no summary and exits `2`, or `4`",
+                  "stops with exit `4` and a `batch-mode` halt line",
                   "The batch's result is the file that event's `summary_path` names",
                   "the `-latest` copy holds the last batch summary written, which may be another batch's"):
         assert token in batch, token

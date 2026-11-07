@@ -1101,7 +1101,8 @@ def test_the_scan_finds_every_hard_halt():
     # halts for a missing resolver (§1b) and language detector (§4) in place of a by-hand walk;
     # SKILL.md gained the runtime halt for a missing python3 or uv.
     # quick-extract.md and write-and-validate.md gained the halts for a missing shipped helper (#599).
-    assert per_file == {"SKILL.md": 3, "batch-mode.md": 3, "compile.md": 1, "ecosystem-check.md": 2,
+    # batch-mode.md gained the halts for a failing next, a second failing record and a failing summarize (#903).
+    assert per_file == {"SKILL.md": 3, "batch-mode.md": 6, "compile.md": 1, "ecosystem-check.md": 2,
                         "finalize.md": 1, "quick-extract.md": 5, "resolve-target.md": 12,
                         "write-and-validate.md": 6}
     assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES)
@@ -1144,12 +1145,12 @@ def test_no_stage_halts_without_an_exit_code():
     assert '"reason": "Headless mode requires a target argument."' in gate
 
 
-@pytest.mark.parametrize("site", range(33), ids=lambda i: f"halt-{i}")
+@pytest.mark.parametrize("site", range(36), ids=lambda i: f"halt-{i}")
 def test_every_hard_halt_emits_through_the_emitter(site):
     """#593: each HARD HALT carries the inline emit command, and its payload builds the envelope it names,
     except the runtime halt, which no emitter can serve (test_a_missing_runtime_halts_before_the_run_folder)."""
     sites = _halt_sites()
-    assert len(sites) == 33
+    assert len(sites) == 36
     name, code, reason, segment = sites[site]
     if _runtime_halt(segment):
         assert name == "SKILL.md"
@@ -1473,6 +1474,70 @@ def test_batch_start_halts_on_the_reason_the_helper_names():
         [branch] = [line for line in start.splitlines() if line.startswith(f"- **`{reason}`**")]
         assert f"HARD HALT with **exit code {code} ({reason})**" in branch, reason
     assert "or no path in `{quickBatchProbeOrder}` exists (an incomplete install)" in start
+
+
+def test_a_failing_batch_helper_call_halts_the_batch():
+    """#903: a failing next, a second failing record and a failing summarize each end the batch with exit 4 and a
+    batch-mode halt line, as Create Skill's batch does, instead of no halt line or the same target over again."""
+    batch = _read(BATCH_MODE)
+    sections = {
+        "next": _section(batch, "### 2. Take the Next Target", "### 3. "),
+        "record": _section(batch, "### 3. Record the Target", "### 4. "),
+        "summarize": _section(batch, "### 4. Batch Summary", "## Batch summary contract"),
+    }
+    sites = [site for site in _halt_sites() if site[0] == "batch-mode.md"]
+    opener = "uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --target stderr <<'SKF_JSON'"
+    for command, section in sections.items():
+        [(_, code, reason, segment)] = [site for site in sites if site[3] in section]
+        assert (code, reason) == (4, "write-failure"), command
+        payload = _filled(_staged(segment, "halt.json"))
+        assert (payload["phase"], payload["halt_reason"], payload["skill_package"]) == (
+            "batch-mode", "write-failure", None), command
+        assert payload["reason"] == "The batch stopped: <its message, one line>", command
+        assert "details" not in payload, command
+        # Nothing to stage in: the emitter reads the heredoc, with no --run-dir.
+        [line] = [line for line in segment.splitlines() if "<<'SKF_JSON'" in line]
+        assert line == opener, command
+        [halt] = [line for line in section.splitlines() if "HARD HALT with **exit code 4 (write-failure)**" in line]
+        assert 'display "**The batch stopped:** {its `message`}" and HARD HALT' in halt, command
+        assert "the health check does not run" in halt, command
+        assert halt.index("HARD HALT") < halt.index("the health check does not run"), command
+    take = sections["next"]
+    assert take.index('- **`"status": "done"`**') < take.index("HARD HALT with **exit code 4")
+    assert ("If it exits non-zero (the target's run folder cannot be created, or the batch file is gone or "
+            "unreadable), the batch cannot go on") in take
+    record = sections["record"]
+    assert "record again, then go back to §2" not in batch
+    assert "stage the payload the target ended with and record again, once." in record
+    assert ("If it exits non-zero a second time (the batch file cannot be written, or the staged `halt.json` is not "
+            "JSON or names a `halt_reason` that maps to no exit code)") in record
+    # The halt ends the batch, not the target: going back to §2 would hand the same target back for ever.
+    assert ("This halt ends the batch, not only the target: do not go back to §2, which would hand the same target "
+            "back") in record
+    assert record.index("record again, once") < record.index("HARD HALT with **exit code 4")
+    summary = sections["summarize"]
+    assert ("If `summarize` exits non-zero (a target is still pending, or the batch file is gone or unreadable), it "
+            "wrote no summary file") in summary
+    assert (summary.index("The batch ends with the event's `exit_code`.") < summary.index("HARD HALT with **exit")
+            < summary.index("\n**Reading a batch.**"))
+    assert ("When an earlier `summarize` already printed the `batch_summary` event (a compaction came before the "
+            "health check), that event stays the batch's result") in summary
+    contract = _read(HALT_CONTRACT)
+    codes = _section(contract, "## Exit Codes", "## Result Contract")
+    [row4] = [line for line in codes.splitlines() if line.startswith("| 4 ")]
+    assert ("batch mode §1 (the batch run folder cannot be written) and §2 to §4 (a failing `next`, a second "
+            "failing `record`, a failing `summarize`)") in row4
+    assert "or `batch-mode` for batch mode §1 to §4.\n" in contract
+    in_batch = contract.split("## In `--batch`", 1)[1]
+    assert ("A batch mode §2 to §4 halt ends the run too and writes no batch summary, though a `batch_summary` "
+            "event an earlier `summarize` already printed stays the batch's result; the targets recorded before it "
+            "keep the `done` and `fail` events they printed.") in in_batch
+    assert ("batch-mode for a batch that cannot start or go on (batch mode sections 1 to 4)"
+            in _schema()["properties"]["phase"]["description"])
+    exit_code = batch[batch.index("## Exit code"):]
+    assert ("A batch that stops because `next`, a second `record` or `summarize` fails (§2 to §4) exits with code "
+            "`4` and writes no batch summary then; a `batch_summary` event an earlier `summarize` already printed "
+            "stays the batch's result.") in exit_code
 
 
 def test_every_way_out_of_a_step_prints_its_events():

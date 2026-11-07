@@ -58,7 +58,7 @@
     "phase": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "The step slug where the HARD HALT fired (resolve-target, ecosystem-check, quick-extract, compile, write-and-validate or finalize), on-activation for a halt before the run starts (SKILL.md On Activation, or batch mode's refusal of --description and --exports), or batch-mode for a batch that cannot start (batch mode section 1). Null on success."
+      "description": "The step slug where the HARD HALT fired (resolve-target, ecosystem-check, quick-extract, compile, write-and-validate or finalize), on-activation for a halt before the run starts (SKILL.md On Activation, or batch mode's refusal of --description and --exports), or batch-mode for a batch that cannot start or go on (batch mode sections 1 to 4). Null on success."
     },
     "halt_reason": {
       "type": ["string", "null"],

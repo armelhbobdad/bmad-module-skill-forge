@@ -339,6 +339,25 @@ def test_record_refuses_what_it_cannot_read(batch, capsys, setup, needle):
     assert (code, out) == (1, None) and needle in json.loads(err)["message"]
 
 
+@pytest.mark.parametrize("setup, needle", [
+    (lambda folder: _halt(folder, "no-such-reason"), "maps to no exit code"),
+    (lambda folder: (folder / "halt.json").write_text("{not json", encoding="utf-8"), "holds no JSON object"),
+], ids=["unknown-reason", "broken-json"])
+def test_next_hands_back_a_target_whose_record_failed(batch, capsys, setup, needle):
+    """#903: a staged halt.json record cannot read fails a second record too and keeps the target pending, so next
+    hands it back to record: batch-mode.md §3 halts the batch on the second failure instead of going back to §2."""
+    run_dir, folder = _started(batch, capsys)
+    setup(folder)
+    lines = (run_dir / "batch.jsonl").read_text(encoding="utf-8")
+    for _ in range(2):
+        code, out, err = _run(capsys, "record", "--run-dir", str(run_dir), "--batch", "1")
+        assert (code, out) == (1, None) and needle in json.loads(err)["message"]
+    assert (run_dir / "batch.jsonl").read_text(encoding="utf-8") == lines, "no result was appended"
+    assert mod.load(run_dir)["results"] == {}
+    code, out, err = _run(capsys, "next", "--run-dir", str(run_dir))
+    assert (code, out, err) == (0, {"status": "record", "batch": 1}, "")
+
+
 def test_record_refuses_a_number_the_batch_does_not_hold(batch, capsys):
     run_dir, _ = _started(batch, capsys)
     code, out, err = _run(capsys, "record", "--run-dir", str(run_dir), "--batch", "9")
