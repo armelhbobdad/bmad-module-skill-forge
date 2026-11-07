@@ -172,7 +172,10 @@ Batch mode emits per-target boundary events on stderr in addition to the per-ste
 
 ```
 {"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":"<path>"}
+{"batch_summary":true,"targets_total":N,"succeeded":K,"failed":M,"status":"<...>","fail_fast_triggered":<bool>,"exit_code":<code>,"summary_path":null,"warnings":["summary_write_failed: <dir>: <reason>"],"batch_file":"<path>"}
 ```
+
+When the per-batch summary file cannot be written, `summary_path` is null and `batch_file` names `{batch_dir}/batch.jsonl`, which then holds the batch's result.
 
 ## Exit code
 

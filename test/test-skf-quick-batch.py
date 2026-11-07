@@ -429,6 +429,7 @@ def test_summarize_counts_and_takes_the_highest_failed_code(batch, capsys, tmp_p
                                   "fail_fast_triggered", "exit_code")} == {
         "batch_summary": True, "targets_total": 3, "succeeded": 3 - failed, "failed": failed,
         "status": status, "fail_fast_triggered": False, "exit_code": exit_code}
+    assert "batch_file" not in event, "#904: a written summary is the batch's result, so no batch_file"
     summary = json.loads(Path(event["summary_path"]).read_text(encoding="utf-8"))
     assert summary == json.loads((out_dir / "quick-skill-batch-latest.json").read_text(encoding="utf-8"))
     assert (summary["skill"], summary["mode"], summary["status"], summary["exit_code"]) == (
@@ -632,6 +633,11 @@ def test_a_summary_that_cannot_be_written_keeps_the_batch_file(batch, capsys, tm
     # #889: with summary_path null, the event and batch.jsonl are the batch's result (batch-mode.md §4)
     kept = mod.load(run_dir)
     assert kept["summary"]["summary_path"] is None and sorted(kept["results"]) == [1, 2, 3]
+    # #904: the event names that batch file, and a batch summarized again prints the same event
+    assert event["batch_file"] == (run_dir / "batch.jsonl").as_posix()
+    assert Path(event["batch_file"]).is_file()
+    again = _run(capsys, "summarize", "--run-dir", str(run_dir), "--output-dir", str(blocker))
+    assert again == (code, event, "")
 
 
 # --------------------------------------------------------------------------
@@ -664,6 +670,20 @@ def test_the_printed_events_have_the_documented_keys(batch, capsys, tmp_path):
     assert code == 0
     for event in (start, fail, done, summary):
         assert tuple(event) in documented, event
+
+
+def test_the_null_summary_event_has_the_documented_keys(batch, capsys, tmp_path):
+    """#904: an event whose summary_path is null prints warnings and batch_file, in a documented order."""
+    documented = {tuple(_keys(line)) for line in _documented_events()}
+    file, run_dir = batch
+    _run(capsys, "start", str(file), "--run-dir", str(run_dir))
+    _finish(run_dir, capsys, ["success", "success", "success"])
+    blocker = tmp_path / "not-a-folder"
+    blocker.write_text("", encoding="utf-8")
+    _, event, _ = _run(capsys, "summarize", "--run-dir", str(run_dir), "--output-dir", str(blocker))
+    assert event["summary_path"] is None
+    assert tuple(event) in documented, event
+    assert tuple(event)[-3:] == ("summary_path", "warnings", "batch_file")
 
 
 @pytest.mark.parametrize("cmd", ["record", "summarize"])

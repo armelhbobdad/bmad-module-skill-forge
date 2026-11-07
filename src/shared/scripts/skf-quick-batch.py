@@ -123,7 +123,9 @@ summarize
   stderr, on stdout otherwise): {"batch_summary": true, "targets_total",
   "succeeded", "failed", "status", "fail_fast_triggered", "exit_code",
   "summary_path"}, with "warnings" when a summary file could not be
-  written. A batch already summarized prints its event again.
+  written, and "batch_file", the path of the run folder's batch.jsonl,
+  when summary_path is null. A batch already summarized prints its event
+  again.
   The batch's result is that event and the file its summary_path names
   (with summary_path null, when the per-batch file could not be written,
   the event and batch.jsonl; a summary_write_failed warning beside a set
@@ -625,13 +627,15 @@ def _write_json(path: Path, value: dict) -> None:
         raise
 
 
-def summary_event(summary: dict) -> dict:
+def summary_event(summary: dict, run_dir: Path) -> dict:
     event = {"batch_summary": True}
     for key in ("targets_total", "succeeded", "failed", "status", "fail_fast_triggered", "exit_code",
                 "summary_path"):
         event[key] = summary.get(key)
     if summary.get("warnings"):
         event["warnings"] = summary["warnings"]
+    if summary.get("summary_path") is None:
+        event["batch_file"] = (run_dir / BATCH_FILE).as_posix()  # no summary file: batch.jsonl holds the results
     return event
 
 
@@ -648,7 +652,7 @@ def cmd_summarize(run_dir: Path, output_dir: Path) -> dict:
     state = load(run_dir)
     name = workflow(state)
     if state["summary"] is not None:
-        return summary_event(state["summary"])
+        return summary_event(state["summary"], run_dir)
     left, stopped = pending(state), _stop_early(state)
     if left and not stopped:
         raise BatchError(f"{len(left)} target(s) of the batch are still pending: run next and finish "
@@ -692,7 +696,7 @@ def cmd_summarize(run_dir: Path, output_dir: Path) -> dict:
     inside = output_dir.resolve().is_relative_to(run_dir.resolve())
     if not failed and summary_path is not None and not inside and run_dir.name.startswith(f"{name}-"):
         _remove_tree(run_dir)  # kept when a target halted, or when batch.jsonl is the only record
-    return summary_event(final)
+    return summary_event(final, run_dir)
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────────────

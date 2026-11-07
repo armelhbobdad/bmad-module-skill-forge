@@ -649,6 +649,16 @@ def test_batch_records_results_only_after_the_record_call() -> None:
     assert blocks[2].endswith("--no-results --stage 5")
 
 
+def test_batch_reads_the_batch_file_when_no_summary_was_written() -> None:
+    """#904: with summary_path null, QS's batch.jsonl takes the summary's place in the §5 record call."""
+    execute = _section(_step("step-06-batch.md"), 4)
+    for token in ("`summary_path` is null", "`batch_file`", "as `<summary_path>`",
+                  "`summary_write_failed` warning, type `event`"):
+        assert token in execute, token
+    record = _section(_step("step-06-batch.md"), 5)
+    assert "uv run {batchScript} --record <summary_path> --map {batchMapFile}" in record
+
+
 def test_overwrite_archives_through_the_helper() -> None:
     skill = (CAMPAIGN_DIR / "SKILL.md").read_text(encoding="utf-8")
     call = ("uv run scripts/campaign-state.py archive --state-file {campaignWorkspacePath}/_campaign-state.yaml "

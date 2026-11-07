@@ -47,12 +47,17 @@ Record mode (--record): joins the QS batch summary (`summary_path` of the
 `quality_score`) or `failed` (with QS's `error_code`, or `no-batch-result`
 when the summary holds no result for its line). A result whose target is not
 the mapped line's target means the summary belongs to another batch file, and
-nothing is joined.
+nothing is joined. When QS could not write the summary (`summary_path` null),
+the event's `batch_file` names the batch run folder's `batch.jsonl`, and
+--record takes that file instead: a path named `batch.jsonl` is read through
+the shared skf-quick-batch.py's `load` (a later result line for a batch
+number wins, a spoiled line is skipped), and its results are joined as a
+summary's are.
 
 CLI:
   uv run campaign-render-batch.py --state-file <p> --brief-file <p> \
       [-o <batchFile>] [--map <mapFile>] [--directive-file <p>]
-  uv run campaign-render-batch.py --record <summary_path> --map <mapFile>
+  uv run campaign-render-batch.py --record <summary_path|batch_file> --map <mapFile>
 
 Output:
   render: batch text (one target per line) to {batchFile} via -o, else to
@@ -68,8 +73,8 @@ Output:
 Exit codes:
   0  batch file written (0+ targets), or results joined
   2  state file missing / unreadable / bad YAML, a directive that cannot be
-     read, a missing or unreadable map or summary, or a summary that does not
-     match the map (SUMMARY_MISMATCH)
+     read, a missing or unreadable map, summary or batch.jsonl, or a summary
+     or batch.jsonl that does not match the map (SUMMARY_MISMATCH)
   8  brief missing / unreadable (missing-brief HALT), or a selected Tier B skill
      has no matching brief target with a repo_url (unmatched-target)
 """
@@ -87,18 +92,25 @@ import yaml
 
 GATE_SCRIPT = Path(__file__).resolve().with_name("campaign-quality-gate.py")
 RESOLVE_PACKAGE_SCRIPT = Path(__file__).resolve().parent.parent.parent / "shared" / "scripts" / "skf-resolve-package.py"
+SHARED_SCRIPTS = RESOLVE_PACKAGE_SCRIPT.parent
 SELECTED_STATUSES = ("pending", "active")
+
+
+def _shared(file_name: str) -> Any:
+    spec = importlib.util.spec_from_file_location(file_name[:-3].replace("-", "_"), SHARED_SCRIPTS / file_name)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _version_re() -> Any:
     """skf-resolve-package.py's _VERSION_RE: the pins parse-target reads after `@`."""
-    spec = importlib.util.spec_from_file_location("skf_resolve_package", RESOLVE_PACKAGE_SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module._VERSION_RE
+    return _shared(RESOLVE_PACKAGE_SCRIPT.name)._VERSION_RE
 
 
 VERSION_RE = _version_re()
+# QS's batch helper: --record reads a batch's batch.jsonl through its own load.
+qb = _shared("skf-quick-batch.py")
 
 
 def _err(message: str, code: str, exit_code: int, **extra: Any) -> int:
@@ -365,11 +377,30 @@ def _load_json(path: str, label: str) -> Tuple[Optional[Dict[str, Any]], int]:
     return data, 0
 
 
+def _load_batch_file(path: str) -> Tuple[Optional[Dict[str, Any]], int]:
+    """A QS batch run folder's batch.jsonl, read as a summary: its results, by batch number.
+
+    Read through skf-quick-batch.py's own load, so a later result line for a
+    batch number replaces an earlier one and a spoiled line is skipped.
+    """
+    if not Path(path).is_file():
+        return None, _err(f"Batch result file not found: {path}", "SUMMARY_NOT_FOUND", 2)
+    try:
+        state = qb.load(Path(path).parent)
+    except qb.BatchError as exc:
+        return None, _err(f"Batch result file unreadable: {exc}", "SUMMARY_PARSE_ERROR", 2)
+    return {"results": [state["results"][n] for n in sorted(state["results"])]}, 0
+
+
 def record(summary_file: str, map_file: str) -> int:
     batch_map, rc = _load_json(map_file, "map")
     if batch_map is None:
         return rc
-    batch_summary, rc = _load_json(summary_file, "summary")
+    if Path(summary_file).name == qb.BATCH_FILE:
+        # the event's batch_file: QS could not write the summary, so batch.jsonl holds the results
+        batch_summary, rc = _load_batch_file(summary_file)
+    else:
+        batch_summary, rc = _load_json(summary_file, "summary")
     if batch_summary is None:
         return rc
     try:
@@ -392,7 +423,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("-o", "--output", dest="output", help="batch file path (default: stdout)")
     parser.add_argument("--map", dest="map_file", help="line-to-skill map path (written, or read by --record)")
     parser.add_argument("--directive-file", help="campaign directive whose Skip List is applied")
-    parser.add_argument("--record", dest="summary_file", help="QS batch summary to join to --map")
+    parser.add_argument("--record", dest="summary_file",
+                        help="QS batch summary to join to --map, or the batch's batch.jsonl when summary_path "
+                        "is null")
     args = parser.parse_args(argv)
     if args.summary_file:
         if not args.map_file:

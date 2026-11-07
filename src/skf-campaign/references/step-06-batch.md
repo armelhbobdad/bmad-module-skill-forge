@@ -66,7 +66,7 @@ Invoke QS in `--batch` mode with the generated batch file:
 skf-quick-skill --batch {batchFile}
 ```
 
-QS `--batch` implies `--headless`. When the batch ends it prints a `batch_summary` event on stderr: keep its `summary_path`, the batch summary file that holds each target's result.
+QS `--batch` implies `--headless`. When the batch ends it prints a `batch_summary` event on stderr: keep its `summary_path`, the batch summary file that holds each target's result. When its `summary_path` is null, QS could not write that file: keep the event's `batch_file` (QS's `batch.jsonl`, which holds each target's result) as `<summary_path>` instead, and log the event's `summary_write_failed` warning, type `event`.
 
 ### §5: Record Results
 
@@ -84,7 +84,7 @@ uv run {stateScript} apply-batch --state-file {stateFile} --map-file {batchMapFi
 
 A `completed` result sets the skill `completed`, with `completed_at` from the clock, its `quality_score` (the skill-check score QS records, not a test-skill score) and its `skill_path`; a `failed` one sets it `failed`. Log each entry of the helper's `failed[]` with its `error_code` (`no-batch-result` when the summary holds no result for its line), type `event`.
 
-When QS printed no `batch_summary` event (run no record call), or the record call exits 2 (a missing summary or map, or a summary that belongs to another batch file), fail every skill the map lists instead, and log why: never guess which target built which skill.
+When QS printed no `batch_summary` event (run no record call), or the record call exits 2 (a missing or unreadable summary, batch file or map, or results that belong to another batch file), fail every skill the map lists instead, and log why: never guess which target built which skill.
 
 ```
 uv run {stateScript} apply-batch --state-file {stateFile} --map-file {batchMapFile} --no-results --stage 5
