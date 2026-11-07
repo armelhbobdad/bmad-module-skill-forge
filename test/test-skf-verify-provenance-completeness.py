@@ -2407,6 +2407,55 @@ class TestDefinitionShapes:
         for name in ("Foo", "Baz", "Qux", "dec", "sealed"):
             assert _ts_lines(tmp_path, "d.ts", text, name) == [], name
 
+    @pytest.mark.parametrize("text, line", [
+        ("import { storybookTest } from './test';\nexport default storybookTest;\n", 2),
+        ("export default async function postinstall() {}\n", 1),
+        ("export default function () {}\n", 1),
+        ("export default class {}\n", 1),
+        ("export default class Foo {}\n", 1),
+        ("export default interface Props {}\n", 1),
+        ("const a = 1;\nexport default {\n  a,\n  b: 2,\n};\n", 2),
+        ("export default () => 1;\n", 1),
+        ("export default\n  storybookTest;\n", 1),
+        ("@dec export default class D {}\n", 1),
+    ], ids=["identifier", "async-function", "anonymous-function", "anonymous-class", "named-class", "interface",
+            "object-over-lines", "arrow", "value-on-the-next-line", "decorated"])
+    def test_export_default_defines_default(self, tmp_path: Path, text: str, line: int) -> None:
+        # #929: the export named `default`, as SKF's extraction records a default export
+        assert _ts_lines(tmp_path, "a.ts", text, "default") == [line]
+        # and with imports left out, as classify-stale reads it
+        assert mod.declared_line("a.ts", "default", tmp_path / "src", module_fallback=False) == line
+
+    @pytest.mark.parametrize("text", [
+        "declare module 'm' {\n  export default foo;\n}\n",
+        "// export default foo\n",
+        "/* export default foo */\n",
+        "module.exports = foo;\n",
+        "switch (x) {\ndefault:\n  break;\n}\n",
+        "export defaultish = 1\n",
+    ], ids=["indented-in-declare-module", "line-comment", "block-comment", "module-exports", "switch-default",
+            "longer-word"])
+    def test_export_default_negatives_for_default(self, tmp_path: Path, text: str) -> None:
+        assert _ts_lines(tmp_path, "n.ts", text, "default") == []
+        assert mod.declared_line("n.ts", "default", tmp_path / "src", module_fallback=False) is None
+
+    def test_export_default_keeps_the_other_names(self, tmp_path: Path) -> None:
+        # `export default foo` still defines the local `foo`, and is still no declaration of it
+        assert _ts_lines(tmp_path, "k.ts", "export default foo;\n", "foo") == [1]
+        assert mod.declared_line("k.ts", "foo", tmp_path / "src", module_fallback=False) is None
+        # `exports.default =` defines `default` as it did, through the `exports.NAME =` rule
+        assert _ts_lines(tmp_path, "c.js", "const API = {};\nexports.default = API;\n", "default") == [2]
+        # a dotted `X.default` gains nothing: its class member alone
+        text = "export default class X {\n  default() {}\n}\n"
+        assert _ts_lines(tmp_path, "x.ts", text, "X.default") == [2]
+
+    def test_export_default_at_a_wrong_line_gets_that_line(self, tmp_path: Path) -> None:
+        text = "import { storybookTest } from './test';\nexport default storybookTest;\n"
+        assert _verify_one(tmp_path / "right", "a.ts", text, "default", 2)["stale"] == []
+        (item,) = _verify_one(tmp_path / "wrong", "a.ts", text, "default", 1)["stale"]
+        assert item["reason"] == mod.STALE_LINE_NOT_DEFINITION
+        assert item["definition_lines"] == [2]
+
     def test_python_split_def_and_class(self, tmp_path: Path) -> None:
         text = ("def \\\n"                  # 1
                 "    spaced (a,\n"          # 2
@@ -3424,6 +3473,35 @@ class TestClassifyStale:
         assert result.stdout == "" and len(result.stderr.splitlines()) == 1 and message in result.stderr, \
             result.stderr
 
+    @pytest.mark.parametrize("text", [
+        "import { storybookTest } from './test';\nexport default storybookTest;\n",
+        "// the postinstall hook\nexport default async function postinstall() {}\n",
+    ], ids=["identifier", "async-function"])
+    def test_a_stale_default_its_cited_file_exports_is_defined(self, tmp_path: Path, capsys, text: str) -> None:
+        # #929: the export named `default` is declared by its cited file's `export default` line
+        entries = [{"export_name": "default", "source_file": "pkg/a.ts", "source_line": 2}]
+        out = _classified(tmp_path, capsys, {"pkg/a.ts": text}, ["default"], entries)["default"]
+        assert (out["fabricated"], out["reason"], out["defined_at"], out["declared_in"]) == (
+            False, "defined", "pkg/a.ts:2", None)
+
+    def test_a_stale_default_its_cited_file_lacks_is_fabricated(self, tmp_path: Path, capsys) -> None:
+        # other walked files' default exports do not save a name the cited file does not declare
+        files = {"pkg/a.ts": "export const a = 1;\n", "pkg/b.ts": "export default function () {}\n",
+                 "pkg/c.ts": "export default class {}\n"}
+        entries = [{"export_name": "default", "source_file": "pkg/a.ts", "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, ["default"], entries)["default"]
+        assert (out["fabricated"], out["reason"], out["defined_at"], out["declared_in"]) == (
+            True, "not-defined", None, None)
+
+    def test_a_stale_default_a_barrel_re_exports_lists_each_default_export(self, tmp_path: Path, capsys) -> None:
+        # the barrel's re-export is no declaration: the walk lists every module that has a default export
+        files = {"pkg/index.ts": "export { default } from './a';\n", "pkg/a.ts": "export default {};\n",
+                 "pkg/b.ts": "import x from './x';\nexport default x;\n"}
+        entries = [{"export_name": "default", "source_file": "pkg/index.ts", "source_line": 1}]
+        out = _classified(tmp_path, capsys, files, ["default"], entries)["default"]
+        assert (out["fabricated"], out["reason"], out["defined_at"], out["declared_in"]) == (
+            False, "defined", None, ["pkg/a.ts:1", "pkg/b.ts:2"])
+
 
 # --------------------------------------------------------------------------
 # classify-stale: defined_at, the documented-extra lookup (#678)
@@ -4354,6 +4432,15 @@ class TestDeclaredLine:
     def test_no_declaration_gives_none(self, tmp_path: Path, rel: str, text: str, name: str) -> None:
         _write_text(tmp_path, rel, text)
         assert mod.declared_line(rel, name, tmp_path) is None
+
+    def test_an_export_default_line_declares_default(self, tmp_path: Path) -> None:
+        # #929: the export named `default`; an indented one (a `declare module` block) does not count
+        _write_text(tmp_path, "pkg/m.ts", "import { storybookTest } from './test';\nexport default storybookTest;\n")
+        assert mod.declared_line("pkg/m.ts", "default", tmp_path) == 2
+        _write_text(tmp_path, "pkg/d.ts", "declare module 'm' {\n  export default foo;\n}\n")
+        assert mod.declared_line("pkg/d.ts", "default", tmp_path) is None
+        _write_text(tmp_path, "pkg/c.js", "module.exports = function () {};\n")
+        assert mod.declared_line("pkg/c.js", "default", tmp_path) is None
 
     def test_a_file_it_cannot_read_or_outside_the_root_gives_none(self, tmp_path: Path) -> None:
         _write_text(tmp_path, "outside.py", "X = 1\n")

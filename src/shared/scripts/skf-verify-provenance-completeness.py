@@ -126,7 +126,12 @@ follow the `source_file` extension:
     (`export function`, `export interface`, `export const` and so on),
     which is the line cited;
     `export import NAME =`; `export * as NAME from` (NAME may be quoted);
-    `export default NAME`;
+    `export default NAME`; for the name `default`, the one SKF's extraction
+    gives a module's default export, any `export default` line at column 0,
+    whatever follows it (`export default storybookTest;`,
+    `export default async function postinstall() {}`, an anonymous
+    function or class, an object or any other expression, the value on
+    the next line), decorators before `export` allowed;
     an `export { ... }` list whose exposed name is NAME, an identifier or
     a quoted string on either side of `as`; CommonJS
     `exports.NAME =`, `module.exports.NAME =`, or NAME as a key or
@@ -511,8 +516,9 @@ Subcommands:
     a `def`, `class`, assignment, annotation, type alias, TS/JS
     declaration, `exports.NAME =`, or an alias that renames
     (`import X as NAME`, `from X import Y as NAME`,
-    `export { Y as NAME }`, `export * as NAME from`), or a
-    `module.exports` key with a value or a method. A plain or star import,
+    `export { Y as NAME }`, `export * as NAME from`), a
+    `module.exports` key with a value or a method, or, for the name
+    `default`, any `export default` line. A plain or star import,
     an `as` that keeps the imported name (`from m import NAME as NAME`,
     `export { NAME as NAME }`), `export import NAME =`,
     `export default NAME`, an export-list item without `as`, a
@@ -521,7 +527,9 @@ Subcommands:
     `const NAME = require(...)`, `const { NAME } = require(...)`,
     `exports.NAME = require(...)`, `{ NAME: require(...) }`), an
     indented line and any line of a Python
-    file that does not tokenize never count (an item of a multi-line list
+    file that does not tokenize never count, except that for the name
+    `default` a column-0 `export default` line counts whatever follows it,
+    an import or an imported local included (an item of a multi-line list
     counts at its own line, the list's opening line at column 0, so an
     `aliased` name's `defined_at` is its rename's line). A module or
     package named NAME (`NAME.py`, `NAME/__init__.py`, a TS/JS
@@ -1930,8 +1938,12 @@ def _tsjs_definition_lines(
     depend on the name either): a name its pattern binds counts when the
     `const` / `let` / `var` line it is keyed by opens a statement here.
     Class members count only for a
-    dotted export name. `declarators` splits a declarator list
-    (`_js_declarators`, or `_SourceCache.js_declarators`, which splits each
+    dotted export name. For the undotted name `default`, the name SKF's
+    extraction gives a module's default export, a column-0 `export default`
+    line counts whatever follows it, with `declarations_only` too, and
+    whatever block holds it; an indented one (as in a formatted
+    `declare module` block) does not. `declarators` splits
+    a declarator list (`_js_declarators`, or `_SourceCache.js_declarators`, which splits each
     line once for every export looked up). With `declarations_only`,
     `export import NAME =`, `export default NAME`, an export-list item
     without an `as` that renames, a `module.exports` shorthand key and an
@@ -1955,6 +1967,11 @@ def _tsjs_definition_lines(
             re.compile(rf"^\s*export\s+import\s+(?:type\s+)?{esc}\s*=(?![=>])"),
             re.compile(rf"^\s*export\s+default\s+{esc}\s*;?\s*$"),
         ]
+    if name == "default" and not dotted:
+        # the export named `default`: a column-0 `export default` line,
+        # whatever follows it (a name, a declaration, an expression, or
+        # nothing, the value on the next line), decorators before it
+        statements.append(re.compile(rf"^(?:{_JS_DECORATOR}\s*)*export\s+default{end}"))
     # One declarator of a `const` / `let` / `var` list: `NAME = v`,
     # `NAME: T = v`, `NAME!: T`, or a bare `NAME`. A destructuring pattern
     # starts with `{` or `[` and never matches: the names a pattern that
@@ -2652,7 +2669,9 @@ def declared_line(
     `class`, assignment, annotation, type alias, TS/JS declaration, or an
     alias that renames, such as `from X import Y as NAME`; a plain or star
     import, an `as` that keeps the imported name, a re-export and an
-    import-valued binding never count), else, with `module_fallback`, its
+    import-valued binding never count, except that for the name `default`
+    a column-0 `export default` line counts whatever follows it, an import
+    or an imported local included), else, with `module_fallback`, its
     line 1 when it is the module or package so named (`_module_name`).
 
     `source_file` is the file's path below the source root, as recorded
