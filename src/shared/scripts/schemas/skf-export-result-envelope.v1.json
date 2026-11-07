@@ -127,7 +127,7 @@
     "result_path": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "The per-run result file the emitter wrote in the skills output folder, export-skill-result-<YYYYMMDD-HHmmss>.json (its copy is export-skill-result-latest.json beside it). Null on a dry run, on every halt, and when the write failed (a result_file_write_failed warning says why)."
+      "description": "The per-run result file the emitter wrote in the skills output folder, export-skill-result-<YYYYMMDD-HHmmss>.json (its copy is export-skill-result-latest.json beside it). Null on a dry run, on every halt, and when the per-run record could not be written (a result_file_write_failed warning says why); a -latest copy that could not be written leaves it set, and a result_file_write_failed warning names the copy."
     },
     "warnings": {
       "type": "array",

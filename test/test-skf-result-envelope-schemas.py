@@ -426,6 +426,29 @@ def test_audit_no_baseline_is_a_documented_exit_3_halt():
 HALTS_BY_NAME = {(path.name, reason) for path, reason in HALTS}
 
 
+# The schemas whose result_path description names the failed-write case (#909).
+RESULT_PATH_WRITE_CASE = {
+    "skf-analyze-result-envelope.v1.json", "skf-audit-result-envelope.v1.json",
+    "skf-drop-skill-result-envelope.v1.json", "skf-export-result-envelope.v1.json",
+    "skf-refine-architecture-result-envelope.v1.json", "skf-stack-result-envelope.v1.json",
+    "skf-test-result-envelope.v1.json", "skf-verify-stack-result-envelope.v1.json",
+}
+
+
+def test_result_path_says_which_failed_write_nulls_it():
+    """#909: the emitter nulls result_path only when the per-run record could not be written, and a -latest
+    copy that could not be written leaves it set, so no schema says any failed write nulls it."""
+    descriptions = {p.name: prop.get("description", "") for p in ENVELOPE_SCHEMAS
+                    if (prop := _load(p)["properties"].get("result_path"))}
+    assert set(descriptions) >= RESULT_PATH_WRITE_CASE, sorted(RESULT_PATH_WRITE_CASE - set(descriptions))
+    for name, text in descriptions.items():
+        assert "when the write failed" not in text, name
+    for name in sorted(RESULT_PATH_WRITE_CASE):
+        assert ("when the per-run record could not be written (a result_file_write_failed warning says why); "
+                "a -latest copy that could not be written leaves it set, and a result_file_write_failed warning "
+                "names the copy") in descriptions[name], name
+
+
 # ---------------------------------------------------------------------------
 # STABILITY.md names every envelope schema as covered surface
 # ---------------------------------------------------------------------------

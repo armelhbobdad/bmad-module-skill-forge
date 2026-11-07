@@ -123,7 +123,7 @@
     "result_path": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "The per-run result file the emitter wrote in the audited version's forge folder, audit-skill-result-<YYYYMMDD-HHmmss>.json (UTC), beside its audit-skill-result-latest.json copy. Stamped by the emitter, never typed. Null on every halt, which writes no result file, and when the write failed (warnings say why)."
+      "description": "The per-run result file the emitter wrote in the audited version's forge folder, audit-skill-result-<YYYYMMDD-HHmmss>.json (UTC), beside its audit-skill-result-latest.json copy. Stamped by the emitter, never typed. Null on every halt, which writes no result file, and when the per-run record could not be written (a result_file_write_failed warning says why); a -latest copy that could not be written leaves it set, and a result_file_write_failed warning names the copy."
     },
     "headless_decisions": {
       "type": "array",
