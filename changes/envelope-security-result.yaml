@@ -3,3 +3,4 @@ scope: skf-quick-skill, skf-create-skill, skf-update-skill, skf-create-stack-ski
 summary: |
   The result lines of Quick Skill, Create Skill, Update Skill and Create Stack Skill now carry `security_result` (`pass`, `warn` or `skipped`), so a pipeline can tell a security scan that could not run, such as one without `SNYK_TOKEN`, from one that ran. `pass` means the scan exited 0 and skill-check reported no finding, which does not show that the scan found nothing. `validation_issues.security` is unchanged.
 issues: [902]
+prs: [936]
