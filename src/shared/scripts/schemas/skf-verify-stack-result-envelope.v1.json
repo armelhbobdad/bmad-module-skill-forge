@@ -111,7 +111,7 @@
     "result_path": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "The per-run result file the emitter wrote in the forge data folder, verify-stack-result-<YYYYMMDD-HHmmss>.json, named after the run's own stamp (its run_id, the stamp the timestamped report's file name carries; -2, -3, ... appended when a run already took the name), beside its verify-stack-result-latest.json copy. Stamped by the emitter, never typed. Null on every halt, which writes no result file, and when the write failed (warnings say why)."
+      "description": "The per-run result file the emitter wrote in the forge data folder, verify-stack-result-<YYYYMMDD-HHmmss>.json, named after the run's own stamp (its run_id, the stamp the timestamped report's file name carries; -2, -3, ... appended when a run already took the name), beside its verify-stack-result-latest.json copy. Stamped by the emitter, never typed. Null on every halt, which writes no result file, and when the per-run record could not be written (a result_file_write_failed warning says why); a -latest copy that could not be written leaves it set, and a result_file_write_failed warning names the copy."
     },
     "headless_decisions": {
       "type": "array",

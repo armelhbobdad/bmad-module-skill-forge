@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-verify-stack, skf-audit-skill, skf-test-skill, skf-refine-architecture, skf-analyze-source, skf-drop-skill, skf-export-skill, skf-create-stack-skill
+summary: |
+  Verify Stack, Audit Skill, Test Skill and Refine Architecture said any result file that could not be written leaves `result_path` null, but only a failed per-run record does: a failed `-latest` copy leaves it set, and a `result_file_write_failed` warning names the copy. Their report steps and eight result envelope schemas now say so, and Refine Architecture and Export Skill no longer say their completion hook runs after both result files were written. Test Skill no longer promises that `skf-test-skill-result-latest.json` holds a blocked run's FAIL when the run could not write it.
+issues: [909]

@@ -1218,6 +1218,36 @@ def test_a_failed_latest_copy_keeps_the_record(demo, monkeypatch, capsys):
     assert record["result_path"] == per_run.as_posix() and record["warnings"] == []
 
 
+def test_no_report_step_ties_any_failed_write_to_a_null_result_path():
+    """#909: the emitter nulls result_path only when the per-run record could not be written and stops at the
+    first write that fails, so a failed -latest copy leaves it set; no report step says any failed write nulls
+    it, a hook runs after both result files were written, or a blocked run's -latest copy always holds its FAIL."""
+    src = ROOT / "src"
+    texts = {f"{wf}/references/report.md": (src / wf / "references" / "report.md").read_text(encoding="utf-8")
+             for wf in ("skf-verify-stack", "skf-audit-skill", "skf-test-skill", "skf-refine-architecture")}
+    texts["skf-export-skill/references/summary.md"] = (
+        src / "skf-export-skill" / "references" / "summary.md").read_text(encoding="utf-8")
+    texts["skf-refine-architecture/customize.toml"] = (
+        src / "skf-refine-architecture" / "customize.toml").read_text(encoding="utf-8")
+    for name, text in texts.items():
+        assert "result file that could not be written" not in text, name
+        assert "both result files" not in text, name
+    rule = ("A per-run record that could not be written leaves `result_path` null, and a `-latest` copy that could "
+            "not be written leaves it set; either adds a `result_file_write_failed` warning to the line, and the run "
+            "still finishes.")
+    for wf in ("skf-verify-stack", "skf-audit-skill", "skf-test-skill"):
+        assert rule in texts[f"{wf}/references/report.md"], wf
+    assert ("never an earlier run's verdict, unless the run's line holds a `result_file_write_failed` warning "
+            "(the emitter stops at the first write that fails).") in texts["skf-test-skill/references/report.md"]
+    refine = texts["skf-refine-architecture/references/report.md"]
+    assert ("Bind `{result_path}` ← the line's `result_path`: a per-run record that could not be written leaves it "
+            "null, and a `-latest` copy that could not be written leaves it set; either adds a "
+            "`result_file_write_failed` warning to the line, and the run still finishes.") in refine
+    assert "after the emitter wrote the per-run record" in refine
+    assert "after the emitter wrote the per-run record" in texts["skf-export-skill/references/summary.md"]
+    assert "the per-run result file is written" in texts["skf-refine-architecture/customize.toml"]
+
+
 @pytest.mark.parametrize("run_name,stamped", [
     ("skf-demo-workflow-20260930-120000", True),
     ("skf-demo-workflow-20260930T120000Z-7-beef", False),

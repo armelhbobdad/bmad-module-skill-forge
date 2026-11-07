@@ -80,7 +80,7 @@ output_folder_path = ""
 
 # Optional post-completion hook: a shell command. When non-empty, step 6 runs
 # it with `--result-path=<path>` (the per-run result JSON) once the refined
-# architecture is promoted and both result files are written, before the run
+# architecture is promoted and the per-run result file is written, before the run
 # finishes. Use to index the refined doc, notify, or chain the next workflow.
 # A failure shows as a warning line in step 6's report but never fails the run.
 
