@@ -1979,7 +1979,7 @@ def test_a_place_that_writes_two_forms_binds_neither(tmp_path, monkeypatch):
     """#918 (oms-storybook-react-vite composeStories): the contrast row writes core's form and React's, and cites
     core's declaration alone. Read for both forms, its citation bound React's form to core's declaration, where
     the judge found core's required `globalConfig` missing: a Critical false positive. A place that writes two
-    forms of the name that differ gives neither a citation, so each is compared as one with no own citation:
+    forms of the name that differ gives none of them a citation, so each is compared as one with no own citation:
     byte for byte the plan of an inventory with no `at`, the check at the first record with both records as
     candidates, React's form matching the one it was written for."""
     tree = {"references/core-api.md": CORE_API}
