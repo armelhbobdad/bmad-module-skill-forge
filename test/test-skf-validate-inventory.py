@@ -1023,8 +1023,12 @@ def test_an_inventory_that_keeps_the_floor_passes():
     b'"signature": {"params": "a"}}]}]}',
     b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
     b'"signature": {"params": "a", "return_type": "", "usage_signature": "a()"}}]}]}',
+    b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
+    b'"signature": {"params": "a", "return_type": "", "signature_form": "full"}}]}]}',
+    b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
+    b'"signature": {"params": "a", "return_type": "", "signature_form": 1}}]}]}',
 ], ids=["missing", "not-json", "no-origins", "not-an-object", "bad-signature", "signature-without-a-return",
-        "signature-with-an-extra-key"])
+        "signature-with-an-extra-key", "signature-labelled-full", "signature-labelled-1"])
 def test_an_unreadable_floor_file_exits_1(tmp_path, content):
     response = tmp_path / "inventory-response.txt"
     response.write_bytes(_inventory("real").encode("utf-8"))
@@ -1035,6 +1039,7 @@ def test_an_unreadable_floor_file_exits_1(tmp_path, content):
     proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--output", str(out),
                            "--floor", str(floor)], capture_output=True, text=True, encoding="utf-8")
     assert proc.returncode == 1 and "--floor" in proc.stderr and proc.stdout == ""
+    assert content in (None, b"{not json") or "is not a floor" in proc.stderr, proc.stderr
     assert not out.exists()
 
 
@@ -1292,6 +1297,72 @@ def test_a_floor_form_with_no_good_at_is_one_warning(tmp_path, at, warning):
     assert r["valid"] is True and r["violations"] == [], r["violations"]
     assert r["warnings"] == [warning]
     assert "at" not in r["inventory"]["exports"][0]
+
+
+PARTIAL_TABLE = ("# Demo\n\n| Export | Kind | Signature (simplified) |\n| --- | --- | --- |\n"
+                 "| `fetchData` | function | `(url: string, retries?: number) => Promise<Data>` |\n\n"
+                 "Also `fetchData(url: string)` in prose.\n")
+PARTIAL = {**FORM, "signature_form": "partial"}
+PARTIAL_VIOLATION = ('floor: `fetchData` is documented at SKILL.md:5 (table-row) with the signature {"params": "url: '
+                     'string, retries?: number", "return_type": "Promise<Data>", "signature_form": "partial"}, but no '
+                     'inventory entry of that name at that place carries it, or one gives its form without its '
+                     '`signature_form` there or with no `at`; copy it as given, with `at` "SKILL.md:5"')
+
+
+def test_a_floor_partial_label_is_carried_at_its_origin(tmp_path):
+    """#888 step 1: the floor pins a Signature header's partial label with the form read from that column, so an
+    entry carries that origin only with `signature_form` "partial" too, and only at that origin: at least one entry
+    of the name whose `at` is the row gives the form, each of them with the label. The form and the label at the row
+    are valid with no floor warning, the form after shared text and `; ` too, and beside another form the row
+    quotes as a contrast. A dropped label (none, or "full") fails with exit 2, the violation naming the origin, the
+    labelled signature and the `at`, and leaves no inventory file. A labelled carrier elsewhere (the prose line) or
+    with no `at` is that violation too, never the warning an unlabelled pin gives, and so is an unlabelled twin of
+    the form at the row, which score-signatures.py would keep as the full form, and an unlabelled copy beside the
+    labelled carrier with no `at` (none given, or a bad one dropped), which shows no place the skill writes it in
+    full and would be kept over the label too. An unlabelled copy whose `at` is another line that writes the name
+    (the prose line) beside the labelled carrier is valid: it is compared there."""
+    pkg = _package(tmp_path, PARTIAL_TABLE)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"][0]["origins"] == [_floor_origin("SKILL.md", 5, "table-row", PARTIAL)]
+    contrast = ("fetchData", "function", {"params": "url: string", "return_type": "Data", **AT_ROW})
+    for entries in ([("fetchData", "function", {**PARTIAL, **AT_ROW})],
+                    [("fetchData", "constant", {**PARTIAL, "params": "id; " + FORM["params"], **AT_ROW})],
+                    [("fetchData", "function", {**PARTIAL, **AT_ROW}), contrast],
+                    [("fetchData", "function", {**PARTIAL, **AT_ROW}),
+                     ("fetchData", "function", {**FORM, "at": "SKILL.md:7"})]):
+        r = mod.validate_inventory(_signed(*entries), pkg, read)
+        assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (
+            entries, r["violations"], r["warnings"])
+        assert r["floor"] == {"names": 1, "checked": 1, "absent": []}
+
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(("fetchData", "function", {**FORM, **AT_ROW})).encode("utf-8"))
+    out.write_bytes(b"{}")
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [PARTIAL_VIOLATION] and result["inventory"] is None
+    assert not out.exists()
+
+    for entries, warnings in (
+        ([{**FORM, "signature_form": "full", **AT_ROW}], []),
+        ([{**PARTIAL, "at": "SKILL.md:7"}], []),
+        ([PARTIAL], [f"exports[0] (`fetchData`) carries a form but no `at`, so {UNBOUND}"]),
+        ([{**PARTIAL, **AT_ROW}, {**FORM, **AT_ROW}], []),
+        ([{**PARTIAL, **AT_ROW}, FORM], [f"exports[1] (`fetchData`) carries a form but no `at`, so {UNBOUND}"]),
+        ([{**PARTIAL, **AT_ROW}, {**FORM, "at": "SKILL.md:1"}],
+         [f'exports[1] (`fetchData`): `at` "SKILL.md:1" is a line that does not write `fetchData`; it is dropped '
+          f"and {UNBOUND}"]),
+    ):
+        r = mod.validate_inventory(_signed(*(("fetchData", "function", e) for e in entries)), pkg, read)
+        assert r["valid"] is False and r["violations"] == [PARTIAL_VIOLATION], (entries, r["violations"])
+        assert r["warnings"] == warnings, (entries, r["warnings"])
 
 
 @pytest.mark.parametrize("line, citations", [
