@@ -1388,6 +1388,50 @@ def test_the_inventory_contract_keeps_the_members_several_names_share():
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
 
+def test_the_inventory_contract_routes_each_written_form_to_a_field():
+    """#916 (oms-cocoindex): a placeholder call such as `await coco.mount([subpath,] process_fn, *args, **kwargs)`
+    could be recorded as `params` and read as parameter names, a Critical in Python; the contract records a call
+    expression, a function's or a class's, whole as a usage, which the rules read as a call, unless the floor pins its
+    place, while a class written as a parameter list or a signature (`Note`) keeps `params`. #917: an own member
+    the skill puts before or among the shared ones could not be encoded, since own members always followed `; `;
+    the entry now writes the whole list in the skill's order, unless the floor pins that place. #931: a Prop/Type/
+    Default table had no encoding, so one table gave a false Critical, a match or no check by how it was flattened;
+    it is now an entry of its own, at the heading or caption above it that writes the name, its rows one object type
+    with no mark, so it states no optionality. Each sentence sits at its place on the contract's paragraph, and
+    coverage-check.md, which loads the contract, does not grow."""
+    s1 = ("A function's or a class's form the skill writes as a call expression (after `await`, `new` or an "
+          "assignment, through a receiver or module path such as `coco.`, or as a statement in a fenced example), at "
+          "a place `inventory-floor.json` gives no `signature` (below), is recorded whole in `usage_signature`, never "
+          "in `params`, whatever names its arguments use, and a return type the skill writes for it in "
+          "`return_type`, while a class's form written as a parameter list or a signature stays in `params` (`Note` "
+          "above): signature-comparison-rules.md reads a usage as a call and a list of bare names in `params` as "
+          "parameter names.")
+    s2 = ("When the skill places one of the name's own members before or among the shared ones (`leading`, "
+          "`first`), the entry writes the name's whole list in the order the skill gives instead, the shared members "
+          "spelled out and no `; `, unless `inventory-floor.json` gives that place a `signature`, whose `params` then "
+          "stays after the shared text and `; `.")
+    s3 = ("A table that documents one export's props, a row per prop with its type (Create Skill's "
+          "`| Prop | Type | Default | Description |`, or one with a Required column), is a place of its own: its "
+          "entry, whatever its kind, gives as `at` the nearest heading or caption above the table that writes the "
+          "name (a row writes a prop, not the name) and as `params` one object type of the rows in row order, "
+          "`{ prop: Type; ... }`, `prop` alone for an empty Type cell and each `\\|` read as `|`, with no default, `?` "
+          "or Required mark, so it states no optionality (signature-comparison-rules.md compares it as a typed props "
+          "list); a partial label in its column header still labels it partial.")
+    [paragraph] = [p for p in _read(INVENTORY_CONTRACT).split("\n\n")
+                   if p.startswith("The contract `validate-inventory.py` checks")]
+    contract = _flow(paragraph)
+    # S1 after the rule that a heading's `name()` is a form, before the methods; S2 after the shared text it
+    # extends, before the partial label; S3 ends the paragraph.
+    assert f"is a form, recorded as written. {s1} A `method`'s `name` is the bare method name" in contract
+    assert (f"as `Note(content, title=None)` and `Task(title, done=False)`). {s2} An entry whose signature the skill "
+            "labels partial") in contract
+    assert contract.endswith(f"copy the label, never judge the form. {s3}"), contract[-200:]
+    for sentence in (s1, s2, s3):
+        assert contract.count(sentence) == 1, sentence
+    assert "\u2014" not in paragraph and "\u2013" not in paragraph, "no em or en dash"
+    assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
+
+
 def test_the_inventory_subagent_writes_its_own_response():
     """#814: the §1 subagent writes its JSON to the run file with the Write tool, never through a shell, and returns
     the path, or returns the JSON itself when it cannot write files; the parent saves the response with the Write

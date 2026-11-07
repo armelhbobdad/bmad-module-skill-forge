@@ -434,6 +434,37 @@ def test_no_completeness_for_an_invalid_inventory():
     assert "completeness" not in mod.validate_inventory("not json")
 
 
+def test_a_function_written_as_a_call_carries_its_form():
+    """#916: the contract records a call expression whole in `usage_signature`, never in `params`, so a function or
+    method entry with a non-blank `usage_signature` (or a list with a non-blank usage) and no `params` carries its
+    form: it is complete in the validator's count and in docs-only Export Coverage, which reconcile-coverage.py
+    scores with this rule. A blank or empty usage carries none, and a `return_type` left out is still missing."""
+    mount = {"name": "mount", "kind": "function", "usage_signature": "h = await coco.mount(fn)",
+             "return_type": "Handle", "description": "Mounts.", "at": "SKILL.md:3"}
+    assert mod.missing_fields(mount) == []
+    assert mod.missing_fields({**mount, "kind": "method"}) == []
+    assert mod.missing_fields({**mount, "usage_signature": ["", "mount(fn)"]}) == []
+    for blank in ("  ", [], [" "], None):
+        assert mod.missing_fields({**mount, "usage_signature": blank}) == ["params"], blank
+    exports = [mount,
+               {"name": "stop", "kind": "function", "usage_signature": "await coco.stop()", "description": "Stops.",
+                "at": "SKILL.md:4"},
+               {"name": "run", "kind": "function", "usage_signature": "", "return_type": "None",
+                "description": "Runs."}]
+    r = mod.validate_inventory(json.dumps({"exports": exports, "cross_check_mismatches": []}))
+    assert r["valid"] is True, r["violations"]
+    assert r["completeness"] == {"total": 3, "complete": 1, "incomplete": [
+        {"name": "stop", "kind": "function", "missing": ["return_type"]},
+        {"name": "run", "kind": "function", "missing": ["params"]},
+    ]}
+    path = SCRIPT.parent / "reconcile-coverage.py"
+    pin = importlib.util.spec_from_file_location("skf_pin_reconcile_docs_only", path)
+    reconcile = importlib.util.module_from_spec(pin)
+    pin.loader.exec_module(reconcile)
+    out = reconcile.reconcile({"denominatorSource": "docsOnly", "exports": exports})
+    assert (out["denominator"], out["documented"], out["incomplete"]) == (3, 1, r["completeness"]["incomplete"])
+
+
 # --------------------------------------------------------------------------
 # The shared whole-name match
 # --------------------------------------------------------------------------
@@ -773,6 +804,55 @@ def test_a_pinned_form_after_shared_members_is_carried(tmp_path):
         'floor: `Note` is documented at SKILL.md:7 (table-row) with the signature {"params": "content, title=None", '
         '"return_type": ""}, but no inventory entry of that name carries it; copy it as given, with `at` '
         '"SKILL.md:7"']
+
+
+PROPS_SKILL = ("# Demo\n\n## `connect(host, port)`\n\nOpens a connection.\n\n### Canvas\n\n"
+               "| Prop | Type | Default | Description |\n| --- | --- | --- | --- |\n"
+               "| `of` | `ModuleExport` | | The story. |\n| `layout` | `L` | `\"padded\"` | The layout. |\n")
+
+
+def test_a_pinned_call_keeps_its_params_and_a_props_table_is_placed_at_its_heading(tmp_path):
+    """#916: the contract records a call expression whole as a `usage_signature`, except at a place the floor gives
+    a `signature`: a heading that writes `connect(host, port)` is pinned `{"params": "host, port"}`, so an entry
+    that writes it only as a usage carries no pinned form and is refused (exit 2, no inventory file), while the
+    pinned `params` at the heading validates. #931: a props table is a place of its own, at the heading above it
+    that writes the name: its entry there has no warning, and one placed on a row, which writes a prop and not the
+    name, has its `at` dropped with a warning, the inventory still valid. No script changed for either."""
+    pkg = _package(tmp_path, PROPS_SKILL)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert [(n["name"], n["origins"]) for n in read["names"]] == [
+        ("connect", [_floor_origin("SKILL.md", 3, "heading", {"params": "host, port", "return_type": ""})])], (
+        "the heading's call is pinned; the props table pins nothing")
+    canvas = ("Canvas", "function", {"params": "{ of: ModuleExport; layout: L }", "description": "",
+                                     "at": "SKILL.md:7"})
+    usage = ("connect", "function", {"usage_signature": "connect(host, port)", "description": "", "at": "SKILL.md:3"})
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(usage, canvas).encode("utf-8"))
+    out.write_bytes(b"{}")
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [
+        'floor: `connect` is documented at SKILL.md:3 (heading) with the signature {"params": "host, port", '
+        '"return_type": ""}, but no inventory entry of that name carries it; copy it as given, with `at` '
+        '"SKILL.md:3"']
+    assert result["inventory"] is None and not out.exists()
+    pinned = ("connect", "function", {"params": "host, port", "description": "", "at": "SKILL.md:3"})
+    r = mod.validate_inventory(_signed(pinned, canvas), pkg, read)
+    assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (r["violations"], r["warnings"])
+    assert [e["at"] for e in r["inventory"]["exports"]] == ["SKILL.md:3", "SKILL.md:7"]
+    row = (canvas[0], canvas[1], {**canvas[2], "at": "SKILL.md:11"})
+    r = mod.validate_inventory(_signed(pinned, row), pkg, read)
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == ['exports[1] (`Canvas`): `at` "SKILL.md:11" is a line that does not write `Canvas`; '
+                             f"it is dropped and {mod.UNBOUND}"]
+    assert "at" not in r["inventory"]["exports"][1]
 
 
 def test_a_floor_name_of_an_unlisted_reference_is_not_checked():

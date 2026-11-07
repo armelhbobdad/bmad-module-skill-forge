@@ -59,7 +59,11 @@ and none of the `difference` tags. These tests keep:
   rules file and §2, and the place, `at`, the contract has each form give
   (#918);
 - Create Skill naming a component's Props interface as its contract, not
-  `(props: XProps) => JSX.Element`.
+  `(props: XProps) => JSX.Element`;
+- a call written with placeholder names, which the inventory contract
+  records as a usage, read as a call, a bracketed argument optional, and an
+  entry's `params` written as a list of bare names read as parameter names,
+  whatever the names (#916).
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -188,7 +192,9 @@ def test_a_form_that_opens_with_shared_text_writes_its_members():
 def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
     """A replay of real skills' signature checks: call examples, an ellipsis and a list of bare names do not claim a
     complete parameter list, so an optional parameter they leave out is no difference, while a typed form still
-    claims its list is complete (#834's `(date: Date) => string` stays `omitted-optional`)."""
+    claims its list is complete (#834's `(date: Date) => string` stays `omitted-optional`). #916: an entry's `params`
+    written as such a list names parameters whatever its names are, and a call expression comes as a usage, read as a
+    call, so the judge reads each form by the field the inventory contract routes it to."""
     reading = _section("Reading a form")
     assert "Three kinds of form do not claim a complete parameter list:" in reading
     assert ("It is compared as a call: each argument it passes must exist, by position or by name, and every required "
@@ -201,6 +207,10 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
     assert "`(...)` and `(tasks, data, dataset, ...)` leave out no parameter." in reading
     assert ("A list of bare names, with no type, default or `?` (`connect(host, port)`, `({ themes, defaultTheme })`), "
             "names parameters without claiming the list is complete") in reading
+    [bare] = [line for line in _read(RULES).splitlines() if line.startswith("- A list of bare names")]
+    assert bare.endswith("an optional member it leaves out is no difference, a required one is a mismatch. An "
+                         "entry's `params` written as such a list is read this way, whatever the names; a call "
+                         "expression comes as a usage (inventory-contract.md) and is read as a call (above)."), bare
     assert ("A form that writes a type or a default for a parameter (`(date: Date) => string`) claims its list is "
             "complete: an optional parameter it leaves out is an `omitted-optional` difference") in reading
     assert "one it adds where the source has none is no difference: calls that follow the form are valid." in reading
@@ -226,7 +236,9 @@ def test_a_usage_form_is_read_as_what_it_writes():
     """#826, deferred from #862: an entry whose only form is its `usage_signature` had no rule saying how it is read.
     The call-example rule, its one copy, reads a component usage as a list of bare names of the props it sets and a
     call as its arguments in order; a spread, children or `...args` can pass a required member; each usage of a list
-    is a form of its own."""
+    is a form of its own. #916 (oms-cocoindex): a call written with placeholder names, which the inventory contract
+    records as a usage, is read the same way, its names arguments at their positions and never parameter names, and
+    a bracketed argument is optional, so the call is compared with and without it."""
     reading = _section("Reading a form")
     assert ("A component usage `<X a={x} b=\"y\" />` reads as a list of bare names of the props it sets, and a call "
             "`f(a, b)` as its arguments in order, each the parameter at its position (or, written `name=value`, the one "
@@ -240,6 +252,13 @@ def test_a_usage_form_is_read_as_what_it_writes():
     call = _paragraph(_read(RULES), "- A call or usage example passes values")
     assert "A component usage `<X a={x} b=\"y\" />` reads as a list of bare names" in call
     assert "A list of bare names, with no type, default or `?`" in reading
+    placeholder = ("A call written with placeholder names (`await coco.mount([subpath,] process_fn, *args, "
+                   "**kwargs)`), which the inventory contract records as a usage, is read the same way: its names "
+                   "are arguments at their positions, never parameter names, and a bracketed argument (`[subpath,]`) "
+                   "is optional, so the call is compared with and without it, each as a call.")
+    assert f"under its entry's `form` index. {placeholder}" in call, "the call bullet's last sentence"
+    [bullet] = [line for line in _read(RULES).splitlines() if line.startswith("- A call or usage example")]
+    assert bullet.endswith(placeholder), bullet
 
 
 def test_each_documented_form_of_a_name_is_compared_by_its_own_rules():

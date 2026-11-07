@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory contract now records a function's or a class's form the skill writes as a call expression, such as `await coco.mount([subpath,] process_fn, *args, **kwargs)` or `new Client(opts)`, whole in the entry's `usage_signature`, unless the inventory floor pins that place; a class written as a parameter list or a signature keeps it in `params`. The signature check reads it as a call: its argument names stand for the parameters at their positions and are not compared as names, and a bracketed argument such as `[subpath,]` is optional, so the call is compared with and without it. A list of bare names in `params` still names parameters, so a correct skill no longer passes or fails the hard gate by which reading the judge picks. A function or method recorded only as such a usage counts as complete in a docs-only skill's Export Coverage.
+issues: [916]
