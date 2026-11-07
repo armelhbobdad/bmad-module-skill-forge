@@ -2258,7 +2258,8 @@ def test_a_star_from_another_package_adds_no_name(tmp_path):
     # The fallback scan: a response that carries `unresolved_stars` passes `surface`'s schema check, adds only the
     # names it lists, and `score` reads it as a result.
     (run / "inventory-response.txt").write_bytes(json.dumps({"exports": [
-        {"name": "spyOn", "kind": "function", "params": "o", "return_type": "void", "description": "Spies."},
+        {"name": "spyOn", "kind": "function", "params": "o", "return_type": "void", "description": "Spies.",
+         "at": "SKILL.md:3"},
         {"name": "z", "kind": "constant", "description": "Validates."},
     ], "cross_check_mismatches": []}).encode("utf-8"))
     (run / "per-file-1.txt").write_bytes(("```json\n" + json.dumps({

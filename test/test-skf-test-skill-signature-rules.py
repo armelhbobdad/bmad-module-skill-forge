@@ -292,12 +292,17 @@ def test_a_bound_form_is_compared_with_its_own_declaration_alone():
     coverage = _read(COVERAGE)
     bound = _paragraph(coverage, "A check's `bound` lists each form")
     assert "of its `surface.json` `otherDeclarations`" in bound
-    assert ("Its own citations are the `[AST:]` and `[SRC:]` citations at the inventory's `at`: on that line; on "
-            "the next non-blank line, unless that line writes the name (another place of it, such as the next table "
-            "row) or, in a fenced block, is a comment (it heads the next declaration); in a fenced block, on the "
-            "comment lines just above it; and, when the block holds no other place the inventory gives the name, on "
-            "the block's first non-blank line when a comment and on the first non-blank line after the block, "
-            "unless that line writes the name.") in bound
+    assert ("Its own citations are the `[AST:]` and `[SRC:]` citations `{validateInventoryScript}` reads at the "
+            "inventory's `at`: on that line, on the line after it and around its fenced block, as its "
+            "`form_citations` says.") in bound
+    # The full reading rule lives with the code that applies it, validate-inventory.py's docstring.
+    rule = " ".join(_read(TEST_SKILL / "scripts" / "validate-inventory.py").split())
+    assert ("`form_citations` gives the citations of the form an `at` places, on its line; on the next non-blank "
+            "line, unless that line writes the name (it is another place of the name, such as the next table row) "
+            "or, inside a fenced block, is a comment (it heads the next declaration); for a line inside a fenced "
+            "block, on the comment lines just above it in the block; and, when the block holds no other place the "
+            "inventory gives the name, on the block's first non-blank line when it is a comment and on the first "
+            "non-blank line after its closing fence unless that line writes the name.") in rule
     assert ("A citation names a declaration when it cites the declaration's file at its line or in an `L` range "
             "that holds that line; one with no line names every declaration in its file.") in bound
     assert bound.endswith("Compare a bound form with its bound declaration alone, read in full at its `file` and "
