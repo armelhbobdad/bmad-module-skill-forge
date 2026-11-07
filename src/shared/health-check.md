@@ -154,9 +154,9 @@ legacy_fp="fp-$(printf '%s|%s|%s|%s' "{severity}" "{workflow}" "{step_file}" "{s
 
 The `section-slug` is a kebab-case normalized section heading (e.g. `missing-staging-path`). Never include line numbers — they drift when files are edited.
 
-The `defect-key` names the defect itself, so two different defects in one section get two fingerprints while two reports of one defect get the same one. It is one to four lower-case ASCII words joined by hyphens that name the thing the fix would change, in the step file's or the code's own words: a function, a script subcommand, a field, a flag, a rule's term or a section's concept. Pick the most specific name the fix would edit; when the defect is a missing rule, name the case the rule should cover. A wrong check in `floor_check` gives `floor-check`, a misread `--orphan-action` flag gives `orphan-action`, and a missing rule for the order of a name's shared text and its own members gives `shared-text-order`. Never use a line number, a file name or path (the step file already says where), a severity, or words from this session's own story: whoever reports the same defect next must reach the same key from the source alone. If you cannot name such a thing, use the section's own subject.
+The `defect-key` names the defect itself, so two different defects in one section get two fingerprints while two reports of one defect that name the same thing get the same one. It is one to four lower-case ASCII words joined by hyphens that name the thing the fix would change, in the step file's or the code's own words: a function, a script subcommand, a field, a flag, a rule's term or a section's concept. Pick the most specific name the fix would edit. To turn a name into the key, drop its leading dashes and underscores, split it at spaces, underscores, hyphens, dots and each lower-case letter followed by an upper-case one, lower-case each word and join them with hyphens (`composeStories` gives `compose-stories`); a name of more than four words keeps its last four. When the defect is a missing rule, there is no name to copy yet: name the case the rule should cover in two to four of the step file's own words, the noun the rule would be about, then what makes the case distinct. A wrong check in `floor_check` gives `floor-check`, a misread `--orphan-action` flag gives `orphan-action`, and a missing rule for a `const` holding a function, in a step file whose rule covers a `const` holding a component, gives `const-holding-function`. Never use a line number, a file name or path (the step file already says where), a severity, or words from this session's own story: whoever reports the same defect next must reach the same key from the source alone. Never use the section's own subject alone either: every defect in the section shares it.
 
-`legacy_fp` is the fingerprint without the key. Issues and seen-cache records made before the key existed carry it, and every defect of one severity in one section shares it, so a match on it is only ever a possible match (sub-steps 2 and 4).
+`legacy_fp` is the section fingerprint, the fingerprint without the key, which every defect of one severity in one section shares. Issues and seen-cache records made by an SKF version without the key carry it as their fingerprint, and every issue this step files records it in its body (§5a-ii), so a match on it is only ever a possible match (sub-steps 2 and 4).
 
 `sha1sum` is not on stock macOS or Windows. On macOS, use `shasum -a 1` in its place. Anywhere neither exists, this prints the same 7 hex characters, to prefix the same way (for `legacy_fp`, leave `|{defect-key}` out of its last argument):
 
@@ -185,7 +185,7 @@ Read `{seenCachePath}`. A missing file, an empty file, or one that does not pars
 4. **Record with one of those actions but an empty `issue_url`** → `handled`. There is no issue to consult, so the local record stands.
 5. **Record with no `action`, or any other value** → `unrecognized`. Hand-edited, or written by a newer version of this file, so it cannot be confirmed handled. Go to sub-step 3 as an ordinary submission.
 
-**Legacy records.** A record found only under `{legacy_fp}` is a possible match, never a certain one: every defect of this severity in this section shares that fingerprint, so the record may be another defect's. Work the same branches on it, then change two verdicts. `handled` does not suppress: continue as `unseen` and log `"{fp}: legacy record {legacy_fp} may be another defect, reporting"`, and sub-step 4 still offers its issue while that issue is open. `regression` becomes `possible-regression`, which takes the possible form of the regression treatment below. Leave the legacy record itself untouched.
+**Legacy records.** A record found only under `{legacy_fp}` was written by an SKF version without the defect key. It is a possible match, never a certain one: every defect of this severity in this section shares that fingerprint, so the record may be another defect's. Work the same branches on it, then change two verdicts. `handled` does not suppress: continue as `unseen` and log `"{fp}: legacy record {legacy_fp} may be another defect, reporting"`, and sub-step 4 still offers its issue while that issue is open. `regression` becomes `possible-regression`, which takes the possible form of the regression treatment below. Leave the legacy record itself untouched.
 
 **`handled` is the only verdict that suppresses.** Skip submission silently and log: `"fp-{hash}: already handled on {date}, issue {url} — skipping"`. Every other verdict proceeds to sub-step 3.
 
@@ -199,7 +199,7 @@ Read `{seenCachePath}`. A missing file, an empty file, or one that does not pars
 
 **Possible regression** (verdict `possible-regression` only). The resolved record was found under `{legacy_fp}`, so what was fixed may be another defect in this section. Add the same `## Regression` section, with one line: `Possibly a regression of {issue_url}, resolved {date}: that report's fingerprint has no defect key, so it may be another defect in this section.` If the prior record has no `issue_url`, write `Possibly a regression of a previously resolved local finding in this section, resolved {date}.` Leave the title unmarked, since this record cannot prove a recurrence. The two reports carry different `fp-*` labels, so this line is their only link.
 
-**What this does and does not catch.** The fingerprint is `sha1` over the section slug and the defect key, so a fix that renames or relocates the section it touches, or renames the thing the key names, changes the fingerprint. Such a regression arrives as `unseen` and is reported as a first sighting, which is safe but unlinked. These branches catch the regressions that recur under the same heading in the same step file, under the same key, which is the case where the old behaviour was silent.
+**What this does and does not catch.** The fingerprint is `sha1` over the section slug and the defect key, so a fix that renames or relocates the section it touches, or renames the thing the key names, changes the fingerprint. So does a report that names the same defect by another thing than an earlier report did. Such a regression arrives as `unseen` and is reported as a first sighting, which is safe but unlinked. These branches catch the regressions that recur under the same heading in the same step file, under the same key, which is the case where the old behaviour was silent.
 
 **3. Check GitHub CLI availability** with `gh auth status`. If `gh` is unavailable, fall through to step 5c (local fallback).
 
@@ -209,7 +209,13 @@ Read `{seenCachePath}`. A missing file, an empty file, or one that does not pars
 gh search issues --repo {healthCheckRepo} --state open "{fp} in:title" --json number,url,title --limit 1
 ```
 
-When it returns no issue, run it again with `{legacy_fp}` in place of `{fp}`. An issue found by `{fp}` reports this defect. An issue found only by `{legacy_fp}` was filed before fingerprints carried a defect key, and every defect of this severity in this section shares that fingerprint, so it is a possible match: the user decides at 5a-i.
+An issue it finds reports this defect. When it finds none, search once more, for the section fingerprint in titles and bodies:
+
+```
+gh search issues --repo {healthCheckRepo} --state open "{legacy_fp} in:title,body" --json number,url,title --limit 5
+```
+
+Each issue this second search finds is a possible match: it was filed by an SKF version whose fingerprints carry no defect key, or it reports a defect of this severity in this section under another defect key. Every defect of this severity in this section shares that fingerprint, so the user decides at 5a-i.
 
 **5a-i. If a matching open issue exists:**
 
@@ -223,19 +229,19 @@ Present to user:
 > - **\[N]** Create a new issue anyway — only if you're certain this is a distinct defect
 > - **\[S]** Skip — don't submit this finding"
 
-**A legacy match is only a possible match.** When the issue was found by `{legacy_fp}`, present the same options under this opening instead:
+**Possible matches.** When the issues were found by `{legacy_fp}`, list each one and present the same options under this opening instead:
 
-> "**Possible match:** #{N}: {title}
+> "**Possible match:** #{N}: {title} (one line for each issue found)
 >
-> It was filed before fingerprints carried a defect key, so its fingerprint `{legacy_fp}` is shared by every `{severity}` finding in this section, and it may report another defect. Pick **\[R]** or **\[C]** only if it reports this one, and **\[N]** if it does not. Options:"
+> It carries this section's fingerprint `{legacy_fp}`, which every `{severity}` finding in this section shares: it was filed by an SKF version whose fingerprints carry no defect key, or it reports a defect in this section under another defect key, so it may report another defect. Pick **\[R]** or **\[C]** only if it reports this one, naming it when more than one is listed, and **\[N]** if none does. Options:"
 
-Only the user decides a legacy match. A headless run never reaches this choice, because §4 queues its findings locally without a search. A run that reaches it with no user to ask takes **\[S]**, so the finding goes to the local queue (§5c) and nothing is posted on a guess.
+Only the user decides a possible match. A headless run never reaches this choice, because §4 queues its findings locally without a search. A run that reaches it with no user to ask takes **\[S]**, so the finding goes to the local queue (§5c) with the possible-match reason, and nothing is posted on a guess.
 
 Execute the chosen action:
 
 - **R:** `gh api -X POST /repos/{repo}/issues/{N}/reactions -f content='+1'`
 - **C:** Same reaction call, then `gh issue comment {N} --body "{minimal env+delta body}"`. The delta body is the Environment table plus ONE sentence describing what's different from the original. No session narrative.
-- **N:** Proceed to step 5a-ii.
+- **N:** After a match found by `{fp}`: the open issue carries this same fingerprint, so a new issue under it would be closed as its duplicate. Choose a more specific defect key that names what sets this defect apart (the more specific name the fix edits, or the case it covers, still in the source's words), recompute `{fp}` with it, then proceed to step 5a-ii. After a possible match, proceed to step 5a-ii as is: that issue's `fp-*` label differs from `{fp}`.
 - **S:** Record nothing.
 
 Record the outcome to the seen-cache under `{fp}` with fields `{action, issue_url, date}`, also when the match was found by `{legacy_fp}`.
@@ -299,6 +305,9 @@ After the issue is created, write the `{fp}` → issue-url mapping to the seen-c
 `{fp}`
 <!-- Deterministic dedup key: sha1(severity|workflow|step_file|section-slug|defect-key)[:7], each as this issue writes it. -->
 <!-- Also applied as a label so maintainers can filter all variants server-side. -->
+
+Section fingerprint: `{legacy_fp}`
+<!-- The same hash without the defect key, shared by every defect of this severity in this section. Body text only, never a label. -->
 
 ## Defect Key
 `{defect-key}`
@@ -380,7 +389,7 @@ Ensure the parent directory exists. This file is global across the user's machin
 
 ### 5c. Local-Queue Path (gh unavailable, friction/gap default, or Queue locally)
 
-For findings that didn't go live (gh unavailable, user declined the friction/gap opt-in, user chose **\[S]** at the dedup gate, or the §4 review gate resolved to **\[Q]**), write a local file to `{localFallbackFolder}/`:
+For findings that didn't go live (gh unavailable, user declined the friction/gap opt-in, user chose **\[S]** at the dedup gate, a run with no user to ask took **\[S]** at a possible match, or the §4 review gate resolved to **\[Q]**), write a local file to `{localFallbackFolder}/`:
 
 **Filename:** `hc-{workflow}-{timestamp}.md` (one file per finding, timestamp as YYYYMMDD-HHmmss; when findings share a timestamp, append `-2`, `-3`, … to the later names so no file is overwritten)
 
@@ -397,7 +406,7 @@ date: {ISO date}
 ---
 ```
 
-After writing all files, if `{quiet_mode}` is true, display only `{setup_envelope_line}` (§0) and stop. Otherwise display the block below. `{reason}` is the sentence that says why the findings stayed local: "GitHub CLI is not available.", "Friction and gap findings stay local unless you opt in.", "You skipped these at the dedup gate." or "The review gate queued these locally."
+After writing all files, if `{quiet_mode}` is true, display only `{setup_envelope_line}` (§0) and stop. Otherwise display the block below. `{reason}` is the sentence that says why the findings stayed local: "GitHub CLI is not available.", "Friction and gap findings stay local unless you opt in.", "You skipped these at the dedup gate.", "These may match an open issue from the same section; review them before submitting." (the possible-match reason) or "The review gate queued these locally."
 
 "**{N} finding(s) saved locally:**
 {list each file path}
