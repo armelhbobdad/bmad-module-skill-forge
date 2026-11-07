@@ -107,7 +107,7 @@ Only when the validated inventory's `references` is non-empty. Each `cross_check
 
 ### 2. Analyze Source Code (Tier-Dependent)
 
-Identify the public API surface from the package entry points (0b), as deep as the tier allows. Whichever branch runs, `{coverageInputsScript} surface` writes it to `{run_dir}/surface.json`, which §2b, §2c, §4 and step 5 read. Names read by eye reach it as per-file results, `{"file": "<path>", "exports_found": [<each name>], "signature_mismatches": []}` for each file, saved to `{run_dir}/per-file-<n>.json` with the Write tool and given to `surface` with one `--per-file` each.
+Identify the public API surface from the package entry points (0b), as deep as the tier allows. Whichever branch runs, `{coverageInputsScript} surface` writes it to `{run_dir}/surface.json`, which §2b, §2c, §4 and step 5 read. Names read by eye reach it as per-file results, `{"file": "<path>", "exports_found": [<each name>], "signature_mismatches": []}` for each file, saved to `{run_dir}/per-file-<n>.json` with the Write tool and given to `surface` with one `--per-file` each. An `export * from` or `export type * from` another package adds no name: list `<line>: <statement>` in `unresolved_stars` and Coverage Analysis.
 
 **Exits.** Every `{coverageInputsScript}` and `{scoreSignaturesScript}` command in §2 and §2b exits 0, or exits 1 with its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase `coverage-check:surface`). `surface` with a `--per-file`, and `score`, also exit 2 when a subagent response breaks the schema: re-dispatch that subagent once with its `violations[]` appended (or correct a result the main thread wrote), save the new response over the old one and run the command again; a second failure HALTs the same way.
 
