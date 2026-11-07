@@ -11,7 +11,11 @@ and the §1a ground-truth spot-check folded into the script (#598 item 5):
 the first, middle and last names after a sort, looked up as whole names in
 SKILL.md and the listed reference files, so an export named `$state` or
 `a.b` is neither a shell variable nor a regex, and an absent name makes the
-inventory invalid.
+inventory invalid. Each entry with a compared form is asked for its place,
+`at` (#918): a line of SKILL.md or a listed reference that writes its name,
+the floor's origin where the floor pins its signature, and the form's own
+citations are read there. A missing or bad `at` is a warning, never a
+refusal: the bad one is dropped, so plan leaves that form unbound.
 """
 
 from __future__ import annotations
@@ -152,7 +156,7 @@ def test_a_signature_form_is_partial_or_full(form):
     violation naming the entry."""
     for good in ("partial", "full", None):
         entry = {"name": "Canvas", "kind": "function", "params": "{ of }", "return_type": "JSX.Element",
-                 "signature_form": good}
+                 "signature_form": good, "at": "SKILL.md:3"}
         r = mod.validate_inventory(json.dumps({"exports": [entry], "cross_check_mismatches": []}))
         assert r["valid"] is True and r["violations"] == [], good
         assert r["inventory"]["exports"][0]["signature_form"] == good
@@ -373,7 +377,8 @@ def test_cli_input_file_with_an_apostrophe_validates(tmp_path):
     response = tmp_path / "inventory-response.txt"
     raw = "```json\n" + json.dumps({
         "exports": [{"name": "parse", "kind": "function", "params": "text: str", "return_type": "Doc",
-                     "description": "Parses the user's input; it's \"lenient\" about $HOME and `backticks`."}],
+                     "description": "Parses the user's input; it's \"lenient\" about $HOME and `backticks`.",
+                     "at": "SKILL.md:12"}],
         "cross_check_mismatches": []}) + "\n```\n"
     response.write_bytes(raw.encode("utf-8"))
     out_path = tmp_path / "run" / "inventory.json"
@@ -409,8 +414,9 @@ def test_cli_missing_input_file_exits_1(tmp_path):
 
 def test_a_missing_description_is_incomplete_not_invalid():
     raw = json.dumps({"exports": [
-        {"name": "fmt", "kind": "function", "params": "", "return_type": "str", "description": "Formats."},
-        {"name": "go", "kind": "function", "params": [], "return_type": "None"},
+        {"name": "fmt", "kind": "function", "params": "", "return_type": "str", "description": "Formats.",
+         "at": "SKILL.md:3"},
+        {"name": "go", "kind": "function", "params": [], "return_type": "None", "at": "SKILL.md:4"},
         {"name": "Cfg", "kind": "class", "description": "  "},
         {"name": "MAX", "kind": "constant", "description": "Limit."},
         {"name": "hop", "kind": "method", "description": "Hops."},
@@ -646,7 +652,9 @@ FORM_TABLE = ("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"
 FORM = {"params": "url: string, retries?: number", "return_type": "Promise<Data>"}
 FORM_VIOLATION = ('floor: `fetchData` is documented at SKILL.md:5 (table-row) with the signature '
                   '{"params": "url: string, retries?: number", "return_type": "Promise<Data>"}, but no inventory '
-                  'entry of that name carries it; copy it as given')
+                  'entry of that name carries it; copy it as given, with `at` "SKILL.md:5"')
+# An entry at the table row's place, the floor origin's (#918).
+AT_ROW = {"at": "SKILL.md:5"}
 
 
 def _signed(*entries, references=None):
@@ -673,8 +681,8 @@ def test_a_floor_form_the_inventory_changes_fails(tmp_path):
     assert proc.returncode == 0, proc.stderr
     assert json.loads(floor.read_bytes())["names"][0]["origins"] == [_floor_origin("SKILL.md", 5, "table-row", FORM)]
     response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
-    response.write_bytes(_signed(("fetchData", "function", {"params": "url: string",
-                                                            "return_type": "Promise<Data>"})).encode("utf-8"))
+    response.write_bytes(_signed(("fetchData", "function", {"params": "url: string", "return_type": "Promise<Data>",
+                                                            **AT_ROW})).encode("utf-8"))
     out.write_bytes(b"{}")
     proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
                            "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
@@ -686,10 +694,11 @@ def test_a_floor_form_the_inventory_changes_fails(tmp_path):
     assert not out.exists()
 
     read = mod.read_floor(floor)
-    prose = ("fetchData", "function", {"params": "url", "return_type": "Promise<Data>", "description": "In prose."})
-    for copied in ({"params": "url:  string,\n  retries?: number", "return_type": " Promise<Data> "},
-                   {"params": ["url: string", "retries?: number"], "return_type": "Promise<Data>"},
-                   {**FORM, "usage_signature": "fetchData(url)", "signature_form": "full"}):
+    prose = ("fetchData", "function", {"params": "url", "return_type": "Promise<Data>", "description": "In prose.",
+                                       **AT_ROW})
+    for copied in ({"params": "url:  string,\n  retries?: number", "return_type": " Promise<Data> ", **AT_ROW},
+                   {"params": ["url: string", "retries?: number"], "return_type": "Promise<Data>", **AT_ROW},
+                   {**FORM, "usage_signature": "fetchData(url)", "signature_form": "full", **AT_ROW}):
         for kind in ("function", "constant"):
             r = mod.validate_inventory(_signed(prose, ("fetchData", kind, copied)), pkg, read)
             assert r["valid"] is True, (copied, kind, r["violations"])
@@ -697,29 +706,33 @@ def test_a_floor_form_the_inventory_changes_fails(tmp_path):
     # A blank pinned field leaves the entry's free: an origin with no return is carried with or without one.
     floor = _floor(("connect", [("SKILL.md", 3, "heading", {"params": "url", "return_type": ""})]))
     for returned in (None, "", "Socket"):
-        r = mod.validate_inventory(_signed(("connect", "function", {"params": "url", "return_type": returned})),
-                                   floor=floor)
+        r = mod.validate_inventory(_signed(("connect", "function", {"params": "url", "return_type": returned,
+                                                                    "at": "SKILL.md:3"})), floor=floor)
         assert r["valid"] is True, (returned, r["violations"])
-    r = mod.validate_inventory(_signed(("connect", "function", {"params": "url, opts", "return_type": "Socket"})),
-                               floor=floor)
+    r = mod.validate_inventory(_signed(("connect", "function", {"params": "url, opts", "return_type": "Socket",
+                                                                "at": "SKILL.md:3"})), floor=floor)
     assert r["violations"] == [
         'floor: `connect` is documented at SKILL.md:3 (heading) with the signature {"params": "url", '
-        '"return_type": ""}, but no inventory entry of that name carries it; copy it as given']
+        '"return_type": ""}, but no inventory entry of that name carries it; copy it as given, with `at` '
+        '"SKILL.md:3"']
     # Another name's entry carrying the form does not carry it for this name.
     floor = _floor(("fetchData", [("SKILL.md", 5, "table-row", FORM)]))
-    r = mod.validate_inventory(_signed(("fetchData", "function", {"params": "url"}), ("getData", "function", FORM)),
-                               floor=floor)
+    r = mod.validate_inventory(_signed(("fetchData", "function", {"params": "url", **AT_ROW}),
+                                       ("getData", "function", {**FORM, **AT_ROW})), floor=floor)
     assert r["valid"] is False and r["violations"] == [FORM_VIOLATION]
     # Each checked origin of a name needs its own form; an unlisted reference's origin needs none.
     other = {"params": "url: string", "return_type": "Data"}
     floor = _floor(("fetchData", [("SKILL.md", 5, "table-row", FORM), ("references/api.md", 8, "heading", other),
                                   ("references/b.md", 2, "heading", {"params": "x", "return_type": "Y"})]))
     listed = ["references/api.md"]
-    r = mod.validate_inventory(_signed(("fetchData", "function", FORM), references=listed), floor=floor)
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, **AT_ROW}), references=listed),
+                               floor=floor)
     assert r["valid"] is False and r["violations"] == [
         'floor: `fetchData` is documented at references/api.md:8 (heading) with the signature {"params": '
-        '"url: string", "return_type": "Data"}, but no inventory entry of that name carries it; copy it as given']
-    r = mod.validate_inventory(_signed(("fetchData", "function", FORM), ("fetchData", "function", other),
+        '"url: string", "return_type": "Data"}, but no inventory entry of that name carries it; copy it as given, '
+        'with `at` "references/api.md:8"']
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, **AT_ROW}),
+                                       ("fetchData", "function", {**other, "at": "references/api.md:8"}),
                                        references=listed), floor=floor)
     assert r["valid"] is True and r["floor"] == {"names": 1, "checked": 1, "absent": []}
     # A name left out fails on its name and on its form; an unlisted reference's form is not checked.
@@ -750,14 +763,16 @@ def test_a_pinned_form_after_shared_members_is_carried(tmp_path):
         ("Task", [{"params": "title, done=False", "return_type": ""}])]
     for note, task in (("id, scope=Scope(); content, title=None", "id, scope=Scope(); title, done=False"),
                        ("content, title=None", ["id", "scope=Scope(); title", "done=False"])):
-        r = mod.validate_inventory(_signed(("Note", "class", {"params": note}), ("Task", "class", {"params": task})),
-                                   pkg, read)
+        r = mod.validate_inventory(_signed(("Note", "class", {"params": note, "at": "SKILL.md:7"}),
+                                           ("Task", "class", {"params": task, "at": "SKILL.md:8"})), pkg, read)
         assert r["valid"] is True, (note, task, r["violations"])
-    r = mod.validate_inventory(_signed(("Note", "class", {"params": "id, content, title=None"}),
-                                       ("Task", "class", {"params": "title, done=False"})), pkg, read)
+    r = mod.validate_inventory(_signed(("Note", "class", {"params": "id, content, title=None", "at": "SKILL.md:7"}),
+                                       ("Task", "class", {"params": "title, done=False", "at": "SKILL.md:8"})),
+                               pkg, read)
     assert r["valid"] is False and r["violations"] == [
         'floor: `Note` is documented at SKILL.md:7 (table-row) with the signature {"params": "content, title=None", '
-        '"return_type": ""}, but no inventory entry of that name carries it; copy it as given']
+        '"return_type": ""}, but no inventory entry of that name carries it; copy it as given, with `at` '
+        '"SKILL.md:7"']
 
 
 def test_a_floor_name_of_an_unlisted_reference_is_not_checked():
@@ -844,3 +859,338 @@ def test_the_citation_scan_is_the_verifiers(tmp_path):
     assert mod.skill_markdown_files(skill) == verifier.skill_markdown_files(skill)
     assert [p.relative_to(skill).as_posix() for p in mod.skill_markdown_files(skill)] == [
         "SKILL.md", "references/a.md", "references/b.md", "references/deep/c.md"]
+
+
+# --- A form's place, `at`, and its own citations (#918) ---------------------------
+
+# oms-cognee's two run_pipeline functions: a prose form cited to the lightweight runner, then its fenced block,
+# whose citation stands on the first non-blank line after the closing fence.
+PLACES_SKILL = ("# Demo\n\n"
+                "`run_pipeline(tasks=None, data=None)` runs a dataset pipeline [AST:pipeline.py:L53].\n"
+                "\n"
+                "```python\n"
+                "async def run_pipeline(\n"
+                "    steps,\n"
+                ")\n"
+                "```\n"
+                "\n"
+                "[AST:run_pipeline.py:L37]\n")
+PLACES_REFERENCE = ("### run_pipeline\n\n"
+                    "| Export | Signature |\n| --- | --- |\n"
+                    "| `run_pipeline` | `(steps, *, data=None)` |\n")
+
+
+def _form_entry(at, name="run_pipeline", **fields):
+    entry = {"name": name, "kind": "function", "params": "steps", "description": ""}
+    if at is not None:
+        entry["at"] = at
+    return {**entry, **fields}
+
+
+def _places(*entries, references=("references/api.md",)):
+    return json.dumps({"exports": list(entries), "references": list(references), "cross_check_mismatches": []})
+
+
+def test_each_form_gives_the_place_it_starts():
+    """#918: an entry that carries a form `plan` compares gives `at`, "<path>:<line>" in SKILL.md or a listed
+    reference, kept as the package names it. Without the package only its shape and its file are checked."""
+    r = mod.validate_inventory(_places(_form_entry("./SKILL.md:3"), _form_entry("references\\api.md:5"),
+                                       _form_entry(" SKILL.md:7 ", usage_signature="run_pipeline(steps)")))
+    assert r["valid"] is True and r["warnings"] == [], r["violations"]
+    assert [e["at"] for e in r["inventory"]["exports"]] == ["SKILL.md:3", "references/api.md:5", "SKILL.md:7"]
+
+
+UNBOUND = "the form is compared as one whose citations name no declaration"
+
+
+@pytest.mark.parametrize("entry", [
+    {"name": "run", "kind": "function", "params": "a"},
+    {"name": "run", "kind": "function", "params": ""},
+    {"name": "run", "kind": "function", "params": []},
+    {"name": "Card", "kind": "constant", "usage_signature": "<Card />"},
+    {"name": "Note", "kind": "class", "params": "id; content"},
+    {"name": "run", "kind": "function", "params": "a", "at": None},
+], ids=["params", "empty-function-params", "empty-list", "usage", "class-params", "null"])
+def test_an_entry_with_a_form_and_no_at_is_a_warning(entry):
+    """#918: a form with no place is still compared, unbound, so the inventory stays valid and the entry is
+    listed in `warnings`; a JSON null `at` is no `at`, and is left out of the inventory."""
+    r = mod.validate_inventory(_places(entry))
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == [f"exports[0] (`{entry['name']}`) carries a form but no `at`, so {UNBOUND}"]
+    assert "at" not in r["inventory"]["exports"][0]
+
+
+@pytest.mark.parametrize("entry", [
+    {"name": "get", "kind": "method", "params": "key"},
+    {"name": "Cfg", "kind": "class", "params": ""},
+    {"name": "MAX", "kind": "constant"},
+    {"name": "parse", "kind": "function", "return_type": "Doc"},
+    {"name": "Card", "kind": "constant", "usage_signature": "  "},
+], ids=["method", "blank-class-params", "data-constant", "return-type-only", "blank-usage"])
+def test_an_entry_plan_compares_no_form_of_needs_no_at(entry):
+    r = mod.validate_inventory(_places(entry))
+    assert r["valid"] is True and r["warnings"] == []
+    assert mod.compared_form(entry) is False
+
+
+@pytest.mark.parametrize("at, violation", [
+    ("SKILL.md", "`at` must be \"<path>:<line>\""),
+    ("SKILL.md:0", "`at` must be \"<path>:<line>\""),
+    ("SKILL.md:L3", "`at` must be \"<path>:<line>\""),
+    (":3", "`at` must be \"<path>:<line>\""),
+    (3, "`at` must be \"<path>:<line>\""),
+    ("README.md:1", "`at` names \"README.md\", no file the inventory reads"),
+    ("references/other.md:1", "`at` names \"references/other.md\", no file the inventory reads"),
+], ids=["no-line", "line-0", "an-L", "no-path", "a-number", "another-file", "an-unlisted-reference"])
+def test_a_bad_at_is_dropped_with_a_warning(at, violation):
+    """Any entry's `at`, one a method gives too, is "<path>:<line>" in a file the inventory reads. One that is not
+    never refuses the inventory: it is dropped, so the inventory carries no bad `at`, and listed in `warnings`."""
+    for entry, left in ((_form_entry(at), f"; it is dropped and {UNBOUND}"),
+                        ({"name": "get", "kind": "method", "at": at}, "; it is dropped")):
+        r = mod.validate_inventory(_places(entry))
+        assert r["valid"] is True and r["violations"] == [], r["violations"]
+        [message] = r["warnings"]
+        assert message.startswith(f"exports[0] (`{entry['name']}`): ") and violation in message, message
+        assert message.endswith(left), message
+        assert "at" not in r["inventory"]["exports"][0]
+
+
+@pytest.mark.parametrize("at, good", [
+    ("SKILL.md:3", True),       # the prose line
+    ("SKILL.md:6", True),       # the fenced block's declaration line
+    ("SKILL.md:7", True),       # another line of the block, which writes the name
+    ("references/api.md:5", True),  # the table row
+    ("references/api.md:1", True),  # the heading
+    ("SKILL.md:5", False),      # the opening fence: no line of the block's body
+    ("SKILL.md:11", False),     # the citation line after the block
+    ("SKILL.md:12", False),     # past the end
+    ("references/api.md:3", False),
+], ids=["prose", "declaration", "in-the-block", "table-row", "heading", "fence", "after-the-block", "past-the-end",
+        "header-row"])
+def test_an_at_is_a_line_that_writes_the_name(tmp_path, at, good):
+    """#918: with the package, an `at` is a line of its file that writes the entry's name outside its citations,
+    or a line in the body of a fenced block that writes it. Any other is dropped with a warning, and the inventory
+    stays valid."""
+    pkg = _package(tmp_path, PLACES_SKILL, {"api.md": PLACES_REFERENCE})
+    r = mod.validate_inventory(_places(_form_entry(at)), pkg)
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    [entry] = r["inventory"]["exports"]
+    if good:
+        assert r["warnings"] == [] and entry["at"] == at
+    else:
+        [message] = r["warnings"]
+        assert message.startswith(f"exports[0] (`run_pipeline`): `at` {json.dumps(at)} ")
+        assert ("past the end of SKILL.md (11 lines)" in message if at == "SKILL.md:12"
+                else "is a line that does not write `run_pipeline`" in message), message
+        assert message.endswith(f"; it is dropped and {UNBOUND}") and "at" not in entry, message
+
+
+def test_a_name_only_a_citation_writes_is_not_on_the_line(tmp_path):
+    """A citation's path holds `run_pipeline` (`run_pipeline.py`): the name match reads the line without its
+    citations, so the citation line after the block is not the form's place."""
+    pkg = _package(tmp_path, PLACES_SKILL, {"api.md": PLACES_REFERENCE})
+    r = mod.validate_inventory(_places(_form_entry("SKILL.md:11")), pkg)
+    assert r["warnings"] == ["exports[0] (`run_pipeline`): `at` \"SKILL.md:11\" is a line that does not write "
+                             f"`run_pipeline`; it is dropped and {UNBOUND}"]
+    r = mod.validate_inventory(_places(_form_entry("SKILL.md:7", name="missing")), pkg)
+    assert r["warnings"] == [
+        "exports[0] (`missing`): `at` \"SKILL.md:7\" is a line that does not write `missing`, nor does the fenced "
+        f"block that holds it; it is dropped and {UNBOUND}"]
+
+
+def test_an_at_in_a_listed_file_that_cannot_be_read_is_dropped(tmp_path):
+    pkg = _package(tmp_path, PLACES_SKILL)
+    r = mod.validate_inventory(_places(_form_entry("references/api.md:1"), references=["references/api.md"]), pkg)
+    assert r["valid"] is True and "at" not in r["inventory"]["exports"][0]
+    assert r["warnings"] == ["exports[0] (`run_pipeline`): `at` \"references/api.md:1\" names a file that cannot "
+                             f"be read; it is dropped and {UNBOUND}"]
+
+
+@pytest.mark.parametrize("at, warning", [
+    (None, f"exports[0] (`run_pipeline`) carries a form but no `at`, so {UNBOUND}"),
+    ("SKILL.md:11", "exports[0] (`run_pipeline`): `at` \"SKILL.md:11\" is a line that does not write "
+                    f"`run_pipeline`; it is dropped and {UNBOUND}"),
+    ("SKILL.md:6", None),
+], ids=["missing", "bad", "good"])
+def test_the_cli_writes_the_inventory_with_no_bad_at(tmp_path, at, warning):
+    """#918: a missing or bad `at` exits 0 with its warning, and the inventory --output writes leaves the bad one
+    out; a good one is kept."""
+    pkg = _package(tmp_path, PLACES_SKILL)
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_places(_form_entry(at), references=()).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["warnings"] == ([] if warning is None else [warning])
+    [entry] = json.loads(out.read_bytes())["exports"]
+    assert entry.get("at") == ("SKILL.md:6" if warning is None else None)
+
+
+PINNED = ('floor: `fetchData` is documented at {} (table-row) with the signature {{"params": "url: string, '
+          'retries?: number", "return_type": "Promise<Data>"}}')
+
+
+def test_a_floor_signature_is_carried_at_its_origin(tmp_path):
+    """#918: where the floor pins a form's origin, the entry that carries its signature gives that origin as its
+    `at`. One that carries it elsewhere is a warning, never a refusal: its `at` is dropped, so plan leaves the form
+    unbound, and the inventory stays valid."""
+    pkg = _package(tmp_path, FORM_TABLE + "\nAlso `fetchData(url: string, retries?: number)` in prose.\n")
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, "at": "SKILL.md:7"})), pkg, read)
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == [PINNED.format("SKILL.md:5") + ', but exports[0], which carries it, gives `at` '
+                             f'"SKILL.md:7"; it is dropped and {UNBOUND}']
+    assert "at" not in r["inventory"]["exports"][0]
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, "at": "SKILL.md:7"}),
+                                       ("fetchData", "function", {**FORM, "at": "./SKILL.md:5"})), pkg, read)
+    assert r["valid"] is True and r["warnings"] == [], r["violations"]
+    assert [e["at"] for e in r["inventory"]["exports"]] == ["SKILL.md:7", "SKILL.md:5"]
+
+
+def test_a_floor_signature_carried_at_another_origin_keeps_that_place(tmp_path):
+    """#918: the floor pins one form at two places, and one entry carries it at the first. Its `at` is a pinned
+    origin of that form, so it is kept; the second origin, which no entry gives as its `at`, is a warning of its
+    own, its citations not read."""
+    pkg = _package(tmp_path, FORM_TABLE, {"api.md": FORM_TABLE})
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, "at": "SKILL.md:5"}),
+                                       references=["references/api.md"]), pkg, mod.read_floor(floor))
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == [PINNED.format("references/api.md:5") + ', but no inventory entry that carries it gives '
+                             '`at` "references/api.md:5", so the citations there are not read']
+    assert r["inventory"]["exports"][0]["at"] == "SKILL.md:5"
+
+
+@pytest.mark.parametrize("at, warning", [
+    (None, f"exports[0] (`fetchData`) carries a form but no `at`, so {UNBOUND}"),
+    ("SKILL.md:99", f"exports[0] (`fetchData`): `at` \"SKILL.md:99\" is past the end of SKILL.md (5 lines); it is "
+                    f"dropped and {UNBOUND}"),
+    ("SKILL.md:1", f"exports[0] (`fetchData`): `at` \"SKILL.md:1\" is a line that does not write `fetchData`; it is "
+                   f"dropped and {UNBOUND}"),
+    ("README.md:1", f"exports[0] (`fetchData`): `at` names \"README.md\", no file the inventory reads: SKILL.md or a "
+                    f"file `references` lists; it is dropped and {UNBOUND}"),
+], ids=["missing", "past-the-end", "another-line", "another-file"])
+def test_a_floor_form_with_no_good_at_is_one_warning(tmp_path, at, warning):
+    """#918 review: a form the floor pins whose `at` is missing or dropped before the floor check is one form left
+    unbound, so it is one warning, its own: the floor origin adds none, as the entry that carries it has no `at`."""
+    pkg = _package(tmp_path, FORM_TABLE)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    fields = {**FORM} if at is None else {**FORM, "at": at}
+    r = mod.validate_inventory(_signed(("fetchData", "function", fields)), pkg, mod.read_floor(floor))
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == [warning]
+    assert "at" not in r["inventory"]["exports"][0]
+
+
+@pytest.mark.parametrize("line, citations", [
+    (3, {("pipeline.py", 53, 53)}),                         # on the line
+    (1, set()),                                             # the next non-blank line writes the name: its own place
+    (6, {("run_pipeline.py", 37, 37)}),                     # in a block: the first non-blank line after it
+    (8, {("run_pipeline.py", 37, 37)}),
+    (11, {("run_pipeline.py", 37, 37)}),
+    (0, set()),
+    (12, set()),
+], ids=["same-line", "next-line-another-place", "declaration-in-a-block", "last-line-of-the-block",
+        "the-citation-line", "line-0", "past-the-end"])
+def test_a_form_s_own_citations(line, citations):
+    assert mod.form_citations(PLACES_SKILL.split("\n"), line, "run_pipeline") == citations
+
+
+def test_a_form_s_own_citations_on_the_next_line_or_a_heading_comment():
+    """The next non-blank line (a heading, then its citation); a block's first non-blank line when it is a comment,
+    never a code line; a range, read in order, and a citation with no line, which covers its whole file."""
+    lines = ["### `run(a)`", "", "[SRC:./a.py:L12-L20] [AST:b.py]", "", "`run(b)` alone", "",
+             "```ts", "", "// [AST:c.ts:L9-3]", "export function run(a: A) {}", "```",
+             "```py", "run(1)  # [AST:d.py:L1]", "x = run(2)", "```", "Prose [AST:e.py:L5]",
+             "```py", "def run(a):", "    return a"]
+    assert mod.form_citations(lines, 1, "run") == {("a.py", 12, 20), ("b.py", None, None)}
+    assert mod.form_citations(lines, 5, "run") == set(), "no citation on its line or the next non-blank one"
+    assert mod.form_citations(lines, 10, "run") == {("c.ts", 3, 9)}
+    # the block's first line is code, not a comment: only the line after the block counts
+    assert mod.form_citations(lines, 14, "run") == {("e.py", 5, 5)}
+    # an unclosed block runs to the end: no line after it
+    assert mod.form_citations(lines, 18, "run") == set()
+
+
+def test_a_neighbouring_line_that_is_another_place_of_the_name_is_not_read():
+    """#918 review: a neighbouring line read for a form's citations belongs to that form only. The next non-blank
+    line that writes the name (the next table row) is another place, whose citations are its own; a block that
+    holds another place of the name (`others`) gives neither form its block-wide citations, the comment heading the
+    block nor the line after it; in a block, each declaration's own heading is the comment just above it, and a
+    comment after it heads the next one; and a note after a block that names the name is a place of its own."""
+    rows = ["| `run(a)` | x |", "| `run(b)` | y [AST:b.py:L5] |"]
+    assert mod.form_citations(rows, 1, "run") == set()
+    assert mod.form_citations(rows, 2, "run") == {("b.py", 5, 5)}
+    block = ["```py", "# [AST:a.py:L1]", "def run(a): ...", "", "# [AST:b.py:L2]", "def run(b): ...", "```", "",
+             "[AST:c.py:L3]"]
+    assert mod.form_citations(block, 3, "run", {6}) == {("a.py", 1, 1)}
+    assert mod.form_citations(block, 6, "run", [3]) == {("b.py", 2, 2)}
+    # a place's own line in `others` is no other place; alone in its block, each form reads the block-wide ones
+    assert mod.form_citations(block, 3, "run", (3,)) == {("a.py", 1, 1), ("c.py", 3, 3)}
+    assert mod.form_citations(block, 6, "run") == {("a.py", 1, 1), ("b.py", 2, 2), ("c.py", 3, 3)}
+    # another place in another block leaves this block's citations to its one place
+    assert mod.form_citations(block + ["```py", "run(1)", "```"], 6, "run", {11}) == {
+        ("a.py", 1, 1), ("b.py", 2, 2), ("c.py", 3, 3)}
+    two = ["```py", "def run(a): ...", "def run(b): ...", "```", "", "[AST:c.py:L3]"]
+    assert mod.form_citations(two, 2, "run", {3}) == set()
+    assert mod.form_citations(two, 3, "run", {2}) == set()
+    note = ["```ts", "export type Mode = 'a' | 'b';", "```", "",
+            "The other package declares its own `Mode`, with one member [AST:other/types.ts:L1]"]
+    assert mod.form_citations(note, 2, "Mode") == set()
+    assert mod.form_citations(note, 5, "Mode") == {("other/types.ts", 1, 1)}
+
+
+@pytest.mark.parametrize("citations, file, line, named", [
+    ({("a.py", 37, 37)}, "a.py", 37, True),
+    ({("a.py", 37, 37)}, "./a.py", 37, True),
+    ({("a.py", 30, 45)}, "a.py", 37, True),
+    ({("a.py", 38, 45)}, "a.py", 37, False),
+    ({("a.py", 37, 37)}, "b.py", 37, False),
+    ({("a.py", None, None)}, "a.py", 37, True),
+    ({("a.py", None, None)}, "a.py", None, True),
+    ({("a.py", 37, 37)}, "a.py", None, False),
+], ids=["its-line", "a-path-written-otherwise", "a-range-that-holds-it", "a-range-past-it", "another-file",
+        "no-line", "no-line-and-no-declaration-line", "a-line-and-no-declaration-line"])
+def test_a_citation_names_a_declaration_at_its_line(citations, file, line, named):
+    assert mod.cites_declaration(citations, file, line) is named
+
+
+@pytest.mark.parametrize("citations, line, end, named", [
+    ({("run_pipeline.py", 46, 61)}, 37, 100, True),
+    ({("run_pipeline.py", 46, 46)}, 37, 100, True),
+    ({("run_pipeline.py", 100, 120)}, 37, 100, True),
+    ({("run_pipeline.py", 30, 37)}, 37, 100, True),
+    ({("run_pipeline.py", 101, 120)}, 37, 100, False),
+    ({("run_pipeline.py", 1, 36)}, 37, 100, False),
+    ({("run_pipeline.py", 46, 61)}, 37, None, False),
+    ({("run_pipeline.py", 46, 61)}, 37, 10, False),
+    ({("run_pipeline.py", 46, 61)}, None, 100, False),
+    ({("run_pipeline.py", None, None)}, None, 100, True),
+    ({("pipeline.py", 46, 61)}, 37, 100, False),
+], ids=["a-range-of-its-body", "a-line-of-its-body", "a-range-from-its-last-line", "a-range-that-ends-at-its-line",
+        "past-its-span", "above-it", "no-span-its-line-alone", "a-span-that-ends-before-its-line-its-line-alone",
+        "no-declaration-line", "no-line-and-no-declaration-line", "another-file"])
+def test_a_citation_of_a_declaration_s_body_names_it(citations, line, end, named):
+    """#918 (oms-cognee pipelines-and-datapoints.md: run_pipeline.py:L46-L61 cites the body of the runner declared
+    at L37): a citation names a declaration when its line or range holds a line of the declaration's span, from
+    its line to `end`; with no `end`, its line alone."""
+    assert mod.cites_declaration(citations, "run_pipeline.py", line, end) is named
+
+
+def test_a_form_s_comment_marker_is_the_floor_s():
+    """A fenced block's first-line comment is read with the markers the floor reads a headed block with."""
+    loader = importlib.util.spec_from_file_location("skf_pin_load_coverage_inputs_comments", FLOOR_SCRIPT)
+    inputs = importlib.util.module_from_spec(loader)
+    loader.loader.exec_module(inputs)
+    assert mod._COMMENT_MARKER_RE.pattern == inputs.COMMENT_MARKER_RE.pattern
+    assert "Keep identical to COMMENT_MARKER_RE in" in SCRIPT.read_text(encoding="utf-8")
