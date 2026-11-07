@@ -3,3 +3,4 @@ scope: skf-create-skill, skf-update-skill
 summary: |
   Create Skill and Update Skill now read skill-check's security scan as Quick Skill and Create Stack Skill do, from its exit code and the last lines it prints on stderr. A scan that did not finish (no `SNYK_TOKEN`, no scan runner, a scanner that stopped, or a call cut short) is recorded as skipped with the reason, and finding codes in those lines as a warning, where before anything but a stderr naming `SNYK_TOKEN` read as passed. `security_result` in both result lines follows, so `pass` means the scan exited 0 and skill-check reported no finding, which does not show that the scan found nothing.
 issues: [934]
+prs: [949]
