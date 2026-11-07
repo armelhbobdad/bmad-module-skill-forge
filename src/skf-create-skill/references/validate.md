@@ -15,6 +15,13 @@ atomicWriteProbeOrder:
 descriptionGuardProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-description-guard.py'
   - '{project-root}/src/shared/scripts/skf-description-guard.py'
+# Resolve `{hashContentHelper}` by probing `{hashContentProbeOrder}` in order
+# (installed SKF module path first, src/ dev-checkout fallback); first existing
+# path wins. Advisory: if neither resolves, §2 hashes nothing and reports that
+# SKILL.md may have been rewritten (not hashed) by skill-check --fix.
+hashContentProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
+  - '{project-root}/src/shared/scripts/skf-hash-content.py'
 # Resolve `{frontmatterValidator}` by probing `{frontmatterValidatorProbeOrder}`
 # in order (installed SKF module path first, src/ dev-checkout fallback); first
 # existing path wins.
@@ -141,11 +148,15 @@ npx skill-check check <staging-skill-dir> --fix --format json {security_scan_fla
 
 This performs frontmatter validation, description quality checks, body limit enforcement, local link resolution, file formatting, auto-fix of deterministic issues, and quality scoring (0-100) across five weighted categories.
 
-**Parse the JSON output** for: `scores[].score` (0-100 — match the entry by `relativePath`/`skillId`; falls back to a top-level `qualityScore` on older skill-check builds), `diagnostics[]` (remaining issues), `fixed[]` (auto-corrected issues).
+**Parse the JSON output** for: `scores[].score` (0-100; match the entry by `relativePath`/`skillId`; falls back to a top-level `qualityScore` on older skill-check builds) and `diagnostics[]` (remaining issues). skill-check's JSON lists no fix: the two `hash` calls below tell whether `--fix` changed SKILL.md.
 
-**Description Guard Protocol:** This invocation may modify SKILL.md (especially when `fixed[]` is non-empty). Wrap the `skill-check check --fix` call in the four-phase guard defined in §0 by invoking `{descriptionGuardHelper}` at the capture and verify-restore points:
+**Description Guard Protocol:** This invocation may modify SKILL.md. Wrap the `skill-check check --fix` call in the four-phase guard defined in §0 by invoking `{descriptionGuardHelper}` at the capture and verify-restore points, and hash SKILL.md with `{hashContentHelper}` (resolve it ← first existing path in `{hashContentProbeOrder}`) before the capture and after the verify-restore:
 
 ```bash
+# Before the guard: hash SKILL.md
+uv run {hashContentHelper} hash <staging-skill-dir>/SKILL.md
+# stash the returned `content_hash` as `skill_md_hash_before`
+
 # Phase 1 — capture before the tool call
 uv run {descriptionGuardHelper} capture <staging-skill-dir>/SKILL.md
 # stash the returned `description` as `guarded_description` in workflow context
@@ -155,9 +166,15 @@ uv run {descriptionGuardHelper} capture <staging-skill-dir>/SKILL.md
 # Phases 3+4 — verify and restore after the tool call
 uv run {descriptionGuardHelper} verify-restore <staging-skill-dir>/SKILL.md \
     --captured-description "{guarded_description}"
+
+# After the guard: hash SKILL.md again
+uv run {hashContentHelper} hash <staging-skill-dir>/SKILL.md
+# stash the returned `content_hash` as `skill_md_hash_after`
 ```
 
 If `restored: true` in the verify-restore output, apply §0's post-restore re-validation hook. Step 7 promotes the staged files as they are on disk, `--fix` changes included.
+
+Run the second `hash` call after the last `verify-restore`, a §0 re-run included. When `skill_md_hash_before` and `skill_md_hash_after` differ, record `skill_check_fix_changed: true` for §8. When no `{hashContentProbeOrder}` path exists (skip both `hash` calls) or a `hash` call prints no `content_hash`, record `skill_check_fix_changed: unchecked` whatever the other call printed, so §8 says SKILL.md may have been rewritten.
 
 **Note:** `skill-check` may return non-zero exit code even when `summary.errorCount` is 0. Always rely on parsed JSON, not the shell exit code.
 
@@ -370,7 +387,7 @@ Write the validation results into the staged `<staging-skill-dir>/evidence-repor
 - Notes: {one-sentence detail or —}
 
 ## Auto-Fixed Issues
-- {list of issues automatically corrected by --fix}
+- {"skill-check --fix rewrote SKILL.md" when §2 recorded `skill_check_fix_changed: true`, "SKILL.md may have been rewritten (not hashed) by skill-check --fix" when it recorded `skill_check_fix_changed: unchecked`, otherwise "none"}
 
 ## Remaining Warnings
 - {warnings and security results, then each entry of {tessl_warnings} — or "none"}

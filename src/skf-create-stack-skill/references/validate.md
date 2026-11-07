@@ -3,6 +3,9 @@ nextStepFile: 'report.md'
 outputValidatorProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-output.py'
   - '{project-root}/src/shared/scripts/skf-validate-output.py'
+hashContentProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
+  - '{project-root}/src/shared/scripts/skf-hash-content.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
@@ -70,17 +73,17 @@ timeout 10s npx --no-install skill-check -h
 
 ### 3. Validate SKILL.md via skill-check (if available)
 
-**If available**, run: `npx skill-check check <skill-dir> --fix --format json --no-security-scan`
+**If available**, resolve `{hashContentHelper}` ← first existing path in `{hashContentProbeOrder}`, then run in order: `uv run {hashContentHelper} hash <skill-dir>/SKILL.md`, `npx skill-check check <skill-dir> --fix --format json --no-security-scan`, then `uv run {hashContentHelper} hash <skill-dir>/SKILL.md` again, keeping the `content_hash` each `hash` call prints.
 
-This validates frontmatter, description, body limits, links, formatting — and auto-fixes deterministic issues. Parse JSON for `scores[].score` (match the entry by `relativePath`/`skillId`; falls back to a top-level `qualityScore` on older skill-check builds), `diagnostics[]`, `fixed[]`.
+This validates frontmatter, description, body limits, links and formatting, and auto-fixes deterministic issues. Parse JSON for `scores[].score` (match the entry by `relativePath`/`skillId`; falls back to a top-level `qualityScore` on older skill-check builds) and `diagnostics[]`. skill-check's JSON lists no fix: SKILL.md changed across the `--fix` call when the two `content_hash` values differ, and is taken as changed, not hashed, when no `{hashContentProbeOrder}` path exists (run the skill-check call alone) or a `hash` call prints no `content_hash`.
 
 Bind `{quality_score}` ← that score, from the latest skill-check run (§3 runs it again after a split); `{quality_score}` is null when skill-check is unavailable. It is the skill-check score, not a test-skill score, and step 9 puts it in the result envelope and the result contract.
 
-**Post-fix provenance drift guard (S15):** If `fixed[]` is non-empty, `skill-check --fix` has modified `SKILL.md` after step 7 wrote it — so the `metadata.json` hashes/provenance recorded against the pre-fix body may now be stale. Emit a **WARNING** finding listing each auto-fix (`"skill-check --fix modified SKILL.md: {fix_description} — metadata.json hashes/provenance may be out of date"`) rather than silently accepting the fixes, so the drift is surfaced. If the caller wants authoritative metadata, they should re-run the workflow.
+**Post-fix provenance drift guard (S15):** When SKILL.md changed across the `--fix` call, `skill-check --fix` modified it after step 7 wrote it, so the `metadata.json` hashes and provenance recorded against the earlier body may now be stale. Emit one **WARNING** finding, `"skill-check --fix modified SKILL.md after step 7 wrote it: metadata.json hashes and provenance may be out of date"` (`"SKILL.md may have been rewritten (not hashed) by skill-check --fix after step 7 wrote it: metadata.json hashes and provenance may be out of date"` when SKILL.md was not hashed), rather than silently accepting the fix, so the drift is surfaced. If the caller wants authoritative metadata, they should re-run the workflow.
 
 **If `body.max_lines` reported**, prefer selective split: extract only the largest Tier 2 section(s) to `references/`, keeping Tier 1 content inline (inline passive context achieves 100% task accuracy vs 79% for on-demand retrieval). For a stack capstone the canonical split is the catalog (`Library Reference Index` + `Per-Library Summaries`) → `references/stack-catalog.md`, leaving an inline pointer (see `{stackSkillTemplatePath}` "Sizing Guidance"). The moved catalog's links resolve from `references/`, so rewrite each `[ref](references/{name}.md)` in it to `[ref]({name}.md)`. This is the **intended** large-stack layout, not a violation: §4 below accepts the pointer form, so clearing the skill-check body ERROR this way does not also trip the structure check. Fall back to `npx skill-check split-body <skill-dir> --write` if not feasible. After the split, verify that any in-SKILL.md anchor links (e.g. to the catalog/pointer or other moved sections) still resolve, and that every link inside a moved section resolves from its new file.
 
-**Re-validate a changed package.** When `fixed[]` is non-empty or a split ran, run the §1 `{outputValidator}` command again (after a split, skill-check too), so §4 to §8 record the package as it now stands.
+**Re-validate a changed package.** When SKILL.md changed across the `--fix` call (not hashed included) or a split ran, run the §1 `{outputValidator}` command again (after a split, skill-check too), so §4 to §8 record the package as it now stands.
 
 **If unavailable**, do not hand-walk the frontmatter: use `validation.skill_md.frontmatter` from the §1 output-validator run, which checks delimiters, `name` format + directory match (`{stack_name}`), `description` presence/length, and unknown fields against the agentskills.io allow-set. Record each reported issue at its severity as a **WARNING** finding. (If the output validator was *also* unavailable in §1, fall back to the manual checklist: `---` delimiters; `name` lowercase-alphanumeric-plus-hyphens 1-64 chars matching `{stack_name}`; `description` present and 1-1024 chars; only `name`/`description`/`license`/`compatibility`/`metadata`/`allowed-tools` permitted.) Invalid frontmatter will fail `npx skills add` and `npx skill-check check`.
 

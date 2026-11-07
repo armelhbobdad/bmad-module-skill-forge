@@ -117,6 +117,10 @@ compose branch of the sections they govern.
   that did not finish (exit 2, or a scan tail on stderr with no finding
   code) is a note in the validation results, never a WARNING finding, and
   §10 lists each §9 note whether or not the run had findings (#885).
+- Step 8 §3 hashes SKILL.md before and after `skill-check --fix`, since
+  skill-check 1.2.0's JSON lists no fix: a changed or unhashed SKILL.md
+  raises S15 and runs the §1 validator again, and the step still has no
+  HALT (#901).
 
 The step calls run as written, on small fixtures.
 
@@ -1316,7 +1320,8 @@ def test_a_changed_package_is_validated_again():
     """§3's fixes and splits change the committed package after §1 ran: §4 to §8 read a run made after them."""
     sections = _sections(_body(_read(VALIDATE)))
     rerun = _from(sections["3"], "**Re-validate a changed package.**").split("\n\n", 1)[0]
-    for needle in ("`fixed[]` is non-empty", "a split ran", "the §1 `{outputValidator}` command again", "§4 to §8"):
+    for needle in ("SKILL.md changed across the `--fix` call", "a split ran", "the §1 `{outputValidator}` command again",
+                   "§4 to §8"):
         assert needle in rerun, needle
     assert "§4 to §8 read the latest run" in sections["1"]
     for number in ("5", "7"):
@@ -1325,6 +1330,34 @@ def test_a_changed_package_is_validated_again():
     # The section-by-section restatements of the validator's checks are gone: each section records by `check`.
     for number in VALIDATE_CHECKS:
         assert "The pass checks" not in sections[number] and "the pass looks for" not in sections[number], number
+
+
+def test_section_3_tells_a_fix_from_the_file_hash():
+    """#901: skill-check 1.2.0's JSON has no `fixed[]`, so §3 hashes SKILL.md around the `--fix` call; a change, or
+    a SKILL.md left unhashed, raises one S15 WARNING with fixed text and runs the §1 validator again."""
+    text = _read(VALIDATE)
+    assert "fixed[]" not in text
+    assert _probe_script(text, "hashContent") == HASH_CONTENT
+    three = _sections(_body(text))["3"]
+    hash_call = "`uv run {hashContentHelper} hash <skill-dir>/SKILL.md`"
+    fix_call = "`npx skill-check check <skill-dir> --fix --format json --no-security-scan`"
+    assert three.count(hash_call) == 2 and three.count(fix_call) == 1
+    assert three.index(hash_call) < three.index(fix_call) < three.rindex(hash_call), "hash, call, hash"
+    assert "resolve `{hashContentHelper}` ← first existing path in `{hashContentProbeOrder}`" in three
+    for needle in ("SKILL.md changed across the `--fix` call when the two `content_hash` values differ",
+                   "taken as changed, not hashed, when no `{hashContentProbeOrder}` path exists (run the skill-check "
+                   "call alone) or a `hash` call prints no `content_hash`"):
+        assert needle in three, needle
+    s15 = _slice(three, "**Post-fix provenance drift guard (S15):**", "\n")
+    assert "When SKILL.md changed across the `--fix` call" in s15 and "Emit one **WARNING** finding" in s15
+    tail = "after step 7 wrote it: metadata.json hashes and provenance may be out of date"
+    assert f'`"skill-check --fix modified SKILL.md {tail}"`' in s15
+    assert f'`"SKILL.md may have been rewritten (not hashed) by skill-check --fix {tail}"` when SKILL.md was not ' \
+           "hashed" in s15
+    assert "{fix_description}" not in s15 and "\u2014" not in s15
+    rerun = _slice(three, "**Re-validate a changed package.**", "\n")
+    assert "When SKILL.md changed across the `--fix` call (not hashed included) or a split ran" in rerun
+    assert "HALT" not in text, "the step stays advisory"
 
 
 # --- #582: compose-mode pairs are candidates, judged on their evidence ---------------

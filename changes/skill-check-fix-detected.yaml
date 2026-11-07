@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-quick-skill, skf-create-skill, skf-update-skill, skf-create-stack-skill
+summary: |
+  When `skill-check --fix` rewrote SKILL.md, Quick Skill and Create Skill listed no auto-fixed issue, Update Skill kept its stale copy, and Create Stack Skill neither warned nor validated again, because each read a `fixed[]` list skill-check 1.2.0 never writes. Each now hashes SKILL.md before and after the call; when it changed, Quick Skill and Create Skill list "skill-check --fix rewrote SKILL.md", Update Skill re-reads it, and Create Stack Skill warns that `metadata.json` may be out of date and validates again. Without the hash helper, Quick Skill, Create Skill and Create Stack Skill say SKILL.md may have been rewritten (not hashed) and act the same.
+issues: [901]
+prs: [935]

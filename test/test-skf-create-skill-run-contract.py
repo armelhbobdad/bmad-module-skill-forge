@@ -31,6 +31,9 @@
   persistent_facts default (#596).
 - validate §5's SNYK_TOKEN branch names its sign: skill-check exits
   non-zero and its stderr names `SNYK_TOKEN` (#885).
+- validate §2 hashes SKILL.md before the guard's capture and after its
+  verify-restore, since skill-check 1.2.0's JSON lists no fix, and §8's
+  Auto-Fixed line, the same in skill-sections.md, keys on that (#901).
 - Version Reconciliation, and update-skill's init §6c with it, reads the
   source's version through the extractor's quick mode, so a release-time
   placeholder such as 0.0.0-development keeps the brief's version (v4.0.0
@@ -802,6 +805,39 @@ def test_validate_splits_the_body_by_one_rule_set():
     for stale in ("last resort", "last-resort", "Vercel", "Tier 1 preservation check:", "Anchor validation",
                   "Restoring from staging backup", "restore it immediately"):
         assert stale not in four, stale
+
+
+def test_validate_tells_a_fix_from_the_file_hash():
+    """#901: two identical `hash` calls bracket the guarded `--fix` call; a changed SKILL.md, or one the missing
+    helper left unhashed, reaches §8's Auto-Fixed line, which skill-sections.md's template repeats word for word."""
+    validate = _read(REFS / "validate.md")
+    sections = _read(CS / "assets" / "skill-sections.md")
+    assert "fixed[]" not in validate and "fixed[]" not in sections
+    assert _frontmatter(REFS / "validate.md")["hashContentProbeOrder"] == [
+        "{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py",
+        "{project-root}/src/shared/scripts/skf-hash-content.py"]
+    # Advisory: the helper is not one the step halts without.
+    (helpers,) = [line for line in _body(REFS / "validate.md").splitlines() if line.startswith("**Helpers.**")]
+    assert "hashContent" not in helpers
+    two = _section(validate, "### 2. Validate & Auto-Fix", "### 3. ")
+    hash_call = "uv run {hashContentHelper} hash <staging-skill-dir>/SKILL.md"
+    assert two.count(hash_call) == 2
+    marks = [two.index(hash_call), two.index("uv run {descriptionGuardHelper} capture"),
+             two.index("uv run {descriptionGuardHelper} verify-restore"), two.rindex(hash_call)]
+    assert marks == sorted(marks), "hash, capture, verify-restore, hash"
+    assert "`{hashContentHelper}` (resolve it ← first existing path in `{hashContentProbeOrder}`)" in two
+    for needle in ("Run the second `hash` call after the last `verify-restore`, a §0 re-run included.",
+                   "When `skill_md_hash_before` and `skill_md_hash_after` differ, record "
+                   "`skill_check_fix_changed: true` for §8.",
+                   "When no `{hashContentProbeOrder}` path exists (skip both `hash` calls) or a `hash` call prints no "
+                   "`content_hash`, record `skill_check_fix_changed: unchecked`"):
+        assert needle in two, needle
+    line = ('- {"skill-check --fix rewrote SKILL.md" when §2 recorded `skill_check_fix_changed: true`, "SKILL.md may '
+            'have been rewritten (not hashed) by skill-check --fix" when it recorded `skill_check_fix_changed: '
+            'unchecked`, otherwise "none"}\n')
+    for text in (validate, sections):
+        assert f"## Auto-Fixed Issues\n{line}" in text
+    assert line in _section(validate, "### 8. Update Evidence Report", "### 9.")
 
 
 def test_the_security_scan_names_the_sign_of_a_missing_token():
