@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a gap for a name it writes with square brackets in an export table's first cell or a code-only heading, document that name correctly or remove it from the skill, then run Test Skill again. The run's `inventory-floor.json` lists each name's `origins`, so find the line that put the name in the floor; when it is not an export, change that line rather than document a name that is not an export. If the run stops on a `signature-mismatch` for a form such a call writes, correct that form in the skill (the origin's `signature` in `inventory-floor.json` gives what the floor read), or, if that `signature` misreads the line, report it as a bug with the line and the `signature`.
 issues: [915]
+prs: [945]
