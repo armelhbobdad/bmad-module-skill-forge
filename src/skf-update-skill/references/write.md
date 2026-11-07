@@ -148,9 +148,9 @@ A `Write` or `Edit` call in §2 to §5 that errors (permission denied, disk full
 
 The deterministic phases are executed via `{descriptionGuardHelper}`: §7 invokes the helper at the capture and verify-restore points around every `skill-check` call.
 
-**Guard outputs.** Bind `{guarded_description}` ← `description` from each `capture`, run while the in-context SKILL.md copy matches the file on disk. Bind `{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` from each `verify-restore`. When `{guard_restored}` is true, set the in-context `description` to `{guarded_description}` so later sections do not work from the tool-mutated value, and record `description_guard_restored: true` with the tool name and `description_guard_diff_kind: {guard_diff_kind}` in workflow context for the evidence report (§4). A later `verify-restore` that exits 0 with `{guard_restored}` false leaves those records in place.
+**Guard outputs.** Each `capture`, run while the in-context SKILL.md copy matches the file on disk, writes the description it reads from `{skill_package}/SKILL.md` to `{run_dir}/description-guard.json`, and each `verify-restore` reads it there with `--captured-file`, so the description never passes through a shell string. Bind `{guarded_description}` ← that file's `description`. Bind `{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` from each `verify-restore`. When `{guard_restored}` is true, set the in-context `description` to `{guarded_description}` so later sections do not work from the tool-mutated value, and record `description_guard_restored: true` with the tool name and `description_guard_diff_kind: {guard_diff_kind}` in workflow context for the evidence report (§4). A later `verify-restore` that exits 0 with `{guard_restored}` false leaves those records in place.
 
-**Empty-snapshot rule.** `verify-restore` refuses an empty or whitespace-only `--captured-description` (exit 1, file untouched). Never re-run it with the empty value: writing it back would blank the field the guard protects. If the merged description is still in context (the in-context SKILL.md copy), re-run `verify-restore` with that value. Otherwise record `description_guard_restored: false` and `description_guard_refused: empty-capture` with the tool name; the evidence report (§4) renders that as a fired guard, not as a clean run.
+**Empty-snapshot rule.** `verify-restore` refuses an empty or whitespace-only description in `{run_dir}/description-guard.json`, and a file it cannot read (exit 1, file untouched). Never re-run it with the empty value: writing it back would blank the field the guard protects. If the merged description is still in context (the in-context SKILL.md copy), re-run `verify-restore` with that value: write `{"description": <that value as a JSON string>}` to `{run_dir}/description-guard.json` with a file write, never `echo` (the value can hold quotes, `$` or backticks), and run the same `verify-restore` line again, once. Otherwise, or when that re-run exits 1 too, record `description_guard_restored: false` and `description_guard_refused: empty-capture` with the tool name; the evidence report (§4) renders that as a fired guard, not as a clean run.
 
 ### 1. Verify SKILL.md Write
 
@@ -448,14 +448,14 @@ skill-check runs once per update, here, against the written package, and once mo
 
 ```bash
 # Phase 1: capture before any frontmatter-touching tool call
-uv run {descriptionGuardHelper} capture "{skill_package}/SKILL.md"
-# stash returned `description` as `guarded_description`
+uv run {descriptionGuardHelper} capture "{skill_package}/SKILL.md" > "{run_dir}/description-guard.json"
+# the snapshot lands in the run folder; read its `description` as `guarded_description`
 
 # Phase 2: run the tool (skill-check --fix, the body split, split-body --write)
 
 # Phases 3+4: verify and restore after the tool call
 uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" \
-    --captured-description "{guarded_description}"
+    --captured-file "{run_dir}/description-guard.json"
 ```
 
 Do not rely on per-call ad-hoc preservation logic: use the helper.

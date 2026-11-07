@@ -12,14 +12,14 @@ Any tool invocation that may touch SKILL.md must run inside the four-phase guard
 
 ### 1. Capture
 
-Before invoking the tool, snapshot the on-disk `description` value:
+Before invoking the tool, snapshot the on-disk `description` value into the run folder:
 
 ```bash
 uv run {descriptionGuardHelper} \
-    capture <skill-md-path>
+    capture <skill-md-path> > <run-folder>/description-guard.json
 ```
 
-Output JSON:
+The file holds `capture`'s output:
 
 ```json
 {
@@ -28,7 +28,7 @@ Output JSON:
 }
 ```
 
-Stash the `description` value in workflow context as `guarded_description`. Also keep the in-context copy synced with the on-disk pre-call state.
+A caller may read the `description` value from the file into workflow context as `guarded_description`, never into a shell string. Also keep the in-context copy synced with the on-disk pre-call state.
 
 ### 2. Execute
 
@@ -41,16 +41,18 @@ After the tool completes, run:
 ```bash
 uv run {descriptionGuardHelper} \
     verify-restore <skill-md-path> \
-    --captured-description "{guarded_description}"
+    --captured-file <run-folder>/description-guard.json
 ```
 
-In place of `--captured-description`, `--captured-file <path>` reads the snapshot from a JSON file's `description`: redirect `capture`'s output into the run folder (`capture <skill-md-path> > <run-folder>/description-guard.json`) and pass that file, so the value never passes through context or a shell string. quick-skill calls it this way. An empty or whitespace-only `description` in the file is refused like an empty `--captured-description` (below), and so is a file the helper cannot read or that holds no string `description`.
+`--captured-file <path>` reads the snapshot from a JSON file's `description`: `capture`'s output saved in the run folder, or another JSON file whose `description` holds the value (quick-skill re-runs with its `metadata.json`). Every calling step passes the file, so the description never passes through a shell string. An empty or whitespace-only `description` in the file is refused like an empty `--captured-description` (below), and so is a file the helper cannot read or that holds no string `description`.
+
+The alternative, `--captured-description <value>`, is for a caller that holds no file and runs the helper with an argument list, without a shell. A shell string must never carry a description: inside double quotes the shell runs backticks and `$(...)`, expands `$name`, and a `"` ends the argument or drops out of it, so the call breaks, or the guard writes a changed description over one the tool never touched.
 
 The script:
 
 1. Re-reads on-disk `description`
-2. Compares against `guarded_description` using **token-stream equality** — split each string on whitespace, compare resulting token lists element-by-element
-3. If diverged: atomically rewrites the frontmatter `description` field with `guarded_description`
+2. Compares it against the snapshot (the `description` in the `--captured-file` file, or `--captured-description`) using **token-stream equality**: split each string on whitespace, compare resulting token lists element-by-element
+3. If diverged: atomically rewrites the frontmatter `description` field with the snapshot
 
 Output JSON:
 
@@ -63,9 +65,9 @@ Output JSON:
 }
 ```
 
-If `restored == true`, also update the in-context copy of `description` to match `guarded_description` so subsequent stages do not work from a stale tool-mutated version. Record `description_guard_restored: true` (with the tool name and the `diff_kind`) in workflow context for the evidence report.
+If `restored == true`, also set the in-context copy of `description` to the snapshot's `description`, read from the file as `guarded_description`, so subsequent stages do not work from a stale tool-mutated version. Record `description_guard_restored: true` (with the tool name and the `diff_kind`) in workflow context for the evidence report.
 
-**Empty snapshot refusal.** The helper exits 1 and leaves the file untouched when `--captured-description` is empty or whitespace-only. There is nothing to restore from: either `guarded_description` was lost from context between capture and verify, or the field was already empty before the tool ran. Never retry with the empty value — writing it back would blank the field the guard exists to protect. If the compiled description is still available in context (the in-context SKILL.md copy), re-run `verify-restore` with that value. Otherwise record `description_guard_restored: false` and `description_guard_refused: empty-capture` (with the tool name) in workflow context; the calling stage's evidence-report populator renders that as a fired guard (`Restored: false`, the triggering tool, `Original description preserved: false`, `Notes: guard refused — empty captured snapshot (empty-capture)`) rather than as the all-`—` clean-run state, and the frontmatter validator surfaces the empty field through the normal artifact path.
+**Empty snapshot refusal.** The helper exits 1 and leaves the file untouched when the snapshot is empty or whitespace-only: the `description` in `<run-folder>/description-guard.json`, or an empty `--captured-description`. It does the same when it cannot read that file, or the file holds no JSON with a string `description`. There is nothing to restore from: either the snapshot was lost between capture and verify, or the field was already empty before the tool ran. Never retry with the empty value: writing it back would blank the field the guard exists to protect. If the compiled description is still available in context (the in-context SKILL.md copy), write it as `{"description": <that value as a JSON string>}` to the same file with a file write, never `echo`, and re-run `verify-restore` on it once. Otherwise, or when that re-run exits 1 too, record `description_guard_restored: false` and `description_guard_refused: empty-capture` (with the tool name) in workflow context; the calling stage's evidence-report populator renders that as a fired guard (`Restored: false`, the triggering tool, `Original description preserved: false`, and a `Notes` line that names the `empty-capture` refusal) rather than as the clean-run state, whose follow-up fields all hold the template's no-fire dash, and the frontmatter validator surfaces the empty field through the normal artifact path.
 
 ## Why Token-Stream Comparison
 

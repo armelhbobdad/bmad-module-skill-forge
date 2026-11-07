@@ -35,6 +35,9 @@
 - validate §2 hashes SKILL.md before the guard's capture and after its
   verify-restore, since skill-check 1.2.0's JSON lists no fix, and §8's
   Auto-Fixed line, the same in skill-sections.md, keys on that (#901).
+- validate §2's and §4's guard lines stage the description snapshot in the
+  run folder and read it back with `--captured-file`, never in a shell
+  string (#951).
 - Version Reconciliation, and update-skill's init §6c with it, reads the
   source's version through the extractor's quick mode, so a release-time
   placeholder such as 0.0.0-development keeps the brief's version (v4.0.0
@@ -807,6 +810,12 @@ def test_the_detector_refuses_free_text(tmp_path, flag):
 # --------------------------------------------------------------------------
 
 
+# validate §2's and §4's guard lines: the snapshot is staged in the run folder and read back by path (#951)
+GUARD_CAPTURE = 'uv run {descriptionGuardHelper} capture <staging-skill-dir>/SKILL.md > "{run_dir}/description-guard.json"\n'
+GUARD_VERIFY = ('uv run {descriptionGuardHelper} verify-restore <staging-skill-dir>/SKILL.md \\\n'
+                '    --captured-file "{run_dir}/description-guard.json"\n')
+
+
 def test_validate_splits_the_body_by_one_rule_set():
     """The splitter runs inside the description guard; a pulled Tier 1 section
     halts (the context-snippet anchors are Tier 1 headings, so the same halt
@@ -819,6 +828,9 @@ def test_validate_splits_the_body_by_one_rule_set():
     split = four.index("uv run {shardBodyHelper} <staging-skill-dir>/SKILL.md --budget 400")
     restore = four.index("uv run {descriptionGuardHelper} verify-restore")
     assert capture < split < restore
+    for line in (GUARD_CAPTURE, GUARD_VERIFY):  # #951: the snapshot goes by file
+        assert four.count(line) == 1, line
+    assert "--captured-description" not in four
     assert four.count("**HARD HALT**") == 2
     assert "**HARD HALT** (exit code 5, `tier1-not-preserved`, phase `validate`" in four
     assert "- **`xref_ok` is false:** **HARD HALT** (exit code 5, `shard-xref-broken`, phase `validate`" in four
@@ -855,6 +867,9 @@ def test_validate_tells_a_fix_from_the_file_hash():
     marks = [two.index(hash_call), two.index("uv run {descriptionGuardHelper} capture"),
              two.index("uv run {descriptionGuardHelper} verify-restore"), two.rindex(hash_call)]
     assert marks == sorted(marks), "hash, capture, verify-restore, hash"
+    for guard_line in (GUARD_CAPTURE, GUARD_VERIFY):  # #951: the snapshot goes by file
+        assert two.count(guard_line) == 1, guard_line
+    assert "--captured-description" not in validate
     assert "`{hashContentHelper}` (resolve it ← first existing path in `{hashContentProbeOrder}`)" in two
     for needle in ("Run the second `hash` call after the last `verify-restore`, a §0 re-run included.",
                    "When `skill_md_hash_before` and `skill_md_hash_after` differ, record "

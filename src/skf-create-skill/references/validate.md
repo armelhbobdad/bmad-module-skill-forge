@@ -111,9 +111,9 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 
 The deterministic phases are executed via `{descriptionGuardHelper}`: the calling sections (§2 and §4) invoke the helper at the capture and verify-restore points.
 
-**Guard outputs.** Bind `{guarded_description}` ← `description` from each `capture`, which reads the staged `<staging-skill-dir>/SKILL.md` just before the tool that may rewrite it. Bind `{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` from each `verify-restore`. When `{guard_restored}` is true, set the in-context `description` to `{guarded_description}` so later sections do not work from the tool-mutated value, and record `description_guard_restored: true` with the tool name and `description_guard_diff_kind: {guard_diff_kind}` in workflow context for the evidence report (§8). A later `verify-restore` that exits 0 with `{guard_restored}` false leaves those records in place.
+**Guard outputs.** Each `capture` writes the description it reads from the staged `<staging-skill-dir>/SKILL.md`, just before the tool that may rewrite it, to `{run_dir}/description-guard.json`, and each `verify-restore` reads it there with `--captured-file`, so the description never passes through a shell string. Bind `{guarded_description}` ← that file's `description`. Bind `{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` from each `verify-restore`. When `{guard_restored}` is true, set the in-context `description` to `{guarded_description}` so later sections do not work from the tool-mutated value, and record `description_guard_restored: true` with the tool name and `description_guard_diff_kind: {guard_diff_kind}` in workflow context for the evidence report (§8). A later `verify-restore` that exits 0 with `{guard_restored}` false leaves those records in place.
 
-**Empty-snapshot rule.** `verify-restore` refuses an empty or whitespace-only `--captured-description` (exit 1, file untouched). Never re-run it with the empty value: writing it back would blank the field the guard protects. If the description compile §2a sanitized is still in context (an in-context copy of the description, not of the file), re-run `verify-restore` with that value. Otherwise record `description_guard_restored: false` and `description_guard_refused: empty-capture` with the tool name; the evidence report (§8) renders that as a fired guard, not as a clean run.
+**Empty-snapshot rule.** `verify-restore` refuses an empty or whitespace-only description in `{run_dir}/description-guard.json`, and a file it cannot read (exit 1, file untouched). Never re-run it with the empty value: writing it back would blank the field the guard protects. If the description compile §2a sanitized is still in context (an in-context copy of the description, not of the file), re-run `verify-restore` with that value: write `{"description": <that value as a JSON string>}` to `{run_dir}/description-guard.json` with a file write, never `echo` (the value can hold quotes, `$` or backticks), and run the same `verify-restore` line again, once. Otherwise, or when that re-run exits 1 too, record `description_guard_restored: false` and `description_guard_refused: empty-capture` with the tool name; the evidence report (§8) renders that as a fired guard, not as a clean run.
 
 **This skill's post-restore re-validation hook:** after `{descriptionGuardHelper}` reports `restored: true`, resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}` (first existing path wins), run `uv run {frontmatterValidator} <staging-skill-dir>/SKILL.md` and capture `schema_revalidation_result` in context. If the validator exits non-zero OR reports failure for the `description` field, flip the Schema result back to `FAIL` in the evidence report (overriding any prior PASS/WARN from §2), record `description_guard_revalidation: FAIL` with the validator's diagnostic message, and continue — do not halt (step 9 health-check and result contract still need to run so the failure is surfaced through the normal artifact path).
 
@@ -154,15 +154,15 @@ uv run {hashContentHelper} hash <staging-skill-dir>/SKILL.md
 # stash the returned `content_hash` as `skill_md_hash_before`
 
 # Phase 1: capture before the tool call
-uv run {descriptionGuardHelper} capture <staging-skill-dir>/SKILL.md
-# stash the returned `description` as `guarded_description` in workflow context
+uv run {descriptionGuardHelper} capture <staging-skill-dir>/SKILL.md > "{run_dir}/description-guard.json"
+# the snapshot lands in the run folder; read its `description` as `guarded_description`
 
 # Phase 2: run skill-check
 npx skill-check check <staging-skill-dir> --fix --format json {security_scan_flag}
 
 # Phases 3+4: verify and restore after the tool call
 uv run {descriptionGuardHelper} verify-restore <staging-skill-dir>/SKILL.md \
-    --captured-description "{guarded_description}"
+    --captured-file "{run_dir}/description-guard.json"
 
 # After the guard: hash SKILL.md again
 uv run {hashContentHelper} hash <staging-skill-dir>/SKILL.md
@@ -200,15 +200,15 @@ If fails: auto-fix (deterministic), re-validate once, record result. If passes: 
 
 ```bash
 # Phase 1: capture before the split
-uv run {descriptionGuardHelper} capture <staging-skill-dir>/SKILL.md
-# stash returned `description` as `guarded_description`
+uv run {descriptionGuardHelper} capture <staging-skill-dir>/SKILL.md > "{run_dir}/description-guard.json"
+# the snapshot lands in the run folder; read its `description` as `guarded_description`
 
 # Phase 2: the split
 uv run {shardBodyHelper} <staging-skill-dir>/SKILL.md --budget 400
 
 # Phases 3 and 4: verify and restore after the split
 uv run {descriptionGuardHelper} verify-restore <staging-skill-dir>/SKILL.md \
-    --captured-description "{guarded_description}"
+    --captured-file "{run_dir}/description-guard.json"
 ```
 
 If `restored: true` in the verify-restore output, apply §0's post-restore re-validation hook.
