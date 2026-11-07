@@ -24,6 +24,9 @@ State 2's (the States 2 to 4 section it loads from coverage-check-branches.md):
   - surface, #677: an include glob that matches no file restores the root
     exports the brief does not exclude (the stale-scope guard), and a
     Python top nested in another top's folder is no barrel
+  - surface, #918: each declaration of a surface name exports[] holds in a
+    file none of its records names is listed in `otherDeclarations`, and
+    changes no record, set or guard
 The extraction fixture mirrors skf-extract-public-api.py --mode full output;
 a last test runs the real extractor when ast-grep is installed.
 """
@@ -1380,6 +1383,108 @@ def test_a_real_monorepo_name_counts_through_its_other_definition(tmp_path):
     assert data["counts"]["effective_denominator"] == out["candidates"]["tierAIncludeUnion"] == 2
 
 
+# #918: cognee's two run_pipeline functions. The root entry point binds `pipelines` to cognee.modules.pipelines, a
+# namespace whose members hold the orchestrator in operations/pipeline.py. The lightweight runner in
+# operations/run_pipeline.py reaches users only through a lazy `__getattr__` in cognee/pipelines/__init__.py, no
+# entry point, so exports[] alone records it. This is skf-extract-public-api.py's output for such a tree, trimmed,
+# with a test file's run_pipeline (scope.exclude drops it) and a name no entry point exports.
+ORCHESTRATOR = "cognee/modules/pipelines/operations/pipeline.py"
+LIGHTWEIGHT = "cognee/modules/pipelines/operations/run_pipeline.py"
+RUN_TASKS = "cognee/modules/pipelines/operations/run_tasks.py"
+PIPELINES = {
+    "mode": "full", "status": "ok", "files_in_scope": 5, "truncated": False, "files_without_recipes": {},
+    "file_issues": [], "errors": [],
+    "scope": {"include": ["cognee/**"], "exclude": ["cognee/tests/**"], "tier_a_include": None, "type": "public-api",
+              "languages": ["python"], "files_from": None, "unmatched_include": [], "unmatched_tier_a_include": []},
+    "exports": [
+        {"export_name": "run_pipeline", "export_type": "function", "source_file": ORCHESTRATOR, "source_line": 53,
+         "signature_line": "async def run_pipeline("},
+        {"export_name": "run_tasks", "export_type": "function", "source_file": RUN_TASKS, "source_line": 20,
+         "signature_line": "async def run_tasks("},
+        {"export_name": "run_pipeline", "export_type": "function", "source_file": LIGHTWEIGHT, "source_line": 37,
+         "signature_line": "async def run_pipeline("},
+        {"export_name": "run_pipeline", "export_type": "function", "source_file": "cognee/tests/fake.py",
+         "source_line": 3, "signature_line": "def run_pipeline():"},
+        {"export_name": "run_steps", "export_type": "function", "source_file": LIGHTWEIGHT, "source_line": 90,
+         "signature_line": "def run_steps(steps):"},
+    ],
+    "entry_points": {"status": "barrel", "files": [
+        {"language": "python", "file": "cognee/__init__.py", "package": "cognee", "subpath": None,
+         "resolution": "file", "in_scope": True}], "exports_maps": [], "unresolved": []},
+    "entry_point_diff": {
+        "public": [{"name": "pipelines", "entry": "cognee/__init__.py", "via": "namespace", "from": ".modules",
+                    "local": None, "file": "cognee/modules/pipelines/__init__.py", "line": None,
+                    "language": "python",
+                    "members": [{"name": "run_pipeline", "local": None, "file": ORCHESTRATOR, "line": 53},
+                                {"name": "run_tasks", "local": None, "file": RUN_TASKS, "line": 20}]}],
+        "other_definitions": [], "internal": [], "extraction_gaps": [], "outside_scope": [],
+    },
+    "counts": {"exports_public_api": 2, "exports_internal": 0, "effective_denominator": 2,
+               "effective_denominator_basis": "all", "denominator_files": 2},
+    "arms": {"monorepo": False, "monorepo_kind": None, "specific_modules": False, "multi_subpath_exports": False},
+}
+
+
+def test_a_same_named_declaration_no_entry_point_exports_is_an_other_declaration(tmp_path):
+    """#918: the surface records run_pipeline once, at the orchestrator, and lists the lightweight runner exports[]
+    holds as an other declaration, with its kind, line and signature line. A declaration in a file scope.exclude
+    drops, and a name with no record (run_steps), give none. Records, sets, candidates and guards stay those of
+    the same extraction without the other rows."""
+    bare = json.loads(json.dumps(PIPELINES))
+    bare["exports"] = bare["exports"][:2]
+    out = _surface(tmp_path / "full", "--extraction", _write(tmp_path / "full" / "e.json", PIPELINES))
+    before = _surface(tmp_path / "bare", "--extraction", _write(tmp_path / "bare" / "e.json", bare))
+    assert [(e["name"], e["file"], e["line"]) for e in out["exports"]] == [
+        ("run_pipeline", ORCHESTRATOR, 53), ("run_tasks", RUN_TASKS, 20)]
+    assert out["otherDeclarations"] == [{"name": "run_pipeline", "kind": "function", "file": LIGHTWEIGHT, "line": 37,
+                                         "signatureLine": "async def run_pipeline("}]
+    assert before["otherDeclarations"] == []
+    drop = ("inputs", "otherDeclarations")
+    assert {k: v for k, v in out.items() if k not in drop} == {k: v for k, v in before.items() if k not in drop}
+    assert out["sets"]["all"] == ["run_pipeline", "run_tasks"]
+
+
+def test_an_other_declaration_is_looked_up_as_a_record_is(tmp_path):
+    """#918: an aliased record (`export { Settings as Config }`) has as other declarations those of the name its
+    defining file gives it, under its own name, and a local `export { ... }` list's item gives the line and
+    signature line of the declaration it names (#836). A re-export row declares nothing: index.ts's `helper`
+    row is none, nor is core's `export { composeStories }`, and a name whose every declaration is a record (#830)
+    has none."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["exports"] += [
+        {"export_name": "Settings", "export_type": "interface", "source_file": "src/impl.ts", "source_line": 3,
+         "signature_line": "export interface Settings {"},
+        {"export_name": "Settings", "export_type": "interface", "source_file": "src/legacy/settings.ts",
+         "source_line": 20, "signature_line": "export { Settings };", "declaration_line": 8,
+         "declaration_signature_line": "interface Settings {"}]
+    data["entry_point_diff"]["public"].append({"name": "Config", "entry": "src/index.ts", "via": "re-export",
+                                               "local": "Settings", "file": "src/impl.ts", "line": 3})
+    out = _surface(tmp_path / "alias", "--extraction", _write(tmp_path / "alias" / "e.json", data))
+    assert out["otherDeclarations"] == [{"name": "Config", "kind": "interface", "file": "src/legacy/settings.ts",
+                                         "line": 8, "signatureLine": "interface Settings {"}]
+    for key, extraction in (("plain", EXTRACTION), ("storybook", STORYBOOK)):
+        out = _surface(tmp_path / key, "--extraction", _write(tmp_path / key / "e.json", extraction))
+        assert out["otherDeclarations"] == []
+
+
+def test_an_other_declaration_written_twice_is_listed_once():
+    """#918: `b.py` and `./b.py` are one declaration: listed once, its file written without the `./`, and a record
+    file written with one still keeps its own declaration out."""
+    row = {"exportName": "f", "kind": "function", "line": 3, "signatureLine": "def f():"}
+    out = mod.other_declarations([{"name": "f", "file": "./a.py"}],
+                                 [{**row, "file": "b.py"}, {**row, "file": "./b.py"}, {**row, "file": "a.py"}], {}, [])
+    assert out == [{"name": "f", "kind": "function", "file": "b.py", "line": 3, "signatureLine": "def f():"}]
+
+
+def test_no_extraction_or_a_replaced_one_gives_no_other_declaration(tmp_path):
+    """#918: other declarations come from a runner extraction alone: a fallback one, which the per-file scan
+    replaces, and a surface read by eye give none."""
+    fallback = {**PIPELINES, "status": "no-ast-grep"}
+    out = _surface(tmp_path / "fallback", "--extraction", _write(tmp_path / "fallback" / "e.json", fallback))
+    assert out["extraction"]["fallback"]["needed"] and out["otherDeclarations"] == []
+    assert _surface(tmp_path / "eye", "--name", "run_pipeline")["otherDeclarations"] == []
+
+
 @pytest.mark.parametrize("patch, reason", [
     ({"status": "no-ast-grep", "exports": []}, "no ast-grep the runner can run"),
     ({"files_in_scope": 0}, "no file in scope"),
@@ -1685,6 +1790,20 @@ def test_a_documented_nested_name_keeps_its_signature_check(tmp_path):
         ("Critical", "get_add_router", "cognee/api/v1/routers/add.py:1")]
     assert out["warnings"] == ["the source surface has no interface, type alias, enum or class: Type "
                                "Coverage has nothing to cover and scores 100"]
+
+
+def test_a_nested_name_has_its_other_declarations(tmp_path):
+    """#918: a nested Python top's records leave `all` and `root` but keep their signature checks, so a same-named
+    declaration in another file is an other declaration of theirs too, and the name stays out of both sets."""
+    data = json.loads(json.dumps(COGNEE))
+    data["exports"].append({"export_name": "get_add_router", "export_type": "function",
+                            "source_file": "cognee/api/v2/routers/add.py", "source_line": 4,
+                            "signature_line": "def get_add_router():"})
+    out = _cognee(tmp_path, data=data)
+    assert out["otherDeclarations"] == [{"name": "get_add_router", "kind": "function",
+                                         "file": "cognee/api/v2/routers/add.py", "line": 4,
+                                         "signatureLine": "def get_add_router():"}]
+    assert "get_add_router" not in set(out["sets"]["all"]) | set(out["sets"]["root"])
 
 
 def test_a_nested_top_keeps_its_names_in_the_scope_sets(tmp_path):

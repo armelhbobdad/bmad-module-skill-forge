@@ -54,6 +54,10 @@ and none of the `difference` tags. These tests keep:
 - a rest element in a component's destructured props form standing for
   every prop the form does not name, own or inherited, a rule of
   Components alone (#932);
+- a form the check binds, whose own citations name one declaration of its
+  name, compared with that declaration alone and reported there, in the
+  rules file and §2, and the place, `at`, the contract has each form give
+  (#918);
 - Create Skill naming a component's Props interface as its contract, not
   `(props: XProps) => JSX.Element`.
 
@@ -64,6 +68,7 @@ passing vacuously.
 from __future__ import annotations
 
 import importlib.util
+import json
 import re
 from pathlib import Path
 
@@ -269,6 +274,70 @@ def test_each_documented_form_of_a_name_is_compared_by_its_own_rules():
             "forms as `documentedAlternatives`:") in scan
     assert ("(under `{skill-root}`). It gets the `documentedAlternatives` map too, whose forms it compares as that "
             "file says.") in scan
+
+
+def test_a_bound_form_is_compared_with_its_own_declaration_alone():
+    """#918 (oms-cognee run_pipeline): every form of a name was compared with the declarations its entry points
+    export, so the lightweight runner's correct forms were Critical against the orchestrator of the same name. The
+    inventory gives each form its place, `at`, and `plan` binds a form whose own citations there name one
+    declaration of the name to it: the rules file, which every judge reads, compares a bound form with that
+    declaration alone and reports its mismatch there, §2 tells its judge where its own citations are read, and §2b
+    says `score` records it there. The contract states the place, and its example, which validates, gives one to
+    each entry with a form."""
+    reading = _section("Reading a form")
+    assert ("With `candidates`, a form matches when it matches any candidate, and its mismatch is reported at the "
+            "closest candidate. A form the check binds (`bound`: its own citations name one declaration of the "
+            "name) is compared with its bound declaration alone, and its mismatch is reported there, at that "
+            "declaration's file and line, whatever the check's location and candidates.") in reading
+    coverage = _read(COVERAGE)
+    bound = _paragraph(coverage, "A check's `bound` lists each form")
+    assert "of its `surface.json` `otherDeclarations`" in bound
+    assert ("Its own citations are the `[AST:]` and `[SRC:]` citations `{validateInventoryScript}` reads at the "
+            "inventory's `at`: on that line, on the line after it and around its fenced block, as its "
+            "`form_citations` says.") in bound
+    # The full reading rule lives with the code that applies it, validate-inventory.py's docstring.
+    rule = " ".join(_read(TEST_SKILL / "scripts" / "validate-inventory.py").split())
+    assert ("`form_citations` gives the citations of the form an `at` places, on its line; on the next non-blank "
+            "line, unless that line writes the name (it is another place of the name, such as the next table row) "
+            "or, inside a fenced block, is a comment (it heads the next declaration); for a line inside a fenced "
+            "block, on the comment lines just above it in the block; and, when the block holds no other place the "
+            "inventory gives the name, on the block's first non-blank line when it is a comment and on the first "
+            "non-blank line after its closing fence unless that line writes the name.") in rule
+    assert ("A citation names a declaration when it cites the declaration's file at a line or in an `L` range that "
+            "holds its line or a later one before the next declaration the surface records in its file; one with no "
+            "line names every declaration in its file.") in bound
+    assert bound.endswith("Compare a bound form with its bound declaration alone, read in full at its `file` and "
+                          "`line` as above, whatever the check's `candidates`, and report its mismatch there, `file` "
+                          "and `line` on the mismatch object."), bound
+    section2b = _flow(_slice(coverage, "### 2b.", "### 2c."))
+    assert ("A bound form's mismatch is recorded at its bound declaration, a judge that names another file listed "
+            "in `warnings`; a bound declaration joins no name, set or count.") in section2b
+    contract_text = _read(REFS / "inventory-contract.md")
+    contract = _paragraph(contract_text, "The contract `validate-inventory.py` checks")
+    assert ("An entry whose `params` or `usage_signature` the signature check compares (a list, a non-blank "
+            "string, or a function's `params`, `\"\"` included), except a `method`, gives that place as `at`, "
+            "`\"<path>:<line>\"`: its file as the package names it (`SKILL.md`, or a file `references` lists) and "
+            "the line its form starts on, the table row, the heading, the prose line or, in a fenced block, the "
+            "line the declaration or call starts on (a `def` or `class` line, not a decorator above it), never a "
+            "fence.") in contract
+    assert "a form that writes only a `return_type` gives no `at`" in contract
+    assert ("when they name exactly one, at its line or below it, before the next declaration the surface records "
+            "in its file (otherwise as it compares any form). For a name declared more than once, a place that writes "
+            "two of its forms that differ (a row that documents one declaration's form and quotes another's as a "
+            "contrast) gives none of them a citation, so each is bound only by its other places") in contract
+    assert ("A missing or bad `at` (malformed, in another file, on a line that does not write the name, or not the "
+            "place `inventory-floor.json` gives that form's `signature`) leaves its form unbound in the same way, and "
+            "the validator lists it in its `warnings` instead of refusing the inventory.") in contract
+    assert "has that form as its entry, with that place as its `at`, whatever its kind" in contract
+    spec = importlib.util.spec_from_file_location("validate_inventory_contract_example",
+                                                  TEST_SKILL / "scripts" / "validate-inventory.py")
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+    example = re.search(r"```json\n(.*?)\n```", contract_text, re.S).group(1)
+    result = validator.validate_inventory(example)
+    assert result["valid"] is True, result["violations"]
+    entries = json.loads(example)["exports"]
+    assert all("at" in e for e in entries if validator.compared_form(e)), entries
 
 
 def test_a_component_whose_props_live_outside_the_source_is_checked_only_as_a_component():
