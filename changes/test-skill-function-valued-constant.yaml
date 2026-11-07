@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill now stops at the hard gate on a constant that holds a function, correct the function form the skill documents for it, then run Test Skill again.
 issues: [970]
+prs: [991]

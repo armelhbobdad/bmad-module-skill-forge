@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   Test Skill's documented inventory now leaves out a name the skill writes only in a type position, inside another export's documented type or signature, such as `ExceptionContext` in `Callable[[BaseException, ExceptionContext], None | Awaitable[None]]`, or in a parameter table's Type cell, even as a code span that is exactly the name, unless the skill also writes it as an export outside a type position (a heading, an export table's first cell, a code span that is the name, a fenced declaration, or a place the inventory floor lists). Readers had counted such a name documented in one run and undocumented in the next; it now counts as undocumented.
 issues: [967]
+prs: [991]
