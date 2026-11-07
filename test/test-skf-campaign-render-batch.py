@@ -307,6 +307,14 @@ def _result(batch, target, status="success", **extra):
     return base
 
 
+def _batch_jsonl(folder, *entries):
+    """A QS batch run folder's batch.jsonl, one JSON object per line."""
+    folder.mkdir(parents=True)
+    path = folder / qb.BATCH_FILE
+    path.write_text("".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8")
+    return path
+
+
 class TestMapAndRecord:
     def _render(self, tmp_path, capsys, state=TWIN_STATE, brief=TWIN_BRIEF):
         sf = tmp_path / "state.yaml"
@@ -353,6 +361,44 @@ class TestMapAndRecord:
         ]
         assert joined["counts"] == {"completed": 1, "failed": 1}
 
+    def test_record_reads_a_batch_file_when_no_summary_was_written(self, tmp_path, capsys):
+        """#904: with summary_path null, the event's batch_file holds the results, read through QS's own load."""
+        out, map_file = self._render(tmp_path, capsys)
+        run_dir = tmp_path / ".skf-run" / "skf-quick-skill-ab12cd34"
+        qb.cmd_start(str(out), run_dir, False)
+        scores = {1: 88, 2: 91}
+        for _ in scores:
+            nxt = qb.cmd_next(run_dir)
+            n = nxt["batch"]
+            (pathlib.Path(nxt["run_dir"]) / qb.RESULT_PAYLOAD).write_text(json.dumps({
+                "status": "success", "skill_package": f"/skills/mono-{n}/1.0.0/mono-{n}",
+                "summary": {"quality_score": scores[n]}}), encoding="utf-8")
+            qb.cmd_record(run_dir, n)
+        blocker = tmp_path / "not-a-folder"
+        blocker.write_text("", encoding="utf-8")
+        event = qb.cmd_summarize(run_dir, blocker)
+        assert event["summary_path"] is None and event["warnings"][0].startswith("summary_write_failed:")
+        assert mod.main(["--record", event["batch_file"], "--map", str(map_file)]) == 0
+        joined = json.loads(capsys.readouterr().out)
+        assert joined["results"] == [
+            {"skill": "api", "batch": 1, "status": "completed", "quality_score": 88,
+             "skill_path": "/skills/mono-1/1.0.0/mono-1", "exit_code": 0, "error_code": None},
+            {"skill": "cli", "batch": 2, "status": "completed", "quality_score": 91,
+             "skill_path": "/skills/mono-2/1.0.0/mono-2", "exit_code": 0, "error_code": None},
+        ]
+        assert joined["counts"] == {"completed": 2, "failed": 0}
+        # a write cut short spoils its own line only, and a later result line for batch 1 replaces the earlier one
+        with open(event["batch_file"], "a", encoding="utf-8") as fh:
+            fh.write('{"event": "result", "batch": 2, "target": "https://github.com/x/mono@1.0.0", "status": "err')
+        qb._append(run_dir, {"event": "result", **_result(1, "https://github.com/x/mono@1.0.0",
+                                                           skill_package="/skills/mono-1/1.0.1/mono-1",
+                                                           quality_score=95)})
+        assert mod.main(["--record", event["batch_file"], "--map", str(map_file)]) == 0
+        joined = json.loads(capsys.readouterr().out)
+        assert [(r["status"], r["quality_score"], r["skill_path"]) for r in joined["results"]] == [
+            ("completed", 95, "/skills/mono-1/1.0.1/mono-1"), ("completed", 91, "/skills/mono-2/1.0.0/mono-2")]
+        assert joined["counts"] == {"completed": 2, "failed": 0}
+
     def test_a_line_with_no_result_fails(self, tmp_path, capsys):
         _, map_file = self._render(tmp_path, capsys)
         summary = tmp_path / "s.json"
@@ -370,15 +416,36 @@ class TestMapAndRecord:
         err = json.loads(capsys.readouterr().err)
         assert err["code"] == "SUMMARY_MISMATCH"
 
-    @pytest.mark.parametrize("missing", ["map", "summary"], ids=["no-map", "no-summary"])
-    def test_missing_file_exit_2(self, tmp_path, capsys, missing):
+    def test_a_batch_file_of_another_batch_is_refused(self, tmp_path, capsys):
+        _, map_file = self._render(tmp_path, capsys)
+        batch_file = _batch_jsonl(
+            tmp_path / "skf-quick-skill-0f0f0f0f",
+            {"event": "start", "status": "running", "input_file": str(tmp_path / "other.txt"), "fail_fast": False},
+            {"event": "result", **_result(1, "https://github.com/x/other", skill_package="/skills/other",
+                                          quality_score=90)},
+        )
+        assert mod.main(["--record", str(batch_file), "--map", str(map_file)]) == 2
+        assert json.loads(capsys.readouterr().err)["code"] == "SUMMARY_MISMATCH"
+
+    @pytest.mark.parametrize("missing, gone", [("map", "gone.json"), ("summary", "gone.json"),
+                                                ("summary", "gone/batch.jsonl")],
+                             ids=["no-map", "no-summary", "no-batch-file"])
+    def test_missing_file_exit_2(self, tmp_path, capsys, missing, gone):
         _, map_file = self._render(tmp_path, capsys)
         summary = tmp_path / "s.json"
         summary.write_text(json.dumps(_summary()), encoding="utf-8")
         args = {"map": str(map_file), "summary": str(summary)}
-        args[missing] = str(tmp_path / "gone.json")
+        args[missing] = str(tmp_path / gone)
         assert mod.main(["--record", args["summary"], "--map", args["map"]]) == 2
         assert json.loads(capsys.readouterr().err)["code"] == f"{missing.upper()}_NOT_FOUND"
+
+    def test_a_batch_file_with_no_start_line_exit_2(self, tmp_path, capsys):
+        _, map_file = self._render(tmp_path, capsys)
+        batch_file = _batch_jsonl(tmp_path / "skf-quick-skill-0f0f0f0f",
+                                  {"event": "result", **_result(1, "https://github.com/x/mono@1.0.0")})
+        assert mod.main(["--record", str(batch_file), "--map", str(map_file)]) == 2
+        err = json.loads(capsys.readouterr().err)
+        assert err["code"] == "SUMMARY_PARSE_ERROR" and "has no start line" in err["error"]
 
     def test_spaced_hint_is_left_out_and_the_join_still_completes(self, tmp_path, capsys):
         state = {"skills": [
