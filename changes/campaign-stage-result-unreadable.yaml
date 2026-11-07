@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-campaign
+summary: |
+  When Create Stack Skill, Verify Stack or Refine Architecture printed a result line Campaign could not parse (cut off, or not a JSON object), `set-campaign` exited 2 and the campaign stopped. Campaign now records the stage as failed with `result-unreadable`, logs an unparseable-line event and goes on, as it already did for Export Skill. A line with no `status` or no `exit_code` is now recorded the same way: before, one with no `status` was saved like a skipped stage, and a success line with no `exit_code` was recorded as a result.
+issues: [905]

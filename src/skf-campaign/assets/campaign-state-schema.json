@@ -115,6 +115,64 @@
               "type": ["integer", "null"]
             }
           }
+        },
+        "stage_outcomes": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "What the capstone (Stage 6), verification (Stage 7) and refinement (Stage 8) stages did, written by campaign-state.py set-campaign beside each summary: completed, skipped (a stage skipped on purpose, --no-<field>) or failed, with the failure's halt_reason (no-result when the sub-skill printed no line, result-unreadable when its line could not be read) and exit_code (null when it gave none). Optional: a stage is absent until set-campaign records it, so older states still validate.",
+          "properties": {
+            "capstone": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["outcome"],
+              "properties": {
+                "outcome": {
+                  "type": "string",
+                  "enum": ["completed", "skipped", "failed"]
+                },
+                "halt_reason": {
+                  "type": ["string", "null"]
+                },
+                "exit_code": {
+                  "type": ["integer", "null"]
+                }
+              }
+            },
+            "verification": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["outcome"],
+              "properties": {
+                "outcome": {
+                  "type": "string",
+                  "enum": ["completed", "skipped", "failed"]
+                },
+                "halt_reason": {
+                  "type": ["string", "null"]
+                },
+                "exit_code": {
+                  "type": ["integer", "null"]
+                }
+              }
+            },
+            "refinement": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["outcome"],
+              "properties": {
+                "outcome": {
+                  "type": "string",
+                  "enum": ["completed", "skipped", "failed"]
+                },
+                "halt_reason": {
+                  "type": ["string", "null"]
+                },
+                "exit_code": {
+                  "type": ["integer", "null"]
+                }
+              }
+            }
+          }
         }
       }
     },

@@ -422,7 +422,7 @@ class TestContextFile:
         assert envelope["campaign_report_path"] == output_file.as_posix() == result["report_path"]
         assert envelope["decision_log"] == "ws/_campaign-decision-log.md"
         for key in ("skills_completed", "skills_failed", "quality_scores", "export_verdicts", "skills_excluded",
-                    "skills_exported", "export_failures", "duration"):
+                    "skills_exported", "export_failures", "stage_outcomes", "duration"):
             assert envelope[key] == result[key], key
 
     def test_a_failed_report_writes_the_degraded_payload(self, tmp_path: Path, capsys):
@@ -564,5 +564,100 @@ class TestExportOutcomes:
 
     def test_the_schema_keeps_them_optional(self):
         schema = json.loads(ENVELOPE_SCHEMA.read_text(encoding="utf-8"))
-        assert {"skills_exported", "export_failures"} <= set(schema["properties"])
-        assert not {"skills_exported", "export_failures"} & set(schema["required"])
+        assert {"skills_exported", "export_failures", "stage_outcomes"} <= set(schema["properties"])
+        assert not {"skills_exported", "export_failures", "stage_outcomes"} & set(schema["required"])
+
+
+STAGED_OUTCOMES = {
+    "capstone": {"outcome": "completed", "halt_reason": None, "exit_code": 0},
+    "verification": {"outcome": "skipped", "halt_reason": None, "exit_code": None},
+    "refinement": {"outcome": "failed", "halt_reason": "no-result", "exit_code": None},
+}
+
+
+def _staged_state(stage: int = 10) -> dict[str, Any]:
+    """The capstone completed, verification skipped, refinement printed no line, as steps 07 to 09 record them."""
+    state = _minimal_state()
+    state["campaign"]["current_stage"] = stage
+    state["campaign"]["stage_outcomes"] = json.loads(json.dumps(STAGED_OUTCOMES))
+    return state
+
+
+class TestStageOutcomes:
+    """#906: what the capstone, verification and refinement stages did reaches the report and the envelope."""
+
+    def test_outcomes_in_the_report_the_result_and_the_envelope(self, tmp_path: Path, capsys):
+        context = tmp_path / "_result-context.json"
+        output_file = tmp_path / "campaign-report.md"
+        rc = mod.run(str(_write_state(tmp_path, _staged_state())), str(_write_template(tmp_path)), str(output_file),
+                     str(context), "ws/log.md")
+        assert rc == 0
+        result = json.loads(capsys.readouterr().out)
+        assert result["stage_outcomes"] == STAGED_OUTCOMES
+        report = output_file.read_text(encoding="utf-8")
+        assert "## Stages\n\n| Stage | Outcome |\n|-------|---------|\n" in report
+        for row in ("| Capstone | completed |", "| Verification | skipped |", "| Refinement | failed (no-result) |"):
+            assert row in report, row
+        envelope = _envelope(context)
+        # A failed stage does not fail the campaign: a pipeline reads stage_outcomes.
+        assert (envelope["status"], envelope["exit_code"]) == ("success", 0)
+        assert envelope["stage_outcomes"] == STAGED_OUTCOMES
+
+    def test_a_failure_shows_its_reason_else_its_exit_code(self):
+        state = _staged_state()
+        state["campaign"]["stage_outcomes"] = {
+            "capstone": {"outcome": "failed", "halt_reason": "result-unreadable", "exit_code": None},
+            "verification": {"outcome": "failed", "halt_reason": None, "exit_code": 3},
+            "refinement": {"outcome": "failed"},
+        }
+        section = mod._compute_aggregates(state)["stages_section"]
+        for row in ("| Capstone | failed (result-unreadable) |", "| Verification | failed (exit 3) |",
+                    "| Refinement | failed (no exit code) |"):
+            assert row in section, row
+        assert mod._stage_outcomes(state)["refinement"] == {"outcome": "failed", "halt_reason": None,
+                                                             "exit_code": None}
+
+    def test_a_stage_with_no_recorded_outcome_is_null(self, tmp_path: Path, capsys):
+        """A state written before #906 holds no stage_outcomes: each stage is null and the envelope validates."""
+        context = tmp_path / "_result-context.json"
+        state = _staged_state()
+        state["campaign"]["stage_outcomes"] = {"capstone": STAGED_OUTCOMES["capstone"]}
+        output_file = tmp_path / "campaign-report.md"
+        rc = mod.run(str(_write_state(tmp_path, state)), str(_write_template(tmp_path)), str(output_file),
+                     str(context))
+        assert rc == 0
+        expected = {"capstone": STAGED_OUTCOMES["capstone"], "verification": None, "refinement": None}
+        assert json.loads(capsys.readouterr().out)["stage_outcomes"] == expected
+        assert "| Verification | not recorded |" in output_file.read_text(encoding="utf-8")
+        assert _envelope(context)["stage_outcomes"] == expected
+
+    def test_null_before_the_capstone_stage_ran(self, tmp_path: Path, capsys):
+        context = tmp_path / "_result-context.json"
+        output_file = tmp_path / "campaign-report.md"
+        rc = mod.run(str(_write_state(tmp_path, _staged_state(5))), str(_write_template(tmp_path)),
+                     str(output_file), str(context))
+        assert rc == 0
+        assert json.loads(capsys.readouterr().out)["stage_outcomes"] is None
+        assert _envelope(context)["stage_outcomes"] is None
+        report = output_file.read_text(encoding="utf-8")
+        assert "| Stage | Outcome |" not in report
+        assert "The capstone, verification and refinement stages have not run." in report
+
+    @pytest.mark.parametrize("stage, expected", [(10, STAGED_OUTCOMES), (5, None)], ids=["stage-10", "stage-5"])
+    def test_the_degraded_payload_carries_them(self, tmp_path: Path, capsys, stage, expected):
+        context = tmp_path / "_result-context.json"
+        rc = mod.run(str(_write_state(tmp_path, _staged_state(stage))), str(tmp_path / "missing-template.md"),
+                     str(tmp_path / "r.md"), str(context))
+        assert rc == 2
+        envelope = _envelope(context)
+        assert envelope["halt_reason"] == "report-failure"
+        assert envelope["stage_outcomes"] == expected
+
+    def test_a_custom_template_without_the_section_shows_none(self, tmp_path: Path, capsys):
+        output_file = tmp_path / "report.md"
+        rc = mod.run(str(_write_state(tmp_path, _staged_state())),
+                     str(_write_template(tmp_path, content="# {{campaign_name}}\n\n{{export_gate_section}}\n")),
+                     str(output_file))
+        assert rc == 0
+        report = output_file.read_text(encoding="utf-8")
+        assert "Stage" not in report and "{{" not in report

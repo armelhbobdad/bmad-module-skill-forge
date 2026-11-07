@@ -21,6 +21,10 @@
 |------|------|--------|---------------|-----|-------------|
 {{skills_table}}
 
+## Stages
+
+{{stages_section}}
+
 ## Export Gate
 
 {{export_gate_section}}

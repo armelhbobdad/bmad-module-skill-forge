@@ -101,6 +101,28 @@ class TestValidateStateFn:
         assert [e["field"] for e in result["errors"]] == ["campaign.verification.overall_verdict"]
         assert "FEASIBLE" in result["errors"][0]["message"]
 
+    def test_stage_outcomes_are_optional_and_typed(self):
+        """#906: set-campaign saves each stage's outcome; a state written before it still validates."""
+        schema = json.loads(SCHEMA.read_text(encoding="utf-8"))
+        assert "stage_outcomes" not in VALID_STATE["campaign"]
+        assert mod.validate_state(VALID_STATE, schema)["valid"] is True
+        state = copy.deepcopy(VALID_STATE)
+        state["campaign"]["stage_outcomes"] = {
+            "capstone": {"outcome": "completed", "halt_reason": None, "exit_code": 0},
+            "verification": {"outcome": "skipped", "halt_reason": None, "exit_code": None},
+            "refinement": {"outcome": "failed", "halt_reason": "result-unreadable", "exit_code": None},
+        }
+        assert mod.validate_state(state, schema) == {"valid": True, "errors": []}
+        state["campaign"]["stage_outcomes"] = {"capstone": {"outcome": "recorded"}}
+        result = mod.validate_state(state, schema)
+        assert [e["field"] for e in result["errors"]] == ["campaign.stage_outcomes.capstone.outcome"]
+        for bad in ({"capstone": {"outcome": "completed", "verified": True}},
+                    {"capstone": {"halt_reason": None}},
+                    {"capstone": {"outcome": "failed", "exit_code": "3"}},
+                    {"export": {"outcome": "completed"}}):
+            state["campaign"]["stage_outcomes"] = bad
+            assert mod.validate_state(state, schema)["valid"] is False, bad
+
 
 class TestRun:
     def test_valid_exit_0(self, tmp_path, capsys):
