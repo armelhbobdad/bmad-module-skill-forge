@@ -1508,10 +1508,14 @@ def test_the_floor_runs_before_the_inventory_subagent():
     assert "first cell" in _flow(runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py").__doc__)
     section1a = _flow(_slice(text, "#### 1a. Parent-Side Schema Validation", "### 1b."))
     assert ("refuses it when it leaves out a floor name those files write, or an origin's `signature`.") in section1a
-    # #918: a missing or bad place is a warning, its forms named in the Coverage Analysis section's notes.
-    assert ("- `valid` true (exit 0): every later command reads `{run_dir}/inventory.json`. Its `warnings` name each "
-            "form whose place (`at`) is missing or bad, dropped so §2 binds the form to no declaration: list their "
-            "count and names in §5's notes, the forms left unbound for want of a place.") in section1a
+    # #918: a missing or bad place is a warning, its forms named in the Coverage Analysis section's notes: only the
+    # warnings that say the validator's UNBOUND text, one per form left unbound (a method's dropped `at` and a floor
+    # origin's own warning do not).
+    unbound = runpy_module(SCRIPTS_DIR / "validate-inventory.py").UNBOUND
+    assert ("- `valid` true (exit 0): every later command reads `{run_dir}/inventory.json`. Each of its `warnings` "
+            f"that says \"{unbound}\" names a form whose place (`at`) is missing or bad, dropped so §2 binds it to no "
+            "declaration: list their count and names in §5's notes, the forms left unbound for want of a "
+            "place.") in section1a
     assert "{the notes §1a to §4b add to this section}" in text
     contract = _flow(_read(INVENTORY_CONTRACT))
     assert ("and keeps one `kind` in every place. An entry whose `params` or `usage_signature` the signature check "

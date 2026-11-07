@@ -1068,6 +1068,30 @@ def test_a_floor_signature_carried_at_another_origin_keeps_that_place(tmp_path):
     assert r["inventory"]["exports"][0]["at"] == "SKILL.md:5"
 
 
+@pytest.mark.parametrize("at, warning", [
+    (None, f"exports[0] (`fetchData`) carries a form but no `at`, so {UNBOUND}"),
+    ("SKILL.md:99", f"exports[0] (`fetchData`): `at` \"SKILL.md:99\" is past the end of SKILL.md (5 lines); it is "
+                    f"dropped and {UNBOUND}"),
+    ("SKILL.md:1", f"exports[0] (`fetchData`): `at` \"SKILL.md:1\" is a line that does not write `fetchData`; it is "
+                   f"dropped and {UNBOUND}"),
+    ("README.md:1", f"exports[0] (`fetchData`): `at` names \"README.md\", no file the inventory reads: SKILL.md or a "
+                    f"file `references` lists; it is dropped and {UNBOUND}"),
+], ids=["missing", "past-the-end", "another-line", "another-file"])
+def test_a_floor_form_with_no_good_at_is_one_warning(tmp_path, at, warning):
+    """#918 review: a form the floor pins whose `at` is missing or dropped before the floor check is one form left
+    unbound, so it is one warning, its own: the floor origin adds none, as the entry that carries it has no `at`."""
+    pkg = _package(tmp_path, FORM_TABLE)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    fields = {**FORM} if at is None else {**FORM, "at": at}
+    r = mod.validate_inventory(_signed(("fetchData", "function", fields)), pkg, mod.read_floor(floor))
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == [warning]
+    assert "at" not in r["inventory"]["exports"][0]
+
+
 @pytest.mark.parametrize("line, citations", [
     (3, {("pipeline.py", 53, 53)}),                         # on the line
     (1, set()),                                             # the next non-blank line writes the name: its own place

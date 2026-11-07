@@ -96,12 +96,15 @@ floor reads, locate-export-segments.py's), neither does the block. With
 --floor, a checked origin with a `signature` is placed when an entry that
 carries it gives that origin as its `at`; when none does, the `at` of each
 entry that carries it is bad unless it is a checked origin whose signature
-that entry carries, and the origin is a warning of its own when no `at` is
-dropped for it (the citations there are not read). score-signatures.py
-plan reads the citations of each form's place (form_citations) to compare
-it with the declaration they name. A form that writes only a `return_type`
-gives no `at`, so it is never bound: plan compares it as it compares a form
-whose citations name no declaration.
+that entry carries, and the origin is a warning of its own when each entry
+that carries it keeps its `at` at another such origin (the citations there
+are not read). A warning says its form is left unbound (UNBOUND) only when
+it is, and at most once for an entry: a method's dropped `at` and an
+origin's own warning do not. score-signatures.py plan reads the citations
+of each form's place (form_citations) to compare it with the declaration
+they name. A form that writes only a `return_type` gives no `at`, so it is
+never bound: plan compares it as it compares a form whose citations name no
+declaration.
 
 Distinct from reconcile-coverage.py (coverage numerator arithmetic) and
 compute-score.py (weight tables): this script only validates the *shape* of the
@@ -724,9 +727,11 @@ def floor_check(inventory, floor, skill_package_path=None):
     carries it gives that origin as its `at` (parse_at; #918). When none
     does, the `at` of each entry that carries it is dropped with a warning
     (_drop), unless it is a checked origin whose signature that entry
-    carries, and the origin is a warning of its own when no `at` is dropped
-    for it: the citations there are not read. A misplaced form never makes
-    the inventory invalid.
+    carries. When none is dropped and each still has an `at`, a place at
+    another such origin, the origin is a warning of its own: the citations
+    there are not read. An entry left with no `at` has a warning already
+    when its form is compared, so the origin adds none. A misplaced form
+    never makes the inventory invalid.
     """
     listed = inventory.get("references")
     files = {"SKILL.md"} | {_listed_path(ref, skill_package_path)
@@ -770,8 +775,11 @@ def floor_check(inventory, floor, skill_package_path=None):
         dropped = [_drop(e, f"{pinned}, but exports[{idx}], which carries it, gives `at` {json.dumps(e['at'])}")
                    for idx, e in carriers
                    if parse_at(e.get("at")) is not None and parse_at(e["at"]) not in carried(e)]
-        warnings += dropped or [f"{pinned}, but no inventory entry that carries it gives `at` {at}, so the "
-                                "citations there are not read"]
+        if dropped:
+            warnings += dropped
+        elif all(e.get("at") is not None for _, e in carriers):
+            warnings.append(f"{pinned}, but no inventory entry that carries it gives `at` {at}, so the citations "
+                            "there are not read")
     return {"names": len(names), "checked": checked, "absent": absent}, violations, warnings
 
 

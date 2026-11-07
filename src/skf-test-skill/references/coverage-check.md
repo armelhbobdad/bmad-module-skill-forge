@@ -98,7 +98,7 @@ Before anything consumes the inventory, `{validateInventoryScript}` checks it ag
 uv run {validateInventoryScript} --input "{run_dir}/inventory-response.txt" --skill-package "{resolved_skill_package}" --output "{run_dir}/inventory.json" --floor "{run_dir}/inventory-floor.json"
 ```
 
-- `valid` true (exit 0): every later command reads `{run_dir}/inventory.json`. Its `warnings` name each form whose place (`at`) is missing or bad, dropped so §2 binds the form to no declaration: list their count and names in §5's notes, the forms left unbound for want of a place.
+- `valid` true (exit 0): every later command reads `{run_dir}/inventory.json`. Each of its `warnings` that says "the form is compared as one whose citations name no declaration" names a form whose place (`at`) is missing or bad, dropped so §2 binds it to no declaration: list their count and names in §5's notes, the forms left unbound for want of a place.
 - `valid` false (exit 2), or exit 1: load `{coverageBranchesFile}` and follow its **Inventory Failures** section. Invalid a second time: HALT (`halt_reason: "inventory-invalid"`, phase `coverage-check:inventory`): "coverage-check: the subagent inventory failed {schema validation | the ground-truth spot-check | the floor check} twice: {the violations joined}."
 
 ### 1b. Cross-Check Split-Body Consistency
