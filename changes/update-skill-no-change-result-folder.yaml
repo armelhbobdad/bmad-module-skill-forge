@@ -3,3 +3,4 @@ scope: skf-update-skill
 summary: |
   When Update Skill found no change in a skill whose provenance map was still in its flat forge folder, it wrote no result file, said nothing, and still called the `on_complete` hook with the path of an `update-skill-result-latest.json` that did not exist. It now creates the version's forge folder first. When it cannot, the line carries a `result_file_write_failed` warning and the hook is skipped.
 issues: [907]
+prs: [940]
