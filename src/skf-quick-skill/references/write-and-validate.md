@@ -15,6 +15,9 @@ skillInventoryProbeOrder:
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+hashContentProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
+  - '{project-root}/src/shared/scripts/skf-hash-content.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Generated SKILL.md text in {document_output_language}. -->
@@ -116,17 +119,21 @@ Run: `npx skill-check -h`
 
 ### 4. Validate SKILL.md via skill-check (if available)
 
-**If `npx skill-check` is available**, run validation and its security scan in one call against the skill package written in section 2. `--fix` can also rewrite the frontmatter `description` the user approved in step 4, which would leave SKILL.md out of step with `metadata.json`, so the call runs inside the description guard. Resolve `{descriptionGuardHelper}` ← first existing path in `{descriptionGuardProbeOrder}`, then run the three commands in order. `verify-restore` runs whatever skill-check exits; note that exit code:
+**If `npx skill-check` is available**, run validation and its security scan in one call against the skill package written in section 2. `--fix` can also rewrite the frontmatter `description` the user approved in step 4, which would leave SKILL.md out of step with `metadata.json`, so the call runs inside the description guard. Resolve `{descriptionGuardHelper}` ← first existing path in `{descriptionGuardProbeOrder}` and `{hashContentHelper}` ← first existing path in `{hashContentProbeOrder}`, then run the five commands in order. `verify-restore` runs whatever skill-check exits; note that exit code:
 
 ```bash
+uv run {hashContentHelper} hash "{skill_package}/SKILL.md" > "{run_dir}/skill-md-hash-before.json"
 uv run {descriptionGuardHelper} capture "{skill_package}/SKILL.md" > "{run_dir}/description-guard.json"
 npx skill-check check "{skill_package}" --fix --format json > "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"
 uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" --captured-file "{run_dir}/description-guard.json"
+uv run {hashContentHelper} hash "{skill_package}/SKILL.md" > "{run_dir}/skill-md-hash-after.json"
 ```
 
-**If no "skill-check exited" line came back**, the shell tool stopped the block before skill-check finished (a cold `uvx mcp-scan` install can outlast its timeout): run the `verify-restore` command on its own before reading `{run_dir}/skill-check.json`, so a description `--fix` rewrote is restored.
+**If no "skill-check exited" line came back**, the shell tool stopped the block before skill-check finished (a cold `uvx mcp-scan` install can outlast its timeout): run the `verify-restore` command on its own before reading `{run_dir}/skill-check.json`, so a description `--fix` rewrote is restored, then run the second `hash` command.
 
 **Guard outputs.** `capture` stages the approved description in `{run_dir}/description-guard.json` and `verify-restore` reads it there, so it never passes through a shell string. Bind `{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` from `verify-restore`. When `{guard_restored}` is true, the approved description is back in SKILL.md, matching `metadata.json`: record the validation note "description restored after `skill-check --fix` ({guard_diff_kind})", which §6 lists with the auto-fixed issues. `verify-restore` refuses an empty or whitespace-only captured description, and a file it cannot read (exit 1, SKILL.md untouched): re-run it with `--captured-file "{skill_package}/metadata.json"`, whose `description` step 4 rendered, never with an empty value, and if that exits 1 too, record a high-severity issue: the guard could not check the description. When it exits 2 with JSON on stdout (the JSON carries `restore_error`), the restore could not be written, so record a high-severity issue: SKILL.md's description no longer matches `metadata.json`.
+
+**Rewrite note.** skill-check's JSON lists no fix, so the two `hash` commands tell whether `--fix` changed SKILL.md. Bind `{skill_md_changed}` ← true when the `content_hash` in `{run_dir}/skill-md-hash-before.json` differs from the one in `{run_dir}/skill-md-hash-after.json`, taken after the last `verify-restore` (run the second `hash` command again after a `verify-restore` re-run). When no `{hashContentProbeOrder}` path exists (leave both `hash` commands out) or either file holds no `content_hash`, SKILL.md was not hashed: bind `{skill_md_changed}` ← true as well. When `{skill_md_changed}` is true, record the validation note "skill-check --fix rewrote SKILL.md", or "SKILL.md may have been rewritten (not hashed) by skill-check --fix" when it was not hashed, which §6 lists with the auto-fixed issues. When the block above did not run at all (§3 found no skill-check, or the guard below is missing), `--fix` did not run: hash nothing and bind `{skill_md_changed}` ← false.
 
 **If no `{descriptionGuardProbeOrder}` path exists**, never run `--fix` unguarded. Run `npx skill-check check "{skill_package}" --format json` instead, which validates and scans without fixing, with the same capture (`> "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"`, its exit code noted), and log the validation issue "description guard unavailable (`skf-description-guard.py` missing): skill-check ran without `--fix`".
 
@@ -135,7 +142,6 @@ uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" --capt
 **Parse the JSON in `{run_dir}/skill-check.json`** to extract:
 - `scores[].score` — overall score (0-100); match the entry by `relativePath`/`skillId`
 - `diagnostics[]` — remaining issues after auto-fix
-- `fixed[]` — issues automatically corrected
 - `security[]` (when present) — security findings, recorded as advisory warnings (security issues do not block output)
 
 Bind `{quality_score}` ← that score, and record the remaining diagnostics and security findings as validation issues. `{quality_score}` is null when skill-check did not run.
@@ -172,7 +178,7 @@ The validator emits JSON with `result` (PASS/FAIL), `validation.skill_md.body[]`
 
 **SKILL.md:** {pass/issues found}{ (quality score: {quality_score}/100), only when `{quality_score}` is not null}
 {list any issues}
-{list any auto-fixed issues, and the §4 description-guard note when the guard restored the description}
+{list the auto-fixed issues: the §4 rewrite note when `{skill_md_changed}` is true, and the §4 description-guard note when the guard restored the description}
 
 **context-snippet.md:** {pass/issues found}
 {list any issues}
@@ -190,7 +196,7 @@ These issues are advisory for community-tier skills: fix them in the written fil
 
 **Proceeding to finalize...**"
 
-Set `validation_result` with pass/fail status, quality score, and issues list, and `{validation_issues}` ← `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`, each `<n>` the number of entries the validators returned for that heading: `skill_md` counts skill-check's `diagnostics[]` (without skill-check, the frontmatter validator's `issues[]`) plus `validation.skill_md.body[]`; `context_snippet` counts `validation.context_snippet.issues[]`; `metadata` counts `validation.metadata.issues[]`; `security` counts skill-check's `security[]` (or, without one, the finding codes §4 read from the tail, each occurrence one finding, as skill-check's own scan summary counts them). A check that did not run counts 0, and `fixed[]` and the guard note count nothing. Step 6 §3's summary carries `{quality_score}` and `{validation_issues}`.
+Set `validation_result` with pass/fail status, quality score, and issues list, and `{validation_issues}` ← `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`, each `<n>` the number of entries the validators returned for that heading: `skill_md` counts skill-check's `diagnostics[]` (without skill-check, the frontmatter validator's `issues[]`) plus `validation.skill_md.body[]`; `context_snippet` counts `validation.context_snippet.issues[]`; `metadata` counts `validation.metadata.issues[]`; `security` counts skill-check's `security[]` (or, without one, the finding codes §4 read from the tail, each occurrence one finding, as skill-check's own scan summary counts them). A check that did not run counts 0, and the §4 rewrite note and the guard note count nothing. Step 6 §3's summary carries `{quality_score}` and `{validation_issues}`.
 
 ### 7. Auto-Proceed to Finalize
 

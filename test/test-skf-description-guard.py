@@ -18,6 +18,9 @@ Covers:
     stages the snapshot in its run folder and passes it by file, so its
     calls, run through bash, keep a description that holds quotes, backticks
     and `$`, and an empty capture falls back to metadata.json
+  - quick-skill step 5 (#901): the `hash` lines that open and close the
+    block tell a `--fix` rewrite from an untouched SKILL.md, a rewrite the
+    guard restored and a reflow it leaves alone included
 """
 
 from __future__ import annotations
@@ -813,6 +816,7 @@ TRICKY = ('Builds agents. Use when the user says "build an agent", runs `bmad-ag
           "costs $HOME or asks for the builder's help.")
 FIXED = "---\nname: zod\ndescription: Builds agents.\n---\n" + QS_BODY
 GUARD_FILE = '"{run_dir}/description-guard.json"'
+HASH_SCRIPT = REPO_ROOT / "src" / "shared" / "scripts" / "skf-hash-content.py"
 
 
 def _guard_calls() -> tuple[str, str]:
@@ -825,11 +829,27 @@ def _guard_calls() -> tuple[str, str]:
     return capture, verify
 
 
+def _hash_calls() -> tuple[str, str]:
+    """Step 5 §4's two `hash` lines, the first and the last of its block (#901)."""
+    section = _slice(_read(QS_WRITE), "### 4. Validate SKILL.md via skill-check", "### 5. ")
+    block = section[section.index("```bash\n") + len("```bash\n"):]
+    lines = block[: block.index("```")].replace("\\\n", " ").splitlines()
+    hashes = [line for line in lines if " hash " in line]
+    assert hashes == [lines[0], lines[-1]], "the two hash lines open and close the block"
+    return hashes[0], hashes[1]
+
+
+def _hash_of(run_dir: Path, name: str) -> str:
+    return json.loads((run_dir / name).read_text(encoding="utf-8"))["content_hash"]
+
+
 def _run_step_line(call: str, skill: Path, run_dir: Path) -> subprocess.CompletedProcess:
-    """Run one of step 5 §4's guard lines through bash, its placeholders filled in as the
-    model fills them: the raw path, so the line's own quotes must hold a space in it."""
+    """Run one of step 5 §4's guard or hash lines through bash, its placeholders filled in as
+    the model fills them: the raw path, so the line's own quotes must hold a space in it."""
     helper = f"{shlex.quote(sys.executable)} {shlex.quote(str(SCRIPT_PATH))}"
+    hasher = f"{shlex.quote(sys.executable)} {shlex.quote(str(HASH_SCRIPT))}"
     script = (call.replace("uv run {descriptionGuardHelper}", helper)
+              .replace("uv run {hashContentHelper}", hasher)
               .replace("{skill_package}", skill.parent.as_posix())
               .replace("{run_dir}", run_dir.as_posix()))
     return subprocess.run([shutil.which("bash") or "bash", "-c", script],
@@ -892,6 +912,61 @@ class TestQuickSkillGuardCall:
         payload = json.loads(result.stdout)
         assert payload["restored"] is False and payload["restore_error"]
         assert skill.read_text(encoding="utf-8") == FIXED
+
+    # #901: skill-check 1.2.0's JSON lists no fix, so the hash lines around the guard tell what `--fix` did.
+
+    def _run_block(self, skill: Path, run_dir: Path, fix) -> tuple[dict, str, str]:
+        """Step 5 §4's five lines in order, the skill-check call played by `fix`: the guard's
+        verify-restore output and the two `content_hash` values the hash lines saved."""
+        before, after = _hash_calls()
+        capture, verify = _guard_calls()
+        assert before.endswith('> "{run_dir}/skill-md-hash-before.json"')
+        assert after == before.replace("skill-md-hash-before.json", "skill-md-hash-after.json")
+        for call in (before, capture):
+            ran = _run_step_line(call, skill, run_dir)
+            assert ran.returncode == 0, ran.stderr
+        fix(skill)
+        restored = _run_step_line(verify, skill, run_dir)
+        assert restored.returncode == 0, restored.stderr
+        ran = _run_step_line(after, skill, run_dir)
+        assert ran.returncode == 0, ran.stderr
+        return (json.loads(restored.stdout), _hash_of(run_dir, "skill-md-hash-before.json"),
+                _hash_of(run_dir, "skill-md-hash-after.json"))
+
+    def test_the_hash_lines_catch_what_the_guard_leaves(self, tmp_path: Path) -> None:
+        skill, run_dir = self._package(tmp_path)
+        skill.write_text(skill.read_text(encoding="utf-8") + "\n\n\n", encoding="utf-8")  # three blank lines
+        # `--fix` replaces the description and drops the trailing blank lines, as skill-check 1.2.0 does.
+        rewritten = "---\nname: zod\ndescription: Use when building agents.\n---\n" + QS_BODY
+        payload, before, after = self._run_block(skill, run_dir,
+                                                 lambda path: path.write_text(rewritten, encoding="utf-8"))
+        assert payload["restored"] is True and payload["diff_kind"] == "replaced"
+        text = skill.read_text(encoding="utf-8")
+        assert _parse_frontmatter(text)["description"] == TRICKY
+        assert text.endswith(QS_BODY) and not text.endswith("\n\n"), "the guard restores only the description"
+        assert before.startswith("sha256:") and after.startswith("sha256:") and before != after
+
+    def test_an_untouched_file_hashes_the_same(self, tmp_path: Path) -> None:
+        skill, run_dir = self._package(tmp_path)
+        original = skill.read_text(encoding="utf-8")
+        payload, before, after = self._run_block(skill, run_dir, lambda path: None)
+        assert (payload["diverged"], payload["restored"]) == (False, False)
+        assert skill.read_text(encoding="utf-8") == original
+        assert before == after, "no rewrite note for a file nothing changed"
+
+    def test_a_reflowed_description_still_changes_the_hash(self, tmp_path: Path) -> None:
+        project = tmp_path / "Jane Doe"
+        package, metadata = _quick_package(project)
+        skill = package / "SKILL.md"
+        run_dir = project / "run"
+        run_dir.mkdir()
+        reflowed = f"---\nname: zod\ndescription: {APPROVED}\n---\n{QS_BODY}"
+        payload, before, after = self._run_block(skill, run_dir, lambda path: path.write_text(reflowed, encoding="utf-8"))
+        # The guard leaves a reflow alone (same value), so only the hashes show that `--fix` rewrote the file.
+        assert (payload["diverged"], payload["restored"], payload["diff_kind"]) == (False, False, "none")
+        assert skill.read_text(encoding="utf-8") == reflowed
+        assert _parse_frontmatter(reflowed)["description"] == metadata["description"]
+        assert before != after
 
 
 class TestQuickSkillGuardProse:

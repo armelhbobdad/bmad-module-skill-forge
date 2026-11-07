@@ -53,7 +53,9 @@ hand (#599).
 
 Step 5 takes the validation verdict from skill-check's JSON, not its exit
 code, and reads the security scan as skipped, warn or pass, a scan that
-could not run named by the stderr line that gives its cause (#885).
+could not run named by the stderr line that gives its cause (#885). It
+tells a `--fix` rewrite from SKILL.md's hash before and after the call, since
+skill-check 1.2.0's JSON lists no fix (#901).
 """
 
 from __future__ import annotations
@@ -1789,14 +1791,14 @@ def test_step_5_captures_skill_check_and_reads_a_run_with_no_json():
     start with JSON did not validate."""
     four = _section(_read(WRITE_AND_VALIDATE), "### 4. Validate SKILL.md via skill-check", "### 5. ")
     capture = '> "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"'
-    call = _bash_block(four, "npx skill-check check").splitlines()[1]
+    call = _bash_block(four, "npx skill-check check").splitlines()[2]
     assert call == (f'npx skill-check check "{{skill_package}}" --fix --format json {capture}; '
                     'echo "skill-check exited $?"')
-    assert "then run the three commands in order. `verify-restore` runs whatever skill-check exits" in four
+    assert "then run the five commands in order. `verify-restore` runs whatever skill-check exits" in four
     stopped = _section(four, '**If no "skill-check exited" line came back**', "\n")
     for needle in ("the shell tool stopped the block before skill-check finished",
                    "run the `verify-restore` command on its own before reading `{run_dir}/skill-check.json`",
-                   "so a description `--fix` rewrote is restored"):
+                   "so a description `--fix` rewrote is restored, then run the second `hash` command."):
         assert needle in stopped, needle
     assert four.index("```bash") < four.index(stopped) < four.index("**Guard outputs.**")
     fallback = _section(four, "**If no `{descriptionGuardProbeOrder}` path exists**", "\n")
@@ -1814,6 +1816,47 @@ def test_step_5_captures_skill_check_and_reads_a_run_with_no_json():
                    "read only the JSON object at its start"):
         assert needle in no_json, needle
     assert four.index(no_json) < four.index("**Parse the JSON in") < four.index("**If skill-check is not available**")
+
+
+HASH_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py",
+              "{project-root}/src/shared/scripts/skf-hash-content.py"]
+
+
+def test_step_5_tells_a_fix_from_the_file_hash():
+    """#901: skill-check 1.2.0's JSON has no `fixed[]`, so two `hash` lines open and close the guarded block,
+    their files in the run folder, and a changed or unhashed SKILL.md is noted for §6 but counted nowhere."""
+    text = _read(WRITE_AND_VALIDATE)
+    assert "fixed[]" not in text
+    frontmatter = text.split("---\n", 2)[1]
+    assert "hashContentProbeOrder:\n" + "".join(f"  - '{path}'\n" for path in HASH_PROBE) in frontmatter
+    four = _section(text, "### 4. Validate SKILL.md via skill-check", "### 5. ")
+    assert "`{hashContentHelper}` ← first existing path in `{hashContentProbeOrder}`" in four
+    lines = _bash_block(four, "npx skill-check check").splitlines()
+    assert len(lines) == 5
+    hash_call = 'uv run {hashContentHelper} hash "{skill_package}/SKILL.md" > "{run_dir}/skill-md-hash-%s.json"'
+    assert (lines[0], lines[-1]) == (hash_call % "before", hash_call % "after")
+    assert " capture " in lines[1] and " verify-restore " in lines[3]
+    note = _section(four, "**Rewrite note.**", "\n")
+    for needle in ("Bind `{skill_md_changed}` ← true when the `content_hash` in `{run_dir}/skill-md-hash-before.json` "
+                   "differs from the one in `{run_dir}/skill-md-hash-after.json`, taken after the last `verify-restore`",
+                   "run the second `hash` command again after a `verify-restore` re-run",
+                   # Not hashed: no helper, or a file with no hash, is a change nobody saw, said so, acted on alike.
+                   "When no `{hashContentProbeOrder}` path exists (leave both `hash` commands out) or either file holds "
+                   "no `content_hash`, SKILL.md was not hashed: bind `{skill_md_changed}` ← true as well.",
+                   'record the validation note "skill-check --fix rewrote SKILL.md", or "SKILL.md may have been '
+                   'rewritten (not hashed) by skill-check --fix" when it was not hashed, which §6 lists with the '
+                   "auto-fixed issues",
+                   # Guard missing: skill-check runs without `--fix`, so nothing is hashed and nothing noted.
+                   "the guard below is missing), `--fix` did not run: hash nothing and bind `{skill_md_changed}` ← "
+                   "false."):
+        assert needle in note, needle
+    assert four.index("**Guard outputs.**") < four.index(note) < four.index("**If no `{descriptionGuardProbeOrder}`")
+    unguarded = _section(four, "**If no `{descriptionGuardProbeOrder}` path exists**", "\n")
+    assert "hash" not in unguarded
+    report = _section(text, "### 6. Report Validation Results", "### 7. ")
+    assert ("{list the auto-fixed issues: the §4 rewrite note when `{skill_md_changed}` is true, and the §4 "
+            "description-guard note when the guard restored the description}") in report
+    assert "A check that did not run counts 0, and the §4 rewrite note and the guard note count nothing." in report
 
 
 def test_finalize_relays_the_flip_helpers_message():

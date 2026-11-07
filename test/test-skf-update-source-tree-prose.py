@@ -122,6 +122,10 @@ public-api, merge, write.md's `exports[]` and `apply` keep only the names
 And the #885 fix: write.md §7 records `Security: SKIP` when skill-check
 exits non-zero and its stderr names `SNYK_TOKEN`.
 
+And the #901 fix: write.md §7 hashes SKILL.md before and after the guarded
+`--fix` call and re-reads it when the two hashes differ, since skill-check
+1.2.0's JSON lists no fix.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -5434,6 +5438,30 @@ def test_the_security_skip_names_the_sign_of_a_missing_token():
     assert "Read the JSON, not the exit code" in run
     assert ("When the scan could not run (no `SNYK_TOKEN`: skill-check exits non-zero and its stderr names "
             "`SNYK_TOKEN`), record `Security: SKIP (SNYK_TOKEN not configured)`.") in run
+
+
+def test_write_rereads_skill_md_when_fix_changed_it():
+    """#901: skill-check 1.2.0's JSON has no `fixed[]`, so §7 hashes SKILL.md before the guard's capture and again
+    after its verify-restore, and syncs the in-context copy when the hashes differ or one is missing."""
+    text = _read(WRITE)
+    assert "fixed[]" not in text
+    assert yaml.safe_load(_frontmatter(text))["hashContentProbeOrder"] == _probe("skf-hash-content.py")
+    assert "§7 also runs its `hash` subcommand" in _comment_before(_frontmatter(text), "hashContentProbeOrder")
+    seven = _slice(text, "### 7. Run Post-Write Validation", "### 8.")
+    call = '`uv run {hashContentHelper} hash "{skill_package}/SKILL.md"`'
+    assert seven.count(call) == 2
+    before = _slice(seven, "- **Hash before --fix:**", "\n")
+    run = _slice(seven, '- Run `npx skill-check check "{skill_package}" --fix --format json`', "\n")
+    sync = _slice(seven, "- **Context sync after --fix:**", "\n")
+    assert seven.index(before) < seven.index(run) < seven.index(sync)
+    assert f"before the §0 guard's `capture` for the `--fix` call below, run {call}" in before
+    assert "keep the `content_hash` it prints" in before
+    assert "the remaining `diagnostics[]` and the security findings" in run
+    for needle in (f"after that call's `verify-restore`, run {call} again",
+                   "When the `content_hash` it prints differs from the one kept before the call, or either `hash` call "
+                   "printed no `content_hash`, re-read SKILL.md into the in-context copy"):
+        assert needle in sync, needle
+    assert "npx" not in before + sync, "skill-check runs only in the two calls the run-once test counts"
 
 
 def test_the_evidence_records_live_in_the_run_folder():

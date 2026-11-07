@@ -300,7 +300,7 @@ t2_future_count: {N}
 - Notes: {one-sentence detail or —}
 
 ## Auto-Fixed Issues
-- {list of issues automatically corrected by --fix}
+- {"skill-check --fix rewrote SKILL.md" when §2 recorded `skill_check_fix_changed: true`, "SKILL.md may have been rewritten (not hashed) by skill-check --fix" when it recorded `skill_check_fix_changed: unchecked`, otherwise "none"}
 
 ## Remaining Warnings
 - {any warnings from extraction or validation}

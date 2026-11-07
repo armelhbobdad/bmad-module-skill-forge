@@ -2,7 +2,8 @@
 """Tests for skf-hash-content.py.
 
 Covers:
-  - hash: content_hash + size_bytes + line_count; --include-path flag
+  - hash: content_hash + size_bytes + line_count; --include-path flag; the
+    trailing blank lines `skill-check --fix` drops change the hash (#901)
   - compare: UNCHANGED / MODIFIED_FILE / DELETED_FILE classification
   - provenance shapes: top-level object with file_entries[]; bare array
   - guard against ../.. escapes from source-root
@@ -94,6 +95,20 @@ class TestHash:
         path = _write(tmp_path / "f.txt", "one\ntwo")  # 1 newline, 2 lines of text
         rec = mod.hash_record(path)
         assert rec["line_count"] == 1
+
+    def test_dropping_trailing_blank_lines_changes_the_hash(self, tmp_path: Path) -> None:
+        """#901: skill-check 1.2.0's `--fix` drops a SKILL.md's trailing blank lines and its JSON lists no
+        fix, so the steps compare `hash` output from before and after the call, through the CLI as they run it."""
+        skill = _write(tmp_path / "SKILL.md", "---\nname: zod\ndescription: Validates schemas.\n---\n\n# zod\n\n\n\n")
+        before = _run_cli("hash", str(skill))
+        assert before.returncode == 0, before.stderr
+        skill.write_bytes(skill.read_bytes().rstrip(b"\n") + b"\n")  # what `--fix` leaves
+        after = _run_cli("hash", str(skill))
+        again = _run_cli("hash", str(skill))
+        assert after.returncode == again.returncode == 0
+        first, second = json.loads(before.stdout)["content_hash"], json.loads(after.stdout)["content_hash"]
+        assert first.startswith("sha256:") and second.startswith("sha256:") and first != second
+        assert json.loads(again.stdout)["content_hash"] == second, "an untouched file hashes the same"
 
 
 # --------------------------------------------------------------------------
