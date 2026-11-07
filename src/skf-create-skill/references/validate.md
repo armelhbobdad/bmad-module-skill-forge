@@ -140,15 +140,11 @@ npx skill-check check --help 2>/dev/null | grep -- --no-security-scan
 - Else run a second probe — `npx skill-check check --help 2>/dev/null | grep -- --skip-security` — and if it matches, set `{security_scan_flag} = "--skip-security"`.
 - If neither flag exists: set `{security_scan_flag} = ""` (empty) AND set `{skill_check_flag_fallback} = true`. Skip §2 and §4 automated flows entirely — fall through to §3 manual frontmatter validation. Record in evidence-report: `skill_check_flag_probe: neither --no-security-scan nor --skip-security supported by installed skill-check; validation performed manually`.
 
-**If a security-scan-disable flag was resolved (probe succeeded):**
-
-```bash
-npx skill-check check <staging-skill-dir> --fix --format json {security_scan_flag}
-```
+**If a security-scan-disable flag was resolved (probe succeeded):** run the `skill-check check --fix` call where the Description Guard block below holds it (its Phase 2), never before that block's first `hash` and its `capture`.
 
 This performs frontmatter validation, description quality checks, body limit enforcement, local link resolution, file formatting, auto-fix of deterministic issues, and quality scoring (0-100) across five weighted categories.
 
-**Parse the JSON output** for: `scores[].score` (0-100; match the entry by `relativePath`/`skillId`; falls back to a top-level `qualityScore` on older skill-check builds) and `diagnostics[]` (remaining issues). skill-check's JSON lists no fix: the two `hash` calls below tell whether `--fix` changed SKILL.md.
+**Parse the JSON output** of the Phase 2 call below for: `scores[].score` (0-100; match the entry by `relativePath`/`skillId`; falls back to a top-level `qualityScore` on older skill-check builds) and `diagnostics[]` (remaining issues). skill-check's JSON lists no fix: the two `hash` calls below tell whether `--fix` changed SKILL.md.
 
 **Description Guard Protocol:** This invocation may modify SKILL.md. Wrap the `skill-check check --fix` call in the four-phase guard defined in §0 by invoking `{descriptionGuardHelper}` at the capture and verify-restore points, and hash SKILL.md with `{hashContentHelper}` (resolve it ← first existing path in `{hashContentProbeOrder}`) before the capture and after the verify-restore:
 
@@ -157,13 +153,14 @@ This performs frontmatter validation, description quality checks, body limit enf
 uv run {hashContentHelper} hash <staging-skill-dir>/SKILL.md
 # stash the returned `content_hash` as `skill_md_hash_before`
 
-# Phase 1 — capture before the tool call
+# Phase 1: capture before the tool call
 uv run {descriptionGuardHelper} capture <staging-skill-dir>/SKILL.md
 # stash the returned `description` as `guarded_description` in workflow context
 
-# Phase 2 — run skill-check (see command block above)
+# Phase 2: run skill-check
+npx skill-check check <staging-skill-dir> --fix --format json {security_scan_flag}
 
-# Phases 3+4 — verify and restore after the tool call
+# Phases 3+4: verify and restore after the tool call
 uv run {descriptionGuardHelper} verify-restore <staging-skill-dir>/SKILL.md \
     --captured-description "{guarded_description}"
 
@@ -369,7 +366,7 @@ Record the result on the evidence report's `Provenance lines` line (§8): `pass`
 
 ### 8. Update Evidence Report
 
-Write the validation results into the staged `<staging-skill-dir>/evidence-report.md`, in place of the `[PENDING: populated by step 6]` placeholders compile left, with `python3 {atomicWriteHelper} write --target <staging-skill-dir>/evidence-report.md`: step 7 promotes that file as it is. In the same write, add under `## Remaining Warnings` the notes steps 5a to 5c kept for the evidence report (the doc-sources note, `{temporal_feeder_notice}` when step 5c set it, because the Deep-tier temporal feeder held no files) and, once each, the skipped authoritative-files scan when the inventory's `authoritative_files_scan` records `not_scanned` (a remote source that was never cloned; the `skipped` count of candidates the user skipped is not a warning). When no split ran and the staged `references/` holds no file, the Body line says `Tier-2 kept inline (references/ empty)`, so an audit can tell inline by design from a split that failed.
+Write the validation results into the staged `<staging-skill-dir>/evidence-report.md`, in place of the `[PENDING: populated by step 6]` placeholders compile left and of the line under `## Auto-Fixed Issues`, which compile wrote before §2 ran, with `python3 {atomicWriteHelper} write --target <staging-skill-dir>/evidence-report.md`: step 7 promotes that file as it is. In the same write, add under `## Remaining Warnings` the notes steps 5a to 5c kept for the evidence report (the doc-sources note, `{temporal_feeder_notice}` when step 5c set it, because the Deep-tier temporal feeder held no files) and, once each, the skipped authoritative-files scan when the inventory's `authoritative_files_scan` records `not_scanned` (a remote source that was never cloned; the `skipped` count of candidates the user skipped is not a warning). When no split ran and the staged `references/` holds no file, the Body line says `Tier-2 kept inline (references/ empty)`, so an audit can tell inline by design from a split that failed.
 
 ```markdown
 ## Validation Results

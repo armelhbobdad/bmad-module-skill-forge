@@ -78,7 +78,7 @@ If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 fr
 {onCompleteCommand} --result-path="{result_path}"
 ```
 
-Log success/failure but never fail the workflow on a hook error: the rename is already committed. The hook runs after the result files are written so an audit-log emit, registry re-index, or notifier sees the completed rename. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely; when `{result_path}` is null, skip it with one line saying no result file was written for it to read.
+Log success/failure but never fail the workflow on a hook error: the rename is already committed. The hook runs after the emitter wrote the per-run record (`result_path` not null) so an audit-log emit, registry re-index, or notifier sees the completed rename. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely; when `{result_path}` is null, skip it with one line saying no result file was written for it to read.
 
 ### 4. Release the Run Lock and the Run Folder
 

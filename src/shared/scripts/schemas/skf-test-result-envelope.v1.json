@@ -130,7 +130,7 @@
     "result_path": {
       "type": ["string", "null"],
       "minLength": 1,
-      "description": "The per-run result file the emitter wrote in the version folder, skf-test-skill-result-<YYYYMMDD-HHmmss>.json (UTC; -2, -3 appended when a run took that second's name), beside its skf-test-skill-result-latest.json copy. Stamped by the emitter, never typed. Null on a halt, which writes no result file, and when the per-run record could not be written (a result_file_write_failed warning says why); a -latest copy that could not be written leaves it set, and a result_file_write_failed warning names the copy."
+      "description": "The per-run result file the emitter wrote in the version folder, skf-test-skill-result-<YYYYMMDD-HHmmss>.json (UTC; -2, -3 appended when a run took that second's name), beside its skf-test-skill-result-latest.json copy. Stamped by the emitter, never typed. Null on a halt, which writes no result file, when --result-dir names no folder (nothing is written, and no warning is added), and when the per-run record could not be written (a result_file_write_failed warning says why); a -latest copy that could not be written leaves it set, and a result_file_write_failed warning names the copy."
     },
     "threshold_fallback": {
       "type": "boolean",

@@ -2147,3 +2147,29 @@ def test_docs_follow_the_tier_miss_the_audit_baseline_stop_and_the_drop_warnings
         assert f"`{name}: " in warnings and f"`{name}`" in line, name
     assert "A `success` drop can still carry `warnings` that name what needs a manual fix" in line
     assert line.index("`warnings`") < line.index("Exit codes in")
+
+
+def test_drop_skill_says_a_failed_per_run_record_leaves_result_path_null():
+    """The emitter nulls result_path when the per-run record could not be written and adds a
+    result_file_write_failed warning: the guide's DS bullet and Drop Skill's contract both say so."""
+    rule = ("a per-run record that could not be written leaves `result_path` null with a `result_file_write_failed` "
+            "warning")
+    [line] = [line for line in _read(WORKFLOWS).splitlines() if line.startswith("- **`/skf-drop-skill` (DS)**")]
+    assert f"`result_path` (the per-run result file, `null` for a dry run or a halt; {rule})" in line
+    contract = _read(SRC / "skf-drop-skill" / "references" / "invocation-contract.md")
+    [field] = [entry for entry in contract.splitlines() if entry.startswith("- `result_path`:")]
+    assert field.endswith(f"`null` for a dry run and a HALT, which write no result file. A{rule[1:]}.")
+
+
+@pytest.mark.parametrize("code, prefix, field", [
+    ("CS", "SKF_CREATE_SKILL_RESULT_JSON", "`summary.security_result`"),
+    ("SS", "SKF_STACK_RESULT_JSON", "`security_result`"),
+    ("US", "SKF_UPDATE_RESULT_JSON", "`skf_update.security_result`"),
+])
+def test_the_result_table_says_what_a_security_pass_shows(code, prefix, field):
+    """As the QS paragraph and the three schemas do, each row says a `pass` does not show the scan found nothing."""
+    [row] = [line for line in _read(WORKFLOWS).splitlines() if line.startswith(f"| {code} | `{prefix}`")]
+    meaning = ("`pass` when the scan exited 0 and skill-check reported no finding, which does not show that the scan "
+               "found nothing")
+    assert row.count(meaning) == 1, code
+    assert row.index(field) < row.index(meaning), code

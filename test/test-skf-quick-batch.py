@@ -686,6 +686,45 @@ def test_the_null_summary_event_has_the_documented_keys(batch, capsys, tmp_path)
     assert tuple(event)[-3:] == ("summary_path", "warnings", "batch_file")
 
 
+@pytest.mark.parametrize("refused, warning, meaning", [
+    ("latest", "summary_write_failed", "`summary_write_failed` means only the `-latest` copy failed"),
+    ("summary-line", "batch_file_write_failed",
+     "`batch_file_write_failed` that only the summary line could not be added to `{batch_dir}/batch.jsonl`"),
+], ids=["latest-copy", "summary-line"])
+def test_a_set_summary_path_beside_a_warning_is_documented(batch, capsys, tmp_path, monkeypatch, refused,
+                                                           warning, meaning):
+    """A -latest copy or a batch.jsonl summary line that could not be written leaves summary_path set and
+    adds a warning: batch-mode.md's Headless events show that event and name both warnings."""
+    documented = {tuple(_keys(line)) for line in _documented_events()}
+    file, run_dir = batch
+    _run(capsys, "start", str(file), "--run-dir", str(run_dir))
+    _finish(run_dir, capsys, ["success", "success", "success"])
+    write_json, append = mod._write_json, mod._append
+
+    def refuse_latest(path, value):
+        if path.name.endswith("-latest.json"):
+            raise OSError(28, "No space left on device")
+        write_json(path, value)
+
+    def refuse_summary_line(folder, entry):
+        if entry.get("event") == "summary":
+            raise OSError(28, "No space left on device")
+        append(folder, entry)
+
+    if refused == "latest":
+        monkeypatch.setattr(mod, "_write_json", refuse_latest)
+    else:
+        monkeypatch.setattr(mod, "_append", refuse_summary_line)
+    code, event, _ = _run(capsys, "summarize", "--run-dir", str(run_dir), "--output-dir", str(tmp_path / "o"))
+    assert code == 0 and event["summary_path"] is not None and Path(event["summary_path"]).is_file()
+    assert len(event["warnings"]) == 1 and event["warnings"][0].startswith(f"{warning}:")
+    assert "batch_file" not in event
+    assert tuple(event) in documented, event
+    section = BATCH_MODE.read_text(encoding="utf-8").split("## Headless events", 1)[1].split("## Exit code", 1)[0]
+    assert meaning in section
+    assert "The file `summary_path` names stays the batch's result." in section
+
+
 @pytest.mark.parametrize("cmd", ["record", "summarize"])
 def test_target_stderr_prints_the_event_on_stderr(batch, capsys, tmp_path, cmd):
     """batch-mode.md §3 and §4 pass --target stderr: the helper prints the event, the agent types none."""

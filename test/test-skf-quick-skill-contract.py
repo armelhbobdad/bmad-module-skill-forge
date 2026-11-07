@@ -1333,6 +1333,10 @@ def test_step_5_counts_the_validation_issues_in_the_schema_shape():
     shape = json.loads(VALIDATION_ISSUES.strip("`").replace("<n>", "0"))
     issues = _schema()["properties"]["summary"]["properties"]["validation_issues"]
     assert list(shape) == issues["required"] and set(shape) == set(issues["properties"])
+    # Step 6 §3's summary also carries the outcome §4 binds, so the closing sentence names it with the other two.
+    assert ("Step 6 §3's summary carries `{quality_score}`, `{validation_issues}` and `{security_result}`."
+            in report)
+    assert '"security_result": "{security_result}"' in finalize
 
 
 def _success_payload(section: str) -> str:

@@ -853,6 +853,10 @@ class TestSetCampaign:
         "no-exit-code": '{"status":"success","halt_reason":null}',
         "bool-exit-code": '{"status":"success","exit_code":true}',
         "string-exit-code": '{"status":"success","exit_code":"0"}',
+        # json.loads raises ValueError past 4,300 digits and RecursionError on deep nesting: neither is a
+        # JSONDecodeError, and both exited 1 with a traceback before.
+        "huge-int": '{"status":"success","exit_code":' + "1" * 4301 + "}",
+        "deep-nesting": "[" * 100_000 + "]" * 100_000,
     }
 
     @pytest.mark.parametrize("line", list(UNREADABLE))

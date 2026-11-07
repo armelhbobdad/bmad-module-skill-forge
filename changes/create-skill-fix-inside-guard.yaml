@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-create-skill
+summary: |
+  Create Skill's validation step showed the `skill-check --fix` call before the description guard, so a run read top to bottom could rewrite SKILL.md before the guard captured the description and before the first hash. The call now sits inside the guard block, and the evidence report's Auto-Fixed Issues line is among the fields validation fills, so it no longer keeps the "none" written before skill-check ran.
+prs: [952]
