@@ -155,7 +155,7 @@ The helper writes JSON to `{run_dir}/extract.json` with:
 
 Read `{run_dir}/extract.json` into the extraction context. The shape of the envelope is the same for every language; §4 builds the inventory from it without per-language branching.
 
-**Read the statements `unlisted[]` still names** before §4. `--follow` read every module it could, so read by eye only the `unlisted[]` records left, whose `module_file` is null or could not be read (a warning says why): list the names each adds, from the README's API section or the module's documentation, and stage them through a quoted heredoc as `{run_dir}/extract-added.json`, `{"exports": [{"name": "<name>", "type": "re-export", "source_file": "<the record's file>"}]}`, which step 4 §4 passes with the other extraction files. Leave the other warnings for §5.
+**Read the statements `unlisted[]` still names** before §4. `--follow` read every module it could, so read by eye only the `unlisted[]` records left, whose `module_file` is null or could not be read (a warning says why): list the names each adds, from the README's API section or the module's documentation, and stage them through a quoted heredoc as `{run_dir}/extract-added.json`, `{"exports": [{"name": "<name>", "type": "re-export", "source_file": "<the record's file>"}]}`, which step 4 §4 passes with the other extraction files. A record whose `statement` is an `export * from` another package (its `specifier` is no relative path; the extractor writes `export type *` as `export *`) adds no name, from the README or anywhere: the recipe runner and Test Skill leave such a star unresolved, so a name listed for it reads as stale. Keep each such record for §4's `external_stars`, and list names only for the others. A named re-export from another package (`export { a, b } from 'pkg'`) is already in `exports[]`. Leave the other warnings for §5.
 
 **Multi-module loop:** when `modules[]` is non-empty, fetch every sub-module's manifest in one §2 call, each under its `module_folders[]` entry. Then, per module, run §2's entries call with `--scope "<its module_folders[] entry>"`, its list and output written to `{run_dir}/entries-module-<n>.txt` and `{run_dir}/entries-module-<n>.json`, fetch the files it lists, and run the helper (§3) on them, writing each to `{run_dir}/extract-module-<n>.json`, `<n>` counting from 1 in `modules[]` order (a module is a path such as `modules/core` or a Gradle name such as `core:api`, so it never names the file). Step 4 §4 passes `{run_dir}/extract.json` (the parent manifest, which names the `package_name`) first and then each module's file in that order, and the renderer aggregates `exports[]` and `dependencies[]` across them.
 
@@ -180,6 +180,7 @@ extraction_inventory:
   repo_shape: {the §1.5 shape, when one was recorded}
   skills_root: {skills-module only: the folder that holds the skill folders}
   exports: [{name, type, brief_description}]
+  external_stars: [{file, line, statement, specifier}: each export * from another package §3 kept]
   usage_patterns: [{pattern from README examples, or the skills-module helper's usage_patterns}]
   dependencies: [{key deps from manifest}]
   confidence: {high/medium/low based on data quality}

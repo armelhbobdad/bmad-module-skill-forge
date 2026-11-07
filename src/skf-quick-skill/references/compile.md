@@ -45,6 +45,8 @@ Populate the SKILL.md section structure from `{skillTemplateData}` § "SKILL.md 
 
 **Skills module** (`repo_shape: skills-module`): Unless `{overrides.exports}` is set, Key Exports lists the skills first, each with its description, then the menu codes, each with its description, display name and the skill it runs, in the inventory's order. Usage Patterns gives one entry per `module-help.csv` usage pattern in the inventory; with no `module-help.csv`, it comes from the README as for a library.
 
+**Stars from other packages** (`extraction_inventory.external_stars`): after the Key Exports list, one prose sentence per record, not a list item or table row: "`<source statement>` (`{file}` line {line}) also exports every name of `{specifier}`: see that package's documentation." `<source statement>` is the statement as the source writes it at `{file}` line {line}, read from `{run_dir}/src/{file}` without its closing `;`, not the record's `statement`, which writes `export type *` as `export *`. When that line is an `export type *`, which passes on only the package's types, write "every type" for "every name". List none of that package's names.
+
 **Scripts & Assets Note** (add as an optional section when step 3's `{run_dir}/sniff.json` lists a `scripts/`, `bin/`, `assets/`, `templates/` or `schemas/` folder: its `asset_dir_count` is above 0): "This package may include scripts and assets. Run create-skill for full extraction with provenance tracking."
 
 **If confidence is low** — include a note: "This skill was generated with limited source data. Consider running create-skill for a more thorough compilation."
