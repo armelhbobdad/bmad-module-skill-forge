@@ -97,7 +97,7 @@ To validate the compiled SKILL.md content against the agentskills.io specificati
 - Validation and auto-fix modify files in the staging directory
 - `<staging-skill-dir>` resolves to `_bmad-output/.skf-stage/{skill-name}/` as created by step 5. Its last folder name must match the skill's frontmatter `name` field exactly — `skill-check`'s `frontmatter.name_matches_directory` rule rejects any suffix.
 - If skill-check unavailable: skip validation, add warning to evidence report
-- Ignore non-zero exit codes from skill-check if JSON output shows 0 errors
+- For the validation verdict, ignore non-zero exit codes from skill-check if JSON output shows 0 errors; the security scan's row follows its exit code and stderr tail (§5)
 - Tessl Review (§6b) is optional and advisory: it never halts, never asks the user anything and never changes the staged files, and SKF applies none of its suggestions
 - A HARD HALT, once step 3 §2b has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
@@ -231,20 +231,26 @@ Then re-validate: `npx skill-check check <staging-skill-dir> --format json {secu
 **If skill-check available:**
 
 ```bash
-npx skill-check check <staging-skill-dir> --format json
+npx skill-check check <staging-skill-dir> --format json > "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"
 ```
 
-(Security scan enabled by default when `--no-security-scan` omitted. The scan uses [Snyk](https://docs.snyk.io/) to check for prompt injection risks, sensitive data exposure, and unsafe tool permissions.)
+(Security scan enabled by default when `--no-security-scan` omitted. The scan uses [Snyk](https://docs.snyk.io/) to check for prompt injection risks, sensitive data exposure, and unsafe tool permissions.) The call keeps stdout, stderr and the exit code apart. Give it the longest timeout your shell tool takes. When no "skill-check exited" line came back, the shell tool stopped the call before skill-check finished (a cold `uvx mcp-scan` install can outlast its timeout).
 
-Record any security warnings in evidence-report. Security findings are advisory — they do not block artifact generation. If the full validation re-run produces a different quality score than section 2, update the evidence-report with the newer score.
+**Score refresh.** stdout can go on after the JSON (a `Wrote <path>` line when the project config sets a report path), so read only the JSON object at the start of `{run_dir}/skill-check.json`. If its quality score differs from section 2's, update the evidence-report with the newer score. When the file does not start with a JSON object (exit 2 on a config, option or plugin error, or a stopped call), keep section 2's score.
 
-**If security scan fails due to missing SNYK_TOKEN** (skill-check exits non-zero and its stderr names `SNYK_TOKEN`):
+**Read the JSON, not the exit code.** skill-check prints its JSON before the security scan runs, then exits 1 when `summary.errorCount` is above 0, when `--strict` or `--fail-on-warning` is passed and `summary.warningCount` is above 0 (this call passes neither), or when the scan exits non-zero, and 2 when no scan runner starts, so a non-zero exit is not a security finding. skill-check 1.2.0 puts no security key in the JSON. The scan exited non-zero, which without `--ci` means it did not finish, when skill-check exits 1 although `summary.errorCount` is 0: stderr is then the scan's last lines (its tail), even when blank. On exit 0, stderr is never a scan tail (npm and Node warnings can be there); when exit 1 has another cause, stderr is a scan tail only when it holds the scanner's own lines, such as its token message or a finding code. A finding code is `[`, a capital letter, three digits and `]` (such as `[E001]`), the codes skill-check's own scan summary counts. Bind `{security_result}` from `{run_dir}/skill-check.stderr` and the exit code, the first that applies:
+
+- `skipped`: §1 found no skill-check (**If skill-check unavailable** below), skill-check exits 2, the call stopped before it exited, or the scan exited non-zero and its tail carries no finding code. Log under the evidence report's Remaining Warnings "security scan skipped: SNYK_TOKEN not configured" when the tail says to set the `SNYK_TOKEN` environment variable (the scanner prints "To use Agent Scan, set the SNYK_TOKEN environment variable."), otherwise "security scan skipped: scanner could not run ({the stderr line that names the cause, or its last line})", or "security scan skipped: scanner exited non-zero with no output" when stderr is blank.
+- `warn`: `security[]` holds findings, or the tail carries finding codes. Record each finding under the evidence report's Remaining Warnings as an advisory warning: security findings do not block artifact generation.
+- `pass`: otherwise. The scan exited 0 and skill-check reported no finding. Without `--ci`, agent-scan also exits 0 when its analysis fails (a 401 from a bad token, a 429, a network error), so this does not show that the scan found nothing (#892).
+
+**Security row.** §8 writes the `- Security:` row as `{security_result}`, then its note in parentheses: for `skipped` the note above less its "security scan skipped: " prefix, such as `skipped (SNYK_TOKEN not configured)`; for `warn` each finding; for `pass` the row reads `pass (scan exited 0; skill-check 1.2.0 does not pass the scan's findings on)`. Step 8 takes the row's first word as `security_result`.
+
+**If the tail says to set `SNYK_TOKEN`** (the first `skipped` note):
 
 Display: "Security scan requires a Snyk Enterprise API token ([docs](https://docs.snyk.io/snyk-api/authentication-for-api)). Set `SNYK_TOKEN=your-token` in environment or `.env`, then re-run [SF] Setup Forge. Without Enterprise, use `--no-security-scan` to skip. Security scanning is optional and does not block skill compilation."
 
-Record: "Security scan skipped — SNYK_TOKEN not configured"
-
-**If skill-check unavailable:** Skip with note: "Security scan skipped — skill-check tool unavailable"
+**If skill-check unavailable:** bind `{security_result}` ← `skipped`, keep the Security row §1 marked, and log "security scan skipped: skill-check unavailable" under the evidence report's Remaining Warnings.
 
 ### 6. Description Angle-Bracket Check
 
@@ -370,7 +376,7 @@ Write the validation results into the staged `<staging-skill-dir>/evidence-repor
 - Schema: {pass/fail} (quality score: {score}/100)
 - Frontmatter: {pass/fail}
 - Body: {pass/fail} {body split applied if applicable}
-- Security: {pass/warn/skipped}
+- Security: {pass/warn/skipped} ({the note §5's Security row gives})
 - Description angle brackets: {none | re-sanitized ({count} substitutions) | not checked — no description}
 - Tessl Review: {tessl_summary}
 - Metadata: {pass/fail}

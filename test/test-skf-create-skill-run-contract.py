@@ -29,8 +29,9 @@
 - validate §4 splits the body by one rule set (#600), and customize.toml
   names its override files by {project-root} and says how to drop the
   persistent_facts default (#596).
-- validate §5's SNYK_TOKEN branch names its sign: skill-check exits
-  non-zero and its stderr names `SNYK_TOKEN` (#885).
+- validate §5 captures the scan call's stdout, stderr and exit code in the
+  run folder and binds the Security row from them by Quick Skill's rule,
+  the first that applies: skipped, warn, then pass (#934).
 - validate §2 hashes SKILL.md before the guard's capture and after its
   verify-restore, since skill-check 1.2.0's JSON lists no fix, and §8's
   Auto-Fixed line, the same in skill-sections.md, keys on that (#901).
@@ -544,7 +545,7 @@ def test_the_result_payload_reads_the_security_row(tmp_path):
     assert payload["summary"]["security_result"] == "{security_result}"
     assert payload["result_contract"]["summary"]["security_result"] == "{security_result}"
     results = _section(_read(REFS / "validate.md"), "### 8. Update Evidence Report", "### 9.")
-    assert "## Validation Results\n" in results and "\n- Security: {pass/warn/skipped}\n" in results
+    assert "## Validation Results\n" in results and "\n- Security: {pass/warn/skipped} ({the note §5's Security row gives})\n" in results
     # the row's three words are the schema's values
     schema = _schema()
     assert schema["properties"]["summary"]["properties"]["security_result"]["enum"] == ["pass", "warn", "skipped"]
@@ -869,11 +870,85 @@ def test_validate_tells_a_fix_from_the_file_hash():
     assert line in _section(validate, "### 8. Update Evidence Report", "### 9.")
 
 
-def test_the_security_scan_names_the_sign_of_a_missing_token():
-    """#885: the SNYK_TOKEN branch says what a run reads to take it, so a token failure is not read as `pass`."""
-    five = _section(_read(REFS / "validate.md"), "### 5. Security Scan", "### 6. ")
-    (branch,) = [line for line in five.splitlines() if line.startswith("**If security scan fails due to missing")]
-    assert "(skill-check exits non-zero and its stderr names `SNYK_TOKEN`)" in branch
+# What skill-check 1.2.0 counts as a finding, and the line agent-scan prints with no SNYK_TOKEN, as Quick Skill's
+# contract test records them (#885); Quick Skill's step is the rule §5 ports (#934).
+FINDING_CODE = re.compile(r"\[[A-Z]\d{3}\]")
+NO_TOKEN_LINE = "To use Agent Scan, set the SNYK_TOKEN environment variable."
+QUICK_WRITE = REPO / "src" / "skf-quick-skill" / "references" / "write-and-validate.md"
+SCAN_CAPTURE = '> "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"'
+
+
+def _quick_scan_facts() -> str:
+    """Quick Skill's exit-code facts, from its no-security-key sentence through its finding-code sentence."""
+    four = _section(_read(QUICK_WRITE), "### 4. Validate SKILL.md via skill-check", "### 5. ")
+    start = four.index("skill-check 1.2.0 puts no security key in the JSON.")
+    end = four.index("the codes skill-check's own scan summary counts.", start)
+    return four[start:end + len("the codes skill-check's own scan summary counts.")]
+
+
+def test_the_security_scan_reads_its_exit_code_and_tail():
+    """#934: §5 captures the scan call's stdout, stderr and exit code in the run folder and binds the Security row by
+    Quick Skill's rule, the first that applies, so exit 2, a stopped call or another scan that did not finish reads
+    `skipped` and finding codes in the stderr tail read `warn`, where only a stderr naming SNYK_TOKEN did before."""
+    validate = _read(REFS / "validate.md")
+    five = _section(validate, "### 5. Security Scan", "### 6. ")
+    # the call keeps its arguments, its stdout, stderr and exit code captured apart in the run folder
+    assert f"```bash\nnpx skill-check check <staging-skill-dir> --format json {SCAN_CAPTURE}\n```\n" in five
+    rule = _section(five, "**Read the JSON, not the exit code.**", "**Security row.**")
+    assert "so a non-zero exit is not a security finding" in rule
+    assert _quick_scan_facts() in rule, "the exit-code facts and the finding code are Quick Skill's, word for word"
+    assert FINDING_CODE.fullmatch("[E001]") and not FINDING_CODE.search(NO_TOKEN_LINE)
+    assert "Bind `{security_result}` from `{run_dir}/skill-check.stderr` and the exit code, the first that applies:" \
+        in rule
+    bullets = [rule.index(f"\n- `{value}`: ") for value in ("skipped", "warn", "pass")]
+    assert bullets == sorted(bullets), "the first that applies: skipped, then warn, then pass"
+    skipped, warn, clean = (rule[a:b] for a, b in zip(bullets, bullets[1:] + [len(rule)]))
+    row = _section(five, "**Security row.**", "\n")
+    assert "§8 writes the `- Security:` row as `{security_result}`, then its note in parentheses" in row
+    # No token: exit 1, no error, a tail that asks for SNYK_TOKEN; the Display text is kept.
+    sign = "when the tail says to set the `SNYK_TOKEN` environment variable"
+    display = _section(five, "**If the tail says to set `SNYK_TOKEN`** (the first `skipped` note):", "\n\n**If ")
+    assert (f'"security scan skipped: SNYK_TOKEN not configured" {sign} (the scanner prints "{NO_TOKEN_LINE}")'
+            in skipped and "`skipped (SNYK_TOKEN not configured)`" in row
+            and 'Display: "Security scan requires a Snyk Enterprise API token' in display)
+    # No runner: exit 2, noted by its cause line; with no JSON at the file's start §2's score stays.
+    assert ("skill-check exits 2" in skipped
+            and "read only the JSON object at the start of `{run_dir}/skill-check.json`" in five
+            and "When the file does not start with a JSON object (exit 2 on a config, option or plugin error, or a "
+                "stopped call), keep section 2's score." in five)
+    # Stopped call: no "skill-check exited" line came back.
+    assert ('When no "skill-check exited" line came back, the shell tool stopped the call before skill-check '
+            "finished" in five and "the call stopped before it exited" in skipped)
+    # Scan failed: exit 1 with no error and no finding code in the tail, or a blank one.
+    assert ("or the scan exited non-zero and its tail carries no finding code." in skipped
+            and '"security scan skipped: scanner could not run ({the stderr line that names the cause, or its last '
+                'line})"' in skipped
+            and '"security scan skipped: scanner exited non-zero with no output" when stderr is blank' in skipped)
+    # Findings: finding codes in the tail (or `security[]`), each an advisory warning.
+    assert ("`security[]` holds findings, or the tail carries finding codes. Record each finding under the evidence "
+            "report's Remaining Warnings as an advisory warning" in warn)
+    # Clean: exit 0, npm warnings on stderr are no tail; the row says what an exit 0 shows.
+    assert ("otherwise. The scan exited 0 and skill-check reported no finding." in clean
+            and "On exit 0, stderr is never a scan tail (npm and Node warnings can be there)" in rule
+            and "`pass (scan exited 0; skill-check 1.2.0 does not pass the scan's findings on)`" in row)
+    # Analysis error: a 401 or 429 exits 0 and still reads `pass` (#892).
+    assert ("Without `--ci`, agent-scan also exits 0 when its analysis fails (a 401 from a bad token, a 429, a "
+            "network error), so this does not show that the scan found nothing (#892).") in clean
+    # Errors only: exit 1 with errors and no scanner line is no tail.
+    assert ("when exit 1 has another cause, stderr is a scan tail only when it holds the scanner's own lines, such as "
+            "its token message or a finding code") in rule
+    # No skill-check: §1's skip, its note in Quick Skill's words.
+    unavailable = _section(five, "**If skill-check unavailable:**", "\n")
+    assert ("§1 found no skill-check" in skipped and "bind `{security_result}` ← `skipped`, keep the Security row §1 "
+            'marked, and log "security scan skipped: skill-check unavailable"' in unavailable)
+    # The old SNYK_TOKEN-only branch is gone, no em or en dash is added, and Rules keeps the exit-code rule for the
+    # validation verdict only.
+    for stale in ("its stderr names `SNYK_TOKEN`", "If security scan fails due to missing", "Security scan skipped"):
+        assert stale not in five, stale
+    assert "\u2014" not in five and "\u2013" not in five
+    rules = _rules(REFS / "validate.md")
+    assert ("- For the validation verdict, ignore non-zero exit codes from skill-check if JSON output shows 0 errors; "
+            "the security scan's row follows its exit code and stderr tail (§5)\n") in rules
 
 
 # --------------------------------------------------------------------------
