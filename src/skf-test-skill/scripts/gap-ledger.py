@@ -215,15 +215,26 @@ cites (never read; default `metadata.json`):
             entries its counts differ by; a barrel one sends the fix to
             Create Skill, which rebuilds `exports[]` from the source.
   provenance-line
-            --input skf-verify-provenance-completeness.py verify's result.
+            --input skf-verify-provenance-completeness.py verify's result;
+            --stale.
             Each `stale[]` item, at its `{source_file}:{source_line}` with
             `export`, by `reason`: `line-not-definition` is a Low
             `provenance-line` gap `Provenance line is not the definition of
             {export_name}` when `definition_lines` holds a line, else an Info
             `provenance-unverified` gap `Provenance line not verified for
             {export_name}`, and its issue names the base of a `folded_to`
-            variant; `file-missing` is a Low `provenance-line` gap
-            `Provenance file is missing for {export_name}`;
+            variant. When the --stale result (classify-stale) marks
+            `{export_name}` `aliased` with a `file:line` `defined_at`, that
+            Info gap's issue and remediation name the alias at `defined_at`,
+            and the remediation asks first to record the rename if no other
+            entry already has its `export_name` (`export_name` the item's
+            `renames`, else "a name a cited file declares", `reexported_as`
+            the export), else to cite the alias, moving the citations either
+            way; when `renames` is `default`, which the map keys on
+            `export_name` and so holds once, it asks only to cite the alias.
+            A --stale result that is not a list is INVALID_INPUT.
+            `file-missing` is a Low `provenance-line`
+            gap `Provenance file is missing for {export_name}`;
             `line-out-of-bounds` a Low `provenance-line` gap `Provenance line
             is out of range for {export_name}`; `line-invalid` an Info
             `provenance-unverified` gap `Provenance line not verified for
@@ -768,7 +779,7 @@ ADAPTER_OPTIONS: dict[str, frozenset[str]] = {
     "guards": frozenset({"metadata"}),
     "numerator": frozenset({"metadata"}),
     "metadata-coherence": frozenset({"metadata"}),
-    "provenance-line": frozenset(),
+    "provenance-line": frozenset({"stale"}),
     "coherence": frozenset(),
     "structure": frozenset({"served"}),
 }
@@ -1543,10 +1554,48 @@ def from_metadata_coherence(result: object, metadata: str | None = None) -> list
     return records
 
 
-def from_provenance_line(result: object) -> list[dict]:
+def _aliased_items(stale: object) -> dict[str, dict]:
+    """name -> its classify-stale item (`--stale`) when it is `aliased` with a `file:line` `defined_at`: a rename
+    elsewhere declares the name, so a provenance line gap of it names the alias. Raises AdapterError, as the
+    coverage adapter does, when the result is not a list."""
+    if stale is None:
+        return {}
+    if not isinstance(stale, list):
+        raise AdapterError("--stale is not classify-stale JSON (a list)")
+    return {i["name"]: i for i in stale
+            if isinstance(i, dict) and isinstance(i.get("name"), str) and i.get("reason") == "aliased"
+            and isinstance(i.get("defined_at"), str) and i["defined_at"].rpartition(":")[0]
+            and i["defined_at"].rpartition(":")[2].isdigit()}
+
+
+def _alias_fix(name: str, file: str, item: dict) -> str:
+    """The remediation of an unverified provenance line of a name classify-stale found `aliased` (`item`): record
+    the rename if no other entry already has its `export_name`, else cite the alias. The map keys on
+    `export_name`, so it holds one `default` entry at most (a barrel of `export { default as X }` lines renames
+    several): a rename of `default` takes the alias alone. It never says which cited file declares the renamed
+    name: any checked entry's may."""
+    alias, local = item["defined_at"], item.get("renames")
+    alias_file, _, alias_line = alias.rpartition(":")
+    named = isinstance(local, str) and bool(local)
+    renamed = f"`{local}`" if named else "a name a cited file declares"
+    head = f"`{name}` is an alias: `{alias}` renames {renamed} to it, and no line of `{file}` defines `{name}`. "
+    cite = (f"the alias: set `source_file` to `{alias_file}` and `source_line` to `{alias_line}`, and move the "
+            f"citations of `{name}` there.")
+    if local == "default":
+        return f"{head}Cite {cite}"
+    guard = f"`export_name` {renamed}" if named else "that name as its `export_name`"
+    return (f"{head}If no other entry already has {guard}, record the rename in this provenance entry: set "
+            f"`export_name` to {renamed}, add `reexported_as` `{name}`, cite the line that declares {renamed} and "
+            f"move the citations of `{name}` to that line. Or cite {cite}")
+
+
+def from_provenance_line(result: object, stale: object = None) -> list[dict]:
     """verify's `stale[]` items: provenance line gaps, one per citation that does not resolve or is not the
-    definition line."""
+    definition line. `stale` (classify-stale's result, `--stale`, or None) gives the names a rename declares: an
+    unverified line of one names the alias and, unless the name it renames is `default`, how to record the rename
+    (#911)."""
     result = _object(result, "--input (skf-verify-provenance-completeness.py verify)", "stale")
+    aliased = _aliased_items(stale)
     records: list[dict] = []
     for item in _list(result, "stale", "--input"):
         if not isinstance(item, dict):
@@ -1601,12 +1650,16 @@ def from_provenance_line(result: object) -> list[dict]:
                       f"it; the lines that define it are {lines}.{folded}",
                 export=name))
         else:
-            records.append(_gap(
-                "Info", "provenance-unverified", f"Provenance line not verified for {name}", where,
+            alias = aliased[name] if isinstance(name, str) and name in aliased else None
+            fix = _alias_fix(name, file, alias) if alias else (
                 f"Open `{file}` and confirm that line {line} defines `{base or name}`; if another line does, set "
-                "the provenance `source_line` to it.",
-                issue=f"the line-check rules found no definition line for `{name}` in `{file}`; check by hand"
-                      + (f".{folded}" if folded else ""),
+                "the provenance `source_line` to it.")
+            issue = (f"no line of `{file}` defines `{name}`: the source declares it only as the alias at "
+                     f"`{alias['defined_at']}`" if alias else
+                     f"the line-check rules found no definition line for `{name}` in `{file}`; check by hand")
+            records.append(_gap(
+                "Info", "provenance-unverified", f"Provenance line not verified for {name}", where, fix,
+                issue=issue + (f".{folded}" if folded else ""),
                 export=name))
     return records
 
@@ -1775,7 +1828,8 @@ def build_records(args: argparse.Namespace) -> list[dict]:
     if kind == "metadata-coherence":
         return from_metadata_coherence(data, args.metadata)
     if kind == "provenance-line":
-        return from_provenance_line(data)
+        stale = read_result(args.stale, "--stale") if args.stale is not None else None
+        return from_provenance_line(data, stale)
     return from_coherence(data)
 
 
@@ -1992,7 +2046,8 @@ def _build_parser() -> argparse.ArgumentParser:
                                      "the names outside scope)")
     p.add_argument("--signatures", help="coverage: score-signatures.py score's result (missingTypes)")
     p.add_argument("--numerator", help="coverage: verify-declared-numerator.py's result (absent names)")
-    p.add_argument("--stale", help="coverage: classify-stale's result (fabricated signatures, documented extras)")
+    p.add_argument("--stale", help="coverage: classify-stale's result (fabricated signatures, documented extras); "
+                                   "provenance-line: the same (the names a rename declares)")
     p.add_argument("--provenance", help="coverage: the provenance map (an absent name's Source)")
     p.add_argument("--skill-dir", help="coverage: the skill package (a stale name's documenting line)")
     p.add_argument("--metadata", help="the metadata.json path a record cites as its Source (not read)")

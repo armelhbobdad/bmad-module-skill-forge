@@ -54,6 +54,12 @@ counts and the Gap Report is rendered from:
     ones included; never the frontmatter, a bare word, a span that holds
     the name among other words, a fence in an HTML comment or a data
     block; an unreadable input is skipped, and the floor is read once
+  - an aliased name's provenance line (#911): with --stale, an unverified
+    line of a name classify-stale marks `aliased` names the alias and asks
+    to record the rename if no other entry already has its `export_name`,
+    the renamed name else a phrase standing for it, else to cite the
+    alias; an alias of `default` only cites the alias line; any other
+    record keeps its text, and a --stale that is not a list is refused
 """
 
 from __future__ import annotations
@@ -1993,6 +1999,130 @@ class TestProvenanceAndCoherenceAdapters:
         assert "not a line number" in invalid["issue"] and "check by hand" in invalid["issue"]
         for record in records:
             assert record["title"].endswith(record["export"]), record
+
+    # #911: `Entry` is cited at the `API_Entry` declaration a multi-line `export type { ... }` list in
+    # `pkg/root.ts` renames to it, which classify-stale marks `aliased`
+    ALIAS_VERIFY = {"stale": [
+        {"export_name": "Entry", "source_file": "pkg/api.ts", "source_line": 1, "reason": "line-not-definition",
+         "definition_lines": []},
+        {"export_name": "fetch", "source_file": "lib/api.py", "source_line": 40, "reason": "line-not-definition",
+         "definition_lines": []}]}
+    ALIASED = {"name": "Entry", "fabricated": False, "source": "pkg/api.ts:1", "defined_at": "pkg/root.ts:2",
+               "declared_in": ["pkg/root.ts:2"], "reason": "aliased", "entries": [], "renames": "API_Entry"}
+
+    def test_an_aliased_name_names_its_alias(self):
+        """#911: an aliased name's unverified line leads with recording the rename and names the alias line, in
+        its remediation and its issue; the gap's title, Source, severity and category stay, and every other
+        record keeps today's text."""
+        plain = mod.from_provenance_line(self.ALIAS_VERIFY)
+        records = mod.from_provenance_line(self.ALIAS_VERIFY, [self.ALIASED])
+        assert brief(records) == brief(plain) == [
+            ("Info", "provenance-unverified", "Provenance line not verified for Entry", "pkg/api.ts:1", "Entry"),
+            ("Info", "provenance-unverified", "Provenance line not verified for fetch", "lib/api.py:40", "fetch")]
+        assert records[0]["remediation"] == (
+            "`Entry` is an alias: `pkg/root.ts:2` renames `API_Entry` to it, and no line of `pkg/api.ts` defines "
+            "`Entry`. If no other entry already has `export_name` `API_Entry`, record the rename in this provenance "
+            "entry: set `export_name` to `API_Entry`, add `reexported_as` `Entry`, cite the line that declares "
+            "`API_Entry` and move the citations of `Entry` to that line. Or cite the alias: set `source_file` to "
+            "`pkg/root.ts` and `source_line` to `2`, and move the citations of `Entry` there.")
+        assert records[0]["issue"] == (
+            "no line of `pkg/api.ts` defines `Entry`: the source declares it only as the alias at `pkg/root.ts:2`")
+        # a folded variant's issue keeps its base sentence
+        folded = {"stale": [self.ALIAS_VERIFY["stale"][0] | {"folded_to": "Ent"}]}
+        [record] = mod.from_provenance_line(folded, [self.ALIASED])
+        assert record["issue"] == (
+            "no line of `pkg/api.ts` defines `Entry`: the source declares it only as the alias at "
+            "`pkg/root.ts:2`. `Entry` is a bookkeeping variant `pkg/api.ts` never names, checked against its base "
+            "`Ent`.")
+        assert records[1] == plain[1]
+        # without --stale, today's advice
+        assert plain[0]["remediation"] == ("Open `pkg/api.ts` and confirm that line 1 defines `Entry`; if another "
+                                           "line does, set the provenance `source_line` to it.")
+        # with no string `renames`, a phrase stands for the renamed name
+        for unnamed in ({k: v for k, v in self.ALIASED.items() if k != "renames"}, self.ALIASED | {"renames": None},
+                        self.ALIASED | {"renames": ""}):
+            [record, _] = mod.from_provenance_line(self.ALIAS_VERIFY, [unnamed])
+            assert record["remediation"] == (
+                "`Entry` is an alias: `pkg/root.ts:2` renames a name a cited file declares to it, and no line of "
+                "`pkg/api.ts` defines `Entry`. If no other entry already has that name as its `export_name`, record "
+                "the rename in this provenance entry: set `export_name` to a name a cited file declares, add "
+                "`reexported_as` `Entry`, cite the line that declares a name a cited file declares and move the "
+                "citations of `Entry` to that line. Or cite the alias: set `source_file` to `pkg/root.ts` and "
+                "`source_line` to `2`, and move the citations of `Entry` there.")
+
+    def test_an_alias_of_default_cites_the_alias_line_alone(self):
+        """#911 (amended in review): the map keys on `export_name`, so it holds one `default` entry at most and a
+        barrel of `export { default as X }` lines cannot record each rename. An alias of `default` leads with
+        citing the alias line, split at its last colon, and never suggests recording the rename."""
+        stale = [self.ALIASED | {"renames": "default", "defined_at": "pkg/a:b/root.ts:12"}]
+        [record, _] = mod.from_provenance_line(self.ALIAS_VERIFY, stale)
+        assert record["remediation"] == (
+            "`Entry` is an alias: `pkg/a:b/root.ts:12` renames `default` to it, and no line of `pkg/api.ts` defines "
+            "`Entry`. Cite the alias: set `source_file` to `pkg/a:b/root.ts` and `source_line` to `12`, and move "
+            "the citations of `Entry` there.")
+        for gone in ("record the rename", "reexported_as", "set `export_name`"):
+            assert gone not in record["remediation"].lower(), gone
+        assert record["issue"] == (
+            "no line of `pkg/api.ts` defines `Entry`: the source declares it only as the alias at "
+            "`pkg/a:b/root.ts:12`")
+
+    @pytest.mark.parametrize("renames", ["defaults", "Default", "_Impl"])
+    def test_an_alias_of_another_name_guards_the_rename(self, renames: str):
+        """#911 (amended in review): any L but `default` leads with recording the rename, only if no other entry
+        already has `export_name` L (the map keys on it), and gives citing the alias line as the other option."""
+        [record, _] = mod.from_provenance_line(self.ALIAS_VERIFY, [self.ALIASED | {"renames": renames}])
+        assert record["remediation"] == (
+            f"`Entry` is an alias: `pkg/root.ts:2` renames `{renames}` to it, and no line of `pkg/api.ts` defines "
+            f"`Entry`. If no other entry already has `export_name` `{renames}`, record the rename in this "
+            f"provenance entry: set `export_name` to `{renames}`, add `reexported_as` `Entry`, cite the line that "
+            f"declares `{renames}` and move the citations of `Entry` to that line. Or cite the alias: set "
+            "`source_file` to `pkg/root.ts` and `source_line` to `2`, and move the citations of `Entry` there.")
+
+    @pytest.mark.parametrize("stale", [
+        [],
+        [ALIASED | {"name": "Other"}],
+        [ALIASED | {"reason": "defined"}],
+        [ALIASED | {"defined_at": None}],
+        [ALIASED | {"defined_at": ""}],
+        [ALIASED | {"defined_at": "pkg/root.ts"}],
+        [{k: v for k, v in ALIASED.items() if k != "name"}],
+        ["Entry"],
+    ], ids=["empty", "another-name", "not-aliased", "no-defined-at", "empty-defined-at", "defined-at-without-a-line",
+            "no-name", "not-an-item"])
+    def test_a_name_classify_stale_does_not_alias_keeps_todays_text(self, stale: list):
+        assert mod.from_provenance_line(self.ALIAS_VERIFY, stale) == mod.from_provenance_line(self.ALIAS_VERIFY)
+
+    def test_an_aliased_name_with_a_definition_line_or_another_reason_keeps_todays_text(self):
+        """Only an unverified line names the alias: a line verify pins, and every other reason, keep their text."""
+        verify = {"stale": [
+            {"export_name": "Entry", "source_file": "pkg/api.ts", "source_line": 1, "reason": "line-not-definition",
+             "definition_lines": [3]},
+            {"export_name": "Entry", "source_file": "pkg/gone.ts", "source_line": 1, "reason": "file-missing"},
+            {"export_name": "Entry", "source_file": "pkg/api.ts", "source_line": 99, "reason": "line-out-of-bounds"},
+            {"export_name": "Entry", "source_file": "pkg/api.ts", "source_line": "x", "reason": "line-invalid"}]}
+        assert mod.from_provenance_line(verify, [self.ALIASED]) == mod.from_provenance_line(verify)
+
+    def test_a_stale_result_that_is_not_a_list_is_refused(self):
+        with pytest.raises(mod.AdapterError, match=r"^--stale is not classify-stale JSON \(a list\)$"):
+            mod.from_provenance_line(self.ALIAS_VERIFY, {})
+
+    def test_the_append_reads_stale(self, ledger: Path, tmp_path: Path):
+        """`--from provenance-line --stale` records the alias's remediation; a --stale file that is not
+        classify-stale's list is INVALID_INPUT, with the coverage adapter's message, and writes nothing."""
+        verify = write_json(tmp_path / "verify.json", self.ALIAS_VERIFY)
+        bad = write_json(tmp_path / "bad.json", {})
+        proc = from_file(ledger, "coverage-check", "provenance-line", verify, stale=bad)
+        assert proc.returncode == 2
+        out = json.loads(proc.stdout)
+        assert (out["code"], out["error"]) == ("INVALID_INPUT", "--stale is not classify-stale JSON (a list)")
+        assert not ledger.exists()
+        proc = from_file(ledger, "coverage-check", "provenance-line", verify,
+                         stale=write_json(tmp_path / "stale.json", [self.ALIASED]))
+        assert proc.returncode == 0, proc.stdout
+        [entry, fetch] = ledger_records(ledger)
+        assert (entry["export"], entry["source"]) == ("Entry", "pkg/api.ts:1")
+        assert entry["remediation"].startswith("`Entry` is an alias: `pkg/root.ts:2` renames `API_Entry` to it")
+        assert fetch["remediation"].startswith("Open `lib/api.py` and confirm that line 40 defines `fetch`;")
 
     def test_a_fabricated_export_takes_no_provenance_line_gap(self, tmp_path: Path):
         """#832: an export the ledger already records as a fabricated signature no longer exists, so the append

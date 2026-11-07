@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill, skf-update-skill
+summary: |
+  Test Skill's Info `provenance-unverified` gap for a documented name that classify-stale marks `aliased` now names the alias line and how to record the rename; it sent the person to a line of the cited file, which never defines the name. The coverage check, when it records its gaps, passes classify-stale's result to `gap-ledger.py append --from provenance-line` through `--stale`, and the `aliased` item gains a `renames` key holding the renamed local name. The gap stays at the cited `file:line`, and its remediation first asks to record the rename in the provenance map (`export_name` the local name, `reexported_as` the documented one) if no other entry already has that `export_name`, else to cite the alias line. When the local name is `default`, which the map keys on `export_name` and so holds once, it only asks to cite the alias line. Update Skill's not-routed reason for the gap gives the same advice.
+issues: [911]
+prs: [961]

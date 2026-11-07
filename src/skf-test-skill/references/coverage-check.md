@@ -298,7 +298,7 @@ uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check -
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from guards --input "{run_dir}/surface.json" --metadata "{resolved_skill_package}/metadata.json"
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from numerator --input "{run_dir}/numerator.json" --metadata "{resolved_skill_package}/metadata.json"
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from metadata-coherence --input "{run_dir}/metadata-coherence.json" --metadata "{resolved_skill_package}/metadata.json"
-uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from provenance-line --input "{run_dir}/provenance-verify.json"
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --from provenance-line --input "{run_dir}/provenance-verify.json" [--stale "{run_dir}/stale.json"]
 ```
 
 **A split-body mismatch's Source** is a line inside the skill package: when §1b found one, load `{coverageBranchesFile}` and follow its **Split-Body Sources** section.

@@ -468,7 +468,8 @@ Subcommands:
                                     | "skipped-export-type"
                                     | "skipped-language" | "unreadable"
                                     | "no-file",
-                      "definition_lines": [<int>, ...] | null}, ...]},
+                      "definition_lines": [<int>, ...] | null}, ...],
+         "renames": "<L>"},             # an `aliased` item only
         ...
       ]
 
@@ -484,6 +485,8 @@ Subcommands:
     `checked` entry of the name declares by the same rule (no module or
     package so named counting; for `L` `default`, a column-0
     `export default`, `export { X as default }` or `exports.default =`).
+    That `L` is the item's `renames`, a key no other item has, so that
+    test-skill's provenance line gap can say how to record the rename.
     The renames read:
       - an export-list item `L as NAME` (`export { ... }`,
         `export type { ... }`, on one line or an item of a multi-line
@@ -3737,9 +3740,10 @@ def classify_stale(
     and none in the walk unless it is the export, and is `aliased`, not
     fabricated, when one of its candidate lines renames to it the
     declaration a `checked` entry's file holds (`_DeclarationLookup.renamed`,
-    which resolves the rename's `from`); any other such name keeps both
-    null. The classify-stale section of the
-    module docstring gives each reason, what a `no-file` entry means, which
+    which resolves the rename's `from`), and its `renames` then holds the
+    name that line renames (no other item has the key); any other such
+    name keeps both null. The classify-stale section of the module
+    docstring gives each reason, what a `no-file` entry means, which
     entry gives `source` and how `defined_at` and `declared_in` are found.
     `kinds` (`inventory_kinds`, None without `--inventory`) keeps a name of
     a `NO_MODULE_KINDS` kind from a module or package so named, unless an
@@ -3812,7 +3816,7 @@ def classify_stale(
         found, declared = {}, {}
     # the suspects' own lookup, after: an error there clears no name settled
     # above, and keeps every suspect fabricated
-    aliased: dict[str, str] = {}
+    aliased: dict[str, tuple[str, str]] = {}  # name -> (the rename's `file:line`, the `L` it renames)
     suspect_declared: dict[str, list[str]] = {}
     if suspects and lookup is not None:
         try:
@@ -3828,16 +3832,17 @@ def classify_stale(
                 )
                 alias = lookup.renamed(name, hits, files)
                 if alias is not None:
-                    aliased[name] = alias[0]  # the rename's line; alias[1] is `L`
+                    aliased[name] = alias
         except _LOOKUP_ERRORS:
             aliased, suspect_declared = {}, {}
     for item in results:
         name = item["name"]
         if name in suspects:
             if name in aliased:
+                defined_at, local = aliased[name]
                 item.update(
                     fabricated=False, reason=STALE_ALIASED,
-                    defined_at=aliased[name], declared_in=suspect_declared.get(name),
+                    defined_at=defined_at, declared_in=suspect_declared.get(name), renames=local,
                 )
             continue  # any other suspect stays fabricated, both null
         item["defined_at"] = found.get(name)

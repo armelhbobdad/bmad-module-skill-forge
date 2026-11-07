@@ -23,8 +23,9 @@ helper:
     path); `match`: the same lookup for a name a step takes elsewhere
   - `translate`: gap-driven.md §1's change manifest, every routed ledger
     category through the table, an unrouted one warned with its reason (a
-    stale name, metadata drift and an inflated union's summary gap among
-    them, the stale name through gap-records and apply too, which then
+    stale name, metadata drift, an inflated union's summary gap and an
+    aliased name's unverified line among them, the stale name through
+    gap-records and apply too, which then
     write no entry and no export), a
     `metadata` gap still routed to rule R4, a citation inside
     the skill package dropped, the answers it asks for (category, name,
@@ -897,6 +898,17 @@ def test_every_ledger_category_is_routed_or_has_a_reason():
     for reason in [*mod.NOT_ROUTED_REASONS.values(), mod.NO_REPAIR, mod.NO_EXPORT]:
         assert any(who in reason for who in ("a person", "Create Skill", "no fix is needed")), reason
         assert "these counts" not in reason and "those stats" not in reason, reason
+
+
+def test_the_provenance_unverified_reason_holds_the_alias_case():
+    """#911: the gap of a name a rename declares asks to record the rename or cite the alias, and the reason (and
+    gap-driven.md's bullet, which equals it) says so: the map keys on `export_name`, so the rename is recorded
+    only when no other entry has that `export_name` and the renamed name is not `default` (amended in review)."""
+    reason = mod.NOT_ROUTED_REASONS["provenance-unverified"]
+    for needle in ("when the gap names an alias", "records the rename in its provenance entry",
+                   "`reexported_as` the export", "only when no other entry has that `export_name`",
+                   "the alias does not rename a default export", "otherwise cites the alias line"):
+        assert needle in reason, needle
 
 
 def test_translate_leaves_a_stale_name_unrouted_with_its_reason():
