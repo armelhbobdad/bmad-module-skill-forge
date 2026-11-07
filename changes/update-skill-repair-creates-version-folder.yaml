@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-update-skill
+summary: |
+  A repair from a test report of an older skill that keeps its forge data directly in its forge folder, with no folder for its version there, halted at the provenance-map write with `No such file or directory`, because nothing created the folder the updated map goes into. A repair now creates that folder first, copies the skill's flat `evidence-report.md` and `extraction-rules.yaml` into it when it does not hold them yet, and writes the map there, so the update is appended to the full evidence report and later versions keep the extraction rules; the flat files stay as they were. When the folder cannot be created, the run halts with `halted-for-write-failure` and the repair is undone.
+issues: [959]
