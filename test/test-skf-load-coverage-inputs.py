@@ -27,6 +27,9 @@ State 2's (the States 2 to 4 section it loads from coverage-check-branches.md):
   - surface, #918: each declaration of a surface name exports[] holds in a
     file none of its records names is listed in `otherDeclarations`, and
     changes no record, set or guard
+  - surface, #913: a restored name takes the kind the provenance map gives
+    it at its file, and score-signatures.py counts it in Type Coverage when
+    that is a type kind, else names it in a warning when it has none
 The extraction fixture mirrors skf-extract-public-api.py --mode full output;
 a last test runs the real extractor when ast-grep is installed.
 """
@@ -1714,6 +1717,83 @@ def test_a_stale_glob_restores_the_root_exports_it_dropped(tmp_path):
         "`run_pipeline` in `cognee/pipelines/run.py`")
 
 
+TASK_FILE = "cognee/pipelines/task.py"
+# score-signatures.py's warning for the restored names with no kind (#913), less the names.
+KINDLESS = ("Type Coverage leaves out each name the stale-scope guard restored with no kind (the provenance map, "
+            "when one is given, gives it no kind Type Coverage reads at its file): ")
+
+
+def _restored_surface(folder: Path, entries: list[dict]) -> dict:
+    """The cognee surface, whose stale include glob restores `Task` and
+    `run_pipeline`, read with a provenance map of `entries`."""
+    return _surface(folder, "--extraction", _write(folder / "extract-full.json", COGNEE),
+                    "--brief", _write(folder / "skill-brief.yaml", COGNEE_BRIEF),
+                    "--provenance", _write(folder / "provenance-map.json", {"entries": entries}))
+
+
+@pytest.mark.parametrize(("task_entries", "kind"), [
+    ([("dataclass", TASK_FILE)], "class"),
+    ([("NamedTuple", TASK_FILE)], "class"),
+    ([("Protocol", TASK_FILE)], "interface"),
+    ([("type_alias", TASK_FILE)], "type"),
+    ([("enum", TASK_FILE)], "enum"),
+    ([("TypeVar", TASK_FILE)], "const"),
+    ([("constant", TASK_FILE)], "const"),
+    ([("function", TASK_FILE)], "function"),
+    ([("class", TASK_FILE)], "class"),
+    ([("interface", TASK_FILE)], "interface"),
+    ([("type", TASK_FILE)], "type"),
+    ([("const", TASK_FILE)], "const"),
+    ([("TypedDict", TASK_FILE)], "class"),
+    ([("decorator_namespace", TASK_FILE)], None),
+    ([("dataclass", "cognee/task.py")], None),
+    ([("dataclass", f"./{TASK_FILE}")], "class"),
+    ([("decorator_namespace", TASK_FILE), ("dataclass", "cognee/task.py"), ("Protocol", TASK_FILE),
+      ("enum", TASK_FILE)], "interface"),
+], ids=["dataclass", "namedtuple", "protocol", "type-alias", "enum", "typevar", "constant", "function",
+        "class", "interface", "type", "const", "typeddict", "decorator-namespace", "another-file", "dot-slash-path",
+        "first-known-kind"])
+def test_a_restored_name_takes_its_kind_from_the_provenance_map(tmp_path, task_entries, kind):
+    """#913: no recipe reads a restored name's file, so the name takes the
+    kind the provenance map gives it at that file, read as Type Coverage's
+    kinds (first entry in map order with a known kind); a record the
+    extraction gave a kind keeps it. No set, count or guard changes: the
+    same map with no export_type gives the same surface but for the
+    restored kinds."""
+    entries = [{"export_name": "Task", "export_type": t, "source_file": f, "source_line": 2}
+               for t, f in task_entries]
+    entries.append({"export_name": "add", "export_type": "class", "source_file": "cognee/api/v1/add.py",
+                    "source_line": 1})
+    out = _restored_surface(tmp_path / "typed", entries)
+    restored = {e["name"]: e["kind"] for e in out["exports"] if e["origin"] == "restored"}
+    assert restored == {"Task": kind, "run_pipeline": None}, "run_pipeline has no entry"
+    assert [e["kind"] for e in out["exports"] if e["name"] == "add"] == ["function"], "the extraction's kind stays"
+    assert out["sets"]["all"] == ["Task", "add", "run_pipeline"]
+    assert out["sets"]["scope.include"] == ["add", *ROUTER_NAMES]
+    assert out["guards"]["staleScope"]["restored"] == RESTORED
+    control = _restored_surface(tmp_path / "untyped", [{**e, "export_type": None} for e in entries])
+    assert [e["kind"] for e in control["exports"] if e["origin"] == "restored"] == [None, None]
+    assert ({k: v for k, v in out.items() if k not in ("inputs", "exports")}
+            == {k: v for k, v in control.items() if k not in ("inputs", "exports")})
+    assert [{**e, "kind": None} if e["origin"] == "restored" else e for e in out["exports"]] == control["exports"]
+
+
+def test_a_restored_type_counts_in_type_coverage(tmp_path):
+    """#913 end to end: `score` counts the restored `Task` the map gives a
+    type kind (undocumented, so a missing type), and names `run_pipeline`,
+    which has no kind, in place of the warning that the surface has no type."""
+    _restored_surface(tmp_path, [{"export_name": "Task", "export_type": "dataclass", "source_file": TASK_FILE}])
+    inventory = _write(tmp_path / "inventory.json", {"exports": [
+        {"name": "add", "kind": "function", "params": "data, dataset_name", "return_type": "None"},
+    ], "cross_check_mismatches": []})
+    out = json.loads(subprocess.run([sys.executable, str(SCORE_SIGNATURES), "score", "--inventory", inventory,
+                                     "--surface", str(tmp_path / "surface.json")],
+                                    capture_output=True, text=True, check=True).stdout)
+    assert (out["documentedTypes"], out["totalTypes"], out["typeCoverage"], out["missingTypes"]) == (
+        0, 1, 0.0, ["Task"])
+    assert out["warnings"] == [KINDLESS + "`run_pipeline`"]
+
+
 @pytest.mark.parametrize(("tier_a", "expected"), [(["cognee/pipelines/**"], None),
                                                   (["cognee/pipelines/**", "cognee/api/v1/add.py"], ["add"])],
                          ids=["restored-only", "restored-and-in-scope"])
@@ -1788,8 +1868,9 @@ def test_a_documented_nested_name_keeps_its_signature_check(tmp_path):
     assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (1, 2, 50.0)
     assert [(g["severity"], g["export"], g["source"]) for g in out["gapRecords"]] == [
         ("Critical", "get_add_router", "cognee/api/v1/routers/add.py:1")]
-    assert out["warnings"] == ["the source surface has no interface, type alias, enum or class: Type "
-                               "Coverage has nothing to cover and scores 100"]
+    # #913: the restored names have no kind without a provenance map, so Type Coverage names them, never
+    # claiming the surface has no type.
+    assert out["warnings"] == [KINDLESS + "`Task`, `run_pipeline`"]
 
 
 def test_a_nested_name_has_its_other_declarations(tmp_path):

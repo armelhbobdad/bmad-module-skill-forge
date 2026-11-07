@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's Type Coverage now counts a name the stale-scope guard restored (a root export defined in a file no `scope.include` glob covers once a glob matches no file) when the skill's provenance map gives that name a type kind at the same file. The map's kinds are read as Type Coverage's: a class, dataclass, NamedTuple or TypedDict is a class, a Protocol an interface, a type alias a type and an enum an enum, while a TypeVar, a constant or a function is no type. Before, every restored name had no kind, so Type Coverage was scored over the few types left (oms-cocoindex: 1 type, where the map gives 41 restored names a type kind). A restored name still without a kind is left out of Type Coverage and named in the score's warnings, which no longer say the source has no types. A skill whose brief has a stale include glob can see its Type Coverage, and so its score, change on its next test.
+issues: [913]

@@ -13,7 +13,8 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
   - scores Signature Accuracy (matching over compared, on the whole
     surface) and Type Coverage (documented types over the interfaces, type
     aliases, enums and classes of the denominator set --surface-set picks),
-    with compute-score.py's rounding
+    with compute-score.py's rounding; a restored name with no kind is named
+    in a warning, never counted (#913)
   - writes each mismatch of a compared name as a ledger record, which
     gap-ledger.py append accepts as it is; a mismatch for any other name is
     a warning, never a gap
@@ -304,6 +305,54 @@ def test_nothing_to_compare_scores_100_with_a_warning(tmp_path):
     out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
     assert out["signatureAccuracy"] == 100.0 and out["typeCoverage"] == 100.0
     assert len(out["warnings"]) == 2
+
+
+NO_TYPES = ("the source surface has no interface, type alias, enum or class: Type Coverage has nothing to cover "
+            "and scores 100")
+KINDLESS = ("Type Coverage leaves out each name the stale-scope guard restored with no kind (the provenance map, "
+            "when one is given, gives it no kind Type Coverage reads at its file): ")
+
+
+def _restored(name: str, kind: str | None, origin: str = "restored") -> dict:
+    return {"name": name, "kind": kind, "file": f"pkg/{name.lower()}.py", "line": 1, "signatureLine": None,
+            "origin": origin}
+
+
+def test_a_restored_name_with_no_kind_is_named_not_counted(tmp_path):
+    """#913: Type Coverage cannot tell whether a restored name with no kind
+    is a type, so it leaves the name out and names it in a warning, in place
+    of the one that says the surface has no type; the score never drops. A
+    name with a kind on any record (a restored one the provenance map typed,
+    or an extraction record beside a kindless restored one) counts."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [
+        {"name": "Cls", "kind": "class", "params": "", "return_type": "Cls"},
+    ], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {
+        "exports": [_restored("Both", None), _restored("Both", "class", "extraction"), _restored("Cls", "class"),
+                    _restored("Old", None), _restored("Val", "const"), _restored("Fn", "function")],
+        "sets": {"all": ["Both", "Cls", "Fn", "Old", "Val"], "root": ["Both", "Cls"]}})
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
+    assert (out["documentedTypes"], out["totalTypes"], out["typeCoverage"], out["missingTypes"]) == (
+        1, 2, 50.0, ["Both"])
+    assert out["warnings"] == [KINDLESS + "`Old`"]
+    # Over a set that leaves `Old` out, there is nothing to name.
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--surface-set", "root").stdout)
+    assert (out["totalTypes"], out["warnings"]) == (2, [])
+    # A surface whose names are all restored with no kind scores 100, with that warning alone.
+    surface = _write(tmp_path / "kindless.json", {"exports": [_restored("Cls", None), _restored("Old", None)],
+                                                  "sets": {"all": ["Cls", "Old"]}})
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
+    assert (out["typeCoverage"], out["totalTypes"], out["signatureAccuracy"]) == (100.0, 0, 100.0)
+    assert out["warnings"] == [KINDLESS + "`Cls`, `Old`"]
+    # A restored name with no kind is named even beside another record of it with no kind.
+    surface = _write(tmp_path / "mixed.json", {"exports": [_restored("Cls", None), _restored("Cls", None, "per-file")],
+                                               "sets": {"all": ["Cls"]}})
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
+    assert out["warnings"] == [KINDLESS + "`Cls`"]
+    # With no record, the surface still has no type.
+    surface = _write(tmp_path / "bare.json", {"exports": [], "sets": {"all": ["Cls", "y"]}})
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
+    assert out["warnings"] == [NO_TYPES]
 
 
 def test_a_fallback_scan_reports_its_own_names_and_types(tmp_path):
