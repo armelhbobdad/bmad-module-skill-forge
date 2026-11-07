@@ -282,8 +282,8 @@ same-named function no entry point exports, as cognee's lightweight
 `run_pipeline`, which a lazy `__getattr__` passes on beside the
 orchestrator a namespace exports. They are no records: they join no set,
 no count and no guard, and only score-signatures.py reads them, plan
-offering one as a check's candidate where a citation on a line that names
-it points at its declaration line.
+binding a documented form to one when the form's own citations name it and
+no other declaration of the name.
 
 Candidates and guards (with an extraction, --brief or --metadata): each
 set's count, the metadata `stats.effective_denominator` (--metadata), and

@@ -1336,7 +1336,7 @@ def test_the_inventory_contract_gives_a_component_constant_a_usage_signature():
             "above), and keeps one `kind` in every place.") in contract
     example = json.loads(re.search(r"```json\n(.*?)\n```", _read(INVENTORY_CONTRACT), re.S).group(1))["exports"]
     assert {"name": "ComponentName", "kind": "constant", "usage_signature": "<ComponentName prop={value} />",
-            "description": "..."} in example
+            "description": "...", "at": "SKILL.md:64"} in example
     assert [(e["kind"], e["params"]) for e in example if e["name"] == "Card"] == [
         ("function", "{ title }"), ("function", "{ title: string; footer?: ReactNode }")]
     section1 = _flow(_slice(_read(COVERAGE), "### 1. Extract Documented Exports", "#### 1a."))
@@ -1449,7 +1449,7 @@ def test_an_inventory_file_left_absent_or_empty_is_saved_before_it_is_validated(
     assert not (run / "inventory.json").exists()
     response.write_bytes(("```json\n" + json.dumps({"exports": [
         {"name": "fetchData", "kind": "function", "params": "url: string", "return_type": "string",
-         "description": "Fetches."}], "cross_check_mismatches": []}) + "\n```\n").encode("utf-8"))
+         "description": "Fetches.", "at": "SKILL.md:7"}], "cross_check_mismatches": []}) + "\n```\n").encode("utf-8"))
     assert _exec(command, values, tmp_path)["valid"] is True
     assert (run / "inventory.json").is_file()
 
@@ -1498,20 +1498,22 @@ def test_the_floor_runs_before_the_inventory_subagent():
             '`coverage-check:inventory`).') in flow
     assert ("It is given `{run_dir}/inventory-floor.json` too, and lists each name there with an origin in a file "
             "it reads, choosing its kind from the name's `kindLabel`, the skill's own label, when it has one. "
-            "An origin's `signature` is that place's entry, its non-blank `params` and `return_type` kept as given; "
-            "a blank one is the reader's.") in flow
+            "An origin's `signature` is that place's entry, at that place, its non-blank `params` and `return_type` "
+            "kept as given; a blank one is the reader's.") in flow
     assert ("Without subagents, the parent loads `{inventoryContractFile}` and builds the same JSON from the same files and `inventory-floor.json` and "
             "saves it to that file; §1a's checks still run on it.") in flow
     for rule in ("first cell", "public declaration", "Exports, Symbol"):
         assert rule not in flow, rule
     assert "first cell" in _flow(runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py").__doc__)
     section1a = _flow(_slice(text, "#### 1a. Parent-Side Schema Validation", "### 1b."))
-    assert "refuses it when it leaves out a floor name those files write, or an origin's `signature`." in section1a
+    assert ("refuses it when it leaves out a floor name those files write, or an origin's `signature` at its "
+            "origin, or when an entry's `at` is missing or is no line of those files that writes its name.") in section1a
     contract = _flow(_read(INVENTORY_CONTRACT))
-    assert ("and keeps one `kind` in every place. A place `inventory-floor.json` gives a `signature` (a cited "
-            "function declaration, a Signature cell, or a heading or an export table's first cell that writes one "
-            "call) has that form as its entry, whatever its kind, its non-blank `params` and `return_type` kept as "
-            "given (a `params` may open with the shared text the next sentence gives, then `; `); a blank one is the "
+    assert "and keeps one `kind` in every place. An entry that carries `params` or `usage_signature`" in contract
+    assert ("A place `inventory-floor.json` gives a `signature` (a cited function declaration, a Signature cell, or "
+            "a heading or an export table's first cell that writes one call) has that form as its entry, with that "
+            "place as its `at`, whatever its kind, its non-blank `params` and `return_type` kept as given (a "
+            "`params` may open with the shared text the next sentence gives, then `; `); a blank one is the "
             "reader's, and a form the skill writes only in prose is an entry of its own. Where the skill documents "
             "several names and states members they share once") in contract
     rules = _flow(runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py").__doc__)
@@ -1550,7 +1552,7 @@ def test_the_floor_and_validator_commands_run_from_the_prose(tmp_path):
     ]
     assert json.loads((run / "inventory-floor.json").read_bytes()) == floor
     entries = [{"name": "fetchData", "kind": "function", "params": "", "return_type": "string",
-                "description": "Fetches."}]
+                "description": "Fetches.", "at": "SKILL.md:9"}]
     response = run / "inventory-response.txt"
     response.write_bytes(json.dumps({"exports": entries, "cross_check_mismatches": []}).encode("utf-8"))
     (run / "inventory.json").write_bytes(b"{}")
@@ -1559,7 +1561,8 @@ def test_the_floor_and_validator_commands_run_from_the_prose(tmp_path):
     assert proc.returncode == 2, proc.stdout + proc.stderr
     result = json.loads(proc.stdout)
     form = ('floor: `fetchData` is documented at SKILL.md:9 (table-row) with the signature {"params": "url: string", '
-            '"return_type": "Promise<string>"}, but no inventory entry of that name carries it; copy it as given')
+            '"return_type": "Promise<string>"}, but no inventory entry of that name carries it; copy it as given, '
+            'with `at` "SKILL.md:9"')
     assert result["violations"] == [
         "floor: `Options` is documented at SKILL.md:11 (heading), but no inventory entry lists it", form]
     assert result["floor"] == {"names": 2, "checked": 2, "absent": ["Options"]}
@@ -1930,8 +1933,9 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     run.mkdir()
     (run / "inventory-response.txt").write_bytes(("```json\n" + json.dumps({"exports": [
         {"name": "fetchData", "kind": "function", "params": "url: string", "return_type": "string",
-         "description": "Fetches the user's data; it's \"cached\"."},
-        {"name": "helper", "kind": "function", "params": "x: number", "return_type": "number", "description": "Helps."},
+         "description": "Fetches the user's data; it's \"cached\".", "at": "SKILL.md:7"},
+        {"name": "helper", "kind": "function", "params": "x: number", "return_type": "number", "description": "Helps.",
+         "at": "SKILL.md:7"},
         {"name": "Options", "kind": "interface", "description": "Configures."},
     ], "cross_check_mismatches": []}) + "\n```\n").encode("utf-8"))
     (run / "extract-full.json").write_bytes(json.dumps(EXTRACTION).encode("utf-8"))
@@ -2048,8 +2052,8 @@ def test_the_prose_scalar_branch_counts_the_named_set(tmp_path):
     run = tmp_path / "run"
     run.mkdir()
     (run / "inventory-response.txt").write_bytes(json.dumps({"exports": [
-        {"name": n, "kind": "function", "params": "", "return_type": "void", "description": "Runs."}
-        for n in documented], "cross_check_mismatches": []}).encode("utf-8"))
+        {"name": n, "kind": "function", "params": "", "return_type": "void", "description": "Runs.",
+         "at": f"SKILL.md:{7 + i}"} for i, n in enumerate(documented)], "cross_check_mismatches": []}).encode("utf-8"))
     (run / "extract-full.json").write_bytes(json.dumps(STRATIFIED_EXTRACTION).encode("utf-8"))
     (skill / "metadata.json").write_bytes(json.dumps({
         "skill_type": "single", "exports": TIER_A_NAMES + ["helper"],
@@ -2098,7 +2102,7 @@ def test_the_prose_fallback_scan_runs(tmp_path):
     run.mkdir()
     (run / "inventory-response.txt").write_bytes(json.dumps({"exports": [
         {"name": "fetchData", "kind": "function", "params": "url: string", "return_type": "string",
-         "description": "Fetches."},
+         "description": "Fetches.", "at": "SKILL.md:3"},
         {"name": "Options", "kind": "interface", "description": "Configures."},
     ], "cross_check_mismatches": []}).encode("utf-8"))
     (run / "per-file-1.txt").write_bytes(("```json\n" + json.dumps({

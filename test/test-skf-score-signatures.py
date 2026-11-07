@@ -46,11 +46,14 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     no file never wins, and a mismatch found at a candidate names its `file`;
     end to end (#830), the runner and the surface give a name two monorepo
     packages define one record per file, so the cited one is compared
-  - offers a same-named declaration no entry point exports (#918, the
-    surface's `otherDeclarations`) as a candidate beside the record when the
-    skill cites its file for the name, never as the planned record; a
-    mismatch found there is recorded at it, and score reads its lines as a
-    record's, while it joins no name, set or count
+  - binds a documented form to the one declaration of its name its own
+    citations name (#918), read at the place the inventory's `at` gives: a
+    surface record, or a same-named declaration no entry point exports (the
+    surface's `otherDeclarations`); the judge compares a bound form with it
+    alone and score takes its mismatch there, while a form bound to nothing
+    is planned as before and a plan with no binding is byte for byte the
+    one before; such a declaration is never the planned record or a
+    candidate, and joins no name, set or count
   - compares a signature documented with no argument (#794): `params` of
     `""` or `[]` is a signature, and of a name listed twice the entry with
     non-empty `params` or a usage form (#826) is compared
@@ -1129,7 +1132,7 @@ def test_an_entry_in_the_shared_text_shape_is_valid_and_planned_whole(tmp_path):
     `plan` hands the judge the whole text as the check's documented form, shared text included."""
     shared = "each with the base fields id, scope=Scope(); content, title=None"
     response = _write(tmp_path / "inventory-response.txt", {"exports": [
-        {"name": "Note", "kind": "class", "params": shared, "description": "A note."}],
+        {"name": "Note", "kind": "class", "params": shared, "description": "A note.", "at": "SKILL.md:1"}],
         "references": [], "cross_check_mismatches": []})
     inventory = tmp_path / "inventory.json"
     proc = subprocess.run([sys.executable, str(SCRIPTS / "validate-inventory.py"), "--input", response,
@@ -1657,7 +1660,8 @@ def test_one_mismatch_per_candidate_keeps_the_closest():
 
 # #918: cognee's two run_pipeline functions. The surface records the orchestrator once, as a `pipelines` namespace
 # member; the lightweight runner, which a lazy `__getattr__` passes on and no entry point exports, is an other
-# declaration. The skill documents both, each form cited to its own file.
+# declaration. The skill documents both, and a form whose own citations, at the place the inventory's `at` gives,
+# name one of them is bound to it.
 ORCHESTRATOR = "cognee/modules/pipelines/operations/pipeline.py"
 LIGHTWEIGHT = "cognee/modules/pipelines/operations/run_pipeline.py"
 ORCHESTRATOR_RECORD = {"name": "run_pipeline", "kind": "function", "file": ORCHESTRATOR, "line": 53,
@@ -1666,111 +1670,161 @@ LIGHTWEIGHT_DECLARATION = {"name": "run_pipeline", "kind": "function", "file": L
                            "signatureLine": "async def run_pipeline("}
 HOMONYMS = {"exports": [ORCHESTRATOR_RECORD], "otherDeclarations": [LIGHTWEIGHT_DECLARATION],
             "sets": {"all": ["run_pipeline"]}}
-RUN_PIPELINE = [
-    {"name": "run_pipeline", "kind": "function", "params": "tasks=None, data=None, datasets=None",
-     "description": "The dataset-aware orchestrator."},
-    {"name": "run_pipeline", "kind": "function", "params": "steps, *, data=None, context=None", "return_type": "list",
-     "description": "The lightweight runner."},
-]
-ORCHESTRATOR_LINE = f"`run_pipeline(tasks=None, data=None, datasets=None)` runs a pipeline [AST:{ORCHESTRATOR}:L53]."
+ORCHESTRATOR_FORM = "`run_pipeline(tasks=None, data=None, datasets=None)` runs a pipeline"
+ORCHESTRATOR_LINE = f"{ORCHESTRATOR_FORM} [AST:{ORCHESTRATOR}:L53]."
 LIGHTWEIGHT_LINE = (f"`from cognee.pipelines import run_pipeline` gives the lightweight runner "
                     f"`run_pipeline(steps, *, data=None, context=None) -> list` [AST:{LIGHTWEIGHT}:L37].")
-HOMONYM_CANDIDATES = [{"file": ORCHESTRATOR, "line": 53, "signatureLine": "async def run_pipeline("},
-                      {"file": LIGHTWEIGHT, "line": 37, "signatureLine": "async def run_pipeline("}]
+# A line between two forms: a form's own citations are those of its line and the next non-blank one.
+APART = "The two functions differ."
+# SKILL.md's lines 3 and 7 write the two forms.
+HOMONYM_SKILL = f"# Demo\n\n{ORCHESTRATOR_LINE}\n\n{APART}\n\n{LIGHTWEIGHT_LINE}\n"
 
 
-def _homonym_plan(tmp_path: Path, tree: dict[str, str] | None, surface: dict = HOMONYMS) -> dict:
-    """plan over RUN_PIPELINE and `surface`, with the skill `tree` as --skill-dir (none when None)."""
+def _run_pipeline(orchestrator_at: str | None = "SKILL.md:3", lightweight_at: str | None = "SKILL.md:7") -> list:
+    """The two forms the skill documents, each entry at its place (no `at` for None)."""
+    entries = [{"name": "run_pipeline", "kind": "function", "params": "tasks=None, data=None, datasets=None",
+                "description": "The dataset-aware orchestrator.", "at": orchestrator_at},
+               {"name": "run_pipeline", "kind": "function", "params": "steps, *, data=None, context=None",
+                "return_type": "list", "description": "The lightweight runner.", "at": lightweight_at}]
+    return [{k: v for k, v in e.items() if v is not None} for e in entries]
+
+
+RUN_PIPELINE = _run_pipeline()
+ORCHESTRATOR_BOUND = {"form": 0, "file": ORCHESTRATOR, "line": 53, "signatureLine": "async def run_pipeline("}
+LIGHTWEIGHT_BOUND = {"form": 1, "file": LIGHTWEIGHT, "line": 37, "signatureLine": "async def run_pipeline("}
+
+
+def _homonym_plan(tmp_path: Path, tree: dict[str, str] | None, surface: dict = HOMONYMS,
+                  inventory: list | None = None, output: Path | None = None) -> subprocess.CompletedProcess:
+    """plan over `inventory` (RUN_PIPELINE) and `surface`, with the skill `tree` as --skill-dir (none when None)."""
     args = []
     if tree is not None:
         for rel, text in tree.items():
             _write(tmp_path / "skill" / rel, text)
         args = ["--skill-dir", str(tmp_path / "skill")]
-    inventory = _write(tmp_path / "inventory.json", {"exports": RUN_PIPELINE, "cross_check_mismatches": []})
-    proc = _run("plan", "--inventory", inventory, "--surface", _write(tmp_path / "surface.json", surface), *args)
+    if output is not None:
+        args += ["--output", str(output)]
+    entries = RUN_PIPELINE if inventory is None else inventory
+    path = _write(tmp_path / "inventory.json", {"exports": entries, "cross_check_mismatches": []})
+    proc = _run("plan", "--inventory", path, "--surface", _write(tmp_path / "surface.json", surface), *args)
     assert proc.returncode == 0, proc.stderr
-    return json.loads(proc.stdout)
+    return proc
 
 
-@pytest.mark.parametrize("tree", [
-    {"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n\n{LIGHTWEIGHT_LINE}\n"},
-    {"SKILL.md": f"# Demo\n\n{LIGHTWEIGHT_LINE}\n"},
-    {"SKILL.md": "# Demo\n\nSee references.\n",
-     "references/pipelines.md": f"### Lightweight runner: run_pipeline\n\n[SRC:./{LIGHTWEIGHT}:L37-L45]\n"},
-    {"SKILL.md": f"# Demo\n\n`run_pipeline(steps)` and its loop [SRC:{LIGHTWEIGHT}:L30-50].\n"},
-], ids=["both-cited", "only-the-other-declaration-cited", "a-heading-then-its-citation", "a-range-that-holds-it"])
-def test_a_cited_other_declaration_joins_the_check_as_a_candidate(tmp_path, tree):
-    """#918 (oms-cognee run_pipeline): a citation on a line that names it points at the lightweight runner's
-    declaration (its line, or a range that holds it), so the judge reads both declarations and a form matches when
-    it matches either. The check stays at the orchestrator, the surface's record, even when the skill cites only the
-    other file; the extra never becomes the planned record."""
-    plan = _homonym_plan(tmp_path, tree)
+def _homonym_check(plan: dict) -> dict:
+    """The run_pipeline check, which stays at the orchestrator's record with no candidates."""
     assert plan["compared"] == 1
-    assert plan["files"] == [{"file": ORCHESTRATOR, "checks": [{
-        "name": "run_pipeline", "line": 53, "signatureLine": "async def run_pipeline(",
-        "documented": {"params": "tasks=None, data=None, datasets=None"},
-        "alternatives": [{"params": "steps, *, data=None, context=None", "return_type": "list"}],
-        "candidates": HOMONYM_CANDIDATES}]}]
-
-
-@pytest.mark.parametrize("tree", [
-    {"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n"},
-    {"SKILL.md": f"# Demo\n\nThe steps run in order [AST:{LIGHTWEIGHT}:L37].\n\n{ORCHESTRATOR_LINE}\n"},
-    {"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE} The runner's own run_pipeline hands each step on "
-                 f"[SRC:{LIGHTWEIGHT}:L82] [SRC:{LIGHTWEIGHT}:L89].\n"},
-    {"SKILL.md": f"# Demo\n\n`run_pipeline` imports its helpers first [SRC:{LIGHTWEIGHT}:L1-36].\n\n"
-                 f"{ORCHESTRATOR_LINE}\n"},
-    None,
-], ids=["not-cited", "cited-on-a-line-that-does-not-name-it", "its-file-cited-at-another-line",
-        "a-range-that-stops-before-its-line", "no-skill-dir"])
-def test_an_other_declaration_the_skill_does_not_cite_for_the_name_adds_nothing(tmp_path, tree):
-    """#918: an other declaration no citation on a line that writes the name points at, or a plan with no
-    --skill-dir, leaves the check as a surface without other declarations plans it: at the record, with no
-    candidate. A citation of its file at another line (storybook's `build`, whose prose cites the internal
-    build.ts at L82 and L89, not its declaration at L18) is no citation of the declaration."""
-    plan = _homonym_plan(tmp_path / "with", tree)
-    without = _homonym_plan(tmp_path / "without", tree, {k: v for k, v in HOMONYMS.items()
-                                                          if k != "otherDeclarations"})
-    assert plan == without
-    [check] = plan["files"][0]["checks"]
-    assert plan["files"][0]["file"] == ORCHESTRATOR and "candidates" not in check
-
-
-ORCHESTRATOR_V2 = "cognee/modules/pipelines/operations/pipeline_v2.py"
-
-
-@pytest.mark.parametrize("cited, planned, candidates", [
-    # the citation settles the records at the orchestrator: the uncited record stays out, the extra joins
-    ([ORCHESTRATOR, LIGHTWEIGHT], ORCHESTRATOR, [(ORCHESTRATOR, 53), (LIGHTWEIGHT, 37)]),
-    # no record file cited: every record, then the extra
-    ([LIGHTWEIGHT], ORCHESTRATOR, [(ORCHESTRATOR, 53), (ORCHESTRATOR_V2, 10), (LIGHTWEIGHT, 37)]),
-    ([ORCHESTRATOR_V2, LIGHTWEIGHT], ORCHESTRATOR_V2, [(ORCHESTRATOR_V2, 10), (LIGHTWEIGHT, 37)]),
-], ids=["one-record-file-cited", "only-the-extra-cited", "the-second-record-file-cited"])
-def test_an_extra_beside_records_in_two_files_keeps_the_citation_s_choice(tmp_path, cited, planned, candidates):
-    """#918: with records in two files, an extra never undoes what the citation settled (#781): the check sits at
-    the one cited record file and offers that file's record and the extra, never the record the skill did not
-    cite; with no record file cited it sits at the first record and offers every record, then the extra."""
-    other = {**ORCHESTRATOR_RECORD, "file": ORCHESTRATOR_V2, "line": 10}
-    at = {ORCHESTRATOR: 53, ORCHESTRATOR_V2: 10, LIGHTWEIGHT: 37}
-    lines = "\n\n".join(f"`run_pipeline(...)` [AST:{file}:L{at[file]}]" for file in cited)
-    plan = _homonym_plan(tmp_path, {"SKILL.md": f"# Demo\n\n{lines}\n"},
-                         {**HOMONYMS, "exports": [ORCHESTRATOR_RECORD, other]})
     [group] = plan["files"]
     [check] = group["checks"]
-    assert group["file"] == planned
-    assert [(c["file"], c["line"]) for c in check["candidates"]] == candidates
+    assert (group["file"], check["line"]) == (ORCHESTRATOR, 53), "the planned record is the surface's record"
+    assert "candidates" not in check, "an other declaration is never a candidate"
+    assert check["documented"] == {"params": "tasks=None, data=None, datasets=None"}
+    assert check["alternatives"] == [{"params": "steps, *, data=None, context=None", "return_type": "list"}]
+    return check
 
 
-def test_other_declarations_written_twice_are_one_candidate():
-    """#918: candidates are once per file and line, however the path is written."""
-    record, candidates = mod._check_at(
-        "run_pipeline", [ORCHESTRATOR_RECORD], None, [[LIGHTWEIGHT_LINE]],
-        [LIGHTWEIGHT_DECLARATION, {**LIGHTWEIGHT_DECLARATION, "file": "./" + LIGHTWEIGHT}])
-    assert (record, candidates) == (ORCHESTRATOR_RECORD, None), "no --skill-dir: no extra"
-    record, candidates = mod._check_at(
-        "run_pipeline", [ORCHESTRATOR_RECORD], ".", [[LIGHTWEIGHT_LINE]],
-        [LIGHTWEIGHT_DECLARATION, {**LIGHTWEIGHT_DECLARATION, "file": "./" + LIGHTWEIGHT}])
-    assert record == ORCHESTRATOR_RECORD and candidates == HOMONYM_CANDIDATES
+LIGHTWEIGHT_BLOCK = "```python\nasync def run_pipeline(\n    steps,\n) -> list\n```\n"
+
+
+@pytest.mark.parametrize("tree, lightweight_at, bound", [
+    ({"SKILL.md": HOMONYM_SKILL}, "SKILL.md:7", [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]),
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n{APART}\n\n{LIGHTWEIGHT_LINE}\n"}, "SKILL.md:7",
+     [LIGHTWEIGHT_BOUND]),
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n",
+      "references/pipelines.md": f"### Lightweight runner: run_pipeline\n\n[SRC:./{LIGHTWEIGHT}:L37-L45]\n"},
+     "references/pipelines.md:1", [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]),
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n\n{APART}\n\n`run_pipeline(steps)` and its loop "
+                  f"[SRC:{LIGHTWEIGHT}:L30-50].\n"}, "SKILL.md:7", [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]),
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n\n{LIGHTWEIGHT_BLOCK}\n`[AST:{LIGHTWEIGHT}:L37]`\n"},
+     "SKILL.md:6", [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]),
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n\n```python\n# [AST:{LIGHTWEIGHT}]\n"
+                  "async def run_pipeline(\n    steps,\n) -> list\n```\n"},
+     "SKILL.md:7", [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]),
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n{LIGHTWEIGHT_LINE}\n"}, "SKILL.md:4", [LIGHTWEIGHT_BOUND]),
+], ids=["both-cited", "only-the-other-declaration-cited", "a-heading-then-its-citation", "a-range-that-holds-it",
+        "the-line-after-its-fenced-block", "a-comment-heading-its-fenced-block", "adjacent-forms"])
+def test_a_form_whose_own_citation_names_a_declaration_is_bound_to_it(tmp_path, tree, lightweight_at, bound):
+    """#918 (oms-cognee run_pipeline): each form whose own citations name one declaration of the name, the
+    orchestrator's surface record or the lightweight runner's other declaration, is bound to it, so the judge
+    compares it with that declaration alone. The check stays at the surface's record and offers no candidate: an
+    other declaration reaches the judge only through a binding, and is never the planned record, even when the
+    skill cites only it. Two forms on adjacent lines share the second one's citation (a form's next non-blank
+    line is read too), so the orchestrator's form there names both declarations and is bound to nothing."""
+    plan = json.loads(_homonym_plan(tmp_path, tree, inventory=_run_pipeline(lightweight_at=lightweight_at)).stdout)
+    assert _homonym_check(plan)["bound"] == bound
+
+
+@pytest.mark.parametrize("tree, inventory", [
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n`run_pipeline(steps, *, data=None, context=None)`.\n"}, None),
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n{APART}\n\n`run_pipeline(steps, *, data=None, context=None)`."
+                  f"\n\n{APART}\n\nThe steps run in order [AST:{LIGHTWEIGHT}:L37].\n"}, None),
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n{APART}\n\n`run_pipeline(steps)` hands each step on "
+                  f"[SRC:{LIGHTWEIGHT}:L82] [SRC:{LIGHTWEIGHT}:L89].\n"}, None),
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n{APART}\n\n`run_pipeline(steps)` imports its helpers first "
+                  f"[SRC:{LIGHTWEIGHT}:L1-36].\n"}, None),
+    ({"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM} [AST:{ORCHESTRATOR}:L53] [AST:{LIGHTWEIGHT}:L37].\n"},
+     _run_pipeline("SKILL.md:3", "SKILL.md:3")),
+    ({"SKILL.md": HOMONYM_SKILL}, _run_pipeline(None, None)),
+    ({"SKILL.md": HOMONYM_SKILL}, _run_pipeline("references/gone.md:3", "SKILL.md:99")),
+    (None, None),
+], ids=["not-cited", "cited-at-another-place", "its-file-cited-at-another-line", "a-range-that-stops-before-it",
+        "both-declarations-named", "no-at", "a-place-the-skill-lacks", "no-skill-dir"])
+def test_a_form_bound_to_nothing_is_planned_as_before(tmp_path, tree, inventory):
+    """#918: a form whose own citations name no declaration of the name, or two, is bound to nothing, and a plan
+    with no binding is byte for byte the plan of a surface with no `otherDeclarations` and an inventory with no
+    `at`: the check at the record, with no candidate. A citation of the runner's file at another line (storybook's
+    `build`, whose prose cites the internal build.ts at L82 and L89, not its declaration at L18), or a citation
+    at a place that is not the form's, names nothing."""
+    plan = _homonym_plan(tmp_path / "with", tree, inventory=inventory)
+    bare = [{k: v for k, v in e.items() if k != "at"} for e in (RUN_PIPELINE if inventory is None else inventory)]
+    without = _homonym_plan(tmp_path / "without", tree, {k: v for k, v in HOMONYMS.items()
+                                                         if k != "otherDeclarations"}, bare)
+    assert plan.stdout == without.stdout
+    assert "bound" not in _homonym_check(json.loads(plan.stdout))
+
+
+def test_a_form_is_bound_to_one_of_two_surface_records(tmp_path):
+    """#918 with #830's candidates: composeStories has records in react and vue3. Each form's own citation names
+    one of them, so each is bound to its own, while the check, whose citations name both files, keeps every record
+    as a candidate for a form bound to none. A form whose own citation names a record the file-level citations do
+    not settle on is still bound to it: the check sits at vue3's record and the fenced form is bound to react's."""
+    usage = {"name": "composeStories", "kind": "function", "usage_signature": "composeStories(stories)"}
+    react_line = f"`composeStories(csfExports, projectAnnotations?)` [AST:{REACT}:L40]"
+    vue_line = f"`composeStories(stories)` [AST:{VUE}:L12]"
+    surface = {"exports": COMPOSE_RECORDS, "sets": {"all": ["composeStories"]}}
+    tree = {"SKILL.md": f"# Demo\n\n{react_line}\n\n{APART}\n\n{vue_line}\n"}
+    plan = json.loads(_homonym_plan(tmp_path / "two", tree, surface,
+                                    [{**COMPOSE, "at": "SKILL.md:3"}, {**usage, "at": "SKILL.md:7"}]).stdout)
+    [group] = plan["files"]
+    [check] = group["checks"]
+    assert group["file"] == REACT and [(c["file"], c["line"]) for c in check["candidates"]] == [(REACT, 40), (VUE, 12)]
+    assert [(b["form"], b["file"], b["line"]) for b in check["bound"]] == [(0, REACT, 40), (1, VUE, 12)]
+    block = (f"# Demo\n\n```ts\nexport function composeStories(csfExports, projectAnnotations?)\n```\n\n"
+             f"`[AST:{REACT}:L40]`\n\n{vue_line}\n")
+    plan = json.loads(_homonym_plan(tmp_path / "settled", {"SKILL.md": block}, surface,
+                                    [{**COMPOSE, "at": "SKILL.md:4"}, {**usage, "at": "SKILL.md:9"}]).stdout)
+    [group] = plan["files"]
+    [check] = group["checks"]
+    assert group["file"] == VUE and "candidates" not in check
+    assert [(b["form"], b["file"], b["line"]) for b in check["bound"]] == [(0, REACT, 40), (1, VUE, 12)]
+    # a citation of a file with no line names every declaration in it: two records in one file bind nothing
+    twice = {"exports": [*COMPOSE_RECORDS, {**COMPOSE_RECORDS[1], "line": 90}], "sets": {"all": ["composeStories"]}}
+    tree = {"SKILL.md": f"# Demo\n\n`composeStories(x)` [AST:{REACT}]\n"}
+    plan = json.loads(_homonym_plan(tmp_path / "whole-file", tree, twice, [{**COMPOSE, "at": "SKILL.md:3"}]).stdout)
+    assert "bound" not in plan["files"][0]["checks"][0]
+
+
+def test_two_entries_of_one_form_bind_it_by_all_their_places(tmp_path):
+    """Two entries that say the same thing are one form: its own citations are those of both places, so one place
+    that names the runner binds it, and a second place that names the orchestrator leaves it bound to neither."""
+    tree = {"SKILL.md": f"{HOMONYM_SKILL}\n`run_pipeline(steps)`.\n"}
+    lightweight = _run_pipeline()[1]
+    plan = json.loads(_homonym_plan(tmp_path / "one", tree, inventory=[
+        _run_pipeline()[0], lightweight, {**lightweight, "at": "SKILL.md:9"}]).stdout)
+    assert _homonym_check(plan)["bound"] == [ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND]
+    plan = json.loads(_homonym_plan(tmp_path / "two", tree, inventory=[
+        _run_pipeline()[0], lightweight, {**lightweight, "at": "SKILL.md:3"}]).stdout)
+    assert _homonym_check(plan)["bound"] == [ORCHESTRATOR_BOUND]
 
 
 LIGHTWEIGHT_MISMATCH = {"name": "run_pipeline", "line": 37, "file": LIGHTWEIGHT, "form": 1,
@@ -1780,30 +1834,56 @@ LIGHTWEIGHT_MISMATCH = {"name": "run_pipeline", "line": 37, "file": LIGHTWEIGHT,
                         "issue": "the return type is `list`, not `list[Any]`"}
 
 
-def test_a_mismatch_at_a_cited_other_declaration_is_recorded_there(tmp_path):
-    """#918: the judge read both candidates and the lightweight form matched neither: the mismatch it reports at the
-    lightweight runner's file, from the orchestrator's group, is recorded there, at its line, with no warning.
-    Without the plan the file is no file the check offered, as before: a warning, at the result's file."""
-    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n{ORCHESTRATOR_LINE}\n\n{LIGHTWEIGHT_LINE}\n")
-    inventory = _write(tmp_path / "inventory.json", {"exports": RUN_PIPELINE, "cross_check_mismatches": []})
-    surface = _write(tmp_path / "surface.json", HOMONYMS)
-    plan = tmp_path / "signature-plan.json"
-    assert _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", str(tmp_path / "skill"),
-                "--output", str(plan)).returncode == 0
-    results = _write(tmp_path / "s.txt", json.dumps({"file": ORCHESTRATOR,
-                                                     "signature_mismatches": [LIGHTWEIGHT_MISMATCH]}))
+def _homonym_score(tmp_path: Path, mismatches: list[dict], tree: dict | None = None, plan: bool = True) -> dict:
+    """score of `mismatches`, reported from the orchestrator's group, with the plan of `tree` (HOMONYM_SKILL)."""
+    output = tmp_path / "signature-plan.json"
+    _homonym_plan(tmp_path, {"SKILL.md": HOMONYM_SKILL} if tree is None else tree, output=output)
+    results = _write(tmp_path / "s.txt", json.dumps({"file": ORCHESTRATOR, "signature_mismatches": mismatches}))
     gaps = tmp_path / "signature-gaps.json"
-    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan), "--results", results,
-                "--gaps-output", str(gaps))
+    args = ["--plan", str(output)] if plan else []
+    proc = _run("score", "--inventory", str(tmp_path / "inventory.json"), "--surface", str(tmp_path / "surface.json"),
+                *args, "--results", results, "--gaps-output", str(gaps))
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    out = json.loads(proc.stdout)
+    return {**json.loads(proc.stdout), "gaps": json.loads(gaps.read_text(encoding="utf-8"))}
+
+
+def test_a_bound_form_s_mismatch_is_taken_at_its_declaration(tmp_path):
+    """#918: the judge compared the lightweight form with the runner alone and reports its mismatch there, from
+    the orchestrator's group: it is recorded at the runner's file and line, with no warning, its gap titled by its
+    form as before. The bound declaration is no name, set or count. Without the plan its file is no file the check
+    offered, as before: a warning, at the result's file."""
+    out = _homonym_score(tmp_path, [LIGHTWEIGHT_MISMATCH])
     assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, 37, "Critical")]
     assert not any("run_pipeline" in w for w in out["warnings"]), out["warnings"]
-    [gap] = json.loads(gaps.read_text(encoding="utf-8"))
+    [gap] = out["gaps"]
     assert (gap["source"], gap["title"]) == (f"{LIGHTWEIGHT}:37", "Signature mismatch: run_pipeline (form 2 of 2)")
-    # the other declaration is no name, set or count
     assert (out["comparedNames"], out["totalDocumented"], out["totalTypes"]) == (["run_pipeline"], 1, 0)
-    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
+    out = _homonym_score(tmp_path / "no-plan", [LIGHTWEIGHT_MISMATCH], plan=False)
+    assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(ORCHESTRATOR, 37)]
+    assert any(f"`{LIGHTWEIGHT}`, no file the plan offered its check at" in w for w in out["warnings"])
+
+
+@pytest.mark.parametrize("named", [ORCHESTRATOR, None, "./" + ORCHESTRATOR], ids=["another-file", "none", "dotted"])
+def test_a_bound_form_s_mismatch_named_elsewhere_is_taken_at_its_declaration(tmp_path, named):
+    """#918: a judge that reports the bound lightweight form at the orchestrator (or names no file, from the
+    orchestrator's group) is listed in `warnings`, and the mismatch is taken at the declaration the form is bound
+    to, at its line, never at the orchestrator."""
+    mismatch = {**LIGHTWEIGHT_MISMATCH, "file": named, "line": 53}
+    out = _homonym_score(tmp_path, [mismatch])
+    assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, 37)]
+    assert [g["source"] for g in out["gaps"]] == [f"{LIGHTWEIGHT}:37"]
+    assert [w for w in out["warnings"] if "run_pipeline" in w] == [
+        f"{ORCHESTRATOR}:53: a signature mismatch for `run_pipeline` names `{ORCHESTRATOR}`, but its form 1 is "
+        f"bound to the declaration at {LIGHTWEIGHT}:37: recorded there"]
+
+
+def test_an_unbound_form_is_never_recorded_at_an_other_declaration(tmp_path):
+    """#918: the orchestrator's form is bound to nothing (its prose cites nothing), so a mismatch the judge names
+    the runner's file for is no file the plan offered its check at: a warning, at the result's file."""
+    tree = {"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_FORM}.\n\n{APART}\n\n{LIGHTWEIGHT_LINE}\n"}
+    mismatch = {**LIGHTWEIGHT_MISMATCH, "form": 0, "documented_sig": "(tasks=None, data=None, datasets=None)",
+                "source_sig": "(steps, *, data=None, context=None) -> list", "issue": "another function"}
+    out = _homonym_score(tmp_path, [mismatch], tree)
     assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(ORCHESTRATOR, 37)]
     assert any(f"`{LIGHTWEIGHT}`, no file the plan offered its check at" in w for w in out["warnings"])
 
@@ -1813,49 +1893,57 @@ CONTRADICTED_RUNNER = {**LIGHTWEIGHT_MISMATCH, "difference": "annotation-contrad
                        "issue": "the annotation says `list`; the body returns the steps' results"}
 
 
-@pytest.mark.parametrize("line, evidence, others, severity, fact", [
-    # the declaration line is the extra's, 37, so a body line after it holds the evidence
-    (40, 38, [LIGHTWEIGHT_DECLARATION], "Info", None),
-    (40, 38, [], "Critical", "evidence_line 38 is before the declaration"),
-    # a second offered declaration in that file, at 60, bounds the first one's body
-    (37, 62, [LIGHTWEIGHT_DECLARATION, {**LIGHTWEIGHT_DECLARATION, "line": 60}], "Critical",
-     "evidence_line 62 is not before the next declaration in the file, at line 60"),
-    (37, 62, [LIGHTWEIGHT_DECLARATION], "Info", None),
-], ids=["declaration-line-from-the-extra", "no-extra-line", "next-declaration-from-an-extra", "no-later-extra"])
-def test_an_offered_other_declaration_locates_the_lines_a_record_would(line, evidence, others, severity, fact):
-    """#918: at an extra's file, score reads the declaration line and the next declaration from the other
-    declarations the plan offered, as it reads a surface record's (no --source-root: the line order alone)."""
-    offered = {"run_pipeline": [ORCHESTRATOR, LIGHTWEIGHT]}
-    mismatch = {**CONTRADICTED_RUNNER, "line": line, "evidence_line": evidence}
-    out = mod.score([RUN_PIPELINE[1]], ["run_pipeline"], [ORCHESTRATOR_RECORD],
-                    [{"file": ORCHESTRATOR, "signature_mismatches": [{**mismatch, "form": 0}]}],
-                    offered=offered, others=others)
-    assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, severity)]
-    found = [w for w in out["warnings"] if "run_pipeline" in w]
+@pytest.mark.parametrize("line, evidence, bound, severity, fact", [
+    # the declaration line is the bound one, 37, whatever line the judge gives, so a body line after it holds it
+    (40, 38, {"run_pipeline": {0: {"file": LIGHTWEIGHT, "line": 37}}}, "Info", None),
+    (40, 38, {}, "Critical", "evidence_line 38 is before the declaration"),
+    # another form bound in that file, at 60, bounds the first one's body
+    (37, 62, {"run_pipeline": {0: {"file": LIGHTWEIGHT, "line": 37}}, "run_tasks": {0: {"file": LIGHTWEIGHT,
+                                                                                      "line": 60}}},
+     "Critical", "evidence_line 62 is not before the next declaration in the file, at line 60"),
+    (37, 62, {"run_pipeline": {0: {"file": LIGHTWEIGHT, "line": 37}}}, "Info", None),
+], ids=["declaration-line-from-the-binding", "unbound", "next-declaration-from-a-binding", "no-later-binding"])
+def test_a_bound_declaration_locates_the_lines_a_record_would(line, evidence, bound, severity, fact):
+    """#918: a bound form's declaration line is its bound declaration's, and a bound declaration bounds the body
+    of the one before it in its file as a surface record does (no --source-root: the line order alone)."""
+    offered = {"run_pipeline": [ORCHESTRATOR]}
+    mismatch = {**CONTRADICTED_RUNNER, "line": line, "evidence_line": evidence, "form": 0}
+    out = mod.score([_run_pipeline()[1]], ["run_pipeline"], [ORCHESTRATOR_RECORD],
+                    [{"file": ORCHESTRATOR, "signature_mismatches": [mismatch]}], offered=offered, bound=bound)
+    assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [
+        (LIGHTWEIGHT if bound else ORCHESTRATOR, severity)]
+    found = [w for w in out["warnings"] if "tagged annotation-contradicted" in w]
     assert (len(found) == 1 and fact in found[0]) if fact else found == [], found
 
 
-def test_an_other_declaration_the_plan_did_not_offer_locates_nothing():
-    """#918: an other declaration whose file no check offered is never read, so a line at the result's file stays
-    the surface record's."""
-    out = mod.score([RUN_PIPELINE[1]], ["run_pipeline"], [ORCHESTRATOR_RECORD],
-                    [{"file": LIGHTWEIGHT, "signature_mismatches": [
-                        {**CONTRADICTED_RUNNER, "file": None, "form": 0, "line": 40, "evidence_line": 38}]}],
-                    offered={"run_pipeline": [ORCHESTRATOR]}, others=[LIGHTWEIGHT_DECLARATION])
-    assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, "Critical")]
-    assert any("evidence_line 38 is before the declaration" in w for w in out["warnings"])
+def test_a_bound_form_is_graded_at_its_declaration_and_keeps_its_own_mismatch():
+    """#918: a bound form's file is the one it is graded at, so a parameter-name difference at a TS declaration is
+    Low there; and of a check that offered several files, an unbound form keeps one mismatch, its closest, while a
+    bound form keeps the one at its declaration."""
+    renamed = {"name": "composeStories", "line": 40, "source_sig": "(csfExports: T, annotations?: Annotations)",
+               "documented_sig": "(csfExports, projectAnnotations?)", "issue": "the second parameter is renamed",
+               "difference": "parameter-name"}
+    usage = {"name": "composeStories", "kind": "function", "usage_signature": "composeStories(stories)"}
+    wrong = {"name": "composeStories", "line": 12, "source_sig": "(csfExports: T, annotations?: Annotations)",
+             "documented_sig": "composeStories(stories)", "issue": "a call", "form": 1}
+    offered = {"composeStories": [REACT, VUE]}
+    out = mod.score([COMPOSE, usage], ["composeStories"], COMPOSE_RECORDS, [{"file": REACT, "signature_mismatches": [
+        renamed, {**wrong, "file": VUE}, {**wrong, "file": REACT, "line": 40, "difference": "parameter-name"}]}],
+                    offered=offered, bound={"composeStories": {0: {"file": VUE, "line": 12}}})
+    assert [(m["file"], m["line"], m["severity"], m["documented_sig"]) for m in out["mismatches"]] == [
+        (REACT, 40, "Low", "composeStories(stories)"), (VUE, 12, "Low", "(csfExports, projectAnnotations?)")]
+    assert any(f"names `{REACT}`, but its form 0 is bound to the declaration at {VUE}:12" in w
+               for w in out["warnings"]), out["warnings"]
 
 
-def test_a_skill_citation_covers_its_line_or_its_range():
-    """#918: each citation on a line that writes the name, or on the next non-blank line, gives its file and the
-    lines it covers; a citation with no `:L<n>` gives none, and _skill_cited_files gives the same files."""
-    texts = [["`run_pipeline(steps)` [AST:./a.py:L3] [SRC:a.py:L5-9] [AST:b.py]", "",
-              "[SRC:c.py:L12-L20] [SRC:d.py:L30-28]", "[AST:e.py:L1]"],
-             ["Other text [AST:f.py:L2]"]]
-    inventory = mod._inventory()
-    spans = inventory._skill_cited_spans(Path("."), "run_pipeline", texts)
-    assert spans == {("a.py", 3, 3), ("a.py", 5, 9), ("c.py", 12, 20), ("d.py", 28, 30)}
-    assert inventory._skill_cited_files(Path("."), "run_pipeline", texts) == {"a.py", "c.py", "d.py"}
+def test_the_plan_s_bindings_are_read_by_form(tmp_path):
+    """load_plan_bound reads each check's `bound`, by name then form index; an item with no index or no file
+    binds nothing."""
+    plan = {"files": [{"file": ORCHESTRATOR, "checks": [{"name": "run_pipeline", "bound": [
+        ORCHESTRATOR_BOUND, LIGHTWEIGHT_BOUND, {"form": True, "file": LIGHTWEIGHT, "line": 1},
+        {"form": 2, "file": "", "line": 1}, {"form": -1, "file": LIGHTWEIGHT}, "x"]}, {"name": "other"}]}]}
+    assert mod.load_plan_bound(_write(tmp_path / "plan.json", plan)) == {
+        "run_pipeline": {0: {"file": ORCHESTRATOR, "line": 53}, 1: {"file": LIGHTWEIGHT, "line": 37}}}
 
 
 # #918 with a record that has no file: storybook's `createTest`, which an entry point passes on through a star
@@ -1863,7 +1951,7 @@ def test_a_skill_citation_covers_its_line_or_its_range():
 PORTABLE = "code/core/src/preview-api/modules/store/csf/portable-stories.ts"
 PORTABLE_COPY = "code/core/template/stories/portable-stories.ts"
 CREATE_TEST = {"name": "createTest", "kind": "function", "params": "story: Story, annotations?: Annotations",
-               "return_type": "Test"}
+               "return_type": "Test", "at": "SKILL.md:3"}
 FILELESS = {"exports": [{"name": "createTest", "kind": None, "file": None, "line": None, "signatureLine": None,
                          "origin": "extraction"}],
             "otherDeclarations": [
@@ -1874,11 +1962,11 @@ FILELESS = {"exports": [{"name": "createTest", "kind": None, "file": None, "line
             "sets": {"all": ["createTest"]}}
 
 
-def test_a_record_with_no_file_offers_the_cited_other_declarations_alone(tmp_path):
-    """#918: the check of a name whose only record has no file stays at that record, in the "" group, and offers
-    as candidates only the other declarations the skill cites at their line, never the one it does not. A mismatch
-    the judge finds at the cited one is recorded there, and its line bounds the evidence of an
-    annotation-contradicted one. Without --skill-dir the check offers nothing, as before."""
+def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tmp_path):
+    """#918: the check of a name whose only record has no file stays at that record, in the "" group, and binds its
+    form to the other declaration its citation names at its line, never the copy the skill cites elsewhere. A
+    mismatch the judge finds there is recorded there, and that line bounds the evidence of an
+    annotation-contradicted one. Without --skill-dir the check binds nothing, as before."""
     _write(tmp_path / "skill" / "SKILL.md",
            f"# Demo\n\n`createTest(story, annotations?)` builds a test [AST:{PORTABLE}:L319].\n\n"
            f"The template's createTest is a copy [SRC:{PORTABLE_COPY}:L40].\n")
@@ -1888,14 +1976,13 @@ def test_a_record_with_no_file_offers_the_cited_other_declarations_alone(tmp_pat
     proc = _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", str(tmp_path / "skill"),
                 "--output", str(plan))
     assert proc.returncode == 0, proc.stderr
+    documented = {"params": "story: Story, annotations?: Annotations", "return_type": "Test"}
     assert json.loads(proc.stdout)["files"] == [{"file": "", "checks": [{
-        "name": "createTest", "line": None, "signatureLine": None,
-        "documented": {"params": "story: Story, annotations?: Annotations", "return_type": "Test"},
-        "candidates": [{"file": PORTABLE, "line": 319, "signatureLine": "export function createTest("}]}]}]
+        "name": "createTest", "line": None, "signatureLine": None, "documented": documented,
+        "bound": [{"form": 0, "file": PORTABLE, "line": 319, "signatureLine": "export function createTest("}]}]}]
     without = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
     assert without["files"] == [{"file": "", "checks": [{
-        "name": "createTest", "line": None, "signatureLine": None,
-        "documented": {"params": "story: Story, annotations?: Annotations", "return_type": "Test"}}]}]
+        "name": "createTest", "line": None, "signatureLine": None, "documented": documented}]}]
     mismatch = {"name": "createTest", "line": 325, "file": PORTABLE, "difference": "annotation-contradicted",
                 "evidence_line": 322, "source_sig": "(story: Story, annotations?: Annotations): void",
                 "documented_sig": "(story: Story, annotations?: Annotations): Test",
@@ -1903,8 +1990,8 @@ def test_a_record_with_no_file_offers_the_cited_other_declarations_alone(tmp_pat
     results = _write(tmp_path / "s.txt", json.dumps({"file": PORTABLE, "signature_mismatches": [mismatch]}))
     out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan),
                           "--results", results).stdout)
-    # the declaration line is the cited other declaration's, 319, so the evidence at 322 is in its body
-    assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, 325, "Info")]
+    # the declaration line is the bound one, 319, so the evidence at 322 is in its body
+    assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, 319, "Info")]
     assert not any("createTest" in w for w in out["warnings"]), out["warnings"]
     assert (out["comparedNames"], out["totalDocumented"]) == (["createTest"], 1)
     out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
@@ -1912,25 +1999,64 @@ def test_a_record_with_no_file_offers_the_cited_other_declarations_alone(tmp_pat
     assert any("evidence_line 322 is before the declaration" in w for w in out["warnings"]), out["warnings"]
 
 
-# #918 end to end: the cognee shape, a namespace member and a lazy `__getattr__` re-export of a same-named function.
+# #918 end to end: the cognee shape, a namespace member and a lazy `__getattr__` re-export of a same-named function,
+# each declared at its line in cognee 1.6.2 (pipeline.py:53, run_pipeline.py:37).
 HOMONYM_TREE = {
     "cognee/__init__.py": "from .modules import pipelines\n",
     "cognee/modules/__init__.py": "",
     "cognee/modules/pipelines/__init__.py": "from .operations.pipeline import run_pipeline\n",
     "cognee/modules/pipelines/operations/__init__.py": "",
-    ORCHESTRATOR: "async def run_pipeline(tasks=None, data=None, datasets=None):\n    yield tasks\n",
-    LIGHTWEIGHT: "async def run_pipeline(steps, *, data=None, context=None) -> list:\n    return [data]\n",
+    ORCHESTRATOR: "import asyncio\n" + "\n" * 51 + "async def run_pipeline(tasks=None, data=None, datasets=None):\n"
+                  "    yield tasks\n",
+    LIGHTWEIGHT: "import asyncio\n" + "\n" * 35 + "async def run_pipeline(steps, *, data=None, context=None) -> list:\n"
+                 "    return [data]\n",
     "cognee/pipelines/__init__.py": ("def __getattr__(name):\n    if name == \"run_pipeline\":\n"
                                      "        from cognee.modules.pipelines.operations.run_pipeline import run_pipeline\n"
                                      "        return run_pipeline\n    raise AttributeError(name)\n"),
 }
+# The skill, shaped as oms-cognee 1.6.2 writes run_pipeline: a usage form citing the orchestrator, a prose form of
+# the lightweight runner citing it (full-api-reference.md:264), the orchestrator's prose form citing it
+# (full-api-reference.md:269), its fenced block, then the runner's fenced block followed by the citation the fix
+# proposes (pipelines-and-datapoints.md:155 and :208) and its usage, which cites another line of its file.
+HOMONYM_SKILL_TREE = {
+    "SKILL.md": (f"# Demo\n\n`async for _ in run_pipeline(tasks=tasks, data=text): pass` [SRC:{ORCHESTRATOR}:L53-L57]\n"),
+    "references/api.md": (f"# API\n\n{LIGHTWEIGHT_LINE}\n\n"
+                          "- `Task(executable)` wraps a callable [AST:cognee/modules/pipelines/tasks/task.py:L188]\n"
+                          f"- `run_pipeline(tasks=None, data=None, datasets=None)`: the orchestrator "
+                          f"[AST:{ORCHESTRATOR}:L53]\n"),
+    "references/pipelines.md": ("## run_pipeline\n\n```python\nasync def run_pipeline(\n    tasks=None,\n"
+                                "    data=None,\n    datasets=None,\n)\n```\n\n"
+                                "Top-level async generator.\n\n"
+                                "### Lightweight runner\n\n```python\nasync def run_pipeline(\n    steps,\n    *,\n"
+                                "    data=None,\n    context=None,\n) -> list\n```\n\n"
+                                f"`[AST:{LIGHTWEIGHT}:L37]`\n\n"
+                                "```python\nresults = await run_pipeline([step()], data=raw)\n```\n\n"
+                                f"- Each step gets the last one's output [SRC:{LIGHTWEIGHT}:L46-L61]\n"),
+}
+HOMONYM_INVENTORY = [
+    {"name": "run_pipeline", "kind": "function", "usage_signature": "run_pipeline(tasks=tasks, data=text)",
+     "description": "The orchestrator.", "at": "SKILL.md:3"},
+    {"name": "run_pipeline", "kind": "function", "params": "steps, *, data=None, context=None", "return_type": "list",
+     "description": "The lightweight runner.", "at": "references/api.md:3"},
+    {"name": "run_pipeline", "kind": "function", "params": "tasks=None, data=None, datasets=None",
+     "description": "The orchestrator.", "at": "references/api.md:6"},
+    {"name": "run_pipeline", "kind": "function", "params": "tasks=None, data=None, datasets=None,",
+     "description": "The orchestrator.", "at": "references/pipelines.md:4"},
+    {"name": "run_pipeline", "kind": "function", "params": "steps, *, data=None, context=None,", "return_type": "list",
+     "description": "The lightweight runner.", "at": "references/pipelines.md:16"},
+    {"name": "run_pipeline", "kind": "function", "usage_signature": "run_pipeline([step()], data=raw)",
+     "description": "The lightweight runner.", "at": "references/pipelines.md:27"},
+]
 
 
 @pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
-def test_a_function_only_a_lazy_re_export_reaches_is_compared_where_the_skill_cites_it(tmp_path):
-    """#918 (oms-cognee run_pipeline): the runner gives the orchestrator as the `pipelines` namespace's member and
-    records the lightweight runner only in exports[]; the surface lists it as an other declaration, and the plan
-    hands the judge both, since the skill cites each form's file."""
+def test_a_function_only_a_lazy_re_export_reaches_is_compared_where_its_form_cites_it(tmp_path):
+    """#918 (oms-cognee run_pipeline) end to end: the runner gives the orchestrator as the `pipelines` namespace's
+    member and records the lightweight runner only in exports[]; the surface lists it as an other declaration. The
+    inventory gives each of the six forms its place, which validate-inventory.py checks against the skill, and the
+    plan binds both lightweight forms to run_pipeline.py:37 and the orchestrator's cited forms to pipeline.py:53,
+    while the check stays at the orchestrator, and the lightweight usage, whose citation names another line, is
+    bound to nothing. A mismatch the judge reports for a lightweight form is taken at run_pipeline.py:37."""
     source = tmp_path / "src"
     for rel, text in HOMONYM_TREE.items():
         _write(source / rel, text)
@@ -1945,19 +2071,41 @@ def test_a_function_only_a_lazy_re_export_reaches_is_compared_where_the_skill_ci
                            str(surface)], capture_output=True, text=True, timeout=600)
     assert proc.returncode == 0, proc.stderr
     data = json.loads(surface.read_text(encoding="utf-8"))
-    assert [(r["name"], r["file"], r["line"]) for r in data["exports"]] == [("run_pipeline", ORCHESTRATOR, 1)]
-    assert data["otherDeclarations"] == [{"name": "run_pipeline", "kind": "function", "file": LIGHTWEIGHT, "line": 1,
-                                          "signatureLine": LIGHTWEIGHT_DECLARATION["signatureLine"] + "steps, *, "
-                                          "data=None, context=None) -> list:"}]
-    _write(tmp_path / "skill" / "SKILL.md",
-           f"# Demo\n\n{ORCHESTRATOR_LINE.replace('L53', 'L1')}\n\n{LIGHTWEIGHT_LINE.replace('L37', 'L1')}\n")
-    inventory = _write(tmp_path / "inventory.json", {"exports": RUN_PIPELINE, "cross_check_mismatches": []})
-    proc = _run("plan", "--inventory", inventory, "--surface", str(surface), "--skill-dir", str(tmp_path / "skill"))
+    assert [(r["name"], r["file"], r["line"]) for r in data["exports"]] == [("run_pipeline", ORCHESTRATOR, 53)]
+    assert [(d["name"], d["file"], d["line"]) for d in data["otherDeclarations"]] == [
+        ("run_pipeline", LIGHTWEIGHT, 37)]
+    skill = tmp_path / "skill"
+    for rel, text in HOMONYM_SKILL_TREE.items():
+        _write(skill / rel, text)
+    response = _write(tmp_path / "inventory-response.txt", {
+        "exports": HOMONYM_INVENTORY, "references": ["references/api.md", "references/pipelines.md"],
+        "cross_check_mismatches": []})
+    inventory = tmp_path / "inventory.json"
+    proc = subprocess.run([sys.executable, str(SCRIPTS / "validate-inventory.py"), "--input", response,
+                           "--skill-package", str(skill), "--output", str(inventory)], capture_output=True,
+                          text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    plan = tmp_path / "signature-plan.json"
+    proc = _run("plan", "--inventory", str(inventory), "--surface", str(surface), "--skill-dir", str(skill),
+                "--output", str(plan))
     assert proc.returncode == 0, proc.stderr
     [group] = json.loads(proc.stdout)["files"]
     [check] = group["checks"]
-    assert (group["file"], check["line"]) == (ORCHESTRATOR, 1)
-    assert [(c["file"], c["line"]) for c in check["candidates"]] == [(ORCHESTRATOR, 1), (LIGHTWEIGHT, 1)]
+    assert (group["file"], check["line"], "candidates" in check) == (ORCHESTRATOR, 53, False)
+    forms = [check["documented"], *check["alternatives"]]
+    texts = [f.get("params") or f.get("usage_signature") for f in forms]
+    assert texts == ["steps, *, data=None, context=None", "tasks=None, data=None, datasets=None",
+                     "tasks=None, data=None, datasets=None,", "steps, *, data=None, context=None,",
+                     "run_pipeline(tasks=tasks, data=text)", "run_pipeline([step()], data=raw)"]
+    assert [(b["form"], b["file"], b["line"]) for b in check["bound"]] == [
+        (0, LIGHTWEIGHT, 37), (1, ORCHESTRATOR, 53), (3, LIGHTWEIGHT, 37), (4, ORCHESTRATOR, 53)]
+    mismatch = {**LIGHTWEIGHT_MISMATCH, "form": 3, "file": None, "line": 53,
+                "documented_sig": "(steps, *, data=None, context=None,) -> list"}
+    results = _write(tmp_path / "s.txt", json.dumps({"file": ORCHESTRATOR, "signature_mismatches": [mismatch]}))
+    out = json.loads(_run("score", "--inventory", str(inventory), "--surface", str(surface), "--plan", str(plan),
+                          "--results", results).stdout)
+    assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, 37)]
+    assert [g["title"] for g in out["gapRecords"]] == ["Signature mismatch: run_pipeline (form 4 of 6)"]
 
 
 def test_empty_params_on_a_kind_that_takes_none_is_no_signature():
