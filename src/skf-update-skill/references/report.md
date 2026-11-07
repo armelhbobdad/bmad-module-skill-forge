@@ -246,12 +246,12 @@ When `{run_dir}/warnings.jsonl` holds a `workspace-clone-not-updated:` line, add
 
 ### 5b. Result Contract
 
-The shared emitter writes the result contract and prints the line; never type either. Stage the payload in the run folder, from the files this run wrote rather than from memory (`{run_dir}/change-manifest.json` for the counts, the artifacts write.md wrote for `files_written`, the Validation Summary §3 read for `validation_status`):
+The shared emitter writes the result contract and prints the line; never type either. Stage the payload in the run folder, from the files this run wrote rather than from memory (`{run_dir}/change-manifest.json` for the counts, the artifacts write.md wrote for `files_written`, the Validation Summary §3 read for `validation_status` and for `security_result`, the first word of its `Security` row with `PASS` as `pass`, `WARN` as `warn` and `SKIP` as `skipped`, left out of the payload and its `summary` when that row is missing or starts with another word; §1, §1a and §1b run no scan and leave `security_result` out):
 
 ```bash
 cat > "{run_dir}/result-context.json" <<'SKF_JSON'
-{"status": "success", "skill_name": "{skill_name}", "version": "{new_version}", "previous_version": "{baseline_version}", "update_mode": "{update_mode}", "files_written": [<each artifact write.md wrote and verified: SKILL.md, references (when this run wrote, added or removed a references/*.md file, as the files on disk show), metadata.json, provenance-map.json, evidence-report.md, context-snippet.md, active-symlink>], "error": null,
- "result_contract": {"skill": "skf-update-skill", "status": "success", "outputs": [{"type": "skill", "path": "<each modified file's path>"}], "summary": {"update_status": "success", "exports_affected": <total_export_changes, or the gap count in gap-driven mode>, "files_modified": <the files written>, "validation_status": "<passed, warnings or failures>"}}}
+{"status": "success", "skill_name": "{skill_name}", "version": "{new_version}", "previous_version": "{baseline_version}", "update_mode": "{update_mode}", "security_result": "<pass, warn or skipped>", "files_written": [<each artifact write.md wrote and verified: SKILL.md, references (when this run wrote, added or removed a references/*.md file, as the files on disk show), metadata.json, provenance-map.json, evidence-report.md, context-snippet.md, active-symlink>], "error": null,
+ "result_contract": {"skill": "skf-update-skill", "status": "success", "outputs": [{"type": "skill", "path": "<each modified file's path>"}], "summary": {"update_status": "success", "exports_affected": <total_export_changes, or the gap count in gap-driven mode>, "files_modified": <the files written>, "validation_status": "<passed, warnings or failures>", "security_result": "<pass, warn or skipped>"}}}
 SKF_JSON
 ```
 

@@ -53,17 +53,17 @@ The shared emitter writes the result contract (`shared/references/output-contrac
 
 ```json
 {"status": "success", "skill_package": "{skill_package}", "skill_name": "{stack_name}",
- "stack_libraries": ["<library>"], "mode": "code|compose", "quality_score": null, "halt_reason": null,
+ "stack_libraries": ["<library>"], "mode": "code|compose", "quality_score": null, "security_result": "pass|warn|skipped", "halt_reason": null,
  "result_contract": {"skill": "skf-create-stack-skill", "status": "success",
   "outputs": [{"type": "skill", "path": "{skill_package}/SKILL.md"},
               {"type": "skill", "path": "{skill_package}/context-snippet.md"},
               {"type": "skill", "path": "{skill_package}/metadata.json"},
               {"type": "report", "path": "{forge_version}/evidence-report.md"}],
   "summary": {"lib_count": 0, "integration_count": 0, "forge_tier": "<tier>", "confidence_tier": "<tier>",
-              "confidence_distribution": {}, "quality_score": null}}}
+              "confidence_distribution": {}, "quality_score": null, "security_result": "pass|warn|skipped"}}}
 ```
 
-`skill_package` is the absolute path to the committed package and `stack_libraries` the committed `metadata.json`'s `libraries`. Both `quality_score` fields are `{quality_score}`, the skill-check score step 8 §3 bound (`null` when skill-check did not run), never a test-skill score. The summary's counts, `confidence_tier` and `confidence_distribution` are the committed `metadata.json`'s `library_count`, `integration_count`, `confidence_tier` and `confidence_distribution`, and `forge_tier` its run tier. Then run:
+`skill_package` is the absolute path to the committed package and `stack_libraries` the committed `metadata.json`'s `libraries`. Both `quality_score` fields are `{quality_score}`, the skill-check score step 8 §3 bound (`null` when skill-check did not run), never a test-skill score. Both `security_result` fields are `{security_result}`, the scan outcome step 8 §9 bound. The summary's counts, `confidence_tier` and `confidence_distribution` are the committed `metadata.json`'s `library_count`, `integration_count`, `confidence_tier` and `confidence_distribution`, and `forge_tier` its run tier. Then run:
 
 ```bash
 uv run {emitEnvelopeHelper} emit --workflow skf-create-stack-skill --run-dir "{run_dir}" --result-dir "{forge_version}" < "{run_dir}/result-context.json"

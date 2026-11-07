@@ -187,6 +187,11 @@
             "security": { "type": "integer", "minimum": 0 }
           },
           "description": "The advisory issues step 5's validators returned for each heading of its validation report: skill_md (skill-check's diagnostics, or the frontmatter validator's issues without it, plus the body checks), context_snippet, metadata and security (skill-check's security findings). Auto-fixed issues count nothing, and a check that did not run counts 0."
+        },
+        "security_result": {
+          "type": "string",
+          "enum": ["pass", "warn", "skipped"],
+          "description": "The outcome of step 5's security scan. 'pass': the scan exited 0 and skill-check reported no finding, which does not show that the scan found nothing (without --ci, agent-scan also exits 0 when its analysis fails). 'warn': it reported findings. 'skipped': it did not run (skill-check unavailable or stopped before it validated, or the scan could not run, such as without SNYK_TOKEN). validation_issues.security reads 0 for a skipped scan as for a passed one, so read this field to tell them apart."
         }
       },
       "description": "Empty at a HARD HALT. On success, the run's facts a pipeline branches on."

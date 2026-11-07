@@ -89,6 +89,11 @@
           "uniqueItems": true,
           "description": "Artifacts actually written or updated this run. 'references' stands for one or more references/*.md files of the skill package written, added or removed (merge.md §6b's merge, at any priority, write.md §6's provenance fixes or write.md §7's body split), one value however many. Empty array when a halt fired before any write completed."
         },
+        "security_result": {
+          "type": "string",
+          "enum": ["pass", "warn", "skipped"],
+          "description": "The outcome of write.md §7's security scan, from the Security row of this update's Validation Summary in the evidence report (PASS as 'pass', WARN as 'warn', SKIP as 'skipped'), and the value follows that row. 'pass': the scan exited 0 and skill-check reported no finding, which does not show that the scan found nothing. 'warn': it reported findings. 'skipped': it did not run (skill-check unavailable, or the scan could not run, such as without SNYK_TOKEN). Absent on 'no-changes', 'detect-only' and 'dry-run', which run no scan, at every halt, and when that row is missing or starts with another word."
+        },
         "headless_decisions": {
           "type": "array",
           "items": {

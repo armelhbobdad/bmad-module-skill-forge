@@ -492,6 +492,8 @@ def test_the_documented_result_payload_is_schema_valid(tmp_path):
     payload_text = re.search(r"<<'SKF_JSON'\n(.+?)\nSKF_JSON", five, re.S).group(1)
     filled = re.sub(r"\{(run_status)\}", "success", payload_text)
     filled = re.sub(r"\{tier\}", "Forge", filled)
+    # #902: the evidence report's `- Security: skipped` row, a scan that could not run
+    filled = filled.replace("{security_result}", "skipped")
     filled = re.sub(r"\{[a-z_]+\}", "x", filled)
     payload = json.loads(filled)
     run_dir = tmp_path / "skf-create-skill-run00001"
@@ -506,6 +508,7 @@ def test_the_documented_result_payload_is_schema_valid(tmp_path):
     assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("success", 0, None)
     latest = json.loads((forge / "create-skill-result-latest.json").read_text(encoding="utf-8"))
     assert latest["skill"] == "skf-create-skill" and latest["run_id"] == "run00001"
+    assert envelope["summary"]["security_result"] == latest["summary"]["security_result"] == "skipped"
     assert latest["headless_decisions"] == [] and "timestamp" in latest
     assert envelope["result_path"] == next(p for p in forge.iterdir() if p.name != "create-skill-result-latest.json").as_posix()
     # #891: a folder where the -latest copy goes. The emit still exits 0 and keeps result_path, and one warning
@@ -525,6 +528,32 @@ def test_the_documented_result_payload_is_schema_valid(tmp_path):
     assert len(failed) == 1 and "create-skill-result-latest.json" in failed[0], envelope.get("warnings")
     assert ("warning names `create-skill-result-latest.json` (the copy alone failed): \"on_complete skipped for "
             "`{name}`: `create-skill-result-latest.json` was not written\"") in five
+
+
+def test_the_result_payload_reads_the_security_row(tmp_path):
+    """#902: §5 reads the scan's outcome from the promoted evidence report's Security row, the row validate §8
+    writes, and stages it in both summary objects; a value outside the schema's three stops the emitter."""
+    five = _section(_read(REFS / "report.md"), "### 5. Result Contract", "### 6.")
+    assert ("Bind `{security_result}` ← the first word of the `- Security:` line under `## Validation Results` in the "
+            "promoted `{forge_version}/evidence-report.md` (`pass`, `warn` or `skipped`)") in five
+    assert ("when that line is missing or starts with another word, leave `security_result` out of both `summary` "
+            "objects") in five
+    payload_text = re.search(r"<<'SKF_JSON'\n(.+?)\nSKF_JSON", five, re.S).group(1)
+    assert payload_text.count('"auto_decision_count": 0, "security_result": "{security_result}"}') == 2
+    payload = json.loads(payload_text.replace("{run_status}", "success").replace("{tier}", "Forge"))
+    assert payload["summary"]["security_result"] == "{security_result}"
+    assert payload["result_contract"]["summary"]["security_result"] == "{security_result}"
+    results = _section(_read(REFS / "validate.md"), "### 8. Update Evidence Report", "### 9.")
+    assert "## Validation Results\n" in results and "\n- Security: {pass/warn/skipped}\n" in results
+    # the row's three words are the schema's values
+    schema = _schema()
+    assert schema["properties"]["summary"]["properties"]["security_result"]["enum"] == ["pass", "warn", "skipped"]
+    filled = re.sub(r"\{[a-z_]+\}", "x", json.dumps(payload).replace("{security_result}", "SKIP"))
+    run_dir = tmp_path / "skf-create-skill-run00003"
+    run_dir.mkdir()
+    proc = subprocess.run([sys.executable, str(EMITTER), "emit", "--workflow", "skf-create-skill", "--run-dir",
+                           str(run_dir)], input=filled, capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert proc.returncode == 1 and "security_result" in proc.stderr, proc.stderr
 
 
 # --------------------------------------------------------------------------

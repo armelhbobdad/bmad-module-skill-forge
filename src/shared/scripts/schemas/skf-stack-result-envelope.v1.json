@@ -76,6 +76,11 @@
       "minimum": 0,
       "description": "The skill-check score step 8 recorded for the committed package; null when skill-check did not run and at every halt. It is not a test-skill score: [TS] grades the stack."
     },
+    "security_result": {
+      "type": "string",
+      "enum": ["pass", "warn", "skipped"],
+      "description": "The outcome of step 8's security scan. 'pass': the scan exited 0 and skill-check reported no finding, which does not show that the scan found nothing (without --ci, agent-scan also exits 0 when its analysis fails). 'warn': it reported findings. 'skipped': it did not run (skill-check unavailable or stopped before it validated, or the scan could not run, such as without SNYK_TOKEN). Absent at every halt."
+    },
     "exit_code": {
       "type": "integer",
       "enum": [0, 2, 3, 4, 5, 6],

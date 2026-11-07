@@ -2593,6 +2593,8 @@ def test_the_success_envelope_and_result_files_come_from_the_emitter(tmp_path):
     (emit,) = [line for line in _fence_lines(two_b) if "{emitEnvelopeHelper} emit " in line]
     payload = json.loads(_first_fence(two_b))
     payload["mode"] = "code"
+    # #902: step 8 §9's outcome for a scan that could not run, at the top level and in the contract's summary
+    payload["security_result"] = payload["result_contract"]["summary"]["security_result"] = "skipped"
     run_dir = tmp_path / "skf-create-stack-skill-run9"
     forge_version = tmp_path / "forge" / "demo-stack" / "18.2.0"
     run_dir.mkdir()
@@ -2614,10 +2616,43 @@ def test_the_success_envelope_and_result_files_come_from_the_emitter(tmp_path):
     assert Path(envelope["result_path"]).name == names[0]
     record = json.loads((forge_version / names[0]).read_text(encoding="utf-8"))
     assert record["skill"] == "skf-create-stack-skill" and record["headless_decisions"] == envelope["headless_decisions"]
+    assert envelope["security_result"] == record["summary"]["security_result"] == "skipped"
     # The stable copy at the stack group root is copied from the emitter's -latest record.
     (copy,) = [line for line in _fence_lines(two_b) if "{atomicWriteHelper} write" in line]
     assert copy.endswith("< {forge_version}/create-stack-skill-result-latest.json")
     assert "--target {forge_data_folder}/{stack_name}/create-stack-skill-result-latest.json" in copy
+
+
+def test_the_security_scan_outcome_reaches_the_envelope(tmp_path):
+    """#902: step 8 §9 binds `{security_result}` from the branch its scan took, and step 9 stages it beside
+    `quality_score` and in the contract's summary; a value outside the schema's three stops the emitter."""
+    nine = _sections(_body(_read(VALIDATE)))["9"]
+    binding = _slice(nine, "Bind `{security_result}`", "\n")
+    assert binding == ("Bind `{security_result}` ← `skipped` for **Could not run**, a run whose "
+                       "`{run_dir}/skill-check.json` does not start with a JSON object, or an unavailable skill-check; "
+                       "`warn` for **Findings**; `pass` for **Neither**. Step 9 puts it in the result envelope and the "
+                       "result contract.")
+    # a paragraph of its own, after the three branches and the unavailable case it names
+    for branch in ("- **Could not run:**", "- **Findings:**", "- **Neither:**", "**If unavailable:**"):
+        assert nine.index(branch) < nine.index(binding), branch
+    two_b = _sections(_body(_read(REPORT)))["2b"]
+    assert "Both `security_result` fields are `{security_result}`, the scan outcome step 8 §9 bound." in two_b
+    payload = json.loads(_first_fence(two_b))
+    schema = _schema()
+    enum = schema["properties"]["security_result"]["enum"]
+    assert payload["security_result"].split("|") == enum == ["pass", "warn", "skipped"]
+    assert payload["result_contract"]["summary"]["security_result"] == payload["security_result"]
+    assert list(payload).index("security_result") == list(payload).index("quality_score") + 1
+    assert "security_result" not in schema["required"]
+    (emit,) = [line for line in _fence_lines(two_b) if "{emitEnvelopeHelper} emit " in line]
+    payload.update(mode="code", security_result="passed")
+    run_dir = tmp_path / "skf-create-stack-skill-run10"
+    run_dir.mkdir()
+    argv = _argv(emit.split(" < ")[0], "emitEnvelopeHelper",
+                 {"{run_dir}": str(run_dir), "{forge_version}": str(tmp_path)})
+    result = subprocess.run([sys.executable, str(EMITTER), *argv], input=json.dumps(payload),
+                            capture_output=True, text=True)
+    assert result.returncode == 1 and "security_result" in result.stderr, result.stderr
 
 
 def test_a_late_failure_prints_a_line_instead_of_a_dropped_warning():
