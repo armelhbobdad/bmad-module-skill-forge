@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill now stops at the hard gate on a props table, correct the prop names or types the source contradicts, add the required props it leaves out, and add the optional props it leaves out or label the table partial in its column header (for example `Props (simplified)`), then run Test Skill again.
 issues: [931]
+prs: [990]
