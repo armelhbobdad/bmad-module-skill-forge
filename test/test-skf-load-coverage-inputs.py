@@ -745,6 +745,54 @@ def test_floor_records_each_fixed_form(tmp_path):
     assert json.loads(first.read_bytes()) == out
 
 
+def _labelled(signature: dict | None) -> dict | None:
+    return None if signature is None else {**signature, "signature_form": "partial"}
+
+
+@pytest.mark.parametrize("header, labelled", [
+    ("Signature (simplified)", True),
+    ("**Signatures (Key Parameters)**", True),
+    ("Signature (partial)", True),
+    ("signature (key params)", True),
+    ("Signature ( Key   Parameters )", True),
+    ("Signature (TypeScript)", False),
+    ("Signature (each name in the row)", False),
+    ("Simplified signature", False),
+], ids=["simplified", "emphasized-plural-key-parameters", "partial", "lower-case-key-params", "padded-key-parameters",
+        "another-label", "a-longer-label", "the-word-first"])
+def test_floor_pins_a_signature_header_s_partial_label(tmp_path, header, labelled):
+    """#888 step 1: a Signature or Signatures header with one partial label in parentheses after its word, any case
+    (`simplified`, `partial`, `key parameters`, `key params`), is read as a Signature column, and each form read
+    from it also carries `signature_form` "partial", so the label is the script's, not the reader's. The label heads
+    that column only: the first-cell form a span with no group (`Typed<X>`) falls back to carries none, and a span
+    with a group that is no complete form (`client.get(k) -> str`) still pins nothing. Any other text after the word,
+    or before it, leaves the column unread, as before: the first-cell form is then pinned, with no label. The same
+    skill gives the same bytes."""
+    body = (f"| Export | Kind | {header} |\n"                                     # 1
+            "| --- | --- | --- |\n"                                               # 2
+            "| `fetch` | function | `(url: string) => Response` |\n"              # 3
+            "| `other(a): B` | function | `(b: C) => D` |\n"                     # 4
+            "| `typed(x): Typed` | function | `Typed<X>` |\n"                     # 5
+            "| `get(k)` | function | `client.get(k) -> str` |\n"                 # 6
+            "| `request(url): Promise<T>` | function | `(url: string, opts?: O) => T` |\n")  # 7
+    root = _skill(tmp_path, body)
+    out = mod.floor(str(root))
+    cell = {"fetch": _labelled(_signature("url: string", "Response")), "other": _labelled(_signature("b: C", "D")),
+            "get": None, "request": _labelled(_signature("url: string, opts?: O", "T"))}
+    first_cell = {"fetch": None, "other": _signature("a", "B"), "get": _signature("k"),
+                  "request": _signature("url", "Promise<T>")}
+    expected = {**(cell if labelled else first_cell), "typed": _signature("x", "Typed")}
+    assert {n["name"]: [(o["line"], o.get("signature")) for o in n["origins"]] for n in out["names"]} == {
+        name: [(line, expected[name])] for name, line in
+        (("fetch", 3), ("get", 6), ("other", 4), ("request", 7), ("typed", 5))}
+    first, second = tmp_path / "floor-1.json", tmp_path / "floor-2.json"
+    for target in (first, second):
+        proc = _run("floor", "--skill-dir", str(root), "--output", str(target))
+        assert proc.returncode == 0, proc.stderr
+    assert first.read_bytes() == second.read_bytes()
+    assert json.loads(first.read_bytes()) == out
+
+
 def test_floor_without_skill_md_exits_1(tmp_path):
     proc = _run("floor", "--skill-dir", str(tmp_path))
     assert proc.returncode == 1 and "holds no SKILL.md" in proc.stderr and proc.stdout == ""

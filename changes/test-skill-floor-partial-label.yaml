@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory floor now reads a table's `Signature` column whose header carries a partial label, `Signature (simplified)`, `(partial)`, `(key parameters)` or `(key params)`: each form it pins there also carries `signature_form: "partial"`, and `validate-inventory.py --floor` refuses an inventory unless the entry at that row (its `at`) carries the form and the label, and no entry gives the form unlabelled at that row or with no `at`. Before, such a column was not read, and whether the form was labelled partial, which makes an optional parameter it leaves out Info rather than Critical, was the reader's choice and could change between runs. An inventory that passed can now be refused, and a form written in such a column is now pinned.
+migration: |
+  If Test Skill halts with `inventory-invalid` because the inventory leaves out a partial label the floor pins from a table's `Signature` header, or copies that form unlabelled with no `at`, run it again; if the label is wrong, remove it from the skill's column header.
+issues: [888]

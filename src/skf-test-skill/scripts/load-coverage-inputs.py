@@ -77,8 +77,9 @@ reading files and writing one JSON object:
             Signatures (#888): an origin whose place writes the name's
             signature in a fixed form that is surely complete also carries
             it as `signature`, {"params", "return_type"}, two strings, each
-            one's whitespace runs read as one space, which
-            validate-inventory.py --floor refuses an inventory for
+            one's whitespace runs read as one space (and `signature_form`
+            "partial" under a Signature header's partial label, below),
+            which validate-inventory.py --floor refuses an inventory for
             changing; any other place pins nothing, since a wrong pin would
             be forced into the inventory. `params` is the text inside the
             parameter group (score-signatures.py's _group: the first pair
@@ -105,10 +106,18 @@ reading files and writing one JSON object:
                            nothing). A Signature span with a group that is
                            no complete form (`client.get(k) -> str`,
                            `new Client(opts)`) gives none, so a shorter
-                           first-cell call never stands in for it. A header
-                           cell matches whole, so a labelled one is not a
-                           Signature column, and a Props, Params or
-                           Parameters cell is never read (its shared
+                           first-cell call never stands in for it. A
+                           Signature header may give one partial label in
+                           parentheses after its word, any case:
+                           `Signature (simplified)`, `(partial)`, `(key
+                           parameters)` or `(key params)`. The form its
+                           span gives then also carries `signature_form`
+                           "partial", so the label is the script's, not the
+                           reader's; the first-cell form never does, as
+                           the label heads that column only. Any other
+                           text after the word (`Signature (TypeScript)`)
+                           leaves the column unread, and a Props, Params
+                           or Parameters cell is never read (its shared
                            members and usage forms stay the reader's).
               heading      its code span
               declaration  a function's (`function`, `def`, `fn` or Go's
@@ -461,9 +470,13 @@ FLOOR_TABLE_HEADERS = frozenset({
     "export", "exports", "symbol", "symbols", "function", "functions", "class", "classes", "interface", "interfaces",
     "type", "types", "hook", "hooks", "component", "components", "helper", "helpers", "constant", "constants",
     "enum", "enums", "api", "apis"})
-# The header words (as _header_word reads them, whole) of a floor table's column that writes the row's signature
-# (#888); a labelled header, such as `Signature (simplified)`, is not one.
+# The header words (as _header_label reads them, a partial label cut) of a floor table's column that writes the row's
+# signature (#888); a header with any other text after the word, such as `Signature (TypeScript)`, is not one.
 FLOOR_SIGNATURE_HEADERS = frozenset({"signature", "signatures"})
+# The partial labels (lower case, whitespace runs as one space) a header may give in parentheses after its word, as
+# `Signature (simplified)` does (#888): each form read from that Signature column is partial, so an optional
+# parameter it leaves out is Info, not Critical, and the floor pins the label with the form.
+FLOOR_PARTIAL_LABELS = frozenset({"simplified", "partial", "key parameters", "key params"})
 # A complete form's name, before its type parameters and parameter group (group 1, absent for none).
 SPAN_NAME_RE = re.compile(r"\s*([A-Za-z_$][\w$]*)?\s*")
 # What a complete form writes after its parameter group before its return: `->`, `=>`, `→` or `:` (not `::`).
@@ -659,6 +672,19 @@ def _header_word(cell: str) -> str:
     return (m.group(2) if m else cell).strip().lower()
 
 
+def _header_label(cell: str) -> tuple[str, bool]:
+    """A header cell's word as _header_word reads it, and whether it carries a partial label (#888): one of
+    FLOOR_PARTIAL_LABELS in parentheses after the word (`Signature (simplified)`, `**Signatures (Key
+    Parameters)**`), any case, whitespace runs inside them as one space, the label then cut from the word. Any other
+    text after the word (`Signature (TypeScript)`) stays in it, so that column is read as before."""
+    word = _header_word(cell)
+    if word.endswith(")"):
+        head, opened, label = word[:-1].rpartition("(")
+        if opened and " ".join(label.split()) in FLOOR_PARTIAL_LABELS:
+            return head.rstrip(), True
+    return word, False
+
+
 def _cells(row: str) -> list[str]:
     """A table row's cells, split on each unescaped `|`, each stripped."""
     row = row.strip()
@@ -826,17 +852,19 @@ def _row_form(header: list[str], row: list[str]) -> dict | None:
     none), each cell's `\\|` read as `|`: the leading code span of its Signature or Signatures cell, else, when that
     span writes no parameter group, the one span of its first cell that gives that name (another export's span there
     gives nothing), each a complete form (_call_form). A Signature span with a group that is no complete form gives
-    none. A Props, Params or Parameters cell is never read."""
+    none. A Signature header may carry a partial label (_header_label, #888): the form its span gives then also
+    gives `signature_form` "partial", the first-cell form never. A Props, Params or Parameters cell is never read."""
     segments = _sibling("locate-export-segments.py")
     names = {name for name in map(_floor_name, segments._inline_code(row[0])) if name}
     if len(names) != 1:
         return None
     [name] = names
     cells = [cell.replace("\\|", "|") for cell in row]
-    at = next((i for i, cell in enumerate(header) if _header_word(cell) in FLOOR_SIGNATURE_HEADERS), None)
+    at, partial = next(((i, labelled) for i, (word, labelled) in enumerate(map(_header_label, header))
+                        if word in FLOOR_SIGNATURE_HEADERS), (None, False))
     span = _leading_span(cells[at]) if at is not None and at < len(cells) else None
     if span is not None and (form := _call_form(span, name)):
-        return form
+        return {**form, "signature_form": "partial"} if partial else form
     if span is not None and _sibling("score-signatures.py")._group(span.strip()) is not None:
         return None  # the cell writes a call the floor cannot pin: a shorter first-cell form would hide it
     own = [span for span in segments._inline_code(cells[0]) if _floor_name(span) == name]

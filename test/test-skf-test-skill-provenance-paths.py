@@ -1584,7 +1584,8 @@ def test_the_floor_runs_before_the_inventory_subagent():
     dispatched, and both paths read it: the subagent is given its path, the parent without subagents builds
     from it, and §1a refuses an inventory that leaves one of its names out. Its form rules are the script's.
     #888: an origin's `signature` is that place's entry, kept as given, the contract says so for every kind and
-    names the places pinned (no Props or Params cell), and §1a refuses an inventory that changes one."""
+    names the places pinned (no Props or Params cell) and the partial label a Signature header pins with the form,
+    and §1a refuses an inventory that changes one."""
     text = _read(COVERAGE)
     section1 = _slice(text, "### 1. Extract Documented Exports", "#### 1a.")
     assert _command(COVERAGE, "uv run {coverageInputsScript} floor") == FLOOR_COMMAND
@@ -1594,8 +1595,8 @@ def test_the_floor_runs_before_the_inventory_subagent():
             '`coverage-check:inventory`).') in flow
     assert ("It is given `{run_dir}/inventory-floor.json` too, and lists each name there with an origin in a file "
             "it reads, choosing its kind from the name's `kindLabel`, the skill's own label, when it has one. "
-            "An origin's `signature` is that place's entry, at that place, its non-blank `params` and `return_type` "
-            "kept as given; a blank one is the reader's.") in flow
+            "An origin's `signature` is that place's entry, at that place, its non-blank fields kept as given; a "
+            "blank one is the reader's.") in flow
     assert ("Without subagents, the parent loads `{inventoryContractFile}` and builds the same JSON from the same files and `inventory-floor.json` and "
             "saves it to that file; §1a's checks still run on it.") in flow
     for rule in ("first cell", "public declaration", "Exports, Symbol"):
@@ -1619,12 +1620,16 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "a heading or an export table's first cell that writes one call) has that form as its entry, with that "
             "place as its `at`, whatever its kind, its non-blank `params` and `return_type` kept as given (a "
             "`params` may open with the shared text the next sentence gives, then `; `); a blank one is the "
-            "reader's, and a form the skill writes only in prose is an entry of its own. Where the skill documents "
-            "several names and states members they share once") in contract
+            "reader's, and a form the skill writes only in prose is an entry of its own; a `signature` read from a "
+            "Signature cell under a partial label (`Signature (simplified)`, `(partial)`, `(key parameters)`) also "
+            "gives `signature_form` `\"partial\"`, which that entry copies, and the validator refuses an inventory "
+            "with no entry there that does. Where the skill documents several names and states members they share "
+            "once") in contract
     rules = _flow(runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py").__doc__)
     assert ("an origin whose place writes the name's signature in a fixed form that is surely complete also "
             "carries it as `signature`" in rules and "no signature read" not in rules)
     assert "a Props, Params or Parameters cell is never read" in rules
+    assert "`Signature (simplified)`" in rules and "a labelled one is not a Signature column" not in rules
     assert not re.search(r"\bProps\b|\bParams\b", _flow(_read(INVENTORY_CONTRACT)).split(
         "keeps one `kind` in every place.", 1)[1].split("Where the skill documents several names", 1)[0])
     for rule in ("Signature cell", "Props (simplified)", "leading code span"):
