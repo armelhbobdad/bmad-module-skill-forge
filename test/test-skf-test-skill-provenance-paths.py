@@ -1344,6 +1344,57 @@ def test_the_inventory_contract_gives_a_component_constant_a_usage_signature():
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
 
+def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms():
+    """#967, #970, #973: the contract left three cases to the reader, so one text scored differently between runs. A
+    name written only inside another entry's type (`ExceptionContext` in `Callable[[BaseException, ExceptionContext],
+    None]`) was documented in one run and a Medium `missing-export` in the next; a `const` whose value is a function
+    (storybook's `withActions`, typed in a description cell) was compared in two runs and skipped in a third; a def an
+    example writes as the reader's own code (oms-cocoindex's `mount_table_target(db_key, ...)`) was a blocking
+    Critical `signature-mismatch` for one reader and nothing for another. One paragraph of its own settles each in one
+    sentence: a name written only in a type position is a type mention and no entry, even as a span that is exactly
+    the name in a parameter table's Type cell, unless the skill also writes it as an export outside a type position;
+    the constant carries its function form as `params` (`[]` when it takes none, as `""` is never bound on a
+    constant) and `return_type`, which score-signatures.py plans; and the def is an entry with no form, unless the
+    floor pins its signature. It sits after the contract paragraph and before the `cross_check_mismatches` one, whose
+    pin reads to the end of the file; coverage-check.md stays under its budget."""
+    type_only = (
+        "A name the skill writes only in a type position (a parameter type, a return type or a type argument inside "
+        "another entry's documented type or signature, or a parameter table's Type cell) is a type mention, not an "
+        "export the skill documents, even when its code span is exactly the name, and gets no entry, unless the "
+        "skill also writes it as one outside a type position: a place `inventory-floor.json` gives it, a heading, an "
+        "export table's first cell, a code span that is the name or the name then `(`, or a fenced declaration.")
+    function_constant = (
+        "A `const` whose value is a function (annotated with a function type, bound to an arrow, a `function` or a "
+        "call that returns one, or written with a parameter list) carries the function form the skill writes for it "
+        "as `params` (`[]`, never `\"\"`, when it takes none) and `return_type`, whatever its kind (`constant` for the "
+        "skill's `const` label), wherever the skill writes it, a description cell included; a bare `name()` there is "
+        "still a mention; only a constant holding neither a component nor a function is a data constant.")
+    own_code = (
+        "A function or class an example defines as the reader's own code is not a form of a same-named export: when "
+        "its fenced block also defines names the skill does not document as exports, at a place "
+        "`inventory-floor.json` gives no `signature`, its entry there leaves `params`, `return_type` and "
+        "`usage_signature` out, as a mention's does, so it is never compared and records no gap; a declaration the "
+        "floor gives a `signature` stays that place's form.")
+    text = _read(INVENTORY_CONTRACT)
+    paragraphs = [_flow(block).strip() for block in re.split(r"\n[ \t]*\n", text) if block.strip()]
+    paragraph = f"{type_only} {function_constant} {own_code}"
+    assert paragraphs.count(paragraph) == 1, "the three sentences are one paragraph of their own"
+    at = paragraphs.index(paragraph)
+    assert paragraphs[at - 1].startswith("The contract `validate-inventory.py` checks"), paragraphs[at - 1][:80]
+    assert paragraphs[at + 1].startswith("A `cross_check_mismatches` entry gives"), paragraphs[at + 1][:80]
+    # the pins on the contract paragraph and the cross-check one still find their own text alone
+    for pinned in ("A `cross_check_mismatches` entry gives", "Where the skill documents several names",
+                   "keeps one `kind` in every place."):
+        assert pinned not in paragraph, pinned
+    # #837's sentence stays as it was, in the contract paragraph: the new sentence narrows only its data constant
+    assert ("A `const` holding a component (a `forwardRef`, `memo` or other wrapper call, or an alias like "
+            "`const Tabs = TabsPrimitive.Root`) is a `constant` with the declaration or usage form the skill writes as "
+            "`usage_signature`; a data constant carries no `usage_signature`, `params` or `return_type`."
+            ) in paragraphs[at - 1]
+    assert "\u2014" not in paragraph and "\u2013" not in paragraph, "no em or en dash"
+    assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
+
+
 def test_a_module_s_function_is_a_function_never_a_method():
     """6.0.0 release gate (oms-cognee): the contract gave a `method` "the class or namespace it is called on" as its
     `owner`, so a reader recorded the module `cognee.tools`'s functions as methods owned by `tools`, and coverage,

@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill no longer compares a function or class an example defines as the reader's own code with the library export of the same name, when its fenced block also defines names the skill does not document as exports and the inventory floor pins no signature there: its entry carries no form, so it records no gap. oms-cocoindex's connector-author `mount_table_target(db_key, ...)` was a Critical gap for one reader and left out by another.
+issues: [973]
