@@ -720,7 +720,9 @@ class TestStagesRecordTheirGaps:
         entry, fetch = _ledger_records(values)
         assert (entry["severity"], entry["category"], entry["title"], entry["source"], entry["export"]) == (
             "Info", "provenance-unverified", "Provenance line not verified for Entry", "pkg/api.ts:1", "Entry")
-        assert entry["remediation"].startswith("`Entry` is an alias: `pkg/root.ts:2` renames `API_Entry` to it")
+        assert entry["remediation"].startswith(
+            "`Entry` is an alias of `API_Entry`, which a cited file declares; the source declares the alias at "
+            "`pkg/root.ts:2`")
         for needle in ("If no other entry already has `export_name` `API_Entry`, record the rename",
                        "set `export_name` to `API_Entry`", "add `reexported_as` `Entry`"):
             assert needle in entry["remediation"], needle
@@ -1040,8 +1042,8 @@ class TestStaleNameLineCheck:
             ("Info", "provenance-unverified", "pkg/api.ts:1")], line
         # #911: the gap names the alias and the rename to record, not a line of the file that never defines it
         assert line[0]["remediation"].startswith(
-            "`Entry` is an alias: `pkg/root.ts:2` renames `API_Entry` to it, and no line of `pkg/api.ts` defines "
-            "`Entry`."), line
+            "`Entry` is an alias of `API_Entry`, which a cited file declares; the source declares the alias at "
+            "`pkg/root.ts:2`, and no line of `pkg/api.ts` defines `Entry`."), line
         assert "set `export_name` to `API_Entry`, add `reexported_as` `Entry`" in line[0]["remediation"]
         assert not [r for r in records + line if r["severity"] in gap_ledger.BLOCKING]
 

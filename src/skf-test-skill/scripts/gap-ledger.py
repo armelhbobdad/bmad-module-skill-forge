@@ -1578,7 +1578,9 @@ def _alias_fix(name: str, file: str, item: dict) -> str:
     alias_file, _, alias_line = alias.rpartition(":")
     named = isinstance(local, str) and bool(local)
     renamed = f"`{local}`" if named else "a name a cited file declares"
-    head = f"`{name}` is an alias: `{alias}` renames {renamed} to it, and no line of `{file}` defines `{name}`. "
+    of = f"{renamed}, which a cited file declares" if named else renamed
+    head = (f"`{name}` is an alias of {of}; the source declares the alias at `{alias}`, and no line of `{file}` "
+            f"defines `{name}`. ")
     cite = (f"the alias: set `source_file` to `{alias_file}` and `source_line` to `{alias_line}`, and move the "
             f"citations of `{name}` there.")
     if local == "default":
