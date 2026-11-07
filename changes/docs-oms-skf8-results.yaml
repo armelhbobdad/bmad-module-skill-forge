@@ -1,0 +1,4 @@
+type: docs
+summary: |
+  Verifying a Skill now quotes strict SKF 8.0.0 tests of the version each of oh-my-skills' four reference skills ships: oms-cocoindex, oms-storybook-react-vite and oms-uitripled pass at 100%, and oms-cognee is still blocked by the two `run_pipeline` false positives of #918, whose fix (#956) is not in 8.0.0. The page says what 8.0.0 changed on unchanged skill text (storybook from 98.23% to 100% through the star re-export rule of #926; uitripled's rest-element forms settled by #932, its score unchanged at 100%), that cocoindex's first 8.0.0 run counted `ExceptionContext` as undocumented (#967) before oh-my-skills documented it, and which open calls each pass still rests on, now written down in every report. `docs/_data/pinned.yaml` records the 8.0.0 scores and run ids (`test_score: null` for oms-cognee).
+prs: [976]
