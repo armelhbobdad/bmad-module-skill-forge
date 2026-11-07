@@ -295,6 +295,119 @@ def test_the_follow_loop_reads_an_export_star_chain_to_its_end(tmp_path, raw_git
     assert envelope["unlisted"] == [] and not any("passes on names" in w for w in envelope["warnings"])
 
 
+def _by_eye_rule(extract: str) -> str:
+    """§3's paragraph on the `unlisted[]` records `--follow` left."""
+    parse = _section(extract, "### 3. Parse Manifest and Scan Exports", "### 4. ")
+    return _section(parse, "**Read the statements `unlisted[]` still names**", "\n\n")
+
+
+def _star_sentence(record: dict, run_dir: Path) -> str:
+    """compile §2's sentence for one `external_stars` record, filled in as the step writes it: the statement as
+    the fetched file writes it at the record's line (the record's `statement` drops `type`), and "every type"
+    for an `export type *`."""
+    assemble = _section(_read(COMPILE), "### 2. Assemble SKILL.md", "### 3. ")
+    [rule] = [line for line in assemble.splitlines() if line.startswith("**Stars from other packages**")]
+    m = re.search(r'not a list item or table row: "(.*?)" `<source statement>` is ', rule)
+    assert m, rule
+    for needle in ("`<source statement>` is the statement as the source writes it at `{file}` line {line}, read "
+                   "from `{run_dir}/src/{file}` without its closing `;`, not the record's `statement`, which "
+                   "writes `export type *` as `export *`.",
+                   'When that line is an `export type *`, which passes on only the package\'s types, write '
+                   '"every type" for "every name".'):
+        assert needle in rule, needle
+    sentence = m.group(1)
+    source_line = (run_dir / "src" / record["file"]).read_text(encoding="utf-8").splitlines()[record["line"] - 1]
+    statement = source_line.strip().removesuffix(";")
+    assert "`<source statement>`" in sentence and "every name" in sentence
+    sentence = sentence.replace("<source statement>", statement)
+    if statement.startswith("export type *"):
+        sentence = sentence.replace("every name", "every type")
+    for key in ("file", "line", "specifier"):
+        assert "{" + key + "}" in sentence, key
+        sentence = sentence.replace("{" + key + "}", str(record[key]))
+    return sentence
+
+
+def test_a_star_from_another_package_is_named_not_listed():
+    """#958: since #946 Test Skill, like the recipe runner, gives an `export *` or `export type *` from another
+    package no name, so each name §3 took for it from the README read as stale, a Medium `stale-documentation`
+    gap per name on a correct skill. §3 lists no name for such a record and keeps it for the inventory's
+    `external_stars`; compile names the star in one prose sentence and lists none of the package's names. A
+    named re-export from another package still counts, and the by-eye rule's pinned wording still reads."""
+    extract = _read(QUICK_EXTRACT)
+    act = _by_eye_rule(extract)
+    for needle in ("A record whose `statement` is an `export * from` another package (its `specifier` is no "
+                   "relative path; the extractor writes `export type *` as `export *`) adds no name, from the "
+                   "README or anywhere: the recipe runner and Test Skill leave such a star unresolved, so a name "
+                   "listed for it reads as stale.",
+                   "Keep each such record for §4's `external_stars`, and list names only for the others.",
+                   "A named re-export from another package (`export { a, b } from 'pkg'`) is already in `exports[]`.",
+                   "`--follow` read every module it could",
+                   "read by eye only the `unlisted[]` records left, whose `module_file` is null",
+                   "`{run_dir}/extract-added.json`"):
+        assert needle in act, needle
+    # The exception follows the by-eye listing it narrows and comes before the handoff to §5.
+    assert (act.index("`{run_dir}/extract-added.json`") < act.index("adds no name, from the README or anywhere")
+            < act.index("Leave the other warnings for §5."))
+    inventory = _section(extract, "### 4. Build Extraction Inventory", "### 4.5.")
+    lines = inventory.splitlines()
+    [stars] = [line for line in lines if line.startswith("  external_stars: ")]
+    assert stars == ("  external_stars: [{file, line, statement, specifier}: "
+                     "each export * from another package §3 kept]")
+    assert lines.index(stars) == lines.index("  exports: [{name, type, brief_description}]") + 1
+    assemble = _section(_read(COMPILE), "### 2. Assemble SKILL.md", "### 3. ")
+    [rule] = [line for line in assemble.splitlines() if line.startswith("**Stars from other packages**")]
+    for needle in ("(`extraction_inventory.external_stars`)", "after the Key Exports list",
+                   "one prose sentence per record, not a list item or table row",
+                   "List none of that package's names."):
+        assert needle in rule, needle
+    assert (assemble.index("**Skills module** (`repo_shape: skills-module`)")
+            < assemble.index("**Stars from other packages**") < assemble.index("**Scripts & Assets Note**"))
+
+
+EXTERNAL_STAR_FILES = {
+    "package.json": b'{"name": "acme", "main": "dist/index.js"}',
+    "src/index.ts": b"export type * from '@vitest/spy';\nexport { z } from 'zod';\nexport function spyOn() {}\n",
+}
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_a_star_from_another_package_reaches_the_skill_as_a_sentence_not_names(tmp_path, raw_github):
+    """#958: §1 to §3 run as written on an entry holding `export type * from '@vitest/spy'`, a named re-export
+    from `zod` and a local function. The star is the one `unlisted[]` record, §3's rule keeps it for
+    `external_stars` and leaves no record to read by eye, so no extract-added.json is staged, and compile §4's
+    metadata.json lists the names Test Skill's Quick parser gives for the same file (`z`, `spyOn`; the star test
+    in test-skf-test-skill-provenance-paths.py): the documented set is the surface, and nothing reads as stale.
+    compile §2's sentence names the statement, its file and line and the package, and none of its names."""
+    run_dir = _run_folder(tmp_path, [*EXTERNAL_STAR_FILES, "README.md"])
+    raw_github.update({**EXTERNAL_STAR_FILES, "README.md": b"# acme\n"})
+    extract = _read(QUICK_EXTRACT)
+    _run(_bash_block(_section(extract, "### 1. Read the Listing and README", "### 1.5. "), " sniff "), run_dir)
+    entries = _entries_step(extract, run_dir, "ts")
+    assert (entries["manifest"], entries["entry_files"]) == ("package.json", ["src/index.ts"])
+    envelope = _extract_step(extract, run_dir, "ts", entries["manifest"], entries["entry_files"])
+    star = {"file": "src/index.ts", "line": 1, "statement": "export * from '@vitest/spy'",
+            "specifier": "@vitest/spy", "module_file": None}
+    assert envelope["unlisted"] == [star]
+    assert [e["name"] for e in envelope["exports"]] == ["z", "spyOn"]
+    assert envelope["followed"] == []
+    # §3's rule, as written: an `export * from` whose specifier is no relative path adds no name and is kept.
+    act = _by_eye_rule(extract)
+    for needle in ("adds no name, from the README or anywhere", "Keep each such record for §4's `external_stars`"):
+        assert needle in act, needle
+    kept = [r for r in envelope["unlisted"]
+            if r["statement"].startswith("export * from ") and not r["specifier"].startswith(".")]
+    by_eye = [r for r in envelope["unlisted"] if r not in kept]
+    assert (kept, by_eye) == ([star], [])
+    # The rule leaves no record to read by eye, so §3 has no name to stage and the renderer reads extract.json alone.
+    metadata = _render(run_dir, tmp_path)
+    assert metadata["exports"] == [e["name"] for e in envelope["exports"]] == ["z", "spyOn"]
+    external_stars = [{key: r[key] for key in ("file", "line", "statement", "specifier")} for r in kept]
+    assert [_star_sentence(r, run_dir) for r in external_stars] == [
+        "`export type * from '@vitest/spy'` (`src/index.ts` line 1) also exports every type of `@vitest/spy`: "
+        "see that package's documentation."]
+
+
 def test_no_entry_file_is_derived_from_the_package_name():
     """step 5b determinism-1: the table keeps the manifest column, and the entry files come from the listing."""
     text = _read(QUICK_EXTRACT)
