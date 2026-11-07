@@ -591,6 +591,125 @@ def test_cli_a_package_without_skill_md_exits_1(tmp_path):
     assert proc.returncode == 1 and "--skill-package" in proc.stderr
 
 
+# --- crossChecked (#920): the Exports Cross-Checked count ------------------------
+#
+# The names two or more of the spot-check's files write, each file counted once by its resolved path, a name once
+# however many entries give it; written into the inventory, so --output writes it.
+
+
+def test_a_split_body_counts_the_names_two_files_write(tmp_path):
+    """`alpha` only in SKILL.md, `beta` in SKILL.md and x.md, `gamma` in x.md and in y.md's prose: two names."""
+    pkg = _package(tmp_path, "# Demo\n\n`alpha()` and `beta()`.\n",
+                   {"x.md": "`beta(n)` and `gamma(n)`.\n", "y.md": "Then call gamma to finish.\n"})
+    refs = ["references/x.md", "references/y.md"]
+    r = mod.validate_inventory(_inventory("alpha", "beta", "gamma", references=refs), pkg)
+    assert r["valid"] is True, r["violations"]
+    assert r["inventory"]["crossChecked"] == {"count": 2, "names": ["beta", "gamma"]}
+    # The spot-check's result is the same as before the count.
+    assert r["spotCheck"] == {"sampled": ["alpha", "beta", "gamma"], "absent": [],
+                              "files": ["SKILL.md", "references/x.md", "references/y.md"], "unread": []}
+
+
+def test_a_name_one_file_writes_many_times_is_not_counted(tmp_path):
+    pkg = _package(tmp_path, "# Demo\n\n`solo()`, `solo(n)` and solo again.\n", {"x.md": "# Nothing here\n"})
+    r = mod.validate_inventory(_inventory("solo", references=["references/x.md"]), pkg)
+    assert r["valid"] is True, r["violations"]
+    assert r["inventory"]["crossChecked"] == {"count": 0, "names": []}
+
+
+def test_a_homonym_counts_once(tmp_path):
+    """`get` as a function and as a method, both files write it: one name."""
+    pkg = _package(tmp_path, "# Demo\n\n`get(key)` reads a key.\n", {"x.md": "`client.get(url)` fetches.\n"})
+    raw = json.dumps({"exports": [{"name": "get", "kind": "function"},
+                                  {"name": "get", "kind": "method", "owner": "client"}],
+                      "cross_check_mismatches": [], "references": ["references/x.md"]})
+    r = mod.validate_inventory(raw, pkg)
+    assert r["valid"] is True, r["violations"]
+    assert r["inventory"]["crossChecked"] == {"count": 1, "names": ["get"]}
+
+
+def test_a_lookalike_in_the_second_file_does_not_count(tmp_path):
+    pkg = _package(tmp_path, "# Demo\n\n`get(key)` reads a key.\n", {"x.md": "`getAll()` and the `target`.\n"})
+    r = mod.validate_inventory(_inventory("get", references=["references/x.md"]), pkg)
+    assert r["valid"] is True, r["violations"]
+    assert r["inventory"]["crossChecked"] == {"count": 0, "names": []}
+
+
+@pytest.mark.parametrize("references", [None, []], ids=["absent", "empty"])
+def test_no_references_count_nothing(tmp_path, references):
+    pkg = _package(tmp_path, "# Demo\n\n`run()` and `run(n)`.\n", {"x.md": "`run()`\n"})
+    r = mod.validate_inventory(_inventory("run", references=references), pkg)
+    assert r["valid"] is True, r["violations"]
+    assert r["inventory"]["crossChecked"] == {"count": 0, "names": []}
+
+
+def test_one_file_under_two_spellings_is_one_file(tmp_path):
+    """A reference listed twice, or SKILL.md listed again, is read under each spelling as before, but counted once."""
+    pkg = _package(tmp_path, "# Demo\n\n`body()`\n", {"x.md": "`twice()`\n"})
+    refs = ["references/x.md", "./references/x.md", "./SKILL.md"]
+    r = mod.validate_inventory(_inventory("body", "twice", references=refs), pkg)
+    assert r["valid"] is True, r["violations"]
+    assert r["inventory"]["crossChecked"] == {"count": 0, "names": []}
+    assert r["spotCheck"]["files"] == ["SKILL.md", "references/x.md", "./references/x.md", "./SKILL.md"]
+
+
+def test_an_unread_file_is_not_counted(tmp_path):
+    (tmp_path / "outside.md").write_bytes(b"`helper()`\n")
+    pkg = _package(tmp_path, "# Demo\n\n`helper()`\n")
+    r = mod.validate_inventory(_inventory("helper", references=["../outside.md", "references/gone.md"]), pkg)
+    assert r["valid"] is True, r["violations"]
+    assert r["inventory"]["crossChecked"] == {"count": 0, "names": []}
+    assert r["spotCheck"]["unread"] == ["../outside.md", "references/gone.md"]
+
+
+@pytest.mark.parametrize("given", [{"count": 99, "names": ["ghost"]}, "7", None], ids=["object", "string", "null"])
+def test_a_readers_cross_checked_is_replaced_with_the_package_and_removed_without(tmp_path, given):
+    pkg = _package(tmp_path, "# Demo\n\n`both()`\n", {"x.md": "`both()`\n"})
+    data = json.loads(_inventory("both", references=["references/x.md"]))
+    data["crossChecked"] = given
+    with_package = mod.validate_inventory(json.dumps(data), pkg)
+    assert with_package["valid"] is True, with_package["violations"]
+    assert with_package["inventory"]["crossChecked"] == {"count": 1, "names": ["both"]}
+    without = mod.validate_inventory(json.dumps(data))
+    assert without["valid"] is True and "crossChecked" not in without["inventory"]
+
+
+def test_no_cross_checked_without_the_package():
+    r = mod.validate_inventory(_inventory("both", references=["references/x.md"]))
+    assert r["valid"] is True and "crossChecked" not in r["inventory"]
+    assert "spotCheck" not in r
+
+
+def test_cli_output_carries_cross_checked_and_equals_stdout(tmp_path):
+    pkg = _package(tmp_path, "# Demo\n\n`shared()` and `own()`.\n", {"x.md": "`shared(n)`\n"})
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(_inventory("own", "shared", references=["references/x.md"]).encode("utf-8"))
+    out = tmp_path / "run" / "inventory.json"
+    command = [sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg), "--output", str(out)]
+    proc = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    written = json.loads(out.read_text(encoding="utf-8"))
+    assert written["crossChecked"] == {"count": 1, "names": ["shared"]}
+    assert written == json.loads(proc.stdout)["inventory"]
+    # An invalid inventory still leaves no file.
+    response.write_bytes(_inventory("own", "shared", "ghost", references=["references/x.md"]).encode("utf-8"))
+    proc = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 2 and json.loads(proc.stdout)["inventory"] is None
+    assert not out.exists()
+
+
+def test_a_name_a_file_cites_only_in_a_citation_path_is_not_counted(tmp_path):
+    """`config` is written in SKILL.md alone and `client` in no file: their other spellings sit inside `[SRC:]` and
+    `[AST:]` paths, which write no name (the module's documented-name match). `fetch` is written in two references."""
+    pkg = _package(tmp_path, "`config()` [SRC:src/client.py:L3]\n",
+                   {"a.md": "`fetch(url)` [SRC:src/config.py:L9]\n",
+                    "b.md": "`fetch(url, timeout)` [AST:src/client.py:L12]\n"})
+    r = mod.validate_inventory(_inventory("client", "config", "fetch",
+                                          references=["references/a.md", "references/b.md"]), pkg)
+    assert r["valid"] is True, r["violations"]
+    assert r["inventory"]["crossChecked"] == {"count": 1, "names": ["fetch"]}
+
+
 # --- Floor (#790) ---------------------------------------------------------------
 
 FLOOR_SCRIPT = SCRIPT.parent / "load-coverage-inputs.py"

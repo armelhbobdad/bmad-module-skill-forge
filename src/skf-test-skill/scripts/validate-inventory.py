@@ -109,7 +109,13 @@ declaration.
 Distinct from reconcile-coverage.py (coverage numerator arithmetic) and
 compute-score.py (weight tables): this script only validates the *shape* of the
 subagent inventory and, on success, echoes the fence-stripped parsed inventory
-back so the prompt consumes it directly instead of re-parsing the raw response.
+back, with the `crossChecked` count added once the spot-check ran, so the
+prompt consumes it directly instead of re-parsing the raw response.
+`crossChecked` (#920) is `{"count": <int>, "names": [<name>, ...]}`: each
+inventory name, once, that two or more of the spot-check's files write
+(cross_checked), the Exports Cross-Checked count coherence-check reports.
+Only the validator writes it: one the response carries is replaced with
+--skill-package and dropped without it.
 
 It also reports each documented item's completeness, the docs-only Export
 Coverage rule: an item (one name and kind) is complete when it has a
@@ -178,8 +184,8 @@ path, so a quote or an apostrophe in a description never meets a shell.
 JSON) when it is valid, for the steps that read it by path; an invalid
 inventory removes a file left there by an earlier attempt. --skill-package
 names the skill package under test (the folder that holds SKILL.md) and
-adds the spot-check. --floor names the floor file (UTF-8 JSON) and adds the
-floor check.
+adds the spot-check and the inventory's `crossChecked` count. --floor names
+the floor file (UTF-8 JSON) and adds the floor check.
 
 Input: the subagent's RAW response text (JSON, optionally wrapped in a markdown
 code fence — a leading line of three backticks with an optional language tag and
@@ -192,7 +198,9 @@ Output (stdout, one object):
     "warnings": [<str>, ...],    # each missing or bad `at` (dropped), never a failure
     "rejectedCount": <int>,      # exports[] entries with no valid name or kind
     "exportsCount": <int>,       # len(exports) when parsed; 0 otherwise
-    "inventory": {...} | null,   # fence-stripped parsed inventory when valid; null otherwise
+    "inventory": {...} | null,   # fence-stripped parsed inventory when valid; null otherwise;
+                                 # with --skill-package it carries
+                                 # "crossChecked": {"count": <int>, "names": [<name>, ...]}
     "completeness": {            # present when valid
       "total": <int>,            # documented items, one per name and kind
       "complete": <int>,
@@ -604,42 +612,78 @@ def _inside(path, root):
     return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
 
 
-def spot_check(inventory, skill_package_path):
-    """Look the sampled export names up in SKILL.md and the inventory's references.
+def _package_texts(inventory, skill_package_path):
+    """Read the files the inventory reads, for spot_check and cross_checked.
 
     The file set is the package's SKILL.md plus each `references` entry,
     resolved against the package (a split-body skill documents some exports
-    only in a reference file). A listed file that is missing, unreadable or
-    resolves outside the package is not read and is named in `unread`.
+    only in a reference file), a listed spelling read once. A listed file
+    that is missing, unreadable or resolves outside the package is not read
+    and is named in `unread`. Returns `(read, unread)`: `read` holds
+    `(spelling, resolved path, text)` for each file read, SKILL.md first.
+    Raises PackageError when SKILL.md cannot be read.
     """
     root = Path(skill_package_path)
     real_root = os.path.realpath(root)
+    skill_md = root / "SKILL.md"
     try:
-        texts = [(root / "SKILL.md").read_bytes().decode("utf-8-sig")]
+        read = [("SKILL.md", os.path.realpath(skill_md), skill_md.read_bytes().decode("utf-8-sig"))]
     except (OSError, UnicodeDecodeError) as exc:
-        raise PackageError(f"cannot read {(root / 'SKILL.md').as_posix()}: {exc}") from exc
-    files, unread = ["SKILL.md"], []
+        raise PackageError(f"cannot read {skill_md.as_posix()}: {exc}") from exc
+    unread = []
     listed = inventory.get("references")
     for ref in listed if isinstance(listed, list) else []:
-        if not isinstance(ref, str) or not ref.strip() or ref in files or ref in unread:
+        if not isinstance(ref, str) or not ref.strip() or ref in unread or any(ref == r[0] for r in read):
             continue
         target = os.path.realpath(root / ref)
         try:
             if not _inside(target, real_root):
                 raise OSError("outside the package")
-            texts.append(Path(target).read_bytes().decode("utf-8-sig"))
-            files.append(ref)
+            read.append((ref, target, Path(target).read_bytes().decode("utf-8-sig")))
         except (OSError, UnicodeDecodeError):
             unread.append(ref)
-    doc_text = "\n".join(texts)
+    return read, unread
+
+
+def spot_check(inventory, skill_package_path):
+    """Look the sampled export names up in SKILL.md and the inventory's references.
+
+    The files are _package_texts's: `files` names each one read as the
+    inventory spells it, `unread` each listed one that is missing,
+    unreadable or resolves outside the package.
+    """
+    read, unread = _package_texts(inventory, skill_package_path)
+    doc_text = "\n".join(text for _, _, text in read)
     sampled = sample_names(inventory.get("exports"))
     found = set(names_present(sampled, doc_text))
     return {
         "sampled": sampled,
         "absent": [name for name in sampled if name not in found],
-        "files": files,
+        "files": [spelling for spelling, _, _ in read],
         "unread": unread,
     }
+
+
+def cross_checked(exports, texts):
+    """The inventory's names that two or more of the files it reads write (#920).
+
+    `texts` is _package_texts's `read`, the spot-check's files. A file
+    counts once, by its resolved path, so a reference listed under two
+    spellings (`references/a.md`, `./references/a.md`), or SKILL.md listed
+    again, is one file. A file writes a name when names_present finds it
+    outside its citations, so a mention in prose counts, and a name counts
+    once however many entries give it (a homonym). Returns `{"count": <int>,
+    "names": [<name>, ...]}`, the names sorted; coherence-check reports the
+    count as Exports Cross-Checked.
+    """
+    names = {entry["name"] for entry in exports
+             if isinstance(entry, dict) and isinstance(entry.get("name"), str) and entry["name"]}
+    by_path = {}
+    for _, path, text in texts:
+        by_path.setdefault(os.path.normcase(path), text)
+    found = [set(names_present(names, _ANY_CITATION_RE.sub(" ", text))) for text in by_path.values()]
+    crossed = sorted(name for name in names if sum(name in written for written in found) >= 2)
+    return {"count": len(crossed), "names": crossed}
 
 
 # --- Signature forms ----------------------------------------------------------
@@ -1027,8 +1071,10 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
 
     `raw` is the raw response text. Returns the result dict documented in the
     module docstring. With `skill_package_path`, an inventory that passed the
-    schema is spot-checked against the package (spot_check) and each `at` is
-    looked up there (place_warnings); with `floor` (read_floor's object),
+    schema is spot-checked against the package (spot_check), given its
+    `crossChecked` count (cross_checked) and each `at` is looked up there
+    (place_warnings); a `crossChecked` the response carries never survives.
+    With `floor` (read_floor's object),
     it is checked against the floor (floor_check). A missing or bad `at` is
     a warning, the bad one dropped, never a violation (#918).
     Deterministic: identical input yields an identical verdict.
@@ -1056,6 +1102,8 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
             "exportsCount": 0,
             "inventory": None,
         }
+    # The validator alone writes `crossChecked` (#920): a reader's never survives.
+    data.pop("crossChecked", None)
 
     exports = data.get("exports")
     if not isinstance(exports, list):
@@ -1127,6 +1175,8 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
                 f"spot-check: `{name}` is listed as an export, but SKILL.md and the "
                 f"listed reference files never write it"
             )
+        # In the inventory object, so --output writes it and stdout's `inventory` equals the file.
+        data["crossChecked"] = cross_checked(exports, _package_texts(data, skill_package_path)[0])
         warnings.extend(place_warnings(data, skill_package_path))
     floor_result = None
     if schema_valid and floor is not None:
@@ -1198,7 +1248,8 @@ def _build_parser():
     parser.add_argument(
         "--skill-package",
         metavar="DIR",
-        help="Spot-check sampled names against this package's SKILL.md and listed references.",
+        help="Spot-check sampled names against this package's SKILL.md and listed references, "
+        "and add their crossChecked count to the inventory.",
     )
     parser.add_argument(
         "--floor",

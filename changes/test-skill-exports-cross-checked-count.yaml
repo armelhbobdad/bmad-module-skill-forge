@@ -1,0 +1,6 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  The naive-mode Reference Consistency section's **Exports Cross-Checked** count is now read from `inventory.json`, where `validate-inventory.py` writes it as `crossChecked`: the documented names that two or more of the files the inventory reads (SKILL.md and each listed reference) write, a mention in prose included. It used to be counted by hand, so its meaning and value changed from run to run.
+issues: [920]
+prs: [988]
