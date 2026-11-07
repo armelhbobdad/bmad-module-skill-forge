@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a form compared with the declaration its own citation names, correct the form, or the citation when it points at the wrong declaration, then run Test Skill again.
 issues: [918]
+prs: [956]
