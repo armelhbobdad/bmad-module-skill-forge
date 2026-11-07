@@ -3,3 +3,4 @@ scope: skf-quick-skill
 summary: |
   Quick Skill no longer documents the names an `export *` or `export type *` from another package brings in: it used to list them from the README as `re-export` exports, and since Test Skill, like the recipe runner, leaves such a star unresolved, each name read as stale and a correct skill got a Medium `stale-documentation` gap for each. The skill now names the star instead, with its file and line and the package it re-exports, so a reader knows to look in that package. A named re-export from another package (`export { a, b } from 'pkg'`) still counts, and a star from a module of the source that could not be read still takes its names from the README. A skill built before this change keeps those names until it is built again.
 issues: [958]
+prs: [962]
