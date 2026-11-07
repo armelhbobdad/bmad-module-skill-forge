@@ -2172,6 +2172,105 @@ def test_the_fallback_scan_asks_each_file_for_the_names_it_defines():
     assert "the file's exported symbols" not in scan
 
 
+# #926: the one rule every by-eye branch reads, appended to §2's per-file shape.
+EXTERNAL_STAR_RULE = ("An `export * from` or `export type * from` another package adds no name: list "
+                      "`<line>: <statement>` in `unresolved_stars` and Coverage Analysis.")
+
+
+def test_a_star_from_another_package_adds_no_name(tmp_path):
+    """#926: a per-file result read by eye gives no name for an `export *` or `export type *` from another package
+    (a specifier that is no relative path), as the recipe runner's `resolve_js_module` reads no package name and
+    leaves that star unresolved, so no run decides alone which of the package's names to count. §2 states it once
+    for every by-eye branch; the Quick-tier warning and the fallback scan give the full wording. The result lists
+    the statement in `unresolved_stars`, which `surface` and `score` read past, and the Coverage Analysis section
+    names it unresolved. A named re-export from another package keeps its name; a star from the source is still
+    left to that module's own result."""
+    text = _read(COVERAGE)
+    section2 = _flow(_slice(text, "### 2. Analyze Source Code", "### 2b."))
+    tiers = _read(COVERAGE_TIERS)
+    quick = _flow(_quick_tier())
+    scan = _flow(_slice(tiers, "## Fallback Per-File Scan", "coverage-check.md §2b scores"))
+    # Forge by eye (and every other branch): right after the one per-file shape, in one clause of at most 150
+    # characters, with no pointer to the tiers file, so the budget holds.
+    assert f"given to `surface` with one `--per-file` each. {EXTERNAL_STAR_RULE}" in section2
+    assert len(" " + EXTERNAL_STAR_RULE) <= 150
+    assert len(text) < COVERAGE_CHAR_BUDGET, len(text)
+    assert text.split("\n---\n", 1)[1].count("{coverageTiersFile}") == 2
+    # Quick tier: the parser's warning on such a star gives no name, and the statement is listed unresolved.
+    assert ("and list those names in the Coverage Analysis section as read by eye. A warning on an `export *` or "
+            "`export type *` from another package (a specifier that is no relative path; the warning writes either "
+            "as `export *`) gives no name, as the recipe runner leaves such a star unresolved: list the statement as "
+            "the source writes it, `<line>: <statement>`, in the `unresolved_stars` of that entry file's per-file "
+            "result, and in the Coverage Analysis section as unresolved.") in quick
+    # A result that lists no name stays out of `surface`, so a star alone moves no basis and silences no guard.
+    assert "Give `surface` one `--quick` per package, one `--per-file` per saved result that lists a name," in quick
+    # Fallback: the subagent gives no name for it and returns it; the main thread lists each response's.
+    assert ("keeps a name it passes on from another package (`export { z } from 'zod'`), which no other result "
+            "counts, gives no name for an `export * from` or `export type * from` another package (a specifier "
+            "that is no relative path; `export * as ns` still gives `ns`), which the recipe runner leaves "
+            "unresolved, listing each such statement as `<line>: <statement>` in `unresolved_stars`, compares each "
+            "with the map's entry") in scan
+    assert '"signature_mismatches": [...], "unresolved_stars": [...]}`' in scan
+    assert ("List each response's `unresolved_stars` in the Coverage Analysis section as unresolved. Save each "
+            "response to `{run_dir}/per-file-<n>.txt`") in scan
+    # A star from the source is still left to the module's own result.
+    assert ("(`export { x } from './x'`, `export * from`, an `__init__.py` import, a Rust `pub use`), which that "
+            "module's own result counts") in scan
+    # The unresolved list is no read-by-eye list: each branch still counts that phrase once.
+    assert _flow(tiers).count("in the Coverage Analysis section as read by eye") == 2
+
+    # The Quick-tier parser lists no name for the star (it warns, writing `export type *` as `export *`) and keeps
+    # the named re-export from another package.
+    source = _write_tree(tmp_path / "src", {
+        "package.json": '{"name": "fx", "version": "1.0.0", "exports": {".": "./src/index.ts"}}\n',
+        "src/index.ts": "export type * from '@vitest/spy';\nexport { z } from 'zod';\nexport function spyOn(o) {}\n",
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    proc = _run(QUICK_CMD, {"{source_path}": source.as_posix(), "<language>": "typescript",
+                            "<manifest path>": "package.json", "<entry path>": "src/index.ts"}, tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    parsed = json.loads(proc.stdout)
+    assert [export["name"] for export in parsed["exports"]] == ["z", "spyOn"]
+    [warning] = parsed["warnings"]
+    assert "`export * from '@vitest/spy'`" in warning, warning
+    (run / "quick-1.json").write_bytes(proc.stdout)
+    star = "1: export type * from '@vitest/spy'"
+    skill = _write_tree(tmp_path / "skill", {
+        "SKILL.md": "# Fx\n\n`spyOn(o)` spies. `z` validates.\n",
+        "metadata.json": json.dumps({"skill_type": "single", "exports": ["spyOn", "z"]}),
+    })
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(), "<n>": "1"}
+    # The by-eye result for the warned statement lists no name, only the statement in `unresolved_stars`, so it
+    # stays out of `surface`: the parser's names alone make the surface.
+    (run / "per-file-1.json").write_bytes(json.dumps({
+        "file": "src/index.ts", "exports_found": [], "signature_mismatches": [], "unresolved_stars": [star],
+    }).encode("utf-8"))
+    surface = _exec(_choose(_command(COVERAGE_TIERS, "surface --quick")), values, tmp_path)
+    assert surface["sets"]["all"] == ["spyOn", "z"] and "violations" not in surface
+
+    # The fallback scan: a response that carries `unresolved_stars` passes `surface`'s schema check, adds only the
+    # names it lists, and `score` reads it as a result.
+    (run / "inventory-response.txt").write_bytes(json.dumps({"exports": [
+        {"name": "spyOn", "kind": "function", "params": "o", "return_type": "void", "description": "Spies."},
+        {"name": "z", "kind": "constant", "description": "Validates."},
+    ], "cross_check_mismatches": []}).encode("utf-8"))
+    (run / "per-file-1.txt").write_bytes(("```json\n" + json.dumps({
+        "file": "src/index.ts", "exports_found": ["spyOn", "z"], "types_found": [], "signature_mismatches": [],
+        "unresolved_stars": [star],
+    }) + "\n```\n").encode("utf-8"))
+    _exec(_command(COVERAGE, "uv run {coverageInputsScript} floor"), values, tmp_path)
+    assert _exec(_command(COVERAGE, "uv run {validateInventoryScript}"), values, tmp_path)["valid"] is True
+    _exec(_command(COVERAGE_TIERS, "uv run {scoreSignaturesScript} plan"), values, tmp_path)
+    surface = _exec(_choose(_command(COVERAGE_TIERS, "surface --per-file")), values, tmp_path)
+    assert surface["sets"]["all"] == ["spyOn", "z"] and "violations" not in surface
+    command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score")).replace(
+        '"{run_dir}/signatures-<n>.txt"', '"{run_dir}/per-file-<n>.txt"').replace("<set>", "all")
+    scores = _exec(command, values, tmp_path)
+    assert scores["signatureAccuracy"] == 100.0, scores
+    assert json.loads((run / "signature-gaps.json").read_bytes()) == []
+
+
 def test_the_fallback_scan_reads_an_overload_set_whole():
     """#845, #827: a fallback per-file subagent gets the path of the signature comparison rules every judge reads, so
     a documented signature that matches an overload set's implementation or any of its overloads is no mismatch on
