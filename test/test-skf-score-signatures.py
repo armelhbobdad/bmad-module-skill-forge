@@ -3098,6 +3098,62 @@ def test_a_component_constant_with_a_usage_signature_is_compared(tmp_path):
     assert any("`badgeVariants`, which is no documented signature" in w for w in out["warnings"])
 
 
+def test_a_function_valued_constant_with_params_and_a_return_type_is_compared(tmp_path):
+    """#970 (oms-storybook): the inventory contract records a `const` whose value is a function as a `constant`
+    carrying the function form the skill writes for it as `params` and `return_type`, wherever the skill writes it
+    (a description cell included), with `at` its place. This script and validate-inventory.py already compare such a
+    form, whatever its kind, so the fix is the contract's wording alone; this pins that no script change was needed:
+    `withActions` is planned with both fields and is a form whose place the validator checks, and a data constant
+    beside it is not planned."""
+    with_actions = {"name": "withActions", "kind": "constant", "params": "storyFn: PartialStoryFn<T>",
+                    "return_type": "T['storyResult']", "at": "SKILL.md:5",
+                    "description": "Wraps a story so the actions its args fire are logged."}
+    version = {"name": "VERSION", "kind": "constant", "description": "The package version."}
+    inventory = _write(tmp_path / "inventory.json", {"exports": [with_actions, version], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {"exports": [
+        {"name": "VERSION", "kind": "constant", "file": "src/index.ts", "line": 2,
+         "signatureLine": 'export const VERSION = "1.0";', "origin": "extraction"},
+        {"name": "withActions", "kind": "constant", "file": "src/decorator.ts", "line": 4,
+         "signatureLine": "export const withActions: <T extends Renderer>(storyFn: PartialStoryFn<T>) => "
+                          "T['storyResult'] = (storyFn) => {", "origin": "extraction"},
+    ], "sets": {"all": ["VERSION", "withActions"]}})
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    assert plan["compared"] == 1
+    assert [(c["name"], c["documented"]) for g in plan["files"] for c in g["checks"]] == [
+        ("withActions", {"params": "storyFn: PartialStoryFn<T>", "return_type": "T['storyResult']"})]
+    assert mod._inventory().compared_form(with_actions)
+    assert not mod._inventory().compared_form(version)
+    assert not mod._has_signature(version)
+
+
+def test_a_function_valued_constant_that_takes_no_arguments_is_planned_and_bound(tmp_path):
+    """#970, amended in review: a function-valued `const` that takes no arguments records `params: []`, never `""`.
+    An empty `params` string is the form of one that takes none only for a function or method (SIGNATURE_KINDS):
+    on a `constant` it is no form `at` binds, so its form would be compared unbound, or not at all without a
+    `return_type`. `[]` is planned with its `return_type` and bound to the declaration its row cites."""
+    get_theme = {"name": "getTheme", "kind": "constant", "params": [], "return_type": "Theme", "at": "SKILL.md:5",
+                 "description": "Returns the current theme."}
+    _write(tmp_path / "skill" / "SKILL.md", "# Demo\n\n| Export | Kind | Description |\n|---|---|---|\n"
+                                            "| `getTheme` | const | `() => Theme`, the current theme "
+                                            "[AST:src/theme.ts:L4] |\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [get_theme], "cross_check_mismatches": []})
+    declaration = "export const getTheme: () => Theme = () => current;"
+    surface = _write(tmp_path / "surface.json", {"exports": [
+        {"name": "getTheme", "kind": "constant", "file": "src/theme.ts", "line": 4, "signatureLine": declaration,
+         "origin": "extraction"}], "sets": {"all": ["getTheme"]}})
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", str(tmp_path / "skill"))
+    assert proc.returncode == 0, proc.stderr
+    plan = json.loads(proc.stdout)
+    assert plan["compared"] == 1
+    [check] = [c for g in plan["files"] for c in g["checks"]]
+    assert check["documented"] == {"params": [], "return_type": "Theme"}
+    assert check["bound"] == [{"form": 0, "file": "src/theme.ts", "line": 4, "signatureLine": declaration}]
+    assert mod._inventory().compared_form(get_theme)
+    # the empty string a function takes for none is no bound form on a constant
+    assert not mod._inventory().compared_form({**get_theme, "params": ""})
+    assert not mod._has_signature({k: v for k, v in get_theme.items() if k != "return_type"} | {"params": ""})
+
+
 @pytest.mark.parametrize("payload, needle", [
     ("not json", "not valid JSON"),
     ({"signature_mismatches": []}, "`file` must be a non-empty string"),

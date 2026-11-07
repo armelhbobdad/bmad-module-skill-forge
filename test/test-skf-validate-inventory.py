@@ -990,7 +990,10 @@ UNBOUND = "the form is compared as one whose citations name no declaration"
     {"name": "Card", "kind": "constant", "usage_signature": "<Card />"},
     {"name": "Note", "kind": "class", "params": "id; content"},
     {"name": "run", "kind": "function", "params": "a", "at": None},
-], ids=["params", "empty-function-params", "empty-list", "usage", "class-params", "null"])
+    {"name": "withActions", "kind": "constant", "params": "storyFn: PartialStoryFn<T>", "return_type": "T['storyResult']"},
+    {"name": "getTheme", "kind": "constant", "params": [], "return_type": "Theme"},
+], ids=["params", "empty-function-params", "empty-list", "usage", "class-params", "null", "function-constant",
+        "no-argument-function-constant"])
 def test_an_entry_with_a_form_and_no_at_is_a_warning(entry):
     """#918: a form with no place is still compared, unbound, so the inventory stays valid and the entry is
     listed in `warnings`; a JSON null `at` is no `at`, and is left out of the inventory."""

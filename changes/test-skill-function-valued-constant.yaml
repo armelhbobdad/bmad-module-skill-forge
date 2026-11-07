@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill now always compares the function form a skill writes for a `const` whose value is a function, such as storybook's `withActions`, typed `<T extends Renderer>(storyFn: PartialStoryFn<T>) => T['storyResult']` in a description cell. Readers compared the same form in one run and skipped it in the next. Such a constant keeps its `constant` kind and carries the form as `params` (`[]` when it takes no arguments) and `return_type` wherever the skill writes it; a bare `name()` in a description cell is still a mention. This can block a skill that passed: a wrong function form on a constant can now be a Critical `signature-mismatch` gap.
+migration: |
+  If Test Skill now stops at the hard gate on a constant that holds a function, correct the function form the skill documents for it, then run Test Skill again.
+issues: [970]
+prs: [991]
