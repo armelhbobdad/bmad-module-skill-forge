@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's scoring script now reads a return written as names of values, such as `→ (nodes, edges)`, `→ [state, setState]` or `=> { data, error }`, as stating no return type, as its signature rules say. A mismatch the signature judge tags `annotation-contradicted` on such a form is therefore graded as an untagged mismatch (Critical), with a warning that the documented signature states no return type, as a form that writes no return already is. A type written alone or in a list (`→ str`, `(str, int)`), a single name (`→ result`), a list that writes a type among its names and a description followed by a type still state one. The signature rules now say the same of a bracketed or braced list of names.
+issues: [957]
+prs: [983]

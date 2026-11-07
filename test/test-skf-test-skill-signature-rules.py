@@ -589,7 +589,10 @@ def test_a_return_written_as_value_names_states_no_return_type():
     """#930: oms-cognee writes `→ (nodes, edges)` for a function declared `-> tuple[list[Node], list[EdgeData]]`, and
     the return-type bullet counts any text after an arrow as a stated return. Names of values state no return type,
     so no return is compared (the parameters still are). A type name written alone, lowercase ones included, stays a
-    type, and "rather than types" keeps a parenthesized list of type names (`(str, int)`) a stated return."""
+    type, and "rather than types" keeps a parenthesized list of type names (`(str, int)`) a stated return. #957: a
+    bracketed or braced list of value names states none too, while a single name, a list that writes a type among
+    its names and a description followed by a type each state one, as score-signatures.py's _states_return reads
+    them; the sentence is appended, so both earlier ones stay verbatim."""
     annotations = _section("Annotations")
     values = ("- A return written as names of values rather than types, a parenthesized list of names such as "
               "`→ (nodes, edges)` (after the arrow or in `return_type`), states no return type, so no return is "
@@ -597,11 +600,17 @@ def test_a_return_written_as_value_names_states_no_return_type():
     assert values in annotations
     assert ("A type name written alone stays a type, lowercase ones included: `-> list` and `→ str` state one."
             ) in annotations
+    assert ("A type name written alone stays a type, lowercase ones included: `-> list` and `→ str` state one. "
+            "A bracketed or braced list of value names, such as `→ [state, setState]` or `=> { data, error }`, "
+            "likewise states none, while a single name (`→ result`), a list that writes a type among its names "
+            "(`(nodes: list[Node], edges)`) and a description followed by a type (`HTML str`) each state one."
+            ) in annotations, "#957: appended to the bullet"
     assert annotations.index("A return type the form does not state is not compared.") < annotations.index(values) \
         < annotations.index("A type the source leaves unannotated"), "after the return-type bullet"
     lines = _read(RULES).splitlines()
     [i] = [n for n, line in enumerate(lines) if line.startswith("- A return type the form does not state")]
     assert lines[i + 1].startswith("- A return written as names of values rather than types,"), "the next bullet"
+    assert lines[i + 1].endswith("and a description followed by a type (`HTML str`) each state one."), "#957: last"
 
 
 def test_two_spellings_of_one_type_are_no_mismatch():
