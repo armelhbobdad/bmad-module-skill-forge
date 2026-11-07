@@ -47,11 +47,14 @@ ratios and the gap records of the wrong signatures.
          read. A declaration of the name the surface lists in
          `otherDeclarations` (#918: one the extraction records in a file no
          record of the name names, such as a same-named function a lazy
-         re-export passes on, which no entry point exports) whose file the
-         skill cites on such a line is an extra: the check stays at a
-         surface record (the cited one when exactly one record file is
-         cited, else the first), and its `candidates` are the records the
-         citation leaves (that file's, else every record with a file), then
+         re-export passes on, which no entry point exports) is an extra when
+         a citation on such a line points at its declaration line
+         (validate-inventory.py's _skill_cited_spans: `L<line>`, or an `L`
+         range that holds it); a citation of its file at another line adds
+         nothing. The check stays at a surface record (the cited one when
+         exactly one record file is cited, else the first), and its
+         `candidates` are the records the citation leaves (that file's, else
+         every record with a file; a record with no file leaves none), then
          each extra, once per file and line, so a form matches when it
          matches any of them. An extra is never the planned record, and
          without --skill-dir there is none. Also the whole
@@ -208,7 +211,8 @@ Inputs, all files in the run folder:
   --skill-dir  plan only: the skill package under test (the folder that
                holds SKILL.md), whose citations pick the declaration of a
                name the surface records in several files, and the other
-               declarations that join a check's candidates
+               declarations that join a check's candidates (one a citation
+               on a line that names it points at)
   --plan       score only: the plan's output, whose checks name the files a
                mismatch of each name may be recorded at
   --source-root  score only: the local source tree the judges read (a
@@ -228,7 +232,7 @@ Output (stdout; --output also writes it, --gaps-output writes the records):
           (only when the name has another form that lists members),
           "candidates": [{"file", "line", "signatureLine"}] (only when the
           citation does not settle the declaration, or the skill cites an
-          other declaration of the name)}]}],
+          other declaration of the name at its line)}]}],
           "documentedSignatures": {...}, "documentedAlternatives": {name:
           [{...}], for each name with alternatives}}
   score: {"valid": true, "signatureAccuracy", "matchingSignatures",
@@ -681,6 +685,15 @@ def _candidate(record: dict) -> dict:
     return {"file": _record_file(record), "line": record.get("line"), "signatureLine": record.get("signatureLine")}
 
 
+def _cited_at(declaration: dict, spans: set[tuple[str, int, int]]) -> bool:
+    """Whether one of `spans` (validate-inventory.py's _skill_cited_spans)
+    points at `declaration`: its file, at its line or in a range that holds
+    it."""
+    line = declaration.get("line")
+    file = _path(_record_file(declaration))
+    return _is_line(line) and any(at == file and first <= line <= last for at, first, last in spans)
+
+
 def _check_at(name: str, records: list[dict], skill_dir: str | None,
               texts: list[list[str]] | None, others: list[dict] | None = None) -> tuple[dict, list[dict] | None]:
     """(the surface record the check of `name` is planned at, the candidates
@@ -691,21 +704,24 @@ def _check_at(name: str, records: list[dict], skill_dir: str | None,
     `texts` is the skill's Markdown, read once (skill_markdown_lines).
 
     `others`, the name's other declarations (the surface's
-    `otherDeclarations`, #918), add the extras: each one whose file the
-    skill cites on such a line, when it is no file of `records`. With
-    extras the check stays at a record, never an extra: the cited record
-    when exactly one file of `records` is cited, else the first; its
-    candidates are the records the citation leaves (that file's, else every
-    record that names a file), then the extras, once per file and line, so
-    a form matches when it matches any of them. Without `skill_dir` there
-    is no extra."""
+    `otherDeclarations`, #918), add the extras: each one in no file of
+    `records` that a citation on such a line points at (its line, or a
+    range that holds it); a citation of its file at another line adds
+    nothing. With extras the check stays at a record, never an extra: the
+    cited record when exactly one file of `records` is cited, else the
+    first; its candidates are the records the citation leaves (that
+    file's, else every record that names a file), then the extras, once per
+    file and line, so a form matches when it matches any of them. A record
+    with no file offers the extras alone. Without `skill_dir` there is no
+    extra."""
     first = records[0] if records else {}
     filed = [r for r in records if _record_file(r)]
     paths = {_path(_record_file(r)) for r in filed}
-    cited = (_inventory()._skill_cited_files(Path(skill_dir), name, texts)
+    spans = (_inventory()._skill_cited_spans(Path(skill_dir), name, texts)
              if skill_dir is not None and (len(paths) > 1 or others) else set())
-    # A same-named declaration no entry point exports, in a file the skill cites for the name (#918).
-    extras = [d for d in others or [] if _path(_record_file(d)) in cited - paths]
+    cited = {file for file, _, _ in spans}
+    # A same-named declaration no entry point exports, whose line the skill cites for the name (#918).
+    extras = [d for d in others or [] if _path(_record_file(d)) not in paths and _cited_at(d, spans)]
     if not extras:
         if len(filed) < 2 or len(paths) < 2:
             return first, None
@@ -1638,7 +1654,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         "universe whichever set it names")
     p.add_argument("--skill-dir", help="the skill package under test: its citations pick the declaration of a name "
                                        "the surface records in several files, and the other declarations a check's "
-                                       "candidates take")
+                                       "candidates take (one a citation on a line that names it points at)")
     p.add_argument("--output", help="also write the plan to this file")
     p.set_defaults(func=_cmd_plan)
 

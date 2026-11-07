@@ -1697,11 +1697,13 @@ def _homonym_plan(tmp_path: Path, tree: dict[str, str] | None, surface: dict = H
     {"SKILL.md": f"# Demo\n\n{LIGHTWEIGHT_LINE}\n"},
     {"SKILL.md": "# Demo\n\nSee references.\n",
      "references/pipelines.md": f"### Lightweight runner: run_pipeline\n\n[SRC:./{LIGHTWEIGHT}:L37-L45]\n"},
-], ids=["both-cited", "only-the-other-declaration-cited", "a-heading-then-its-citation"])
+    {"SKILL.md": f"# Demo\n\n`run_pipeline(steps)` and its loop [SRC:{LIGHTWEIGHT}:L30-50].\n"},
+], ids=["both-cited", "only-the-other-declaration-cited", "a-heading-then-its-citation", "a-range-that-holds-it"])
 def test_a_cited_other_declaration_joins_the_check_as_a_candidate(tmp_path, tree):
-    """#918 (oms-cognee run_pipeline): the skill cites the lightweight runner's file for the name, so the judge
-    reads both declarations and a form matches when it matches either. The check stays at the orchestrator, the
-    surface's record, even when the skill cites only the other file; the extra never becomes the planned record."""
+    """#918 (oms-cognee run_pipeline): a citation on a line that names it points at the lightweight runner's
+    declaration (its line, or a range that holds it), so the judge reads both declarations and a form matches when
+    it matches either. The check stays at the orchestrator, the surface's record, even when the skill cites only the
+    other file; the extra never becomes the planned record."""
     plan = _homonym_plan(tmp_path, tree)
     assert plan["compared"] == 1
     assert plan["files"] == [{"file": ORCHESTRATOR, "checks": [{
@@ -1713,13 +1715,19 @@ def test_a_cited_other_declaration_joins_the_check_as_a_candidate(tmp_path, tree
 
 @pytest.mark.parametrize("tree", [
     {"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE}\n"},
-    {"SKILL.md": f"# Demo\n\nThe steps run in order [AST:{LIGHTWEIGHT}:L46].\n\n{ORCHESTRATOR_LINE}\n"},
+    {"SKILL.md": f"# Demo\n\nThe steps run in order [AST:{LIGHTWEIGHT}:L37].\n\n{ORCHESTRATOR_LINE}\n"},
+    {"SKILL.md": f"# Demo\n\n{ORCHESTRATOR_LINE} The runner's own run_pipeline hands each step on "
+                 f"[SRC:{LIGHTWEIGHT}:L82] [SRC:{LIGHTWEIGHT}:L89].\n"},
+    {"SKILL.md": f"# Demo\n\n`run_pipeline` imports its helpers first [SRC:{LIGHTWEIGHT}:L1-36].\n\n"
+                 f"{ORCHESTRATOR_LINE}\n"},
     None,
-], ids=["not-cited", "cited-on-a-line-that-does-not-name-it", "no-skill-dir"])
+], ids=["not-cited", "cited-on-a-line-that-does-not-name-it", "its-file-cited-at-another-line",
+        "a-range-that-stops-before-its-line", "no-skill-dir"])
 def test_an_other_declaration_the_skill_does_not_cite_for_the_name_adds_nothing(tmp_path, tree):
-    """#918: an other declaration whose file the skill never cites on a line that writes the name, or a plan with
-    no --skill-dir, leaves the check as a surface without other declarations plans it: at the record, with no
-    candidate."""
+    """#918: an other declaration no citation on a line that writes the name points at, or a plan with no
+    --skill-dir, leaves the check as a surface without other declarations plans it: at the record, with no
+    candidate. A citation of its file at another line (storybook's `build`, whose prose cites the internal
+    build.ts at L82 and L89, not its declaration at L18) is no citation of the declaration."""
     plan = _homonym_plan(tmp_path / "with", tree)
     without = _homonym_plan(tmp_path / "without", tree, {k: v for k, v in HOMONYMS.items()
                                                           if k != "otherDeclarations"})
@@ -1743,7 +1751,8 @@ def test_an_extra_beside_records_in_two_files_keeps_the_citation_s_choice(tmp_pa
     the one cited record file and offers that file's record and the extra, never the record the skill did not
     cite; with no record file cited it sits at the first record and offers every record, then the extra."""
     other = {**ORCHESTRATOR_RECORD, "file": ORCHESTRATOR_V2, "line": 10}
-    lines = "\n\n".join(f"`run_pipeline(...)` [AST:{file}:L1]" for file in cited)
+    at = {ORCHESTRATOR: 53, ORCHESTRATOR_V2: 10, LIGHTWEIGHT: 37}
+    lines = "\n\n".join(f"`run_pipeline(...)` [AST:{file}:L{at[file]}]" for file in cited)
     plan = _homonym_plan(tmp_path, {"SKILL.md": f"# Demo\n\n{lines}\n"},
                          {**HOMONYMS, "exports": [ORCHESTRATOR_RECORD, other]})
     [group] = plan["files"]
@@ -1835,6 +1844,72 @@ def test_an_other_declaration_the_plan_did_not_offer_locates_nothing():
                     offered={"run_pipeline": [ORCHESTRATOR]}, others=[LIGHTWEIGHT_DECLARATION])
     assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, "Critical")]
     assert any("evidence_line 38 is before the declaration" in w for w in out["warnings"])
+
+
+def test_a_skill_citation_covers_its_line_or_its_range():
+    """#918: each citation on a line that writes the name, or on the next non-blank line, gives its file and the
+    lines it covers; a citation with no `:L<n>` gives none, and _skill_cited_files gives the same files."""
+    texts = [["`run_pipeline(steps)` [AST:./a.py:L3] [SRC:a.py:L5-9] [AST:b.py]", "",
+              "[SRC:c.py:L12-L20] [SRC:d.py:L30-28]", "[AST:e.py:L1]"],
+             ["Other text [AST:f.py:L2]"]]
+    inventory = mod._inventory()
+    spans = inventory._skill_cited_spans(Path("."), "run_pipeline", texts)
+    assert spans == {("a.py", 3, 3), ("a.py", 5, 9), ("c.py", 12, 20), ("d.py", 28, 30)}
+    assert inventory._skill_cited_files(Path("."), "run_pipeline", texts) == {"a.py", "c.py", "d.py"}
+
+
+# #918 with a record that has no file: storybook's `createTest`, which an entry point passes on through a star
+# re-export the runner gives no file. The declaration it reaches is an other declaration of the name.
+PORTABLE = "code/core/src/preview-api/modules/store/csf/portable-stories.ts"
+PORTABLE_COPY = "code/core/template/stories/portable-stories.ts"
+CREATE_TEST = {"name": "createTest", "kind": "function", "params": "story: Story, annotations?: Annotations",
+               "return_type": "Test"}
+FILELESS = {"exports": [{"name": "createTest", "kind": None, "file": None, "line": None, "signatureLine": None,
+                         "origin": "extraction"}],
+            "otherDeclarations": [
+                {"name": "createTest", "kind": "function", "file": PORTABLE_COPY, "line": 5,
+                 "signatureLine": "export function createTest("},
+                {"name": "createTest", "kind": "function", "file": PORTABLE, "line": 319,
+                 "signatureLine": "export function createTest("}],
+            "sets": {"all": ["createTest"]}}
+
+
+def test_a_record_with_no_file_offers_the_cited_other_declarations_alone(tmp_path):
+    """#918: the check of a name whose only record has no file stays at that record, in the "" group, and offers
+    as candidates only the other declarations the skill cites at their line, never the one it does not. A mismatch
+    the judge finds at the cited one is recorded there, and its line bounds the evidence of an
+    annotation-contradicted one. Without --skill-dir the check offers nothing, as before."""
+    _write(tmp_path / "skill" / "SKILL.md",
+           f"# Demo\n\n`createTest(story, annotations?)` builds a test [AST:{PORTABLE}:L319].\n\n"
+           f"The template's createTest is a copy [SRC:{PORTABLE_COPY}:L40].\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [CREATE_TEST], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", FILELESS)
+    plan = tmp_path / "signature-plan.json"
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", str(tmp_path / "skill"),
+                "--output", str(plan))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["files"] == [{"file": "", "checks": [{
+        "name": "createTest", "line": None, "signatureLine": None,
+        "documented": {"params": "story: Story, annotations?: Annotations", "return_type": "Test"},
+        "candidates": [{"file": PORTABLE, "line": 319, "signatureLine": "export function createTest("}]}]}]
+    without = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    assert without["files"] == [{"file": "", "checks": [{
+        "name": "createTest", "line": None, "signatureLine": None,
+        "documented": {"params": "story: Story, annotations?: Annotations", "return_type": "Test"}}]}]
+    mismatch = {"name": "createTest", "line": 325, "file": PORTABLE, "difference": "annotation-contradicted",
+                "evidence_line": 322, "source_sig": "(story: Story, annotations?: Annotations): void",
+                "documented_sig": "(story: Story, annotations?: Annotations): Test",
+                "issue": "the annotation says `void`; the body returns the test"}
+    results = _write(tmp_path / "s.txt", json.dumps({"file": PORTABLE, "signature_mismatches": [mismatch]}))
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan),
+                          "--results", results).stdout)
+    # the declaration line is the cited other declaration's, 319, so the evidence at 322 is in its body
+    assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, 325, "Info")]
+    assert not any("createTest" in w for w in out["warnings"]), out["warnings"]
+    assert (out["comparedNames"], out["totalDocumented"]) == (["createTest"], 1)
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
+    assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, "Critical")]
+    assert any("evidence_line 322 is before the declaration" in w for w in out["warnings"]), out["warnings"]
 
 
 # #918 end to end: the cognee shape, a namespace member and a lazy `__getattr__` re-export of a same-named function.

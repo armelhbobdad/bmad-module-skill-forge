@@ -150,7 +150,7 @@ For each `files[]` entry, delegate one subagent with its checks and the absolute
 
 Tag a mismatch's `difference` as `{signatureRulesFile}` says: `score` (§2b) checks the facts. One tagged `annotation-contradicted` also gives `evidence_line`, the body line that returns the documented type.
 
-`plan` gives a check `candidates` when the surface records its name in several files and the skill's citations do not settle one. It also reads `surface.json` `otherDeclarations`, the declarations of a surface name the extraction records in a file none of its records names (a same-named function that no entry point exports, such as one a lazy re-export passes on): one whose file the skill cites on a line that names it joins the check's `candidates`, beside the record the check stays at.
+`plan` gives a check `candidates` when the surface records its name in several files and the skill's citations do not settle one. It also reads `surface.json` `otherDeclarations`, the declarations of a surface name the extraction records in a file none of its records names (a same-named function that no entry point exports, such as one a lazy re-export passes on): one whose declaration a citation on a line that names it points at (`[AST:file:Lnn]` at its line, or an `L` range that holds it) joins the check's `candidates`, beside the record the check stays at. A citation of its file at another line adds nothing. A record with no file offers the cited other declarations alone.
 
 A check with `candidates` reads each and reports a mismatch only when the documented signature matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the result's `file` stays its `files[]` entry) and its `difference` tagged against it.
 

@@ -1467,6 +1467,15 @@ def test_an_other_declaration_is_looked_up_as_a_record_is(tmp_path):
         assert out["otherDeclarations"] == []
 
 
+def test_an_other_declaration_written_twice_is_listed_once():
+    """#918: `b.py` and `./b.py` are one declaration: listed once, its file written without the `./`, and a record
+    file written with one still keeps its own declaration out."""
+    row = {"exportName": "f", "kind": "function", "line": 3, "signatureLine": "def f():"}
+    out = mod.other_declarations([{"name": "f", "file": "./a.py"}],
+                                 [{**row, "file": "b.py"}, {**row, "file": "./b.py"}, {**row, "file": "a.py"}], {}, [])
+    assert out == [{"name": "f", "kind": "function", "file": "b.py", "line": 3, "signatureLine": "def f():"}]
+
+
 def test_no_extraction_or_a_replaced_one_gives_no_other_declaration(tmp_path):
     """#918: other declarations come from a runner extraction alone: a fallback one, which the per-file scan
     replaces, and a surface read by eye give none."""
@@ -1781,6 +1790,20 @@ def test_a_documented_nested_name_keeps_its_signature_check(tmp_path):
         ("Critical", "get_add_router", "cognee/api/v1/routers/add.py:1")]
     assert out["warnings"] == ["the source surface has no interface, type alias, enum or class: Type "
                                "Coverage has nothing to cover and scores 100"]
+
+
+def test_a_nested_name_has_its_other_declarations(tmp_path):
+    """#918: a nested Python top's records leave `all` and `root` but keep their signature checks, so a same-named
+    declaration in another file is an other declaration of theirs too, and the name stays out of both sets."""
+    data = json.loads(json.dumps(COGNEE))
+    data["exports"].append({"export_name": "get_add_router", "export_type": "function",
+                            "source_file": "cognee/api/v2/routers/add.py", "source_line": 4,
+                            "signature_line": "def get_add_router():"})
+    out = _cognee(tmp_path, data=data)
+    assert out["otherDeclarations"] == [{"name": "get_add_router", "kind": "function",
+                                         "file": "cognee/api/v2/routers/add.py", "line": 4,
+                                         "signatureLine": "def get_add_router():"}]
+    assert "get_add_router" not in set(out["sets"]["all"]) | set(out["sets"]["root"])
 
 
 def test_a_nested_top_keeps_its_names_in_the_scope_sets(tmp_path):

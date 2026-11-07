@@ -274,14 +274,16 @@ the extraction's exports[] holds (under the name, or under the name an
 aliased record's defining file gives it, `local`, as the record lookup
 reads it; a re-export row declares nothing) in a file none of the name's
 records names and no scope.exclude glob matches, as {name, kind, file,
-line, signatureLine}, its line and signature line taken as a record's
-are; sorted, each once, and [] with none, with no extraction or with one
-the per-file scan replaces. Such a declaration is a same-named function no
-entry point exports, as cognee's lightweight `run_pipeline`, which a lazy
-`__getattr__` passes on beside the orchestrator a namespace exports. They
-are no records: they join no set, no count and no guard, and only
-score-signatures.py reads them, plan offering one as a check's candidate
-where the skill cites its file for the name.
+line, signatureLine}, its file with forward slashes and no leading `./`,
+its line and signature line taken as a record's are; sorted, each
+declaration once however its path is written, and [] with none, with no
+extraction or with one the per-file scan replaces. Such a declaration is a
+same-named function no entry point exports, as cognee's lightweight
+`run_pipeline`, which a lazy `__getattr__` passes on beside the
+orchestrator a namespace exports. They are no records: they join no set,
+no count and no guard, and only score-signatures.py reads them, plan
+offering one as a check's candidate where a citation on a line that names
+it points at its declaration line.
 
 Candidates and guards (with an extraction, --brief or --metadata): each
 set's count, the metadata `stats.effective_denominator` (--metadata), and
@@ -1222,7 +1224,8 @@ def other_declarations(records: list[dict], declarations: list[dict], aliases: d
     a re-export left out) recorded under the name, or under a name an
     aliased record's defining file gives it (`aliases`), in a file no
     record of the name names and no exclude glob matches, as {name, kind,
-    file, line, signatureLine}, sorted, each once. They are no records:
+    file, line, signatureLine}, the file normalised (_norm), sorted, each
+    declaration once however its path is written. They are no records:
     only score-signatures.py reads them."""
     files: dict[str, set[str]] = {}
     for record in records:
@@ -1238,7 +1241,7 @@ def other_declarations(records: list[dict], declarations: list[dict], aliases: d
                 if path in own or any(glob_match(path, g) for g in excludes):
                     continue
                 line = d["line"] if isinstance(d["line"], int) and not isinstance(d["line"], bool) else None
-                found.add((name, d["kind"] if isinstance(d["kind"], str) else None, d["file"], line,
+                found.add((name, d["kind"] if isinstance(d["kind"], str) else None, path, line,
                            d["signatureLine"] if isinstance(d["signatureLine"], str) else None))
     ordered = sorted(found, key=lambda t: (t[0], t[2], t[3] or 0, t[1] or "", t[4] or ""))
     return [dict(zip(OTHER_DECLARATION_KEYS, t)) for t in ordered]

@@ -109,7 +109,9 @@ files the skill's `[AST:]` and `[SRC:]` citations name on a line of SKILL.md
 or references/**/*.md that writes a name with the match above, or on the
 next non-blank line. gap-ledger.py reads it to pick the declaration of a
 stale homonym, score-signatures.py to plan a signature check at the
-declaration the skill cites.
+declaration the skill cites. `_skill_cited_spans` gives the same citations
+with the lines each one covers, which score-signatures.py reads to offer a
+same-named declaration the skill cites at its line.
 
 CLI usage (mirrors reconcile-coverage.py):
   uv run validate-inventory.py --input <response file> [--output <inventory file>]
@@ -353,15 +355,24 @@ def _skill_cited_files(skill_dir: Path, name: str, texts: list[list[str]] | None
     (the documented-name match), or on the next non-blank line (a heading,
     then its citation). `texts`, skill_markdown_lines(skill_dir) read once,
     spares a caller that looks up many names reading the files again."""
+    return {file for file, _, _ in _skill_cited_spans(skill_dir, name, texts)}
+
+
+def _skill_cited_spans(skill_dir: Path, name: str, texts: list[list[str]] | None = None) -> set[tuple[str, int, int]]:
+    """Each citation _skill_cited_files reads, as (its file, the first line it
+    covers, the last): `:L12` covers line 12, `:L12-34` and `:L12-L34` lines
+    12 to 34."""
     pattern = name_pattern(name)
-    cited: set[str] = set()
+    cited: set[tuple[str, int, int]] = set()
     for lines in skill_markdown_lines(skill_dir) if texts is None else texts:
         for number, line in enumerate(lines):
             if not pattern.search(_ANY_CITATION_RE.sub(" ", line)):
                 continue
             following = next((ln for ln in lines[number + 1:] if ln.strip()), "")
             for cited_line in (line, following):
-                cited.update(_cited_path(m.group(2)) for m in _SKILL_CITATION_RE.finditer(cited_line))
+                for m in _SKILL_CITATION_RE.finditer(cited_line):
+                    first, last = int(m.group(3)), int(m.group(5) or m.group(3))
+                    cited.add((_cited_path(m.group(2)), min(first, last), max(first, last)))
     return cited
 
 
