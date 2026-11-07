@@ -4810,14 +4810,17 @@ def test_finished_runs_fire_on_complete_and_read_only_runs_do_not(tmp_path):
     forge_version = tmp_path / "forge" / "lib" / "1.0.1"
     forge_version.mkdir(parents=True)
     argv = _cmd_args(emit, "emitEnvelopeHelper", {"run_dir": str(run_dir), "forge_version": str(forge_version)})
+    # #902: the Validation Summary's `Security: WARN` row, as §5b maps it, in the line and the contract's summary
     payload = {**payload, "version": "1.0.1", "previous_version": "1.0.0", "update_mode": "normal",
-               "files_written": ["SKILL.md", "metadata.json"]}
+               "security_result": "warn", "files_written": ["SKILL.md", "metadata.json"]}
+    payload["result_contract"]["summary"]["security_result"] = "warn"
     code, out, err = _emit(argv, payload)
     assert code == 0, err
     line = json.loads(out.split("SKF_UPDATE_RESULT_JSON: ", 1)[1])["skf_update"]
     assert line["status"] == "success" and line["error"] is None
     latest = json.loads((forge_version / "update-skill-result-latest.json").read_bytes())
     assert latest["summary"]["update_status"] == "success" and latest["run_id"] == "a1B2c3D4"
+    assert line["security_result"] == latest["summary"]["security_result"] == "warn"
     assert "{onCompleteCommand} --result-path={forge_version}/update-skill-result-latest.json" in five_b
     assert "`--detect-only`, `--dry-run` and a halt never do (customize.toml says so)" in five_b
     # a hook failure is told to the user: the line and the result files are written before the hook runs, and
@@ -4867,15 +4870,63 @@ def test_the_hook_runs_only_when_this_run_wrote_the_latest_copy(tmp_path):
     (forge_version / "update-skill-result-latest.json").mkdir(parents=True)
     argv = _cmd_args(emit, "emitEnvelopeHelper", {"run_dir": str(run_dir), "forge_version": str(forge_version)})
     payload = {**payload, "version": "1.0.1", "previous_version": "1.0.0", "update_mode": "normal",
-               "files_written": ["SKILL.md", "metadata.json"]}
+               "security_result": "pass", "files_written": ["SKILL.md", "metadata.json"]}
+    payload["result_contract"]["summary"]["security_result"] = "pass"
     code, out, err = _emit(argv, payload)
     assert code == 0, err
     line = json.loads(out.split("SKF_UPDATE_RESULT_JSON: ", 1)[1])["skf_update"]
-    assert line["status"] == "success" and "result_path" not in line
+    assert line["status"] == "success" and "result_path" not in line and line["security_result"] == "pass"
     failed = [w for w in line["warnings"] if w.startswith("result_file_write_failed")]
     assert len(failed) == 1 and "update-skill-result-latest.json" in failed[0], line["warnings"]
     [per_run] = [p for p in forge_version.iterdir() if p.name != "update-skill-result-latest.json"]
     assert per_run.is_file() and (forge_version / "update-skill-result-latest.json").is_dir()
+
+
+def test_the_result_line_carries_the_security_row(tmp_path):
+    """#902: §5b reads `security_result` from the Validation Summary's Security row write.md §7 fills, maps it to the
+    schema's values and stages it in the payload and its summary; §1, §1a and §1b run no scan, so their lines leave
+    it out and still validate, and a value outside the three stops the emitter."""
+    report = _read(REPORT)
+    five_b = _slice(report, "### 5b. Result Contract", "### 6.")
+    assert ("the Validation Summary §3 read for `validation_status` and for `security_result`, the first word of its "
+            "`Security` row with `PASS` as `pass`, `WARN` as `warn` and `SKIP` as `skipped`, left out of the payload "
+            "and its `summary` when that row is missing or starts with another word; §1, §1a and §1b run no scan and "
+            "leave `security_result` out):") in five_b
+    template = _heredoc(_fence(five_b, 'cat > "{run_dir}/result-context.json"'))
+    assert '"update_mode": "{update_mode}", "security_result": "<pass, warn or skipped>", "files_written": [' in template
+    assert '"validation_status": "<passed, warnings or failures>", "security_result": "<pass, warn or skipped>"}' \
+        in template
+    for section, end in (("### 1. Handle No-Change Shortcut", "### 1a."), ("### 1a.", "### 1b."), ("### 1b.", "### 2.")):
+        assert "security_result" not in _slice(report, section, end), section
+    # the row §5b reads, and its three words, which map onto the schema's three values
+    summary = _slice(_read(WRITE), "### Validation Summary\n", "\n\n")
+    assert "\n- Security: {PASS/WARN/SKIP}" in summary
+    prop = json.loads(_read(SCHEMA))["properties"]["skf_update"]["properties"]["security_result"]
+    assert prop["enum"] == ["pass", "warn", "skipped"]
+    assert "PASS as 'pass', WARN as 'warn', SKIP as 'skipped'" in prop["description"]
+    assert "Absent on 'no-changes', 'detect-only' and 'dry-run'" in prop["description"]
+    emit = _fence(five_b, "uv run {emitEnvelopeHelper} emit --workflow skf-update-skill")
+    base = {**_sample(template), "version": "1.0.0", "previous_version": "1.0.0", "update_mode": "normal"}
+    # §1's no-change finish: no scan ran, so neither the line nor the result file carries the field
+    no_change = {key: value for key, value in base.items() if key != "security_result"}
+    no_change.update(status="no-changes", files_written=[], result_contract={
+        "skill": "skf-update-skill", "status": "no-changes", "outputs": [], "summary": {
+            "update_status": "no-changes", "exports_affected": 0, "files_modified": 0, "validation_status": "not-run"}})
+    for run, payload, expected in (("a1B2c3D4", no_change, 0), ("e5F6g7H8", {**base, "security_result": "SKIP"}, 1)):
+        run_dir = tmp_path / f"skf-update-skill-{run}"
+        run_dir.mkdir()
+        forge_version = tmp_path / run / "1.0.0"
+        forge_version.mkdir(parents=True)
+        argv = _cmd_args(emit, "emitEnvelopeHelper", {"run_dir": str(run_dir), "forge_version": str(forge_version)})
+        code, out, err = _emit(argv, payload)
+        assert code == expected, err
+        if expected == 0:
+            line = json.loads(out.split("SKF_UPDATE_RESULT_JSON: ", 1)[1])["skf_update"]
+            assert line["status"] == "no-changes" and "security_result" not in line
+            latest = json.loads((forge_version / "update-skill-result-latest.json").read_bytes())
+            assert "security_result" not in latest["summary"]
+        else:
+            assert "security_result" in err
 
 
 def test_the_headless_result_line_is_the_runs_last_line():

@@ -1341,7 +1341,9 @@ def _success_payload(section: str) -> str:
     sample = {"{export count}": "12", "{quality_score}": "91", "{repo_shape}": "null",
               '"{extraction confidence}"': '"high"', '"{active_pointer}"': '"symlink"',
               "{language_resolution}": '"detected"', "{detected_languages}": '["python"]',
-              "{zero_exports_rescue}": "null", "{validation_issues}": issues}
+              "{zero_exports_rescue}": "null", "{validation_issues}": issues,
+              # #902: the outcome step 5 binds when no SNYK_TOKEN lets the scan run
+              '"{security_result}"': '"skipped"'}
     payload = _staged(section, "result-context.json")
     for placeholder, value in sample.items():
         assert placeholder in payload, placeholder
@@ -1373,13 +1375,49 @@ def test_the_success_payload_builds_the_schema_envelope():
     assert emitter.contract_errors(schema, envelope) == []
     assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("success", 0, None)
     assert "result_contract" not in envelope
+    # #902: the scan's outcome is one of the schema's three values, never a near miss or null
+    assert envelope["summary"]["security_result"] == "skipped"
+    for value in ("pass", "warn", "passed", "SKIP", None):
+        wrong = {**context, "summary": {**context["summary"], "security_result": value}}
+        built = emitter.build_envelope(schema, wrong, halt=False, decisions=[], warnings=[], stamps={
+            "timestamp": "2026-10-01T00:00:00Z", "run_id": "ab12cd34", "result_path": None})
+        assert bool(emitter.contract_errors(schema, built)) == (value not in ("pass", "warn")), value
     # quick-extract records the skills-module shape, which the summary must admit.
     context["summary"]["repo_shape"] = "skills-module"
     shaped = emitter.build_envelope(schema, context, halt=False, decisions=[], warnings=[], stamps={
         "timestamp": "2026-10-01T00:00:00Z", "run_id": "ab12cd34", "result_path": None})
     assert emitter.contract_errors(schema, shaped) == []
-    for field in ("quality_score", "confidence", "repo_shape", "language_resolution", "zero_exports_rescue"):
+    for field in ("quality_score", "confidence", "repo_shape", "language_resolution", "zero_exports_rescue",
+                  "security_result"):
         assert section.count(f"`{field}`") == 1, f"the summary list names {field} once"
+    assert "`security_result` (step 5 §4: `pass`, `warn` or `skipped`)" in section
+
+
+def test_a_scan_that_could_not_run_reaches_the_printed_line(tmp_path):
+    """#902: finalize §3's payload, filled with the `skipped` step 5 binds without SNYK_TOKEN, makes `emit` print a
+    line whose summary carries it, as the result file does; a value outside the schema's three stops `emit`."""
+    section = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
+    package = tmp_path / "skills" / "demo" / "1.0.0" / "demo"
+    package.mkdir(parents=True)
+    payload = _success_payload(section).replace("{skill_package}", package.as_posix())
+
+    def emit(text: str, run: str) -> subprocess.CompletedProcess:
+        run_dir = tmp_path / f"skf-quick-skill-{run}"
+        run_dir.mkdir()
+        return subprocess.run([sys.executable, str(EMITTER), "emit", "--workflow", "skf-quick-skill", "--run-dir",
+                               str(run_dir), "--result-dir", str(package)], input=text.encode("utf-8"),
+                              capture_output=True, timeout=60)
+
+    proc = emit(payload, "ab12cd34")
+    assert proc.returncode == 0, proc.stderr
+    [line] = [line for line in proc.stdout.decode("utf-8").splitlines()
+              if line.startswith("SKF_QUICK_SKILL_RESULT_JSON: ")]
+    assert '"security_result":"skipped"' in line
+    assert json.loads(line.split(": ", 1)[1])["summary"]["security_result"] == "skipped"
+    record = json.loads((package / "quick-skill-result-latest.json").read_bytes().decode("utf-8"))
+    assert record["summary"]["security_result"] == "skipped"
+    refused = emit(payload.replace('"security_result": "skipped"', '"security_result": "passed"'), "ef56gh78")
+    assert refused.returncode == 1 and "security_result" in refused.stderr.decode("utf-8")
 
 
 def test_every_target_of_a_batch_returns_to_batch_mode():

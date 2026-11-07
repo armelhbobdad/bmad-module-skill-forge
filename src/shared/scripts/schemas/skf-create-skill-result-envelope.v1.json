@@ -195,6 +195,11 @@
           "minimum": 0,
           "description": "The decisions the run took without asking, as recorded in its run folder: every gate a headless run resolved by its default, and step 1's tier override in any mode. The rows of the evidence report's Auto-Decisions table; 0 when there were none."
         },
+        "security_result": {
+          "type": "string",
+          "enum": ["pass", "warn", "skipped"],
+          "description": "The outcome of step 6's security scan, the first word of the evidence report's Security row under Validation Results, and the value follows that row. 'pass': the scan exited 0 and skill-check reported no finding, which does not show that the scan found nothing. 'warn': it reported findings. 'skipped': it did not run (skill-check unavailable, or the scan could not run, such as without SNYK_TOKEN). Absent at a HARD HALT, and when that row is missing or starts with another word."
+        },
         "warning": {
           "type": "string",
           "enum": ["zero-exports"],

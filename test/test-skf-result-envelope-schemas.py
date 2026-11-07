@@ -281,6 +281,52 @@ def test_setup_prefix_matches_the_emitter_constant():
 
 
 # ---------------------------------------------------------------------------
+# security_result: the security scan's outcome, beside its finding count (#902)
+# ---------------------------------------------------------------------------
+
+# Each schema that carries the field, and the object that holds it: the line's summary, the wrapper or the top level.
+SECURITY_RESULT = [("skf-quick-skill-result-envelope.v1.json", ("summary",)),
+                   ("skf-create-skill-result-envelope.v1.json", ("summary",)),
+                   ("skf-update-result-envelope.v1.json", ("skf_update",)),
+                   ("skf-stack-result-envelope.v1.json", ())]
+
+
+@pytest.mark.parametrize("name,where", SECURITY_RESULT, ids=[name for name, _ in SECURITY_RESULT])
+def test_security_result_is_the_scan_outcome(name, where):
+    """#902: an optional `pass`, `warn` or `skipped`, so a pipeline tells a scan that could not run from one that
+    ran; a halt carries none, and `pass` says only what the scan's exit and skill-check's report show."""
+    schema = _load(SCHEMA_DIR / name)
+    holder = schema
+    for key in where:
+        holder = holder["properties"][key]
+    prop = holder["properties"]["security_result"]
+    assert prop["type"] == "string" and prop["enum"] == ["pass", "warn", "skipped"]
+    # optional everywhere: no required list of the schema names it, so a v1 consumer and a halt line stay valid
+    for pointer, node in _schema_nodes(schema):
+        assert "security_result" not in node.get("required", []), pointer
+    for value in ("pass", "warn", "skipped"):
+        assert mod._validate_against_schema(value, prop) == [], value
+    for value in ("passed", "SKIP", None):
+        assert mod._validate_against_schema(value, prop), value
+    assert "exited 0 and skill-check reported no finding" in prop["description"]
+    assert "does not show that the scan found nothing" in prop["description"]
+    # no scan step runs at a halt: the halt line validates and leaves the field out
+    meta = _meta(schema)
+    proc = subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "emit-halt", "--workflow", meta["workflow"]],
+        input=json.dumps(_halt_payload(schema, _halt_reasons(schema)[0])),
+        capture_output=True, text=True, encoding="utf-8", timeout=20,
+    )
+    assert proc.returncode == 0, proc.stderr
+    envelope = json.loads(proc.stdout.strip().split(": ", 1)[1])
+    assert not list(Draft202012Validator(schema).iter_errors(envelope))
+    halted = envelope
+    for key in where:
+        halted = halted.get(key, {})
+    assert "security_result" not in halted
+
+
+# ---------------------------------------------------------------------------
 # Every halt_reason a workflow names, against its schema (#593)
 # ---------------------------------------------------------------------------
 

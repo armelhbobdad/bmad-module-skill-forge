@@ -746,9 +746,13 @@ def test_quick_skill_headless_block_names_the_success_envelope():
     third = _slice(block, "3. **Error-variant result contract", "4. **Success result contract.**")
     assert f"[`{schema_path}`]" in third and "§ \"Result Contract on HARD HALT\"" in third
     fourth = _slice(block, "4. **Success result contract.**", "**Batch mode")
-    for field in ("quality_score", "validation_issues", "repo_shape", "language_resolution", "active_pointer"):
+    for field in ("quality_score", "validation_issues", "repo_shape", "language_resolution", "active_pointer",
+                  "security_result"):
         assert field in schema["properties"]["summary"]["properties"], field
         assert f"`{field}`" in fourth, field
+    # #902: the scan's outcome, and what `pass` shows
+    assert "`pass` when the scan exited 0 and skill-check reported no finding" in fourth
+    assert "`skipped` when it did not run, such as without `SNYK_TOKEN`" in fourth
     for field in ("headless_decisions", "warnings"):
         assert field in schema["properties"], field
         assert f"`{field}`" in fourth, field
@@ -1574,7 +1578,12 @@ def test_create_skill_documents_the_brief_lookup_the_batch_and_its_result_line()
     for field in ("status", "exit_code", "phase"):
         assert field in schema["properties"] and f"`{field}`" in row, field
     assert "halt_reason" in schema["properties"]["summary"]["properties"] and "`summary.halt_reason`" in row
+    assert "security_result" in schema["properties"]["summary"]["properties"] and "`summary.security_result`" in row
     assert "only when it stops early" not in row
+    # #902: Update Skill's line carries the scan's outcome in its wrapper
+    [row] = [line for line in doc.splitlines() if line.startswith("| US | `SKF_UPDATE_RESULT_JSON`")]
+    update = _schema("skf-update-result-envelope.v1.json")["properties"]["skf_update"]["properties"]
+    assert "security_result" in update and "`skf_update.security_result`" in row
 
 
 def test_stack_skill_documents_its_inputs_run_state_and_result_fields():
@@ -1608,8 +1617,8 @@ def test_stack_skill_documents_its_inputs_run_state_and_result_fields():
         doc, "**Other workflows emit result envelopes too.**")
     schema = _schema("skf-stack-result-envelope.v1.json")
     [row] = [line for line in doc.splitlines() if line.startswith("| SS | `SKF_STACK_RESULT_JSON`")]
-    for field in ("mode", "stack_libraries", "skill_package", "quality_score", "run_id", "result_path",
-                  "headless_decisions", "warnings", "exit_code", "halt_reason", "error"):
+    for field in ("mode", "stack_libraries", "skill_package", "quality_score", "security_result", "run_id",
+                  "result_path", "headless_decisions", "warnings", "exit_code", "halt_reason", "error"):
         assert field in schema["properties"] and f"`{field}`" in row, field
     assert "not a test-skill score" in schema["properties"]["quality_score"]["description"]
     assert "not a Test Skill score" in row

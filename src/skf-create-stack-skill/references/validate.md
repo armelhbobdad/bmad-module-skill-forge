@@ -137,6 +137,8 @@ Record security findings as advisory **WARNING** findings: they do not block the
 
 **If unavailable:** Skip, with the note "security scan skipped: skill-check unavailable" in the §10 validation results.
 
+Bind `{security_result}` ← `skipped` for **Could not run**, a run whose `{run_dir}/skill-check.json` does not start with a JSON object, or an unavailable skill-check; `warn` for **Findings**; `pass` for **Neither**. Step 9 puts it in the result envelope and the result contract.
+
 ### 10. Display Validation Results
 
 Report the validation outcome. If all checks passed, state so and name what was verified: file presence (`{count}/{count}`), SKILL.md structure, metadata.json fields, the `{lib_count}` library + `{pair_count}` integration reference files, and complete confidence-tier coverage. If there were findings, report the `{warning_count}` finding(s), each with severity, description, and file path, plus files present/expected and warning/error counts; when errors include missing files, note this may indicate a write failure in step 07. In both cases, list each §9 security scan note.
