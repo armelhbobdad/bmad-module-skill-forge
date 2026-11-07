@@ -4,7 +4,11 @@
 Covers:
   - begin in-place: a snapshot of the package (links kept as links), the
     forge version's provenance map and evidence report, and the brief;
-    rollback restores each byte for byte and removes a file the run created
+    rollback restores each byte for byte and removes a file the run created;
+    with no forge folder for the version (a flat forge), rollback removes
+    the files the run wrote there and leaves the folder, empty;
+    with a file at the version folder's path (its mkdir fails), rollback
+    restores the package and the brief and removes nothing
   - begin new-version: refuses a folder that exists; rollback removes the
     folders the run created and the staging folder, never a link and never
     the folder the active link names
@@ -102,6 +106,60 @@ class TestInPlace:
         # nothing beside the package is left behind
         assert sorted(os.listdir(s["package"].parent)) == ["lib"]
         assert mod.rollback(s["run_dir"], remove_run_dir=False)["status"] == "already-rolled-back"
+
+    def test_a_repair_with_no_version_folder_leaves_it_empty(self, tmp_path: Path) -> None:
+        # #959: an older skill keeps its forge data flat, with no folder for its version, which update-skill's
+        # write.md §3 creates after begin; in place, begin cannot record the folder (no --created), only its files
+        s = _skill(tmp_path)
+        group = s["forge"].parent
+        for name in ("provenance-map.json", "test-report-lib-x.md"):
+            os.replace(s["forge"] / name, group / name)
+        s["forge"].rmdir()
+        _write(group / "evidence-report.md", b"## Creation\n")
+        flat = _tree(group)
+        out = mod.begin_in_place(s["run_dir"], s["package"], s["forge"], s["brief"])
+        assert out["status"] == "began" and out["failed"] == []
+        state = json.loads((s["run_dir"] / "run-state.json").read_bytes())
+        assert state["snapshot"]["forge_files"] == {"provenance-map.json": False, "evidence-report.md": False}
+        assert not s["forge"].exists()
+        # the repair creates the folder, writes the map and a new evidence report there, then a later step halts
+        s["forge"].mkdir()
+        _write(s["package"] / "SKILL.md", b"# lib\n\nrepaired\n")
+        _write(s["forge"] / "provenance-map.json", b'{"entries": [{"export_name": "x"}]}\n')
+        _write(s["forge"] / "evidence-report.md", b"## Update Operation\n")
+        out = mod.rollback(s["run_dir"], remove_run_dir=False)
+        assert out["status"] == "rolled-back" and out["failed"] == []
+        assert sorted(out["removed"]) == sorted(
+            (s["forge"] / name).as_posix() for name in ("provenance-map.json", "evidence-report.md"))
+        # the folder stays, empty, and the flat map, evidence report and test report are as they were
+        assert s["forge"].is_dir() and list(s["forge"].iterdir()) == []
+        assert _tree(group) == flat
+        assert (s["package"] / "SKILL.md").read_bytes().endswith(b"mine\n<!-- [/MANUAL:notes] -->\n")
+
+    def test_a_file_at_the_version_folder_path_rolls_back_cleanly(self, tmp_path: Path) -> None:
+        # #959: a file stands where write.md §3 creates the version folder, so its mkdir -p fails and the run
+        # halts before apply; rollback restores the package and the brief and removes nothing
+        s = _skill(tmp_path)
+        group = s["forge"].parent
+        for name in ("provenance-map.json", "test-report-lib-x.md"):
+            os.replace(s["forge"] / name, group / name)
+        s["forge"].rmdir()
+        _write(s["forge"], b"not a folder\n")
+        before = {"package": _tree(s["package"]), "group": _tree(group)}
+        out = mod.begin_in_place(s["run_dir"], s["package"], s["forge"], s["brief"])
+        assert out["status"] == "began" and out["failed"] == []
+        state = json.loads((s["run_dir"] / "run-state.json").read_bytes())
+        assert state["snapshot"]["forge_files"] == {"provenance-map.json": False, "evidence-report.md": False}
+        # the repair rewrites SKILL.md and the brief, then the fence's mkdir -p meets the file and the run halts
+        _write(s["package"] / "SKILL.md", b"# lib\n\nrepaired\n")
+        _write(s["brief"], b"name: lib\nscope:\n  exclude: [pkg/x.py]\n")
+        with pytest.raises(FileExistsError):
+            s["forge"].mkdir(parents=True, exist_ok=True)
+        out = mod.rollback(s["run_dir"], remove_run_dir=False)
+        assert out["status"] == "rolled-back" and out["failed"] == [] and out["removed"] == []
+        # the package and the brief are back, and the file at the folder's path is as it was
+        assert _tree(s["package"]) == before["package"]
+        assert _tree(group) == before["group"]
 
     def test_a_link_in_the_package_stays_a_link(self, tmp_path: Path) -> None:
         s = _skill(tmp_path)

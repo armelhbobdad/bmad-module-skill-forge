@@ -2531,6 +2531,148 @@ def test_write_apply_reads_the_map_init_bound(tmp_path):
     assert flat_map.read_bytes() == flat_bytes, "the flat map changed"
 
 
+def test_a_repair_creates_the_version_forge_folder_before_apply(tmp_path):
+    """#959: a repair from a test report of a skill whose forge data is flat may find no `{forge_version}` folder:
+    in-place `begin` creates none, and the test-report finder falls back to a flat report. `apply` writes `-o` only
+    into a folder that exists, so it exited 1 with `[Errno 2]` and the run halted at `write:provenance-map`. In
+    gap-driven mode §3 now first runs report.md §5b's `mkdir -p "{forge_version}"`, in a fence of its own, and halts
+    with `halted-for-write-failure` when that fails, before `apply` runs. In a repair that bound the flat map it then
+    copies the flat evidence report and extraction rules into the folder when each is missing there (merge.md §6b
+    step 6's rule for a new version), so §4 appends to the full report and a later version keeps the rules."""
+    three = _write_3()
+    mkdir_fence = '```bash\nmkdir -p "{forge_version}"\n```'
+    fences = re.findall(r"```bash\n(.*?)```", three, re.S)
+    assert fences.count('mkdir -p "{forge_version}"\n') == 1, fences
+    # the mkdir fence is §3's first and comes right before the apply fence, which holds the apply call alone
+    assert three.index("```bash") == three.index(mkdir_fence)
+    assert fences.index('mkdir -p "{forge_version}"\n') + 1 == \
+        next(i for i, f in enumerate(fences) if f.startswith("uv run {buildChangeManifestHelper} apply"))
+    assert "mkdir" not in _apply_call()
+    # the shape it reuses: report.md §5b's line, there with a warning in place of a halt
+    five_b = _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
+    assert _fence(five_b, "mkdir -p").startswith('mkdir -p "{forge_version}" || ')
+    lead = _slice(three, "### 3. Write Updated provenance-map.json", "```bash")
+    for token in ("may find no forge folder for its version, and `apply` writes only into a folder that exists",
+                  "In gap-driven mode, first create it, as report.md §5b does. From `{project-root}`, run:"):
+        assert token in lead, token
+    halt = _slice(three, mkdir_fence, "```bash")
+    for token in ("On a non-zero exit, HALT with status `halted-for-write-failure` before `apply` runs",
+                  "**The forge folder of this version of {skill_name} could not be created**",
+                  'phase: "write:provenance-map"', 'path: "{forge_version}"',
+                  'reason: "forge-folder-not-created: <its stderr>"',
+                  "which `begin` found absent, and leaves the folder empty",
+                  "Then, from `{project-root}`, run:"):
+        assert token in halt, token
+    # after the mkdir's halt and before apply, the flat evidence report and extraction rules are copied there
+    copy = ("Then, in a repair whose `{provenance_map_path}` is the flat map, copy into `{forge_version}` each of "
+            "`evidence-report.md` and `extraction-rules.yaml` from `{forge_data_folder}/{skill_name}/` when it is there "
+            "and `{forge_version}` does not hold it yet.")
+    assert halt.index('reason: "forge-folder-not-created') < halt.index(copy) < halt.index("Then, from `{project-root}`")
+    for token in ("a file `{forge_version}` already holds is never overwritten",
+                  "§4 appends this update to the evidence report there",
+                  "When a copy fails, HALT with the same status and phase",
+                  'reason: "forge-file-not-copied: <its error>"',
+                  "this run writes or copies there, which `begin` found absent",
+                  "empty but for a copied `extraction-rules.yaml`, a copy of the flat file and harmless"):
+        assert token in halt, token
+    # the wording merge.md §6b step 6 uses when it seeds a new version's forge folder
+    step_6 = _slice(_read(MERGE), "6. **Create the forge folder**", "7. **Rebind**")
+    for token in ("Copy, never move: the", "the extraction rules record how the skill was extracted"):
+        assert token in step_6 and token in halt, token
+
+    # the documented apply, in a gap-driven repair: #948's layout
+    call = _apply_call()
+    old = {"export_name": "search", "export_type": "function", "source_library": "lib", "source_file": "pkg/api.py",
+           "source_line": 5, "confidence": "T1", "extraction_method": "ast-grep",
+           "ast_node_type": "function_definition", "signature_source": "T1"}
+
+    def layout(name: str, versioned: bool) -> tuple[Path, Path, list[str]]:
+        group = tmp_path / name / "forge data" / "lib"
+        forge_version = group / "1.0.0"
+        group.mkdir(parents=True)
+        if versioned:
+            forge_version.mkdir()
+        # a versioned map and report, or flat ones, an older skill's, with no folder for its version
+        home = forge_version if versioned else group
+        the_map = home / "provenance-map.json"
+        the_map.write_bytes(json.dumps({"entries": [old]}).encode("utf-8"))
+        (home / "test-report-lib-r1.md").write_bytes(b"report\n")
+        (home / "evidence-report.md").write_bytes(b"# Evidence Report: lib\n\n## Creation\n")
+        (home / "extraction-rules.yaml").write_bytes(b"skill: lib\nlanguage: python\n")
+        run_dir = tmp_path / name / "run"
+        run_dir.mkdir()
+        (run_dir / "reextract-records.json").write_bytes(json.dumps({"mode": "gap-driven", "verification": [
+            {"export_name": "fresh", "gap_category": "NEW_EXPORT", "severity": "High", "verification": "verified",
+             "in_map": False, "map_entry": None, "source_citation": {"file": "pkg/new.py", "line": 3},
+             "reachability": "public"}], "files": []}).encode("utf-8"))
+        (run_dir / "merge-records.json").write_bytes(json.dumps({"exports": [
+            {"export_name": "fresh", "export_type": "function", "params": ["x"]}]}).encode("utf-8"))
+        skill_package = tmp_path / name / "skills" / "lib" / "1.0.0" / "lib"
+        skill_package.mkdir(parents=True)
+        (skill_package / "metadata.json").write_bytes(json.dumps({"exports": ["search"]}).encode("utf-8"))
+        values = {"update_type": "gap-driven", "forge_version": str(forge_version), "run_dir": str(run_dir),
+                  "provenance_map_path": str(the_map), "skill_name": "lib", "generation_date": "2026-10-01T10:00:00Z",
+                  "test_report_run_id": "r1", "forge_tier": "Forge", "manual_sections_preserved": "0",
+                  "map_source_commit": "abc", "map_source_ref": "v1", "skill_package": str(skill_package)}
+        return forge_version, the_map, _argv_with(call, "buildChangeManifestHelper", values, keep=(
+            "--provenance-map", "--reextract-records", "--merge-records", "--test-report-run-id"))
+
+    def mkdir_p(folder: Path) -> None:
+        folder.mkdir(parents=True, exist_ok=True)  # what the fence's `mkdir -p` does
+
+    copied = ("evidence-report.md", "extraction-rules.yaml")
+
+    def copy_flat(forge_version: Path) -> None:
+        # what the copy after the fence does: each flat file the folder does not hold yet, copied, never moved
+        for name in copied:
+            if (forge_version.parent / name).is_file() and not (forge_version / name).exists():
+                shutil.copyfile(forge_version.parent / name, forge_version / name)
+
+    def files(folder: Path) -> dict[str, bytes]:
+        return {p.name: p.read_bytes() for p in folder.iterdir() if p.is_file()}
+
+    def written(forge_version: Path) -> list[str]:
+        doc = json.loads((forge_version / "provenance-map.json").read_bytes())
+        assert doc["entries"][0] == old
+        return [e["export_name"] for e in doc["entries"]]
+
+    # before the fix: apply alone, with no version folder, writes nothing and exits 1
+    forge_version, flat_map, argv = layout("premise", versioned=False)
+    proc = subprocess.run([sys.executable, str(BUILD_MANIFEST), *argv], capture_output=True, encoding="utf-8")
+    assert proc.returncode == 1 and "cannot write" in proc.stderr and "[Errno 2]" in proc.stderr, proc.stderr
+    assert not forge_version.exists()
+    # the flat forge: mkdir makes the folder, the copy brings the flat evidence report and extraction rules, and
+    # apply exits 0 and writes the old and new entries there; every flat file, the map included, is as it was
+    forge_version, flat_map, argv = layout("flat", versioned=False)
+    flat = files(forge_version.parent)
+    mkdir_p(forge_version)
+    copy_flat(forge_version)
+    code, out = _run_script(BUILD_MANIFEST, argv)
+    assert code == 0 and out["status"] == "written", out
+    assert written(forge_version) == ["search", "fresh"]
+    assert sorted(os.listdir(forge_version)) == [*copied, "provenance-map.json"]
+    for name in copied:
+        assert (forge_version / name).read_bytes() == flat[name], name
+    assert files(forge_version.parent) == flat, "a flat file changed"
+    # a folder that already holds a versioned evidence report: the copy keeps it and brings only the extraction rules
+    forge_version, flat_map, argv = layout("partial", versioned=False)
+    flat = files(forge_version.parent)
+    mkdir_p(forge_version)
+    (forge_version / "evidence-report.md").write_bytes(b"# Evidence Report: lib 1.0.0\n")
+    copy_flat(forge_version)
+    assert (forge_version / "evidence-report.md").read_bytes() == b"# Evidence Report: lib 1.0.0\n"
+    assert (forge_version / "extraction-rules.yaml").read_bytes() == flat["extraction-rules.yaml"]
+    assert files(forge_version.parent) == flat, "a flat file changed"
+    # the folder exists, with the version's map: mkdir changes nothing, and apply writes as before
+    forge_version, the_map, argv = layout("versioned", versioned=True)
+    before = {p.name: p.read_bytes() for p in forge_version.iterdir()}
+    mkdir_p(forge_version)
+    assert {p.name: p.read_bytes() for p in forge_version.iterdir()} == before
+    code, out = _run_script(BUILD_MANIFEST, argv)
+    assert code == 0 and out["status"] == "written", out
+    assert written(forge_version) == ["search", "fresh"]
+
+
 def test_new_entry_labels_pass_the_stats_helper():
     """The entry apply writes for a pinned cited export passes skf-render-metadata-stats.py's label check (#530),
     and carries the signature_source write §3 says §2's stats helper bins (step 5b leanness-1)."""
