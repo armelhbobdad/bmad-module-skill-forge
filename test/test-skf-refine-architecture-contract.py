@@ -220,8 +220,9 @@ def test_skill_md_stays_under_its_token_budget():
     10,083 characters before the 6.0.0 release gate. The maintainer's decision for that gate adds two sentences on
     purpose, past the guideline: the foreground rule every SKILL.md carries word for word and the reading rule in
     the Headless row, to about 2,650 tokens. 10,740 characters holds it there without a tokenizer, so nothing else
-    grows it."""
-    assert len(_read(SKILL_MD)) < 10_740, len(_read(SKILL_MD))
+    grows it. #965 grows the resolver sentence every SKILL.md carries word for word by 40 characters, to name the
+    missing SKF helper, so the ceiling is 10,761."""
+    assert len(_read(SKILL_MD)) < 10_761, len(_read(SKILL_MD))
 
 # --- Every HALT names a known reason, its code and its phase ------------------------------
 

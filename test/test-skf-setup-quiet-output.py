@@ -509,7 +509,8 @@ def test_item_6_runs_the_resolver_through_uv_and_binds_its_reason():
             "(team overrides, committed) and `.user.toml` (personal overrides, gitignored).") in flat
     assert ("When it exits non-zero, prints no JSON or is missing, print one line, "
             "`[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, "
-            "`not found` when the script is missing, `no JSON` when it printed none).") in flat
+            "`SKF helper skf-resolve-customization.py not found` when the script is "
+            "missing, `no JSON` when it printed none).") in flat
     assert ("If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: "
             "the `{project-root}/_bmad/custom/` overrides do not apply to this run.") in flat
     assert "Bind `{customization_resolver_unavailable}` ← that reason (null when the resolver ran)" in flat

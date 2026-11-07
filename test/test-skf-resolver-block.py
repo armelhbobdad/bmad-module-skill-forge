@@ -76,8 +76,12 @@ STEPS = {
 ACTIVATIONS = sorted(STEPS)
 KEY = {skill: "agent" if skill == "skf-forger" else "workflow" for skill in ACTIVATIONS}
 
-REASON = ("(`<reason>`: its first stderr line, `not found` when the script is missing, `no JSON` when it "
-          "printed none).")
+# #965: the helper's own `not found` means BMAD core's resolver is missing (SKF alone), so a missing helper names
+# itself with no path: a bare `_bmad/` path fails the path-standards scan, and `{project-root}` would expand to a
+# home path in a published envelope.
+MISSING_HELPER = "SKF helper skf-resolve-customization.py not found"
+REASON = (f"(`<reason>`: its first stderr line, `{MISSING_HELPER}` when the script is missing, `no JSON` when "
+          "it printed none).")
 # Routes that keep the reason for a later stage, or print it under a condition, instead of recording it at once.
 # test, refine-architecture and create-stack take their phrase from the ROUTES table their own test keeps.
 ROUTE_EXCEPTIONS = {
@@ -179,6 +183,20 @@ def test_the_warning_and_the_fallback_are_the_same_everywhere(skill):
     assert step.count(_shared(skill)) == 1, skill
     # Only the prefixed override folder: the bare form is gone from every activation.
     assert "the `_bmad/custom/` overrides" not in step
+    assert "`not found` when the script is missing" not in AC._flat(_skill_md(skill)), skill
+
+
+def test_a_missing_helper_and_a_missing_core_give_different_reasons():
+    """#965: the helper prints `not found` when BMAD core's resolver is missing, the documented SKF-alone warning,
+    so the reason an activation gives when the helper itself is missing names the helper by its file name, the
+    one the stage calls probe for, with no path and never core's resolver."""
+    assert _load("skf_resolve_customization_helper", HELPER).MISSING == "not found"
+    assert all(probe.endswith("/" + AC.HELPER) for probe in PROBE_ORDER)
+    expected = f"SKF helper {AC.HELPER} not found"
+    assert expected == MISSING_HELPER
+    assert f"`{expected}` when the script is missing" in REASON
+    for gone in ("`not found`", "_bmad/", "{project-root}", "resolve_customization.py"):
+        assert gone not in REASON, gone
 
 
 @pytest.mark.parametrize("skill", ACTIVATIONS)

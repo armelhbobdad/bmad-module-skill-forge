@@ -624,7 +624,8 @@ RESOLVER_LAYERS = ("It merges the bundled `{skill-root}/customize.toml` with "
                    "(personal overrides, gitignored).")
 RESOLVER_WARNING = ("When it exits non-zero, prints no JSON or is missing, print one line, "
                     "`[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr "
-                    "line, `not found` when the script is missing, `no JSON` when it printed none).")
+                    "line, `SKF helper skf-resolve-customization.py not found` when the "
+                    "script is missing, `no JSON` when it printed none).")
 RESOLVER_FALLBACK = ("If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
                      "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.")
 DROP_CLAUSE = ("the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` "

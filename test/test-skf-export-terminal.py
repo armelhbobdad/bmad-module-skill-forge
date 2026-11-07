@@ -491,7 +491,8 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
                   "(personal overrides, gitignored).",
                   "When it exits non-zero, prints no JSON or is missing, print one line, "
                   "`[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr "
-                  "line, `not found` when the script is missing, `no JSON` when it printed none).",
+                  "line, `SKF helper skf-resolve-customization.py not found` when the "
+                  "script is missing, `no JSON` when it printed none).",
                   "If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
                   "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.",
                   "Keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran): a "
