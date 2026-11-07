@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   Test Skill's signature plan now keeps the declaration line the extraction recorded for a name that a by-eye read also reports in the same file. After the files listed in `readByEye` were read by eye and `surface` ran again, each name found there got a record with no line, which sorted before the extraction's record of that name in the same file, so the plan gave its check `line` and `signatureLine` null and the signature judge had to find the declaration by hand. The line-less record also counted as a second declaration in that file: a citation of the file with no line bound the form to nothing, and a name declared in several files listed it as a candidate with no line. The check, its candidates and its bindings now use the extraction's record, and a record with no line stands in only for a file the extraction gave no line for.
 issues: [921]
+prs: [984]
