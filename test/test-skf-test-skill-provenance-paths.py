@@ -1584,8 +1584,8 @@ def test_the_floor_runs_before_the_inventory_subagent():
     dispatched, and both paths read it: the subagent is given its path, the parent without subagents builds
     from it, and §1a refuses an inventory that leaves one of its names out. Its form rules are the script's.
     #888: an origin's `signature` is that place's entry, kept as given, the contract says so for every kind and
-    names the places pinned (no Props or Params cell) and the partial label a Signature header pins with the form,
-    and §1a refuses an inventory that changes one."""
+    names the places pinned (a one-span Props, Params or Parameters cell and a usage form too, step 2) and the
+    partial label a Signature or Props header pins with the form, and §1a refuses an inventory that changes one."""
     text = _read(COVERAGE)
     section1 = _slice(text, "### 1. Extract Documented Exports", "#### 1a.")
     assert _command(COVERAGE, "uv run {coverageInputsScript} floor") == FLOOR_COMMAND
@@ -1616,22 +1616,26 @@ def test_the_floor_runs_before_the_inventory_subagent():
     contract = _flow(_read(INVENTORY_CONTRACT))
     assert ("and keeps one `kind` in every place. An entry whose `params` or `usage_signature` the signature check "
             "compares") in contract
-    assert ("A place `inventory-floor.json` gives a `signature` (a cited function declaration, a Signature cell, or "
-            "a heading or an export table's first cell that writes one call) has that form as its entry, with that "
-            "place as its `at`, whatever its kind, its non-blank `params` and `return_type` kept as given (a "
-            "`params` may open with the shared text the next sentence gives, then `; `); a blank one is the "
-            "reader's, and a form the skill writes only in prose is an entry of its own; a `signature` read from a "
-            "Signature cell under a partial label (`Signature (simplified)`, `(partial)`, `(key parameters)`) also "
-            "gives `signature_form` `\"partial\"`, which that entry copies, and the validator refuses an inventory "
-            "with no entry there that does. Where the skill documents several names and states members they share "
-            "once") in contract
+    assert ("A place `inventory-floor.json` gives a `signature` (a cited function declaration, a Signature cell, a "
+            "Props, Params or Parameters cell that is one code span, or a heading or an export table's first cell "
+            "that writes one call; a usage form, such as `new Client(opts)`, in `usage_signature`) has that form as "
+            "its entry, with that place as its `at`, whatever its kind, its non-blank fields kept as given (a "
+            "`params` or `usage_signature` may open with the shared text the next sentence gives, then `; `); a "
+            "blank one is the reader's, and a form the skill writes only in prose is an entry of its own; a "
+            "`signature` read from a cell under a partial label (`Signature (simplified)`, `Props (simplified)`, "
+            "`(partial)`, `(key parameters)`) also gives `signature_form` `\"partial\"`, which that entry copies, "
+            "and the validator refuses an inventory with no entry there that does. Where the skill documents several "
+            "names and states members they share once") in contract
     rules = _flow(runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py").__doc__)
     assert ("an origin whose place writes the name's signature in a fixed form that is surely complete also "
             "carries it as `signature`" in rules and "no signature read" not in rules)
-    assert "a Props, Params or Parameters cell is never read" in rules
+    assert "a Props, Params or Parameters cell is never read" not in rules
+    assert ("Only then a Props, Params or Parameters cell, when the whole cell is one code span (trailing prose or "
+            "several spans leave it the reader's)") in rules
+    assert "A span that is no complete form is a usage form" in rules
     assert "`Signature (simplified)`" in rules and "a labelled one is not a Signature column" not in rules
-    assert not re.search(r"\bProps\b|\bParams\b", _flow(_read(INVENTORY_CONTRACT)).split(
-        "keeps one `kind` in every place.", 1)[1].split("Where the skill documents several names", 1)[0])
+    assert "a Props, Params or Parameters cell that is one code span" in _flow(_read(INVENTORY_CONTRACT)).split(
+        "keeps one `kind` in every place.", 1)[1].split("Where the skill documents several names", 1)[0]
     for rule in ("Signature cell", "Props (simplified)", "leading code span"):
         assert rule not in flow, rule
     assert len(text) < COVERAGE_CHAR_BUDGET
