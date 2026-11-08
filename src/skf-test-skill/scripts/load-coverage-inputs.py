@@ -76,25 +76,37 @@ reading files and writing one JSON object:
                            data block (json, yaml, text...) gives none.
             Signatures (#888): an origin whose place writes the name's
             signature in a fixed form that is surely complete also carries
-            it as `signature`, {"params", "return_type"}, two strings, each
-            one's whitespace runs read as one space (and `signature_form`
-            "partial" under a Signature header's partial label, below),
-            which validate-inventory.py --floor refuses an inventory for
-            changing; any other place pins nothing, since a wrong pin would
-            be forced into the inventory. `params` is the text inside the
-            parameter group (score-signatures.py's _group: the first pair
-            of parentheses outside every bracket pair and string), and
-            `return_type` the type written after it (score-signatures.py's
-            _signature_parts), "" for none. A form that writes neither
-            (`f()`, `useQuery<T>()`) gives none, so an empty call claims no
-            form. A span (a table cell's or a heading's) is complete when
-            it is the name (or no name, as a Signature cell's `(x: A) =>
-            B`), its type parameters, one parameter group, then nothing or
-            a return separator (`->`, `=>`, `→` or `:`) and the return, with
-            nothing else: `useQuery(key).data`, `f(a) / f(a, b)`, a
-            trailing comment, a `;` or `,` outside the return's brackets,
-            an unclosed bracket, `Meta<T>` (no group) and `new Client(opts)`
-            give none. By form:
+            it as `signature`, which validate-inventory.py --floor refuses
+            an inventory for changing; any other place pins nothing, since
+            a wrong pin would be forced into the inventory. A signature is
+            two strings, each one's whitespace runs read as one space,
+            {"params", "return_type"} for a complete form or a Props cell
+            (below) and {"usage_signature", "return_type"} for a usage form
+            (and `signature_form` "partial" under a header's partial
+            label, below). `params` is the text inside the parameter group
+            (score-signatures.py's _group: the first pair of parentheses
+            outside every bracket pair and string), and `return_type` the
+            type written after it (score-signatures.py's _signature_parts),
+            "" for none. A form that writes neither (`f()`,
+            `useQuery<T>()`) gives none, so an empty call claims no form. A
+            span (a table cell's or a heading's) is complete when it is the
+            name (or no name, as a Signature cell's `(x: A) => B`), its type
+            parameters, one parameter group, then nothing or a return
+            separator (`->`, `=>`, `→` or `:`) and the return, with nothing
+            else: `useQuery(key).data`, `f(a) / f(a, b)`, a trailing
+            comment, a `;` or `,` outside the return's brackets, an
+            unclosed bracket, `Meta<T>` (no group) and `new Client(opts)`
+            give none. A span that is no complete form is a usage form when
+            it writes, before the name's complete form, at least one of, in
+            this order, an assignment (`x =`, `const { data } =`), `await`,
+            `new` and a receiver or module path (`cognee.`): its
+            `usage_signature` is the span through the parameter group, its
+            `return_type` the return after it (`await run(a, b):
+            Promise<R>` gives `await run(a, b)` and `Promise<R>`); or when
+            it is one self-closing JSX element of the name that sets a prop
+            (`<Canvas of={X} />`), its `return_type` "". An empty call
+            (`new Client()`) and a prop-less element (`<Canvas />`) give
+            none. By form:
               table-row    a row whose first cell names one name (a row
                            naming several gives none), each cell's `\\|`
                            read as `|`: the leading code span of its
@@ -103,23 +115,38 @@ reading files and writing one JSON object:
                            the one span of its first cell that gives the
                            name (another export's span there, as in
                            `fetch` (same as `http.request(opts)`), gives
-                           nothing). A Signature span with a group that is
-                           no complete form (`client.get(k) -> str`,
-                           `new Client(opts)`) gives none, so a shorter
-                           first-cell call never stands in for it. A
-                           Signature header may give one partial label in
-                           parentheses after its word, any case:
-                           `Signature (simplified)`, `(partial)`, `(key
-                           parameters)` or `(key params)`. The form its
-                           span gives then also carries `signature_form`
-                           "partial", so the label is the script's, not the
-                           reader's; the first-cell form never does, as
-                           the label heads that column only. Any other
-                           text after the word (`Signature (TypeScript)`)
-                           leaves the column unread, and a Props, Params
-                           or Parameters cell is never read (its shared
-                           members and usage forms stay the reader's).
-              heading      its code span
+                           nothing), each a complete form, else a usage
+                           form. A Signature span with a group that is
+                           neither (`client.get(k).data`, `f(a) //
+                           overload`) gives none, so a shorter first-cell
+                           call never stands in for it, and so does such a
+                           first-cell span (`useData(key).data`). Only
+                           then a Props, Params or Parameters cell, when
+                           the whole cell is one code span (trailing prose
+                           or several spans leave it the reader's): a
+                           complete form (`(a, b)` gives `a, b`), else a
+                           usage form, else none when it writes a
+                           parameter group or opens a JSX element, or when
+                           it only names a type or writes a placeholder
+                           (`ButtonProps`, `ComponentProps<typeof Link>`,
+                           `None`, `-`), else the span whole
+                           as `params` with `return_type` ""
+                           (`TitleProps = { of?: Of }`, `key: string`),
+                           kept as written. A Signature, Props, Params
+                           or Parameters header may give one partial
+                           label in parentheses after its word, any case:
+                           `Signature (simplified)`, `Props (simplified)`,
+                           `(partial)`, `(key parameters)` or
+                           `(key params)`. The form its cell gives then
+                           also carries `signature_form` "partial", so the
+                           label is the script's, not the reader's; the
+                           first-cell form never does, as the label heads
+                           that column only. Any other text after the word
+                           (`Signature (TypeScript)`, `Props / Usage`)
+                           leaves the column unread.
+              heading      its code span, a complete form, else a usage
+                           form (`new Client(opts)`: a name is cut as
+                           above, so no other usage names one there)
               declaration  a function's (`function`, `def`, `fn` or Go's
                            `func` before its name; a `const` holding an
                            arrow gives none): its lines as one, as
@@ -473,10 +500,29 @@ FLOOR_TABLE_HEADERS = frozenset({
 # The header words (as _header_label reads them, a partial label cut) of a floor table's column that writes the row's
 # signature (#888); a header with any other text after the word, such as `Signature (TypeScript)`, is not one.
 FLOOR_SIGNATURE_HEADERS = frozenset({"signature", "signatures"})
+# The header words (as _header_label reads them, a partial label cut) of a floor table's column that writes the row's
+# props or parameters (#888): its cell is read only when it is exactly one code span, and only after the Signature
+# and first-cell forms; a `Props / Usage` or `Key params` header is not one.
+FLOOR_PROPS_HEADERS = frozenset({"props", "params", "parameters"})
 # The partial labels (lower case, whitespace runs as one space) a header may give in parentheses after its word, as
-# `Signature (simplified)` does (#888): each form read from that Signature column is partial, so an optional
-# parameter it leaves out is Info, not Critical, and the floor pins the label with the form.
+# `Signature (simplified)` and `Props (simplified)` do (#888): each form read from that Signature, Props, Params or
+# Parameters column is partial, so an optional parameter it leaves out is Info, not Critical, and the floor pins the
+# label with the form.
 FLOOR_PARTIAL_LABELS = frozenset({"simplified", "partial", "key parameters", "key params"})
+# What a usage form writes before its name's complete form (#888), each part optional, in this order: an assignment
+# (`x =`, `a, b =`, `const { data } =`, `let [a, b] =`), `await`, `new`, and a receiver or module path (`cognee.`,
+# `client.messages.`).
+USAGE_PREFIX_RE = re.compile(
+    r"(?:(?:(?:const|let|var)\s+)?(?:[A-Za-z_$][\w$]*(?:\s*,\s*[A-Za-z_$][\w$]*)*"
+    r"|\{(?:[^{}]|\{[^{}]*\})*\}|\[(?:[^\[\]]|\[[^\[\]]*\])*\])\s*=(?![=>])\s*)?"
+    r"(?:await\s+)?(?:new\s+)?(?:[A-Za-z_$][\w$]*\.)*")
+# A span that opens a JSX element (`<Canvas`), which a Props, Params or Parameters cell writes as a usage, not as
+# the row's props.
+ELEMENT_OPEN_RE = re.compile(r"<[A-Za-z_$]")
+# A Props, Params or Parameters span that only names a type or writes a placeholder, not the row's props or
+# parameters (`ButtonProps`, `ComponentProps<typeof Link>`, `None`, `-`): a lone dash, or one identifier or dotted
+# path, then at most one `<...>` type-argument list (group 1, which _type_parameters_only reads).
+TYPE_ONLY_RE = re.compile(r"[-\u2013\u2014]|[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\s*(<.*>)?")
 # A complete form's name, before its type parameters and parameter group (group 1, absent for none).
 SPAN_NAME_RE = re.compile(r"\s*([A-Za-z_$][\w$]*)?\s*")
 # What a complete form writes after its parameter group before its return: `->`, `=>`, `→` or `:` (not `::`).
@@ -840,6 +886,64 @@ def _call_form(span: str, name: str | None) -> dict | None:
     return _form(text, group)
 
 
+def _element_form(text: str, name: str) -> dict | None:
+    """{"usage_signature", "return_type"} of a span that is one self-closing JSX element of `name` setting at least
+    one prop (`<Canvas of={X} />`): the element, whitespace runs as one space, and ""; None for any other span, a
+    prop-less `<Canvas />`, an element with children, two elements and an unclosed brace or string among them."""
+    head = re.match(rf"<{re.escape(name)}\s+", text)
+    if head is None or not text.endswith("/>") or not text[head.end():-2].strip():
+        return None
+    depth, quote = 0, None  # brace depth, and the quote a string is open on
+    for ch in text[head.end():-2]:
+        if quote:
+            quote = None if ch == quote else quote
+        elif ch in "\"'`":
+            quote = ch
+        elif ch in "{}":
+            depth += 1 if ch == "{" else -1
+            if depth < 0:
+                return None
+        elif depth == 0 and ch in "<>/":
+            return None
+    return None if depth or quote else {"usage_signature": " ".join(text.split()), "return_type": ""}
+
+
+def _usage_form(span: str, name: str) -> dict | None:
+    """The signature a span writes as a usage of `name` (#888), whitespace runs as one space: at least one of, in this
+    order, an assignment (`x =`, `const { data } =`), `await`, `new` and a receiver or module path (`cognee.`), then
+    `name`'s complete form (_call_form): {"usage_signature": the span through the parameter group, "return_type": the
+    return after it, "" for none}; or one JSX element of `name` that sets a prop (_element_form). None for any other
+    span, an empty call (`new Client()`) and a prop-less element (`<Canvas />`) among them."""
+    text = span.strip()
+    if text.startswith("<"):
+        return _element_form(text, name)
+    prefix = USAGE_PREFIX_RE.match(text)
+    rest = text[prefix.end():]
+    if not prefix.group() or not re.match(rf"{re.escape(name)}(?![\w$])", rest):
+        return None
+    form = _call_form(rest, name)
+    if form is None:
+        return None
+    group = _sibling("score-signatures.py")._group(rest)
+    return {"usage_signature": " ".join(text[:prefix.end() + group[1] + 1].split()), "return_type": form["return_type"]}
+
+
+def _span_form(span: str, name: str | None) -> dict | None:
+    """The signature a span writes: its complete form (_call_form), else its usage form (_usage_form)."""
+    return _call_form(span, name) or (_usage_form(span, name) if name else None)
+
+
+def _labelled(form: dict | None, partial: bool) -> dict | None:
+    """`form`, with `signature_form` "partial" when its column's header gives a partial label (#888)."""
+    return {**form, "signature_form": "partial"} if form and partial else form
+
+
+def _column(labels: list[tuple[str, bool]], words: frozenset) -> tuple[int | None, bool]:
+    """The first header cell whose word (_header_label) is one of `words`, and its partial label; (None, False) for
+    none."""
+    return next(((i, labelled) for i, (word, labelled) in enumerate(labels) if word in words), (None, False))
+
+
 def _leading_span(cell: str) -> str | None:
     """The code span a table cell opens with, None when it opens with none."""
     run = len(cell) - len(cell.lstrip("`"))
@@ -851,24 +955,44 @@ def _row_form(header: list[str], row: list[str]) -> dict | None:
     """The signature a floor table's row writes for the one name its first cell names (a row naming several gives
     none), each cell's `\\|` read as `|`: the leading code span of its Signature or Signatures cell, else, when that
     span writes no parameter group, the one span of its first cell that gives that name (another export's span there
-    gives nothing), each a complete form (_call_form). A Signature span with a group that is no complete form gives
-    none. A Signature header may carry a partial label (_header_label, #888): the form its span gives then also
-    gives `signature_form` "partial", the first-cell form never. A Props, Params or Parameters cell is never read."""
+    gives nothing), each a complete form (_call_form), else a usage form (_usage_form, #888). A Signature span with a
+    group that is neither gives none, and so does such a first-cell span. Only then its Props, Params or Parameters
+    cell, when the whole cell is one code span (trailing prose or several spans leave it the reader's): a complete
+    form, else a usage form, else none when it writes a parameter group or opens a JSX element, or when it only names
+    a type or writes a placeholder (`ButtonProps`, `ComponentProps<typeof Link>`, `None`, `-`), else the span whole as
+    `params`, `return_type` "", kept as written. A Signature, Props, Params or Parameters header may carry a partial
+    label (_header_label, #888): the form its cell gives then also gives `signature_form` "partial", the first-cell
+    form never."""
     segments = _sibling("locate-export-segments.py")
+    scorer = _sibling("score-signatures.py")
     names = {name for name in map(_floor_name, segments._inline_code(row[0])) if name}
     if len(names) != 1:
         return None
     [name] = names
     cells = [cell.replace("\\|", "|") for cell in row]
-    at, partial = next(((i, labelled) for i, (word, labelled) in enumerate(map(_header_label, header))
-                        if word in FLOOR_SIGNATURE_HEADERS), (None, False))
+    labels = [_header_label(cell) for cell in header]
+    at, partial = _column(labels, FLOOR_SIGNATURE_HEADERS)
     span = _leading_span(cells[at]) if at is not None and at < len(cells) else None
-    if span is not None and (form := _call_form(span, name)):
-        return {**form, "signature_form": "partial"} if partial else form
-    if span is not None and _sibling("score-signatures.py")._group(span.strip()) is not None:
+    if span is not None and (form := _span_form(span, name)):
+        return _labelled(form, partial)
+    if span is not None and scorer._group(span.strip()) is not None:
         return None  # the cell writes a call the floor cannot pin: a shorter first-cell form would hide it
     own = [span for span in segments._inline_code(cells[0]) if _floor_name(span) == name]
-    return _call_form(own[0], name) if len(own) == 1 else None
+    if len(own) == 1 and (form := _span_form(own[0], name)):
+        return form
+    if any(scorer._group(span.strip()) is not None for span in own):
+        return None  # the first cell writes a call the floor cannot pin: the Props cell would stand in for it
+    at, partial = _column(labels, FLOOR_PROPS_HEADERS)
+    span = _whole_span(cells[at], segments) if at is not None and at < len(cells) else None
+    if span is None:
+        return None
+    if form := _span_form(span, name):
+        return _labelled(form, partial)
+    if scorer._group(span.strip()) is not None or ELEMENT_OPEN_RE.match(span.strip()) or not span.strip():
+        return None
+    if (only := TYPE_ONLY_RE.fullmatch(span.strip())) and _type_parameters_only(only.group(1) or ""):
+        return None  # the span names a type or writes a placeholder, no props or parameters
+    return _labelled({"params": " ".join(span.split()), "return_type": ""}, partial)
 
 
 def _function_declaration(line: str, language: str, js_family) -> int | None:
@@ -976,7 +1100,7 @@ def floor(skill_dir: str) -> dict:
         for index, _level, text, _above in headings:
             span = _whole_span(text, segments)
             if span is not None:
-                add(_floor_name(span), file_index, index, "heading", None, _call_form(span, _floor_name(span)))
+                add(_floor_name(span), file_index, index, "heading", None, _span_form(span, _floor_name(span)))
         comments = _html_comment_lines(lines, start, code)
         for opening, closing, info in blocks:
             language = segments._language(info)

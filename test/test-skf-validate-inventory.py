@@ -818,12 +818,12 @@ def _signed(*entries, references=None):
 def test_a_floor_form_the_inventory_changes_fails(tmp_path):
     """#888: an origin's `signature`, the form the skill writes there in a fixed form, must be carried by an entry
     of that name, whatever its kind: each field it pins non-blank read as form_key reads it (whitespace runs as one
-    space, a list joined with `, `, a blank or null field as absent; a `usage_signature` is not read), a blank
-    pinned return leaving the entry's free. An inventory whose only entry of the name writes another form fails
-    with exit 2, the violation naming the origin and the signature, and leaves no inventory file; the form copied,
-    beside an extra prose entry, validates. Another name's entry carrying the form does not carry it, each checked
-    origin of a name needs its own form, a name left out fails on its name and its form, and an unlisted
-    reference's form is not checked."""
+    space, a list joined with `, `, a blank or null field as absent; a `usage_signature` beside a pinned `params` is
+    not read), a blank pinned return leaving the entry's free. An inventory whose only entry of the name writes
+    another form fails with exit 2, the violation naming the origin and the signature, and leaves no inventory file;
+    the form copied, beside an extra prose entry, validates. Another name's entry carrying the form does not carry
+    it, each checked origin of a name needs its own form, a name left out fails on its name and its form, and an
+    unlisted reference's form is not checked."""
     pkg = _package(tmp_path, FORM_TABLE)
     floor = tmp_path / "inventory-floor.json"
     proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
@@ -1024,11 +1024,18 @@ def test_an_inventory_that_keeps_the_floor_passes():
     b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
     b'"signature": {"params": "a", "return_type": "", "usage_signature": "a()"}}]}]}',
     b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
+    b'"signature": {"usage_signature": "new x(a)"}}]}]}',
+    b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
+    b'"signature": {"usage_signature": " ", "return_type": ""}}]}]}',
+    b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
+    b'"signature": {"usage_signature": ["new x(a)"], "return_type": ""}}]}]}',
+    b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
     b'"signature": {"params": "a", "return_type": "", "signature_form": "full"}}]}]}',
     b'{"names": [{"name": "x", "origins": [{"file": "SKILL.md", "line": 1, "form": "heading", '
     b'"signature": {"params": "a", "return_type": "", "signature_form": 1}}]}]}',
 ], ids=["missing", "not-json", "no-origins", "not-an-object", "bad-signature", "signature-without-a-return",
-        "signature-with-an-extra-key", "signature-labelled-full", "signature-labelled-1"])
+        "signature-with-an-extra-key", "usage-without-a-return", "blank-usage", "usage-list",
+        "signature-labelled-full", "signature-labelled-1"])
 def test_an_unreadable_floor_file_exits_1(tmp_path, content):
     response = tmp_path / "inventory-response.txt"
     response.write_bytes(_inventory("real").encode("utf-8"))
@@ -1363,6 +1370,112 @@ def test_a_floor_partial_label_is_carried_at_its_origin(tmp_path):
         r = mod.validate_inventory(_signed(*(("fetchData", "function", e) for e in entries)), pkg, read)
         assert r["valid"] is False and r["violations"] == [PARTIAL_VIOLATION], (entries, r["violations"])
         assert r["warnings"] == warnings, (entries, r["warnings"])
+
+
+USAGE_SKILL = ("# Demo\n\n"
+               "| Component | Props | Purpose |\n| --- | --- | --- |\n"
+               "| `Title` | `TitleProps = { of?: Of }` | Renders the title. |\n\n"
+               "| Component | Props (simplified) | Purpose |\n| --- | --- | --- |\n"
+               "| `Stories` | `{ title?: string }` | Lists the stories. |\n\n"
+               "| Export | Kind | Signature |\n| --- | --- | --- |\n"
+               "| `add` | function | `await cognee.add(data)` |\n"
+               "| `get` | function | `client.get(k) -> str` |\n")
+TITLE = {"params": "TitleProps = { of?: Of }", "return_type": ""}
+STORIES = {"params": "{ title?: string }", "return_type": "", "signature_form": "partial"}
+ADD = {"usage_signature": "await cognee.add(data)", "return_type": ""}
+GET = {"usage_signature": "client.get(k)", "return_type": "str"}
+
+
+def _usage_entries(**changed):
+    """The four entries that carry USAGE_SKILL's pins at their rows, each name's fields replaced by `changed`."""
+    fields = {"Title": {**TITLE, "at": "SKILL.md:5"}, "Stories": {**STORIES, "at": "SKILL.md:9"},
+              "add": {**ADD, "at": "SKILL.md:13"}, "get": {**GET, "at": "SKILL.md:14"}}
+    return [(name, "function", {"description": "", **changed.get(name, value)}) for name, value in fields.items()]
+
+
+def test_a_props_cell_and_a_usage_form_pinned_on_the_floor_are_carried_at_their_rows(tmp_path):
+    """#888 step 2: the floor the script writes pins a one-span Props cell as `params` (its label as
+    `signature_form` "partial") and a Signature cell's usage form as `usage_signature` and `return_type`. Each is
+    carried by an entry of that name at its row that copies it, whitespace aside, a usage after shared text and `; `
+    too, with no floor warning. A usage pin given as `params`, a Props pin that drops its `TitleProps = `, a labelled
+    Props pin copied without its label and a usage pin with another return fail with exit 2, one violation naming
+    the origin and the signature, and leave no inventory file."""
+    pkg = _package(tmp_path, USAGE_SKILL)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert [(n["name"], n["origins"]) for n in read["names"]] == [
+        ("Stories", [_floor_origin("SKILL.md", 9, "table-row", STORIES)]),
+        ("Title", [_floor_origin("SKILL.md", 5, "table-row", TITLE)]),
+        ("add", [_floor_origin("SKILL.md", 13, "table-row", ADD)]),
+        ("get", [_floor_origin("SKILL.md", 14, "table-row", GET)])]
+    for changed in ({}, {"add": {"usage_signature": "await\n  cognee.add(data) ", "at": "SKILL.md:13"}},
+                    {"add": {"usage_signature": "data: Data; await cognee.add(data)", "at": "SKILL.md:13"}},
+                    {"get": {**GET, "params": "k", "at": "SKILL.md:14"}}):
+        r = mod.validate_inventory(_signed(*_usage_entries(**changed)), pkg, read)
+        assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (
+            changed, r["violations"], r["warnings"])
+        assert r["floor"] == {"names": 4, "checked": 4, "absent": []}
+
+    pinned = "floor: `{}` is documented at SKILL.md:{} (table-row) with the signature {}, but "
+    elsewhere = 'no inventory entry of that name carries it; copy it as given, with `at` "SKILL.md:{}"'
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*_usage_entries(add={"params": "await cognee.add(data)", "return_type": "",
+                                                      "at": "SKILL.md:13"})).encode("utf-8"))
+    out.write_bytes(b"{}")
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [pinned.format("add", 13, json.dumps(ADD)) + elsewhere.format(13)]
+    assert result["inventory"] is None and not out.exists()
+    for changed, violation in (
+        ({"Title": {"params": "{ of?: Of }", "return_type": "", "at": "SKILL.md:5"}},
+         pinned.format("Title", 5, json.dumps(TITLE)) + elsewhere.format(5)),
+        ({"Stories": {"params": "{ title?: string }", "return_type": "", "at": "SKILL.md:9"}},
+         pinned.format("Stories", 9, json.dumps(STORIES)) + "no inventory entry of that name at that place carries "
+         "it, or one gives its form without its `signature_form` there or with no `at`; copy it as given, with `at` "
+         '"SKILL.md:9"'),
+        ({"get": {**GET, "return_type": "bytes", "at": "SKILL.md:14"}},
+         pinned.format("get", 14, json.dumps(GET)) + elsewhere.format(14)),
+    ):
+        r = mod.validate_inventory(_signed(*_usage_entries(**changed)), pkg, read)
+        assert r["valid"] is False and r["violations"] == [violation], (changed, r["violations"])
+
+
+LABELLED_USAGE_TABLE = ("# Demo\n\n| Export | Kind | Signature (simplified) |\n| --- | --- | --- |\n"
+                        "| `get` | function | `client.get(k) -> str` |\n")
+LABELLED_GET = {**GET, "signature_form": "partial"}
+
+
+def test_a_labelled_usage_form_on_the_floor_is_carried_with_its_label(tmp_path):
+    """#888 step 2: a usage form read from a Signature cell under a partial label is pinned as `usage_signature` and
+    `return_type` with `signature_form` "partial", and the label rule holds for it as for a `params` pin: the labelled
+    copy at the row validates with no warning, while the copy without the label, and an unlabelled twin at the row
+    beside the labelled copy, are each one violation naming the origin and the labelled signature."""
+    pkg = _package(tmp_path, LABELLED_USAGE_TABLE)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"][0]["origins"] == [_floor_origin("SKILL.md", 5, "table-row", {
+        "usage_signature": "client.get(k)", "return_type": "str", "signature_form": "partial"})]
+    labelled = ("get", "function", {**LABELLED_GET, **AT_ROW})
+    r = mod.validate_inventory(_signed(labelled), pkg, read)
+    assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (r["violations"], r["warnings"])
+    assert r["floor"] == {"names": 1, "checked": 1, "absent": []}
+
+    violation = (f"floor: `get` is documented at SKILL.md:5 (table-row) with the signature {json.dumps(LABELLED_GET)}, "
+                 "but no inventory entry of that name at that place carries it, or one gives its form without its "
+                 '`signature_form` there or with no `at`; copy it as given, with `at` "SKILL.md:5"')
+    unlabelled = ("get", "function", {**GET, **AT_ROW})
+    for entries in ([unlabelled], [labelled, unlabelled]):
+        r = mod.validate_inventory(_signed(*entries), pkg, read)
+        assert r["valid"] is False and r["violations"] == [violation], (entries, r["violations"])
 
 
 @pytest.mark.parametrize("line, citations", [

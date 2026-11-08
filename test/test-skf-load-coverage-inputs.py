@@ -234,6 +234,10 @@ def _signature(params: str, return_type: str = "") -> dict:
     return {"params": params, "return_type": return_type}
 
 
+def _usage(usage_signature: str, return_type: str = "") -> dict:
+    return {"usage_signature": usage_signature, "return_type": return_type}
+
+
 API_TABLE = (
     "| Export | Kind | Purpose | Source |\n"                                    # 1
     "| --- | --- | --- | --- |\n"                                               # 2
@@ -256,11 +260,13 @@ API_TABLE = (
 def test_floor_lists_export_table_first_column_names(tmp_path):
     """Every code span in the first cell of an export table's row, a leading `new ` and everything from the first
     `(`, `<` or `[` cut, with the row's Kind cell as written; another column's span, a cell with no span and a Prop
-    table give none. A first cell that writes a call is the origin's signature (#888)."""
+    table give none. A first cell that writes a call is the origin's signature (#888), a constructor call as its
+    `usage_signature`."""
     out = mod.floor(str(_skill(tmp_path, "# Demo\n", {"api.md": API_TABLE})))
     assert out["files"] == ["SKILL.md", "references/api.md"]
     assert out["names"] == [
-        {"name": "Client", "kindLabel": "class", "origins": [_origin("references/api.md", 6, "table-row")]},
+        {"name": "Client", "kindLabel": "class",
+         "origins": [_origin("references/api.md", 6, "table-row", _usage("new Client(opts)"))]},
         {"name": "connect", "kindLabel": None,
          "origins": [_origin("references/api.md", 11, "table-row", _signature("url"))]},
         {"name": "fetchAll", "kindLabel": "function", "origins": [_origin("references/api.md", 3, "table-row")]},
@@ -666,25 +672,27 @@ def test_floor_records_each_fixed_form(tmp_path):
     """#888: an origin whose place writes the name"s signature in a complete fixed form carries it as `signature`:
     a cited function declaration (its split parameter list joined, its body cut before the return is read, a TS
     object return kept), a table row"s Signature or Signatures cell (its leading code span, `\\|` read as `|`), else
-    the one first-cell span that gives the row"s name, and a code-only heading. A wrong pin would be forced into the
-    inventory, so anything short of a complete form pins nothing: a bare first cell or heading, an empty call, a
-    generic-only span, a constructor, a row naming two names, any Props, Params or Parameters cell (a labelled
-    `Props (simplified)` one too), a type row whose Signature cell has no parameter group, text after the group
-    (`useData(key).data`, an overload pair, a trailing comment, a chained call), another export"s span in the
-    first cell or the Signature cell, a `const` arrow, a non-function declaration, one whose brackets do not close,
-    one whose body opener follows `interface`, `struct`, `|`, `is`, `=>`, `keyof` or `?`, one that ends mid-type
-    (`Promise<A> |`, Python's `\\`), and a Go function returning a `func(...)` type. A Signature cell with no group
-    falls back to the row's own first-cell form; one whose call the floor refuses (`client.get(k) -> str`, `new`,
-    `await`, a destructuring, a trailing comment) does not, so a shorter first-cell call is never pinned in its
-    place. The same skill gives the same bytes."""
+    the one first-cell span that gives the row"s name, and a code-only heading. A Signature cell that writes a usage
+    (`new`, `await`, a receiver path, a destructuring assignment) pins it as `usage_signature` and `return_type`
+    (step 2). Only then a Props, Params or Parameters cell that is one code span: a parameter group gives its
+    params, any other span is `params` whole, and a `Props (simplified)` one is labelled partial. A wrong pin would
+    be forced into the inventory, so anything short of a complete form pins nothing: a bare first cell or heading,
+    an empty call, a generic-only span, a row naming two names, a Props cell with prose after its span, a type row
+    whose Signature cell has no parameter group, text after the group (`useData(key).data`, an overload pair, a
+    trailing comment, a chained call), another export"s span in the first cell or the Signature cell, a `const`
+    arrow, a non-function declaration, one whose brackets do not close, one whose body opener follows `interface`,
+    `struct`, `|`, `is`, `=>`, `keyof` or `?`, one that ends mid-type (`Promise<A> |`, Python's `\\`), and a Go
+    function returning a `func(...)` type. A Signature cell with no group falls back to the row's own first-cell
+    form; one whose call the floor refuses (a trailing comment) does not, so a shorter first-cell call is never
+    pinned in its place. The same skill gives the same bytes."""
     root = _skill(tmp_path, FIXED_FORMS)
     out = mod.floor(str(root))
     assert {n["name"]: [(o["line"], o.get("signature")) for o in n["origins"]] for n in out["names"]} == {
         "Any": [(46, None)],
         "Bare": [(95, None)],
         "Chain": [(48, None)],
-        "Client": [(57, None)],
-        "Client2": [(72, None)],
+        "Client": [(57, _usage("new Client(opts: O)"))],
+        "Client2": [(72, _usage("new Client2(opts: ClientOptions)"))],
         "Config": [(45, None)],
         "Docs": [(61, None)],
         "Enhancer": [(60, None)],
@@ -693,13 +701,13 @@ def test_floor_records_each_fixed_form(tmp_path):
         "Meta": [(58, None)],
         "Model": [(10, None)],
         "New": [(44, _signature("opts Options", "(*Client, error)"))],
-        "Simple": [(91, None)],
+        "Simple": [(91, {**_signature("{ a }"), "signature_form": "partial"})],
         "WithTimeout": [(49, None)],
         "alias": [(67, None)],
         "arrow": [(25, None)],
         "bare": [(62, None)],
         "build": [(9, None)],
-        "call": [(87, None)],
+        "call": [(87, _signature("a, b"))],
         "chain": [(99, None)],
         "check": [(26, None)],
         "cond": [(32, None)],
@@ -711,7 +719,7 @@ def test_floor_records_each_fixed_form(tmp_path):
         "f": [(7, _signature('a: int = 1, b: str = "#x"', "R"))],
         "fetch": [(63, _signature("url: string", "Response"))],
         "g": [(19, _signature("", "{ a: T }"))],
-        "get": [(71, None)],
+        "get": [(71, _usage("client.get(k, default=None)", "str"))],
         "keys": [(31, None)],
         "make": [(75, None)],
         "multi": [(79, _signature("a: T[]", "T"))],
@@ -722,17 +730,17 @@ def test_floor_records_each_fixed_form(tmp_path):
         "p": [(12, None)],
         "pick": [(55, _signature("x: A | B", "C"))],
         "render": [(93, _signature("ui, options?", "Result"))],
-        "run": [(73, None)],
+        "run": [(73, _usage("await run(a, b)", "Promise<R>"))],
         "sel": [(28, None)],
         "since": [(66, None)],
         "thunk": [(29, None)],
         "two": [(59, None)],
         "typed": [(68, _signature("x", "Typed"))],
         "useData": [(64, None)],
-        "useQ": [(74, None)],
+        "useQ": [(74, _usage("const { data } = useQ(key, fn, opts?)"))],
         "useQuery": [(56, None)],
         "useStore": [(70, None)],
-        "useThing": [(83, None)],
+        "useThing": [(83, _signature("key: string"))],
         "w": [(39, _signature("x: &'a T", "&'a str"))],
     }
     # an origin with no form carries no `signature` key at all
@@ -763,11 +771,10 @@ def _labelled(signature: dict | None) -> dict | None:
 def test_floor_pins_a_signature_header_s_partial_label(tmp_path, header, labelled):
     """#888 step 1: a Signature or Signatures header with one partial label in parentheses after its word, any case
     (`simplified`, `partial`, `key parameters`, `key params`), is read as a Signature column, and each form read
-    from it also carries `signature_form` "partial", so the label is the script's, not the reader's. The label heads
-    that column only: the first-cell form a span with no group (`Typed<X>`) falls back to carries none, and a span
-    with a group that is no complete form (`client.get(k) -> str`) still pins nothing. Any other text after the word,
-    or before it, leaves the column unread, as before: the first-cell form is then pinned, with no label. The same
-    skill gives the same bytes."""
+    from it also carries `signature_form` "partial", so the label is the script's, not the reader's, a usage form
+    (`client.get(k) -> str`, step 2) too. The label heads that column only: the first-cell form a span with no group
+    (`Typed<X>`) falls back to carries none. Any other text after the word, or before it, leaves the column unread,
+    as before: the first-cell form is then pinned, with no label. The same skill gives the same bytes."""
     body = (f"| Export | Kind | {header} |\n"                                     # 1
             "| --- | --- | --- |\n"                                               # 2
             "| `fetch` | function | `(url: string) => Response` |\n"              # 3
@@ -778,7 +785,8 @@ def test_floor_pins_a_signature_header_s_partial_label(tmp_path, header, labelle
     root = _skill(tmp_path, body)
     out = mod.floor(str(root))
     cell = {"fetch": _labelled(_signature("url: string", "Response")), "other": _labelled(_signature("b: C", "D")),
-            "get": None, "request": _labelled(_signature("url: string, opts?: O", "T"))}
+            "get": _labelled(_usage("client.get(k)", "str")),
+            "request": _labelled(_signature("url: string, opts?: O", "T"))}
     first_cell = {"fetch": None, "other": _signature("a", "B"), "get": _signature("k"),
                   "request": _signature("url", "Promise<T>")}
     expected = {**(cell if labelled else first_cell), "typed": _signature("x", "Typed")}
@@ -791,6 +799,133 @@ def test_floor_pins_a_signature_header_s_partial_label(tmp_path, header, labelle
         assert proc.returncode == 0, proc.stderr
     assert first.read_bytes() == second.read_bytes()
     assert json.loads(first.read_bytes()) == out
+
+
+PROPS_FORMS = (
+    "| Component | Props | Purpose |\n"                                                       # 1
+    "| --- | --- | --- |\n"                                                                     # 2
+    "| `Title` | `TitleProps =  { of?: Of }` | Renders the title. |\n"                        # 3
+    "| `Panel` | `{ of? }` (all optional) | Renders a story. |\n"                              # 4
+    "| `Source` | `{ of? }`, `{ code? }` | Renders source. |\n"                               # 5
+    "| `Docs` | `{ context }: DocsProps`, both required: `Docs({ context }: DocsProps)` | Docs. |\n"  # 6
+    "| `Stories` | `{ title?: ReactElement \\| string }` | Lists stories. |\n"                # 7
+    "| `Handler` | `fn: (x: T) => void` | Handles. |\n"                                       # 8
+    "| `Store` | `new Store()` | Builds. |\n"                                                  # 9
+    "| `Preview` | `<Preview />` | Previews. |\n"                                              # 10
+    "| `Story` | `<Story of={S} />` | One story. |\n"                                          # 11
+    "| `useData(key).data` | `{ a }` | Reads. |\n"                                             # 12
+    "\n"                                                                                     # 13
+    "| Hook | Params | Returns |\n"                                                           # 14
+    "| --- | --- | --- |\n"                                                                   # 15
+    "| `useKey` | `key: string` | `Thing` |\n"                                                # 16
+    "\n"                                                                                     # 17
+    "| API | Parameters |\n"                                                                  # 18
+    "| --- | --- |\n"                                                                         # 19
+    "| `call` | `(a, b)` |\n"                                                                 # 20
+    "| `fetchIt` | `await fetchIt(url)` |\n"                                                   # 21
+    "\n"                                                                                     # 22
+    "| Component | Props (simplified) | Purpose |\n"                                          # 23
+    "| --- | --- | --- |\n"                                                                   # 24
+    "| `Simple` | `{ title?: string }` | Renders. |\n"                                         # 25
+    "\n"                                                                                     # 26
+    "| Component | Props / Usage | Key params |\n"                                            # 27
+    "| --- | --- | --- |\n"                                                                   # 28
+    "| `Unread` | `{ a }` | `{ b }` |\n"                                                      # 29
+    "\n"                                                                                     # 30
+    "| Export | Kind | Signature | Props |\n"                                                 # 31
+    "| --- | --- | --- | --- |\n"                                                             # 32
+    "| `add` | function | `await cognee.add(data)` | |\n"                                     # 33
+    "| `get` | function | `client.get(k) -> str` | |\n"                                       # 34
+    "| `Canvas` | component | `<Canvas of={X} />` | |\n"                                       # 35
+    "| `Button` | component | `(props: ButtonProps) => Element` | `{ size? }` |\n"            # 36
+    "| `new Client(opts)` | class | | `{ a }` |\n"                                            # 37
+    "\n"                                                                                     # 38
+    "### `new Client(opts)`\n"                                                               # 39
+    "\n"                                                                                     # 40
+    "| API | Parameters (key params) |\n"                                                    # 41
+    "| --- | --- |\n"                                                                        # 42
+    "| `Fn` | `(a, b?)` |\n"                                                                 # 43
+    "| `fetchFn` | `await fetchFn(url)` |\n"                                                 # 44
+)
+
+
+def test_floor_pins_a_props_cell_and_a_usage_form(tmp_path):
+    """#888 step 2: after the Signature and first-cell forms, a Props, Params or Parameters cell that is exactly one
+    code span is pinned, whitespace runs as one space and `\\|` read as `|`: a parameter group gives its params
+    (`(a, b)`), a usage its `usage_signature`, and any other span is `params` whole with `return_type` "" (an alias
+    such as `TitleProps = {...}` kept), a `Props (simplified)` or `Parameters (key params)` label pinning
+    `signature_form` "partial" with any form its cell gives. Trailing prose, several spans (`Docs`'s complete form
+    among them), a span with a group that is no form (`fn: (x: T) => void`, `new Store()`), a prop-less element and a
+    `Props / Usage` or `Key params` header pin nothing, and a first cell that writes a call the floor cannot pin
+    (`useData(key).data`) leaves the Props cell unread. A usage form, in a Signature cell (`await`, a receiver path,
+    a JSX element setting a prop), a first cell or a heading (`new Client(opts)`), is pinned as `usage_signature` and
+    `return_type`; a Signature form beside a Props cell wins, and so does a first-cell form. The same skill gives the
+    same bytes."""
+    root = _skill(tmp_path, PROPS_FORMS)
+    out = mod.floor(str(root))
+    assert {n["name"]: [(o["line"], o.get("signature")) for o in n["origins"]] for n in out["names"]} == {
+        "Button": [(36, _signature("props: ButtonProps", "Element"))],
+        "Canvas": [(35, _usage("<Canvas of={X} />"))],
+        "Client": [(37, _usage("new Client(opts)")), (39, _usage("new Client(opts)"))],
+        "Docs": [(6, None)],
+        "Fn": [(43, _labelled(_signature("a, b?")))],
+        "Handler": [(8, None)],
+        "Panel": [(4, None)],
+        "Preview": [(10, None)],
+        "Simple": [(25, _labelled(_signature("{ title?: string }")))],
+        "Source": [(5, None)],
+        "Store": [(9, None)],
+        "Stories": [(7, _signature("{ title?: ReactElement | string }"))],
+        "Story": [(11, _usage("<Story of={S} />"))],
+        "Title": [(3, _signature("TitleProps = { of?: Of }"))],
+        "Unread": [(29, None)],
+        "add": [(33, _usage("await cognee.add(data)"))],
+        "call": [(20, _signature("a, b"))],
+        "fetchFn": [(44, _labelled(_usage("await fetchFn(url)")))],
+        "fetchIt": [(21, _usage("await fetchIt(url)"))],
+        "get": [(34, _usage("client.get(k)", "str"))],
+        "useData": [(12, None)],
+        "useKey": [(16, _signature("key: string"))],
+    }
+    first, second = tmp_path / "floor-1.json", tmp_path / "floor-2.json"
+    for target in (first, second):
+        proc = _run("floor", "--skill-dir", str(root), "--output", str(target))
+        assert proc.returncode == 0, proc.stderr
+    assert first.read_bytes() == second.read_bytes()
+    assert json.loads(first.read_bytes()) == out
+
+
+@pytest.mark.parametrize("span, name", [
+    ("new Client()", "Client"), ("<Canvas />", "Canvas"), ("<Canvas of={X} /> <Canvas />", "Canvas"),
+    ("<Canvas>x</Canvas>", "Canvas"), ("client.get(k).data", "get"), ("x = Canvas(a) + 1", "Canvas"),
+    ("Canvas(a)", "Canvas"), ("cognee.Canvas.call(a)", "Canvas"), ("<Canvas of={X />", "Canvas"),
+    ('<Canvas title="x />', "Canvas"), ("x == run(a)", "run"), ("x => run(a)", "run")])
+def test_a_usage_form_needs_a_prefix_and_the_name_s_complete_form(span, name):
+    """#888 step 2: a usage form is a prefix (an assignment, `await`, `new`, a receiver or module path) and the name's
+    complete form, or one self-closing element of the name setting a prop: an empty call, a prop-less element, two
+    elements, an element with children, text after the group, no prefix, another name after the path, an unclosed
+    brace or string, and a comparison or arrow (`==`, `=>`) in place of an assignment give none."""
+    assert mod._usage_form(span, name) is None
+
+
+@pytest.mark.parametrize("span, name", [
+    ("const [state, setState] = useState(initial)", "useState"), ("a, b = run(x)", "run"),
+    ("const { a: { b } } = useX(k)", "useX"), ("await new Client(a)", "Client"), ('<Link href="/docs" />', "Link")])
+def test_a_usage_form_reads_its_whole_prefix_and_element(span, name):
+    """#888 step 2: an assignment to an array pattern, a comma list or a nested object pattern, `await` then `new`,
+    and an element whose quoted prop holds a `/` are each a usage form: the span whole, with no return."""
+    assert mod._usage_form(span, name) == {"usage_signature": span, "return_type": ""}
+
+
+@pytest.mark.parametrize("span", ["ButtonProps", "HTMLAttributes<HTMLDivElement>", "ComponentProps<typeof Link>",
+                                  "None", "-", "\u2013", "\u2014"])
+def test_a_props_cell_that_only_names_a_type_pins_nothing(span):
+    """#888 step 2: a Props, Params or Parameters span that only names a type (one identifier or dotted path, then at
+    most one `<...>` type-argument list) or writes a placeholder dash lists no prop or parameter, so it pins none,
+    while `key: string`, `{ a }` and `TitleProps = { of?: Of }` stay pinned."""
+    assert mod._row_form(["Component", "Props"], ["`Button`", f"`{span}`"]) is None
+    for kept in ("key: string", "{ a }", "TitleProps = { of?: Of }"):
+        assert mod._row_form(["Component", "Props"], ["`Button`", f"`{kept}`"]) == _signature(kept)
 
 
 def test_floor_without_skill_md_exits_1(tmp_path):

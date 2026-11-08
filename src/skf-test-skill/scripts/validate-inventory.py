@@ -54,22 +54,24 @@ the reader's. Each checked name not
 kept is a violation naming its first checked origin, and the inventory is
 invalid, as for a fabricated name, so the prompt re-dispatches the subagent
 with the names it left out. A checked origin that carries a `signature`
-(#888: the `params` and `return_type` the skill writes there in a fixed
+(#888: the `params`, or for a usage form such as `new Client(opts)` the
+`usage_signature`, and the `return_type` the skill writes there in a fixed
 form) is carried when an entry of that name, whatever its kind, reads as it
-does: each of `params` and `return_type` the signature pins non-blank gives
-the same field_text (whitespace runs as one space, a list's items joined
-with `, `, a null field as blank), and a `params` that opens with the shared
-text the contract has several names' entries carry, then `; `, carries the
-pinned one after it. A field the signature leaves blank, and the entry's
-other fields, a `usage_signature` among them, are not read, but for one: a
-signature read from a Signature column under a partial label (`Signature
-(simplified)`, load-coverage-inputs.py's FLOOR_PARTIAL_LABELS) also gives
-`signature_form` "partial", and an entry carries it only with that
-`signature_form` too. Such an origin is carried only at its own place: by
-the entries of that name whose `at` is that origin and that give its
-`params` and `return_type`, at least one, each with the label, while each
-entry of that name with no `at` (none given, or a bad one dropped, as
-below) that gives them gives the label too: score-signatures.py would
+does: each of those fields the signature pins non-blank gives the same
+field_text (whitespace runs as one space, a list's items joined with `, `,
+a null field as blank), and a `params` or `usage_signature` that opens with
+the shared text the contract has several names' entries carry, then `; `,
+carries the pinned one after it. A field the signature leaves blank, and
+the entry's other fields (its `usage_signature` beside a pinned `params`,
+its `params` beside a pinned `usage_signature`), are not read, but for one:
+a signature read from a column under a partial label (`Signature
+(simplified)`, `Props (simplified)`, load-coverage-inputs.py's
+FLOOR_PARTIAL_LABELS) also gives `signature_form` "partial", and an entry
+carries it only with that `signature_form` too. Such an origin is carried
+only at its own place: by the entries of that name whose `at` is that
+origin and that give its form, at least one, each with the label, while
+each entry of that name with no `at` (none given, or a bad one dropped, as
+below) that gives that form gives the label too: score-signatures.py would
 keep an unlabelled twin at the origin, or an unlabelled copy that shows
 no place, over the label. An unlabelled copy whose kept `at` is another
 place (with --skill-package, a line that writes the name) stays valid. A
@@ -309,12 +311,14 @@ SIGNATURE_KINDS = ("function", "method")
 SIGNATURE_FIELDS = ("params", "return_type", "usage_signature")
 
 # The fields of a floor origin's `signature` (#888), each a string, and the
-# ones the floor check compares with an entry's.
-FLOOR_SIGNATURE_FIELDS = ("params", "return_type")
+# ones the floor check compares with an entry's: `return_type` and either
+# `params` (a complete form or a props or parameter cell) or `usage_signature`
+# (a usage form, such as `new Client(opts)`).
+FLOOR_SIGNATURE_FIELDS = ("params", "usage_signature", "return_type")
 
 # The label a floor origin's `signature` may also give (#888), its key and its
-# one value: the partial label of the Signature column it was read from, which
-# the entry at that origin copies.
+# one value: the partial label of the Signature, Props, Params or Parameters
+# column it was read from, which the entry at that origin copies.
 FLOOR_LABEL_FIELD, FLOOR_LABEL = "signature_form", "partial"
 
 # Characters that continue an identifier in the languages SKF documents
@@ -735,10 +739,15 @@ class FloorError(Exception):
 
 
 def _is_signature(value):
-    """A floor origin's `signature`: an object of exactly the strings `params` and `return_type`, and optionally
-    `signature_form` "partial" (a Signature column's partial label, #888); any other key or value is not one."""
-    return (isinstance(value, dict) and sorted(set(value) - {FLOOR_LABEL_FIELD}) == sorted(FLOOR_SIGNATURE_FIELDS)
-            and all(isinstance(value[f], str) for f in FLOOR_SIGNATURE_FIELDS)
+    """A floor origin's `signature`: an object of the string `return_type` and exactly one of the string `params` and
+    a non-blank string `usage_signature` (a usage form, #888), and optionally `signature_form` "partial" (a column's
+    partial label, #888); any other key or value is not one."""
+    if not isinstance(value, dict):
+        return False
+    form = set(value) - {FLOOR_LABEL_FIELD, "return_type"}
+    return ("return_type" in value and len(form) == 1 and form <= set(FLOOR_SIGNATURE_FIELDS)
+            and all(isinstance(value[f], str) for f in form | {"return_type"})
+            and (form != {"usage_signature"} or bool(value["usage_signature"].strip()))
             and value.get(FLOOR_LABEL_FIELD, FLOOR_LABEL) == FLOOR_LABEL)
 
 
@@ -763,8 +772,9 @@ def read_floor(path):
             and isinstance(item.get("origins"), list) and all(_is_origin(o) for o in item["origins"])
             for item in names):
         raise FloorError(f"{path} is not a floor: `names` must give each name's `name` and `origins` "
-                         "(each a file, a line and a form, and an optional `signature` of the strings "
-                         "`params` and `return_type` and an optional `signature_form` \"partial\")")
+                         "(each a file, a line and a form, and an optional `signature` of the string "
+                         "`return_type` and either the string `params` or a non-blank string `usage_signature`, "
+                         "and an optional `signature_form` \"partial\")")
     return data
 
 
@@ -779,21 +789,25 @@ def _listed_path(ref, skill_package_path):
 
 
 def _carries(entry, signature):
-    """Whether an entry carries a floor origin's signature: each field it pins non-blank has the same field_text
-    there, a `params` that opens with members the skill states once for several names (the contract's shared
-    text, then `; `) included; and, when it gives the partial label (#888), the entry's `signature_form` is that
-    label too."""
+    """Whether an entry carries a floor origin's signature: each field the signature gives (`params` or
+    `usage_signature`, and `return_type`) and pins non-blank has the same field_text there, a `params` or
+    `usage_signature` that opens with members the skill states once for several names (the contract's shared text,
+    then `; `) included; and, when it gives the partial label (#888), the entry's `signature_form` is that label
+    too."""
     if FLOOR_LABEL_FIELD in signature and entry.get(FLOOR_LABEL_FIELD) != signature[FLOOR_LABEL_FIELD]:
         return False
     for field in FLOOR_SIGNATURE_FIELDS:
+        if field not in signature:
+            continue
         wanted, given = field_text(signature[field]), field_text(entry.get(field))
-        if wanted and given != wanted and not (field == "params" and given.endswith("; " + wanted)):
+        if wanted and given != wanted and not (field != "return_type" and given.endswith("; " + wanted)):
             return False
     return True
 
 
 def _origin_signature(origin):
-    """A floor origin's signature, its label (#888) only when it gives one."""
+    """A floor origin's signature, the fields it gives (#888: `params` or `usage_signature`, and `return_type`) and
+    its label only when it gives one."""
     return {f: origin["signature"][f] for f in FLOOR_SIGNATURE_FIELDS + (FLOOR_LABEL_FIELD,)
             if f in origin["signature"]}
 
@@ -808,24 +822,25 @@ def floor_check(inventory, floor, skill_package_path=None):
     name left out is a violation naming its first checked origin. Then each
     checked origin with a `signature` is carried when an entry of that name,
     whatever its kind, gives the same field_text to each field the
-    signature pins non-blank (a blank pinned `return_type` leaves the
-    entry's free; a `params` may open with shared text and `; `, _carries);
-    one no entry carries is a violation naming the origin and the signature,
-    for a name left out too. A carried origin is placed when an entry that
-    carries it gives that origin as its `at` (parse_at; #918). When none
-    does, the `at` of each entry that carries it is dropped with a warning
-    (_drop), unless it is a checked origin whose signature that entry
-    carries. When none is dropped and each still has an `at`, a place at
-    another such origin, the origin is a warning of its own: the citations
-    there are not read. An entry left with no `at` has a warning already
-    when its form is compared, so the origin adds none. A misplaced form
-    never makes the inventory invalid, except one whose signature gives
-    the partial label (#888): it is placed only by the entries of that name
-    whose `at` is that origin and that give its `params` and `return_type`,
-    at least one and each with its `signature_form`, while each entry of
-    that name with no `at` (none given, or a bad one at_warnings or
-    place_warnings dropped first) that gives them gives the label too. It
-    is otherwise one violation, a carrier elsewhere or with no `at`, an
+    signature pins non-blank (its `params` or, for a usage form, its
+    `usage_signature`, and its `return_type`; a blank pinned `return_type`
+    leaves the entry's free; a `params` or `usage_signature` may open with
+    shared text and `; `, _carries); one no entry carries is a violation
+    naming the origin and the signature, for a name left out too. A carried
+    origin is placed when an entry that carries it gives that origin as its
+    `at` (parse_at; #918). When none does, the `at` of each entry that
+    carries it is dropped with a warning (_drop), unless it is a checked
+    origin whose signature that entry carries. When none is dropped and each
+    still has an `at`, a place at another such origin, the origin is a
+    warning of its own: the citations there are not read. An entry left with
+    no `at` has a warning already when its form is compared, so the origin
+    adds none. A misplaced form never makes the inventory invalid, except
+    one whose signature gives the partial label (#888): it is placed only by
+    the entries of that name whose `at` is that origin and that give its
+    form, at least one and each with its `signature_form`, while each entry
+    of that name with no `at` (none given, or a bad one at_warnings or
+    place_warnings dropped first) that gives that form gives the label too.
+    It is otherwise one violation, a carrier elsewhere or with no `at`, an
     unlabelled twin there and an unlabelled copy with no `at` included; an
     unlabelled copy whose `at` is another place (with the package, a line
     that writes the name) stays valid.
@@ -867,7 +882,7 @@ def floor_check(inventory, floor, skill_package_path=None):
             # are at least one, and each of them and each one with no `at` (a bad one is dropped by now) gives its
             # label, so no unlabelled twin, nor a copy that shows no place, is the form score-signatures.py keeps. A
             # copy whose `at` is another place is compared there.
-            form = {f: signature[f] for f in FLOOR_SIGNATURE_FIELDS}
+            form = {f: signature[f] for f in FLOOR_SIGNATURE_FIELDS if f in signature}
             copies = [e for _, e in entries if e.get("name") == name and _carries(e, form)]
             here = [e for e in copies if parse_at(e.get("at")) == place]
             if not here or not all(_carries(e, signature) for e in copies
