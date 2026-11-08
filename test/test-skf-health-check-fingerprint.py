@@ -18,6 +18,7 @@ runs the step prose, so these checks pin it.
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import pathlib
 import re
@@ -31,6 +32,7 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 SHARED_HEALTH_CHECK = REPO / "src" / "shared" / "health-check.md"
 ISSUE_TEMPLATE = REPO / ".github" / "ISSUE_TEMPLATE" / "workflow-health-check.md"
 WORKFLOWS_DOC = REPO / "docs" / "workflows.md"
+DEDUP_WORKFLOW = REPO / ".github" / "workflows" / "health-check-dedup.yaml"
 
 SUB_STEP_1 = "**1. Compute the fingerprint**"
 SUB_STEP_2 = "**2. Check the local seen-cache**"
@@ -127,22 +129,26 @@ def test_the_defect_key_rule_says_how_to_pick_it():
 
 def _to_key(name: str) -> str:
     """The doc's conversion, as written: drop leading dashes and underscores; split at spaces, underscores,
-    hyphens, dots and each lower-case letter followed by an upper-case one; lower-case; keep the last four."""
+    hyphens, dots and each lower-case letter followed by an upper-case one; drop every character of a word that is
+    not an ASCII letter or digit; lower-case; keep the last four."""
     name = re.sub(r"([a-z])([A-Z])", r"\1 \2", name.lstrip("-_"))
-    words = [w.lower() for w in re.split(r"[ _.\-]+", name) if w]
-    return "-".join(words[-4:])
+    words = [re.sub(r"[^A-Za-z0-9]", "", w).lower() for w in re.split(r"[ _.\-]+", name)]
+    return "-".join([w for w in words if w][-4:])
 
 
 def test_the_defect_key_conversion_gives_the_examples_keys():
     rule = _flow(_slice(_read(SHARED_HEALTH_CHECK), SUB_STEP_1, SUB_STEP_2))
     assert ("To turn a name into the key, drop its leading dashes and underscores, split it at spaces, underscores, "
-            "hyphens, dots and each lower-case letter followed by an upper-case one, lower-case each word and join "
-            "them with hyphens (`composeStories` gives `compose-stories`); a name of more than four words keeps its "
-            "last four.") in rule
+            "hyphens, dots and each lower-case letter followed by an upper-case one, drop every character of each word "
+            "that is not an ASCII letter or digit, lower-case each word and join them with hyphens (`composeStories` "
+            "gives `compose-stories`, `reader's own code` gives `readers-own-code`); a name of more than four words "
+            "keeps its last four.") in rule
     for name, key in (("floor_check", "floor-check"), ("--orphan-action", "orphan-action"),
                       ("composeStories", "compose-stories"), ("const holding function", "const-holding-function"),
                       ("_declared_names", "declared-names"), ("cognee.agents.get", "cognee-agents-get"),
-                      ("a_very_long_helper_name", "very-long-helper-name")):
+                      ("a_very_long_helper_name", "very-long-helper-name"),
+                      # Two independent reports of one defect wrote these two (PR #982's key-stability measurement).
+                      ("reader's own code", "readers-own-code"), ("readers own code", "readers-own-code")):
         assert _to_key(name) == key, name
     for key in KEYS:
         assert re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+){0,3}", key), key
@@ -306,8 +312,16 @@ def test_a_run_with_nobody_to_ask_queues_with_its_own_reason():
 def test_a_differently_named_report_is_safe_but_unlinked():
     caught = _flow(_slice(_read(SHARED_HEALTH_CHECK), "**What this does and does not catch.**", SUB_STEP_3))
     assert ("changes the fingerprint. So does a report that names the same defect by another thing than an earlier "
-            "report did.") in caught
-    assert "safe but unlinked" in caught
+            "report did: independent reports of one defect often pick different keys.") in caught
+    assert "safe but unlinked here; once it is filed, the dedup Action flags it (§5a-ii)." in caught
+
+
+def test_the_step_says_the_action_flags_a_shared_section_fingerprint():
+    filing = _flow(_slice(_read(SHARED_HEALTH_CHECK), SUB_STEP_5A_II, "**Writing rules"))
+    assert ("The dedup Action reads the body's `Section fingerprint:` line too. When the new issue matches no open "
+            "issue's fingerprint but another open health-check issue records the same section fingerprint under a "
+            "different defect key, or was filed without a key and carries it as its label, the Action comments with a "
+            "link to each such issue and adds the `possible-duplicate` label. It closes nothing on that match") in filing
 
 
 def test_the_seen_cache_is_written_under_the_new_fingerprint():
@@ -335,7 +349,9 @@ def test_the_issue_body_records_every_fingerprint_input():
     # because the dedup Action takes the first `fp-*` label it finds.
     fingerprint = _slice(body, "## Fingerprint", "## Defect Key")
     assert "\nSection fingerprint: `{legacy_fp}`\n" in fingerprint
-    assert "Body text only, never a label." in fingerprint
+    assert "Body text only, never a label: the dedup Action reads it to flag possible duplicates." in fingerprint
+    # The Action finds that line by the pattern the body writes it in, at the start of a line.
+    assert "const SECTION_RE = /^Section fingerprint: `(fp-[0-9a-f]{7})`/m;" in _read(DEDUP_WORKFLOW)
     create = _slice(text, "**Then create the issue:**", "**Writing rules")
     assert '--label "health-check,workflow-improvement,{severity},{fp}"' in create
     assert "legacy_fp" not in create
@@ -377,9 +393,146 @@ def test_the_docs_state_the_keyed_fingerprint():
     assert "Ferris searches for the section fingerprint" in bullet
     assert "including one that named the same defect differently" in bullet
     assert "each is a possible match only" in bullet
-    assert "safe but unlinked" in bullet
+    assert "safe but unlinked" not in bullet
+    assert ("The repository's dedup Action flags it: when another open issue records the same section fingerprint "
+            "under a different defect key, it links each one in a comment and adds the `possible-duplicate` label, "
+            "and leaves the issue open for a maintainer to decide.") in bullet
     cache = next(line for line in _read(WORKFLOWS_DOC).splitlines() if line.startswith("- **Global seen-cache.**"))
     assert ("A record written by an SKF version whose fingerprints carry no defect key never suppresses on its own, "
             "since it may be another defect's: Ferris shows you its issue as a possible match while it is open, links "
             "a fixed one as a possible regression without the REGRESSION title marker, and records your choice under "
             "the new fingerprint.") in cache
+
+
+# ---------------------------------------------------------------- the dedup Action
+
+# Runs the Action's script with a stubbed `github` client, the way actions/github-script does: as the body of an
+# async function given `github`, `context` and `core`. Every write call is recorded; nothing reaches GitHub.
+_NODE_RUNNER = r"""
+const fs = require('fs');
+const [scriptPath, scenarioPath] = process.argv.slice(2);
+const script = fs.readFileSync(scriptPath, 'utf8');
+const scenario = JSON.parse(fs.readFileSync(scenarioPath, 'utf8'));
+const calls = [];
+const withLabels = i => ({ ...i, labels: (i.labels || []).map(name => ({ name })) });
+const open = scenario.open.map(withLabels);
+const listForRepo = async ({ labels }) => {
+  const want = labels.split(',');
+  return { data: open.filter(i => want.every(w => i.labels.some(l => l.name === w))) };
+};
+const current = { state: 'open', ...withLabels(scenario.issue), ...(scenario.issue.state ? { state: scenario.issue.state } : {}) };
+const github = {
+  paginate: async (fn, params) => (await fn(params)).data,
+  rest: {
+    issues: {
+      get: async p => ({ data: p.issue_number === current.number ? current : null }),
+      listForRepo,
+      createComment: async p => { calls.push(['comment', p.issue_number, p.body]); },
+      addLabels: async p => { calls.push(['label', p.issue_number, p.labels]); },
+      update: async p => { calls.push(['update', p.issue_number, p.state, p.state_reason]); },
+      createLabel: async p => {
+        calls.push(['createLabel', p.name]);
+        if (scenario.labelExists) { const e = new Error('exists'); e.status = 422; throw e; }
+      },
+    },
+    reactions: { createForIssue: async p => { calls.push(['react', p.issue_number, p.content]); } },
+  },
+};
+// The payload is the snapshot the event carried; the Action must read the issue's current state instead.
+const context = { payload: { issue: { number: scenario.issue.number, labels: [] } }, repo: { owner: 'o', repo: 'r' } };
+const core = { info: () => {} };
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+new AsyncFunction('github', 'context', 'core', script)(github, context, core)
+  .then(() => process.stdout.write(JSON.stringify(calls)))
+  .catch(e => { process.stderr.write(String(e && e.stack || e)); process.exit(1); });
+"""
+
+NEW_FP, OTHER_FP, SECTION_FP = "fp-1111111", "fp-2222222", "fp-3333333"
+
+
+def _body(section_fp: str | None) -> str:
+    return "## Fingerprint\n`fp-x`\n\n" + (f"Section fingerprint: `{section_fp}`\n" if section_fp else "") + "\n## Finding\n"
+
+
+def _issue(number: int, fp: str, section_fp: str | None, *extra: str) -> dict:
+    return {"number": number, "labels": ["health-check", fp, *extra], "body": _body(section_fp)}
+
+
+def _run_dedup(tmp_path: pathlib.Path, issue: dict, others: list[dict], label_exists: bool = False) -> list:
+    yaml = pytest.importorskip("yaml")
+    script = yaml.safe_load(_read(DEDUP_WORKFLOW))["jobs"]["dedup"]["steps"][0]["with"]["script"]
+    (tmp_path / "script.js").write_text(script, encoding="utf-8")
+    (tmp_path / "runner.js").write_text(_NODE_RUNNER, encoding="utf-8")
+    scenario = {"issue": issue, "open": [issue, *others], "labelExists": label_exists}
+    (tmp_path / "scenario.json").write_text(json.dumps(scenario), encoding="utf-8")
+    done = subprocess.run(["node", str(tmp_path / "runner.js"), str(tmp_path / "script.js"),
+                           str(tmp_path / "scenario.json")], capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    return json.loads(done.stdout)
+
+
+needs_node = pytest.mark.skipif(shutil.which("node") is None, reason="the Action's script runs under node")
+
+
+@needs_node
+def test_the_action_still_closes_an_exact_fingerprint_match(tmp_path):
+    calls = _run_dedup(tmp_path, _issue(20, NEW_FP, SECTION_FP), [_issue(10, NEW_FP, SECTION_FP)])
+    assert ["update", 20, "closed", "not_planned"] in calls
+    assert ["react", 10, "+1"] in calls
+    assert not any(c[0] == "label" and c[2] == ["possible-duplicate"] for c in calls)
+
+
+@needs_node
+def test_the_action_flags_an_open_issue_with_the_same_section_fingerprint_and_another_key(tmp_path):
+    calls = _run_dedup(tmp_path, _issue(20, NEW_FP, SECTION_FP),
+                       [_issue(10, OTHER_FP, SECTION_FP), _issue(12, "fp-4444444", "fp-5555555")])
+    comments = [c for c in calls if c[0] == "comment"]
+    assert len(comments) == 1 and comments[0][1] == 20
+    assert comments[0][2].startswith(f"Possible duplicate of #10: same section fingerprint `{SECTION_FP}`")
+    assert "#12" not in comments[0][2]
+    assert ["label", 20, ["possible-duplicate"]] in calls
+    assert ["createLabel", "possible-duplicate"] in calls
+    assert not any(c[0] in ("update", "react") for c in calls), "a possible match closes and upvotes nothing"
+
+
+@needs_node
+def test_the_action_flags_a_keyless_issue_whose_label_is_the_section_fingerprint(tmp_path):
+    # An issue filed by an SKF version without the defect key carries the section fingerprint as its label.
+    calls = _run_dedup(tmp_path, _issue(20, NEW_FP, SECTION_FP), [_issue(7, SECTION_FP, None)], label_exists=True)
+    assert any(c[0] == "comment" and c[2].startswith("Possible duplicate of #7:") for c in calls)
+    assert ["label", 20, ["possible-duplicate"]] in calls
+
+
+@needs_node
+def test_the_action_flags_a_keyed_issue_for_a_new_keyless_one(tmp_path):
+    # A report filed without the key: its label is its section fingerprint, which a keyed issue records in its body.
+    calls = _run_dedup(tmp_path, _issue(20, SECTION_FP, None), [_issue(10, OTHER_FP, SECTION_FP)])
+    assert any(c[0] == "comment" and c[2].startswith(f"Possible duplicate of #10: same section fingerprint "
+                                                     f"`{SECTION_FP}`") for c in calls)
+
+
+@needs_node
+def test_the_action_does_nothing_without_a_shared_section_or_once_flagged(tmp_path):
+    assert _run_dedup(tmp_path, _issue(20, NEW_FP, SECTION_FP), [_issue(10, OTHER_FP, "fp-5555555")]) == []
+    flagged = _issue(20, NEW_FP, SECTION_FP, "possible-duplicate")
+    assert _run_dedup(tmp_path, flagged, [_issue(10, OTHER_FP, SECTION_FP)]) == []
+
+
+@needs_node
+def test_a_later_run_for_an_issue_already_closed_does_nothing(tmp_path):
+    # GitHub sends `opened` and a `labeled` event per label, so the job runs several times for one issue.
+    closed = {**_issue(20, NEW_FP, SECTION_FP), "state": "closed"}
+    assert _run_dedup(tmp_path, closed, [_issue(10, NEW_FP, SECTION_FP)]) == []
+
+
+def test_runs_for_one_issue_never_overlap():
+    yaml = pytest.importorskip("yaml")
+    job = yaml.safe_load(_read(DEDUP_WORKFLOW))["jobs"]["dedup"]
+    assert job["concurrency"] == {"group": "health-check-dedup-${{ github.event.issue.number }}",
+                                  "cancel-in-progress": False}
+
+
+def test_the_action_header_says_it_flags_and_never_closes_a_section_match():
+    header = _flow(re.sub(r"^#\s?", "", _read(DEDUP_WORKFLOW).split('"on":', 1)[0], flags=re.MULTILINE))
+    assert "adds the `possible-duplicate` label" in header
+    assert "It closes nothing on that match" in header
