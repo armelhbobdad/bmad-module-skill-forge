@@ -466,7 +466,8 @@ def _run_dedup(tmp_path: pathlib.Path, issue: dict, others: list[dict], label_ex
     scenario = {"issue": issue, "open": [issue, *others], "labelExists": label_exists}
     (tmp_path / "scenario.json").write_text(json.dumps(scenario), encoding="utf-8")
     done = subprocess.run(["node", str(tmp_path / "runner.js"), str(tmp_path / "script.js"),
-                           str(tmp_path / "scenario.json")], capture_output=True, text=True, timeout=60)
+                           str(tmp_path / "scenario.json")], capture_output=True, text=True, encoding="utf-8",
+                          timeout=60)
     assert done.returncode == 0, done.stderr
     return json.loads(done.stdout)
 
