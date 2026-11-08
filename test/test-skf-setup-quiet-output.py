@@ -851,10 +851,11 @@ def test_queue_fingerprint_has_a_portable_form():
     fingerprint cannot depend on `sha1sum`, which stock macOS and Windows lack."""
     section = _section(_read(SHARED_HEALTH_CHECK), "### 5a.")
     assert "`shasum -a 1`" in section
-    m = re.search(r'^uv run python -c "(.+?)" "\{severity\}\|\{workflow\}\|\{step_file\}\|\{section-slug\}"$',
+    m = re.search(r'^uv run python -c "(.+?)" '
+                  r'"\{severity\}\|\{workflow\}\|\{step_file\}\|\{section-slug\}\|\{defect-key\}"$',
                   section, re.MULTILINE)
     assert m, "portable fingerprint snippet not found"
-    key = "bug|skf-setup|references/report.md|emit-headless-json-envelope"
+    key = "bug|skf-setup|references/report.md|emit-headless-json-envelope|result-envelope"
     out = subprocess.run([sys.executable, "-c", m.group(1), key], capture_output=True, text=True,
                          encoding="utf-8", check=True).stdout.strip()
     assert out == hashlib.sha1(key.encode("utf-8")).hexdigest()[:7]
