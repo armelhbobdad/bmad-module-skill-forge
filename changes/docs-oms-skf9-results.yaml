@@ -1,0 +1,4 @@
+type: docs
+summary: |
+  Verifying a Skill now quotes strict SKF 9.0.0 tests of the version each of oh-my-skills' four reference skills ships, run as Test Skill is designed, with its subagents: oms-cocoindex, oms-storybook-react-vite and oms-uitripled pass at 100%, and oms-cognee passes at 99% now that 9.0.0 compares each form with the declaration its own citation names (#918) and oh-my-skills added the citation one form lacked. The page says that oh-my-skills' first 9.0.0 runs took Test Skill's no-subagent fallback, that re-run with subagents two passes became blocked runs on readings of correct text (#1034, #1043) until oh-my-skills rewrote those lines, and which open calls each pass still rests on (#999, #1045, #1050, #1003). `docs/_data/pinned.yaml` records the 9.0.0 scores and run ids (`test_score: 99.0` for oms-cognee).
+prs: [1051]
