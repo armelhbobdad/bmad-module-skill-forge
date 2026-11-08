@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill halts with `inventory-invalid` because the inventory changes a form the floor now pins from a `Props`, `Params` or `Parameters` cell or a usage form, run it again; if the pinned form is wrong, correct it in the skill. If a run now stops at the hard gate on a `signature-mismatch` for a form the floor now pins, correct that form in the skill (the run's `inventory-floor.json` gives each origin's file, line and `signature`), then run Test Skill again. If that `signature` misreads what the skill writes at that line, the floor is wrong: report it as a bug, with the line and the `signature`.
 issues: [888]
+prs: [995]
