@@ -111,6 +111,18 @@ is a violation naming the entry. score-signatures.py reads it: an optional
 member a partial form leaves out is an Info observation, not a wrong
 signature.
 
+An entry's list `params` (#1043) holds the members of one parameter list,
+one per item, never one form per item: field_text joins its items with
+`, ` into that list, and a place that writes several forms of a name (two
+overloads in one row) gives each form an entry of its own at that same
+`at`, which score-signatures.py compares on its own. A list of two or more
+items one of which holds several parameters (cut at each comma outside
+every bracket pair and string, as score-signatures.py's _split cuts a
+form, into two or more non-blank parts) is a violation naming the entry
+and those items: its join would be one parameter list that matches none
+of its forms. A one-item list, whose join is its item, and an item that
+is no string are not read this way.
+
 An entry's `at` (#918) is the place the skill writes its form,
 "<path>:<line>": the file as the package names it, SKILL.md or a file the
 inventory's `references` lists (normalized as a pair's file is, and left in
@@ -543,8 +555,9 @@ _SCORER_MODULE = None
 
 def _scorer():
     """score-signatures.py beside this script, for its `_split`, which cuts a parameter list at the commas outside
-    every bracket pair and string: _carries reads a pinned `params` with it (#1028). score-signatures.py loads this
-    file only from a call, and `_split` makes none, so the two never load each other in a loop."""
+    every bracket pair and string: _carries reads a pinned `params` with it (#1028), and the list `params` check
+    reads each item with it (#1043). score-signatures.py loads this file only from a call, and `_split` makes
+    none, so the two never load each other in a loop."""
     global _SCORER_MODULE
     if _SCORER_MODULE is None:
         sibling = Path(__file__).resolve().parent / "score-signatures.py"
@@ -800,6 +813,34 @@ def form_key(fields: dict) -> tuple:
     null, blank or empty key read as absent, and the `signature_form` label
     left out (score-signatures.py's documented_forms keeps the full one)."""
     return tuple((f, field_text(fields[f])) for f in SIGNATURE_FIELDS if f in fields and field_text(fields[f]))
+
+
+def _parameter_members(text: str) -> list[str]:
+    """The members `text` writes as a parameter list: cut at each comma outside every bracket pair and string, as
+    score-signatures.py cuts one (_split), each stripped, the blank ones dropped. `handlerMap: Record<T, string>`,
+    `sep: str = ", "` and `options: { a?: string, b: number }` are one member each."""
+    return [part.strip() for part in _scorer()._split(text, ",") if part.strip()]
+
+
+def params_violations(idx: int, entry: dict) -> list[str]:
+    """A list `params` holds the members of one parameter list, one per item, and field_text joins its items into
+    that list with `, `, so a place that writes several forms of a name (two overloads in one row) gives each form an
+    entry of its own at that same `at` (#1043). A list of two or more items, one of which holds several parameters
+    (_parameter_members), reads as one form per item, whose join matches none of them: one violation naming the
+    entry and each such item, and saying what to write instead. A one-item list, whose join is its item, and an item
+    that is no string are not read."""
+    params = entry.get("params")
+    if not isinstance(params, list) or len(params) < 2:
+        return []
+    several = [item for item in params if isinstance(item, str) and len(_parameter_members(item)) > 1]
+    if not several:
+        return []
+    items = ", ".join(json.dumps(item, ensure_ascii=False) for item in several)
+    which = f"item {items} holds" if len(several) == 1 else f"items {items} hold"
+    return [(f"exports[{idx}] (`{entry['name']}`): the `params` {which} several parameters, but a list `params` is "
+             "one parameter list, one member per item, its items joined into it: when each item is a form of its own "
+             "(an overload), give each form its own entry with that same `at`; otherwise write each member as an "
+             "item of its own")]
 
 
 # --- Floor ------------------------------------------------------------------
@@ -1327,6 +1368,8 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
         if kind not in VALID_KINDS:
             rejected += 1
             continue
+        # A list `params` is one parameter list, one member per item (#1043).
+        violations.extend(params_violations(idx, entry))
     if rejected > 0:
         subject = "entry does" if rejected == 1 else "entries do"
         violations.append(

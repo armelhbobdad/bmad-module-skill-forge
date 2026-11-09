@@ -1404,19 +1404,31 @@ def test_the_inventory_contract_lists_the_validators_kinds():
             "entry has would title a split-body gap with an export the inventory does not list.") in section
 
 
+# The contract's rule for a name documented in several places (#826), and in several forms at one place (#1043).
+SEVERAL_PLACES = ("A name documented in several places is listed once per place, each entry with that place's form "
+                  "(`Card` above), and once per form at a place that writes several of its forms (two overloads in "
+                  "one row), each entry with that place as its `at`, never as one entry whose list `params` gives a "
+                  "form per item (the validator refuses a list of two or more items when one item holds several "
+                  "parameters), and keeps one `kind` in every place.")
+
+
 def test_the_inventory_contract_gives_a_component_constant_a_usage_signature():
     """#837: a `const` holding a component had no rule, so whether its form was compared depended on how a run
     recorded it. The contract records it as a `constant` with the form the skill writes as `usage_signature` (which
     score-signatures.py plans) and a data constant with no signature field (which it does not). #826: a name
     documented in several places is listed once per place, under one kind, so `plan` offers its forms. The contract's
     example shows both. Both rules live in the contract file §1 loads, and coverage-check.md stays under its
-    budget."""
+    budget. #1043 (oms-storybook-react-vite): "listed once per place" and an undefined list `params` let a reader
+    record both `actions` overloads of one row as one entry, a form per item, which the scripts joined into one
+    parameter list that matched neither overload, a Critical gap. A place that writes several forms now lists the
+    name once per form at that `at`, and a list `params` holds one parameter list's members, one per item."""
     contract = _flow(_read(INVENTORY_CONTRACT))
     assert ("A `const` holding a component (a `forwardRef`, `memo` or other wrapper call, or an alias like "
             "`const Tabs = TabsPrimitive.Root`) is a `constant` with the declaration or usage form the skill writes as "
             "`usage_signature`; a data constant carries no `usage_signature`, `params` or `return_type`.") in contract
-    assert ("A name documented in several places is listed once per place, each entry with that place's form (`Card` "
-            "above), and keeps one `kind` in every place.") in contract
+    assert SEVERAL_PLACES in contract
+    assert ("a function or method carries `params` (`\"\"` or `[]` when it takes none; any list `params` holds the "
+            "members of one parameter list, one per item, never one form per item) and `return_type`") in contract
     example = json.loads(re.search(r"```json\n(.*?)\n```", _read(INVENTORY_CONTRACT), re.S).group(1))["exports"]
     assert {"name": "ComponentName", "kind": "constant", "usage_signature": "<ComponentName prop={value} />",
             "description": "...", "at": "SKILL.md:64"} in example
@@ -1438,8 +1450,7 @@ def test_the_inventory_contract_gives_a_removed_or_earlier_version_form_no_entry
     form, and a floor place keeps its entry and its `signature`. It extends the rule for a name documented in several
     places, which it directly follows, and the contrast clause now names only another current declaration's form."""
     contract = _flow(_read(INVENTORY_CONTRACT))
-    several = ("A name documented in several places is listed once per place, each entry with that place's form "
-               "(`Card` above), and keeps one `kind` in every place.")
+    several = SEVERAL_PLACES
     removed = ("A form the skill marks as removed, or as the form of a version before the one it covers (a migration "
                "table's old-version column, a cell or row labelled gone, removed, before or old), is not a form of "
                "the current export and gives no entry, whether or not the covered version still exports the name, "

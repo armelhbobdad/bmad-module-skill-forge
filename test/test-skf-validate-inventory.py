@@ -649,6 +649,57 @@ def test_a_prose_call_with_arguments_is_left_to_the_reader_as_a_usage(tmp_path):
         {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each usage kept as given"
 
 
+OVERLOADS_API = ("# Core API\n\n| Export | Signature |\n| --- | --- |\n"
+                 "| `actions` | `(handlerMap: Record<T, string>, options?: ActionOptions)` or `(...handlers: T[])` |\n")
+OVERLOAD_FORMS = ["handlerMap: Record<T, string>, options?: ActionOptions", "...handlers: T[]"]
+
+
+def test_a_list_params_item_that_holds_several_parameters_is_refused(tmp_path):
+    """#1043 (oms-storybook-react-vite): a reader recorded both `actions` overloads of one row as one entry whose
+    list `params` gave a form per item. The validator accepted it, field_text joined the items into one parameter
+    list that matches neither overload, and score graded it Critical. A list `params` holds one parameter list's
+    members, one per item, so a list of two or more items one of which holds several parameters (cut at commas
+    outside brackets and strings) is refused: the CLI exits 2, the violation names the entry and the item and says to
+    give each form its own entry at that same `at`, and no inventory is left. The same two forms as two entries at
+    one `at` validate with no violation or warning. Items of one member each (a comma inside a type's brackets, a
+    string or an object type), a one-item list and a non-string item still pass."""
+    pkg = _package(tmp_path, "# Demo\n\nSee the core API.\n", {"core-api.md": OVERLOADS_API})
+    at = {"at": "references/core-api.md:5", "description": "Logs each handler."}
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+
+    def run(*entries):
+        response.write_bytes(_signed(*entries, references=["references/core-api.md"]).encode("utf-8"))
+        out.write_bytes(b"{}")
+        return subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                               "--output", str(out)], capture_output=True, text=True, encoding="utf-8")
+
+    proc = run(("actions", "function", {"params": OVERLOAD_FORMS, **at}))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["violations"] == [(
+        "exports[0] (`actions`): the `params` item \"handlerMap: Record<T, string>, options?: ActionOptions\" holds "
+        "several parameters, but a list `params` is one parameter list, one member per item, its items joined into "
+        "it: when each item is a form of its own (an overload), give each form its own entry with that same `at`; "
+        "otherwise write each member as an item of its own")]
+    assert not out.exists(), "an invalid inventory removes the file an earlier attempt left"
+
+    proc = run(*(("actions", "function", {"params": form, **at}) for form in OVERLOAD_FORMS))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert [e["params"] for e in json.loads(out.read_bytes())["exports"]] == OVERLOAD_FORMS
+
+    def violations(params):
+        entry = {"name": "actions", "kind": "function", "params": params, "at": "references/core-api.md:5"}
+        return mod.validate_inventory(json.dumps({"exports": [entry], "cross_check_mismatches": []}))["violations"]
+
+    for params in (["handlerMap: Record<T, string>", "options?: ActionOptions"], ['sep: str = ", "', "end: str"],
+                   ["options: { a?: string, b: number }", "cb: (a: A, b: B) => void"], ["path", "size=(1, 2),"],
+                   [OVERLOAD_FORMS[0]], [{"a": 1, "b": 2}, "c"], []):
+        assert violations(params) == [], params
+    [two] = violations(["a, b", "c", "d: int, e: str"])
+    assert two.startswith('exports[0] (`actions`): the `params` items "a, b", "d: int, e: str" hold several '), two
+
+
 # --------------------------------------------------------------------------
 # The shared whole-name match
 # --------------------------------------------------------------------------
