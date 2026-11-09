@@ -104,13 +104,13 @@ If SKILL.md does not contain enough organic examples, synthesize 3 from the skil
 
 **Subagents-unavailable guard (precedes the spawn).** If subagents cannot be spawned in this environment (e.g. a headless/CI pipeline with no subagent capability), do not fall back to answering the routing in the main thread: the main thread knows which skill is under test, so it would self-route to `3/3 PASS` and inflate the Discovery score, the exact false confidence §4b.0 warns against. Instead record the skip with the reason `subagents unavailable, routing test requires isolated context`, exclude the discovery check from Discovery Quality scoring (do not count it PASS or FAIL), and skip to §4b.5.
 
-For each of the 3 prompts, spawn an isolated subagent with NO prior context about which skill is under test. Provide only:
+For each of the 3 prompts, spawn an isolated subagent with NO prior context about which skill is under test and no file or shell tools (where the platform lets a subagent be spawned without tools, do so), since the run lock and the in-progress report in `{forge_version}` both name that skill. Provide only:
 1. A compact list of every skill in `{discovery_catalog}` (the same set §4b.0 counted): name + description line from that entry's SKILL.md frontmatter
 2. The prompt text
 
 Instruction to the subagent:
 
-> "You are an agent selecting the best skill to handle a user request. Here is the catalog: {catalog}. The user says: '{prompt}'. Return JSON: `{\"selected_skill\": \"<name>\", \"confidence\": \"<high|medium|low>\", \"reasoning\": \"<one sentence>\"}`. If no skill fits, return `{\"selected_skill\": null, ...}`. Return only JSON."
+> "You are an agent selecting the best skill to handle a user request. Here is the catalog: {catalog}. The user says: '{prompt}'. Return JSON: `{\"selected_skill\": \"<name>\", \"confidence\": \"<high|medium|low>\", \"reasoning\": \"<one sentence>\"}`. If no skill fits, return `{\"selected_skill\": null, ...}`. Answer from this catalog alone: read no file and use no tool. Return only JSON."
 
 **4b.3 Evaluate discovery results:**
 

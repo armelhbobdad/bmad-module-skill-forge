@@ -1410,6 +1410,15 @@ class TestDiscoveryGaps:
         assert "Info-severity note" not in discovery
         assert "skip to §4c" not in discovery and "skip directly to §4c" not in discovery
 
+    def test_the_routers_read_no_file(self, discovery: str) -> None:
+        """#1039: the run lock and the in-progress report name the skill under test, so a router reads nothing."""
+        assert ("spawn an isolated subagent with NO prior context about which skill is under test"
+                " and no file or shell tools (where the platform lets a subagent be spawned without tools, do so),"
+                " since the run lock and the in-progress report in `{forge_version}` both name that skill") in discovery
+        instruction = _slice(discovery, "You are an agent selecting the best skill", "**4b.3")
+        assert instruction.count("Return only JSON.") == 1
+        assert "Answer from this catalog alone: read no file and use no tool. Return only JSON.\"" in instruction
+
     def test_warn_and_fail_are_gaps_and_pass_is_none(self, discovery: str) -> None:
         assert "discovery check PASS: no gap" in discovery
         assert "discovery check WARN: a Medium `discovery` gap" in discovery
