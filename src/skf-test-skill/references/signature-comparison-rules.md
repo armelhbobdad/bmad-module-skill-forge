@@ -62,7 +62,7 @@ Two spellings of one type are no mismatch:
 
 - `Optional[X]`, `Union[X, None]` and `X | None`; `Union[A, B]` and `A | B`; a union's members in any order (`None | X`, `B | A`).
 - `typing`'s `List`, `Dict`, `Tuple`, `Set`, `FrozenSet` and `Type` and the builtins `list`, `dict`, `tuple`, `set`, `frozenset` and `type`.
-- A name with or without its `typing.`, `collections.abc.` or `React.` prefix: `React.ReactNode` and `ReactNode`.
+- A name with or without the module or namespace path it is written through, such as a `typing.`, `collections.abc.` or `React.` prefix or a module or namespace the source imports under its own name or an alias, when both name one declaration: `React.ReactNode` and `ReactNode`; `environment.Environment`, after `from . import environment`, and `Environment`; `z.ZodType` and `ZodType`. Two declarations that only share a name stay two types.
 - A quoted forward reference and the name it quotes: `"Node"` and `Node`.
 - `Array<T>` and `T[]`; `ReadonlyArray<T>` and `readonly T[]`.
 - A type alias the source declares and the type it names.

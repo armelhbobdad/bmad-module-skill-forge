@@ -795,6 +795,14 @@ def test_two_spellings_of_one_type_are_no_mismatch():
                      "Type arguments the source leaves out are not compared either: the form's `dict[str, Any]` "
                      "matches the source's bare `dict`"):
         assert spelling in spellings, spelling
+    # #999: the three prefixes are examples of a path, not the full set, so a type written through a module the
+    # source imports names the declaration its bare name does, as score-signatures.py's _final_name reads it.
+    assert ("- A name with or without the module or namespace path it is written through, such as a `typing.`, "
+            "`collections.abc.` or `React.` prefix or a module or namespace the source imports under its own name or "
+            "an alias, when both name one declaration: `React.ReactNode` and `ReactNode`; `environment.Environment`, "
+            "after `from . import environment`, and `Environment`; `z.ZodType` and `ZodType`. Two declarations that "
+            "only share a name stay two types.") in spellings
+    assert "with or without its `typing.`" not in spellings, "#999: no closed list of three prefixes"
 
 
 def test_every_difference_the_script_accepts_is_defined_in_the_rules_file_alone():

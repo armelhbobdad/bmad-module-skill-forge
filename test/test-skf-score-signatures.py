@@ -1122,7 +1122,25 @@ def test_a_group_inside_type_parameters_states_no_return_type():
     ("(a: typing.Any) -> X", "(a: Any) -> Y", None),
     ("(a: collections.abc.Sequence[int]) -> X", "(a: Sequence[int]) -> Y", None),
     ("(children: ReactNode) => X", "(children: React.ReactNode) => Y", None),
-    ("(a: typing_extensions.Self) -> X", "(a: Self) -> Y", "`a` is typed `typing_extensions.Self`"),
+    ("(a: typing_extensions.Self) -> X", "(a: Self) -> Y", None),
+    ("(e: Environment) -> X", "(e: environment.Environment) -> Y", None),
+    ('(df: "pd.DataFrame") -> X', "(df: DataFrame) -> Y", None),
+    ("(s: ZodType) => X", "(s: z.ZodType) => Y", None),
+    ("(a: np.ndarray[Any]) -> X", "(a: ndarray[Any]) -> Y", None),
+    ("(a: t.List[int]) -> X", "(a: list[int]) -> Y", None),
+    ("(a: models.Foo) -> X", "(a: models.Bar) -> Y",
+     "`a` is typed `models.Foo` in the documented list, `models.Bar` in the source"),
+    ("(a: models.Foo) -> X", "(a: other.Foo) -> Y",
+     "`a` is typed `models.Foo` in the documented list, `other.Foo` in the source"),
+    ("(o: Chart.Options) => X", "(o: Axis.Options) => Y", "`o` is typed `Chart.Options`"),
+    ("(a: Literal['config.yaml']) -> X", "(a: Literal['settings.yaml']) -> Y", "`a` is typed `Literal['config.yaml']`"),
+    ("(a: Literal[Color.RED]) -> X", "(a: Literal['RED']) -> Y", "`a` is typed `Literal[Color.RED]`"),
+    ('(a: Literal["a"]) -> X', "(a: Literal['a']) -> Y", None),
+    ("(a: 'a.b') => X", "(a: 'c.b') => Y", "`a` is typed `'a.b'` in the documented list, `'c.b'` in the source"),
+    ("(cb: (n: React.ReactNode) => void) => X", "(cb: (n: ReactNode) => void) => Y", None),
+    ("(cb: (e: env.Environment) => void) => X", "(cb: (e: Environment) => void) => Y",
+     "`cb` is typed `(e:env.Environment)=>void`"),
+    ("(p: std::path::PathBuf) -> X", "(p: PathBuf) -> Y", "`p` is typed `std::path::PathBuf`"),
     ("(a: Optional[int]) -> X", "(a: int | None) -> Y", None),
     ("(a: Union[int, None]) -> X", "(a: int | None) -> Y", None),
     ("(a: Optional[int]) -> X", "(a: str | None) -> Y", "`a` is typed `Optional[int]`"),
@@ -1148,8 +1166,13 @@ def test_a_group_inside_type_parameters_states_no_return_type():
     ("(schema: VectorSchemaProvider) -> X", "(schema: VectorSchemaProvider | MultiVectorSchemaProvider) -> Y", None),
     ("(schema: A | B) -> X", "(schema: A) -> Y", "`schema` is typed `A|B` in the documented list, `A` in the source"),
     ("(a: T) -> X", "(a: U) -> Y", "`a` is typed `T` in the documented list, `U` in the source"),
-], ids=["a-typing-prefix", "a-collections-abc-prefix", "a-react-prefix", "a-typing-extensions-prefix-is-compared",
-        "optional-and-a-none-union", "union-with-none", "optional-of-another-type", "union-and-a-bar",
+], ids=["a-typing-prefix", "a-collections-abc-prefix", "a-react-prefix", "a-typing-extensions-prefix",
+        "a-module-the-source-imports", "a-module-alias-in-a-forward-reference", "a-namespace-import",
+        "a-module-alias-before-type-arguments", "a-module-alias-of-typing", "another-final-name-is-compared",
+        "two-paths-to-one-final-name-are-compared", "two-namespaces-to-one-final-name-are-compared",
+        "a-literal-string-is-no-path", "a-literal-member-is-no-forward-reference", "a-literal-string-in-either-quote",
+        "a-string-literal-type-is-no-path", "a-react-prefix-inside-a-callable",
+        "a-module-path-inside-a-callable-is-compared", "a-rust-path-is-compared", "optional-and-a-none-union", "union-with-none", "optional-of-another-type", "union-and-a-bar",
         "a-union-in-any-order", "typing-list", "typing-dict", "typing-tuple", "typing-set", "typing-frozenset",
         "typing-type", "a-list-of-another-type", "a-bare-typing-alias", "a-parenthesized-union",
         "a-forward-reference", "array-and-brackets",
@@ -1158,9 +1181,13 @@ def test_a_group_inside_type_parameters_states_no_return_type():
         "a-documented-member-of-the-source-s-union", "a-documented-union-wider-than-the-source-s",
         "a-renamed-type-variable"])
 def test_types_both_sides_write_are_compared_by_the_rules_equivalent_spellings(documented_sig, source_sig, reason):
-    """A type both sides write is compared as Equivalent spellings and Annotations read it: a `typing.`,
-    `collections.abc.` or `React.` prefix (not `typing_extensions.`), `Optional` and `Union` against `|`, a
-    union in any order, `typing`'s aliases against the builtins, a quoted forward reference, `Array<T>` against
+    """A type both sides write is compared as Equivalent spellings and Annotations read it: a type's name by its
+    final name, with or without the module or namespace path it is written through on one side (#999: `typing.`,
+    `typing_extensions.`, `environment.`, `z.`, `np.`, in a quoted forward reference too), while two different
+    paths stay two names, a `Literal[...]` argument is a value (a string in either quote alike) and a string literal
+    type is no path, and a type read as one text (a callable's arrow) drops only a `typing.`, `collections.abc.` or
+    `React.` prefix, so another module path there, like a Rust `::` path, stays a difference; `Optional` and
+    `Union` against `|`, a union in any order, `typing`'s aliases against the builtins, a quoted forward reference, `Array<T>` against
     `T[]` and `ReadonlyArray<T>` against `readonly T[]`, and type arguments one side leaves out; a documented type
     that names some of the source's union members agrees, one wider than the source's does not, and a renamed type
     variable stays a difference."""

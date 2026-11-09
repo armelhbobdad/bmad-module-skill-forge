@@ -157,7 +157,10 @@ ratios and the gap records of the wrong signatures.
              `noexcept(...)` after a group leaves it the parameter group),
              and compared by name and in order, by name alone after a `*`
              marker; by type wherever both write one, with the common
-             Equivalent spellings (_type_key), a documented type that names
+             Equivalent spellings (_type_key, which reads a type through a
+             module or namespace path on one side only as the bare name it
+             ends in, though it cannot see that both name one declaration),
+             a documented type that names
              some members of the source's union included, and, in a TS/JS
              file, with a literal default's type for a source parameter
              that writes none; by optionality when the documented list
@@ -178,9 +181,13 @@ ratios and the gap records of the wrong signatures.
              strict side, where the rules would read the two as one: type
              variables renamed consistently, a type alias against the type
              it names, an overload set, a union of callables against one
-             callable returning the union, a call example's `name=value`
+             callable returning the union, a module path inside a type
+             read as one text (a callable's arrow), a `typing.`,
+             `collections.abc.` or `React.` prefix aside, or written with
+             `::` (Rust's `std::path::PathBuf`), a call example's `name=value`
              (read as a default, so its list claims to be complete) or
              positional literal (`RecursiveSplitter(512)`, read as a name),
+             two module paths to one declaration (`a.Foo` against `b.Foo`),
              a destructured parameter (compared as one name, so the order of
              its properties and the ones it leaves out count), a parameter
              in another language's order (Go's `id string`, C's `int n`,
@@ -362,7 +369,9 @@ LEADING_NAME_RE = re.compile(r"^[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*\s*
 # may write the call without it (_quotes).
 CALL_RECEIVER_RE = re.compile(r"^(?:[A-Za-z_$][\w$]*\s*\.\s*)+(?=[A-Za-z_$][\w$]*\s*\()")
 # The prefixes a type is compared without, as signature-comparison-rules.md's Equivalent spellings reads a name
-# with or without one: `typing.List[int]` is `List[int]`, `React.ReactNode` is `ReactNode`.
+# with or without one: `typing.List[int]` is `List[int]`, `React.ReactNode` is `ReactNode`. They are dropped
+# wherever they stand, in a type read as one text (a callable's arrow) too; any other module path is read only on
+# a type's own name, against the bare name it ends in (_names_match).
 TYPE_PREFIX_RE = re.compile(r"(?<![\w.$])(?:typing|collections\.abc|React)\.")
 # The `typing` names Equivalent spellings reads as the builtins they alias.
 TYPING_ALIASES = {"List": "list", "Dict": "dict", "Tuple": "tuple", "Set": "set", "FrozenSet": "frozenset",
@@ -371,6 +380,11 @@ TYPING_ALIASES = {"List": "list", "Dict": "dict", "Tuple": "tuple", "Set": "set"
 FORWARD_REFERENCE_RE = re.compile(r"(['\"])([A-Za-z_][^'\"]*)\1")
 # The name a type starts with, before its type arguments (`dict[str, Any]`, `Promise<T>`).
 TYPE_NAME_RE = re.compile(r"[A-Za-z_$][\w.$]*")
+# A type's name written through a module or namespace path (`environment.Environment`, `z.ZodType`), its final
+# name the group: Equivalent spellings reads the name with or without the path (_final_name).
+DOTTED_NAME_RE = re.compile(r"(?:[A-Za-z_$][\w$]*\.)+([A-Za-z_$][\w$]*)")
+# A string written in single or double quotes, its text the second group (_value).
+STRING_VALUE_RE = re.compile(r"(['\"])([^'\"]*)\1")
 # A Rust lifetime's `'a`, followed by whitespace, `,`, `>`, `+`, `)` or the end (_lifetime says where it stands).
 LIFETIME_RE = re.compile(r"'[A-Za-z_]\w*(?=[\s,>+)]|$)")
 # Each closing bracket and the opening one it closes (_levels: a `>` closes only a `<`).
@@ -1320,13 +1334,16 @@ def _type_key(text: str, extension: str = "") -> frozenset:
     reads it: the set of its union's members (cut at each `|` outside every bracket pair and string), each (its
     base name, the keys of its type arguments, None when it writes none), so `Optional[X]`, `Union[X, None]` and
     `X | None` are one key, and so are `Union[A, B]`, `A | B` and `B | A`. A `typing.`, `collections.abc.` or
-    `React.` prefix is dropped, `typing`'s `List`, `Dict`, `Tuple`, `Set`, `FrozenSet` and `Type` are the
+    `React.` prefix is dropped, a type's own name written through a module or namespace path matches the bare name
+    it ends in (_names_match: `environment.Environment` and `Environment`, while two paths stay two names),
+    `typing`'s `List`, `Dict`, `Tuple`, `Set`, `FrozenSet` and `Type` are the
     builtins they alias, a quoted forward reference is the type it quotes outside a TS/JS file (where a quoted
     type is a string literal type), `Array<T>` is `T[]`, `ReadonlyArray<T>` is `readonly T[]`, and a
     parenthesized type is the type inside. A type it reads no other way (a callable's arrow, a literal) is one
-    member, its compacted text. Type variables renamed consistently, a type alias against the type it names and a
-    union of callables against one callable returning the union are different keys: the script cannot see them
-    as one."""
+    member, its compacted text, and a Python `Literal[...]`'s arguments are values, each its text (_value). Type
+    variables renamed consistently, a type alias against the type it names and a union of callables against one
+    callable returning the union are different keys: the script cannot see them as one. It cannot see the imports
+    either, so a path and the bare name it ends in match even when they name two declarations."""
     members: set = set()
     for part in _split(TYPE_PREFIX_RE.sub("", _compact(text)), "|", extension):
         members |= _member_keys(part.strip(), extension)
@@ -1347,25 +1364,60 @@ def _member_keys(text: str, extension: str = "") -> frozenset:
         return frozenset({("Array", (_type_key(inner, extension),))})
     name = TYPE_NAME_RE.match(text)
     if name and name.end() == len(text):
-        return frozenset({(TYPING_ALIASES.get(text, text), None)})
+        return frozenset({(_written_name(text), None)})
     if name and text[name.end()] in "[<" and _encloses(text, name.end(), extension):
-        args = tuple(_type_key(arg, extension) for arg in _split(text[name.end() + 1:-1], ",", extension)
-                     if arg.strip())
-        base = TYPING_ALIASES.get(name.group(), name.group())
-        if base == "Optional" and len(args) == 1:
+        base = _written_name(name.group())
+        # a `Literal[...]`'s arguments are values, never types: no path or forward reference is read in them
+        values = _final_name(base) == "Literal" and extension not in TS_JS_EXTENSIONS
+        args = tuple(frozenset({(_value(arg.strip()), None)}) if values else _type_key(arg, extension)
+                     for arg in _split(text[name.end() + 1:-1], ",", extension) if arg.strip())
+        if _final_name(base) == "Optional" and len(args) == 1:
             return args[0] | {("None", None)}
-        if base == "Union" and args:
+        if _final_name(base) == "Union" and args:
             return frozenset().union(*args)
         return frozenset({(base, args)})
     return frozenset({(text, None)})
 
 
+def _written_name(name: str) -> str:
+    """A type's name (TYPE_NAME_RE) as its key holds it: as written when a module or namespace path leads it, for
+    _names_match to read, else with a `typing` alias read as the builtin it aliases (`List` is `list`)."""
+    return name if "." in name else TYPING_ALIASES.get(name, name)
+
+
+def _final_name(name: str) -> str:
+    """A type's name (TYPE_NAME_RE) as Equivalent spellings reads it: by its final name when it is written
+    through a module or namespace path (DOTTED_NAME_RE), so `environment.Environment` is `Environment` and
+    `np.ndarray` is `ndarray`, then a `typing` alias read as the builtin it aliases (`t.List` is `list`)."""
+    dotted = DOTTED_NAME_RE.fullmatch(name)
+    final = dotted.group(1) if dotted else name
+    return TYPING_ALIASES.get(final, final)
+
+
+def _names_match(name: str, other: str) -> bool:
+    """Whether two base names (_member_keys) are one type's, as Equivalent spellings reads a name with or without
+    the module or namespace path it is written through: the same name, or a path on one side only and the bare
+    name it ends in (_final_name: `environment.Environment` and `Environment`, `t.List` and `list`). Two different
+    paths (`a.Foo` against `b.Foo`) are two names, on the strict side, since the script cannot see the imports
+    that would say both name one declaration."""
+    if name == other:
+        return True
+    return ("." in name) != ("." in other) and _final_name(name) == _final_name(other)
+
+
+def _value(text: str) -> str:
+    """A `Literal[...]` argument as a value: its text, a string written in either quote read as one (`'a'` and
+    `"a"`), so a `.`, `/` or `|` inside a string is part of the value it writes."""
+    string = STRING_VALUE_RE.fullmatch(text)
+    return f"'{string.group(2)}'" if string else text
+
+
 def _members_match(documented: tuple, source: tuple) -> bool:
-    """Whether two union members (_type_key) are one type: one base name and, unless either side leaves its type
-    arguments out (`dict` against `dict[str, Any]`, which compares the base alone), as many arguments, each pair
-    one type (_types_match)."""
+    """Whether two union members (_type_key) are one type: one base name (_names_match) and, unless either side
+    leaves its type arguments out (`dict` against `dict[str, Any]`, which compares the base alone), as many
+    arguments, each pair one type (_types_match)."""
     (base, args), (other_base, other_args) = documented, source
-    if base != other_base:
+    if not _names_match(base, other_base):
         return False
     if args is None or other_args is None:
         return True
