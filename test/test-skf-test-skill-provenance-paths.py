@@ -1439,7 +1439,14 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
     ones: the block also defines undocumented names, or, whatever else it defines, decorates the definition with,
     passes it to or registers it through that export itself, never through an attribute of it, so a quoted
     `@x.setter` over `def x` stays a form; a declaration the floor gives a `signature` still stays that place's form.
-    A library's declaration is never decorated by its own name, so the decorator trigger cannot strip a quoted one."""
+    A library's declaration is never decorated by its own name, so the decorator trigger cannot strip a quoted one.
+
+    #1019: the function-valued const sentence never said what a const written only as the call that builds its
+    function (oms-uitripled's fenced `const badgeVariants = cva(…)`) records, so one strict run compared it as a
+    usage and the next recorded no form, and the `[]` reading made it a form that takes no parameter, a false
+    Critical when the built function takes one. The sentence after it gives such a place no `params`, `return_type`
+    or `usage_signature`: the call is the factory's form. A component keeps the form #837's sentence gives it, and a
+    const that writes its own parameter list, function type or return type keeps the function form."""
     type_only = (
         "A name the skill writes only in a type position (a parameter type, a return type or a type argument inside "
         "another entry's documented type or signature, or a parameter table's Type cell) is a type mention, not an "
@@ -1462,6 +1469,11 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
         "as `params` (`[]`, never `\"\"`, when it takes none) and `return_type`, whatever its kind (`constant` for the "
         "skill's `const` label), wherever the skill writes it, a description cell included; a bare `name()` there is "
         "still a mention; only a constant holding neither a component nor a function is a data constant.")
+    factory_constant = (
+        "A `const` holding a function, not a component, that a place writes only as the call that builds it "
+        "(`const badgeVariants = cva(…)`), with no parameter list, function type or return type of its own, "
+        "carries no `params`, `return_type` or `usage_signature` there: that call is the factory's form, not the "
+        "const's.")
     own_code = (
         "A function or class an example defines is the reader's own code, not a form of a same-named export, only at "
         "a place `inventory-floor.json` gives no `signature` and only when its fenced block also defines names the "
@@ -1473,8 +1485,16 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
         "stays that place's form.")
     text = _read(INVENTORY_CONTRACT)
     paragraphs = [_flow(block).strip() for block in re.split(r"\n[ \t]*\n", text) if block.strip()]
-    paragraph = f"{type_only} {alias_or_unexported} {not_covered} {function_constant} {own_code}"
-    assert paragraphs.count(paragraph) == 1, "the five sentences are one paragraph of their own"
+    paragraph = f"{type_only} {alias_or_unexported} {not_covered} {function_constant} {factory_constant} {own_code}"
+    assert paragraphs.count(paragraph) == 1, "the six sentences are one paragraph of their own"
+    # #1019: a const written only as its factory call writes no form there, whatever the built function takes, so no
+    # reader records the call as its usage or `[]` as its params; a component and a const with a form of its own
+    # stay out of it
+    for phrase in ("holding a function, not a component", "a place writes only as the call that builds it",
+                   "with no parameter list, function type or return type of its own",
+                   "carries no `params`, `return_type` or `usage_signature` there",
+                   "that call is the factory's form, not the const's."):
+        assert phrase in factory_constant, phrase
     # #1013: the not-covered sentence names both phrasings, takes away every form the sentence writes, and keeps the
     # entry any other place gives, prose that describes the name and a floor place included, so it narrows only that
     # sentence and never drops a name validate-inventory.py requires
@@ -1571,9 +1591,12 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     Default table had no encoding, so one table gave a false Critical, a match or no check by how it was flattened;
     it is now an entry of its own, at the heading or caption above it that writes the name, its rows one object type
     with no mark, so it states no optionality. Each sentence sits at its place on the contract's paragraph, and
-    coverage-check.md, which loads the contract, does not grow."""
-    s1 = ("A function's or a class's form the skill writes as a call expression (after `await`, `new` or an "
-          "assignment, through a receiver or module path such as `coco.`, or as a statement in a fenced example), at "
+    coverage-check.md, which loads the contract, does not grow. #1019: the call expression is one of the entry's own
+    name, so `const badgeVariants = cva(…)`, a call after an assignment, is a form of `cva`, never of
+    `badgeVariants`, while `h = await coco.mount(fn)` stays a form of `mount`."""
+    s1 = ("A function's or a class's form the skill writes as a call expression of its own name (after `await`, "
+          "`new` or an assignment, through a receiver or module path such as `coco.`, or as a statement in a "
+          "fenced example), at "
           "a place `inventory-floor.json` gives no `signature` (below), is recorded whole in `usage_signature`, never "
           "in `params`, whatever names its arguments use, and a return type the skill writes for it in "
           "`return_type`, while a class's form written as a parameter list or a signature stays in `params` (`Note` "

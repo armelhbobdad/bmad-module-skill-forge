@@ -1224,6 +1224,42 @@ def test_a_pinned_call_keeps_its_params_and_a_props_table_is_placed_at_its_headi
     assert "at" not in r["inventory"]["exports"][1]
 
 
+FACTORY_SKILL = ("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"
+                 "| `badgeVariants` | const | `const badgeVariants = cva(…)` |\n\n"
+                 "```ts\n// [SRC:src/button.ts:L5]\nexport const buttonVariants = cva(…)\n```\n\n"
+                 "```ts\nconst onSubmit = make(…)\n```\n")
+
+
+def test_a_const_written_only_as_its_factory_call_has_no_pinned_form(tmp_path):
+    """#1019: the contract gives a `const` that a place writes only as the call that builds its function
+    (oms-uitripled's `const badgeVariants = cva(…)`) no `params`, `return_type` or `usage_signature` there, so
+    its entry is never compared, whatever the factory returns (an in-tree `make` that returns
+    `(event: Event) => void` included). The floor pins no signature at such a place, a Signature cell or a cited
+    fenced declaration, and an uncited block gives no origin, so an inventory whose entries there carry no form
+    passes --floor (exit 0) with no violation or warning and is written as given. No script changed."""
+    pkg = _package(tmp_path, FACTORY_SKILL)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("badgeVariants", [_floor_origin("SKILL.md", 5, "table-row")]),
+        ("buttonVariants", [_floor_origin("SKILL.md", 9, "declaration")])], (
+        "neither factory call is pinned a signature, and the uncited block gives no origin")
+    names = ("badgeVariants", "buttonVariants", "onSubmit")
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*[(name, "constant", {"description": ""}) for name in names]).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 2, "checked": 2, "absent": []}
+    assert json.loads(out.read_bytes())["exports"] == [
+        {"name": name, "kind": "constant", "description": ""} for name in names], "no form is added or asked for"
+
+
 def test_a_floor_name_of_an_unlisted_reference_is_not_checked():
     """A floor name counts only through SKILL.md or a reference the inventory lists; the first such origin is
     the one the violation names."""
