@@ -33,6 +33,9 @@ and none of the `difference` tags. These tests keep:
   may leave out, each export's form read alone (#843), and forms attributed
   to two declarations of one name never compared with each other there
   (#927);
+- the forms one file writes for one name as an overload set read there as
+  one documented set, as a source's is, its own forms never compared with
+  each other (#1017);
 - a partial label in a table's column header labelling each of its rows;
 - a name written with empty parentheses in running text or a description
   cell (any cell but an export table's first cell and a call or signature
@@ -236,6 +239,29 @@ def test_a_caller_following_a_narrower_form_makes_a_valid_call():
     assert "`Callable[[A], X] | Callable[[A], Y]` and `(a: A) -> X | Y`" in spellings
     overloads = _section("Overload sets")
     assert "the unions of the overloads' types" in overloads
+
+
+def test_a_documented_overload_set_is_read_as_one_set():
+    """#1017 (oms-cognee 1.6.2): Overload sets spoke only of a source declaration, so in the split-body cross-check a
+    body form that defaults `dataset` and `format` could be compared with one documented `@overload` stub that
+    requires both and fail on optionality, though it matches the implementation the same reference writes after its
+    stubs. The forms one file writes for one name as an overload set are one documented set, read as a source's is:
+    a form on the other side matching its implementation, a stub or the stubs' unions is no mismatch, and the set's
+    own forms are never compared with each other."""
+    overloads = _section("Overload sets")
+    source = ("A declaration opening an overload set (Python `@overload` stubs, TS bodiless signatures) is read through "
+              "its implementation")
+    documented = ("In the split-body cross-check, the forms one file writes for one name as an overload set "
+                  "(`@overload` stubs or TS bodiless signatures, and the implementation after them when the file "
+                  "writes it) are one documented overload set, read as a source's is: a form on the other side that "
+                  "matches its implementation, any of its stubs or, position by position, the unions of the stubs' "
+                  "parameter types is no mismatch, so a form that defaults `format` matches a set whose stub requires "
+                  "it and whose implementation defaults it.")
+    own = "The set's own forms are compared neither with each other nor with its implementation."
+    for sentence in (source, documented, own):
+        assert sentence in overloads, sentence
+    assert overloads.index(source) < overloads.index(documented) < overloads.index(own), "the source's rule comes first"
+    assert _flow(_read(RULES)).count("one documented overload set") == 1, "one copy"
 
 
 def test_a_usage_form_is_read_as_what_it_writes():
@@ -552,6 +578,11 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
     assert paragraph.index(homonyms) < paragraph.index(reader) < paragraph.index(each), "the reader's default sits between"
     assert paragraph.endswith(each), "the #927 rule ends the split-body paragraph"
     assert rules.count("attributed to different declarations") == 1, "one copy"
+    # #1017: forms one file writes as an overload set are read as one set, by the rule under Overload sets
+    pointer = "The forms one file writes for one name as an overload set are read as one set, as Overload sets says."
+    first = "and a parameter's optionality is compared only when both forms state it."
+    assert pointer in paragraph, pointer
+    assert paragraph.index(first) < paragraph.index(pointer) < paragraph.index(homonyms), "after the first sentence"
     # the `bound` rule it points at ("below") stays below it
     flowed = _flow(rules)
     assert flowed.index(each) < flowed.index("A form the check binds (`bound`")
