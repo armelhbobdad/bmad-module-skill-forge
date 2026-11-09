@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   Test Skill's Coverage Analysis section now lists the public names no recipe found (the surface's `extractionGaps`) on an `Extraction Gaps` line of its Coverage Summary, each at its file and line, and lists one with no file (the runner's trace reached no file for it) as `not located`. The Forge tier's coverage check no longer asks the run to read these declarations by eye: the signature comparison already judges each one with a file that the skill documents with a form, and nothing used the by-eye read. A documented gap with no file still has no file for its judge to read, as before. Before, a run that followed the step read every gap declaration (16 on oms-cocoindex) without changing any score, and a gap with no file reached the report only when the run chose to list it. Scores do not change.
 issues: [1048]
+prs: [1053]
