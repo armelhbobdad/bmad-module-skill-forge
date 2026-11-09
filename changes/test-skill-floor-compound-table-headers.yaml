@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill halts with `inventory-invalid` on a name from a `Queries`, `Component / Props` or other compound export table, run it again: the skill needs no change for it. If a run now stops at the hard gate on a gap for such a name, or on a `signature-mismatch` for a form such a row now pins, document the name or correct the form in the skill (the run's `inventory-floor.json` gives each origin's file, line and `signature`), then run Test Skill again. If a name there is not an export, change that table's header rather than document it, and if a `signature` misreads the row, report it as a bug with the line and the `signature`.
 issues: [1004]
+prs: [1057]

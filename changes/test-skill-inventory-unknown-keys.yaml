@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill halts with `inventory-invalid` on an entry key the contract does not define, run it again: the skill needs no change for it. If the form the entry now carries stops the skill at the hard gate on a `signature-mismatch`, correct that form in the skill, then run Test Skill again.
 issues: [1001]
+prs: [1057]

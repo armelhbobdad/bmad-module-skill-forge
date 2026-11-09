@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill halts with `inventory-invalid` on a mismatch `export` that names no inventory entry, run it again: the skill needs no change for it.
 issues: [1033]
+prs: [1057]

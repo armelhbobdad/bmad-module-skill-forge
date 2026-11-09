@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a table row compared with the declaration its own citation names, correct the form, or the citation when it points at the wrong declaration, then run Test Skill again. A row that relied on a citation written on the line after it, or after its table, takes that citation into one of its cells.
 issues: [998]
+prs: [1057]

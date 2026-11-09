@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a run now stops at the hard gate on a `signature-mismatch` for a pinned form whose own member the skill places before or among the shared members, correct the order in the skill to the one the source declares, then run Test Skill again.
 issues: [1028]
+prs: [1057]

@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill halts with `inventory-invalid` on a `signature_form` the floor does not pin, run it again: the skill needs no change for it. If a run now stops at the hard gate on a `signature-mismatch` for a pinned form the skill presents as partial only in words, put the label in its column header, such as `Signature (simplified)`, or write the full form, then run Test Skill again.
 issues: [1029]
+prs: [1057]

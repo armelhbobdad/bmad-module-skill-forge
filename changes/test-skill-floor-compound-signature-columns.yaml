@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill halts with `inventory-invalid` on a form from a `Signature / Purpose` or other compound Signature column, run it again: the skill needs no change for it. If a run now stops at the hard gate on a `signature-mismatch` for a form such a column now pins, correct the form in the skill (the run's `inventory-floor.json` gives each origin's file, line and `signature`), then run Test Skill again. If a `signature` misreads the cell, report it as a bug with the line and the `signature`.
 issues: [1030]
+prs: [1057]
