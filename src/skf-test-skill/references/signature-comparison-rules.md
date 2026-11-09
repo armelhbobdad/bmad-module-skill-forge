@@ -48,7 +48,7 @@ A props list states optionality as Reading a form says: `({ of, meta, story })`,
 
 ## Annotations
 
-- A parameter written without a type is not compared on type: its name and order are, and its optionality as Reading a form says. Bare `*args` matches `*args: P.args`, and `**kwargs` matches `**kwargs: P.kwargs`.
+- A parameter written without a type is not compared on type: its name and order are, and its optionality as Reading a form says. Bare `*args` matches `*args: P.args`, and `**kwargs` matches `**kwargs: P.kwargs`. A parameter's or prop's type written as a description is read as a return type is (below): a description followed by a type (`Pydantic BaseModel`) states that type, and text that names no type (`Union (many)`) states none, so it is not compared, as an unwritten type is not.
 - A return type the form does not state is not compared. A form states one when its entry has a non-blank `return_type` or the form writes one: after `->`, `=>`, `→` or `):`, or in its language's own position (Go's result list after the parameters, the type before the name in C, C++ and Java). A blank `return_type` (`""`) states none, so an entry with `params: ""` and no return type matches `def f() -> None`.
 - A return written as names of values rather than types, a parenthesized list of names such as `→ (nodes, edges)` (after the arrow or in `return_type`), states no return type, so no return is compared. A type name written alone stays a type, lowercase ones included: `-> list` and `→ str` state one. A bracketed or braced list of value names, such as `→ [state, setState]` or `=> { data, error }`, likewise states none, while a single name (`→ result`), a list that writes a type among its names (`(nodes: list[Node], edges)`) and a description followed by a type (`HTML str`) each state one.
 - A type the source leaves unannotated, on a parameter or a return, is not compared, except that a TS/JS parameter with a literal default has that literal's type: `pageSize = 20` is a `number`, so `pageSize?: string` is a mismatch. An unannotated return stays uncompared.
@@ -61,6 +61,7 @@ A props list states optionality as Reading a form says: `({ of, meta, story })`,
 Two spellings of one type are no mismatch:
 
 - `Optional[X]`, `Union[X, None]` and `X | None`; `Union[A, B]` and `A | B`; a union's members in any order (`None | X`, `B | A`).
+- `A / B` written between types in one parameter's or prop's type and `A | B`, as a table's Type cell, where a bare `|` cannot stand, writes a union: `str / list[str] / None` and `str | list[str] | None`. A `/` written alone in a parameter list stays the positional-only marker (Reading a form).
 - `typing`'s `List`, `Dict`, `Tuple`, `Set`, `FrozenSet` and `Type` and the builtins `list`, `dict`, `tuple`, `set`, `frozenset` and `type`.
 - A name with or without the module or namespace path it is written through, such as a `typing.`, `collections.abc.` or `React.` prefix or a module or namespace the source imports under its own name or an alias, when both name one declaration: `React.ReactNode` and `ReactNode`; `environment.Environment`, after `from . import environment`, and `Environment`; `z.ZodType` and `ZodType`. Two declarations that only share a name stay two types.
 - A quoted forward reference and the name it quotes: `"Node"` and `Node`.

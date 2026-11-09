@@ -1146,6 +1146,16 @@ def test_a_group_inside_type_parameters_states_no_return_type():
     ("(a: Optional[int]) -> X", "(a: str | None) -> Y", "`a` is typed `Optional[int]`"),
     ("(a: Union[A, B]) -> X", "(a: A | B) -> Y", None),
     ("(a: B | A) -> X", "(a: A | B) -> Y", None),
+    ("(a: str / list[str] / None) -> X", "(a: str | list[str] | None) -> Y", None),
+    ("(a: string / number) => X", "(a: number | string) => Y", None),
+    ("(a: list[str / int]) -> X", "(a: list[int | str]) -> Y", None),
+    ("(a: str / None, /) -> X", "(a: str | None, /) -> Y", None),
+    ("(a: str / None) -> X", "(a: int | None) -> Y",
+     "`a` is typed `str/None` in the documented list, `int|None` in the source"),
+    ("(a: Literal['x/y']) -> X", "(a: Literal['y/x']) -> Y", "`a` is typed `Literal['x/y']`"),
+    ("(a: Annotated[int, 'a/b']) -> X", "(a: Annotated[int, 'b/a']) -> Y", "`a` is typed `Annotated[int,'a/b']`"),
+    ("(a: 'x/y') => X", "(a: 'x' | 'y') => Y", "`a` is typed `'x/y'` in the documented list"),
+    ("(a: Pydantic BaseModel) -> X", "(a: BaseModel) -> Y", "`a` is typed `Pydantic BaseModel`"),
     ("(a: List[int]) -> X", "(a: list[int]) -> Y", None),
     ("(a: Dict[str, int]) -> X", "(a: dict[str, int]) -> Y", None),
     ("(a: Tuple[int, str]) -> X", "(a: tuple[int, str]) -> Y", None),
@@ -1173,7 +1183,12 @@ def test_a_group_inside_type_parameters_states_no_return_type():
         "a-literal-string-is-no-path", "a-literal-member-is-no-forward-reference", "a-literal-string-in-either-quote",
         "a-string-literal-type-is-no-path", "a-react-prefix-inside-a-callable",
         "a-module-path-inside-a-callable-is-compared", "a-rust-path-is-compared", "optional-and-a-none-union", "union-with-none", "optional-of-another-type", "union-and-a-bar",
-        "a-union-in-any-order", "typing-list", "typing-dict", "typing-tuple", "typing-set", "typing-frozenset",
+        "a-union-in-any-order", "a-slash-union", "a-slash-union-in-ts", "a-slash-union-in-type-arguments",
+        "a-slash-union-beside-the-positional-only-marker", "a-slash-union-of-another-type",
+        "a-slash-in-a-string-is-no-union", "a-slash-in-a-quoted-argument-is-no-union",
+        "a-slash-in-a-string-literal-type-is-no-union",
+        "a-type-written-as-a-description-is-compared-as-its-text",
+        "typing-list", "typing-dict", "typing-tuple", "typing-set", "typing-frozenset",
         "typing-type", "a-list-of-another-type", "a-bare-typing-alias", "a-parenthesized-union",
         "a-forward-reference", "array-and-brackets",
         "readonly-array-and-readonly-brackets", "an-array-is-no-readonly-array", "type-arguments-the-form-leaves-out",
@@ -1190,7 +1205,9 @@ def test_types_both_sides_write_are_compared_by_the_rules_equivalent_spellings(d
     `Union` against `|`, a union in any order, `typing`'s aliases against the builtins, a quoted forward reference, `Array<T>` against
     `T[]` and `ReadonlyArray<T>` against `readonly T[]`, and type arguments one side leaves out; a documented type
     that names some of the source's union members agrees, one wider than the source's does not, and a renamed type
-    variable stays a difference."""
+    variable stays a difference. #1003: a `/` between types is a `|`, as a table's Type cell writes a union, in type
+    arguments and beside a positional-only `/` marker too, but not inside a string, and a type written as a
+    description (`Pydantic BaseModel`) is compared as its text, on the strict side."""
     _check_parameters(documented_sig, source_sig, ".ts" if "=>" in documented_sig else ".py", reason)
 
 

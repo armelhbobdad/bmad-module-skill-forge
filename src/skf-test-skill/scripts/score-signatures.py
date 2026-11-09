@@ -180,7 +180,9 @@ ratios and the gap records of the wrong signatures.
              compared by the text before its return. Still refused, on the
              strict side, where the rules would read the two as one: type
              variables renamed consistently, a type alias against the type
-             it names, an overload set, a union of callables against one
+             it names, a parameter type written as a description
+             (`Pydantic BaseModel`, `Union (many)`, compared as its text),
+             an overload set, a union of callables against one
              callable returning the union, a module path inside a type
              read as one text (a callable's arrow), a `typing.`,
              `collections.abc.` or `React.` prefix aside, or written with
@@ -1329,9 +1331,12 @@ def _parameters(sig: str, extension: str = "") -> list[dict] | None:
     return params
 
 
-def _type_key(text: str, extension: str = "") -> frozenset:
+def _type_key(text: str, extension: str = "", in_string: bool = False) -> frozenset:
     """A written type, in a file of `extension`, as signature-comparison-rules.md's Equivalent spellings commonly
-    reads it: the set of its union's members (cut at each `|` outside every bracket pair and string), each (its
+    reads it: the set of its union's members (cut at each `|` outside every bracket pair and string, and at each
+    `/` there, which a table's Type cell writes between types for a `|`: `str / None` is `str | None`; a `/` alone
+    in a parameter list is the positional-only marker _parameters skips, and one in a quoted forward reference
+    (`in_string`, at any depth) is part of its string), each (its
     base name, the keys of its type arguments, None when it writes none), so `Optional[X]`, `Union[X, None]` and
     `X | None` are one key, and so are `Union[A, B]`, `A | B` and `B | A`. A `typing.`, `collections.abc.` or
     `React.` prefix is dropped, a type's own name written through a module or namespace path matches the bare name
@@ -1346,22 +1351,23 @@ def _type_key(text: str, extension: str = "") -> frozenset:
     either, so a path and the bare name it ends in match even when they name two declarations."""
     members: set = set()
     for part in _split(TYPE_PREFIX_RE.sub("", _compact(text)), "|", extension):
-        members |= _member_keys(part.strip(), extension)
+        for member in [part] if in_string else _split(part, "/", extension):
+            members |= _member_keys(member.strip(), extension, in_string)
     return frozenset(members)
 
 
-def _member_keys(text: str, extension: str = "") -> frozenset:
+def _member_keys(text: str, extension: str = "", in_string: bool = False) -> frozenset:
     """The union members (_type_key) one part of a type with no `|` outside brackets stands for."""
     quoted = FORWARD_REFERENCE_RE.fullmatch(text) if extension not in TS_JS_EXTENSIONS else None
     if quoted:
-        return _type_key(quoted.group(2), extension)
+        return _type_key(quoted.group(2), extension, True)
     if text.startswith("(") and _encloses(text, 0, extension):
-        return _type_key(text[1:-1], extension)
+        return _type_key(text[1:-1], extension, in_string)
     if text.endswith("[]") and len(text) > 2:
         inner = text[:-2].strip()
         if inner.startswith("readonly "):
-            return frozenset({("ReadonlyArray", (_type_key(inner[len("readonly "):], extension),))})
-        return frozenset({("Array", (_type_key(inner, extension),))})
+            return frozenset({("ReadonlyArray", (_type_key(inner[len("readonly "):], extension, in_string),))})
+        return frozenset({("Array", (_type_key(inner, extension, in_string),))})
     name = TYPE_NAME_RE.match(text)
     if name and name.end() == len(text):
         return frozenset({(_written_name(text), None)})
@@ -1369,7 +1375,7 @@ def _member_keys(text: str, extension: str = "") -> frozenset:
         base = _written_name(name.group())
         # a `Literal[...]`'s arguments are values, never types: no path or forward reference is read in them
         values = _final_name(base) == "Literal" and extension not in TS_JS_EXTENSIONS
-        args = tuple(frozenset({(_value(arg.strip()), None)}) if values else _type_key(arg, extension)
+        args = tuple(frozenset({(_value(arg.strip()), None)}) if values else _type_key(arg, extension, in_string)
                      for arg in _split(text[name.end() + 1:-1], ",", extension) if arg.strip())
         if _final_name(base) == "Optional" and len(args) == 1:
             return args[0] | {("None", None)}

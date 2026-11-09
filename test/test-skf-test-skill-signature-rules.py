@@ -722,6 +722,14 @@ def test_an_annotation_a_form_leaves_out_is_not_compared():
     assert ("A parameter written without a type is not compared on type: its name and order are, and its optionality "
             "as Reading a form says.") in annotations
     assert "Bare `*args` matches `*args: P.args`, and `**kwargs` matches `**kwargs: P.kwargs`." in annotations
+    # #1003: a parameter's or prop's type written as a description gets the reading a return's has, so a Type cell
+    # such as `Pydantic BaseModel` or `Union (many)` has one reading for every judge. It closes the first bullet,
+    # apart from the return bullets, as the parameter-side sentence there.
+    described = ("A parameter's or prop's type written as a description is read as a return type is (below): a "
+                 "description followed by a type (`Pydantic BaseModel`) states that type, and text that names no type "
+                 "(`Union (many)`) states none, so it is not compared, as an unwritten type is not.")
+    [untyped] = [line for line in _read(RULES).splitlines() if line.startswith("- A parameter written without a type")]
+    assert untyped.endswith("`**kwargs: P.kwargs`. " + described), "#1003: on the parameter bullet"
     assert "A return type the form does not state is not compared." in annotations
     assert ("or in its language's own position (Go's result list after the parameters, the type before the name in C, "
             "C++ and Java)") in annotations
@@ -820,6 +828,17 @@ def test_two_spellings_of_one_type_are_no_mismatch():
             "the package exports, a mismatch's `source_sig` writes it as the type "
             "it names, by its exported name when it has one (`ThemesParameters['themes']`, not the local "
             "`ThemesParameters`), so the form the gap asks for matches the source.") in spellings
+    # #1003: a Markdown Type cell cannot hold a bare `|`, so Create Skill's tables write a union with `/`; it spells
+    # the union, as score-signatures.py's _type_key reads it, while a `/` alone in a parameter list stays the
+    # positional-only marker Reading a form names.
+    slash = ("- `A / B` written between types in one parameter's or prop's type and `A | B`, as a table's Type cell, "
+             "where a bare `|` cannot stand, writes a union: `str / list[str] / None` and `str | list[str] | None`. "
+             "A `/` written alone in a parameter list stays the positional-only marker (Reading a form).")
+    assert slash in spellings
+    lines = _read(RULES).splitlines()
+    [i] = [n for n, line in enumerate(lines) if line.startswith("- `Optional[X]`, `Union[X, None]` and `X | None`")]
+    assert lines[i + 1] == slash, "#1003: beside the other union spellings"
+    assert "A positional-only `/` or keyword-only `*` marker" in _section("Reading a form"), "the marker it names"
 
 
 def test_every_difference_the_script_accepts_is_defined_in_the_rules_file_alone():

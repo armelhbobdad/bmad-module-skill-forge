@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's signature rules now read a parameter's or prop's type written with `/` between types as the union it spells, since a table's Type cell cannot hold a bare `|`: `str / list[str] / None` matches the source's `str | list[str] | None`, while a `/` written alone in a parameter list stays the positional-only marker. A parameter's or prop's type written as a description is read as a return type already was: a description followed by a type (`Pydantic BaseModel`) states that type, and text that names no type (`Union (many)`) states none, so it is not compared. Before, a judge that read either cell as written raised a Critical `signature-mismatch` gap on a correct table and failed the hard gate. Test Skill's scoring script reads a `/` between types as `|` too when it checks the facts of a mismatch tagged `annotation-contradicted`, so such a mismatch whose parameters write a union with `/` on one side only is now an Info `observation` instead of a Critical gap; it still compares a type written as a description as written.
+issues: [1003]
