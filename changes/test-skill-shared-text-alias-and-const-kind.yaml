@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory contract now keeps the skill's prose out of a form and settles two more readings oh-my-skills rehearsal readers split on. The shared text several names' entries carry before `; ` is the members the place states once, without the words that introduce them: the contract's own example wrote `each with the base fields id, scope=Scope(); content, title=None`, which a reader copied, so the signature judge read prose as a parameter. A `type` alias, even one the skill writes as a function type, now carries no parameters or return type, and a name the skill declares with `const`, a fenced `export const` included, is a `constant` when the skill gives it no kind label.
+issues: [1034, 1019]
+prs: [1060]

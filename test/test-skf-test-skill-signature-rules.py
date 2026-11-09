@@ -217,12 +217,23 @@ def test_a_form_claims_only_what_it_writes():
     it for no member has its optionality uncompared, and once one member states it the unmarked ones claim to be
     required. A default's value is not compared. In the split-body cross-check an annotation either form leaves out
     is not compared. #1025: an entry with no `params` key and no usage form writes no parameter list, so it claims
-    nothing about parameters, while a blank `params` claims the export takes none."""
+    nothing about parameters, while a blank `params` claims the export takes none. Coherence review of #1025: read
+    literally, takes none made an optional parameter a blank `params` leaves out an `omitted-optional` difference,
+    Critical on a full form, while a heading `### connect()` the reader records as `params: ""` is an empty call
+    that matches a source whose parameters are all optional, and score-signatures.py reads `()` as an empty list of
+    bare names. A blank `params` is now read as that list: a required parameter left out is a mismatch, an optional
+    one no difference."""
     reading = _section("Reading a form")
     assert "A form claims only what it writes" in reading
     assert ("A type or a return type it does not write claims nothing (Annotations). An entry with no `params` key and "
             "no usage form writes no parameter list: it claims nothing about parameters, and only what it writes, such "
-            "as its return type, is compared. `params: \"\"` or `[]` claims the export takes none.") in reading
+            "as its return type, is compared. `params: \"\"` or `[]` claims the export takes none, as an empty list of "
+            "bare names (below) does: a required parameter the source takes is a mismatch, and an optional one is no "
+            "difference, as for an empty call.") in reading
+    assert ("A list of bare names, with no type, default or `?` (`connect(host, port)`, `({ themes, defaultTheme })`), "
+            "names parameters without claiming the list is complete: an optional member it leaves out is no "
+            "difference, a required one is a mismatch.") in reading
+    assert "so it matches a source whose parameters are all optional" in reading
     assert "The source's declaration decides" in reading
     assert "with one exception, a return annotation the body contradicts (Annotations)" in reading
     assert ("Optionality is stated only by a default, a `?` (on the name, or as `?:`) or an optional marker: "
@@ -331,21 +342,35 @@ def test_a_documented_overload_set_is_read_as_one_set():
     requires both and fail on optionality, though it matches the implementation the same reference writes after its
     stubs. The forms one file writes for one name as an overload set are one documented set, read as a source's is:
     a form on the other side matching its implementation, a stub or the stubs' unions is no mismatch, and the set's
-    own forms are never compared with each other."""
+    own forms are never compared with each other. Coherence review of #1017 and #1023: the split-body sentence named
+    only stubs and TS bodiless signatures after #1023 made other languages' overloads one set too, so a reference
+    that writes `Client(String host)` and `Client(String host, int port)` was one set by the pointer in the
+    split-body paragraph and two forms by this sentence's list, and a body's `new Client("localhost", 8080)` was a
+    High split-body-mismatch on one reading only. The documented set now takes those declarations too."""
     overloads = _section("Overload sets")
     source = ("A declaration opening an overload set (Python `@overload` stubs, TS bodiless signatures) is read through "
               "its implementation")
     documented = ("In the split-body cross-check, the forms one file writes for one name as an overload set "
                   "(`@overload` stubs or TS bodiless signatures, and the implementation after them when the file "
-                  "writes it) are one documented overload set, read as a source's is: a form on the other side that "
-                  "matches its implementation, any of its stubs or, position by position, the unions of the stubs' "
-                  "parameter types is no mismatch, so a form that defaults `format` matches a set whose stub requires "
-                  "it and whose implementation defaults it.")
+                  "writes it, or the several declarations of a name the paragraph above makes one set) are one "
+                  "documented overload set, read as a source's is: a form on the other side that matches its "
+                  "implementation, any of its stubs or declarations or, position by position, the unions of the "
+                  "stubs' parameter types is no mismatch, so a form that defaults `format` matches a set whose stub "
+                  "requires it and whose implementation defaults it, and `new Client(\"localhost\", 8080)` matches a "
+                  "file's `Client(String host)` and `Client(String host, int port)`.")
     own = "The set's own forms are compared neither with each other nor with its implementation."
     for sentence in (source, documented, own):
         assert sentence in overloads, sentence
     assert overloads.index(source) < overloads.index(documented) < overloads.index(own), "the source's rule comes first"
+    paragraphs = [_flow(p) for p in _slice(_read(RULES), "## Overload sets\n", "## Difference tags").split("\n\n")]
+    above = paragraphs.index(next(p for p in paragraphs if documented in p)) - 1
+    assert paragraphs[above].startswith("A name declared several times with different parameter lists and no "
+                                        "implementation they share"), "the paragraph above is the other languages' set"
     assert _flow(_read(RULES)).count("one documented overload set") == 1, "one copy"
+    split_body = next(_flow(p) for p in _read(RULES).split("\n\n")
+                      if p.startswith("In the split-body cross-check both forms are documented"))
+    assert ("The forms one file writes for one name as an overload set are read as one set, as Overload sets "
+            "says.") in split_body, "the split-body paragraph points at the sentence it reads"
 
 
 def test_a_usage_form_is_read_as_what_it_writes():
@@ -1106,8 +1131,8 @@ def test_every_coverage_check_judge_names_the_rules_file():
 def test_a_partial_label_in_a_table_header_labels_each_row():
     """#827: oms-storybook's `Props (simplified)` column header labels every row of its table partial."""
     contract = _paragraph(_read(REFS / "inventory-contract.md"), "The contract `validate-inventory.py` checks")
-    assert ("not rest or variadic syntax; a label in a table's column header, such as `Props (simplified)`, labels "
-            "each of its rows) carries `signature_form: \"partial\"`") in contract
+    assert ("nor an argument's value such as `api_key=...`; a label in a table's column header, such as `Props "
+            "(simplified)`, labels each of its rows, every form their cells write included") in contract
 
 
 def test_an_empty_parenthesized_mention_is_no_form():
@@ -1124,26 +1149,37 @@ def test_an_empty_parenthesized_mention_is_no_form():
     catalog.md writes `fetchComponent(componentName)` and `add(componentName, options)` in prose with no prefix, which
     the split-body reader, reading prose directly, could take for a list of bare names and compare by name. The rules
     paragraph now ends on the prose call: a call, whatever comes before the name, unless it writes a parameter type,
-    a return type or a `?`."""
-    mention = "A name written with empty parentheses in running text or a description cell is a mention, not a form"
+    a return type or a `?`. Coherence review (oh-my-skills rehearsals on cognee, cocoindex and storybook): readers
+    split on a placeholder call `name(...)`, which is neither empty nor passes an argument, so it is a mention as
+    `name()` is; on `run_migrations() -> list[str]` in prose, now a signature with an empty list; on a list with a
+    bare `*` or `/`, which no call writes, so it stays a parameter list; and on a prefixed call followed by its
+    return type, such as cocoindex's `await coco.mount([subpath,] processor_fn, *args, **kwargs) ->
+    ComponentMountHandle`, which read as bare names made `[subpath,]` a parameter the source lacks: after such a
+    prefix it stays a call."""
+    mention = ("A name written with empty parentheses, or with only `...` or `…` between them, in running text or a "
+               "description cell is a mention, not a form")
     prefix = ", whatever comes before the name (`await`, `new`, an assignment, a receiver or a module path)"
     cell = ("A description cell is any table cell but an export table's first cell and a cell whose column writes the "
             "call or signature, by its role (Signature, Props, Params, Parameters, Arguments, Usage, Syntax, Example "
             "and the like); a heading or an export table's first cell that writes `name()` is a form")
     prose_call = ("A name written with arguments in running text or a description cell is a call (below), not a list "
-                  "of bare names, whatever comes before the name, unless it writes a parameter type, a return type or "
-                  "a `?`.")
+                  "of bare names, whatever comes before the name, unless it writes a parameter type, a `?`, a bare `*` "
+                  "or `/` (no call writes one), or a return type with no `await`, `new`, assignment, receiver or "
+                  "module path before the name (`await coco.mount(fn) -> Handle` is a call).")
+    returned = ("unless a return type follows its empty parentheses (`run_migrations() -> list[str]`)")
     contract_text = _read(REFS / "inventory-contract.md")
     contract = _paragraph(contract_text, "The contract `validate-inventory.py` checks")
     assert (f"{mention}{prefix}: its entry leaves `params` and `usage_signature` out (a cell reading \"`instrument()` "
-            f"wraps functions\", a line reading \"`await cognee.disconnect()` returns to local mode\"). {cell}, "
-            "recorded as written.") in contract
+            f"wraps functions\", a line reading \"`await cognee.disconnect()` returns to local mode\"), {returned}, "
+            f"which makes it a signature, `params` `\"\"` with that `return_type`. {cell}, recorded as "
+            "written.") in contract
     assert contract.index("and leaves a key out when the skill documents nothing for it.") < contract.index(
         mention), "after the rule for a key the skill documents nothing for"
     rules = _read(RULES)
     paragraph = _paragraph(rules, mention)
-    assert paragraph == (f"{mention}{prefix}: it claims nothing and is not compared. {cell}, an empty call "
-                         f"(below). {prose_call}"), paragraph
+    assert paragraph == (f"{mention}{prefix}: it claims nothing and is not compared, {returned}, a signature whose "
+                         f"empty list claims the export takes none. {cell}, an empty call (below). {prose_call}"), (
+        paragraph)
     reading = _section("Reading a form")
     assert reading.index(paragraph) < reading.index("Three kinds of form do not claim a complete parameter list:"), \
         "before the forms that claim no complete parameter list, not inside the call-example rule"

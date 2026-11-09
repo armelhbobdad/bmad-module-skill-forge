@@ -1269,6 +1269,33 @@ def test_a_form_that_claims_no_complete_list_need_not_write_every_parameter(docu
 
 
 @pytest.mark.parametrize("documented_sig, source_sig, extension, reason", [
+    ("log(name): String", "fun log(name: String, vararg args: Any): Any", ".kt", None),
+    ("log(name, vararg args): String", "fun log(name: String, vararg args: Any): Any", ".kt", None),
+    ("log(name): String", "fun log(name: String, level: Int): Any", ".kt",
+     "the required source parameter `level` is left out"),
+    ("f(): X", "X f(...)", ".cpp", None),
+    ("(...) -> X", "(a, b) -> Y", ".py", None),
+], ids=["a-kotlin-vararg-left-out", "a-kotlin-vararg-written", "a-required-kotlin-parameter-left-out",
+        "a-c-plus-plus-variadic-left-out", "a-documented-ellipsis-still-stands-for-members"])
+def test_another_language_s_variadic_is_optional_to_a_list_of_bare_names(documented_sig, source_sig, extension,
+                                                                          reason):
+    """Coherence review of #1023: Difference tags make a Kotlin `vararg` and a C or C++ `...` optional, so a list
+    of bare names may leave either out, but the scorer read `vararg args` as one required name and a source's `...`
+    as a required member, so an annotation-contradicted mismatch on such a form failed its parameter fact and
+    stayed Critical where the rules grade it Info. Both are now optional, while a required Kotlin parameter left
+    out still fails and a documented `...` still stands for the members it does not show."""
+    _check_parameters(documented_sig, source_sig, extension, reason)
+    vararg = mod._parameters("fun log(name: String, vararg args: Any)", ".kt")[1]
+    assert (vararg["name"], vararg["type"], vararg["variadic"], vararg["optional"]) == ("vararg args", "Any", True,
+                                                                                        False)
+    fact = mod.contradiction_fact({"documented_sig": "log(name): String", "evidence_line": 3,
+                                   "source_sig": "fun log(name: String, vararg args: Any): Any"},
+                                  {"params": ["name"], "return_type": "String"}, "src/Log.kt", 1)
+    assert fact is None and mod.grade(mod.CONTRADICTED, "src/Log.kt", {"params": ["name"]}, contradiction=fact) == (
+        "Info")
+
+
+@pytest.mark.parametrize("documented_sig, source_sig, extension, reason", [
     ("get(key) -> X", "def get(self, key) -> Y", ".py", None),
     ("get(self, key) -> X", "def get(self, key) -> Y", ".py", None),
     ("(self, a) -> X", "def f(a) -> Y", ".py", "`self` is not a source parameter"),
@@ -3518,6 +3545,30 @@ def test_a_blank_and_a_missing_params_are_one_form_graded_alike_in_either_order(
                     source_root=str(tmp_path))
     assert [m["severity"] for m in out["mismatches"]] == ["Critical"], out["warnings"]
     assert (out["matchingSignatures"], out["signatureAccuracy"]) == (0, 0.0)
+
+
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)], ids=["no-params-first", "empty-params-first"])
+@pytest.mark.parametrize("labels", [(None, "partial"), ("partial", None)],
+                         ids=["a-partial-blank-params", "a-partial-return-only-form"])
+def test_a_blank_params_stands_for_both_entries_whatever_their_labels(order, labels):
+    """Coherence review of #1025: the blank `params` stood only when both entries gave the same label. A full
+    return-only `{return_type: R}` beside a partial `{params: "", return_type: R}` kept the return-only form, in
+    either order, so the plan never offered `()` and the skill's claim that `g` takes no argument was never
+    compared, though a partial label softens only an `omitted-optional` difference. The blank one now stands for
+    both whatever either's label, keeping its own label, while of two that differ only by the label the full one
+    still stands."""
+    entries = [{"name": "g", "kind": "function", "return_type": "str"},
+               {"name": "g", "kind": "function", "params": "", "return_type": "str"}]
+    for entry, label in zip(entries, labels):
+        if label:
+            entry["signature_form"] = label
+    blank = {key: value for key, value in entries[1].items() if key not in ("name", "kind")}
+    assert mod.documented_forms([entries[i] for i in order]) == {"g": [blank]}
+    full = [{"name": "g", "kind": "function", "params": "", "return_type": "str"}, entries[1]]
+    assert mod.documented_forms([full[i] for i in order]) == {"g": [{"params": "", "return_type": "str"}]}
+    # A blank `params` is an empty list of bare names: an optional parameter it leaves out is no difference.
+    assert mod._parameter_difference("()", "(host='localhost', port=5432)", ".py") is None
+    assert mod._parameter_difference("()", "(a: int)", ".py") == "the required source parameter `a` is left out"
 
 
 def test_score_grades_by_the_forms_the_plan_offered(tmp_path):

@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's split-body cross-check now reads the several declarations a reference file writes for a name overloaded in Java, Kotlin, C# or C++ as one documented overload set, as the signature comparison rules already read such declarations in the source. A reference that writes `Client(String host)` and `Client(String host, int port)` beside a SKILL.md body's `new Client("localhost", 8080)` is no mismatch. Before, the split-body paragraph read such forms as one set while the documented-set sentence named only Python `@overload` stubs and TypeScript bodiless signatures, so one reader compared the call with each constructor alone and recorded a High `split-body-mismatch` that blocks the hard gate, and another recorded nothing.
+issues: [1017, 1023]
+prs: [1060]

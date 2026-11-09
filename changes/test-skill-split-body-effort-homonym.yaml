@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  The Estimated Effort cell of Test Skill's Remediation Summary no longer contradicts a split-body gap whose two forms document different declarations of one name. Such a gap's remediation names no form to take and asks for each form's citation and module or owner instead, while the row asked to correct the file the Source names until both files document the export alike, which reads as copying one form over the other. The `split-body-mismatch` action now names both fixes: correct the file each Source names, or, where the two forms document different declarations, add beside each form the citation and module or owner its remediation names.
+issues: [1047, 1027]
+prs: [1060]

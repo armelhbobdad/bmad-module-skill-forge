@@ -35,8 +35,10 @@ ratios and the gap records of the wrong signatures.
          form that lists no member and states no return type is never an
          alternative, and two entries that say the same thing are one form
          (a `full` label and none, a list and its items joined with `, `,
-         whitespace runs; of two that differ only by the partial label, the
-         full one). The signature universe is the
+         whitespace runs, a blank `params` and none; of a blank `params` and
+         none, the blank one, which claims the export takes none, whatever
+         either's label, and of two that differ only by the partial label,
+         the full one). The signature universe is the
          surface's `all` set plus every name on its export records, so the
          names of a Python sub-package load-coverage-inputs.py keeps out of
          `all` (excluded.nestedEntries) keep their checks. A check sits at the
@@ -778,6 +780,13 @@ def _form_key(fields: dict) -> tuple:
     return _inventory().form_key(fields)
 
 
+def _strictness(fields: dict) -> tuple[bool, bool]:
+    """How strict one of two entries that say the same thing (_form_key) is, the stricter standing for both: a
+    blank `params` claims the export takes none (#1025), which one with no `params` never claims, so it comes
+    first, whatever either's label, and then a full form before a partial one."""
+    return _claims_none(fields), not _partial(fields)
+
+
 def _forms_and_places(inventory: list[dict]) -> dict[str, list[tuple[dict, list[tuple[str, int]]]]]:
     """{name: [(each of documented_forms' forms, the places the entries
     that give it write it, from their `at`: (its path, its line))]}, in
@@ -793,9 +802,7 @@ def _forms_and_places(inventory: list[dict]) -> dict[str, list[tuple[dict, list[
         same = next((i for i, (f, _) in enumerate(forms) if _form_key(f) == _form_key(fields)), None)
         if same is None:
             forms.append((fields, places))
-        elif (_partial(forms[same][0]) and not _partial(fields)) or (
-                _partial(forms[same][0]) == _partial(fields) and _claims_none(fields)
-                and not _claims_none(forms[same][0])):
+        elif _strictness(fields) > _strictness(forms[same][0]):
             # the stricter entry, in the inventory order it has, as the rank would have ordered it
             places = forms[same][1] + places
             del forms[same]
@@ -864,10 +871,11 @@ def documented_forms(inventory: list[dict]) -> dict[str, list[dict]]:
     ranks after every one that does, so it never changes the documented
     signature. A form that lists no member and states no return type is
     never an alternative. Two entries that say the same thing (_form_key)
-    are one form; of two that differ only by the partial label, the full one
-    (the stricter) stands, and of two that differ only by a blank `params`
+    are one form, and the stricter stands (_strictness): of a blank `params`
     against none, the blank one, which claims the export takes none (#1025),
-    so the grade never rests on which entry comes first."""
+    whatever either's label, and of two that differ only by the partial
+    label, the full one, so the grade never rests on which entry comes
+    first."""
     return {name: [fields for fields, _ in forms] for name, forms in _forms_and_places(inventory).items()}
 
 
@@ -1317,7 +1325,8 @@ def _parameter(text: str, extension: str = "") -> dict:
     """One parameter as _parameters reads it, but for its "by_name" and "receiver": its name is the text before
     the `:` of its type and the `=` of its default (each outside every bracket pair and string; the `=` of `==`,
     `=>`, `<=`, `>=` or `!=` is no default), the whole text when it writes neither, so a parameter in another
-    language's order (Go's `id string`) or a destructured one (`{ a, b }`) is read as one name."""
+    language's order (Go's `id string`) or a destructured one (`{ a, b }`) is read as one name. A Kotlin `vararg`
+    keeps its modifier in its name (`vararg args`) and is variadic, as signature-comparison-rules.md reads it."""
     levels = _levels(text, extension)
     at = next((i for i, ch in enumerate(text) if ch == "=" and levels[i] == 0
                and text[i + 1:i + 2] not in ("=", ">") and text[i - 1:i] not in ("=", "!", "<", ">")), None)
@@ -1329,7 +1338,8 @@ def _parameter(text: str, extension: str = "") -> dict:
     key = "**" if name.startswith("**") else "*" if name.startswith("*") else name
     return {"key": key, "name": name, "type": "" if colon is None else _compact(head[colon + 1:]),
             "default": None if at is None else text[at + 1:].strip(), "optional": optional,
-            "variadic": key in ("*", "**") or (name.startswith("...") and name not in ELLIPSES),
+            "variadic": key in ("*", "**") or (name.startswith("...") and name not in ELLIPSES)
+            or name.startswith("vararg "),
             "ellipsis": name in ELLIPSES and colon is None and at is None}
 
 
@@ -1340,8 +1350,9 @@ def _parameters(sig: str, extension: str = "") -> list[dict] | None:
     {"key": its name (_parameter), `*` for any `*args` and `**` for any `**kwargs`, whose names are never
     compared; "name": its name as written; "type": the type it writes, compacted, "" for none; "default": the text
     of its default, None for none; "optional": whether a default or a `?` on its name marks it optional;
-    "variadic": whether it is a `*args`, a `**kwargs` or a TS/JS rest `...name`; "ellipsis": whether it is an
-    ellipsis item (`...`, `…`) standing for members it does not show; "by_name": whether it comes after a `*`
+    "variadic": whether it is a `*args`, a `**kwargs`, a TS/JS rest `...name` or a Kotlin `vararg`; "ellipsis":
+    whether it is an ellipsis item (`...`, `…`), which in a documented list stands for members it does not show and
+    in a source's is a C or C++ variadic; "by_name": whether it comes after a `*`
     marker, a bare `*` or a `*args`; "receiver": whether it is the group's first item and a receiver
     (RECEIVER_RE: `self`, `cls`, `&self`, `&mut self`, `mut self`, `this: T`), which _parameter_difference
     drops}. A `sig` that holds a `;` outside every bracket pair and string (shared text before a name's own
@@ -1534,7 +1545,8 @@ def _partial_difference(documented: list[dict], source: list[dict], stated: bool
     """Why a documented list that does not claim to be complete differs from the source's, None when it does
     not: each member it writes must be a source parameter (`*args` and `**kwargs` by kind), in the source's order
     (a member after a `*` marker on either side by name alone), with no _pair_difference. A list of bare names
-    (`bare`) must also leave out only optional source parameters (a default, a `?`, `*args`, `**kwargs`, a rest),
+    (`bare`) must also leave out only optional source parameters (a default, a `?`, `*args`, `**kwargs`, a rest, a
+    Kotlin `vararg`, a C or C++ `...`),
     and, in a file of a language without keyword arguments (POSITIONAL_EXTENSIONS), none before one it writes,
     which shifts a caller's positions. A list holding an ellipsis claims nothing about what it stands for."""
     used: list[int] = []
@@ -1557,7 +1569,8 @@ def _partial_difference(documented: list[dict], source: list[dict], stated: bool
     for i, s in enumerate(source):
         if i in used:
             continue
-        if not (s["optional"] or s["variadic"]):
+        # a source's own `...` item is a C or C++ variadic, optional as signature-comparison-rules.md reads it
+        if not (s["optional"] or s["variadic"] or s["ellipsis"]):
             return f"the required source parameter `{s['name']}` is left out"
         later = min((j for j in used if j > i), default=None)
         if extension in POSITIONAL_EXTENSIONS and later is not None:

@@ -481,7 +481,9 @@ ACTIONS = {
     "inaccurate-reference": "correct each reference so it matches its target",
     "reference-escape": "point each reference inside the skill package or its source tree, or remove it",
     "integration-pattern": "add to each integration pattern the evidence its issue names as missing",
-    "split-body-mismatch": "correct the file each Source names, so both files document the export alike",
+    "split-body-mismatch": "correct the file each Source names so both files document the export alike, or, where "
+                           "the two forms document different declarations, add beside each form the citation and "
+                           "the module or owner its remediation names",
     "scripts-assets": "add or correct SKILL.md's Scripts & Assets section so it lists each file in `scripts/` and "
                       "`assets/`",
     "scripts-assets-provenance": "add each file's row to the provenance map's `file_entries`, or remove the file "
