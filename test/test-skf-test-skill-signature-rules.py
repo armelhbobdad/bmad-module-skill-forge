@@ -170,7 +170,10 @@ def test_the_reader_and_each_coverage_judge_record_the_readings_the_rules_leave_
     """#1021: the inventory reader and the signature judges could return only a fixed JSON with no field for a
     reading the contract or these rules leave open, so a PASS that rested on one was published without naming it.
     The inventory and each result of coverage-check.md §2's judge or the fallback scan now carry an `undecided` list,
-    a script checks it, and the Coverage Analysis section lists it under Borderline Calls."""
+    a script checks it, and the Coverage Analysis section lists it under Borderline Calls. The list grades nothing,
+    so a malformed item is dropped with a warning, never refused. The contract's example item names a reading whose
+    other side changes a gap: a typed form's partial label grades a left-out optional parameter Info, not Critical,
+    where a call or an ellipsis, which leave out an optional parameter with no difference either way, would not."""
     opening = _flow(_slice(_read(RULES), "# Signature Comparison Rules", "## Reading a form"))
     assert ("Two of them, coverage-check.md §2's judge (or the main thread in its place) and coverage-check-tiers.md's "
             "fallback per-file scan, also give each result an `undecided` list, empty when these rules leave none of "
@@ -179,9 +182,10 @@ def test_the_reader_and_each_coverage_judge_record_the_readings_the_rules_leave_
     assert ('Each item is `{"export", "at", "rule", "reading", "other_gap"}`: the name, the declaration\'s '
             "`file:line` (or null), the rule that leaves it open (the sentence, quoted), the reading taken, and what "
             "the other reading would give") in opening
-    assert ("`score-signatures.py` refuses an item that is no object or leaves `export`, `rule`, `reading` or "
-            "`other_gap` blank, and carries each into `signatures.json`, whose items the Coverage Analysis section "
-            "lists under Borderline Calls.") in opening
+    assert ("`score-signatures.py` drops, with a warning, an item that is no object, leaves `export`, `rule`, "
+            "`reading` or `other_gap` blank or gives a blank `at`, never refusing the result for it, and carries each "
+            "other one into `signatures.json`, whose items the Coverage Analysis section lists under Borderline "
+            "Calls.") in opening
     contract_text = _read(REFS / "inventory-contract.md")
     contract = _paragraph(contract_text, "`undecided` lists each reading")
     assert ("`undecided` lists each reading this contract or signature-comparison-rules.md leaves open that the "
@@ -189,13 +193,20 @@ def test_the_reader_and_each_coverage_judge_record_the_readings_the_rules_leave_
     assert ("Each item gives the `export` it concerns, its place as `at` (as an entry gives it; null when it has "
             "none), the `rule` that leaves it open (the sentence, quoted), the `reading` taken and, as `other_gap`, "
             "what the other reading would give") in contract
-    assert ("`validate-inventory.py` refuses an item that is no object or leaves `export`, `rule`, `reading` or "
-            "`other_gap` blank and keeps the list in the inventory it writes, and coverage-check.md §5's render lists "
-            "each item under Borderline Calls, so the report names each reading its verdict rests on. It changes no "
-            "entry or gap.") in contract
+    assert ("`validate-inventory.py` drops, with a warning, an item that is no object, leaves `export`, `rule`, "
+            "`reading` or `other_gap` blank or gives a blank `at`, never refusing the inventory for it, and keeps the "
+            "rest of the list in the inventory it writes, and coverage-check.md §5's render lists each item under "
+            "Borderline Calls, so the report names each reading its verdict rests on. It changes no entry or "
+            "gap.") in contract
+    assert "refuses an item" not in contract and "refuses an item" not in opening
     # The contract's example records one; §2's result example and the fallback scan's shape give the key.
     example = json.loads(re.search(r"```json\n(.*?)\n```", contract_text, re.S).group(1))
     assert [sorted(item) for item in example["undecided"]] == [["at", "export", "other_gap", "reading", "rule"]]
+    [item] = example["undecided"]
+    [entry] = [e for e in example["exports"] if e["name"] == item["export"] and e.get("at") == item["at"]]
+    assert "params" in entry and "usage_signature" not in entry, "a typed form, whose partial label changes a grade"
+    assert item["other_gap"] == ("a partial form: a left-out optional parameter would be an Info observation, not a "
+                                 "Critical signature-mismatch")
     judge = re.search(r'```json\n(\{"file": "src/utils\.ts".*?)\n```', _read(COVERAGE), re.S).group(1)
     assert json.loads(judge)["undecided"] == []
     assert '"unresolved_stars": [...], "undecided": [...]}`' in _read(COVERAGE_TIERS)
@@ -235,14 +246,18 @@ def test_a_form_that_opens_with_shared_text_writes_its_members():
     #1034 (oms-cognee): a row listed `.create`, `.get` and the others bare beside `each with an optional user`, and
     the split-body reader, which reads the row directly, could take that phrase for each name's partial form and
     report every required parameter the reference writes as left out. A name listed bare beside such shared text is
-    a mention there, as the contract records it."""
+    a mention there, as the contract records it. A whole parameter list, call or signature a place writes once for
+    every name it lists is no such shared text but each name's own form, so that row is still compared."""
     reading = _section("Reading a form")
     shared = ("A form that opens with text the skill states once for several names, then `; ` and the name's own "
               "members (inventory-contract.md), writes both: the members the shared text states are members that "
               "form writes, read before its own.")
     bare = ("A name listed bare beside such shared text, with no parameter list, call or signature of its own, is a "
             "mention there, not a form: it claims nothing and is not compared.")
-    assert f"{shared} {bare}" in reading
+    whole = ("A whole parameter list, call or signature written once for every name a place lists (one Signature "
+             "cell for a row that lists `get` and `head`) is no such shared text: it is each of those names' own form "
+             "there.")
+    assert f"{shared} {bare} {whole}" in reading
     assert reading.index("A default's value is not compared") < reading.index(
         "A form that opens with text the skill states once"), "after the paragraph on optionality"
 

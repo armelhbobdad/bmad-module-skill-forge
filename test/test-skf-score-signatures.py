@@ -3706,21 +3706,29 @@ JUDGED = {"export": "helper", "at": "src/helper.ts:1",
           "other_gap": "a Critical `signature-mismatch`"}
 
 
-@pytest.mark.parametrize("undecided, needle", [
-    ("helper", 'bad.txt: `undecided` must be a list when present (may be empty), not "helper"'),
-    ([3], "bad.txt.undecided[0] is not an object"),
-    ([{**JUDGED, "reading": ""}], "bad.txt.undecided[0]: `reading` must be a non-empty string"),
-    ([{k: v for k, v in JUDGED.items() if k != "rule"}], "bad.txt.undecided[0]: `rule` must be a non-empty string"),
-    ([{**JUDGED, "at": 1}], "bad.txt.undecided[0]: `at` must be a non-empty string when present, not 1"),
+@pytest.mark.parametrize("undecided, needle, kept", [
+    ("helper", '`undecided` must be a list when present (may be empty), not "helper"; the list is dropped', []),
+    ([3, JUDGED], "undecided[0] is not an object; the item is dropped", [JUDGED]),
+    ([{**JUDGED, "reading": ""}], "undecided[0]: `reading` must be a non-empty string; the item is dropped", []),
+    ([{k: v for k, v in JUDGED.items() if k != "rule"}],
+     "undecided[0]: `rule` must be a non-empty string; the item is dropped", []),
+    ([{**JUDGED, "at": 1}], "undecided[0]: `at` must be a non-empty string when present, not 1; the item is dropped",
+     []),
 ], ids=["string", "item-not-an-object", "blank-reading", "no-rule", "at-not-a-string"])
-def test_a_judge_s_malformed_undecided_list_exits_2(tmp_path, undecided, needle):
-    """#1021: a judge's `undecided` is checked as the inventory's is (validate-inventory.py's
-    undecided_violations), so a malformed one sends the judge back with the breach named."""
+def test_a_judge_s_malformed_undecided_item_is_dropped_with_a_warning(tmp_path, undecided, needle, kept):
+    """#1021: a judge's `undecided` is checked as the inventory's is (validate-inventory.py's drop_undecided): a
+    malformed item is dropped and named in `warnings`, the well-formed ones kept, and the scores are those of the
+    same result without the list. It grades nothing, so it never sends the judge back or halts the run."""
     inventory, surface = _files(tmp_path)
     bad = _write(tmp_path / "bad.txt", {"file": "src/helper.ts", "signature_mismatches": [], "undecided": undecided})
     proc = _run("score", "--inventory", inventory, "--surface", surface, "--results", bad)
-    assert proc.returncode == 2
-    assert needle in json.loads(proc.stdout)["violations"], proc.stdout
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert f"the result for `src/helper.ts`: {needle}" in out["warnings"], out["warnings"]
+    assert out["undecided"] == kept
+    plain = _write(tmp_path / "plain.txt", {"file": "src/helper.ts", "signature_mismatches": []})
+    without = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", plain).stdout)
+    assert out["signatureAccuracy"] == without["signatureAccuracy"]
 
 
 def test_score_carries_each_judge_s_undecided_reading(tmp_path):

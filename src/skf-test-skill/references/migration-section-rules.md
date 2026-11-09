@@ -50,8 +50,8 @@ authoring rule.
 Section 4b is present only when SKILL.md's body has a level-2 heading whose
 text is exactly `Migration & Deprecation Warnings`: the heading
 `skf-create-skill/assets/compile-assembly-rules.md` has create-skill emit
-verbatim, and the one `skf-shard-body.py` and `scan-doc-rot.py` match. A
-section under any other heading, such as `## Migration from v1`, is not
+verbatim, and the one `skf-shard-body.py` matches. A section under any other
+heading, such as `## Migration from v1`, is not
 Section 4b, whatever it holds: with T2-future = 0 it raises no Case, and with
 T2-future > 0 and no such heading it is Case 1. Then parse
 `evidence-report.md`'s **YAML frontmatter** for the pinned `t2_future_count`

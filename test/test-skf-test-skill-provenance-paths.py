@@ -371,26 +371,27 @@ def test_awk_detection_contract_reads_the_bound_report():
 def test_section_4b_is_the_exact_heading():
     """#1000: the Case Rules detect Section 4b by the exact heading create-skill emits and the other gates match,
     so a migration section under another heading is not Section 4b and two runs cannot read it two ways: with
-    T2-future = 0 it raises no Case, and with T2-future > 0 and no such heading it is Case 1."""
+    T2-future = 0 it raises no Case, and with T2-future > 0 and no such heading it is Case 1. It names only the
+    matcher that agrees: scan-doc-rot.py's ignores case and trailing text."""
     heading = "Migration & Deprecation Warnings"
     rules = _flow(_slice(_read(MIGRATION), "## Case Rules", "**Detection contract.**"))
     assert ("Section 4b is present only when SKILL.md's body has a level-2 heading whose text is exactly "
             f"`{heading}`: the heading `skf-create-skill/assets/compile-assembly-rules.md` has create-skill emit "
-            "verbatim, and the one `skf-shard-body.py` and `scan-doc-rot.py` match.") in rules
+            "verbatim, and the one `skf-shard-body.py` matches.") in rules
+    # scan-doc-rot.py's matcher ignores case and trailing text, so the rule claims no parity with it
+    assert "scan-doc-rot.py" not in rules
     assert ("A section under any other heading, such as `## Migration from v1`, is not Section 4b, whatever it "
             "holds: with T2-future = 0 it raises no Case, and with T2-future > 0 and no such heading it is "
             "Case 1.") in rules
     assert "field: this is the authoritative count, not the narrative body." in rules
     assert "Check whether SKILL.md contains" not in rules, "the old wording left the heading rule to the reader"
-    # The key the rule names is the one create-skill emits verbatim and both scripts match.
+    # The key the rule names is the one create-skill emits verbatim and skf-shard-body.py matches exactly.
     assembly = _flow(_read(SRC / "skf-create-skill" / "assets" / "compile-assembly-rules.md"))
     assert f"Emit the heading verbatim as `## {heading}`. Downstream gates match that exact text" in assembly
     shard = runpy_module(SCRIPTS / "skf-shard-body.py")
     assert heading in shard.TIER1_HEADINGS
     assert shard.present_tier1([f"## {heading}", "## Migration from v1"]) == {heading}
-    scan = runpy_module(SRC / "skf-create-skill" / "scripts" / "scan-doc-rot.py")
-    assert scan.migration_section_range(f"## {heading}\n- old renamed to new\n") == (1, 3)
-    assert scan.migration_section_range("## Migration from v1\n- old renamed to new\n") is None
+    assert shard.present_tier1([f"## {heading.lower()} (pre-1.0)"]) == set()
 
 
 def test_case_4_is_an_evidence_report_without_the_pinned_count():
@@ -1409,7 +1410,8 @@ SEVERAL_PLACES = ("A name documented in several places is listed once per place,
                   "(`Card` above), and once per form at a place that writes several of its forms (two overloads in "
                   "one row), each entry with that place as its `at`, never as one entry whose list `params` gives a "
                   "form per item (the validator refuses a list of two or more items when one item holds several "
-                  "parameters), and keeps one `kind` in every place.")
+                  "parameters or a whole form, or two items name the same parameter), and keeps one `kind` in every "
+                  "place.")
 
 
 def test_the_inventory_contract_gives_a_component_constant_a_usage_signature():
@@ -1448,18 +1450,20 @@ def test_the_inventory_contract_gives_a_removed_or_earlier_version_form_no_entry
     version no longer exports (no Medium `stale-documentation` gap that tells Update Skill to delete an accurate
     historical row), while the current form beside it is that place's entry; a form marked only deprecated stays a
     form, and a floor place keeps its entry and its `signature`. It extends the rule for a name documented in several
-    places, which it directly follows, and the contrast clause now names only another current declaration's form."""
+    places, which it directly follows, and the contrast clause now names only another current declaration's form.
+    The floor exception is a sentence of its own after both, so it holds for a removed form too: an export table's
+    row labelled removed is a floor place, which validate-inventory.py refuses an inventory for leaving out."""
     contract = _flow(_read(INVENTORY_CONTRACT))
     several = SEVERAL_PLACES
     removed = ("A form the skill marks as removed, or as the form of a version before the one it covers (a migration "
                "table's old-version column, a cell or row labelled gone, removed, before or old), is not a form of "
                "the current export and gives no entry, whether or not the covered version still exports the name, "
                "so it is never compared and records no gap: the current form beside it is that place's entry.")
-    kept = ("A form marked only deprecated, and still present in the covered version, stays a form, a place "
-            "`inventory-floor.json` gives the name still gives it an entry, and a `signature` the floor gives there "
-            "stays that place's form.")
-    assert f"{several} {removed} {kept}" in contract
-    assert contract.count(removed) == 1 and contract.count(kept) == 1
+    kept = "A form marked only deprecated, and still present in the covered version, stays a form."
+    floor = ("Either way, a place `inventory-floor.json` gives the name still gives it an entry, removed or not, and "
+             "a `signature` the floor gives there stays that place's form.")
+    assert f"{several} {removed} {kept} {floor}" in contract
+    assert contract.count(removed) == 1 and contract.count(kept) == 1 and contract.count(floor) == 1
     # a migration row's old cell is no second form of the name, so the place quotes no contrast that unbinds the other
     assert ("a place that writes two of its forms that differ (a row that documents one declaration's form and "
             "quotes another current declaration's form as a contrast) gives none of them a citation") in contract
@@ -1514,7 +1518,12 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
     usage and the next recorded no form, and the `[]` reading made it a form that takes no parameter, a false
     Critical when the built function takes one. The sentence after it gives such a place no `params`, `return_type`
     or `usage_signature`: the call is the factory's form. A component keeps the form #837's sentence gives it, and a
-    const that writes its own parameter list, function type or return type keeps the function form."""
+    const that writes its own parameter list, function type or return type keeps the function form.
+
+    #1016: a call with arguments and no types in prose or a description cell became a usage for a function, while the
+    function-valued const sentence still sent "wherever the skill writes it, a description cell included" to `params`,
+    so such a call of a const had two readings. The const sentence now leaves a call expression of its name to the
+    call sentence, which records it in `usage_signature` as it does a function's."""
     type_only = (
         "A name the skill writes only in a type position (a parameter type, a return type or a type argument inside "
         "another entry's documented type or signature, or a parameter table's Type cell) is a type mention, not an "
@@ -1535,8 +1544,9 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
         "A `const` whose value is a function (annotated with a function type, bound to an arrow, a `function` or a "
         "call that returns one, or written with a parameter list) carries the function form the skill writes for it "
         "as `params` (`[]`, never `\"\"`, when it takes none) and `return_type`, whatever its kind (`constant` for the "
-        "skill's `const` label), wherever the skill writes it, a description cell included; a bare `name()` there is "
-        "still a mention; only a constant holding neither a component nor a function is a data constant.")
+        "skill's `const` label), wherever the skill writes it, a description cell included, except a call "
+        "expression of its name, which is recorded in `usage_signature` as a function's is (above); a bare `name()` "
+        "there is still a mention; only a constant holding neither a component nor a function is a data constant.")
     factory_constant = (
         "A `const` holding a function, not a component, that a place writes only as the call that builds it "
         "(`const badgeVariants = cva(…)`), with no parameter list, function type or return type of its own, "
@@ -1630,7 +1640,9 @@ def test_the_inventory_contract_keeps_the_members_several_names_share():
     each with an optional `user`, and linked to their signatures; two readers gave each name the shared text alone
     as its form (19 High split-body and 6 Critical gaps) and a third gave none (0). A name such a place lists bare,
     with no form of its own there, is now a mention at that place, and the shared text goes only to names the place
-    gives members of their own."""
+    gives members of their own. A whole form the place writes once for all its names (a Signature cell beside a
+    first cell that lists `get` and `head`) is no shared text: it stays each name's form there, still compared, so
+    the bare-name case never drops a check on a whole shared signature and no reader can read that row two ways."""
     contract = _flow(_read(INVENTORY_CONTRACT))
     shared = ("Where the skill documents several names and states members they share once, in the same place (a "
               "table row, a paragraph) or over a table for all its rows (a sentence or caption just above it, or its "
@@ -1642,7 +1654,10 @@ def test_the_inventory_contract_keeps_the_members_several_names_share():
     bare = ("A name such a place lists bare, with no parameter list, call or signature of its own there (`.get` in a "
             "namespace row that lists `.create`, `.get` and `.delete`, each with an optional `user`, and links to "
             "their signatures), is a mention at that place: its entry leaves `params`, `return_type` and "
-            "`usage_signature` out, and the shared text applies only to names the place gives members of their own.")
+            "`usage_signature` out, and the shared text applies only to names the place gives members of their own; "
+            "a whole parameter list, call or signature the place writes once for every name it lists (the Signature "
+            "cell of a row whose first cell lists `get` and `head`) is no shared text but each of those names' own "
+            "form there, recorded as written.")
     # the bare-name case follows the clause whose shared text it withholds, so "such a place" is that clause's place
     assert f"{shared} {bare}" in contract
     assert contract.count(bare) == 1
@@ -1677,11 +1692,15 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     arguments and no prefix in running text or a description cell, such as `add(componentName, options)`, matched
     no listed context, so one reader recorded it as a usage and another as bare-name `params`, whose names a Python
     declaration grades Critical; the sentence now takes such a call with or without a prefix, unless it writes a
-    parameter type, a return type or a `?`, which leaves it a signature. #1002 (oms-cognee): the contract named only
-    props tables, so a `| Param | Type | Default | Description |` table of one function's parameters was compared
-    by one reader and recorded nothing for another; it is now a place of its own after the props table, its rows one
-    typed parameter list with no mark, and a partial label in its column header, its caption or the nearest heading
-    above it (`### Key parameters`) labels it partial."""
+    parameter type, a return type or a `?`, which leaves it a signature. Its tail keeps in `params` only a class's
+    parameter list or signature that is not such a call, so `Note(content, title=None)`, which a description cell
+    would make a usage, is the example's form only because it sits in a Signature cell.
+    #1002 (oms-cognee): the contract named only props tables, so a `| Param | Type | Default | Description |` table
+    of one function's parameters was compared by one reader and recorded nothing for another; it is now a place of its
+    own after the props table, its rows one typed parameter list with no mark, and a partial label in its column
+    header, its caption or the nearest heading above it (`### Key parameters`) labels it partial. Under a heading
+    that already writes the name's form, the table adds no entry: two forms at one place would bind neither to the
+    declaration its citation names, for a name declared more than once."""
     s1 = ("A function's or a class's form the skill writes as a call expression of its own name (after `await`, "
           "`new` or an assignment, through a receiver or module path such as `coco.`, or as a statement in a "
           "fenced example; in running text or a description cell, only a call that passes an argument and writes "
@@ -1689,9 +1708,9 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
           "prefix), at "
           "a place `inventory-floor.json` gives no `signature` (below), is recorded whole in `usage_signature`, never "
           "in `params`, whatever names its arguments use, and a return type the skill writes for it in "
-          "`return_type`, while a class's form written as a parameter list or a signature stays in `params` (`Note` "
-          "above): signature-comparison-rules.md reads a usage as a call and a list of bare names in `params` as "
-          "parameter names.")
+          "`return_type`, while a class's form written as a parameter list or a signature that is not such a call "
+          "stays in `params` (`Note` above, written in a Signature cell): signature-comparison-rules.md reads a "
+          "usage as a call and a list of bare names in `params` as parameter names.")
     s2 = ("When the skill places one of the name's own members before or among the shared ones (`leading`, "
           "`first`), the entry writes the name's whole list in the order the skill gives instead, the shared members "
           "spelled out and no `; `, unless `inventory-floor.json` gives that place a usage form, whose "
@@ -1710,7 +1729,9 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
           "rows in row order, `param: Type, ...`, `param` alone for an empty Type cell and each `\\|` read as `|`, "
           "with no default, `?` or Required mark, so it states no optionality (signature-comparison-rules.md reads "
           "it as a typed parameter list); a partial label in its column header, its caption or the nearest heading "
-          "above it (`### Key parameters`) labels it partial.")
+          "above it (`### Key parameters`) labels it partial; when that heading or caption writes a form of the name "
+          "itself (`### connect(host: str, port: int = 5432)`), the table adds no entry there, so that place keeps "
+          "one form and its citations still bind it.")
     [paragraph] = [p for p in _read(INVENTORY_CONTRACT).split("\n\n")
                    if p.startswith("The contract `validate-inventory.py` checks")]
     contract = _flow(paragraph)
@@ -1718,7 +1739,7 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     # extends and the bare-name case beside it (#1034), before the partial label; S3 then S4, the parameter table
     # it extends to functions (#1002), end the paragraph.
     assert f"is a form, recorded as written. {s1} {EXAMPLE_CALL} A `method`'s `name` is the bare method" in contract
-    assert (f"the shared text applies only to names the place gives members of their own. {s2} An entry whose "
+    assert (f"is no shared text but each of those names' own form there, recorded as written. {s2} An entry whose "
             "signature the skill labels partial") in contract
     assert contract.endswith(f"copy the label, never judge the form. {s3} {s4}"), contract[-200:]
     for sentence in (s1, s2, s3, s4):

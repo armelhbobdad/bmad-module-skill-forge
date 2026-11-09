@@ -247,7 +247,8 @@ ratios and the gap records of the wrong signatures.
          signature-comparison-rules.md leaves open that the result rests
          on) go into the output's `undecided`, once each, in result order,
          for reconcile-coverage.py render's Borderline Calls; they grade
-         nothing.
+         nothing, so a malformed one is dropped and listed in `warnings`,
+         never a schema breach.
 
 Inputs, all files in the run folder:
   --inventory  the validated inventory validate-inventory.py wrote (--output)
@@ -289,7 +290,9 @@ Inputs, all files in the run folder:
                                        reading the rules leave open that
                                        the result rests on, checked as
                                        validate-inventory.py checks an
-                                       inventory's: absent or null for none)
+                                       inventory's, a malformed item
+                                       dropped with a warning: absent or
+                                       null for none)
   --skill-dir  plan only: the skill package under test (the folder that
                holds SKILL.md), whose citations pick the declaration of a
                name the surface records in several files, and bind each form
@@ -629,8 +632,6 @@ def check_result(item: object, where: str) -> list[str]:
         value = item.get(key)
         if value is not None and not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
             errors.append(f"{where}: `{key}` must be a list of strings when present")
-    # Each reading the rules leave open that the result rests on (#1021), checked as the inventory's are.
-    errors += _inventory().undecided_violations(item.get("undecided"), where)
     mismatches = item.get("signature_mismatches")
     if not isinstance(mismatches, list):
         errors.append(f"{where}: `signature_mismatches` must be present and a list (may be empty)")
@@ -2004,11 +2005,15 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
                         "Coverage has nothing to cover and scores 100")
 
     # Each reading the rules leave open that a judge's result rests on (#1021), once, in result order: it grades
-    # nothing, and render lists it under Borderline Calls.
+    # nothing, so a malformed item is dropped with a warning (validate-inventory.py's drop_undecided), and render
+    # lists the rest under Borderline Calls.
     undecided = []
-    for item in (item for result in results for item in result.get("undecided") or []):
-        if item not in undecided:
-            undecided.append(item)
+    for result in results:
+        warnings.extend(f"the result for `{result.get('file')}`: {problem}"
+                        for problem in _inventory().drop_undecided(result))
+        for item in result.get("undecided") or []:
+            if item not in undecided:
+                undecided.append(item)
 
     return {
         "valid": True,

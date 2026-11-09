@@ -247,25 +247,33 @@ def test_an_undecided_reading_is_kept_in_the_inventory(tmp_path):
         assert r["valid"] is True and r["violations"] == [], none
 
 
-@pytest.mark.parametrize("undecided, violations", [
-    ("lifespan", ['`undecided` must be a list when present (may be empty), not "lifespan"']),
-    ({"export": "lifespan"}, ['`undecided` must be a list when present (may be empty), not {"export": "lifespan"}']),
-    (["lifespan"], ["undecided[0] is not an object"]),
-    ([{**UNDECIDED, "rule": "  "}], ["undecided[0]: `rule` must be a non-empty string"]),
+@pytest.mark.parametrize("undecided, warnings, kept", [
+    ("lifespan", ['`undecided` must be a list when present (may be empty), not "lifespan"; the list is dropped'],
+     None),
+    ({"export": "lifespan"},
+     ['`undecided` must be a list when present (may be empty), not {"export": "lifespan"}; the list is dropped'],
+     None),
+    (["lifespan"], ["undecided[0] is not an object; the item is dropped"], []),
+    ([{**UNDECIDED, "rule": "  "}], ["undecided[0]: `rule` must be a non-empty string; the item is dropped"], []),
     ([{k: v for k, v in UNDECIDED.items() if k not in ("reading", "other_gap")}],
-     ["undecided[0]: `reading` must be a non-empty string", "undecided[0]: `other_gap` must be a non-empty string"]),
-    ([UNDECIDED, {**UNDECIDED, "export": 3}], ["undecided[1]: `export` must be a non-empty string"]),
-    ([{**UNDECIDED, "at": ""}], ['undecided[0]: `at` must be a non-empty string when present, not ""']),
+     ["undecided[0]: `reading` must be a non-empty string; the item is dropped",
+      "undecided[0]: `other_gap` must be a non-empty string; the item is dropped"], []),
+    ([UNDECIDED, {**UNDECIDED, "export": 3}],
+     ["undecided[1]: `export` must be a non-empty string; the item is dropped"], [UNDECIDED]),
+    ([{**UNDECIDED, "at": ""}, UNDECIDED],
+     ['undecided[0]: `at` must be a non-empty string when present, not ""; the item is dropped'], [UNDECIDED]),
 ], ids=["string", "object", "item-not-an-object", "blank-rule", "no-reading-or-other-gap", "export-not-a-string",
         "blank-at"])
-def test_a_malformed_undecided_list_is_a_violation(undecided, violations):
+def test_a_malformed_undecided_item_is_dropped_with_a_warning(undecided, warnings, kept):
     """#1021: a script checks each open reading before the report names it: a value that is no list, an item that is
-    no object, a blank or missing `export`, `rule`, `reading` or `other_gap`, or a blank `at` is a violation naming
-    the item, so the reader is re-dispatched with it as for any other schema violation."""
+    no object, a blank or missing `export`, `rule`, `reading` or `other_gap`, or a blank `at` is a warning naming the
+    item, which is dropped (a value that is no list drops the list), and the well-formed items stay. The list grades
+    nothing, so it never makes the inventory invalid: no reader is re-dispatched for it and no run halts on it."""
     r = mod.validate_inventory(json.dumps({"exports": [{"name": "lifespan", "kind": "function"}],
                                            "cross_check_mismatches": [], "undecided": undecided}))
-    assert r["valid"] is False and r["inventory"] is None
-    assert r["violations"] == violations
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == warnings
+    assert r["inventory"].get("undecided") == kept
 
 
 def test_cross_check_missing_fields():
@@ -709,7 +717,12 @@ def test_a_list_params_item_that_holds_several_parameters_is_refused(tmp_path):
     outside brackets and strings) is refused: the CLI exits 2, the violation names the entry and the item and says to
     give each form its own entry at that same `at`, and no inventory is left. The same two forms as two entries at
     one `at` validate with no violation or warning. Items of one member each (a comma inside a type's brackets, a
-    string or an object type), a one-item list and a non-string item still pass."""
+    string or an object type), a one-item list and a non-string item still pass. Review of #1043: a list of forms
+    also passed when each item wrote its whole form, in parentheses or as a call, when each overload took one
+    parameter (two items naming it), or when a Rust lifetime's `'` read as a quote; and a correct list was refused
+    when an item's type was a generic function type or a numpy member carried its `, optional` marker, with no way
+    out for a reader who already wrote one member per item. Those forms are refused now, those members pass, and the
+    violation also offers the whole list as one string."""
     pkg = _package(tmp_path, "# Demo\n\nSee the core API.\n", {"core-api.md": OVERLOADS_API})
     at = {"at": "references/core-api.md:5", "description": "Logs each handler."}
     response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
@@ -726,7 +739,7 @@ def test_a_list_params_item_that_holds_several_parameters_is_refused(tmp_path):
         "exports[0] (`actions`): the `params` item \"handlerMap: Record<T, string>, options?: ActionOptions\" holds "
         "several parameters, but a list `params` is one parameter list, one member per item, its items joined into "
         "it: when each item is a form of its own (an overload), give each form its own entry with that same `at`; "
-        "otherwise write each member as an item of its own")]
+        "otherwise write each member as an item of its own, or the whole list as one string")]
     assert not out.exists(), "an invalid inventory removes the file an earlier attempt left"
 
     proc = run(*(("actions", "function", {"params": form, **at}) for form in OVERLOAD_FORMS))
@@ -741,10 +754,28 @@ def test_a_list_params_item_that_holds_several_parameters_is_refused(tmp_path):
 
     for params in (["handlerMap: Record<T, string>", "options?: ActionOptions"], ['sep: str = ", "', "end: str"],
                    ["options: { a?: string, b: number }", "cb: (a: A, b: B) => void"], ["path", "size=(1, 2),"],
-                   [OVERLOAD_FORMS[0]], [{"a": 1, "b": 2}, "c"], []):
+                   [OVERLOAD_FORMS[0]], [{"a": 1, "b": 2}, "c"], [],
+                   # one member each: a generic function type, numpy and Google docstring members, Rust lifetimes, a
+                   # repeated `_`, unnamed C parameters, a function-typed member
+                   ["fn: <T, U>(x: T) => U", "opts: PipeOptions"], ["data : str", "timeout : float, optional"],
+                   ["n : int, default 5", "m : int"], ["timeout (float, optional)", "retries (int)"],
+                   ["x: &'a str", "y: HashMap<&'a str, u32>"], ["_: i32", "_: i32"], ["int", "int"],
+                   ["cmp: (a: T, b: T) => number", "x: T"], ["key: str", "x: Omit<P, 'a,b'>"]):
         assert violations(params) == [], params
     [two] = violations(["a, b", "c", "d: int, e: str"])
     assert two.startswith('exports[0] (`actions`): the `params` items "a, b", "d: int, e: str" hold several '), two
+    # a list of forms in other shapes: each item a whole form, one parameter named twice, a Rust list of members
+    for params, problem in (
+            (["(handlerMap: Record<T, string>, options?: ActionOptions)", "(...handlers: T[])"],
+             'items "(handlerMap: Record<T, string>, options?: ActionOptions)", "(...handlers: T[])" write whole '
+             "forms"),
+            (["actions(handlerMap: Record<T, string>)", "actions(...handlers: T[]): void"],
+             'items "actions(handlerMap: Record<T, string>)", "actions(...handlers: T[]): void" write whole forms'),
+            (["fn: LifespanFn", "fn: None"], 'items "fn: LifespanFn", "fn: None" each name `fn`'),
+            (["a: &'a str, b: &'a str", "c: u32"], "item \"a: &'a str, b: &'a str\" holds several parameters")):
+        [refused] = violations(params)
+        assert refused.startswith(f"exports[0] (`actions`): the `params` {problem}, but a list `params` is "), refused
+        assert refused.endswith("or the whole list as one string"), refused
 
 
 # --------------------------------------------------------------------------
@@ -1417,7 +1448,8 @@ def test_a_removed_form_gives_no_entry_and_the_floor_needs_none(tmp_path):
     never conflicts with that: a migration table's header gives no origin, and an export table pins only its
     Signature cell, never the removed one, so an inventory that leaves out every old cell (`SentenceTransformerEmbed`
     included, a name 1.0.0 no longer exports) and keeps each current form at its row passes --floor (exit 0) with no
-    violation or warning and is written as given. No script changed."""
+    violation or warning and is written as given. An export table's row labelled removed is a floor place, though,
+    and the floor still requires it, as the contract's floor exception says. No script changed."""
     pkg = _package(tmp_path, MIGRATION_SKILL)
     floor = tmp_path / "inventory-floor.json"
     proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
@@ -1444,8 +1476,34 @@ def test_a_removed_form_gives_no_entry_and_the_floor_needs_none(tmp_path):
     assert json.loads(out.read_bytes())["exports"] == [
         {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each current form kept as given"
 
+    # The contract's floor exception holds for a removed form too: an export table's row labelled removed is a place
+    # the floor gives, with its Signature cell, so an inventory that leaves it out is refused, and one that keeps it
+    # with that signature passes.
+    removed = _package(tmp_path / "removed-row", "# Demo\n\n| Export | Kind | Signature | Status |\n"
+                       "| --- | --- | --- | --- |\n"
+                       "| `open_db` | function | `open_db(path: str) -> Conn` | removed in 1.0 |\n")
+    floor = tmp_path / "removed-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(removed), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    pinned = {"params": "path: str", "return_type": "Conn"}
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("open_db", [_floor_origin("SKILL.md", 5, "table-row", pinned)])]
 
-FACTORY_SKILL = ("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"
+    def check(*entries):
+        response.write_bytes(_signed(*entries).encode("utf-8"))
+        return subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(removed),
+                               "--floor", str(floor)], capture_output=True, text=True, encoding="utf-8")
+
+    proc = check(("connect", "function", {"description": ""}))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert any("`open_db`" in v and "no inventory entry lists it" in v for v in json.loads(proc.stdout)["violations"])
+    proc = check(("open_db", "function", {**pinned, "description": "", "at": "SKILL.md:5"}))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["warnings"] == []
+
+
+FACTORY_SKILL =("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"
                  "| `badgeVariants` | const | `const badgeVariants = cva(…)` |\n\n"
                  "```ts\n// [SRC:src/button.ts:L5]\nexport const buttonVariants = cva(…)\n```\n\n"
                  "```ts\nconst onSubmit = make(…)\n```\n")
