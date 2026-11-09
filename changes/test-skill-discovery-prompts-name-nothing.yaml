@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's discovery check now routes only prompts that describe the task in a user's own words: a prompt taken from the skill's `SKILL.md` or written by the check when `SKILL.md` has too few names no export, no skill name and no library or package name, and the short "run the ... thing on this data" pattern now takes a plain word for the job, such as memory or indexing. Before, only the prompts taken from `SKILL.md` were asked to leave out the skill name, and a written prompt could name an export that the skill's catalog description lists, so the router picked the skill on that literal name and Discovery could score `3/3 PASS` or `2/3 WARN` for a description that misroutes realistic requests. Such a description now records the Medium or High `discovery` gap it should. A discovery gap still blocks nothing and changes no score or verdict.
+issues: [1049]
