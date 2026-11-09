@@ -3464,6 +3464,34 @@ class TestNamespaceMembers:
              "line": 1, "namespace": "start_server"}]
         assert diff["extraction_gaps"] == []
 
+    @pytest.mark.parametrize("imports, namespace", [
+        ("tools, start_server", "start_server"), ("start_server, tools", "start_server"),
+        ("tools, helpers", "tools"), ("helpers, tools", "helpers"),
+    ], ids=["another-namespace-first", "its-own-namespace-first", "neither-tools-first", "neither-helpers-first"])
+    def test_a_member_two_namespaces_pass_on_names_the_one_of_its_own_name(self, tmp_path, capsys, imports,
+                                                                           namespace) -> None:
+        """#1031: two namespaces pass on the start_server function of a file out of scope. Its one outside_scope
+        row names the start_server namespace whichever the entry point imports first, so gap-ledger.py's #969
+        guard does not hang on import order; with neither named like the member, the row names the first."""
+        root = _tree(tmp_path, {
+            "pkg/__init__.py": f"from .api.visualize import {imports}\n",
+            "pkg/api/__init__.py": "",
+            "pkg/api/visualize/__init__.py": "from . import tools\nfrom . import start_server\nfrom . import helpers\n",
+            "pkg/api/visualize/tools.py": "from pkg.shared.utils import start_server\n",
+            "pkg/api/visualize/start_server.py": "from pkg.shared.utils import start_server\n",
+            "pkg/api/visualize/helpers.py": "from pkg.shared.utils import start_server\n",
+            "pkg/shared/utils.py": "def start_server():\n    pass\n",
+        })
+        _, out = _full(capsys, root, "--exclude", "pkg/shared/**")
+        diff = out["entry_point_diff"]
+        public = {p["name"]: p for p in diff["public"]}
+        assert [public[name.strip()]["members"] for name in imports.split(",")] == [
+            [_member("start_server", "pkg/shared/utils.py", 1)]] * 2
+        assert diff["outside_scope"] == [
+            {"name": "start_server", "language": "python", "entry": "pkg/__init__.py", "file": "pkg/shared/utils.py",
+             "line": 1, "namespace": namespace}]
+        assert diff["extraction_gaps"] == []
+
 
 class TestMemberDiff:
     def test_members_are_diffed_by_name_or_local_and_file(self) -> None:
@@ -3492,6 +3520,27 @@ class TestMemberDiff:
         assert mod._public_keys(public) == {("python", "top", "p/a.py"), ("python", "alias", "p/b.py"),
                                             ("python", "same", "p/c.py"), ("python", "far", "vendor/d.py"),
                                             ("python", "ext", None), ("python", "old", "p/old.py")}
+
+    ENTRY_OF = {"tools": "p/__init__.py", "far": "p/sub/__init__.py", "kit": "p/kit/__init__.py"}
+
+    @pytest.mark.parametrize("order, namespace", [
+        (("tools", "far"), "far"), (("far", "tools"), "far"), (("tools", "kit"), "tools"), (("kit", "tools"), "kit"),
+    ], ids=["its-own-name-second", "its-own-name-first", "neither-tools-first", "neither-kit-first"])
+    def test_a_member_several_namespaces_pass_on_gets_one_row(self, order, namespace) -> None:
+        """#1031: one row per member however many namespaces pass it on, through the namespace of its own name
+        whatever the order, with that namespace's entry, else through the first; a gap row likewise once."""
+        surfaces = {family: mod._Surface(family) for family in mod.FAMILIES}
+        for name in order:
+            surfaces["python"].add(name, self.ENTRY_OF[name], "namespace", f"p/{name}.py", None, ".", members=[
+                {"name": "far", "local": None, "file": "vendor/d.py", "line": 4},
+                {"name": "inner", "local": None, "file": "p/c.py", "line": 2}])
+        entries = [{"language": "python", "file": "p/__init__.py", "package": "p", "subpath": None,
+                    "resolution": "file"}]
+        _, _, _, gaps, outside, _ = mod.entry_point_diff([], surfaces, entries, {"p/__init__.py", "p/c.py"})
+        assert [(info["name"], info["file"], info["namespace"], info["entry"]) for _, info in outside] == [
+            ("far", "vendor/d.py", namespace, self.ENTRY_OF[namespace])]
+        assert [(info["name"], info["file"], info["entry"]) for _, info in gaps] == [
+            ("inner", "p/c.py", self.ENTRY_OF[order[0]])]
 
 
 # --------------------------------------------------------------------------

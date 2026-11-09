@@ -2639,6 +2639,55 @@ def test_a_namespace_members_row_keeps_its_namespace(tmp_path, namespace, kept):
     assert row == (expected | {"namespace": namespace} if kept else expected)
 
 
+# #1031: the tools and start_server namespaces both pass on the start_server function of pkg/shared/utils.py, which
+# scope.exclude drops; the start_server submodule is the module a skill documents.
+SHARED_MEMBER_TREE = {
+    "pkg/api/__init__.py": "",
+    "pkg/api/visualize/__init__.py": "from . import tools\nfrom . import start_server\n",
+    "pkg/api/visualize/tools.py": "from pkg.shared.utils import start_server\n",
+    "pkg/api/visualize/start_server.py": "from pkg.shared.utils import start_server\n",
+    "pkg/shared/utils.py": "def start_server():\n    pass\n",
+}
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+@pytest.mark.parametrize("imports", ["tools, start_server", "start_server, tools"],
+                         ids=["another-namespace-first", "its-own-namespace-first"])
+@pytest.mark.parametrize("defined_at, scoped_out", [("pkg/api/visualize/start_server.py:1", False),
+                                                    ("pkg/shared/utils.py:1", True)],
+                         ids=["at-the-submodule", "at-the-members-file"])
+def test_a_member_two_namespaces_pass_on_gives_one_record_in_either_order(tmp_path, imports, defined_at,
+                                                                         scoped_out):
+    """#1031 end to end: the runner, the surface and the gap ledger give the same row and record whichever
+    namespace the entry point imports first: the documented module is an Info documented extra at the submodule,
+    and a name the source declares in the member's own file keeps the scoped-out Medium (#969's guard)."""
+    source = tmp_path / "src"
+    for rel, text in {**SHARED_MEMBER_TREE, "pkg/__init__.py": f"from .api.visualize import {imports}\n"}.items():
+        _write(source / rel, text)
+    extraction = tmp_path / "run" / "extract-full.json"
+    extraction.parent.mkdir()
+    proc = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source),
+                           "--exclude", "pkg/shared/**", "--output", str(extraction)],
+                          capture_output=True, text=True, timeout=600)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    out = _surface(tmp_path, "--extraction", str(extraction))
+    assert out["excluded"]["outsideScope"] == [
+        {"name": "start_server", "file": "pkg/shared/utils.py", "line": 1, "entry": "pkg/__init__.py",
+         "excludeGlob": "pkg/shared/**", "outsideInclude": False, "namespace": "start_server"}]
+    [record] = gap_ledger.from_coverage(
+        {"branch": "enumerated", "missing": [], "stale": ["start_server"]}, surface=out,
+        stale=[{"name": "start_server", "fabricated": False, "source": None, "defined_at": defined_at}])
+    if scoped_out:
+        assert (record["severity"], record["title"], record["source"]) == (
+            "Medium", "Stale documentation: start_server", "SKILL.md")
+        assert "scopes out `pkg/shared/utils.py:1`, where it is defined" in record["remediation"]
+    else:
+        assert (record["severity"], record["title"], record["source"]) == (
+            "Info", "Documented extra: start_server", defined_at)
+
+
 def test_a_stale_glob_restores_root_exports_only(tmp_path):
     """A non-root `exports` subpath is no standard barrel: its outside_scope
     name stays out under a stale glob, while the root entry's comes back."""

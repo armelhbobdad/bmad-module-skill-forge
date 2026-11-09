@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill no longer lets the import order decide whether a documented module is scoped out by the brief when two of the package's namespaces pass on the same function from a file the brief scopes out and one of them is the module named like that function. The recipe runner wrote the function's one `entry_point_diff.outside_scope` row with whichever namespace the entry point imported first, so when the other one came first the module got a Medium `stale-documentation` gap that says to widen the brief's scope or remove correct documentation. The row now names the namespace of the function's own name when one of them has it, else the first as before, so the module is an Info documented extra in either order, and a name the source declares in the scoped-out file itself still keeps the Medium gap.
+issues: [1031]

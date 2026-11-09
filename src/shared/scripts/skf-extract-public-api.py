@@ -457,8 +457,10 @@ them). A namespace with `members` is diffed as its members: each is found
 when a recipe found its name, or its `local` one, in its file (one with
 no file by its name alone, as a public name is), and has no row of its
 own when a public name (or another namespace's member) has its name and
-file; a member's own outside_scope row names its namespace (`namespace`);
-one with null `members`, and a member that is such a module, is no gap.
+file; a member's own outside_scope row names its namespace (`namespace`),
+of several that pass it on the one of its own name when there is one,
+else the first the entry points declare; one with null `members`, and a
+member that is such a module, is no gap.
 In a family with no entry point, or only empty ones, every name the
 recipes found is public. A JS/TS module exports, besides the names the
 recipes match, those its column-0 `export` statements declare in a form
@@ -4440,9 +4442,11 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
     file); a module is no recipe's target, so neither: a namespace with
     `members` has each member diffed in its place, found when a recipe
     found its name, or its `local` one, in its file, and given no row of
-    its own when a declared name has its name and file (or another
-    namespace gave it one), else a row that names the namespace
-    (`namespace`, which only an outside_scope row writes out); one whose
+    its own when a declared name has its name and file, else one row
+    however many namespaces pass it on, which names one of them
+    (`namespace`, which only an outside_scope row writes out) and takes
+    its entry: the namespace of the member's own name when one of them has
+    it (#1031), else the first the entry points declare; one whose
     members are unknown (None), or a member that is such a module
     (`opaque`), is no gap. In a family with no entry point, or only empty
     ones, every export is public."""
@@ -4487,9 +4491,13 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
                 gaps.append((family, info))
         # A namespace's members, each by its name (or `local`) and file, or
         # by name alone when it has no file, as a declared name is: a name
-        # at a file a declared name already gives counts once.
+        # at a file a declared name already gives counts once. A member
+        # several namespaces pass on gets one row, through the namespace of
+        # its own name when one of them has it, else through the first, so
+        # the entry point's import order does not pick it (#1031).
         found = {(e["export_name"], e["source_file"]) for e in records}
         given = {(info["name"], info["file"]) for info in declared.values() if not _has_members(info)}
+        passed: dict[tuple[str, str | None], list[tuple[dict, dict]]] = {}
         for info in declared.values():
             for member in info["members"] if _has_members(info) else []:
                 key = (member["name"], member["file"])
@@ -4497,10 +4505,12 @@ def entry_point_diff(exports: list[dict], surfaces: dict[str, _Surface], entries
                         or (member["local"] and (member["local"], member["file"]) in found)
                         or (member["file"] is None and {member["name"], member["local"]} & names)):
                     continue
-                given.add(key)
-                row = {"name": member["name"], "entry": info["entry"], "file": member["file"],
-                       "line": member["line"], "namespace": info["name"]}
-                (gaps if member["file"] is None or member["file"] in in_scope else outside).append((family, row))
+                passed.setdefault(key, []).append((info, member))
+        for (name, file), through in passed.items():
+            info, member = next((pair for pair in through if pair[0]["name"] == name), through[0])
+            row = {"name": name, "entry": info["entry"], "file": file, "line": member["line"],
+                   "namespace": info["name"]}
+            (gaps if file is None or file in in_scope else outside).append((family, row))
     return statuses, public, internal, gaps, outside, others
 
 
