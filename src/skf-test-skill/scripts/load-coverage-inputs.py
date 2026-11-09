@@ -1244,7 +1244,9 @@ def _record(name, kind, file, line, signature_line, origin) -> dict:
 
 # A provenance map's export_type, read case-insensitively, as the kind of a restored name (#913): the type kinds
 # score-signatures.py's Type Coverage counts (a dataclass, NamedTuple or TypedDict is a class, a Protocol an
-# interface, a type alias a type), and `function` and `const`, which are no type (a TypeVar is no type). Any
+# interface, a type alias a type), and `function` and `const`, which are no type (a TypeVar is no type). The
+# function kinds a map records by eye, `async_function`, `decorator` and a React `component`, are `function`
+# (#1032): no recipe reads a restored file, so a class component a map labels `component` reads as one too. Any
 # other export_type (`re-export`, `module`, `decorator_namespace`, ...) gives no kind.
 PROVENANCE_KINDS = {
     **dict.fromkeys(("class", "dataclass", "namedtuple", "typeddict"), "class"),
@@ -1253,7 +1255,8 @@ PROVENANCE_KINDS = {
     **dict.fromkeys(("type", "type_alias"), "type"),
     "struct": "struct",
     "trait": "trait",
-    **dict.fromkeys(("function", "method", "staticmethod", "classmethod"), "function"),
+    **dict.fromkeys(("function", "method", "staticmethod", "classmethod", "async_function", "decorator",
+                     "component"), "function"),
     **dict.fromkeys(("const", "constant", "variable", "sentinel", "typevar"), "const"),
 }
 

@@ -1923,6 +1923,9 @@ def _restored_surface(folder: Path, entries: list[dict]) -> dict:
     ([("TypeVar", TASK_FILE)], "const"),
     ([("constant", TASK_FILE)], "const"),
     ([("function", TASK_FILE)], "function"),
+    ([("async_function", TASK_FILE)], "function"),
+    ([("decorator", TASK_FILE)], "function"),
+    ([("component", TASK_FILE)], "function"),
     ([("class", TASK_FILE)], "class"),
     ([("interface", TASK_FILE)], "interface"),
     ([("type", TASK_FILE)], "type"),
@@ -1934,6 +1937,7 @@ def _restored_surface(folder: Path, entries: list[dict]) -> dict:
     ([("decorator_namespace", TASK_FILE), ("dataclass", "cognee/task.py"), ("Protocol", TASK_FILE),
       ("enum", TASK_FILE)], "interface"),
 ], ids=["dataclass", "namedtuple", "protocol", "type-alias", "enum", "typevar", "constant", "function",
+        "async-function", "decorator", "component",
         "class", "interface", "type", "const", "typeddict", "decorator-namespace", "another-file", "dot-slash-path",
         "first-known-kind"])
 def test_a_restored_name_takes_its_kind_from_the_provenance_map(tmp_path, task_entries, kind):
@@ -1975,6 +1979,33 @@ def test_a_restored_type_counts_in_type_coverage(tmp_path):
     assert (out["documentedTypes"], out["totalTypes"], out["typeCoverage"], out["missingTypes"]) == (
         0, 1, 0.0, ["Task"])
     assert out["warnings"] == [KINDLESS + "`run_pipeline`"]
+
+
+@pytest.mark.parametrize(("task_type", "run_type", "types", "warnings"), [
+    ("dataclass", "async_function", (0, 1, 0.0, ["Task"]), []),
+    ("dataclass", "decorator", (0, 1, 0.0, ["Task"]), []),
+    ("dataclass", "component", (0, 1, 0.0, ["Task"]), []),
+    ("constant", "async_function", (0, 0, 100.0, []),
+     ["the source surface has no interface, type alias, enum or class: Type Coverage has nothing to cover "
+      "and scores 100"]),
+], ids=["async-function", "decorator", "component", "no-types"])
+def test_a_restored_function_kind_is_no_possible_type(tmp_path, task_type, run_type, types, warnings):
+    """#1032: a restored name the map gives a by-eye function kind
+    (`async_function`, `decorator`, a React `component`) is a function, so
+    Type Coverage counts the same types and no longer names it as one that
+    may be a type; on a surface with no type, the no-types warning shows."""
+    surface = _restored_surface(tmp_path, [
+        {"export_name": "Task", "export_type": task_type, "source_file": TASK_FILE},
+        {"export_name": "run_pipeline", "export_type": run_type, "source_file": "cognee/pipelines/run.py"}])
+    assert [e["kind"] for e in surface["exports"] if e["name"] == "run_pipeline"] == ["function"]
+    inventory = _write(tmp_path / "inventory.json", {"exports": [
+        {"name": "add", "kind": "function", "params": "data, dataset_name", "return_type": "None"},
+    ], "cross_check_mismatches": []})
+    out = json.loads(subprocess.run([sys.executable, str(SCORE_SIGNATURES), "score", "--inventory", inventory,
+                                     "--surface", str(tmp_path / "surface.json")],
+                                    capture_output=True, text=True, check=True).stdout)
+    assert (out["documentedTypes"], out["totalTypes"], out["typeCoverage"], out["missingTypes"]) == types
+    assert out["warnings"] == warnings
 
 
 @pytest.mark.parametrize(("tier_a", "expected"), [(["cognee/pipelines/**"], None),
