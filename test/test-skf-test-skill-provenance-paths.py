@@ -1457,8 +1457,8 @@ def test_an_entry_with_no_form_gives_one_place_as_its_at(tmp_path):
                    "compared form gives its place as `at` too, a `method` and a form that writes only a `return_type` "
                    "(below) aside, so a gap about its name, such as a stale name's, cites that line.")
     one_place = ("such as a stale name's, cites that line. A place that writes a name but no form of it, and no "
-                 "`methods`, `properties` or `fields` its entry would carry (a mention, a bare code span, an import, a heading "
-                 "or prose that names or describes it), gives it no entry when another place gives the name one, "
+                 "`methods`, `properties` or `fields` its entry would carry (a mention, a bare code span, an "
+                 "import, a heading or prose that names or describes it), gives it no entry when another place gives the name one, "
                  "unless `inventory-floor.json` gives that place; of several such places of a name no other place "
                  "gives an entry, the first alone gives one: in SKILL.md, else the file that sorts first by path, at "
                  "its lowest line.")
@@ -1688,7 +1688,8 @@ def test_the_inventory_contract_keeps_the_members_several_names_share():
               "table row, a paragraph) or over a table for all its rows (a sentence or caption just above it, or its "
               "column header), each name's entry carries that shared text in its `params` (in its `usage_signature`, "
               "for a usage form), never in a `methods` item, which still starts with the method's name: the shared "
-              "text first, then `; `, then the name's own members as the skill writes them, without the name, never "
+              "text first, the members the place states once without the words that introduce them, then `; `, then "
+              "the name's own members as the skill writes them, without the name, never "
               "the name's own members alone (`Note` above, from a row that documents `Note` and `Task`, each with the "
               "base fields `id, scope=Scope()`, as `Note(content, title=None)` and `Task(title, done=False)`).")
     bare = ("A name such a place lists bare, with no parameter list, call or signature of its own there (`.get` in a "
@@ -1707,8 +1708,10 @@ def test_the_inventory_contract_keeps_the_members_several_names_share():
     example = json.loads(re.search(r"```json\n(.*?)\n```", _read(INVENTORY_CONTRACT), re.S).group(1))["exports"]
     [note] = [e for e in example if e["name"] == "Note"]
     shared, own = note["params"].split("; ")
-    assert (shared, own) == ("each with the base fields id, scope=Scope()", "content, title=None"), (
-        "the shared text first, then `; `, then the name's own members, without the name")
+    # coherence review (oh-my-skills cognee): an example whose shared text kept the words that introduce it
+    # (`each with the base fields`) had a reader write the skill's prose into `params`, which the judge then reads
+    assert (shared, own) == ("id, scope=Scope()", "content, title=None"), (
+        "the shared members first, then `; `, then the name's own members, without the name")
     assert "Note" not in note["params"]
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
@@ -1749,8 +1752,8 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
           "Handle`), at a place `inventory-floor.json` gives no `signature` (below), is recorded whole in "
           "`usage_signature`, as `inventory-floor.json` writes a usage (an assignment, `await`, `new`, a receiver "
           "or module path before the name kept, through the call's closing parenthesis or the element's end, never "
-          "an `@`, a `with` or text after the call), never in `params`, whatever names its arguments use, and a return type the skill writes for it in "
-          "`return_type`, while a class's form written as a parameter list or a signature that is not such a call "
+          "an `@`, a `with` or text after the call), never in `params`, whatever names its arguments use, and a "
+          "return type the skill writes for it in `return_type`, while a class's form written as a parameter list or a signature that is not such a call "
           "stays in `params` (`Note` above, written in a Signature cell): signature-comparison-rules.md reads a "
           "usage as a call and a list of bare names in `params` as parameter names.")
     s2 = ("When the skill places one of the name's own members before or among the shared ones (`leading`, "
@@ -1841,6 +1844,23 @@ def test_a_method_with_a_form_of_its_own_gets_an_entry_and_no_receiver():
         methods), "after the module-function rule it sits beside"
 
 
+def test_a_type_alias_carries_no_form_and_an_unlabelled_const_is_a_constant():
+    """Coherence review (oh-my-skills storybook): one reader gave `DecoratorFunction`, `ViteFinal` and
+    `HandlerFunction`, `type` aliases the skill writes as function types, the type's parameters and return, which
+    the signature check then compares with the alias's declaration, and two gave mentions; and with no kind label a
+    fenced `export const viteFinal = async (...) =>` was a `function` for two readers and a `constant` for the
+    third. A type alias now carries no form, and an unlabelled `const` is a `constant`, while it still carries the
+    function form the skill writes for it."""
+    contract = _flow(_read(INVENTORY_CONTRACT))
+    sentences = ("a data constant carries no `usage_signature`, `params` or `return_type`. A `type` alias carries none "
+                 "of them either, even one the skill writes as a function type (`type DecoratorFunction = (fn, c) => "
+                 "R`): only a value is called. A name the skill declares with `const`, a fenced `export const` "
+                 "included, is a `constant` when the skill gives it no kind label.")
+    assert contract.count(sentences) == 1
+    assert "carries the function form the skill writes for it as `params`" in contract
+    assert "whatever its kind (`constant` for the skill's `const` label)" in contract
+
+
 def test_a_column_s_partial_label_reaches_every_form_its_cells_write_as_the_floor_reads_it():
     """Coherence review (oh-my-skills rehearsals): "labels each of its rows" left open whether a column's label
     reaches a usage form or another name's form a row's cell writes (cognee's `cognee_network_visualization` inside
@@ -1874,8 +1894,8 @@ def test_a_qualified_usage_heading_a_props_row_call_and_a_fenced_comment_are_rea
     signature check then compares. A heading whose text holds the word usage names one, a call or element a props
     row writes is an example of that prop, and a comment is no place and states no form or return type."""
     contract = _flow(_read(INVENTORY_CONTRACT))
-    assert "its text holding the word usage whatever qualifies it (`## Usage`, `### Basic usage`, `### Usage pattern`" in (
-        EXAMPLE_CALL)
+    assert ("its text holding the word usage whatever qualifies it (`## Usage`, `### Basic usage`, "
+            "`### Usage pattern`") in EXAMPLE_CALL
     assert ("(a row writes a prop, not the name, and a call or JSX element of the name a row's cell writes is an "
             "example of that prop, never a place of its own)") in contract
     comment = ("A comment in a fenced block is no place of its own and states no form or return type: a form or a "

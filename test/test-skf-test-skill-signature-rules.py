@@ -1171,7 +1171,8 @@ def test_an_empty_parenthesized_mention_is_no_form():
     contract = _paragraph(contract_text, "The contract `validate-inventory.py` checks")
     assert (f"{mention}{prefix}: its entry leaves `params` and `usage_signature` out (a cell reading \"`instrument()` "
             f"wraps functions\", a line reading \"`await cognee.disconnect()` returns to local mode\"), {returned}, "
-            f"which makes it a signature, `params` `\"\"` with that `return_type`. {cell}, recorded as written.") in contract
+            f"which makes it a signature, `params` `\"\"` with that `return_type`. {cell}, recorded as "
+            "written.") in contract
     assert contract.index("and leaves a key out when the skill documents nothing for it.") < contract.index(
         mention), "after the rule for a key the skill documents nothing for"
     rules = _read(RULES)
