@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's split-body cross-check no longer compares a leading receiver (`self`, `cls`, `&self`, `this: T`) that one documented form writes and the other leaves out: neither form is the source, so each form's own leading receiver is dropped before the two are compared, and `execute(args, kwargs, next_batch_size=None)` matches `execute(self, args, kwargs, next_batch_size=None)`. Before, a method written with its receiver in one file and without it in another could read as a High `split-body-mismatch` gap, which blocks the hard gate and tells Update Skill to edit a correct reference file, so two runs on an unchanged skill could disagree. Each form is still compared with the source, where a receiver the source does not take stays a mismatch.
+issues: [1045]

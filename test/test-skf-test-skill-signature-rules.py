@@ -36,6 +36,9 @@ and none of the `difference` tags. These tests keep:
 - the forms one file writes for one name as an overload set read there as
   one documented set, as a source's is, its own forms never compared with
   each other (#1017);
+- a leading receiver one documented form writes and the other leaves out
+  never compared there, since neither form is the source, by the receiver
+  set the source rule names (#1045);
 - a partial label in a table's column header labelling each of its rows;
 - a name written with empty parentheses in running text or a description
   cell (any cell but an export table's first cell and a call or signature
@@ -526,7 +529,11 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
     of bare names may too, except where that shifts a caller's positions. An ellipsis claims nothing, as everywhere,
     and each side's partial label is read from its own file, since the export's `signature_form` is one.
     #927: two same-named declarations are two exports, so forms attributed to different declarations of one name
-    (their own citations at `at`, or §2's `bound`) are never compared with each other there."""
+    (their own citations at `at`, or §2's `bound`) are never compared with each other there.
+    #1045 (oms-cognee 1.6.2): the receiver rule spoke only of a source, so `execute(args, kwargs,
+    next_batch_size=None)` against `execute(self, args, kwargs, next_batch_size=None)` was a High mismatch for a reader
+    taking `self` as a parameter the defaulting form leaves out, and no mismatch for one dropping it by analogy. Neither
+    form is the source, so each form's own leading receiver is dropped before the two are compared."""
     reading = _section("Reading a form")
     assert ("In the split-body cross-check both forms are documented: each is read by these rules, a type, return "
             "type or type arguments one of them leaves out are not compared, and a parameter's optionality is "
@@ -583,6 +590,17 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
     first = "and a parameter's optionality is compared only when both forms state it."
     assert pointer in paragraph, pointer
     assert paragraph.index(first) < paragraph.index(pointer) < paragraph.index(homonyms), "after the first sentence"
+    # #1045: a receiver only one form writes is never compared, after the first sentence, by the receiver set the
+    # source rule (and score-signatures.py) names; against the source, `(self, a)` and `def f(a)` still differ
+    receivers = "(`self`, `cls`, `&self`, `this: T`)"
+    receiver = (f"A leading receiver {receivers} that one form writes and the other leaves out is never compared: "
+                "neither form is the source, so each form's own leading receiver is dropped before the two are "
+                "compared.")
+    assert receiver in paragraph, receiver
+    assert paragraph.index(first) < paragraph.index(receiver) < paragraph.index(pointer), "after the first sentence"
+    assert rules.count("neither form is the source") == 1, "one copy"
+    assert receivers in _paragraph(rules, "A call to a class is compared with its constructor"), "one receiver set"
+    assert "`(self, a)` against `def f(a)` is a mismatch." in reading, "the source's rule is unchanged"
     # the `bound` rule it points at ("below") stays below it
     flowed = _flow(rules)
     assert flowed.index(each) < flowed.index("A form the check binds (`bound`")
