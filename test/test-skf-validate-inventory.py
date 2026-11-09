@@ -284,6 +284,68 @@ def _violation(**fields) -> str:
     return violation
 
 
+EXPORT_RULE = ("`export` must name an inventory entry, by its `name` (a `method`'s bare `name`, or `{owner}.{name}` "
+               "for one that gives an `owner`), not ")
+
+
+@pytest.mark.parametrize("export", ["Widget", "", 3, None, ["run_tasks_parallel"], "run_tasks_parallel "],
+                         ids=["no-entry", "empty", "number", "null", "list", "trailing-space"])
+def test_a_mismatch_export_names_an_inventory_entry(export):
+    """#1033: a mismatch's `export` was checked only for its presence, so a name no entry has, an empty string or a
+    number passed, and §5b titled a High split-body gap with it. It is now one violation naming the value and the
+    spellings an `export` takes, so the re-dispatched reader can correct it."""
+    violation = _violation(export=export, skill_md_line=4)
+    assert f"{EXPORT_RULE}{json.dumps(export)}" in violation, violation
+
+
+def test_a_method_mismatch_names_its_bare_name_or_its_owner_and_name():
+    """An entry's `name` is an `export` (a dotted one as written), and a `method` entry that gives an `owner` is also
+    named `{owner}.{name}`. Another owner, a function under an owner and a method with no `owner` are refused."""
+    exports = [{"name": "run", "kind": "function"}, {"name": "datasets.list_data", "kind": "function"},
+               {"name": "get", "kind": "method", "owner": "Client"}, {"name": "put", "kind": "method"}]
+
+    def checked(export):
+        mismatch = {"export": export, "skill_md_line": 4, "reference_file": "references/b.md", "reference_line": 5,
+                    "issue": "SKILL.md shows (a), references/b.md (a, b)"}
+        return mod.validate_inventory(json.dumps({"exports": exports, "cross_check_mismatches": [mismatch]}))
+
+    for export in ("run", "datasets.list_data", "get", "Client.get", "put"):
+        r = checked(export)
+        assert r["valid"] is True, (export, r["violations"])
+        assert r["inventory"]["cross_check_mismatches"][0]["export"] == export
+    for export in ("Other.get", "Client.run", "Client.put", ".put", "list_data"):
+        r = checked(export)
+        assert r["valid"] is False and r["inventory"] is None, export
+        assert r["violations"] == [f"cross_check_mismatches[0]: {EXPORT_RULE}{json.dumps(export)}"], r["violations"]
+
+
+@pytest.mark.parametrize("export, code", [("Widget", 2), ("", 2), (3, 2), ("a", 0)])
+def test_the_cli_refuses_a_mismatch_export_no_entry_has_on_a_package(tmp_path, export, code):
+    """#1033's two-file package: SKILL.md writes `a(x)` at line 5, references/api.md writes `b(y)` at line 3, and the
+    inventory lists `a`. A mismatch naming no entry exits 2 and leaves no inventory, as any schema violation does;
+    one naming `a` passes."""
+    pkg = tmp_path / "pkg"
+    (pkg / "references").mkdir(parents=True)
+    (pkg / "SKILL.md").write_bytes(b"# Demo\n\nIntro.\n\n`a(x)` runs it.\n")
+    (pkg / "references" / "api.md").write_bytes(b"# API\n\n`b(y)` runs it.\n")
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(json.dumps({
+        "exports": [{"name": "a", "kind": "function"}], "references": ["references/api.md"],
+        "cross_check_mismatches": [{"export": export, "skill_md_line": 5, "reference_file": "references/api.md",
+                                    "reference_line": 3, "issue": "SKILL.md shows (x), references/api.md (y)"}],
+    }).encode("utf-8"))
+    output = tmp_path / "inventory.json"
+    p = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                        "--output", str(output)], capture_output=True, text=True)
+    assert p.returncode == code, p.stdout + p.stderr
+    result = json.loads(p.stdout)
+    if code:
+        assert result["violations"] == [f"cross_check_mismatches[0]: {EXPORT_RULE}{json.dumps(export)}"]
+        assert not output.exists()
+    else:
+        assert result["valid"] is True and output.exists()
+
+
 def test_cross_check_between_two_references_is_valid():
     """#841: the split-body cross-check compares two reference files the body does not settle, so their
     contradiction is one entry, the one that sorts first as `other_file` at `other_line` in place of

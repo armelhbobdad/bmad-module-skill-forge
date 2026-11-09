@@ -1372,6 +1372,11 @@ def test_the_inventory_contract_lists_the_validators_kinds():
             "`other_file` and `other_line`, with the one that sorts last as `reference_file` and `reference_line`"
             ) in entry
     assert "an `issue` that names each form by its file's path" in entry
+    # #1033: a mismatch's `export` names an entry, a method's by its bare name, and the validator refuses any other
+    assert ("A mismatch's `export` is the `name` of an inventory entry, a `method`'s bare `name`. "
+            "`validate-inventory.py` refuses an inventory with a mismatch whose `export` names no entry by its `name` "
+            "or, for a `method` that gives an `owner`, by `{owner}.{name}`: an empty string, a number or a name no "
+            "entry has would title a split-body gap with an export the inventory does not list.") in section
 
 
 def test_the_inventory_contract_gives_a_component_constant_a_usage_signature():

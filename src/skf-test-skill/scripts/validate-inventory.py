@@ -32,7 +32,11 @@ is a positive integer. A pair of references is written in one order,
 `reference_line`) in codepoint order, so a rerun gives the gap one title and
 the ledger records it once; one export documented twice in one reference is
 a pair of its two lines. A violation of the other side names both shapes,
-and one of the order names both places.
+and one of the order names both places. Its `export` names an inventory
+entry (#1033): an entry's `name`, a `method`'s bare one, or `{owner}.{name}`
+for a `method` entry that gives an `owner` (mismatch_names). Any other
+value, an empty string or a number among them, is a violation, since §5b
+titles a split-body gap with it.
 
 With --skill-package it also runs the ground-truth spot-check (coverage-check.md
 §1a): it sorts the exports by name (a stable sort), samples the first, the
@@ -1008,10 +1012,25 @@ def _is_line(value):
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
-def mismatch_violations(idx, entry, skill_package_path=None):
+def mismatch_names(exports):
+    """The spellings a mismatch's `export` may take (#1033): each entry's non-empty string `name`, and
+    `{owner}.{name}` for a `method` entry whose `owner` is a non-empty string. The contract asks for the bare
+    `name`, the one `crossChecked` lists; the qualified one is accepted so a reader that writes it is not refused."""
+    names = set()
+    for entry in exports:
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str) and entry["name"]:
+            names.add(entry["name"])
+            if entry.get("kind") == "method" and isinstance(entry.get("owner"), str) and entry["owner"]:
+                names.add(f"{entry['owner']}.{entry['name']}")
+    return names
+
+
+def mismatch_violations(idx, entry, skill_package_path=None, names=None):
     """The violations of one cross_check_mismatches entry (an object).
 
-    A required field left out; a `reference_file` or `other_file` that is no
+    A required field left out; an `export` that is not a non-empty string
+    or, given `names` (mismatch_names), not one of them (#1033: §5b titles a
+    split-body gap with it); a `reference_file` or `other_file` that is no
     `references/**/*.md` path of the package; a line that is no positive
     integer; an other side that is not exactly one shape, `skill_md_line` or
     both of `other_file` and `other_line` (a JSON null counts as absent); or a
@@ -1025,6 +1044,12 @@ def mismatch_violations(idx, entry, skill_package_path=None):
     missing = [f for f in REQUIRED_MISMATCH_FIELDS if f not in entry]
     if missing:
         violations.append(f"{where} missing field(s): {', '.join(missing)}")
+    if "export" in entry:
+        export = entry["export"]
+        if not (isinstance(export, str) and export) or (names is not None and export not in names):
+            violations.append(f"{where}: `export` must name an inventory entry, by its `name` (a `method`'s bare "
+                              "`name`, or `{owner}.{name}` for one that gives an `owner`), "
+                              f"not {json.dumps(export)}")
     ref = None
     if "reference_file" in entry:
         ref = _reference_path(entry["reference_file"], skill_package_path)
@@ -1268,12 +1293,13 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
             warnings.extend(at_warnings(idx, entry, files, skill_package_path))
 
     # Each cross-check mismatch carries its fields and one other side of its
-    # pair, a pair of references in order.
+    # pair, a pair of references in order, and an `export` naming an entry (#1033).
+    names = mismatch_names(exports)
     for idx, entry in enumerate(cross):
         if not isinstance(entry, dict):
             violations.append(f"cross_check_mismatches[{idx}] is not an object")
             continue
-        violations.extend(mismatch_violations(idx, entry, skill_package_path))
+        violations.extend(mismatch_violations(idx, entry, skill_package_path, names))
 
     schema_valid = not violations
     checked = None

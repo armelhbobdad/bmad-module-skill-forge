@@ -1615,6 +1615,38 @@ class TestOutputFormats:
         key, field = line.group(1, 2)
         assert result["inventory"][key] == {field: 1, "names": ["shared"]}
 
+    def test_mismatches_found_is_the_inventorys_mismatch_count(self, text: str, tmp_path: pathlib.Path) -> None:
+        """#1033: the line under Exports Cross-Checked read a bare `{count}` no stage defined and no script wrote. It
+        now counts the `cross_check_mismatches` entries of `{run_dir}/inventory.json`, each of which names an
+        inventory entry (validate-inventory.py refuses one that does not), so the section writes no bare `{count}`."""
+        section = _slice(text, "Only rendered when `references/` directory exists", "## Coherence Analysis")
+        assert "{count}" not in section
+        block = _fence(section, "**Mismatches Found:**")
+        assert re.findall(r"^\*\*Mismatches Found:\*\*.*$", block, flags=re.MULTILINE) == [
+            "**Mismatches Found:** {the number of cross_check_mismatches entries}"]
+        assert ("**Mismatches Found** is the number of `cross_check_mismatches` entries in `{run_dir}/inventory.json`, "
+                "one for each pair of places whose forms disagree, so an export can count more than once."
+                ) in _flow(section)
+        # The key the format names is the inventory's list, kept whole once each `export` names an entry.
+        validator = _load("skf_validate_inventory_for_mismatch_test", TS_DIR / "scripts" / "validate-inventory.py")
+
+        def checked(*exports: str) -> dict:
+            mismatches = [{"export": export, "skill_md_line": 3 + i, "reference_file": "references/api.md",
+                           "reference_line": 1, "issue": "SKILL.md shows (), references/api.md (n)"}
+                          for i, export in enumerate(exports)]
+            return validator.validate_inventory(json.dumps({
+                "exports": [{"name": "shared", "kind": "function"}], "references": ["references/api.md"],
+                "cross_check_mismatches": mismatches}))
+
+        result = checked("shared", "shared")
+        assert result["valid"] is True, result["violations"]
+        assert len(result["inventory"]["cross_check_mismatches"]) == 2
+        refused = checked("shared", "Widget")
+        assert refused["valid"] is False and refused["inventory"] is None
+        assert refused["violations"] == [
+            "cross_check_mismatches[1]: `export` must name an inventory entry, by its `name` (a `method`'s bare "
+            "`name`, or `{owner}.{name}` for one that gives an `owner`), not \"Widget\""]
+
 
 # ---------------------------------------------------------------------------
 # SKILL.md and the invocation contract (#600: the headless sections live in
