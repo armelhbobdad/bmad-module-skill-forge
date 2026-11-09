@@ -803,6 +803,23 @@ def test_two_spellings_of_one_type_are_no_mismatch():
             "after `from . import environment`, and `Environment`; `z.ZodType` and `ZodType`. Two declarations that "
             "only share a name stay two types.") in spellings
     assert "with or without its `typing.`" not in spellings, "#999: no closed list of three prefixes"
+    # #1050: a type name has one reading for every judge. A form's name is the type the skill documents or the package
+    # exports, a name the source writes is read in its file's scope, so a local alias that reuses the exported name is
+    # read through the type it names; `source_sig` writes that type by its exported name, so the gap's remediation
+    # never asks for the local spelling the form already copies. A local declaration that is no alias (a local
+    # `interface Options` beside an exported `Options`) keeps its own name, and `source_sig` rewrites only an alias
+    # that reuses a documented or exported name, so neither asks the form for the text it already writes.
+    assert ("- A type alias the source declares and the type it names. A type name a form writes means the type the "
+            "skill documents or the package exports under that name, and the source file's own declaration of it only "
+            "when there is none, or when the file declares the name other than as an alias (a local "
+            "`interface Options`). A name the source writes means the declaration in its file's scope, a local alias "
+            "read through the type it names and an import alias as the type it imports: the documented "
+            "`ThemesParameters['themes']` matches a return of the local "
+            "`type ThemesParameters = Parameters['themes']`, declared over "
+            "`import type { ThemesParameters as Parameters }`. When such an alias reuses a name the skill documents or "
+            "the package exports, a mismatch's `source_sig` writes it as the type "
+            "it names, by its exported name when it has one (`ThemesParameters['themes']`, not the local "
+            "`ThemesParameters`), so the form the gap asks for matches the source.") in spellings
 
 
 def test_every_difference_the_script_accepts_is_defined_in_the_rules_file_alone():
