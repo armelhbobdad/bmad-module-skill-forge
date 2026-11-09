@@ -170,9 +170,13 @@ def test_a_form_claims_only_what_it_writes():
     """#835: optionality is stated only by a default, a `?` or an optional marker, never by a type: a list that states
     it for no member has its optionality uncompared, and once one member states it the unmarked ones claim to be
     required. A default's value is not compared. In the split-body cross-check an annotation either form leaves out
-    is not compared."""
+    is not compared. #1025: an entry with no `params` key and no usage form writes no parameter list, so it claims
+    nothing about parameters, while a blank `params` claims the export takes none."""
     reading = _section("Reading a form")
     assert "A form claims only what it writes" in reading
+    assert ("A type or a return type it does not write claims nothing (Annotations). An entry with no `params` key and "
+            "no usage form writes no parameter list: it claims nothing about parameters, and only what it writes, such "
+            "as its return type, is compared. `params: \"\"` or `[]` claims the export takes none.") in reading
     assert "The source's declaration decides" in reading
     assert "with one exception, a return annotation the body contradicts (Annotations)" in reading
     assert ("Optionality is stated only by a default, a `?` (on the name, or as `?:`) or an optional marker: "
@@ -947,9 +951,10 @@ def test_every_difference_the_script_accepts_is_defined_in_the_rules_file_alone(
     assert TAG_DEFINITION in tags
     assert ("`parameter-name` (only parameter names differ: types, order, optionality and return type equal; a "
             "destructured property is part of a type)") in tags
+    # #1025: a form that writes no parameter list claims nothing about parameters, so its mismatch is tagged too
     assert ("`annotation-contradicted` (only the return type differs: `documented_sig` and `source_sig` write the same "
-            "parameters, and the body returns the documented type at the mismatch's `evidence_line`, as Annotations "
-            "says)") in tags
+            "parameters, or the form writes no parameter list, and the body returns the documented type at the "
+            "mismatch's `evidence_line`, as Annotations says)") in tags
     # #1023: every language's variadic parameter is optional, as a TS/JS rest parameter is
     assert ("A parameter or field with a default or a `?`, or a variadic parameter (a TS/JS rest parameter, a Python "
             "`*args` or `**kwargs`, Go's `...T`, Java's `T...`, C#'s `params T[]`, Kotlin's `vararg` or a C or C++ "
@@ -988,10 +993,13 @@ def test_a_contradicted_return_annotation_is_a_visible_note_that_never_blocks():
             "too, since the judges read that tree:") in section2b
     assert ("an Info `observation` titled `Annotation contradicted: {name}` (no change to the skill: report the "
             "annotation upstream) for an `annotation-contradicted` one whose facts check (a documented return type, "
-            "the same parameters on both sides, and an `evidence_line` between the declaration and the next one, whose "
-            "line returns in the `--source-root` file)") in section2b
+            # #1025: as scoring-rules.md's Info row and the rules' Difference tags read it
+            "the same parameters on both sides or a form with no parameter list, and an `evidence_line` between the "
+            "declaration and the next one, whose line returns in the `--source-root` file)") in section2b
     [info] = [line for line in _read(SCORING).splitlines() if line.startswith("| Info     | `observation`")]
-    assert ("whose documented signature states a return type and writes the source's parameters, and whose "
+    # #1025: or its form writes no parameter list
+    assert ("whose documented signature states a return type and writes the source's parameters (or its form writes "
+            "no parameter list), and whose "
             "`evidence_line`, the body line that returns the documented type, comes after the declaration and before "
             "the next one and, with the local source, starts with `return` (or is a one-line declaration's own "
             "expression body)") in info

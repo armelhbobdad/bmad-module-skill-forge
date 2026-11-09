@@ -141,7 +141,12 @@ ratios and the gap records of the wrong signatures.
              writes, that is neither blank nor a list of value names:
              _states_return); `documented_sig` and `source_sig` write the
              same parameters as signature-comparison-rules.md reads them
-             (_parameter_difference, below); `evidence_line` comes after the
+             (_parameter_difference, below), read from the form when it
+             gives no usage form and lists no parameter (#1025): one with
+             no `params` writes no parameter list and claims nothing about
+             parameters, so this fact holds, and a blank `params` (`""` or
+             `[]`) claims the export takes none, so `()` is compared with
+             `source_sig`; `evidence_line` comes after the
              declaration line (of the name's surface records at the
              mismatch's file, the closest at or before the mismatch's
              `line`, else the first; with none, the mismatch's `line`) and
@@ -701,6 +706,12 @@ def _lists_params(fields: dict) -> bool:
     return (isinstance(params, str) and bool(params.strip())) or (isinstance(params, list) and bool(params))
 
 
+def _claims_none(fields: dict) -> bool:
+    """A blank `params` (`""` or `[]`): the form claims the export takes none (#1025), where one with no `params`
+    (absent or null) claims nothing about parameters."""
+    return isinstance(fields.get("params"), (str, list)) and not _lists_params(fields)
+
+
 def _gives_usage(fields: dict) -> bool:
     """A non-blank `usage_signature` string, or a list holding one."""
     usage = fields.get("usage_signature")
@@ -764,8 +775,10 @@ def _forms_and_places(inventory: list[dict]) -> dict[str, list[tuple[dict, list[
         same = next((i for i, (f, _) in enumerate(forms) if _form_key(f) == _form_key(fields)), None)
         if same is None:
             forms.append((fields, places))
-        elif _partial(forms[same][0]) and not _partial(fields):
-            # in the inventory order the full entry has, as the rank would have ordered it
+        elif (_partial(forms[same][0]) and not _partial(fields)) or (
+                _partial(forms[same][0]) == _partial(fields) and _claims_none(fields)
+                and not _claims_none(forms[same][0])):
+            # the stricter entry, in the inventory order it has, as the rank would have ordered it
             places = forms[same][1] + places
             del forms[same]
             forms.append((fields, places))
@@ -834,7 +847,9 @@ def documented_forms(inventory: list[dict]) -> dict[str, list[dict]]:
     signature. A form that lists no member and states no return type is
     never an alternative. Two entries that say the same thing (_form_key)
     are one form; of two that differ only by the partial label, the full one
-    (the stricter) stands."""
+    (the stricter) stands, and of two that differ only by a blank `params`
+    against none, the blank one, which claims the export takes none (#1025),
+    so the grade never rests on which entry comes first."""
     return {name: [fields for fields, _ in forms] for name, forms in _forms_and_places(inventory).items()}
 
 
@@ -1620,7 +1635,12 @@ def contradiction_fact(entry: dict, documented: dict, file: str, declaration_lin
     `documented_sig` and `source_sig` write the same parameters, as the
     comparison rules read them in a file of `file`'s language
     (_parameter_difference, which compares the texts before the return when
-    either has no parameter group); `evidence_line` comes
+    either has no parameter group), read from the form when it gives no
+    usage form and lists no parameter (#1025): with no `params` (absent or
+    null) it writes no parameter list and claims nothing about parameters,
+    so the fact holds whatever `documented_sig` writes before its return,
+    and a blank `params` (`""` or `[]`) claims the export takes none, so
+    `()` is compared with `source_sig`; `evidence_line` comes
     after the declaration line and before `next_line`, the next surface
     record in the file; and, with `source_root`, that line of `file` under it
     returns (_returns), which alone lets the declaration line itself stand.
@@ -1633,7 +1653,15 @@ def contradiction_fact(entry: dict, documented: dict, file: str, declaration_lin
     return_type = documented.get("return_type")
     if not _states_return(return_type, extension) and not _states_return(documented_return, extension):
         return "the documented signature states no return type"
-    difference = _parameter_difference(entry["documented_sig"], entry["source_sig"], extension)
+    # A form that gives no usage form and lists no parameter says itself what it claims about parameters (#1025).
+    params, usage = documented.get("params"), _gives_usage(documented)
+    if params is None and not usage:
+        difference = None
+    elif _claims_none(documented) and not usage:
+        documented_params = "()"
+        difference = _parameter_difference(documented_params, entry["source_sig"], extension)
+    else:
+        difference = _parameter_difference(entry["documented_sig"], entry["source_sig"], extension)
     if difference is not None:
         return f"its parameters differ: documented `{documented_params}`, source `{source_params}`: {difference}"
     if not _is_line(evidence) or evidence < declaration_line:
