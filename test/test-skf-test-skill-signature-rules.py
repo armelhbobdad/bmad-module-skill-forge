@@ -811,6 +811,37 @@ def test_a_return_written_as_value_names_states_no_return_type():
     assert lines[i + 1].endswith("and a description followed by a type (`HTML str`) each state one."), "#957: last"
 
 
+def test_a_return_that_names_alternative_types_after_its_type_states_their_union():
+    """#1042: oms-cognee writes `RememberResult (DryRunEstimate with dry_run=True, ...)` for a function declared
+    `-> Union["RememberResult", "DryRunEstimate", "PresortReport", dict]`. Read as `RememberResult` with a described
+    parenthetical, as `HTML str` is read, it leaves out three members, an untagged Critical; read as the union of
+    every type it names, it is a match. Annotations now gives the union reading, the conditions naming no type, and
+    keeps a type a parenthetical names for another reason a description. score-signatures.py's _states_return
+    already reads such a return as a stated one, and the script never compares return types, so only prose changes.
+    A bullet of its own, so the value-names bullet still ends on its `HTML str` clause. It names both bounds, so an
+    alternative the source never returns is a mismatch for every judge, not only for one that reads past "(below)"."""
+    annotations = _section("Annotations")
+    alternatives = ("- A return written as a type followed by other types it names as alternatives, in a parenthetical "
+                    "or a list, each with an optional condition (`RememberResult (DryRunEstimate with dry_run=True, "
+                    "PresortReport with dry_run=\"presort\", or dict)`, `GraphSnapshot for \"pydantic\", ExportResult "
+                    "for \"cogx\"`), states the union of every type it names, and the words that name no type "
+                    "(`with dry_run=True`, `for \"pydantic\"`) state nothing: it matches the source's union when it "
+                    "names every member and no other: a member it leaves out is a mismatch (below), and so is one the "
+                    "source never returns. A type a parenthetical "
+                    "names other than as an alternative (`Response (see Request)`) is description, so only the type "
+                    "before it is stated.")
+    assert alternatives in annotations
+    lines = _read(RULES).splitlines()
+    values = "- A return written as names of values rather than types,"
+    [i] = [n for n, line in enumerate(lines) if line.startswith(values)]
+    assert lines[i + 1] == alternatives, "#1042: right after the value-names bullet"
+    assert lines[i + 2].startswith("- A type the source leaves unannotated"), "and before the unannotated-type bullet"
+    assert _flow(_read(RULES)).count("other types it names as alternatives") == 1, "one copy"
+    # the rule its "(below)" points at, and the description reading it sets apart, both stay
+    assert "a documented return type must cover every member the source can return." in annotations
+    assert "a description followed by a type (`HTML str`) each state one." in annotations
+
+
 def test_two_spellings_of_one_type_are_no_mismatch():
     spellings = _section("Equivalent spellings")
     for spelling in ("`Optional[X]`, `Union[X, None]` and `X | None`", "`Union[A, B]` and `A | B`",
