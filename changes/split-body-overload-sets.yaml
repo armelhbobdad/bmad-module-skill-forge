@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   Test Skill's split-body cross-check reads the forms one file writes for one name as an overload set (Python `@overload` stubs or TS bodiless signatures, with the implementation after them when the file writes it) as one documented set, the way it reads an overload set in the source: a form in the other file that matches the implementation or any stub, or whose parameter types are, position by position, the unions of the stubs' types, is no mismatch, and the set's own forms are never compared with each other or with its implementation. Before, a correct SKILL.md form that defaults a parameter could be compared with one documented stub that requires it and read as a High `split-body-mismatch` gap, which blocks the hard gate and tells Update Skill to rewrite a correct stub, so two runs on an unchanged skill could disagree.
 issues: [1017]
+prs: [1054]
