@@ -1247,19 +1247,23 @@ def test_a_ts_js_literal_default_has_its_literal_s_type(documented_sig, source_s
     ("(data, tasks, ...) -> X", "(tasks, data) -> Y", ".py", "`tasks` comes before `data` in the source"),
     ("(tasks: str, ...) -> X", "(tasks: list[Task], data) -> Y", ".py", "`tasks` is typed `str`"),
     ("(...items) => X", "(...rest) => Y", ".ts", "`...items` is not a source parameter"),
+    ("Settings(**config) -> X", "(self, host: str, port: int) -> Y", ".py", "`**config` is not a source parameter"),
     ("(a: int) -> X", "(a: int, b: int = 1) -> Y", ".py", "the documented list writes 1 parameter, the source 2"),
 ], ids=["bare-names-leave-out-an-optional", "bare-names-leave-out-a-required", "bare-names-write-one-too-many",
         "bare-names-out-of-order", "a-positional-shift-in-ts", "no-positional-shift-in-python",
         "positional-names-against-keyword-only", "by-name-after-args", "an-ellipsis", "a-unicode-ellipsis",
         "an-ellipsis-alone", "an-ellipsis-with-a-name-the-source-lacks", "an-ellipsis-out-of-order",
-        "an-ellipsis-with-a-typed-member-that-differs", "a-rest-is-no-ellipsis", "a-typed-list-claims-to-be-complete"])
+        "an-ellipsis-with-a-typed-member-that-differs", "a-rest-is-no-ellipsis",
+        "a-call-s-unpacking-is-still-refused", "a-typed-list-claims-to-be-complete"])
 def test_a_form_that_claims_no_complete_list_need_not_write_every_parameter(documented_sig, source_sig, extension,
                                                                             reason):
     """Reading a form: a list of bare names need not write an optional source parameter, but each name it writes
     must be one, in the source's order (by name alone after a `*` marker), and it may not leave out a required one,
     nor, in a language without keyword arguments, an optional one before a name it writes. A list holding an
     ellipsis claims nothing about what it stands for; the members it writes are still checked. A TS/JS rest is no
-    ellipsis, and a list that writes a type, a default or a `?` must write every parameter."""
+    ellipsis, and a list that writes a type, a default or a `?` must write every parameter. A Python call's
+    `**config` is read as a `**kwargs` the source must declare (#1024), on the strict side, where the rules read
+    it as passing `host` and `port`."""
     _check_parameters(documented_sig, source_sig, extension, reason)
 
 

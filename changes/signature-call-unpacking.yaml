@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's signature rules now say what a Python call's unpacking argument passes: a `*items` argument can pass every parameter a caller may pass by position from its position on, and a `**mapping` argument every one a caller may pass by name, so a documented `Settings(**config)` matches a constructor `__init__(self, host, port)`. The rules said only what a JSX spread or a TS/JS `...args` passes, so a judge that read `Settings(**config)` literally found no required parameter passed and raised a Critical `signature-mismatch` gap on the correct form, failing the hard gate. The arguments a call writes beside an unpacking are still compared, so `Settings(**config, debug=True)` is still a mismatch when the constructor takes neither `debug` nor `**kwargs`, and a `*items` never passes a keyword-only parameter, nor a `**mapping` a positional-only one. A call written with placeholder names, such as `coco.mount([subpath,] process_fn, *args, **kwargs)`, reads its `*args` and `**kwargs` the same way.
+issues: [1024]

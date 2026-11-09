@@ -273,15 +273,32 @@ def test_a_usage_form_is_read_as_what_it_writes():
     call as its arguments in order; a spread, children or `...args` can pass a required member; each usage of a list
     is a form of its own. #916 (oms-cocoindex): a call written with placeholder names, which the inventory contract
     records as a usage, is read the same way, its names arguments at their positions and never parameter names, and
-    a bracketed argument is optional, so the call is compared with and without it."""
+    a bracketed argument is optional, so the call is compared with and without it. #1024: the rule said what a JSX
+    spread or a TS/JS `...args` passes but not Python's `*items` or `**mapping`, so `Settings(**config)` read
+    literally passed no required parameter, a Critical that blocks the hard gate. It now says what each unpacking
+    passes, keeps the arguments written beside it compared, and the placeholder `*args` and `**kwargs` unpack the
+    same way."""
     reading = _section("Reading a form")
     assert ("A component usage `<X a={x} b=\"y\" />` reads as a list of bare names of the props it sets, and a call "
             "`f(a, b)` as its arguments in order, each the parameter at its position (or, written `name=value`, the one "
             "it names).") in reading
-    assert ("A JSX spread (`{...props}`) or children can pass a required prop, and a call's `...args` a required "
-            "parameter, so neither leaves one out.") in reading
-    assert ("An entry's `usage_signature` written as a usage is read this way, and each usage in a list of usages is "
-            "compared as a form of its own, under its entry's `form` index.") in reading
+    spread = ("A JSX spread (`{...props}`) or children can pass a required prop, and a call's `...args` a required "
+              "parameter, so neither leaves one out.")
+    assert spread in reading
+    unpacking = ("A Python `*items` argument can pass every parameter a caller may pass by position from its position "
+                 "on, and a `**mapping` argument every one a caller may pass by name, so neither leaves such a "
+                 "parameter out (`Settings(**config)` matches `__init__(self, host, port)`), while the arguments the "
+                 "call writes beside them are still compared (`Settings(**config, debug=True)` is a mismatch when the "
+                 "constructor takes neither `debug` nor `**kwargs`); a `*items` never passes a keyword-only "
+                 "parameter, nor a `**mapping` a positional-only one.")
+    usage = ("An entry's `usage_signature` written as a usage is read this way, and each usage in a list of usages is "
+             "compared as a form of its own, under its entry's `form` index.")
+    assert usage in reading
+    assert f"{spread} {unpacking} {usage}" in reading, "#1024: right after the spread sentence, before the usage rule"
+    assert reading.count("`Settings(**config)`") == 1, "#1024: one copy of the unpacking rule"
+    # score-signatures.py's parameter fact still refuses an unpacking, on the strict side, and its docstring says so
+    assert ("a call's `*items` or `**mapping` argument (read as a `*args` or `**kwargs` the source must declare, so "
+            "`Settings(**config)` against `__init__(self, host, port)` differs)") in _flow(_read(SCORE_SIGNATURES))
     assert reading.count("`usage_signature`") == 1, "one copy of the usage rule"
     # the bullet it extends, and the bare-names rule it reads by
     call = _paragraph(_read(RULES), "- A call or usage example passes values")
@@ -289,7 +306,8 @@ def test_a_usage_form_is_read_as_what_it_writes():
     assert "A list of bare names, with no type, default or `?`" in reading
     placeholder = ("A call written with placeholder names (`await coco.mount([subpath,] process_fn, *args, "
                    "**kwargs)`), which the inventory contract records as a usage, is read the same way: its names "
-                   "are arguments at their positions, never parameter names, and a bracketed argument (`[subpath,]`) "
+                   "are arguments at their positions, never parameter names, its `*args` and `**kwargs` unpack as "
+                   "above, and a bracketed argument (`[subpath,]`) "
                    "is optional, so the call is compared with and without it, each as a call.")
     assert f"under its entry's `form` index. {placeholder}" in call, "the call bullet's last sentence"
     [bullet] = [line for line in _read(RULES).splitlines() if line.startswith("- A call or usage example")]

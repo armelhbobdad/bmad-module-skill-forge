@@ -189,6 +189,9 @@ ratios and the gap records of the wrong signatures.
              `::` (Rust's `std::path::PathBuf`), a call example's `name=value`
              (read as a default, so its list claims to be complete) or
              positional literal (`RecursiveSplitter(512)`, read as a name),
+             a call's `*items` or `**mapping` argument (read as a `*args`
+             or `**kwargs` the source must declare, so `Settings(**config)`
+             against `__init__(self, host, port)` differs),
              two module paths to one declaration (`a.Foo` against `b.Foo`),
              a destructured parameter (compared as one name, so the order of
              its properties and the ones it leaves out count), a parameter
