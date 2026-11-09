@@ -213,6 +213,20 @@ def test_cross_check_all_fields_ok():
     assert r["valid"] is True
 
 
+def test_a_method_pair_keeps_its_owner():
+    """#1035: a pair of a `method`'s forms gives the `owner` its entries give, so the split-body Source reads that
+    owner's member and never a same-named root record (`cognee.delete` for `agents.delete`). The validator checks no
+    `owner`, and the inventory it writes keeps it for the Source to read."""
+    entry = {"export": "delete", "owner": "agents", "skill_md_line": 3, "reference_file": "references/a.md",
+             "reference_line": 7, "issue": "SKILL.md shows delete(user=None), references/a.md delete(agent_id, "
+                                           "user=None)"}
+    raw = json.dumps({"exports": [{"name": "delete", "kind": "method", "owner": "agents"}],
+                      "cross_check_mismatches": [entry]})
+    r = mod.validate_inventory(raw)
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["inventory"]["cross_check_mismatches"] == [entry]
+
+
 def _cross_check(**fields):
     """An inventory with one cross-check mismatch: its export, reference side and issue, plus `fields`. The issue is
     a mismatch by the rules: a typed form claims its list is complete, and leaves out `dataset`."""

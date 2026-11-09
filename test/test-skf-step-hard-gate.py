@@ -734,7 +734,12 @@ class TestStagesRecordTheirGaps:
         reference line when it cannot or neither side agrees. Each record names its reference file in its title, so
         two references that disagree with one body are two gaps, and its remediation names both files. #841: the
         cross-check also compares two references the body does not settle (it does not document the export, or
-        agrees with both), and §5b loads the Source rule from the branch file's Split-Body Sources section."""
+        agrees with both), and §5b loads the Source rule from the branch file's Split-Body Sources section.
+        #1035 (oms-cognee 1.6.2): `surface.json` records no class member, so every pair of a `method`'s forms
+        (`datasets.list_data`, `agents.delete`) fell to "no source settled it" and had update-skill copy SKILL.md's
+        form, missing a required parameter, over a reference line the source agrees with; and a root record of the
+        bare name (`cognee.delete` for `agents.delete`) could settle a pair against the wrong declaration. A method
+        pair gives its `owner`, and the Source reads the member the owner's body declares, never a bare-name record."""
         text = _read(COVERAGE_FILE)
         section1 = _flow(_slice(text, "### 1. Extract Documented Exports", "#### 1a."))
         assert ("For each export two or more of the files it reads document, it compares the SKILL.md body with "
@@ -750,6 +755,14 @@ class TestStagesRecordTheirGaps:
                 "then line, as `other_file` and `other_line`, with the one that sorts last as `reference_file` and "
                 "`reference_line`.") in contract
         assert '"other_file": "references/api-reference.md", "other_line": 40' in contract
+        # #1035: a method pair also gives its entries' `owner`, which the Source reads, and the example shows one
+        assert ("Each file is its path in the package, such as `references/api-reference.md`. A pair of a "
+                "`method`'s forms also gives the `owner` its entries give (`agents` above), so the split-body Source "
+                "reads that owner's member, never a same-named declaration elsewhere; `owner` is not validated."
+                ) in contract
+        example = json.loads(re.search(r"```json\n(.*?)\n```", _read(REFS / "inventory-contract.md"),
+                                       re.S).group(1))["cross_check_mismatches"]
+        assert [(e["export"], e["owner"]) for e in example if "owner" in e] == [("get", "agents")]
         section = _flow(_slice(text, "### 1b. Cross-Check", "### 2. Analyze"))
         assert "The SKILL.md body is authoritative" not in section
         assert "High `split-body-mismatch` gap" in section
@@ -782,6 +795,20 @@ class TestStagesRecordTheirGaps:
                        "`{reference_file}` to edit, taking the other side's form (`{other_file}`'s, for two "
                        "references)"):
             assert needle in rule, needle
+        # #1035: a method pair is settled by the member its owner's body declares, read from the owner's record, by
+        # the same one-declaration test, before the remediation that cites the declaration's `file:line`
+        member = ("A pair that gives an `owner` is a `method`'s (inventory-contract.md): its declaration is the member "
+                  "of the method's bare name that the owner's body declares, read from the `file` and `line` of the "
+                  "owner's `surface.json` record, and it decides when the owner's name has one declaration by the "
+                  "test above and that body declares the member once, with no overload set.")
+        # a bare-name record never stands in, and a pair the rule cannot place under its owner is settled by nothing
+        bare = ("A record of the bare name never stands in for the member, so with no record of the owner or no such "
+                "member, or with no `owner` on a pair whose `export` the inventory lists only as a `method`, nothing "
+                "decides.")
+        for sentence in (member, bare):
+            assert rule.count(sentence) == 1, sentence
+        assert (rule.index("the Source is the other side, `SKILL.md:{skill_md_line}`") < rule.index(member)
+                < rule.index(bare) < rule.index("Its remediation names the file to edit")), "before the remediation"
         assert "State 2" not in rule and "`signature_source`" not in rule
         formats = _flow(_read(FORMATS_FILE))
         assert ("Each row is a split-body gap coverage-check recorded. **Other Side** is the other file of its pair, "
