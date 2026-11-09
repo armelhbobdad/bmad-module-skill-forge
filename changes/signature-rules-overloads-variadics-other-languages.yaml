@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's signature rules now read overloaded constructors and variadic parameters in Java, Kotlin, C# and C++ as they read Python's and TS/JS's. A class in one of these languages is compared with every constructor it declares, as one overload set, so a documented `new Client("localhost", 8080)` matches `Client(String host, int port)` beside `Client(String host)`, and overloaded methods and functions there are one set too. Java's `T...`, C#'s `params T[]`, Kotlin's `vararg` and a C or C++ `...` now take the extra arguments a call passes, as Go's `...T` does, and each of them, Go's included, is optional, so `new Command("ls", "-l", "-a")` and `new Command("ls")` both match `Command(String name, String... args)`. The rules named only the forms of Python, TS/JS and Go, so a judge of the fallback per-file scan, which reads these languages, could raise a Critical `signature-mismatch` gap on a correct form and fail the hard gate.
+issues: [1023]

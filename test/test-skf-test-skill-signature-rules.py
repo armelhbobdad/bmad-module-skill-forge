@@ -233,7 +233,12 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
 
 def test_a_caller_following_a_narrower_form_makes_a_valid_call():
     """A documented parameter type naming some of a union's members, a union of callables written as one callable
-    returning a union, and a form taking the unions of an overload set's parameter types are no mismatch."""
+    returning a union, and a form taking the unions of an overload set's parameter types are no mismatch. #1023:
+    Overload sets named only Python `@overload` stubs and TS bodiless signatures, so overloaded constructors and
+    functions in Java, Kotlin, C# and C++, which the fallback per-file scan's judges read by this file, had no
+    stated reading, and a correct `new Client("localhost", 8080)` compared with one constructor could be a Critical
+    mismatch that blocks the hard gate. A name declared several times with no implementation they share is one set
+    too, and a form matching any of its declarations is no mismatch."""
     annotations = _section("Annotations")
     assert ("A documented parameter type that names some of the members of the source's union is no mismatch, since a "
             "caller passing it makes a valid call") in annotations
@@ -241,6 +246,15 @@ def test_a_caller_following_a_narrower_form_makes_a_valid_call():
     spellings = _section("Equivalent spellings")
     assert "`Callable[[A], X] | Callable[[A], Y]` and `(a: A) -> X | Y`" in spellings
     overloads = _section("Overload sets")
+    languages = ("(overloaded constructors in Java, Kotlin, C# and C++, a Kotlin class's primary and secondary "
+                 "constructors among them, and overloaded methods in those languages and functions in Kotlin and C++)")
+    separate = ("A name declared several times with different parameter lists and no implementation they share "
+                f"{languages} is one set too: a documented form that matches any of its declarations is no mismatch "
+                "(`new Client(\"localhost\", 8080)` matches `Client(String host, int port)` beside "
+                "`Client(String host)`).")
+    assert separate in overloads, "#1023: other languages' overloads are one set"
+    assert overloads.index(OVERLOAD_RULE) < overloads.index(separate), "after the stub rule, which stays as it is"
+    assert _read(RULES).count("no implementation they share") == 1, "one copy"
     assert "the unions of the overloads' types" in overloads
 
 
@@ -493,7 +507,11 @@ def test_a_call_to_a_class_is_compared_with_its_constructor():
     fields included (a pydantic model's keyword-only); an instance's with its `__call__`; an alias's with its class's.
     The receiver rule is score-signatures.py's, so both name one receiver set: the source's leading receiver is never
     compared and the form's own is dropped only when the source leads with one. A callee's `*args` or `**kwargs`
-    takes any extra argument, and a constructor written only outside the source tree counts as matching (#925)."""
+    takes any extra argument, and a constructor written only outside the source tree counts as matching (#925).
+    #1023: a class in another language was compared with "the constructor it declares", one of them, and only
+    Python's, TS/JS's and Go's variadics took extra arguments, so `new Command("ls", "-l", "-a")` against
+    `Command(String name, String... args)` passed arguments that did not exist. Such a class is compared with every
+    constructor it declares, as one overload set, and Java's, C#'s, Kotlin's, C's and C++'s variadics are named."""
     reading = _section("Reading a form")
     opening = "A call to a class is compared with its constructor"
     constructor = ("A call to a class is compared with its constructor: in Python, the parameters after `self` of the "
@@ -502,8 +520,8 @@ def test_a_call_to_a_class_is_compared_with_its_constructor():
                    "NamedTuple that declares no `__init__` with the fields it generates, in declaration order, base "
                    "fields first, a default marking a field optional, a field kept out of the constructor "
                    "(`init=False`, a `ClassVar`) none of them, and a pydantic model's keyword-only; a TS/JS class with "
-                   "its `constructor(...)`, else its nearest base's; a class in another language with the constructor "
-                   "it declares.")
+                   "its `constructor(...)`, else its nearest base's; a class in another language with the constructors "
+                   "it declares, read as Overload sets says.")
     form = "Any other form that documents a class is compared with that same constructor."
     component = "A component is compared by its props (Components), not its constructor."
     instance = ("A call to an instance is compared with its class's `__call__` (`fn = _FunctionDecorator()`, then "
@@ -514,7 +532,8 @@ def test_a_call_to_a_class_is_compared_with_its_constructor():
                 "receiver is dropped only when the source leads with one too: `(self, a)` against `def f(a)` is a "
                 "mismatch.")
     variadics = ("An argument past the parameters a declaration takes by position exists when it takes `*args`, a "
-                 "TS/JS `...args` or Go's `...T`, and a keyword no parameter names exists when it takes `**kwargs`, so "
+                 "TS/JS `...args`, Go's `...T`, Java's `T...`, C#'s `params T[]`, Kotlin's `vararg` or a C or C++ "
+                 "`...`, and a keyword no parameter names exists when it takes `**kwargs`, so "
                  "`Task(fn, max_chunk_size=512)` matches `__init__(self, executable, *args, **kwargs)`; a pass-through "
                  "`__init__(self, *args, **kwargs)` is compared as written, so any call matches it.")
     outside = ("A class whose constructor is written only in a package outside the source tree (one that declares none "
@@ -931,8 +950,10 @@ def test_every_difference_the_script_accepts_is_defined_in_the_rules_file_alone(
     assert ("`annotation-contradicted` (only the return type differs: `documented_sig` and `source_sig` write the same "
             "parameters, and the body returns the documented type at the mismatch's `evidence_line`, as Annotations "
             "says)") in tags
-    assert ("A parameter or field with a default or a `?`, a TS/JS rest parameter, or a Python `*args` or "
-            "`**kwargs`, is optional") in tags
+    # #1023: every language's variadic parameter is optional, as a TS/JS rest parameter is
+    assert ("A parameter or field with a default or a `?`, or a variadic parameter (a TS/JS rest parameter, a Python "
+            "`*args` or `**kwargs`, Go's `...T`, Java's `T...`, C#'s `params T[]`, Kotlin's `vararg` or a C or C++ "
+            "`...`), is optional") in tags
     assert "a Rust `Option<T>` field a struct literal still requires is not" in tags
     assert ("A renamed component prop is never `parameter-name`: callers set props by name, so it is a mismatch with "
             "no tag.") in tags
