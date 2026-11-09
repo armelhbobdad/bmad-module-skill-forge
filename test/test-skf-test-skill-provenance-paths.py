@@ -2027,7 +2027,8 @@ EXTRACTION = {
 
 
 # The (script, subcommand) pairs that, given --output, print only a summary of the file they write.
-SUMMARIZED_COMMANDS = frozenset({("{scoreSignaturesScript}", "plan")})
+SUMMARIZED_COMMANDS = frozenset({("{scoreSignaturesScript}", "plan")} | {
+    ("{coverageInputsScript}", cmd) for cmd in ("census", "floor", "metadata", "surface")})
 
 
 def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
@@ -2059,7 +2060,7 @@ def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
     if redirect is not None:
         target.write_bytes(proc.stdout)
     if words and (m.group(1), words[0]) in SUMMARIZED_COMMANDS and "--output" in words:
-        # #1018: such a command prints a summary that names its --output file, and the step reads the file
+        # #1018, #1040: such a command prints a summary that names its --output file, and the step reads the file
         written = words[words.index("--output") + 1]
         assert json.loads(proc.stdout)["output"] == written, (command, proc.stdout.decode("utf-8"))
         return json.loads(Path(written).read_bytes())
