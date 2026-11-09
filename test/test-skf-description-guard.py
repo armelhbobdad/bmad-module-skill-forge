@@ -1027,8 +1027,9 @@ class TestQuickSkillGuardProse:
         section = _slice(text, "### 4. Validate SKILL.md via skill-check", "### 5. ")
         capture = section.index(
             'uv run {descriptionGuardHelper} capture "{skill_package}/SKILL.md" > "{run_dir}/description-guard.json"\n')
-        fix = section.index('npx skill-check check "{skill_package}" --fix --format json > "{run_dir}/skill-check.json" '
-                            '2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"\n')
+        fix = section.index('npx skill-check check "{skill_package}" --fix --format json --no-security-scan '
+                            '> "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; '
+                            'echo "skill-check exited $?"\n')
         verify = section.index(
             'uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" '
             '--captured-file "{run_dir}/description-guard.json"\n'
@@ -1066,7 +1067,7 @@ class TestQuickSkillGuardProse:
     def test_a_missing_helper_skips_fix(self) -> None:
         rule = _slice(_read(QS_WRITE), "**If no `{descriptionGuardProbeOrder}` path exists**", "\n")
         assert "never run `--fix` unguarded" in rule
-        assert 'Run `npx skill-check check "{skill_package}" --format json` instead' in rule
+        assert 'Run `npx skill-check check "{skill_package}" --format json --no-security-scan` instead' in rule
         assert "skill-check ran without `--fix`" in rule
 
     def test_the_protocol_lists_quick_skill_as_a_caller(self) -> None:

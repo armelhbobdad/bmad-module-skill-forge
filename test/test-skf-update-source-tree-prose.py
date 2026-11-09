@@ -5596,15 +5596,18 @@ def test_skill_check_runs_in_write_once_and_again_after_a_split():
     calls = [(rel, line) for rel, text in _update_markdown().items() for line in text.splitlines()
              if "skill-check check " in line and "npx" in line]
     assert [rel for rel, _ in calls] == ["references/write.md"] * 2, calls
-    assert calls[0][1].startswith('- Run `npx skill-check check "{skill_package}" --fix --format json`')
+    assert calls[0][1].startswith(
+        '- Run `npx skill-check check "{skill_package}" --fix --format json --no-security-scan`')
     assert calls[1][1].startswith("  After a split (the helper's `sections_extracted` is not empty")
     assert re.findall(r"`npx skill-check check [^`]*`", calls[1][1]) == [
         '`npx skill-check check "{skill_package}" --format json --no-security-scan`']
     seven = _slice(_read(WRITE), "### 7. Run Post-Write Validation", "### 8.")
     assert "skill-check runs once per update, here, against the written package, and once more after a body " \
            "split (below)" in seven
-    assert "`npx skill-check check \"{skill_package}\" --fix --format json` **inside the §0 guard**" in seven
-    assert "--no-security-scan` is passed" in seven and "--no-security-scan --" not in seven
+    assert ('`npx skill-check check "{skill_package}" --fix --format json --no-security-scan` **inside the §0 '
+            'guard**') in seven
+    # the scan runs on its own, through skf-security-scan.py (#892)
+    assert "`--no-security-scan` leaves the security scan to **Security scan** below" in seven
     assert "`npx skill-check -h`" in seven
     assert 'npx skill-check diff "{skill_group}/{baseline_version}/{skill_name}" "{skill_package}"' in seven
     marks = [seven.index("**Description Guard Protocol:**"), seven.index("--fix --format json"),
@@ -5892,73 +5895,50 @@ def test_the_report_reads_the_validation_write_recorded():
         "--version", "{version}"]
 
 
-# The line agent-scan prints with no SNYK_TOKEN, as Quick Skill's contract test records it (#885); Quick Skill's
-# step is the rule write.md §7 ports (#934).
-NO_TOKEN_LINE = "To use Agent Scan, set the SNYK_TOKEN environment variable."
 QUICK_WRITE = SRC / "skf-quick-skill" / "references" / "write-and-validate.md"
 
 
-def test_the_security_scan_reads_its_exit_code_and_tail():
-    """#934: §7 captures the guarded call's stdout, stderr and exit code in the run folder and records the `Security`
-    row by Quick Skill's rule, the first that applies, so exit 2, a stopped call or another scan that did not finish
-    reads SKIP and finding codes in the stderr tail read WARN, where only a stderr naming SNYK_TOKEN did before."""
+def test_the_security_scan_reads_the_helpers_result():
+    """#892: skill-check 1.2.0 passes none of the scanner's findings on, so the guarded `--fix` call runs with
+    `--no-security-scan` and §7 runs skf-security-scan.py whether or not skill-check is available, recording the
+    `Security` row from the helper's JSON: PASS, WARN or SKIP with its note, each finding an advisory warning."""
     seven = _slice(_read(WRITE), "### 7. Run Post-Write Validation", "### 8.")
-    run = _slice(seven, '- Run `npx skill-check check "{skill_package}" --fix --format json` **inside the §0 guard**',
-                 "\n")
+    run = _slice(seven, '- Run `npx skill-check check "{skill_package}" --fix --format json --no-security-scan` '
+                 '**inside the §0 guard**', "\n")
     # the call keeps its arguments, the capture in its own code span after it
     capture = '`> "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"`'
-    assert run.startswith('- Run `npx skill-check check "{skill_package}" --fix --format json` **inside the §0 '
-                          f'guard**, with its output captured apart ({capture} after it). ')
-    assert ("Read the JSON, not the exit code: the quality score (`scores[].score`, the entry matching the skill, or a "
-            "top-level `qualityScore` on an older skill-check), the remaining `diagnostics[]` and the security "
-            "findings, from the JSON object at the start of `{run_dir}/skill-check.json`") in run
-    rule = _slice(seven, "- **Security scan:** ", "\n- **Context sync after --fix:**")
-    assert "npx" not in rule, "skill-check runs only in the two calls the run-once test counts"
-    quick = _slice(_read(QUICK_WRITE), "### 4. Validate SKILL.md via skill-check", "### 5. ")
-    facts = quick[quick.index("skill-check 1.2.0 puts no security key in the JSON."):]
-    end = "the codes skill-check's own scan summary counts."
-    facts = facts[:facts.index(end) + len(end)]
-    assert facts in rule, "the exit-code facts and the finding code are Quick Skill's, word for word"
-    assert "so a non-zero exit is not a security finding" in rule
-    assert ("Record the Validation Summary's `Security` row from `{run_dir}/skill-check.stderr` and the exit code, the "
-            "first that applies:") in rule
-    labels = [rule.index(f"\n  - **{word}:** ") for word in ("SKIP", "WARN", "PASS")]
-    assert labels == sorted(labels), "the first that applies: SKIP, then WARN, then PASS"
-    skip, warn, clean = (rule[a:b] for a, b in zip(labels, labels[1:] + [len(rule)]))
-    # No token: exit 1, no error, a tail that asks for SNYK_TOKEN, the row as before.
-    assert ("Record `Security: SKIP (SNYK_TOKEN not configured)` when the tail says to set the `SNYK_TOKEN` environment "
-            f'variable (the scanner prints "{NO_TOKEN_LINE}")') in skip
-    # No runner: exit 2, noted by its cause line.
-    assert ("skill-check exits 2" in skip and "`Security: SKIP (scanner could not run ({the stderr line that names the "
-            "cause, or its last line}))`" in skip)
-    # Stopped call: no "skill-check exited" line; the guard still restores and SKILL.md is hashed again.
-    assert ("the call stopped before it exited" in skip
-            and 'When no "skill-check exited" line came back, the shell tool stopped the call before skill-check '
-                "finished (a cold `uvx mcp-scan` install can outlast its timeout): still run the guard's "
-                "`verify-restore` and the second `hash` call below before reading `{run_dir}/skill-check.json`." in run)
-    # Scan failed: exit 1 with no error and no finding code in the tail, or a blank one.
-    assert ("or the scan exited non-zero and its tail carries no finding code." in skip
-            and "`Security: SKIP (scanner exited non-zero with no output)` when stderr is blank" in skip)
-    # Findings: finding codes in the tail (or `security[]`), each an advisory warning.
-    assert ("`security[]` holds findings, or the tail carries finding codes. Record `Security: WARN ({each "
-            "finding})`, each finding an advisory warning.") in warn
-    # Clean: exit 0, npm warnings on stderr are no tail; the row says what an exit 0 shows.
-    assert ("otherwise. The scan exited 0 and skill-check reported no finding. Record `Security: PASS (scan exited 0; "
-            "skill-check 1.2.0 does not pass the scan's findings on)`." in clean
-            and "On exit 0, stderr is never a scan tail (npm and Node warnings can be there)" in rule)
-    # Analysis error: a 401 or 429 exits 0 and still reads PASS (#892).
-    assert ("Without `--ci`, agent-scan also exits 0 when its analysis fails (a 401 from a bad token, a 429, a "
-            "network error), so this does not show that the scan found nothing (#892).") in clean
-    # Errors only: exit 1 with errors and no scanner line is no tail.
-    assert ("when exit 1 has another cause, stderr is a scan tail only when it holds the scanner's own lines, such as "
-            "its token message or a finding code") in rule
-    # No skill-check: the row as before.
-    assert "`Security: SKIP (skill-check unavailable)`" in _slice(seven, "**If skill-check is unavailable:**", "\n")
-    # The row the Validation Summary takes: the first word the report maps, the note after it; the old sign is gone.
+    assert run.startswith('- Run `npx skill-check check "{skill_package}" --fix --format json --no-security-scan` '
+                          f'**inside the §0 guard**, with its output captured apart ({capture} after it). ')
+    assert ('When no "skill-check exited" line came back, the shell tool stopped the call before skill-check '
+            "finished: still run the guard's `verify-restore` and the second `hash` call below before reading "
+            "`{run_dir}/skill-check.json`.") in run
+    # the scan: its own paragraph after the unavailable case, so it runs either way
+    scan = _slice(seven, "**Security scan**, whether or not skill-check is available: ", "\n")
+    assert seven.index("**If skill-check is unavailable:**") < seven.index(scan)
+    assert "npx" not in scan, "skill-check runs only in the two calls the run-once test counts"
+    assert ('resolve `{securityScanHelper}` ← first existing path in `{securityScanProbeOrder}` and, from '
+            '`{project-root}`, run `uv run {securityScanHelper} run --package "{skill_package}"`') in scan
+    quick = _read(QUICK_WRITE)
+    reading = "reads the scanner's own JSON report, so rely on the JSON it prints, never on an exit code."
+    assert reading in scan and reading in quick, "read as Quick Skill reads it"
+    for row in ("`Security: PASS ({note})` for `pass`",
+                "`Security: WARN ({note}: {each findings[] entry's text})` for `warn`, each finding an advisory "
+                "warning",
+                "`Security: SKIP ({note})` for `skipped`",
+                "When no `{securityScanProbeOrder}` path exists, record `Security: SKIP (skf-security-scan.py "
+                "missing)`"):
+        assert row in scan, row
+    # No skill-check no longer skips the scan.
+    assert "Security: SKIP (skill-check unavailable)" not in seven
+    # The row the Validation Summary takes: the first word the report maps, the note after it.
     assert ("`Diff`, and `Security` as the security scan rule above reads it (its first word `PASS`, `WARN` or `SKIP`, "
             "its note in parentheses after it)") in seven
-    assert "its stderr names `SNYK_TOKEN`" not in seven
-    assert "\u2014" not in run + rule and "\u2013" not in run + rule
+    for stale in ("finding code", "mcp-scan", "(#892)", "security[]", "skill-check.stderr` and the exit code"):
+        assert stale not in seven, stale
+    assert "\u2014" not in run + scan and "\u2013" not in run + scan
+    frontmatter = _frontmatter(_read(WRITE))
+    assert yaml.safe_load(frontmatter)["securityScanProbeOrder"] == _probe("skf-security-scan.py")
+    assert "§7 runs it on" in _comment_before(frontmatter, "securityScanProbeOrder")
 
 
 def test_write_rereads_skill_md_when_fix_changed_it():
@@ -5972,12 +5952,12 @@ def test_write_rereads_skill_md_when_fix_changed_it():
     call = '`uv run {hashContentHelper} hash "{skill_package}/SKILL.md"`'
     assert seven.count(call) == 2
     before = _slice(seven, "- **Hash before --fix:**", "\n")
-    run = _slice(seven, '- Run `npx skill-check check "{skill_package}" --fix --format json`', "\n")
+    run = _slice(seven, '- Run `npx skill-check check "{skill_package}" --fix --format json --no-security-scan`', "\n")
     sync = _slice(seven, "- **Context sync after --fix:**", "\n")
     assert seven.index(before) < seven.index(run) < seven.index(sync)
     assert f"before the §0 guard's `capture` for the `--fix` call below, run {call}" in before
     assert "keep the `content_hash` it prints" in before
-    assert "the remaining `diagnostics[]` and the security findings" in run
+    assert "and the remaining `diagnostics[]`, from the JSON object" in run
     for needle in (f"after that call's `verify-restore`, run {call} again",
                    "When the `content_hash` it prints differs from the one kept before the call, or either `hash` call "
                    "printed no `content_hash`, re-read SKILL.md into the in-context copy"):

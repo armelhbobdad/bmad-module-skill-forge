@@ -9,7 +9,9 @@
  * no shell and fixed arguments, and never npx, which can download. A .cmd or
  * .bat shim on Windows runs through cmd.exe. tessl and skill-check are never
  * run: tessl's version is read from the name of the binary it installs, and
- * skill-check's, which has no --version, from its package.json. A missing,
+ * skill-check's, which has no --version, from its package.json.
+ * snyk-agent-scan is never probed: SKF runs it through uvx at the version
+ * skf-security-scan.py pins, so its row always reads optional. A missing,
  * hanging or failing probe reads as unknown: nothing here throws or changes
  * an exit code.
  */
@@ -29,6 +31,9 @@ const MINIMUM = /^\d+(?:\.\d+)*$/;
 // SKF runs these through npx when they are not installed, so a probe reads a
 // binary on PATH only, and a missing one is no gap.
 const NPX_TOOLS = new Set(['tessl', 'skill_check']);
+// SKF runs these through uvx at the version its helper pins, so an installed
+// copy is not the one that runs: nothing is probed, and the row reads optional.
+const UVX_TOOLS = new Set(['snyk_agent_scan']);
 // ccc has no --version: `uv tool list` names each package uv installed, with its version.
 const CCC_PACKAGE = /^cocoindex-code v(\S+)/m;
 // skill-check has no --version either (1.2.0 exits 2 on it). Its version is
@@ -320,6 +325,7 @@ function tesslVersion(file, env) {
 
 /** One tool: { found, version }, the version null when it cannot be read. */
 async function probe(key, tool, context) {
+  if (UVX_TOOLS.has(key)) return { found: false };
   if (key === 'node') return { found: true, version: process.versions.node };
   if (key === 'python') {
     // The interpreter uv runs SKF's helpers with. --system leaves out a
@@ -370,6 +376,7 @@ function minimums(projectDir, tools) {
 function rowsFor(tools, answers, floors) {
   return Object.entries(tools).map(([key, tool]) => {
     const row = { key, name: String(tool.name || key), version: null, minimum: floors[key] };
+    if (UVX_TOOLS.has(key)) return { ...row, status: 'optional', label: 'optional, runs through uvx' };
     const answer = answers.get(key) || { found: true, version: null };
     if (!answer.found) {
       const tiers = Array.isArray(tool.tiers) ? tool.tiers : [];

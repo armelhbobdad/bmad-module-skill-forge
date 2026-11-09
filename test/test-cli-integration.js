@@ -14,7 +14,8 @@
  *   update notice prints after them, a run that prints no report leaving no
  *   probe running, and the versions of skill-check (from its package.json)
  *   and tessl (from the name of the binary it installed), read without
- *   running either
+ *   running either, and snyk-agent-scan, which SKF runs through uvx and the
+ *   report never probes
  *
  * Usage: node test/test-cli-integration.js
  */
@@ -887,6 +888,8 @@ async function testToolReport() {
     check('tessl', null, 'optional', 'optional, runs through npx');
     check('skill_check', '1.2.0', 'ok', 'ok');
     assert(!(await fs.pathExists(path.join(root, 'skill-check-ran'))), 'skill-check is not run: its version comes from its package.json');
+    // SKF runs the scanner through uvx at the version skf-security-scan.py pins, so nothing is probed (#892).
+    check('snyk_agent_scan', null, 'optional', 'optional, runs through uvx');
     assert(found.ast_grep.hint === list.tools.ast_grep.upgrade, 'a tool below its minimum names its upgrade command');
     assert(found.qmd.hint === list.tools.qmd.install_url, 'a missing tier tool names its install page');
     assert(found.gh_cli.hint === undefined, 'a tool with no minimum and an unreadable version gets no upgrade line');

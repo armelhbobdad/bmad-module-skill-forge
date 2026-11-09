@@ -52,8 +52,9 @@ two validators): no file is fetched, parsed, copied or left unchecked by
 hand (#599).
 
 Step 5 takes the validation verdict from skill-check's JSON, not its exit
-code, and reads the security scan as skipped, warn or pass, a scan that
-could not run named by the stderr line that gives its cause (#885). It
+code (#885), runs skill-check with --no-security-scan and reads the security
+scan as skipped, warn or pass from the JSON skf-security-scan.py prints,
+since skill-check 1.2.0 passes none of the scanner's findings on (#892). It
 tells a `--fix` rewrite from SKILL.md's hash before and after the call, since
 skill-check 1.2.0's JSON lists no fix (#901).
 """
@@ -1438,7 +1439,8 @@ def test_step_5_counts_the_validation_issues_in_the_schema_shape():
     for count in ("`skill_md` counts skill-check's `diagnostics[]` (without skill-check, the frontmatter "
                   "validator's `issues[]`) plus `validation.skill_md.body[]`",
                   "`context_snippet` counts `validation.context_snippet.issues[]`",
-                  "`metadata` counts `validation.metadata.issues[]`", "`security` counts skill-check's `security[]`",
+                  "`metadata` counts `validation.metadata.issues[]`",
+                  "`security` counts the §4 security scan's `findings[]`",
                   "A check that did not run counts 0"):
         assert count in report, count
     finalize = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
@@ -1929,75 +1931,47 @@ def test_step_5_does_not_retell_its_validators():
     assert "\n#" not in "\n" + text.split("---\n", 2)[1], "the probe orders carry no comments"
     headings = re.findall(r"^### (\d+)\. ", text, flags=re.M)
     assert headings == [str(n) for n in range(1, 8)], headings
-    assert 'log "security scan skipped: skill-check unavailable"' in text
+    assert "the security scan at the end of section 4 still runs" in text
     assert "brief it with `@Ferris BS` and compile it with `@Ferris CS`" in text
 
 
-# What skill-check 1.2.0 counts as a finding (dist/core/agent-scan.js summarizeAgentScanOutput), and the line the
-# scanner it runs (agent-scan 0.6.10, verify_api.py) prints with no SNYK_TOKEN, recorded for #885.
-FINDING_CODE = re.compile(r"\[[A-Z]\d{3}\]")
-NO_TOKEN_LINE = "To use Agent Scan, set the SNYK_TOKEN environment variable."
+SCAN_CALL = 'uv run {securityScanHelper} run --package "{skill_package}"\n'
 
 
-def test_step_5_reads_a_security_scan_that_could_not_run():
-    """#885: the validation verdict is `summary.errorCount`, never the exit code, and `{security_result}` is read
-    from what skill-check reports, a scan that could not run named by the stderr line that gives its cause."""
+def test_step_5_reads_the_security_scan_from_the_helper():
+    """#892: skill-check 1.2.0 passes none of the scanner's findings on, so skill-check runs with
+    `--no-security-scan` and `skf-security-scan.py` runs the scan, whether or not skill-check ran. Its JSON binds
+    `{security_result}` and the note, each finding is a validation issue, and §6 shows and counts them."""
     text = _read(WRITE_AND_VALIDATE)
     four = _section(text, "### 4. Validate SKILL.md via skill-check", "### 5. ")
-    rule = four[four.index("**Read the JSON, not the exit code.**"):four.index("**If skill-check is not available**")]
-    assert "`summary.errorCount` alone is the validation verdict" in rule
-    bullets = [rule.index(f"\n- `{value}`: ") for value in ("skipped", "warn", "pass")]
-    assert bullets == sorted(bullets), "the first that applies: skipped, then warn, then pass"
-    skipped, warn, clean = (rule[a:b] for a, b in zip(bullets, bullets[1:] + [len(rule)]))
-    # A scan tail is stderr after an exit 1 with no error (analyze.js resolveExitCode; no failOnWarning flag):
-    # without --ci the scan did not finish. On exit 0 stderr holds npm or Node warnings, never a tail.
-    assert ("exits 1 when `summary.errorCount` is above 0, when `--strict` or `--fail-on-warning` is passed and "
-            "`summary.warningCount` is above 0 (this call passes neither), or when the scan exits non-zero, and 2 when "
-            "no scan runner starts") in rule
-    assert ("The scan exited non-zero, which without `--ci` means it did not finish, when skill-check exits 1 "
-            "although `summary.errorCount` is 0: stderr is then the scan's last lines (its tail), even "
-            "when blank.") in rule
-    assert "On exit 0, stderr is never a scan tail (npm and Node warnings can be there)" in rule
-    assert ("when exit 1 has another cause, stderr is a scan tail only when it holds the scanner's own lines, such as "
-            "its token message or a finding code") in rule
-    assert ("A finding code is `[`, a capital letter, three digits and `]` (such as `[E001]`), the codes "
-            "skill-check's own scan summary counts.") in rule
-    assert FINDING_CODE.fullmatch("[E001]") and not FINDING_CODE.search("[X001 info]")
-    # No token: exit 1 with 0 errors is a passed validation and a skipped scan, noted as the siblings word it.
-    assert "or the scan exited non-zero and its tail carries no finding code." in skipped
-    assert '"security scan skipped: scanner exited non-zero with no output" when stderr is blank' in skipped
-    sign = "the tail says to set the `SNYK_TOKEN` environment variable"
-    assert f'"security scan skipped: SNYK_TOKEN not configured" when {sign}' in skipped
-    # The line agent-scan prints without a token carries the sign and no finding code, so it reads as skipped.
-    assert f'the scanner prints "{NO_TOKEN_LINE}"' in skipped
-    assert sign.split("says to ", 1)[1].replace("`", "") in NO_TOKEN_LINE and not FINDING_CODE.search(NO_TOKEN_LINE)
-    # No runner, or any other scan that stopped: the note quotes the line that names the cause.
-    for stop in ("skill-check exits 2", "the call stopped before it exited",
-                 '"security scan skipped: scanner could not run ({the stderr line that names the cause, or its last '
-                 'line})"'):
-        assert stop in skipped, stop
-    # No skill-check: §3's skip binds `skipped` itself (it never reads §4's rule), its log unchanged.
-    assert "§3 found no skill-check (§3's log is the note)" in skipped
-    assert ('skip to the frontmatter validator in section 4, bind `{security_result}` ← `skipped`, and log '
-            '"security scan skipped: skill-check unavailable"') in _section(text, "### 3. ", "### 4. ")
-    # Findings: from `security[]` or finding codes in the tail, each a validation issue, and counted per code.
-    assert ("`security[]` holds findings, or the tail carries finding codes. Record each finding as a validation "
-            "issue.") in warn
+    rule = _section(four, "**Read the JSON, not the exit code.**", "\n")
+    assert ("exits 1 when `summary.errorCount` is above 0, or when `--strict` or `--fail-on-warning` is passed and "
+            "`summary.warningCount` is above 0 (this call passes neither), so `summary.errorCount` alone is the "
+            "validation verdict.") in rule
+    assert "`--no-security-scan` keeps the security scan out of this call" in rule
+    # The scan closes §4, after the frontmatter validator a run without skill-check takes.
+    assert four.index("**If skill-check is not available**") < four.index("**Security scan.**")
+    scan = four[four.index("**Security scan.**"):]
+    assert scan.startswith("**Security scan.** Run it whether or not skill-check ran.")
+    assert _bash_block(scan, "{securityScanHelper}") == SCAN_CALL
+    for needle in ("Bind `{security_result}` ← its `security_result` (`pass`, `warn` or `skipped`) and "
+                   "`{security_note}` ← its `note`",
+                   "record each `findings[]` entry's `text` as an advisory validation issue: security findings do "
+                   "not block output",
+                   'For `skipped`, log "security scan skipped: {security_note}" in the validation results.',
+                   "When no `{securityScanProbeOrder}` path exists, bind `{security_result}` ← `skipped` and "
+                   "`{security_note}` ← `skf-security-scan.py missing`",
+                   "rely on the JSON it prints, never on an exit code"):
+        assert needle in scan, needle
+    # §3's skip binds nothing: the scan still runs.
+    three = _section(text, "### 3. ", "### 4. ")
+    assert "the security scan at the end of section 4 still runs" in three and "security_result" not in three
     report = _section(text, "### 6. Report Validation Results", "### 7. ")
-    assert ("`security` counts skill-check's `security[]` (or, without one, the finding codes §4 read from the tail, "
-            "each occurrence one finding, as skill-check's own scan summary counts them)") in report
-    # Clean scan: it exited 0, which is all a pass shows (#892 in the step prose only, never in what users see).
-    assert ("otherwise. The scan exited 0 and skill-check reported no finding. Without `--ci`, agent-scan also exits "
-            "0 when its analysis fails (a 401 from a bad token, a 429, a network error), so this does not show that "
-            "the scan found nothing (#892).") in clean
-    # A skill-check 1.2.0 run never has `security[]`, so its absence is no sign, and no note quotes a first stderr
-    # line: each names the line that gives the cause, or the last one.
-    for stale in ("no `security[]`", "stderr lists them", "`Failed to run security scan`", "scan ran"):
-        assert stale not in rule, stale
-    assert "first stderr line" not in four
-    shown = ("**Security:** {security_result}\n{list any security findings, or the §4 skipped note; for `pass`: "
-             "\"scan exited 0; skill-check 1.2.0 does not pass the scan's findings on\"}\n")
-    assert shown in report and "#892" not in shown
+    assert "**Security:** {security_result}\n{`{security_note}`, then each §4 security finding}\n" in report
+    assert "`security` counts the §4 security scan's `findings[]`" in report
+    # The old reading of skill-check's stderr tail is gone, and no note names an issue number.
+    for stale in ("finding code", "skill-check.stderr` and the exit code", "security[]", "#892", "mcp-scan"):
+        assert stale not in text, stale
     # The score clause renders only with a score, never as "null/100".
     assert ("**SKILL.md:** {pass/issues found}{ (quality score: {quality_score}/100), only when `{quality_score}` is "
             "not null}\n") in report
@@ -2012,7 +1986,7 @@ def test_step_5_captures_skill_check_and_reads_a_run_with_no_json():
     four = _section(_read(WRITE_AND_VALIDATE), "### 4. Validate SKILL.md via skill-check", "### 5. ")
     capture = '> "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"'
     call = _bash_block(four, "npx skill-check check").splitlines()[2]
-    assert call == (f'npx skill-check check "{{skill_package}}" --fix --format json {capture}; '
+    assert call == (f'npx skill-check check "{{skill_package}}" --fix --format json --no-security-scan {capture}; '
                     'echo "skill-check exited $?"')
     assert "then run the five commands in order. `verify-restore` runs whatever skill-check exits" in four
     stopped = _section(four, '**If no "skill-check exited" line came back**', "\n")
@@ -2024,13 +1998,11 @@ def test_step_5_captures_skill_check_and_reads_a_run_with_no_json():
     fallback = _section(four, "**If no `{descriptionGuardProbeOrder}` path exists**", "\n")
     assert f"with the same capture (`{capture}`, its exit code noted)" in fallback
     assert "**Parse the JSON in `{run_dir}/skill-check.json`**" in four
-    assert "Bind `{security_result}` from `{run_dir}/skill-check.stderr` and the exit code" in four
     # stdout can carry a "Wrote <path>" line after the JSON, so the JSON is the object at its start.
     no_json = _section(four, "**If `{run_dir}/skill-check.json` does not start with a JSON object**", "\n")
     for needle in ("skill-check stopped before it validated (exit 2 on a config, option or plugin error)",
-                   'log "skill-check failed: {the stderr line that names the cause, or its last line}" and '
-                   '"security scan skipped: skill-check failed ({that line})"', "keep `{quality_score}` null",
-                   "bind `{security_result}` ← `skipped`",
+                   'log "skill-check failed: {the stderr line that names the cause, or its last line}", keep '
+                   '`{quality_score}` null, and run the frontmatter validator below',
                    "run the frontmatter validator below, as when skill-check is not available",
                    "a `Wrote <path>` line when the project config sets a report path",
                    "read only the JSON object at its start"):

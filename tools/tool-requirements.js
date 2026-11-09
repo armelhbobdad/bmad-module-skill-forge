@@ -2,7 +2,8 @@
  * Tool Requirements
  *
  * src/shared/tool-requirements.yaml is the one list of the external tools SKF
- * uses (Node, Python, uv, git, gh, ast-grep, ccc, qmd, tessl, skill-check),
+ * uses (Node, Python, uv, git, gh, ast-grep, ccc, qmd, tessl, skill-check,
+ * snyk-agent-scan),
  * with each one's minimum and tested versions. Its header says how those
  * numbers are set. This tool generates the prerequisites table in
  * docs/getting-started.md from it and checks every other copy of those
@@ -72,13 +73,15 @@ const KINDS = ['runtime', 'tier', 'optional'];
 // compares the copies with.
 const REQUIRED_TOOLS = ['node', 'python', 'ast_grep'];
 const REQUIRED_MINIMUMS = ['node', 'python'];
-// The tools whose version tools/cli/lib/tool-check.js reads without running
-// them, with where it reads it: skill-check has no --version, and tessl's
-// first run accepts its Terms for the user. Their entries leave
-// version_command out; every other tool needs one.
+// The tools tools/cli/lib/tool-check.js never runs, with why: skill-check has
+// no --version and its version is read from its package.json, tessl's first
+// run accepts its Terms for the user, and snyk-agent-scan runs through uvx at
+// the version skf-security-scan.py pins. Their entries leave version_command
+// out; every other tool needs one.
 const NO_VERSION_COMMAND = new Map([
-  ['skill_check', 'its package.json'],
-  ['tessl', 'the name of the binary tessl installs'],
+  ['skill_check', 'the tool check reads its version from its package.json'],
+  ['tessl', 'the tool check reads its version from the name of the binary tessl installs'],
+  ['snyk_agent_scan', 'SKF runs it through uvx at the version skf-security-scan.py pins, and the tool check never runs it'],
 ]);
 const TOOL_KEYS = {
   name: 'string',
@@ -291,10 +294,7 @@ function validateRequirements(root, requirements) {
     for (const [field, type] of Object.entries(TOOL_KEYS)) {
       if (field === 'version_command' && NO_VERSION_COMMAND.has(key)) {
         if (field in tool) {
-          add(
-            ['tools', key, field],
-            `tools.${key}.version_command must be left out: the tool check reads its version from ${NO_VERSION_COMMAND.get(key)}`,
-          );
+          add(['tools', key, field], `tools.${key}.version_command must be left out: ${NO_VERSION_COMMAND.get(key)}`);
         }
         continue;
       }

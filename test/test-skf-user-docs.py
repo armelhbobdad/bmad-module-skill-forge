@@ -536,12 +536,12 @@ def test_getting_started_names_the_statuses_the_tool_report_prints():
     """Every status the docs list is a label tool-check.js prints, and the report follows install, update and status."""
     check = _read(REPO_ROOT / "tools" / "cli" / "lib" / "tool-check.js")
     for label in ("'ok'", "`upgrade to >= ${row.minimum}`", "'missing'", "'installed, version unknown'",
-                  "`optional, ${tiers[0]} tier`"):
+                  "`optional, ${tiers[0]} tier`", "'optional, runs through uvx'"):
         assert label in check, label
     report = _slice(_read(GETTING_STARTED), "### The tool report", "\n---\n")
     for token in ("`ok`", "`upgrade to >= <minimum>`", "`missing`", "`optional`", "`installed, version unknown`",
                   "never changes the command's exit code", "never runs `npx`",
-                  "upgrade to >= " + _ast_grep_minimum()):
+                  "upgrade to >= " + _ast_grep_minimum(), "`optional, runs through uvx`"):
         assert token in report, token
     commands = _slice(_read(GETTING_STARTED), "### Other installer commands", "### The tool report")
     update = next(line for line in commands.splitlines() if "skill-forge@latest update" in line)
@@ -750,9 +750,9 @@ def test_quick_skill_headless_block_names_the_success_envelope():
                   "security_result"):
         assert field in schema["properties"]["summary"]["properties"], field
         assert f"`{field}`" in fourth, field
-    # #902: the scan's outcome, and what `pass` shows
-    assert "`pass` when the scan exited 0 and skill-check reported no finding" in fourth
-    assert "`skipped` when it did not run, such as without `SNYK_TOKEN`" in fourth
+    # #902: the scan's outcome, and what `pass` shows: a scan the scanner finished with no risk (#892)
+    assert "`pass` when Snyk Agent Scan analysed the package and reported no risk" in fourth
+    assert "`skipped` when it did not run or could not finish its analysis, such as without `SNYK_TOKEN`" in fourth
     for field in ("headless_decisions", "warnings"):
         assert field in schema["properties"], field
         assert f"`{field}`" in fourth, field
@@ -2170,9 +2170,8 @@ def test_drop_skill_says_a_failed_per_run_record_leaves_result_path_null():
     ("US", "SKF_UPDATE_RESULT_JSON", "`skf_update.security_result`"),
 ])
 def test_the_result_table_says_what_a_security_pass_shows(code, prefix, field):
-    """As the QS paragraph and the three schemas do, each row says a `pass` does not show the scan found nothing."""
+    """As the QS paragraph and the three schemas do, each row says a `pass` is a finished scan with no risk (#892)."""
     [row] = [line for line in _read(WORKFLOWS).splitlines() if line.startswith(f"| {code} | `{prefix}`")]
-    meaning = ("`pass` when the scan exited 0 and skill-check reported no finding, which does not show that the scan "
-               "found nothing")
+    meaning = "`pass` when Snyk Agent Scan analysed the package and reported no risk"
     assert row.count(meaning) == 1, code
     assert row.index(field) < row.index(meaning), code

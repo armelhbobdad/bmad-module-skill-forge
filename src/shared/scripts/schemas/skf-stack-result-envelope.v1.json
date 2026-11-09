@@ -79,7 +79,7 @@
     "security_result": {
       "type": "string",
       "enum": ["pass", "warn", "skipped"],
-      "description": "The outcome of step 8's security scan. 'pass': the scan exited 0 and skill-check reported no finding, which does not show that the scan found nothing (without --ci, agent-scan also exits 0 when its analysis fails). 'warn': it reported findings. 'skipped': it did not run (skill-check unavailable or stopped before it validated, or the scan could not run, such as without SNYK_TOKEN). Absent at every halt."
+      "description": "The outcome of step 8's security scan. 'pass': Snyk Agent Scan, which skf-security-scan.py runs, analysed the package and reported no risk. 'warn': it reported risks. 'skipped': it did not run or could not finish its analysis (no SNYK_TOKEN, no uvx, a scanner that failed or ran out of time, or an analysis error such as a rejected token). Absent at every halt."
     },
     "exit_code": {
       "type": "integer",

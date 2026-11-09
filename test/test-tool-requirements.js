@@ -519,7 +519,7 @@ test('schema: a tier tool with no Acknowledgements row name, and a tool the chec
   assert.match(out, /tools\.node is missing: the copy checks need it/);
 });
 
-test('schema: every tool needs a version_command but skill-check and tessl, which must leave it out', () => {
+test('schema: every tool needs a version_command but skill-check, tessl and snyk-agent-scan, which must leave it out', () => {
   const root = makeRoot();
   edit(root, REQUIREMENTS, '    version_command: [qmd, --version]\n', '');
   edit(root, REQUIREMENTS, 'version_command: [gh, --version]', 'version_command: []');
@@ -530,6 +530,12 @@ test('schema: every tool needs a version_command but skill-check and tessl, whic
     '    upgrade: npm install -g skill-check@latest\n    version_command: [skill-check, --version]\n',
   );
   edit(root, REQUIREMENTS, '    upgrade: tessl cli update\n', '    upgrade: tessl cli update\n    version_command: [tessl, --version]\n');
+  edit(
+    root,
+    REQUIREMENTS,
+    '    acknowledged_as: Snyk Agent Scan\n',
+    '    acknowledged_as: Snyk Agent Scan\n    version_command: [snyk-agent-scan, --version]\n',
+  );
   const { status, out } = run(root);
   assert.strictEqual(status, 1, out);
   assert.match(out, /tools\.qmd\.version_command is missing/);
@@ -545,6 +551,12 @@ test('schema: every tool needs a version_command but skill-check and tessl, whic
     REQUIREMENTS,
     lineOf(root, REQUIREMENTS, 'version_command: [tessl, --version]'),
     /tools\.tessl\.version_command must be left out: the tool check reads its version from the name of the binary tessl installs/,
+  );
+  expectFinding(
+    root,
+    REQUIREMENTS,
+    lineOf(root, REQUIREMENTS, 'version_command: [snyk-agent-scan, --version]'),
+    /tools\.snyk_agent_scan\.version_command must be left out: SKF runs it through uvx at the version skf-security-scan\.py pins/,
   );
 });
 

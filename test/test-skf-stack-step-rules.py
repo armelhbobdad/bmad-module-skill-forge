@@ -427,50 +427,32 @@ def test_only_validate_section_3_writes_the_package():
     assert writers == {"3"}, f"validate.md sections that write: {sorted(writers)}"
 
 
-# --- #885: a security scan that could not run is a note, not a finding ------------
+# --- #885, #892: the scan runs through skf-security-scan.py; a skipped scan is a note ----
 
 
 def test_security_scan_notes_a_scan_that_could_not_run():
-    nine = _sections(_body(_read(VALIDATE)))["9"]
-    # The call keeps stdout, stderr and the exit code apart, and stdout that does not start with JSON is no run.
-    assert ('`npx skill-check check <skill-dir> --format json > "{run_dir}/skill-check.json" 2> '
-            '"{run_dir}/skill-check.stderr"; echo "skill-check exited $?"`') in nine
-    no_json = _slice(nine, "**If `{run_dir}/skill-check.json` does not start with a JSON object**", "\n")
-    for needle in ("skill-check stopped before it validated (exit 2 on a config, option or plugin error)",
-                   'record no finding, only the §10 note "security scan skipped: skill-check failed ({the stderr '
-                   'line that names the cause, or its last line})"', "read only the JSON object at its start"):
-        assert needle in no_json, needle
-    assert "Read the JSON, not the exit code." in nine
-    assert "a non-zero exit is not a security finding" in nine
-    # A scan tail is stderr after an exit 1 with no error (no failOnWarning flag is passed); never on exit 0.
-    assert "when skill-check exits 1 although `summary.errorCount` is 0:" in nine
-    assert "(this call passes neither)" in nine
-    assert "On exit 0, stderr is never a scan tail (npm and Node warnings can be there)" in nine
-    assert "A finding code is `[`, a capital letter, three digits and `]`" in nine
-    could_not_run = _slice(nine, "- **Could not run:**", "\n")
-    for sign in ("exits 2", "the call stopped before it exited",
-                 "the scan exited non-zero and its tail carries no finding code",
-                 '"security scan skipped: scanner exited non-zero with no output" when stderr is blank'):
-        assert sign in could_not_run, sign
-    assert "Record no finding, only a note in the §10 validation results" in could_not_run
-    no_token = "To use Agent Scan, set the SNYK_TOKEN environment variable."
-    assert ('"security scan skipped: SNYK_TOKEN not configured" when the tail says to set the `SNYK_TOKEN` '
-            f'environment variable (the scanner prints "{no_token}")') in could_not_run
-    assert ("security scan skipped: scanner could not run ({the stderr line that names the cause, or its last line})"
-            in could_not_run)
-    findings = nine.index("- **Findings:** `security[]` holds findings, or the tail carries finding codes.")
-    neither = _slice(nine, "- **Neither:**", "\n")
-    assert nine.index("- **Could not run:**") < findings < nine.index(neither)
-    # The note users see says what an exit 0 shows; #892 stays in the step prose.
-    note = "security scan exited 0; skill-check 1.2.0 does not pass the scan's findings on"
-    assert f'record the §10 note "{note}".' in neither and "#892" not in note
-    assert "agent-scan also exits 0 when its analysis fails" in neither and "(#892)" in neither
-    assert "scan ran" not in nine
-    assert "Record security findings as advisory **WARNING** findings" in nine
-    unavailable = _slice(nine, "**If unavailable:**", "\n")
-    assert 'the note "security scan skipped: skill-check unavailable" in the §10 validation results' in unavailable
+    sections = _sections(_body(_read(VALIDATE)))
+    nine = sections["9"]
+    assert nine.startswith("### 9. Security Scan\n\nRun the scan whether or not skill-check is available.")
+    # skill-check 1.2.0 passes none of the scanner's findings on, so the helper runs the scan (#892).
+    assert 'uv run {securityScanHelper} run --package "<skill-dir>"' in _first_fence(nine)
+    assert "npx skill-check" not in nine
+    assert "reads the scanner's own JSON report, so rely on the JSON it prints, never on an exit code." in nine
+    assert ("Record each `findings[]` entry's `text` as an advisory **WARNING** finding: security findings do not "
+            "block the report.") in nine
+    assert ('Record its `note` in the §10 validation results, as "security scan: {note}" for `pass` and `warn` and '
+            'as "security scan skipped: {note}" for `skipped`.') in nine
+    assert ('When no `{securityScanProbeOrder}` path exists, record no finding, only the §10 note "security scan '
+            'skipped: skf-security-scan.py missing"') in nine
+    for stale in ("finding code", "skill-check.stderr", "(#892)", "**Could not run:**", "**If unavailable:**",
+                  "security[]", "mcp-scan"):
+        assert stale not in nine, stale
+    # skill-check's own sections no longer name the scan.
+    two = sections["2"]
+    assert "- If exits 0: Use skill-check for automated validation in section 3." in two
+    assert '`message: "skill-check unavailable: manual fallback checks used"`' in two
     # §10 lists the §9 note whether or not the run had findings.
-    ten = _sections(_body(_read(VALIDATE)))["10"]
+    ten = sections["10"]
     assert ten.index("If all checks passed") < ten.index("If there were findings") < ten.index(
         "In both cases, list each §9 security scan note.")
 
@@ -2628,13 +2610,12 @@ def test_the_security_scan_outcome_reaches_the_envelope(tmp_path):
     `quality_score` and in the contract's summary; a value outside the schema's three stops the emitter."""
     nine = _sections(_body(_read(VALIDATE)))["9"]
     binding = _slice(nine, "Bind `{security_result}`", "\n")
-    assert binding == ("Bind `{security_result}` ← `skipped` for **Could not run**, a run whose "
-                       "`{run_dir}/skill-check.json` does not start with a JSON object, or an unavailable skill-check; "
-                       "`warn` for **Findings**; `pass` for **Neither**. Step 9 puts it in the result envelope and the "
-                       "result contract.")
-    # a paragraph of its own, after the three branches and the unavailable case it names
-    for branch in ("- **Could not run:**", "- **Findings:**", "- **Neither:**", "**If unavailable:**"):
-        assert nine.index(branch) < nine.index(binding), branch
+    assert binding == ("Bind `{security_result}` ← the helper's `security_result` (`pass`, `warn` or `skipped`), or "
+                       "`skipped` when the helper is missing or printed no JSON object. Step 9 puts it in the result "
+                       "envelope and the result contract.")
+    # a paragraph of its own, after the helper call and the missing-helper case it names
+    for part in ("uv run {securityScanHelper} run", "When no `{securityScanProbeOrder}` path exists"):
+        assert nine.index(part) < nine.index(binding), part
     two_b = _sections(_body(_read(REPORT)))["2b"]
     assert "Both `security_result` fields are `{security_result}`, the scan outcome step 8 §9 bound." in two_b
     payload = json.loads(_first_fence(two_b))

@@ -48,9 +48,10 @@
 #   tested           the versions SKF has run on, as strings
 #   basis            where minimum and tested come from
 #   version_command  the command that prints the installed version
-#                    (skill_check and tessl have none: the check never runs
-#                    them, and reads skill-check's package.json and the name
-#                    of the binary tessl installs)
+#                    (skill_check, tessl and snyk_agent_scan have none: the
+#                    check never runs them, and reads skill-check's
+#                    package.json and the name of the binary tessl installs;
+#                    snyk-agent-scan runs at the version SKF pins)
 #   install_url      where to install it from
 #   upgrade          how to upgrade it
 #   acknowledged_as  its row in the README Acknowledgements table (required
@@ -205,3 +206,20 @@ tools:
     install_url: https://github.com/thedaviddias/skill-check
     upgrade: npm install -g skill-check@latest
     acknowledged_as: skill-check
+
+  snyk_agent_scan:
+    name: snyk-agent-scan
+    summary: Snyk Agent Scan security scanner
+    kind: optional
+    tiers: []
+    workflows: [create-skill, create-stack-skill, quick-skill, update-skill]
+    used_for: Optional security scan of each skill package SKF writes, for prompt injection and other risks. It runs only when `SNYK_TOKEN` is set, through uvx at the version SKF pins, so it needs no install
+    minimum: null
+    tested: []
+    basis: SKF runs `uvx snyk-agent-scan@0.6.11 --json --skills <package>` through skf-security-scan.py, which pins that version and reads the scanner's JSON output with the response models of snyk-agent-scan 0.6.11. No run against Snyk's own analysis server with a real SNYK_TOKEN is recorded, so no version is listed as tested. The fix for issue 892 (2026-11-09) ran 0.6.11 without a token (exit 1, no output), with a token against a local stand-in for the analysis server (one risk, no risk, a 401) and with a token and no reachable server (exit 1), and keeps those outputs as the helper's test fixtures.
+    # snyk-agent-scan is never run by the check: SKF runs the version
+    # skf-security-scan.py pins through uvx, so an installed copy is not the
+    # one that runs.
+    install_url: https://github.com/snyk/agent-scan
+    upgrade: SKF moves the pin in skf-security-scan.py; update SKF to get a newer scanner
+    acknowledged_as: Snyk Agent Scan

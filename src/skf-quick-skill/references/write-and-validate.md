@@ -18,6 +18,9 @@ atomicWriteProbeOrder:
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
+securityScanProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-security-scan.py'
+  - '{project-root}/src/shared/scripts/skf-security-scan.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Generated SKILL.md text in {document_output_language}. -->
@@ -115,42 +118,37 @@ Check:
 Run: `npx skill-check -h`
 
 - If succeeds (returns usage information): Continue to automated validation (section 4)
-- If fails (command not found or error): skip to the frontmatter validator in section 4, bind `{security_result}` ← `skipped`, and log "security scan skipped: skill-check unavailable" in the validation results
+- If fails (command not found or error): skip to the frontmatter validator in section 4; the security scan at the end of section 4 still runs
 
 ### 4. Validate SKILL.md via skill-check (if available)
 
-**If `npx skill-check` is available**, run validation and its security scan in one call against the skill package written in section 2. `--fix` can also rewrite the frontmatter `description` the user approved in step 4, which would leave SKILL.md out of step with `metadata.json`, so the call runs inside the description guard. Resolve `{descriptionGuardHelper}` ← first existing path in `{descriptionGuardProbeOrder}` and `{hashContentHelper}` ← first existing path in `{hashContentProbeOrder}`, then run the five commands in order. `verify-restore` runs whatever skill-check exits; note that exit code:
+**If `npx skill-check` is available**, run validation against the skill package written in section 2. `--fix` can also rewrite the frontmatter `description` the user approved in step 4, which would leave SKILL.md out of step with `metadata.json`, so the call runs inside the description guard. Resolve `{descriptionGuardHelper}` ← first existing path in `{descriptionGuardProbeOrder}` and `{hashContentHelper}` ← first existing path in `{hashContentProbeOrder}`, then run the five commands in order. `verify-restore` runs whatever skill-check exits; note that exit code:
 
 ```bash
 uv run {hashContentHelper} hash "{skill_package}/SKILL.md" > "{run_dir}/skill-md-hash-before.json"
 uv run {descriptionGuardHelper} capture "{skill_package}/SKILL.md" > "{run_dir}/description-guard.json"
-npx skill-check check "{skill_package}" --fix --format json > "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"
+npx skill-check check "{skill_package}" --fix --format json --no-security-scan > "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"
 uv run {descriptionGuardHelper} verify-restore "{skill_package}/SKILL.md" --captured-file "{run_dir}/description-guard.json"
 uv run {hashContentHelper} hash "{skill_package}/SKILL.md" > "{run_dir}/skill-md-hash-after.json"
 ```
 
-**If no "skill-check exited" line came back**, the shell tool stopped the block before skill-check finished (a cold `uvx mcp-scan` install can outlast its timeout): run the `verify-restore` command on its own before reading `{run_dir}/skill-check.json`, so a description `--fix` rewrote is restored, then run the second `hash` command.
+**If no "skill-check exited" line came back**, the shell tool stopped the block before skill-check finished: run the `verify-restore` command on its own before reading `{run_dir}/skill-check.json`, so a description `--fix` rewrote is restored, then run the second `hash` command.
 
 **Guard outputs.** `capture` stages the approved description in `{run_dir}/description-guard.json` and `verify-restore` reads it there, so it never passes through a shell string. Bind `{guard_restored}` ← `restored` and `{guard_diff_kind}` ← `diff_kind` from `verify-restore`. When `{guard_restored}` is true, the approved description is back in SKILL.md, matching `metadata.json`: record the validation note "description restored after `skill-check --fix` ({guard_diff_kind})", which §6 lists with the auto-fixed issues. `verify-restore` refuses an empty or whitespace-only captured description, and a file it cannot read (exit 1, SKILL.md untouched): re-run it with `--captured-file "{skill_package}/metadata.json"`, whose `description` step 4 rendered, never with an empty value, and if that exits 1 too, record a high-severity issue: the guard could not check the description. When it exits 2 with JSON on stdout (the JSON carries `restore_error`), the restore could not be written, so record a high-severity issue: SKILL.md's description no longer matches `metadata.json`.
 
 **Rewrite note.** skill-check's JSON lists no fix, so the two `hash` commands tell whether `--fix` changed SKILL.md. Bind `{skill_md_changed}` ← true when the `content_hash` in `{run_dir}/skill-md-hash-before.json` differs from the one in `{run_dir}/skill-md-hash-after.json`, taken after the last `verify-restore` (run the second `hash` command again after a `verify-restore` re-run). When no `{hashContentProbeOrder}` path exists (leave both `hash` commands out) or either file holds no `content_hash`, SKILL.md was not hashed: bind `{skill_md_changed}` ← true as well. When `{skill_md_changed}` is true, record the validation note "skill-check --fix rewrote SKILL.md", or "SKILL.md may have been rewritten (not hashed) by skill-check --fix" when it was not hashed, which §6 lists with the auto-fixed issues. When the block above did not run at all (§3 found no skill-check, or the guard below is missing), `--fix` did not run: hash nothing and bind `{skill_md_changed}` ← false.
 
-**If no `{descriptionGuardProbeOrder}` path exists**, never run `--fix` unguarded. Run `npx skill-check check "{skill_package}" --format json` instead, which validates and scans without fixing, with the same capture (`> "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"`, its exit code noted), and log the validation issue "description guard unavailable (`skf-description-guard.py` missing): skill-check ran without `--fix`".
+**If no `{descriptionGuardProbeOrder}` path exists**, never run `--fix` unguarded. Run `npx skill-check check "{skill_package}" --format json --no-security-scan` instead, which validates without fixing, with the same capture (`> "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"`, its exit code noted), and log the validation issue "description guard unavailable (`skf-description-guard.py` missing): skill-check ran without `--fix`".
 
-**If `{run_dir}/skill-check.json` does not start with a JSON object**, skill-check stopped before it validated (exit 2 on a config, option or plugin error): log "skill-check failed: {the stderr line that names the cause, or its last line}" and "security scan skipped: skill-check failed ({that line})", keep `{quality_score}` null, bind `{security_result}` ← `skipped`, and run the frontmatter validator below, as when skill-check is not available. Otherwise stdout can go on after the JSON (a `Wrote <path>` line when the project config sets a report path), so read only the JSON object at its start.
+**If `{run_dir}/skill-check.json` does not start with a JSON object**, skill-check stopped before it validated (exit 2 on a config, option or plugin error): log "skill-check failed: {the stderr line that names the cause, or its last line}", keep `{quality_score}` null, and run the frontmatter validator below, as when skill-check is not available. Otherwise stdout can go on after the JSON (a `Wrote <path>` line when the project config sets a report path), so read only the JSON object at its start.
 
 **Parse the JSON in `{run_dir}/skill-check.json`** to extract:
 - `scores[].score` — overall score (0-100); match the entry by `relativePath`/`skillId`
 - `diagnostics[]` — remaining issues after auto-fix
-- `security[]` (when present) — security findings, recorded as advisory warnings (security issues do not block output)
 
-Bind `{quality_score}` ← that score, and record the remaining diagnostics and security findings as validation issues. `{quality_score}` is null when skill-check did not run.
+Bind `{quality_score}` ← that score, and record the remaining diagnostics as validation issues. `{quality_score}` is null when skill-check did not run.
 
-**Read the JSON, not the exit code.** skill-check prints its JSON before the security scan runs, then exits 1 when `summary.errorCount` is above 0, when `--strict` or `--fail-on-warning` is passed and `summary.warningCount` is above 0 (this call passes neither), or when the scan exits non-zero, and 2 when no scan runner starts, so `summary.errorCount` alone is the validation verdict. skill-check 1.2.0 puts no security key in the JSON. The scan exited non-zero, which without `--ci` means it did not finish, when skill-check exits 1 although `summary.errorCount` is 0: stderr is then the scan's last lines (its tail), even when blank. On exit 0, stderr is never a scan tail (npm and Node warnings can be there); when exit 1 has another cause, stderr is a scan tail only when it holds the scanner's own lines, such as its token message or a finding code. A finding code is `[`, a capital letter, three digits and `]` (such as `[E001]`), the codes skill-check's own scan summary counts. Bind `{security_result}` from `{run_dir}/skill-check.stderr` and the exit code, the first that applies:
-
-- `skipped`: §3 found no skill-check (§3's log is the note), skill-check exits 2, the call stopped before it exited, or the scan exited non-zero and its tail carries no finding code. Log in the validation results "security scan skipped: SNYK_TOKEN not configured" when the tail says to set the `SNYK_TOKEN` environment variable (the scanner prints "To use Agent Scan, set the SNYK_TOKEN environment variable."), otherwise "security scan skipped: scanner could not run ({the stderr line that names the cause, or its last line})", or "security scan skipped: scanner exited non-zero with no output" when stderr is blank.
-- `warn`: `security[]` holds findings, or the tail carries finding codes. Record each finding as a validation issue.
-- `pass`: otherwise. The scan exited 0 and skill-check reported no finding. Without `--ci`, agent-scan also exits 0 when its analysis fails (a 401 from a bad token, a 429, a network error), so this does not show that the scan found nothing (#892).
+**Read the JSON, not the exit code.** skill-check prints its JSON, then exits 1 when `summary.errorCount` is above 0, or when `--strict` or `--fail-on-warning` is passed and `summary.warningCount` is above 0 (this call passes neither), so `summary.errorCount` alone is the validation verdict. `--no-security-scan` keeps the security scan out of this call: skill-check 1.2.0 writes its JSON before the scan runs and passes none of the scanner's findings on, so the scan runs on its own at the end of this section.
 
 **If skill-check is not available**, run the shared frontmatter validator. Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}`; first existing path wins. If no candidate exists, nothing can check the frontmatter: HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**`{skill_package}` was written but not validated.** skill-check is unavailable and SKF's frontmatter validator (`skf-validate-frontmatter.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF, then re-run." Stage `{"phase": "write-and-validate", "halt_reason": "resolution-failure", "reason": "The skill was written but not validated: the frontmatter validator is missing.", "skill_package": "{skill_package}", "outputs": {<each deliverable §2 wrote, as "metadata", "skill_md" or "context_snippet" with its path>}, "details": {"cause": "frontmatter-validator-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`.
 
@@ -159,6 +157,14 @@ uv run {frontmatterValidator} "{skill_package}/SKILL.md" --skill-dir-name {repo_
 ```
 
 The validator emits JSON with `status` (`pass`/`fail`), `issues[]` (each with `severity`, `code`, `message`), and `frontmatter` (the parsed name/description). Record each `issues[]` entry as a validation issue with its reported severity.
+
+**Security scan.** Run it whether or not skill-check ran. Resolve `{securityScanHelper}` ← first existing path in `{securityScanProbeOrder}` and run it on the written package, with the longest timeout your shell tool takes (it ends within two minutes):
+
+```bash
+uv run {securityScanHelper} run --package "{skill_package}"
+```
+
+It runs Snyk Agent Scan, at the version it pins, only when `SNYK_TOKEN` is set, and reads the scanner's own JSON report, so rely on the JSON it prints, never on an exit code. Bind `{security_result}` ← its `security_result` (`pass`, `warn` or `skipped`) and `{security_note}` ← its `note`, and record each `findings[]` entry's `text` as an advisory validation issue: security findings do not block output. For `skipped`, log "security scan skipped: {security_note}" in the validation results. When no `{securityScanProbeOrder}` path exists, bind `{security_result}` ← `skipped` and `{security_note}` ← `skf-security-scan.py missing`; when the call prints no JSON object, bind `skipped` and `skf-security-scan.py printed no result`. Log either one as a skipped scan.
 
 ### 5. Validate Body, Snippet, and Metadata via skf-validate-output.py
 
@@ -187,7 +193,7 @@ The validator emits JSON with `result` (PASS/FAIL), `validation.skill_md.body[]`
 {list any issues}
 
 **Security:** {security_result}
-{list any security findings, or the §4 skipped note; for `pass`: "scan exited 0; skill-check 1.2.0 does not pass the scan's findings on"}
+{`{security_note}`, then each §4 security finding}
 
 **Overall:** {pass / N issues found}
 
@@ -196,7 +202,7 @@ These issues are advisory for community-tier skills: fix them in the written fil
 
 **Proceeding to finalize...**"
 
-Set `validation_result` with pass/fail status, quality score, and issues list, and `{validation_issues}` ← `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`, each `<n>` the number of entries the validators returned for that heading: `skill_md` counts skill-check's `diagnostics[]` (without skill-check, the frontmatter validator's `issues[]`) plus `validation.skill_md.body[]`; `context_snippet` counts `validation.context_snippet.issues[]`; `metadata` counts `validation.metadata.issues[]`; `security` counts skill-check's `security[]` (or, without one, the finding codes §4 read from the tail, each occurrence one finding, as skill-check's own scan summary counts them). A check that did not run counts 0, and the §4 rewrite note and the guard note count nothing. Step 6 §3's summary carries `{quality_score}`, `{validation_issues}` and `{security_result}`.
+Set `validation_result` with pass/fail status, quality score, and issues list, and `{validation_issues}` ← `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`, each `<n>` the number of entries the validators returned for that heading: `skill_md` counts skill-check's `diagnostics[]` (without skill-check, the frontmatter validator's `issues[]`) plus `validation.skill_md.body[]`; `context_snippet` counts `validation.context_snippet.issues[]`; `metadata` counts `validation.metadata.issues[]`; `security` counts the §4 security scan's `findings[]`. A check that did not run counts 0, and the §4 rewrite note and the guard note count nothing. Step 6 §3's summary carries `{quality_score}`, `{validation_issues}` and `{security_result}`.
 
 ### 7. Auto-Proceed to Finalize
 

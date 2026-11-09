@@ -1,0 +1,17 @@
+{
+  "scan_path_responses": [
+    {
+      "client": "/work/skills/demo",
+      "path": "/work/skills",
+      "server_risks": [],
+      "skill_risks": [],
+      "error": {
+        "message": "Unauthorized. Please check your SNYK_TOKEN environment variable or your push key.",
+        "exception": "401, message='Unauthorized', url='http://127.0.0.1:18766/hidden/mcp-scan/cli/analysis-machine?version=2026-07-10'",
+        "traceback": "Traceback (most recent call last):\n  File \"/venv/site-packages/agent_scan/verify_api.py\", line 600, in analyze_machine\n    response.raise_for_status()\n    ~~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"/venv/site-packages/aiohttp/client_reqrep.py\", line 842, in raise_for_status\n    raise ClientResponseError(\n    ...<5 lines>...\n    )\naiohttp.client_exceptions.ClientResponseError: 401, message='Unauthorized', url='http://127.0.0.1:18766/hidden/mcp-scan/cli/analysis-machine?version=2026-07-10'\n",
+        "is_failure": true,
+        "category": "analysis_error"
+      }
+    }
+  ]
+}

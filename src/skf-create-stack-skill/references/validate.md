@@ -6,6 +6,9 @@ outputValidatorProbeOrder:
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
+securityScanProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-security-scan.py'
+  - '{project-root}/src/shared/scripts/skf-security-scan.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Artifact text in {document_output_language}. -->
@@ -66,8 +69,8 @@ Probe skill-check with `--no-install` to avoid cold-install hangs, wrap in a sho
 timeout 10s npx --no-install skill-check -h
 ```
 
-- If exits 0: Use skill-check for automated validation in sections 3, 9.
-- If exits non-zero, times out, or returns "command not found": Use manual fallback paths, append a `workflow_warnings[]` entry (`step: "step-08"`, `severity: "warn"`, `code: "skill-check-unavailable"`, `message: "skill-check unavailable: manual fallback checks used, security scan skipped"`) so step 9 does not report the run as skill-check validated, recording it at once (write its `[step-08/warn] skill-check-unavailable: {message}` line to `{run_dir}/warning.txt` with a file write, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`), and list every skipped check in the §10 validation results.
+- If exits 0: Use skill-check for automated validation in section 3.
+- If exits non-zero, times out, or returns "command not found": Use manual fallback paths, append a `workflow_warnings[]` entry (`step: "step-08"`, `severity: "warn"`, `code: "skill-check-unavailable"`, `message: "skill-check unavailable: manual fallback checks used"`) so step 9 does not report the run as skill-check validated, recording it at once (write its `[step-08/warn] skill-check-unavailable: {message}` line to `{run_dir}/warning.txt` with a file write, then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`), and list every skipped check in the §10 validation results.
 
 **Important:** Do not assume availability — empirical check required.
 
@@ -121,23 +124,17 @@ Then verify the two stack-specific rows the generic validator does not cover:
 
 Record format violations as **WARNING** findings.
 
-### 9. Security Scan (if skill-check available)
+### 9. Security Scan
 
-Run: `npx skill-check check <skill-dir> --format json > "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"` (security scan enabled by default), so stdout, stderr and the exit code are read apart.
+Run the scan whether or not skill-check is available. Resolve `{securityScanHelper}` ← first existing path in `{securityScanProbeOrder}` and run it on the committed package, with the longest timeout your shell tool takes (it ends within two minutes):
 
-**If `{run_dir}/skill-check.json` does not start with a JSON object**, skill-check stopped before it validated (exit 2 on a config, option or plugin error): record no finding, only the §10 note "security scan skipped: skill-check failed ({the stderr line that names the cause, or its last line})". Otherwise stdout can go on after the JSON (a `Wrote <path>` line when the project config sets a report path), so read only the JSON object at its start.
+```bash
+uv run {securityScanHelper} run --package "<skill-dir>"
+```
 
-**Read the JSON, not the exit code.** skill-check exits 1 when `summary.errorCount` is above 0, when `--strict` or `--fail-on-warning` is passed and `summary.warningCount` is above 0 (this call passes neither), or when the scan exits non-zero, and 2 when no scan runner starts, so a non-zero exit is not a security finding. skill-check 1.2.0 puts no security key in the JSON. The scan exited non-zero, which without `--ci` means it did not finish, when skill-check exits 1 although `summary.errorCount` is 0: stderr is then the scan's last lines (its tail), even when blank. On exit 0, stderr is never a scan tail (npm and Node warnings can be there); when exit 1 has another cause, stderr is a scan tail only when it holds the scanner's own lines, such as its token message or a finding code. A finding code is `[`, a capital letter, three digits and `]` (such as `[E001]`), the codes skill-check's own scan summary counts. Read the scan from stderr and the exit code, the first that applies:
+It runs Snyk Agent Scan, at the version it pins, only when `SNYK_TOKEN` is set, and reads the scanner's own JSON report, so rely on the JSON it prints, never on an exit code. Record each `findings[]` entry's `text` as an advisory **WARNING** finding: security findings do not block the report. Record its `note` in the §10 validation results, as "security scan: {note}" for `pass` and `warn` and as "security scan skipped: {note}" for `skipped`. When no `{securityScanProbeOrder}` path exists, record no finding, only the §10 note "security scan skipped: skf-security-scan.py missing"; when the call prints no JSON object, the note "security scan skipped: skf-security-scan.py printed no result".
 
-- **Could not run:** skill-check exits 2, the call stopped before it exited, or the scan exited non-zero and its tail carries no finding code. Record no finding, only a note in the §10 validation results: "security scan skipped: SNYK_TOKEN not configured" when the tail says to set the `SNYK_TOKEN` environment variable (the scanner prints "To use Agent Scan, set the SNYK_TOKEN environment variable."), otherwise "security scan skipped: scanner could not run ({the stderr line that names the cause, or its last line})", or "security scan skipped: scanner exited non-zero with no output" when stderr is blank.
-- **Findings:** `security[]` holds findings, or the tail carries finding codes.
-- **Neither:** record the §10 note "security scan exited 0; skill-check 1.2.0 does not pass the scan's findings on". Without `--ci`, agent-scan also exits 0 when its analysis fails (a 401 from a bad token, a 429, a network error), so this does not show that the scan found nothing (#892).
-
-Record security findings as advisory **WARNING** findings: they do not block the report.
-
-**If unavailable:** Skip, with the note "security scan skipped: skill-check unavailable" in the §10 validation results.
-
-Bind `{security_result}` ← `skipped` for **Could not run**, a run whose `{run_dir}/skill-check.json` does not start with a JSON object, or an unavailable skill-check; `warn` for **Findings**; `pass` for **Neither**. Step 9 puts it in the result envelope and the result contract.
+Bind `{security_result}` ← the helper's `security_result` (`pass`, `warn` or `skipped`), or `skipped` when the helper is missing or printed no JSON object. Step 9 puts it in the result envelope and the result contract.
 
 ### 10. Display Validation Results
 
