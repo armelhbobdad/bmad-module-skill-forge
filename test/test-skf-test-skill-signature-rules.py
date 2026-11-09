@@ -614,6 +614,29 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
     assert flowed.index(each) < flowed.index("A form the check binds (`bound`")
 
 
+def test_a_type_naming_some_of_the_other_form_s_union_agrees_in_the_split_body_cross_check():
+    """#1015: Annotations' union rule speaks of the source's union, and the split-body cross-check has no source, so
+    one judge carried it over and found a table's `list[str]` agreeing with a fenced `list[str] | None = None`
+    while another raised a High `split-body-mismatch` on the same pair. The split-body paragraph now carries the
+    rule over, in either direction, for a parameter type only: a return type keeps Annotations' own rule."""
+    rules = _read(RULES)
+    paragraph = _paragraph(rules, "In the split-body cross-check both forms are documented")
+    union = ("A parameter type one form writes that names some of the members of the other form's union agrees with it, "
+             "in either direction, as it does against the source (Annotations): `node_name: list[str]` matches "
+             "`node_name: list[str] | None = None`.")
+    assert union in paragraph
+    # among the paragraph's type readings: after its first sentence, before the ellipsis and omission rules
+    first = "and a parameter's optionality is compared only when both forms state it."
+    ellipsis = "An ellipsis claims nothing about the members it stands for, required ones included."
+    assert paragraph.index(first) < paragraph.index(union) < paragraph.index(ellipsis), "#1015: beside the type rule"
+    assert _flow(rules).count("names some of the members of the other form's union") == 1, "one copy"
+    # the Annotations rule it points at, which keeps the source's union and the return type's own rule
+    annotations = _section("Annotations")
+    assert ("A documented parameter type that names some of the members of the source's union is no mismatch, since a "
+            "caller passing it makes a valid call") in annotations
+    assert "a documented return type must cover every member the source can return." in annotations
+
+
 def test_each_export_s_form_is_read_alone():
     """#843: GAP-105 read a bare-name list's parameters as required because every other row of its Key API Summary
     table wrote defaults. A form is one export's: the rows of other exports state nothing about it."""

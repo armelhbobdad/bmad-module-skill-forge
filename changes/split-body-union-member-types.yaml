@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's split-body cross-check now reads a parameter type one documented form writes that names some of the members of the other form's union as agreeing with it, in either direction, as such a type agrees with the source's union: a table's `node_name: list[str]` matches a fenced `node_name: list[str] | None = None` of the same export. The rules stated that reading only against the source, so a judge that read it as no rule between two documented forms raised a High `split-body-mismatch` gap on a consistent pair and failed the hard gate, while another passed the same skill. Return types are compared as before.
+issues: [1015]
