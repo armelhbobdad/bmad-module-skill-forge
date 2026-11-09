@@ -166,6 +166,15 @@ Covers:
     not read; `docs`, `examples` and `benchmarks` skipped only as the first
     folder below the walk root or a package root, walked deeper down
     (Storybook's `code/addons/docs/`) and when one holds a cited file
+  - classify-stale's `--brief` (#1007): a file a `scope.exclude` glob
+    matches, or no `scope.include` glob covers, declares a name that is not
+    fabricated only when no walked file in scope does (a docs app's copy of
+    a provider file declares nothing beside it, nor makes it unsure, while
+    a name declared only out of scope keeps its declarations), the globs
+    normalized and an SKF 1.x closing `---` read; a file the name's entry
+    cites still settles it and an alias in a scoped-out file still clears
+    its name; a brief that is missing, not YAML, not a mapping, two
+    documents or not UTF-8 exits 2
   - declared_line (#682): the defined_at rule for one file, read below the
     source root or from lines given (a dunder, a renaming alias, a module
     or package named after the name, that module rule optional), None for
@@ -3494,6 +3503,28 @@ class TestClassifyStale:
         assert result.stdout == "" and len(result.stderr.splitlines()) == 1 and message in result.stderr, \
             result.stderr
 
+    @pytest.mark.parametrize("brief, message", [
+        (None, "error: brief not found: "),
+        ("scope: [unclosed\n", "malformed YAML in brief"),
+        ("- packages/**\n", "is not a YAML mapping"),
+        ("scope: {}\n---\nscope: {}\n", "malformed YAML in brief"),
+        (b"scope:\n  include:\n    - \xff\n", "failed to read brief"),
+    ], ids=["missing", "malformed", "a-list", "two-documents", "not-utf-8"])
+    def test_a_bad_brief_exit_2(self, tmp_path: Path, brief: str | bytes | None, message: str) -> None:
+        # #1007: like the other inputs, a brief classify-stale cannot read is an input error, never a walk
+        # with no scope
+        (tmp_path / "src").mkdir()
+        names = _write_json(tmp_path / "names.json", ["client"])
+        prov = _write_json(tmp_path / "provenance-map.json", {"entries": []})
+        path = tmp_path / "skill-brief.yaml"
+        if brief is not None:
+            path.write_bytes(brief if isinstance(brief, bytes) else brief.encode("utf-8"))
+        result = _run_cli("classify-stale", "--names", str(names), "--provenance", str(prov),
+                          "--source-root", str(tmp_path / "src"), "--brief", str(path))
+        assert result.returncode == 2
+        assert result.stdout == "" and len(result.stderr.splitlines()) == 1 and message in result.stderr, \
+            result.stderr
+
     @pytest.mark.parametrize("text", [
         "import { storybookTest } from './test';\nexport default storybookTest;\n",
         "// the postinstall hook\nexport default async function postinstall() {}\n",
@@ -3542,9 +3573,11 @@ VALID_INVENTORY_KINDS = tuple(_validate_inventory.VALID_KINDS)
 
 
 def _classified(tmp_path: Path, capsys, files: dict[str, str], stale: list[str], entries: list[dict] | None = None,
-                inventory: dict[str, str | tuple[str, ...]] | None = None) -> dict[str, dict]:
+                inventory: dict[str, str | tuple[str, ...]] | None = None,
+                brief: str | None = None) -> dict[str, dict]:
     """classify-stale over `files` (below src/), as coverage-check §2c runs it: name -> its result. With
-    `inventory` (name -> its kind or kinds), `--inventory` reads it as validate-inventory.py writes it."""
+    `inventory` (name -> its kind or kinds), `--inventory` reads it as validate-inventory.py writes it; with
+    `brief` (a skill brief's YAML text), `--brief` reads it."""
     src = tmp_path / "src"
     src.mkdir(parents=True, exist_ok=True)
     for rel, text in files.items():
@@ -3556,6 +3589,8 @@ def _classified(tmp_path: Path, capsys, files: dict[str, str], stale: list[str],
         exports = [{"name": name, "kind": kind} for name, kinds in inventory.items()
                    for kind in ((kinds,) if isinstance(kinds, str) else kinds)]
         argv += ["--inventory", str(_write_json(tmp_path / "run" / "inventory.json", {"exports": exports}))]
+    if brief is not None:
+        argv += ["--brief", str(_write_text(tmp_path, "skill-brief.yaml", brief))]
     assert mod.main(argv) == 0
     return {o["name"]: o for o in json.loads(capsys.readouterr().out)}
 
@@ -3568,9 +3603,9 @@ def _defined_at(tmp_path: Path, capsys, files: dict[str, str], stale: list[str],
 
 
 def _found(tmp_path: Path, capsys, files: dict[str, str], stale: list[str], entries: list[dict] | None = None,
-           inventory: dict[str, str | tuple[str, ...]] | None = None) -> dict[str, tuple]:
+           inventory: dict[str, str | tuple[str, ...]] | None = None, brief: str | None = None) -> dict[str, tuple]:
     """name -> (defined_at, declared_in) (`_classified`)."""
-    out = _classified(tmp_path, capsys, files, stale, entries, inventory)
+    out = _classified(tmp_path, capsys, files, stale, entries, inventory, brief)
     return {name: (o["defined_at"], o["declared_in"]) for name, o in out.items()}
 
 
@@ -3907,6 +3942,73 @@ class TestDefinedAt:
         entries = [{"export_name": "run", "source_file": "packages/a/src/index.ts", "source_line": 1}]
         assert _defined_at(tmp_path, capsys, files, ["Task", "Other"], entries) == {
             "Task": "packages/a/lib/task.ts:1", "Other": None}
+
+    # #1007: oms-uitripled's shape. The entries span two packages and `packages/` holds no package.json, so the
+    # walk root is the source root, and the docs app keeps a copy of the provider file the brief leaves out.
+    PROVIDER = "packages/components/react-shadcn/src/ui-library-provider.tsx"
+    DOCS_COPY = "apps/docs/components/ui-library-provider.tsx"
+    UITRIPLED = {
+        "package.json": "{}\n", "packages/components/react-shadcn/package.json": "{}\n",
+        "packages/cli/package.json": "{}\n", "apps/docs/package.json": "{}\n",
+        PROVIDER: "import React from 'react';\n" + "\n" * 12
+        + "export interface UILibraryContextValue {\n  lib: string;\n}\nexport function UILibraryProvider() {}\n",
+        DOCS_COPY: "import React from 'react';\n" + "\n" * 12
+        + "export interface UILibraryContextValue {\n  lib: string;\n}\nexport function DocsOnly() {}\n",
+        "packages/cli/src/add.ts": "export function add() {}\n",
+    }
+    UITRIPLED_ENTRIES = [{"export_name": "UILibraryProvider", "source_file": PROVIDER, "source_line": 17},
+                         {"export_name": "add", "source_file": "packages/cli/src/add.ts", "source_line": 1}]
+
+    @pytest.mark.parametrize("brief, expected", [
+        (None, (None, [f"{DOCS_COPY}:14", f"{PROVIDER}:14"])),
+        ("scope:\n  include:\n    - packages/**\n", (f"{PROVIDER}:14", [f"{PROVIDER}:14"])),
+        ("scope:\n  exclude:\n    - ./apps/**\n", (f"{PROVIDER}:14", [f"{PROVIDER}:14"])),
+        ("scope:\n  include:\n    - '**'\n  exclude:\n    - apps/**\n---\n", (f"{PROVIDER}:14", [f"{PROVIDER}:14"])),
+        # no file in scope declares it: the files the brief scopes out keep their declarations
+        ("scope:\n  include:\n    - packages/cli/**\n    - 3\n", (None, [f"{DOCS_COPY}:14", f"{PROVIDER}:14"])),
+        ("name: uitripled\n", (None, [f"{DOCS_COPY}:14", f"{PROVIDER}:14"])),
+    ], ids=["no-brief", "include", "exclude", "both-and-a-closing-document-marker", "only-out-of-scope",
+            "no-scope"])
+    def test_a_brief_leaves_the_files_it_scopes_out_from_the_walk(self, tmp_path: Path, capsys, brief: str | None,
+                                                                  expected: tuple) -> None:
+        # the copy no scope.include glob covers, or a scope.exclude glob matches, declares nothing beside the file
+        # in scope: the one declaration in scope is the defined_at, an Info documented extra instead of a Medium
+        # homonym
+        out = _found(tmp_path, capsys, self.UITRIPLED, ["UILibraryContextValue"], self.UITRIPLED_ENTRIES,
+                     brief=brief)
+        assert out == {"UILibraryContextValue": expected}
+
+    def test_a_name_declared_only_outside_the_brief_keeps_its_declaration(self, tmp_path: Path, capsys) -> None:
+        # #1007 review: a scoped-out file declares a name no file in scope declares, as without a brief, so an
+        # internal name stays a documented extra and a function the brief scopes out keeps the file the gap
+        # ledger's scoped-out record names; an untokenizable copy the brief scopes out makes no name unsure
+        # beside its declaration in scope
+        files = {**PKG, "pkg/internal/__init__.py": "", "pkg/internal/helper.py": "class Helper:\n    pass\n",
+                 "pkg/core.py": "class Config:\n    pass\n", "pkg/internal/broken.py": "Config = (\n"}
+        brief = "scope:\n  exclude:\n    - pkg/internal/**\n"
+        assert _found(tmp_path / "a", capsys, files, ["Helper", "Config"], [MAIN_ENTRY], brief=brief) == {
+            "Helper": ("pkg/internal/helper.py:1", ["pkg/internal/helper.py:1"]),
+            "Config": ("pkg/core.py:1", ["pkg/core.py:1"])}
+        assert _found(tmp_path / "b", capsys, files, ["Helper", "Config"], [MAIN_ENTRY]) == {
+            "Helper": ("pkg/internal/helper.py:1", ["pkg/internal/helper.py:1"]),
+            "Config": (None, ["pkg/core.py:1"])}
+
+    def test_a_brief_leaves_a_cited_file_and_an_alias_in_the_walk(self, tmp_path: Path, capsys) -> None:
+        brief = "scope:\n  include:\n    - packages/**\n"
+        # a file the name's entry cites settles it wherever it lies
+        cited = [*self.UITRIPLED_ENTRIES, {"export_name": "UILibraryContextValue", "source_file": self.DOCS_COPY,
+                                           "source_line": 14}]
+        assert _found(tmp_path / "a", capsys, self.UITRIPLED, ["UILibraryContextValue"], cited, brief=brief) == {
+            "UILibraryContextValue": (f"{self.DOCS_COPY}:14", None)}
+        # the suspects' walk reads the files the brief scopes out: a rename there of the cited declaration
+        # stays an alias, never a fabricated signature
+        files = {**self.UITRIPLED, "packages/cli/src/api.ts": "export interface API_Entry {}\n",
+                 "apps/docs/root.ts": "export type { API_Entry as Entry } from '../../packages/cli/src/api';\n"}
+        entries = [*self.UITRIPLED_ENTRIES, {"export_name": "Entry", "source_file": "packages/cli/src/api.ts",
+                                             "source_line": 1}]
+        out = _classified(tmp_path / "b", capsys, files, ["Entry"], entries, brief=brief)["Entry"]
+        assert (out["fabricated"], out["reason"], out["defined_at"], out["renames"]) == (
+            False, "aliased", "apps/docs/root.ts:1", "API_Entry")
 
     def test_a_homonym_needs_a_cited_file(self, tmp_path: Path, capsys) -> None:
         files = {**PKG, "pkg/a.py": "class Config:\n    pass\n", "pkg/b.py": "\nConfig = dict\n",

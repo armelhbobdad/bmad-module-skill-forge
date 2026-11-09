@@ -1008,11 +1008,15 @@ class TestStaleNameLineCheck:
     folder right below the package root is never walked.
     #886: a name the cited file does not define, which an export list renames
     to it from a name that file declares, is `aliased`, not fabricated, and so
-    a documented extra at the alias."""
+    a documented extra at the alias.
+    #1007: the call passes the brief when the skill has one, so that a file
+    the brief scopes out is no second declaration of a name."""
 
     CALL = ('uv run {verifyProvenanceCompletenessHelper} classify-stale --names "{run_dir}/coverage.json" '
             '--provenance "{forge_provenance_map}" --source-root "{source_path}" '
-            '--inventory "{run_dir}/inventory.json" -o "{run_dir}/stale.json"')
+            '--inventory "{run_dir}/inventory.json" '
+            '[--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] -o "{run_dir}/stale.json"')
+    BRIEF = ' [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"]'
     SOURCE = '"""Core."""\nimport os\n\n\ndef helper(x):\n    return os.fspath(x)\n'
 
     @pytest.fixture
@@ -1024,6 +1028,8 @@ class TestStaleNameLineCheck:
         assert self.CALL in _fence(section, self.CALL)
         assert _frontmatter(COVERAGE_FILE)["verifyProvenanceCompletenessProbeOrder"][-1] == \
             "{project-root}/src/shared/scripts/skf-verify-provenance-completeness.py"
+        # #1007: the brief's scope narrows the walk, and a skill with no brief runs the call without it
+        assert "and run once (leave `--brief` out with no brief):" in _flow(section)
 
     def test_fabricated_needs_a_cited_file_without_the_name(self, section: str) -> None:
         flow = _flow(section)
@@ -1045,9 +1051,10 @@ class TestStaleNameLineCheck:
             assert needle in flow, needle
 
     def _classify(self, tmp_path: pathlib.Path, files: dict[str, str], stale: list[str],
-                  entries: list[dict], kinds: dict[str, str] | None = None) -> list[dict]:
+                  entries: list[dict], kinds: dict[str, str] | None = None, brief: str | None = None) -> list[dict]:
         """The classify-stale call as §2c writes it, over `files` below the source root, with §1a's
-        `inventory.json` giving each name of `kinds` its kind."""
+        `inventory.json` giving each name of `kinds` its kind, and `--brief` only when the skill has a
+        `brief` (its YAML text), as the call's bracket says."""
         for rel, text in files.items():
             (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
             (tmp_path / rel).write_bytes(text.encode("utf-8"))
@@ -1056,9 +1063,17 @@ class TestStaleNameLineCheck:
         _write_json(run / "inventory.json", {"exports": [{"name": n, "kind": k} for n, k in (kinds or {}).items()],
                                              "references": [], "cross_check_mismatches": []})
         provenance = _write_json(tmp_path / "provenance-map.json", {"entries": entries})
+        assert self.BRIEF in self.CALL
         call = self.CALL.replace("uv run {verifyProvenanceCompletenessHelper} ", "")
+        # keep the bracketed flag without its brackets, or drop it
+        call = call.replace(self.BRIEF, "" if brief is None else " " + self.BRIEF[2:-1])
+        forge_data = tmp_path / "forge-data"
+        if brief is not None:
+            (forge_data / "demo").mkdir(parents=True)
+            (forge_data / "demo" / "skill-brief.yaml").write_bytes(brief.encode("utf-8"))
         for key, value in {"{run_dir}": run.as_posix(), "{forge_provenance_map}": provenance.as_posix(),
-                           "{source_path}": tmp_path.as_posix()}.items():
+                           "{source_path}": tmp_path.as_posix(), "{forge_data_folder}": forge_data.as_posix(),
+                           "{skill_name}": "demo"}.items():
             call = call.replace(key, value)
         proc = subprocess.run([sys.executable, str(VERIFY_PROVENANCE), *shlex.split(call)],
                               capture_output=True, text=True, encoding="utf-8")
@@ -1286,6 +1301,74 @@ class TestStaleNameLineCheck:
         records = gap_ledger.from_coverage(cov, surface=self._surface(), stale=out, skill_dir=str(skill))
         assert [(r["severity"], r["category"], r["title"], r["source"]) for r in records] == [
             ("Info", "observation", "Documented extra: exceptions", "cognee/exceptions/__init__.py:1")]
+
+    def test_a_copy_the_brief_scopes_out_is_no_second_declaration(self, tmp_path: pathlib.Path) -> None:
+        """#1007: oms-uitripled documents `UILibraryContextValue`, declared in scope only in the react-shadcn
+        package. Its map's entries span two packages and `packages/` holds no package.json, so the walk reads
+        the whole repository, and the docs app keeps a copy of the file that no `scope.include` glob covers.
+        With the brief, §2c's call leaves the copy out, and the name is an Info documented extra at its one
+        declaration in scope; without one, the copy reads as a second declaration and the gap stays Medium."""
+        provider = "packages/components/react-shadcn/src/ui-library-provider.tsx"
+        declaration = "export interface UILibraryContextValue {\n  lib: string;\n}\n"
+        files = {
+            "package.json": "{}\n", "packages/components/react-shadcn/package.json": "{}\n",
+            "packages/cli/package.json": "{}\n", "apps/docs/package.json": "{}\n",
+            provider: "import React from 'react';\n" + declaration + "export function UILibraryProvider() {}\n",
+            "apps/docs/components/ui-library-provider.tsx": "import React from 'react';\n" + declaration,
+            "packages/cli/src/add.ts": "export function add() {}\n",
+        }
+        entries = [{"export_name": "UILibraryProvider", "source_file": provider, "source_line": 5},
+                   {"export_name": "add", "source_file": "packages/cli/src/add.ts", "source_line": 1}]
+        skill = tmp_path / "skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(b"# uitripled\n\n`UILibraryContextValue` holds the chosen library.\n")
+        brief = "name: uitripled\nscope:\n  type: full-library\n  include:\n    - packages/**\n"
+        expected = {
+            brief: ("Info", "observation", "Documented extra: UILibraryContextValue", f"{provider}:2"),
+            None: ("Medium", "stale-documentation", "Stale documentation: UILibraryContextValue", "SKILL.md:3"),
+        }
+        for given, record in expected.items():
+            root = tmp_path / ("with-brief" if given else "without-brief")
+            out = self._classify(root, files, ["UILibraryContextValue"], entries,
+                                 {"UILibraryContextValue": "interface"}, brief=given)
+            cov = json.loads((root / "run" / "coverage.json").read_bytes())
+            records = gap_ledger.from_coverage(cov, surface=self._surface(), stale=out, skill_dir=str(skill))
+            assert [(r["severity"], r["category"], r["title"], r["source"]) for r in records] == [record], given
+
+    def test_a_name_declared_only_where_the_brief_scopes_out_keeps_its_gap(self, tmp_path: pathlib.Path) -> None:
+        """#1007 review: with the brief, a file it scopes out still declares a name no file in its scope declares.
+        A function the `start_server` namespace passes on from `pkg/shared/utils.py` (#969, #1031) keeps the
+        scoped-out Medium that names the exclude glob, and an internal `Helper` only in `pkg/internal/` stays an
+        Info documented extra there, as without the brief."""
+        files = {
+            "pkg/__init__.py": "from .api.visualize import tools, start_server\n", "pkg/api/__init__.py": "",
+            "pkg/api/visualize/__init__.py": "from . import tools\nfrom . import start_server\n",
+            "pkg/api/visualize/tools.py": "from pkg.shared.utils import start_server\n",
+            "pkg/api/visualize/start_server.py": "from pkg.shared.utils import start_server\n",
+            "pkg/shared/__init__.py": "", "pkg/shared/utils.py": "def start_server():\n    pass\n",
+            "pkg/internal/__init__.py": "", "pkg/internal/helper.py": "class Helper:\n    pass\n",
+        }
+        entries = [{"export_name": "tools", "source_file": "pkg/api/visualize/tools.py", "source_line": 1,
+                    "export_type": "module"}]
+        skill = tmp_path / "skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(b"# pkg\n\n`start_server()` serves.\n\n`Helper` helps.\n")
+        surface = self._surface()
+        surface["excluded"]["outsideScope"] = [
+            {"name": "start_server", "file": "pkg/shared/utils.py", "line": 1, "entry": "pkg/__init__.py",
+             "excludeGlob": "pkg/shared/**", "outsideInclude": False, "namespace": "start_server"}]
+        brief = "name: pkg\nscope:\n  type: full-library\n  exclude:\n    - pkg/shared/**\n    - pkg/internal/**\n"
+        for given in (brief, None):
+            root = tmp_path / ("with-brief" if given else "without-brief")
+            out = self._classify(root, files, ["start_server", "Helper"], entries,
+                                 {"start_server": "function", "Helper": "class"}, brief=given)
+            cov = json.loads((root / "run" / "coverage.json").read_bytes())
+            records = gap_ledger.from_coverage(cov, surface=surface, stale=out, skill_dir=str(skill))
+            assert [(r["severity"], r["title"], r["source"]) for r in records] == [
+                ("Medium", "Stale documentation: start_server", "SKILL.md:3"),
+                ("Info", "Documented extra: Helper", "pkg/internal/helper.py:1")], given
+            assert "scopes out `pkg/shared/utils.py:1`" in records[0]["remediation"], given
+            assert "narrow `pkg/shared/**`" in records[0]["remediation"], given
 
 
 # ---------------------------------------------------------------------------

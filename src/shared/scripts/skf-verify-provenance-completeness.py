@@ -440,7 +440,7 @@ Subcommands:
 
   classify-stale --names <coverage.json> --provenance <provenance-map.json>
                  --source-root <path> [--inventory <inventory.json>]
-                 [-o <out.json>]
+                 [--brief <skill-brief.yaml>] [-o <out.json>]
 
     test-skill's fabricated-signature test, for each stale name (a
     documented name the enumerated source surface lacks): the
@@ -451,7 +451,8 @@ Subcommands:
     `stale` names) or a JSON array of names. `--inventory` holds the
     documented inventory, validate-inventory.py's `--output` file or its
     whole result: the `kind` it gives each name decides the module rule
-    below.
+    below. `--brief` holds the skill brief, whose `scope.include` and
+    `scope.exclude` globs decide below which walked files count.
 
     Emit JSON, one item per name, in the order given (a repeated name once):
       [
@@ -678,7 +679,18 @@ Subcommands:
     path that is absolute or climbs out of it is not read), with no
     symlink on its path and under a name the walk reads (no test file,
     test configuration file or `*.min.js`). The path is relative to the
-    source root. A dotted name, or a map whose entries cite files
+    source root. With `--brief`, in the walk of the names that are not
+    fabricated, a file the brief scopes out declares a name only when no
+    walked file in the brief's scope does, its path matched as
+    skf-extract-public-api.py matches it with
+    skf-resolve-authoritative-files.py's glob rules: a `scope.exclude` glob
+    matches it, or the brief has `scope.include` globs and none matches it
+    (a sibling app's copy of a file then declares nothing beside the file
+    in scope, while a name declared only outside the scope keeps its
+    declarations). A cited file still settles a name wherever it lies, and
+    the walk of the `not-defined` names counts every file, so that an
+    alias in a file the brief scopes out still clears its name. A dotted
+    name, or a map whose entries cite files
     but no Python or TS/JS one, is not looked up (`defined_at` and
     `declared_in` null, as for a fabricated name). A filesystem error
     during the lookup of the names that are not fabricated gives each of
@@ -743,6 +755,7 @@ CLI examples:
       --names {run_dir}/coverage.json \\
       --provenance {forge_version}/provenance-map.json \\
       --source-root {source_root} --inventory {run_dir}/inventory.json \\
+      --brief {forge_data_folder}/{skill_name}/skill-brief.yaml \\
       -o {run_dir}/stale.json
   uv run skf-verify-provenance-completeness.py kind-at \\
       --source-root {source_root} --file src/api.ts --line 12 --name Store \\
@@ -767,8 +780,9 @@ Exit codes:
   2  error, for every subcommand (an input file or folder not found,
      --skill-dir without a SKILL.md, malformed JSON or YAML, a verify
      result without stale[] and citations[], --names without a list of
-     names, --inventory without an `exports` list, no recipe in
-     --recipes, no PyYAML for kind-at, an atomic write that failed, an -o
+     names, --inventory without an `exports` list, a --brief that is not
+     a YAML mapping, no recipe in --recipes, no PyYAML for kind-at or
+     --brief, an atomic write that failed, an -o
      file that cannot be written, or any unexpected failure, such as an
      unreadable file; once fix has started writing, stderr names the files
      already written); one line on stderr and no JSON
@@ -902,6 +916,8 @@ _MANUAL_CLOSE_RE = re.compile(r"<!--\s*\[/MANUAL:([^\]]+)\]\s*-->", re.ASCII)
 _LINE_WITH_END_RE = re.compile(r"[^\r\n]*(?:\r\n|\r|\n)|[^\r\n]+$")
 ATOMIC_WRITE_HELPER = "skf-atomic-write.py"
 HASH_CONTENT_HELPER = "skf-hash-content.py"
+# classify-stale's `--brief`: a skill brief's YAML and scope glob rules
+BRIEF_RESOLVER_HELPER = "skf-resolve-authoritative-files.py"
 ATOMIC_WRITE_TIMEOUT_SEC = 60
 
 
@@ -3439,7 +3455,10 @@ class _DeclarationLookup:
     folders `_lookup_skips_folder` names, the `LOOKUP_WALK_FOLDERS`, the
     `LOOKUP_TOP_FOLDERS` right below the walk root and a package root
     (`_is_package_root`) that hold no cited file, the files
-    `_lookup_skips_file` names and every symlink. Only the rule families
+    `_lookup_skips_file` names and every symlink. With a `scope`
+    (`read_brief_scope`), until `keep_declaring`, a walked file the brief
+    scopes out declares a name only when no walked file in its scope does
+    (`find`). Only the rule families
     (Python, TS/JS) the entries cite are read (both when no entry cites a
     file). A cited file is read in any folder, a hidden one and one the walk
     skips included, but only inside the source root, with no symlink on its
@@ -3465,9 +3484,13 @@ class _DeclarationLookup:
     a default export of any other expression stay fabricated.
     Any error of the filesystem raises (`_LOOKUP_ERRORS`)."""
 
-    def __init__(self, entries: list[dict], source_root: Path) -> None:
+    def __init__(
+        self, entries: list[dict], source_root: Path, scope: BriefScope | None = None
+    ) -> None:
         self.root = source_root
         self.real_root = source_root.resolve()
+        # the brief's scope, which `find` applies to the walk until `keep_declaring`
+        self.scope = scope
         recorded = [f for f in map(_entry_file, entries) if f is not None]
         # a map that cites no file names no language: both families
         families = {_rule_family(f) for f in recorded}
@@ -3734,7 +3757,9 @@ class _DeclarationLookup:
         the walk. Without `cited_fallback` (the suspects' pass), a cited
         file takes no line 1 from its module or package so named, the export
         or not, so that the walk runs and finds the renames; the walk keeps
-        its module rule."""
+        its module rule. With a `scope`, a walked file the brief scopes out
+        declares a name, and makes it unsure, only when no walked file in
+        the brief's scope declares it (#1007)."""
         found: dict[str, str] = {}
         if not self.families:
             return found, {}
@@ -3754,26 +3779,34 @@ class _DeclarationLookup:
                     break
             else:
                 pending.append(name)
-        declared, unsure = self._walk(pending, strict) if pending else ({}, set())
+        declared, unsure = self._walk(pending, strict) if pending else ({}, {})
+        if self.scope is not None:
+            scoped_out = self.scope.scoped_out
+            for name, hits in declared.items():
+                # a copy outside the brief's scope is no second declaration
+                kept = [h for h in hits if not scoped_out(h.rsplit(":", 1)[0])]
+                if kept:
+                    declared[name] = kept
+                    unsure[name] = [f for f in unsure.get(name, []) if not scoped_out(f)]
         # exactly one walked file must declare a name, and none it holds
         # in an untokenizable Python file may
         found.update({
             name: h[0] for name, h in declared.items()
-            if len(h) == 1 and name not in unsure
+            if len(h) == 1 and not unsure.get(name)
         })
         return found, declared
 
     def _walk(
         self, names: list[str], strict: frozenset[str] = frozenset()
-    ) -> tuple[dict[str, list[str]], set[str]]:
+    ) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
         """name -> the sorted `file:line` of each walked file that declares
         it, at the file's first declaration (a stub beside its
         implementation left out: `_without_stubs`; a module so named
-        declaring no name of `strict` unless it is the export), and the
-        names a Python file that
-        does not tokenize holds, which it may declare."""
+        declaring no name of `strict` unless it is the export), and name ->
+        the Python files that do not tokenize and hold it, which may
+        declare it."""
         hits: dict[str, list[str]] = {name: [] for name in names}
-        unsure: set[str] = set()
+        unsure: dict[str, list[str]] = {}
         for parts in self._tree():
             module = _module_name(parts)
             lines = self._cited.get(parts)
@@ -3799,7 +3832,9 @@ class _DeclarationLookup:
             if path.suffix.lower() in PYTHON_EXTENSIONS and (
                 cache.py_statement_starts(path, lines) is None
             ):
-                unsure.update(n for n in here if n in text)
+                for n in here:
+                    if n in text:
+                        unsure.setdefault(n, []).append("/".join(parts))
             for name in here:
                 hit = self._first(parts, lines, name, cache, fallback)
                 if hit is not None:
@@ -3809,9 +3844,11 @@ class _DeclarationLookup:
     def keep_declaring(self) -> None:
         """From now on, keep the candidate lines and the renames of each file
         a declaration is found in, for `renamed`: the suspects' pass, which
-        comes last."""
+        comes last. Its walk counts the files the brief scopes out like any
+        other, so that an alias in one still clears its name."""
         self._declaring = {}
         self._candidates = {}
+        self.scope = None
 
     def _renames_of(self, parts: tuple[str, ...]) -> _Renames | None:
         """The renames of a file a rename chain goes through, read once
@@ -3937,11 +3974,77 @@ def _module_entry(entry: dict) -> bool:
     return isinstance(kind, str) and kind.strip().lower() in NO_DEFINITION_EXPORT_TYPES
 
 
+class BriefScope:
+    """A skill brief's `scope.include` and `scope.exclude` globs
+    (`read_brief_scope`), applied to a path relative to the source root as
+    skf-extract-public-api.py applies them to choose its files in scope,
+    with skf-resolve-authoritative-files.py's `glob_match`."""
+
+    def __init__(
+        self, includes: list[str], excludes: list[str],
+        glob_match: Callable[[str, str], bool],
+    ) -> None:
+        self.includes = includes
+        self.excludes = excludes
+        self._match = glob_match
+
+    def scoped_out(self, rel: str) -> bool:
+        """True when an exclude glob matches `rel`, or the brief has include
+        globs and none matches it."""
+        if any(self._match(rel, g) for g in self.excludes):
+            return True
+        return bool(self.includes) and not any(self._match(rel, g) for g in self.includes)
+
+
+def _brief_globs(value: object) -> list[str]:
+    """The string globs of a brief's scope list, as skf-extract-public-api.py
+    normalizes them: forward slashes, no leading `./` or `/`, none empty."""
+    globs: list[str] = []
+    for item in value if isinstance(value, list) else []:
+        if not isinstance(item, str):
+            continue
+        text = item.strip().replace("\\", "/")
+        while text.startswith("./"):
+            text = text[2:]
+        if text.lstrip("/"):
+            globs.append(text.lstrip("/"))
+    return globs
+
+
+def read_brief_scope(path: Path) -> BriefScope:
+    """The scope globs of a skill brief (`--brief`), read with
+    skf-resolve-authoritative-files.py's `parse_brief_yaml`. Raises
+    ValueError when the brief cannot be read, is not YAML or is not a
+    mapping, and ImportError when PyYAML or that helper does not load."""
+    try:
+        import yaml  # only --brief reads YAML here; `uv run` installs it
+    except ImportError as exc:
+        raise ImportError(
+            "classify-stale reads --brief with PyYAML: run the helper with "
+            "`uv run`, which installs it"
+        ) from exc
+    resolver = _load_sibling_module(BRIEF_RESOLVER_HELPER, "skf_resolve_authoritative_files")
+    try:
+        data = resolver.parse_brief_yaml(path.read_bytes().decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ValueError(f"failed to read brief {path}: {exc}") from exc
+    except yaml.YAMLError as exc:
+        raise ValueError(f"malformed YAML in brief {path}: {' '.join(str(exc).split())}") from exc
+    if not isinstance(data, dict):
+        raise ValueError(f"brief {path} is not a YAML mapping")
+    scope = data.get("scope") if isinstance(data.get("scope"), dict) else {}
+    return BriefScope(
+        _brief_globs(scope.get("include")), _brief_globs(scope.get("exclude")),
+        resolver.glob_match,
+    )
+
+
 def classify_stale(
     names: list[str],
     prov: dict,
     source_root: Path,
     kinds: dict[str, frozenset[str]] | None = None,
+    scope: BriefScope | None = None,
 ) -> list[dict]:
     """The fabricated-signature test for each stale name: the definition-lines
     rules at every provenance entry whose raw `export_name` is the name, and
@@ -3973,7 +4076,11 @@ def classify_stale(
     `defined_at` and `declared_in` are found. `kinds` (`inventory_kinds`,
     None without `--inventory`) keeps a name of a `NO_MODULE_KINDS` kind
     from a module or package so named, unless an entry of the name is a
-    `module` or `package` one.
+    `module` or `package` one. `scope` (`read_brief_scope`, None without
+    `--brief`) keeps a walked file the brief scopes out from declaring a
+    name that is not fabricated when a walked file in its scope declares
+    it, so that a copy in a sibling app does not count as a second
+    declaration; the suspects' walk still counts it.
     """
     entries = [e for e in prov.get("entries") or [] if isinstance(e, dict)]
     results: list[dict] = []
@@ -4035,7 +4142,7 @@ def classify_stale(
         )
     lookup: _DeclarationLookup | None = None
     try:
-        lookup = _DeclarationLookup(entries, source_root)
+        lookup = _DeclarationLookup(entries, source_root, scope)
         found, declared = lookup.find(cited, frozenset(strict))
     except _LOOKUP_ERRORS:
         # a lookup that fails proves nothing: every name stays null
@@ -5288,10 +5395,13 @@ def _cmd_definition_lines(args: argparse.Namespace) -> int:
 def _cmd_classify_stale(args: argparse.Namespace) -> int:
     names_path, prov_path = Path(args.names), Path(args.provenance)
     inv_path = Path(args.inventory) if args.inventory is not None else None
+    brief_path = Path(args.brief) if args.brief is not None else None
     root = Path(args.source_root)
     inputs = [("names", names_path), ("provenance map", prov_path)]
     if inv_path is not None:
         inputs.append(("inventory", inv_path))
+    if brief_path is not None:
+        inputs.append(("brief", brief_path))
     for label, path in inputs:
         if not path.is_file():
             print(f"error: {label} not found: {path}", file=sys.stderr)
@@ -5315,11 +5425,12 @@ def _cmd_classify_stale(args: argparse.Namespace) -> int:
         kinds = None if inv_path is None else inventory_kinds(
             load_json_object(inv_path, "inventory"), args.inventory
         )
-    except ValueError as exc:
+        scope = None if brief_path is None else read_brief_scope(brief_path)
+    except (ValueError, ImportError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     try:
-        result = classify_stale(names, prov, root, kinds)
+        result = classify_stale(names, prov, root, kinds, scope)
     except Exception as exc:  # noqa: BLE001 - exit 2, never read as an answer
         return _unexpected("stale-name classification", exc)
     return 0 if _emit(result, args.output) else 2
@@ -5650,6 +5761,16 @@ def _build_parser() -> argparse.ArgumentParser:
             "line 1 from a module so named, unless a provenance map entry of "
             "the name is a module or package one or the module is a TS/JS "
             "file that is itself the export"
+        ),
+    )
+    p.add_argument(
+        "--brief",
+        default=None,
+        help=(
+            "the skill brief: in the walk of the names that are not "
+            "fabricated, a file a scope.exclude glob matches or, when the "
+            "brief has scope.include globs, none of them matches declares a "
+            "name only when no walked file in scope does"
         ),
     )
     p.add_argument(
