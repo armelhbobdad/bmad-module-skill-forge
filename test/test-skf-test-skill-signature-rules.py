@@ -196,11 +196,18 @@ def test_a_form_that_opens_with_shared_text_writes_its_members():
     """6.0.0 release gate (oms-cognee): an inventory entry for one of several names a skill documents together
     carries the members they share, then `; `, then its own (inventory-contract.md). Reading a form says that form
     writes both, so a judge reads the shared members as part of it, before the name's own, and the required field
-    the shared text states is no member the form leaves out. A reading rule only: no comparison rule changes."""
+    the shared text states is no member the form leaves out. A reading rule only: no comparison rule changes.
+    #1034 (oms-cognee): a row listed `.create`, `.get` and the others bare beside `each with an optional user`, and
+    the split-body reader, which reads the row directly, could take that phrase for each name's partial form and
+    report every required parameter the reference writes as left out. A name listed bare beside such shared text is
+    a mention there, as the contract records it."""
     reading = _section("Reading a form")
-    assert ("A form that opens with text the skill states once for several names, then `; ` and the name's own "
-            "members (inventory-contract.md), writes both: the members the shared text states are members that form "
-            "writes, read before its own.") in reading
+    shared = ("A form that opens with text the skill states once for several names, then `; ` and the name's own "
+              "members (inventory-contract.md), writes both: the members the shared text states are members that "
+              "form writes, read before its own.")
+    bare = ("A name listed bare beside such shared text, with no parameter list, call or signature of its own, is a "
+            "mention there, not a form: it claims nothing and is not compared.")
+    assert f"{shared} {bare}" in reading
     assert reading.index("A default's value is not compared") < reading.index(
         "A form that opens with text the skill states once"), "after the paragraph on optionality"
 

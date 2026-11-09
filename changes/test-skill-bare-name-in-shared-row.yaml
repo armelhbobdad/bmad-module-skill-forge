@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's documented inventory now records a name that a row or a paragraph lists bare beside members it states once for several names, such as `.get` in a namespace row that lists `.create`, `.get` and `.delete`, each with an optional `user`, and links to their signatures, as a mention at that place: its entry leaves `params`, `return_type` and `usage_signature` out, and the split-body cross-check compares no form of it there. Before, the inventory contract did not say whether such a name took the shared text as its form, so one reader gave each name the shared phrase alone, a partial form that leaves out every required parameter, and recorded High `split-body-mismatch` and Critical `signature-mismatch` gaps that failed the hard gate, while another recorded none on the same skill. The shared text still goes to each name the place gives members of its own, and the name's forms at other places are compared as before.
+issues: [1034]

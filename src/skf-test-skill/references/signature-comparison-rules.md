@@ -18,7 +18,7 @@ A form that writes a type or a default for a parameter (`(date: Date) => string`
 
 Optionality is stated only by a default, a `?` (on the name, or as `?:`) or an optional marker: `optional` in a docstring-style list, a Required column, a Default cell that gives a value. A type never states it, and an empty Default cell states nothing. A list of parameters or props, or a table, that states optionality for none of its members states none, and optionality is not compared: `connect(host: str, port: int)` matches `def connect(host: str, port: int = 5432)`. Once a list states optionality for any member, each member it writes with no mark, unless it is rest or variadic, claims to be required; a Default cell and a destructuring default mark only their own member (Components). A default's value is not compared: it only marks its parameter optional.
 
-A form that opens with text the skill states once for several names, then `; ` and the name's own members (inventory-contract.md), writes both: the members the shared text states are members that form writes, read before its own.
+A form that opens with text the skill states once for several names, then `; ` and the name's own members (inventory-contract.md), writes both: the members the shared text states are members that form writes, read before its own. A name listed bare beside such shared text, with no parameter list, call or signature of its own, is a mention there, not a form: it claims nothing and is not compared.
 
 In a language without keyword arguments (TS/JS, Go, Rust, Java, C, C++), leaving out an optional parameter that comes before one the form writes shifts the caller's positions: that is a mismatch, not `omitted-optional` (`slice(str, end?)` against `(str, start?, end?)`).
 

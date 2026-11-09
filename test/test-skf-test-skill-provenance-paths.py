@@ -1558,16 +1558,26 @@ def test_the_inventory_contract_keeps_the_members_several_names_share():
     has each name's entry carry, in its `params` (never a `methods` item), the shared text first, then `; `,
     then its own members without its name, as the skill writes them, whether the shared members sit in the same row
     or paragraph or over a table for all its rows, and its example shows one, so the verdict no longer depends on
-    how the reader cuts the row."""
+    how the reader cuts the row. #1034 (oms-cognee): a namespace row listed `.create`, `.get` and the others bare,
+    each with an optional `user`, and linked to their signatures; two readers gave each name the shared text alone
+    as its form (19 High split-body and 6 Critical gaps) and a third gave none (0). A name such a place lists bare,
+    with no form of its own there, is now a mention at that place, and the shared text goes only to names the place
+    gives members of their own."""
     contract = _flow(_read(INVENTORY_CONTRACT))
-    assert ("Where the skill documents several names and states members they share once, in the same place (a "
-            "table row, a paragraph) or over a table for all its rows (a sentence or caption just above it, or its "
-            "column header), each name's entry carries that shared text in its `params` (in its `usage_signature`, "
-            "for a usage form), never in a `methods` item, which still starts with the method's name: the shared "
-            "text first, then `; `, then the name's own members as the skill writes them, without the name, never "
-            "the name's own members alone (`Note` above, from a row that documents `Note` and `Task`, each with the "
-            "base fields `id, scope=Scope()`, as `Note(content, title=None)` and `Task(title, done=False)`)."
-            ) in contract
+    shared = ("Where the skill documents several names and states members they share once, in the same place (a "
+              "table row, a paragraph) or over a table for all its rows (a sentence or caption just above it, or its "
+              "column header), each name's entry carries that shared text in its `params` (in its `usage_signature`, "
+              "for a usage form), never in a `methods` item, which still starts with the method's name: the shared "
+              "text first, then `; `, then the name's own members as the skill writes them, without the name, never "
+              "the name's own members alone (`Note` above, from a row that documents `Note` and `Task`, each with the "
+              "base fields `id, scope=Scope()`, as `Note(content, title=None)` and `Task(title, done=False)`).")
+    bare = ("A name such a place lists bare, with no parameter list, call or signature of its own there (`.get` in a "
+            "namespace row that lists `.create`, `.get` and `.delete`, each with an optional `user`, and links to "
+            "their signatures), is a mention at that place: its entry leaves `params`, `return_type` and "
+            "`usage_signature` out, and the shared text applies only to names the place gives members of their own.")
+    # the bare-name case follows the clause whose shared text it withholds, so "such a place" is that clause's place
+    assert f"{shared} {bare}" in contract
+    assert contract.count(bare) == 1
     # after the rule for a name documented in several places, which it extends to several names in one place
     assert contract.index("A name documented in several places is listed once per place") < contract.index(
         "Where the skill documents several names and states members they share once")
@@ -1625,10 +1635,10 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
                    if p.startswith("The contract `validate-inventory.py` checks")]
     contract = _flow(paragraph)
     # S1 after the rule that a heading's `name()` is a form, before the methods; S2 after the shared text it
-    # extends, before the partial label; S3 ends the paragraph.
+    # extends and the bare-name case beside it (#1034), before the partial label; S3 ends the paragraph.
     assert f"is a form, recorded as written. {s1} {EXAMPLE_CALL} A `method`'s `name` is the bare method" in contract
-    assert (f"as `Note(content, title=None)` and `Task(title, done=False)`). {s2} An entry whose signature the skill "
-            "labels partial") in contract
+    assert (f"the shared text applies only to names the place gives members of their own. {s2} An entry whose "
+            "signature the skill labels partial") in contract
     assert contract.endswith(f"copy the label, never judge the form. {s3}"), contract[-200:]
     for sentence in (s1, s2, s3):
         assert contract.count(sentence) == 1, sentence
