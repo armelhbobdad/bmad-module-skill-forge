@@ -1032,7 +1032,9 @@ NOT_ROUTED_REASONS = {
         "gap's remediation says"),
     "brief-scope-stale": (
         "a person edits the brief's scope globs by hand so each matches the files it meant, since update-skill "
-        "does not rewrite them"),
+        "does not rewrite them, and adds a `scope.include` glob for each restored file whose exports the skill "
+        "documents (a `scope.exclude` one for each it leaves out), because a restored export stays only while an "
+        "include glob matches no file"),
     "multi-denominator": (
         "no fix is needed, since the barrel and the documented surface measure different sets by design and the "
         "report records both counts"),

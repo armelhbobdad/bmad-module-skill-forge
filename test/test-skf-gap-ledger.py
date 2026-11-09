@@ -2143,26 +2143,37 @@ class TestCountAdapters:
         assert brief(records) == [("Medium", "brief-scope-stale",
                                    "stale brief scope: scope.include globs match no source file",
                                    "data/cognee/skill-brief.yaml", None)]
-        # Each restored export comes with its file, the one the remediation may add to scope.exclude.
+        # Each restored export comes with its file, the one the remediation asks an include or exclude glob for.
         assert records[0]["issue"] == (
             "the `scope.include` glob `cognee/pipelines.py` matches no file in the source tested; the `all` set "
             "restores 2 root exports, defined in files no include glob covers: `Task` in "
             "`cognee/pipelines/task.py`, `run_pipeline` in `cognee/pipelines/run.py`")
-        # update-skill never rewrites an include glob: the fix is a hand edit of the brief.
-        assert records[0]["remediation"] == (
-            "Edit `scope.include` in `data/cognee/skill-brief.yaml` by hand so each glob matches the files it "
-            "meant in this version of the source (update-skill does not rewrite an include glob), and add to "
-            "`scope.exclude` any restored file the brief meant to leave out.")
+        # update-skill never rewrites an include glob: the fix is a hand edit of the brief. A restored name stays
+        # only while an include glob is stale, so fixing the glob alone would drop it from the surface (#1009).
+        restored = (" A restored export stays on the surface only while an include glob matches no file, so for "
+                    "each file that defines one ({files}) add a `scope.include` glob that covers it when the skill "
+                    "documents its exports, or a `scope.exclude` glob when the skill leaves them out.")
+        fix = ("Edit `scope.include` in `data/cognee/skill-brief.yaml` by hand so each glob matches the files it "
+               "meant in this version of the source (update-skill does not rewrite an include glob).")
+        assert records[0]["remediation"] == fix + restored.format(
+            files="`cognee/pipelines/run.py`, `cognee/pipelines/task.py`")
+        # Two restored names in one file: the file is listed once, as an include glob covers it once.
+        stale["restored"].append({"name": "TaskConfig", "file": "cognee/pipelines/task.py", "line": 9})
+        assert mod.from_guards(surface)[0]["remediation"] == fix + restored.format(
+            files="`cognee/pipelines/run.py`, `cognee/pipelines/task.py`")
         # One restored export and two globs: each count takes its own grammatical number.
         stale.update(unmatchedInclude=["cognee/pipelines.py", "docs/**"], restored=stale["restored"][:1])
         assert mod.from_guards(surface)[0]["issue"] == (
             "the `scope.include` globs `cognee/pipelines.py`, `docs/**` match no file in the source tested; the "
             "`all` set restores 1 root export, defined in a file no include glob covers: `Task` in "
             "`cognee/pipelines/task.py`")
+        assert mod.from_guards(surface)[0]["remediation"] == fix + restored.format(files="`cognee/pipelines/task.py`")
         # Without --brief the surface records no brief path: the gap cites the bare file name.
         stale["restored"] = []
         record = mod.from_guards({"inputs": {}, "guards": {"staleScope": stale}})[0]
         assert record["source"] == "skill-brief.yaml" and record["issue"].endswith("; no root export was restored")
+        # With nothing restored there is no file to keep or leave out: the fix is the glob edit alone.
+        assert record["remediation"] == fix.replace("data/cognee/skill-brief.yaml", "skill-brief.yaml")
         stale["fires"] = False
         assert mod.from_guards(surface) == []
         stale.update(fires=True, unmatchedInclude="cognee/pipelines.py")
@@ -2206,7 +2217,10 @@ class TestCountAdapters:
         assert records[0]["remediation"] == (
             "Edit `scope.include` and `scope.tier_a_include` in `data/cognee/skill-brief.yaml` by hand so each "
             "glob matches the files it meant in this version of the source (update-skill does not rewrite an "
-            "include or tier A glob), and add to `scope.exclude` any restored file the brief meant to leave out.")
+            "include or tier A glob). A restored export stays on the surface only while an include glob matches no "
+            "file, so for each file that defines one (`cognee/pipelines/task.py`) add a `scope.include` glob that "
+            "covers it when the skill documents its exports, or a `scope.exclude` glob when the skill leaves them "
+            "out.")
         # An empty tier A list leaves the include-only gap as #677 wrote it.
         stale["unmatchedTierAInclude"] = []
         assert mod.from_guards(surface)[0]["title"] == "stale brief scope: scope.include globs match no source file"

@@ -221,7 +221,12 @@ cites (never read; default `metadata.json`):
             `guards.staleScope.fires` is one Medium `brief-scope-stale` gap
             at that brief, whose issue names each `unmatchedInclude` glob,
             each `restored` name with its file and each
-            `unmatchedTierAInclude` glob. The `scope.include`-basis
+            `unmatchedTierAInclude` glob. Its remediation asks to fix the
+            stale globs and, when a name was restored, says a restored name
+            stays only while an include glob matches no file, so each file
+            defining one, listed once, takes a `scope.include` glob to keep
+            its exports or a `scope.exclude` glob to leave them out (#1009).
+            The `scope.include`-basis
             deflation gap and the inflation gap say the brief has no
             `scope.tier_a_include` when `guards.tierAInclude` lists no glob,
             that no glob matches a file when each is an
@@ -1614,11 +1619,17 @@ def from_guards(surface: object, metadata: str | None = None) -> list[dict]:
         else:
             tier_a = (f"the `scope.tier_a_include` globs {_code(tier_a_globs)} match no file in the source "
                       "tested, so they count no name")
-        exclude = ", and add to `scope.exclude` any restored file the brief meant to leave out"
+        # A restored name stays only while an include glob matches no file, so once the globs match, its file
+        # needs an include glob to keep it, or an exclude glob to leave it out (#1009).
+        files = sorted({file for _, file in restored if file})
+        defining = f" ({_code(files)})" if files else ""
+        kept = (" A restored export stays on the surface only while an include glob matches no file, so for each "
+                f"file that defines one{defining} add a `scope.include` glob that covers it when the skill "
+                "documents its exports, or a `scope.exclude` glob when the skill leaves them out.") if restored else ""
         if not tier_a_globs:  # the include globs alone, as #677 wrote the gap
             lists, rewrite, clauses = ["scope.include"], "an include glob", [unmatched, back]
         elif not globs:  # no include glob is stale, so nothing was restored
-            lists, rewrite, clauses, exclude = ["scope.tier_a_include"], "a tier A glob", [tier_a], ""
+            lists, rewrite, clauses, kept = ["scope.tier_a_include"], "a tier A glob", [tier_a], ""
         else:
             lists = ["scope.include", "scope.tier_a_include"]
             rewrite, clauses = "an include or tier A glob", [unmatched, back, tier_a]
@@ -1627,7 +1638,7 @@ def from_guards(surface: object, metadata: str | None = None) -> list[dict]:
             "Medium", "brief-scope-stale", f"stale brief scope: {' and '.join(lists)} globs match no source file",
             brief,
             f"Edit {edit} in `{brief}` by hand so each glob matches the files it meant in this version of the "
-            f"source (update-skill does not rewrite {rewrite}){exclude}.",
+            f"source (update-skill does not rewrite {rewrite}).{kept}",
             issue="; ".join(clauses)))
     return records
 

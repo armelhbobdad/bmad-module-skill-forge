@@ -2266,6 +2266,11 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
             "(such as one in `extractionGaps`), takes the kind the provenance map gives its name at its file when the map is given (a dataclass, "
             "NamedTuple or TypedDict is a class, a Protocol an interface, a type alias a type, a TypeVar no type), and "
             "Type Coverage leaves out one still without a kind and says so in its warnings.") in held
+    # #1009: a restored name stays only while a glob is stale, so the gap asks for an include glob over its file
+    assert ("The restored exports stay only while a `scope.include` glob matches no file: once each glob matches one, "
+            "a restored export whose file no glob covers is outside scope again (`excluded.outsideScope`), so the "
+            "`brief-scope-stale` gap asks for a `scope.include` glob over each restored file whose exports the skill "
+            "documents.") in held
     # #695: a stale tier A glob fires the guard too and counts no name
     assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
             "and counts no name") in held

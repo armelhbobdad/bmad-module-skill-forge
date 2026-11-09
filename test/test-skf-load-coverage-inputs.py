@@ -2222,6 +2222,13 @@ def test_a_stale_glob_restores_the_root_exports_it_dropped(tmp_path):
         "the `scope.include` glob `cognee/pipelines.py` matches no file in the source tested; the `all` set "
         "restores 2 root exports, defined in files no include glob covers: `Task` in `cognee/pipelines/task.py`, "
         "`run_pipeline` in `cognee/pipelines/run.py`")
+    # A fresh brief puts both names back in excluded.outsideScope (test_a_fresh_brief_leaves_the_surface_unchanged),
+    # so the fix names each restored file for an include glob to keep it or an exclude glob to leave it out (#1009).
+    assert records[0]["remediation"].endswith(
+        "(update-skill does not rewrite an include glob). A restored export stays on the surface only while an "
+        "include glob matches no file, so for each file that defines one (`cognee/pipelines/run.py`, "
+        "`cognee/pipelines/task.py`) add a `scope.include` glob that covers it when the skill documents its "
+        "exports, or a `scope.exclude` glob when the skill leaves them out.")
 
 
 TASK_FILE = "cognee/pipelines/task.py"
