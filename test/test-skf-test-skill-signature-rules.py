@@ -331,21 +331,35 @@ def test_a_documented_overload_set_is_read_as_one_set():
     requires both and fail on optionality, though it matches the implementation the same reference writes after its
     stubs. The forms one file writes for one name as an overload set are one documented set, read as a source's is:
     a form on the other side matching its implementation, a stub or the stubs' unions is no mismatch, and the set's
-    own forms are never compared with each other."""
+    own forms are never compared with each other. Coherence review of #1017 and #1023: the split-body sentence named
+    only stubs and TS bodiless signatures after #1023 made other languages' overloads one set too, so a reference
+    that writes `Client(String host)` and `Client(String host, int port)` was one set by the pointer in the
+    split-body paragraph and two forms by this sentence's list, and a body's `new Client("localhost", 8080)` was a
+    High split-body-mismatch on one reading only. The documented set now takes those declarations too."""
     overloads = _section("Overload sets")
     source = ("A declaration opening an overload set (Python `@overload` stubs, TS bodiless signatures) is read through "
               "its implementation")
     documented = ("In the split-body cross-check, the forms one file writes for one name as an overload set "
                   "(`@overload` stubs or TS bodiless signatures, and the implementation after them when the file "
-                  "writes it) are one documented overload set, read as a source's is: a form on the other side that "
-                  "matches its implementation, any of its stubs or, position by position, the unions of the stubs' "
-                  "parameter types is no mismatch, so a form that defaults `format` matches a set whose stub requires "
-                  "it and whose implementation defaults it.")
+                  "writes it, or the several declarations of a name the paragraph above makes one set) are one "
+                  "documented overload set, read as a source's is: a form on the other side that matches its "
+                  "implementation, any of its stubs or declarations or, position by position, the unions of the "
+                  "stubs' parameter types is no mismatch, so a form that defaults `format` matches a set whose stub "
+                  "requires it and whose implementation defaults it, and `new Client(\"localhost\", 8080)` matches a "
+                  "file's `Client(String host)` and `Client(String host, int port)`.")
     own = "The set's own forms are compared neither with each other nor with its implementation."
     for sentence in (source, documented, own):
         assert sentence in overloads, sentence
     assert overloads.index(source) < overloads.index(documented) < overloads.index(own), "the source's rule comes first"
+    paragraphs = [_flow(p) for p in _slice(_read(RULES), "## Overload sets\n", "## Difference tags").split("\n\n")]
+    above = paragraphs.index(next(p for p in paragraphs if documented in p)) - 1
+    assert paragraphs[above].startswith("A name declared several times with different parameter lists and no "
+                                        "implementation they share"), "the paragraph above is the other languages' set"
     assert _flow(_read(RULES)).count("one documented overload set") == 1, "one copy"
+    split_body = next(_flow(p) for p in _read(RULES).split("\n\n")
+                      if p.startswith("In the split-body cross-check both forms are documented"))
+    assert ("The forms one file writes for one name as an overload set are read as one set, as Overload sets "
+            "says.") in split_body, "the split-body paragraph points at the sentence it reads"
 
 
 def test_a_usage_form_is_read_as_what_it_writes():
