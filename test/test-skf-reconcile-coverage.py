@@ -989,6 +989,52 @@ def test_render_lists_the_coverage_warnings():
     assert "Coverage Warnings" not in over_all
 
 
+def test_render_lists_the_borderline_calls(tmp_path):
+    """#1021: the inventory's `undecided` readings reach coverage.json on every branch, each command coverage-check
+    runs reading the inventory, and render lists them, then the judges' from signatures.json, under Borderline Calls
+    in the Coverage Summary, so the report names each reading the rules leave open that its verdict rests on. A
+    result with none renders as before (the golden section)."""
+    reader = {"export": "Symbol", "at": "SKILL.md:12",
+              "rule": "A name the skill writes only in a type position is a type mention.",
+              "reading": "a type mention, no entry", "other_gap": "a Medium `missing-type` gap"}
+    judge = {"export": "lifespan", "at": None, "rule": "Equivalent spellings name no `Optional[X]` of a default",
+             "reading": "the same type", "other_gap": "a Critical\n`signature-mismatch`"}
+    inventory = _write(tmp_path / "inventory.json", {**INVENTORY, "undecided": [reader]})
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(b"fetchData helper `connect()`\n")
+    inputs = _write(tmp_path / "coverage-inputs.json",
+                    {"effectiveDenominator": 4, "stack": {"denominator": 2, "compositionNames": ["connect", "x"]}})
+    branches = {
+        "barrel": ["--surface", _write(tmp_path / "surface.json", SURFACE)],
+        "scalar": ["--coverage-inputs", inputs, "--skill-dir", str(skill)],
+        "stack": ["--coverage-inputs", inputs, "--skill-dir", str(skill)],
+        "docsOnly": [],
+    }
+    for branch, flags in branches.items():
+        proc = _run_cli(["--denominator-source", branch, "--inventory", inventory, *flags])
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert json.loads(proc.stdout)["undecided"] == [reader], branch
+    coverage = json.loads(_run_cli(["--denominator-source", "barrel", "--inventory", inventory,
+                                    *branches["barrel"]]).stdout)
+    lines = mod.render(coverage, SURFACE, {**RENDER_SIGNATURES, "undecided": [judge]}).splitlines()
+    at = lines.index("- **Borderline Calls:**")
+    assert lines[at + 1:at + 4] == [
+        "  - `Symbol` (SKILL.md:12), inventory reader: a type mention, no entry; left open by: A name the skill "
+        "writes only in a type position is a type mention; the other reading gives: a Medium `missing-type` gap",
+        "  - `lifespan`, signature judge: the same type; left open by: Equivalent spellings name no `Optional[X]` of "
+        "a default; the other reading gives: a Critical `signature-mismatch`",
+        "- **Scoped Out by the Brief:** `legacy` (lib/legacy.ts)",
+    ], lines[at:]
+    assert lines[at - 2:at] == ["- **Scoring Warnings:**", f"  - {RENDER_SIGNATURES['warnings'][0]}"]
+    # No reading recorded: no Borderline Calls line, and coverage.json carries no `undecided`.
+    plain = json.loads(_run_cli(["--denominator-source", "barrel", "--inventory",
+                                 _write(tmp_path / "plain.json", {**INVENTORY, "undecided": []}),
+                                 *branches["barrel"]]).stdout)
+    assert "undecided" not in plain
+    assert "Borderline Calls" not in mod.render(plain, SURFACE, {**RENDER_SIGNATURES, "undecided": []})
+
+
 def test_cli_refused_input_removes_a_stale_output(tmp_path):
     out_path = tmp_path / "coverage.json"
     out_path.write_bytes(b'{"exportCoverage": 100}')

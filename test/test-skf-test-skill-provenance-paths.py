@@ -2733,7 +2733,7 @@ def test_a_star_from_another_package_adds_no_name(tmp_path):
             "that is no relative path; `export * as ns` still gives `ns`), which the recipe runner leaves "
             "unresolved, listing each such statement as `<line>: <statement>` in `unresolved_stars`, compares each "
             "with the map's entry") in scan
-    assert '"signature_mismatches": [...], "unresolved_stars": [...]}`' in scan
+    assert '"signature_mismatches": [...], "unresolved_stars": [...], "undecided": [...]}`' in scan
     assert ("List each response's `unresolved_stars` in the Coverage Analysis section as unresolved. Save each "
             "response to `{run_dir}/per-file-<n>.txt`") in scan
     # A star from the source is still left to the module's own result.
@@ -2904,9 +2904,10 @@ CARVED_TO_BRANCHES = {
         "- **Stack** (`metadata.json.skill_type == \"stack\"`):\n"
         "\n"
         "  ```bash\n"
+        # #1021: the stack command reads the inventory too, so its open readings reach coverage.json.
         "  uv run {reconcileScript} --denominator-source stack --coverage-inputs "
-        "\"{run_dir}/coverage-inputs.json\" --skill-dir \"{resolved_skill_package}\" --output "
-        "\"{run_dir}/coverage.json\"\n"
+        "\"{run_dir}/coverage-inputs.json\" --inventory \"{run_dir}/inventory.json\" --skill-dir "
+        "\"{resolved_skill_package}\" --output \"{run_dir}/coverage.json\"\n"
         "  ```"
     ), (
         "**The scalar branch counts §2b's set** only when `surface.json` `denominator.setCounted` is true: a "

@@ -166,6 +166,41 @@ def test_the_rules_file_is_a_reference_with_its_six_sections():
         assert judge in opening, judge
 
 
+def test_the_reader_and_each_coverage_judge_record_the_readings_the_rules_leave_open():
+    """#1021: the inventory reader and the signature judges could return only a fixed JSON with no field for a
+    reading the contract or these rules leave open, so a PASS that rested on one was published without naming it.
+    The inventory and each result of coverage-check.md §2's judge or the fallback scan now carry an `undecided` list,
+    a script checks it, and the Coverage Analysis section lists it under Borderline Calls."""
+    opening = _flow(_slice(_read(RULES), "# Signature Comparison Rules", "## Reading a form"))
+    assert ("Two of them, coverage-check.md §2's judge (or the main thread in its place) and coverage-check-tiers.md's "
+            "fallback per-file scan, also give each result an `undecided` list, empty when these rules leave none of "
+            "its readings open: each reading that a mismatch it reports, or one it leaves out, rests on, where no rule "
+            "settles the shape or two rules settle it differently.") in opening
+    assert ('Each item is `{"export", "at", "rule", "reading", "other_gap"}`: the name, the declaration\'s '
+            "`file:line` (or null), the rule that leaves it open (the sentence, quoted), the reading taken, and what "
+            "the other reading would give") in opening
+    assert ("`score-signatures.py` refuses an item that is no object or leaves `export`, `rule`, `reading` or "
+            "`other_gap` blank, and carries each into `signatures.json`, whose items the Coverage Analysis section "
+            "lists under Borderline Calls.") in opening
+    contract_text = _read(REFS / "inventory-contract.md")
+    contract = _paragraph(contract_text, "`undecided` lists each reading")
+    assert ("`undecided` lists each reading this contract or signature-comparison-rules.md leaves open that the "
+            "inventory rests on:") in contract
+    assert ("Each item gives the `export` it concerns, its place as `at` (as an entry gives it; null when it has "
+            "none), the `rule` that leaves it open (the sentence, quoted), the `reading` taken and, as `other_gap`, "
+            "what the other reading would give") in contract
+    assert ("`validate-inventory.py` refuses an item that is no object or leaves `export`, `rule`, `reading` or "
+            "`other_gap` blank and keeps the list in the inventory it writes, and coverage-check.md §5's render lists "
+            "each item under Borderline Calls, so the report names each reading its verdict rests on. It changes no "
+            "entry or gap.") in contract
+    # The contract's example records one; §2's result example and the fallback scan's shape give the key.
+    example = json.loads(re.search(r"```json\n(.*?)\n```", contract_text, re.S).group(1))
+    assert [sorted(item) for item in example["undecided"]] == [["at", "export", "other_gap", "reading", "rule"]]
+    judge = re.search(r'```json\n(\{"file": "src/utils\.ts".*?)\n```', _read(COVERAGE), re.S).group(1)
+    assert json.loads(judge)["undecided"] == []
+    assert '"unresolved_stars": [...], "undecided": [...]}`' in _read(COVERAGE_TIERS)
+
+
 def test_a_form_claims_only_what_it_writes():
     """#835: optionality is stated only by a default, a `?` or an optional marker, never by a type: a list that states
     it for no member has its optionality uncompared, and once one member states it the unmarked ones claim to be

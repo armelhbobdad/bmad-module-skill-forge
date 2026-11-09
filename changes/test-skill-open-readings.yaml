@@ -1,0 +1,5 @@
+type: added
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory reader and its signature judges now record each reading the inventory contract or the signature comparison rules leave open in an `undecided` list (`export`, `at`, `rule`, `reading`, and `other_gap`, what the other reading would give), and the Coverage Analysis section lists them under Borderline Calls, so a report names each open reading its PASS or FAIL rests on. `validate-inventory.py` and `score-signatures.py` check the list: an item that is no object, or one with a blank `export`, `rule`, `reading` or `other_gap`, is a schema violation the reader or judge is sent back with, as for any other. `inventory.json`, `coverage.json` and `signatures.json` carry the list, and the stack branch's reconcile command now reads `inventory.json` too. Before, a verdict that rested on such a reading was published without naming it, and only a run told to list them by hand showed them. The list changes no gap or score.
+issues: [1021]

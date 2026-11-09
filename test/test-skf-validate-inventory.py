@@ -221,6 +221,53 @@ def test_a_bad_signature_form_fails_the_cli_and_writes_no_inventory(tmp_path):
     assert not output.exists()
 
 
+# A reading the contract leaves open (#1021), as the reader records it.
+UNDECIDED = {"export": "lifespan", "at": "SKILL.md:42",
+             "rule": "A function or class an example defines is the reader's own code ... only when its fenced block "
+                     "also defines names the skill does not document as exports",
+             "reading": "the block defines no other name, so `lifespan` is a form of the export",
+             "other_gap": "no gap: read as the reader's own code, it is never compared"}
+
+
+def test_an_undecided_reading_is_kept_in_the_inventory(tmp_path):
+    """#1021: the reader records each reading the contract or the signature rules leave open in `undecided`, and the
+    validator keeps it in the inventory it writes, which reconcile-coverage.py carries to the report. An empty list,
+    a null or no key is none, and an item may leave `at` out or null."""
+    readings = [UNDECIDED, {k: v for k, v in UNDECIDED.items() if k != "at"}, {**UNDECIDED, "at": None}]
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(json.dumps({"exports": [{"name": "lifespan", "kind": "function"}],
+                                     "cross_check_mismatches": [], "undecided": readings}).encode("utf-8"))
+    output = tmp_path / "inventory.json"
+    p = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--output", str(output)],
+                       capture_output=True, text=True)
+    assert p.returncode == 0, p.stdout
+    assert json.loads(output.read_text(encoding="utf-8"))["undecided"] == readings
+    for none in ([], None):
+        r = mod.validate_inventory(json.dumps({"exports": [], "cross_check_mismatches": [], "undecided": none}))
+        assert r["valid"] is True and r["violations"] == [], none
+
+
+@pytest.mark.parametrize("undecided, violations", [
+    ("lifespan", ['`undecided` must be a list when present (may be empty), not "lifespan"']),
+    ({"export": "lifespan"}, ['`undecided` must be a list when present (may be empty), not {"export": "lifespan"}']),
+    (["lifespan"], ["undecided[0] is not an object"]),
+    ([{**UNDECIDED, "rule": "  "}], ["undecided[0]: `rule` must be a non-empty string"]),
+    ([{k: v for k, v in UNDECIDED.items() if k not in ("reading", "other_gap")}],
+     ["undecided[0]: `reading` must be a non-empty string", "undecided[0]: `other_gap` must be a non-empty string"]),
+    ([UNDECIDED, {**UNDECIDED, "export": 3}], ["undecided[1]: `export` must be a non-empty string"]),
+    ([{**UNDECIDED, "at": ""}], ['undecided[0]: `at` must be a non-empty string when present, not ""']),
+], ids=["string", "object", "item-not-an-object", "blank-rule", "no-reading-or-other-gap", "export-not-a-string",
+        "blank-at"])
+def test_a_malformed_undecided_list_is_a_violation(undecided, violations):
+    """#1021: a script checks each open reading before the report names it: a value that is no list, an item that is
+    no object, a blank or missing `export`, `rule`, `reading` or `other_gap`, or a blank `at` is a violation naming
+    the item, so the reader is re-dispatched with it as for any other schema violation."""
+    r = mod.validate_inventory(json.dumps({"exports": [{"name": "lifespan", "kind": "function"}],
+                                           "cross_check_mismatches": [], "undecided": undecided}))
+    assert r["valid"] is False and r["inventory"] is None
+    assert r["violations"] == violations
+
+
 def test_cross_check_missing_fields():
     raw = json.dumps(
         {

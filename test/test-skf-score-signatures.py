@@ -3699,6 +3699,55 @@ def test_a_result_that_breaks_the_schema_exits_2(tmp_path, payload, needle):
     assert not stale.exists(), "a refused run leaves no score file for step 5 to read"
 
 
+# A reading the signature rules leave open (#1021), as a judge records it.
+JUDGED = {"export": "helper", "at": "src/helper.ts:1",
+          "rule": "A list of bare names need not write an optional parameter",
+          "reading": "`y?` is optional, so leaving it out is `omitted-optional`",
+          "other_gap": "a Critical `signature-mismatch`"}
+
+
+@pytest.mark.parametrize("undecided, needle", [
+    ("helper", 'bad.txt: `undecided` must be a list when present (may be empty), not "helper"'),
+    ([3], "bad.txt.undecided[0] is not an object"),
+    ([{**JUDGED, "reading": ""}], "bad.txt.undecided[0]: `reading` must be a non-empty string"),
+    ([{k: v for k, v in JUDGED.items() if k != "rule"}], "bad.txt.undecided[0]: `rule` must be a non-empty string"),
+    ([{**JUDGED, "at": 1}], "bad.txt.undecided[0]: `at` must be a non-empty string when present, not 1"),
+], ids=["string", "item-not-an-object", "blank-reading", "no-rule", "at-not-a-string"])
+def test_a_judge_s_malformed_undecided_list_exits_2(tmp_path, undecided, needle):
+    """#1021: a judge's `undecided` is checked as the inventory's is (validate-inventory.py's
+    undecided_violations), so a malformed one sends the judge back with the breach named."""
+    inventory, surface = _files(tmp_path)
+    bad = _write(tmp_path / "bad.txt", {"file": "src/helper.ts", "signature_mismatches": [], "undecided": undecided})
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--results", bad)
+    assert proc.returncode == 2
+    assert needle in json.loads(proc.stdout)["violations"], proc.stdout
+
+
+def test_score_carries_each_judge_s_undecided_reading(tmp_path):
+    """#1021: each reading the signature rules leave open that a judge's result rests on reaches signatures.json's
+    `undecided`, once each, in result order, for render's Borderline Calls. It grades nothing: the scores are those
+    of the same results without it."""
+    inventory, surface = _files(tmp_path)
+    other = {**JUDGED, "export": "fetchData", "at": None}
+    mismatch = {**MISMATCH, "difference": "omitted-optional"}
+    first = _write(tmp_path / "signatures-1.txt",
+                   {"file": "src/helper.ts", "signature_mismatches": [mismatch], "undecided": [JUDGED]})
+    second = _write(tmp_path / "signatures-2.txt",
+                    {"file": "src/index.ts", "signature_mismatches": [], "undecided": [other, JUDGED]})
+    out_path = tmp_path / "signatures.json"
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--results", first, "--results", second,
+                "--output", str(out_path))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(out_path.read_text(encoding="utf-8"))
+    assert out["undecided"] == [JUDGED, other]
+    bare = [_write(tmp_path / "bare-1.txt", {"file": "src/helper.ts", "signature_mismatches": [mismatch]}),
+            _write(tmp_path / "bare-2.txt", {"file": "src/index.ts", "signature_mismatches": []})]
+    without = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", bare[0],
+                              "--results", bare[1]).stdout)
+    assert without["undecided"] == []
+    assert {k: v for k, v in without.items() if k != "undecided"} == {k: v for k, v in out.items() if k != "undecided"}
+
+
 def test_an_unreadable_input_exits_1(tmp_path):
     _, surface = _files(tmp_path)
     proc = _run("score", "--inventory", str(tmp_path / "absent.json"), "--surface", surface)

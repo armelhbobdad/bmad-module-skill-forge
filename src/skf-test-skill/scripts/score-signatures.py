@@ -243,6 +243,11 @@ ratios and the gap records of the wrong signatures.
          as matching. A mismatch a result reports for any
          other name (one the skill does not document, or the surface lacks)
          is listed in `warnings` instead, and no gap.
+         Each result's `undecided` items (#1021: a reading
+         signature-comparison-rules.md leaves open that the result rests
+         on) go into the output's `undecided`, once each, in result order,
+         for reconcile-coverage.py render's Borderline Calls; they grade
+         nothing.
 
 Inputs, all files in the run folder:
   --inventory  the validated inventory validate-inventory.py wrote (--output)
@@ -261,7 +266,9 @@ Inputs, all files in the run folder:
                   "types_found": ["..."],       (fallback scan only)
                   "signature_mismatches": [
                     {"name", "line", "source_sig", "documented_sig", "issue",
-                     "difference", "file", "evidence_line", "form"}]}
+                     "difference", "file", "evidence_line", "form"}],
+                  "undecided": [{"export", "at", "rule", "reading",
+                                 "other_gap"}]}
                                       (difference optional: one of
                                        DIFFERENCES, absent or null for none;
                                        file optional: the candidate the
@@ -278,6 +285,11 @@ Inputs, all files in the run folder:
                                        (`documented`; n the check's nth
                                        `alternatives` entry), absent or null
                                        for 0)
+                                      (undecided optional, #1021: each
+                                       reading the rules leave open that
+                                       the result rests on, checked as
+                                       validate-inventory.py checks an
+                                       inventory's: absent or null for none)
   --skill-dir  plan only: the skill package under test (the folder that
                holds SKILL.md), whose citations pick the declaration of a
                name the surface records in several files, and bind each form
@@ -327,7 +339,8 @@ plan with --output writes the plan and prints only its summary):
           "source_sig", "documented_sig", "issue", "difference" (null for
           none), "evidence_line" (with "annotation-contradicted" alone),
           "severity" (Critical, Low or Info)}], "gapRecords": [...],
-          "warnings": [...]}
+          "warnings": [...], "undecided": [each result's items, once each,
+          in result order]}
          or {"valid": false, "violations": [...]} when a result breaks the schema
 
 Exit codes:
@@ -616,6 +629,8 @@ def check_result(item: object, where: str) -> list[str]:
         value = item.get(key)
         if value is not None and not (isinstance(value, list) and all(isinstance(v, str) for v in value)):
             errors.append(f"{where}: `{key}` must be a list of strings when present")
+    # Each reading the rules leave open that the result rests on (#1021), checked as the inventory's are.
+    errors += _inventory().undecided_violations(item.get("undecided"), where)
     mismatches = item.get("signature_mismatches")
     if not isinstance(mismatches, list):
         errors.append(f"{where}: `signature_mismatches` must be present and a list (may be empty)")
@@ -1988,6 +2003,13 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
         warnings.append("the source surface has no interface, type alias, enum or class: Type "
                         "Coverage has nothing to cover and scores 100")
 
+    # Each reading the rules leave open that a judge's result rests on (#1021), once, in result order: it grades
+    # nothing, and render lists it under Borderline Calls.
+    undecided = []
+    for item in (item for result in results for item in result.get("undecided") or []):
+        if item not in undecided:
+            undecided.append(item)
+
     return {
         "valid": True,
         "signatureAccuracy": signature_accuracy,
@@ -2001,6 +2023,7 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
         "mismatches": mismatches,
         "gapRecords": [_form_gap_record(m, key[3], forms[m["name"]]) for key, m in kept],
         "warnings": warnings,
+        "undecided": undecided,
     }
 
 

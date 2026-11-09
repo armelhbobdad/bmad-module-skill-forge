@@ -154,6 +154,17 @@ they name. A form that writes only a `return_type` gives no `at`, so it is
 never bound: plan compares it as it compares a form whose citations name no
 declaration.
 
+The inventory's optional `undecided` (#1021) lists each reading the
+inventory contract or signature-comparison-rules.md leaves open that the
+inventory rests on: each item gives `export`, `rule` (the sentence that
+leaves it open), `reading` (the reading taken) and `other_gap` (what the
+other reading would give) as non-empty strings, and may give its place as
+`at`, a non-empty string (undecided_violations). A value that is no list,
+an item that is no object and a blank or missing field are violations
+naming the item; a null or no key is none. The inventory --output writes
+keeps the list, reconcile-coverage.py carries it into coverage.json and
+its render lists it under Borderline Calls. It changes no entry or check.
+
 Distinct from reconcile-coverage.py (coverage numerator arithmetic) and
 compute-score.py (weight tables): this script only validates the *shape* of the
 subagent inventory and, on success, echoes the fence-stripped parsed inventory
@@ -342,6 +353,11 @@ OTHER_SIDE_SHAPES = (
     "`skill_md_line` (the SKILL.md body) or `other_file` and `other_line` "
     "(a second reference file)"
 )
+
+# The fields each `undecided` item (#1021) gives as a non-empty string: the name a reading the rules leave open
+# concerns, the rule that leaves it open, the reading taken and what the other reading would give. Its place, `at`,
+# is optional.
+UNDECIDED_FIELDS = ("export", "rule", "reading", "other_gap")
 
 # Kinds whose documented item also needs its parameters and return type to
 # be complete (the docs-only Export Coverage rule).
@@ -1214,6 +1230,41 @@ def mismatch_violations(idx, entry, skill_package_path=None, names=None):
     return violations
 
 
+def undecided_violations(value, source=""):
+    """The violations of an optional `undecided` list (#1021): each reading the
+    inventory contract or signature-comparison-rules.md leaves open that an
+    inventory, or a signature judge's result, rests on. Absent or null is
+    none; otherwise it is a list of objects, each giving `export`, `rule`,
+    `reading` and `other_gap` as non-empty strings and, when it gives one, an
+    `at` that is a non-empty string. `source` names a judge's result file, so
+    score-signatures.py checks each result with the same rule.
+
+    >>> undecided_violations(None), undecided_violations([])
+    ([], [])
+    >>> undecided_violations([{"export": "x", "rule": "r", "reading": "a", "other_gap": "g", "at": None}])
+    []
+    >>> undecided_violations([3, {"export": "x", "rule": " ", "reading": "a", "other_gap": "g"}], "s.txt")
+    ['s.txt.undecided[0] is not an object', 's.txt.undecided[1]: `rule` must be a non-empty string']
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        prefix = f"{source}: " if source else ""
+        return [f"{prefix}`undecided` must be a list when present (may be empty), not {json.dumps(value)}"]
+    violations = []
+    for idx, item in enumerate(value):
+        where = f"{source}.undecided[{idx}]" if source else f"undecided[{idx}]"
+        if not isinstance(item, dict):
+            violations.append(f"{where} is not an object")
+            continue
+        for field in UNDECIDED_FIELDS:
+            if not (isinstance(item.get(field), str) and item[field].strip()):
+                violations.append(f"{where}: `{field}` must be a non-empty string")
+        if item.get("at") is not None and not (isinstance(item["at"], str) and item["at"].strip()):
+            violations.append(f"{where}: `at` must be a non-empty string when present, not {json.dumps(item['at'])}")
+    return violations
+
+
 def _read_files(inventory, skill_package_path=None):
     """The files the inventory reads, as an `at` names them: `SKILL.md` and
     each `references` entry, _listed_path (relative to the package, forward
@@ -1416,6 +1467,10 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
             violations.append(f"cross_check_mismatches[{idx}] is not an object")
             continue
         violations.extend(mismatch_violations(idx, entry, skill_package_path, names))
+
+    # Each reading the rules leave open (#1021) names its export, rule, reading and other gap; the inventory keeps
+    # the list for reconcile-coverage.py to carry to the report.
+    violations.extend(undecided_violations(data.get("undecided")))
 
     schema_valid = not violations
     checked = None
