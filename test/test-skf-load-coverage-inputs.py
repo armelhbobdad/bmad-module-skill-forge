@@ -30,6 +30,9 @@ State 2's (the States 2 to 4 section it loads from coverage-check-branches.md):
   - surface, #913: a restored name takes the kind the provenance map gives
     it at its file, and score-signatures.py counts it in Type Coverage when
     that is a type kind, else names it in a warning when it has none
+  - surface, #1020: so does an extraction gap (a public name no recipe
+    found), or any public name exports[] gives no kind at its file, so Type
+    Coverage counts it whether or not the guard restored it
 The extraction fixture mirrors skf-extract-public-api.py --mode full output;
 a last test runs the real extractor when ast-grep is installed.
 """
@@ -1901,9 +1904,11 @@ def test_a_stale_glob_restores_the_root_exports_it_dropped(tmp_path):
 
 
 TASK_FILE = "cognee/pipelines/task.py"
-# score-signatures.py's warning for the restored names with no kind (#913), less the names.
-KINDLESS = ("Type Coverage leaves out each name the stale-scope guard restored with no kind (the provenance map, "
-            "when one is given, gives it no kind Type Coverage reads at its file): ")
+# score-signatures.py's warning for the restored names (#913) and extraction gaps (#1020) with no kind, less the
+# names.
+KINDLESS = ("Type Coverage leaves out each name the stale-scope guard restored or the extraction recorded with no "
+            "kind, such as an extraction gap (the provenance map, when one is given, gives it no kind Type Coverage "
+            "reads at its file): ")
 
 
 def _restored_surface(folder: Path, entries: list[dict]) -> dict:
@@ -1923,6 +1928,9 @@ def _restored_surface(folder: Path, entries: list[dict]) -> dict:
     ([("TypeVar", TASK_FILE)], "const"),
     ([("constant", TASK_FILE)], "const"),
     ([("function", TASK_FILE)], "function"),
+    ([("async_function", TASK_FILE)], "function"),
+    ([("decorator", TASK_FILE)], "function"),
+    ([("component", TASK_FILE)], "function"),
     ([("class", TASK_FILE)], "class"),
     ([("interface", TASK_FILE)], "interface"),
     ([("type", TASK_FILE)], "type"),
@@ -1934,6 +1942,7 @@ def _restored_surface(folder: Path, entries: list[dict]) -> dict:
     ([("decorator_namespace", TASK_FILE), ("dataclass", "cognee/task.py"), ("Protocol", TASK_FILE),
       ("enum", TASK_FILE)], "interface"),
 ], ids=["dataclass", "namedtuple", "protocol", "type-alias", "enum", "typevar", "constant", "function",
+        "async-function", "decorator", "component",
         "class", "interface", "type", "const", "typeddict", "decorator-namespace", "another-file", "dot-slash-path",
         "first-known-kind"])
 def test_a_restored_name_takes_its_kind_from_the_provenance_map(tmp_path, task_entries, kind):
@@ -1975,6 +1984,138 @@ def test_a_restored_type_counts_in_type_coverage(tmp_path):
     assert (out["documentedTypes"], out["totalTypes"], out["typeCoverage"], out["missingTypes"]) == (
         0, 1, 0.0, ["Task"])
     assert out["warnings"] == [KINDLESS + "`run_pipeline`"]
+
+
+@pytest.mark.parametrize(("task_type", "run_type", "types", "warnings"), [
+    ("dataclass", "async_function", (0, 1, 0.0, ["Task"]), []),
+    ("dataclass", "decorator", (0, 1, 0.0, ["Task"]), []),
+    ("dataclass", "component", (0, 1, 0.0, ["Task"]), []),
+    ("constant", "async_function", (0, 0, 100.0, []),
+     ["the source surface has no interface, type alias, enum or class: Type Coverage has nothing to cover "
+      "and scores 100"]),
+], ids=["async-function", "decorator", "component", "no-types"])
+def test_a_restored_function_kind_is_no_possible_type(tmp_path, task_type, run_type, types, warnings):
+    """#1032: a restored name the map gives a by-eye function kind
+    (`async_function`, `decorator`, a React `component`) is a function, so
+    Type Coverage counts the same types and no longer names it as one that
+    may be a type; on a surface with no type, the no-types warning shows."""
+    surface = _restored_surface(tmp_path, [
+        {"export_name": "Task", "export_type": task_type, "source_file": TASK_FILE},
+        {"export_name": "run_pipeline", "export_type": run_type, "source_file": "cognee/pipelines/run.py"}])
+    assert [e["kind"] for e in surface["exports"] if e["name"] == "run_pipeline"] == ["function"]
+    inventory = _write(tmp_path / "inventory.json", {"exports": [
+        {"name": "add", "kind": "function", "params": "data, dataset_name", "return_type": "None"},
+    ], "cross_check_mismatches": []})
+    out = json.loads(subprocess.run([sys.executable, str(SCORE_SIGNATURES), "score", "--inventory", inventory,
+                                     "--surface", str(tmp_path / "surface.json")],
+                                    capture_output=True, text=True, check=True).stdout)
+    assert (out["documentedTypes"], out["totalTypes"], out["typeCoverage"], out["missingTypes"]) == types
+    assert out["warnings"] == warnings
+
+
+def _gap_surface(folder: Path, entries: list[dict] | None, task_file: str | None = TASK_FILE) -> dict:
+    """The cognee surface once the brief's include glob covers the pipelines
+    folder (the oms-cocoindex shape, #1020): no glob is stale and no name is
+    restored, and no recipe found `Task` or `run_pipeline`, so both are
+    extraction gaps with no kind, read with a provenance map of `entries`
+    when given. `task_file` is the file the trace reached for `Task`."""
+    data = json.loads(json.dumps(COGNEE))
+    data["scope"].update({"include": ["cognee/__init__.py", "cognee/pipelines/**", "cognee/api/**"],
+                          "unmatched_include": []})
+    data["entry_point_diff"]["public"][0]["file"] = task_file
+    data["entry_point_diff"]["extraction_gaps"] = [
+        {"name": "Task", "language": "python", "entry": "cognee/__init__.py", "file": task_file,
+         "line": 2 if task_file else None},
+        {"name": "run_pipeline", "language": "python", "entry": "cognee/__init__.py",
+         "file": "cognee/pipelines/run.py", "line": 4}]
+    data["entry_point_diff"]["outside_scope"] = [_outside("test_helper", "cognee/tests/helper.py")]
+    data["warnings"] = []
+    args = ["--extraction", _write(folder / "extract-full.json", data)]
+    if entries is not None:
+        args += ["--provenance", _write(folder / "provenance-map.json", {"entries": entries})]
+    return _surface(folder, *args)
+
+
+@pytest.mark.parametrize(("task_entries", "task_file", "kind"), [
+    ([("type_alias", TASK_FILE)], TASK_FILE, "type"),
+    ([("dataclass", TASK_FILE)], TASK_FILE, "class"),
+    ([("Protocol", f"./{TASK_FILE}")], TASK_FILE, "interface"),
+    ([("function", TASK_FILE)], TASK_FILE, "function"),
+    ([("dataclass", "cognee/task.py")], TASK_FILE, None),
+    ([("dataclass", TASK_FILE)], None, None),
+], ids=["type-alias", "dataclass", "dot-slash-protocol", "function", "another-file", "no-file"])
+def test_an_extraction_gap_takes_its_kind_from_the_provenance_map(tmp_path, task_entries, task_file, kind):
+    """#1020: an extraction gap is a public name no recipe found, so it has
+    no kind from exports[] and takes the one the provenance map gives it at
+    its file, as a restored name does; a gap whose trace reached no file
+    keeps none, and a record the extraction gave a kind keeps it. No set,
+    count or guard changes: the same map with no export_type gives the same
+    surface but for the gaps' kinds."""
+    entries = [{"export_name": "Task", "export_type": t, "source_file": f, "source_line": 2}
+               for t, f in task_entries]
+    entries.append({"export_name": "add", "export_type": "class", "source_file": "cognee/api/v1/add.py",
+                    "source_line": 1})
+    out = _gap_surface(tmp_path / "typed", entries, task_file)
+    assert out["guards"]["staleScope"]["restored"] == [] and [e["name"] for e in out["extractionGaps"]] == [
+        "Task", "run_pipeline"]
+    gaps = {e["name"]: e["kind"] for e in out["exports"] if e["name"] in ("Task", "run_pipeline")}
+    assert gaps == {"Task": kind, "run_pipeline": None}, "run_pipeline has no entry"
+    assert [e["kind"] for e in out["exports"] if e["name"] == "add"] == ["function"], "the extraction's kind stays"
+    control = _gap_surface(tmp_path / "untyped", [{**e, "export_type": None} for e in entries], task_file)
+    assert ({k: v for k, v in out.items() if k not in ("inputs", "exports")}
+            == {k: v for k, v in control.items() if k not in ("inputs", "exports")})
+    assert [{**e, "kind": None} if e["name"] == "Task" else e for e in out["exports"]] == control["exports"]
+
+
+def test_a_name_found_only_in_another_file_takes_its_kind_from_the_provenance_map(tmp_path):
+    """#1020: the map's kind goes to every public name exports[] gives no
+    kind at its file, not only to an extraction gap. A recipe found `Task`
+    only in another file, so the runner lists no gap for it, and its record
+    at the file the trace reached has no kind: it takes the type the map
+    gives it there, as What the Surface Holds says."""
+    data = json.loads(json.dumps(COGNEE))
+    data["scope"].update({"include": ["cognee/__init__.py", "cognee/pipelines/**", "cognee/api/**"],
+                          "unmatched_include": []})
+    data["exports"].append({"export_name": "Task", "export_type": "function",
+                            "source_file": "cognee/pipelines/legacy.py", "source_line": 7,
+                            "signature_line": "def Task():"})
+    data["entry_point_diff"]["extraction_gaps"] = [
+        {"name": "run_pipeline", "language": "python", "entry": "cognee/__init__.py",
+         "file": "cognee/pipelines/run.py", "line": 4}]
+    data["entry_point_diff"]["outside_scope"] = [_outside("test_helper", "cognee/tests/helper.py")]
+    data["warnings"] = []
+    entries = [{"export_name": "Task", "export_type": "type_alias", "source_file": TASK_FILE, "source_line": 2}]
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "extract-full.json", data),
+                   "--provenance", _write(tmp_path / "provenance-map.json", {"entries": entries}))
+    assert [e["name"] for e in out["extractionGaps"]] == ["run_pipeline"]
+    assert [(e["file"], e["kind"], e["origin"]) for e in out["exports"] if e["name"] == "Task"] == [
+        (TASK_FILE, "type", "extraction")]
+
+
+def test_an_extraction_gap_type_counts_in_type_coverage(tmp_path):
+    """#1020 end to end: with the brief's globs fixed, the type the map gives
+    an extraction gap still counts in Type Coverage (undocumented, so a
+    missing type), as it did when the guard restored the name, and the gap
+    with no kind is named in place of the warning that the surface has no
+    type. With no map, both gaps are named."""
+    _gap_surface(tmp_path / "typed", [{"export_name": "Task", "export_type": "type_alias", "source_file": TASK_FILE}])
+    inventory = _write(tmp_path / "inventory.json", {"exports": [
+        {"name": "add", "kind": "function", "params": "data, dataset_name", "return_type": "None"},
+    ], "cross_check_mismatches": []})
+
+    def score(folder: str) -> dict:
+        return json.loads(subprocess.run([sys.executable, str(SCORE_SIGNATURES), "score", "--inventory", inventory,
+                                          "--surface", str(tmp_path / folder / "surface.json")],
+                                         capture_output=True, text=True, check=True).stdout)
+
+    out = score("typed")
+    assert (out["documentedTypes"], out["totalTypes"], out["typeCoverage"], out["missingTypes"]) == (
+        0, 1, 0.0, ["Task"])
+    assert out["warnings"] == [KINDLESS + "`run_pipeline`"]
+    _gap_surface(tmp_path / "unmapped", None)
+    out = score("unmapped")
+    assert (out["totalTypes"], out["typeCoverage"]) == (0, 100.0)
+    assert out["warnings"] == [KINDLESS + "`Task`, `run_pipeline`"]
 
 
 @pytest.mark.parametrize(("tier_a", "expected"), [(["cognee/pipelines/**"], None),

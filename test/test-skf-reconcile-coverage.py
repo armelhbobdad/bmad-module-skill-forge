@@ -1150,7 +1150,8 @@ def test_coverage_check_writes_the_render_output_as_written(tmp_path):
     # the earlier sections no longer have the model write either by hand.
     assert "Signatures cannot be verified at this tier (§5's render marks them unverified)." in text
     assert 'note them as "unverified"' not in text
-    assert "§5's render lists `excluded.outsideScope`, `excluded.nestedEntries` and the restored names." in text
+    assert ("§5's render lists `excluded.outsideScope`, `excluded.nestedEntries`, the restored names and "
+            "`extractionGaps`.") in text
     # No row, count or score is typed by hand any more.
     for typed in ("| {name} | {kind} |", "{count}", "### Coverage Summary", "| Export Coverage | {N}% |"):
         assert typed not in text, typed
@@ -1315,8 +1316,9 @@ def test_render_reads_the_grades_score_signatures_gives():
 
 
 def test_render_lists_the_names_the_surface_leaves_out_or_puts_back():
-    """coverage-check §2: the names a brief scoped out, a nested entry point's names and the names the stale-scope
-    guard restored reach the Coverage Summary from surface.json, each line only when it names one."""
+    """coverage-check §2: the names a brief scoped out, a nested entry point's names, the names the stale-scope
+    guard restored and the names no recipe found (#1048: read by eye by no step, a gap with no file listed as not
+    located) reach the Coverage Summary from surface.json, each line only when it names one."""
     surface = {**RENDER_SURFACE,
                "excluded": {"outsideScope": [{"name": "genClient", "file": "src/gen/client.ts"}],
                             "nestedEntries": [{"entry": "pkg/routers/__init__.py", "within": "pkg/__init__.py",
@@ -1324,7 +1326,10 @@ def test_render_lists_the_names_the_surface_leaves_out_or_puts_back():
                "guards": {"staleScope": {"applicable": True, "fires": True, "unmatchedInclude": ["lib/**"],
                                          "unmatchedTierAInclude": [],
                                          "restored": [{"name": "legacy", "file": "src/legacy.ts", "line": 9},
-                                                      {"name": "older", "file": "src/older.ts", "line": None}]}}}
+                                                      {"name": "older", "file": "src/older.ts", "line": None}]}},
+               "extractionGaps": [{"name": "fn", "file": "src/fn.ts", "line": 3},
+                                  {"name": "Sym", "file": "src/sym.ts", "line": None},
+                                  {"name": "Lance", "file": None, "line": None}]}
     coverage = reconcile({"denominatorSource": "barrel", "exports": RENDER_INVENTORY["exports"],
                           "barrelSet": surface["sets"]["all"]})
     text = mod.render(coverage, surface)
@@ -1332,9 +1337,11 @@ def test_render_lists_the_names_the_surface_leaves_out_or_puts_back():
     assert "- **Scoped Out by the Brief:** `genClient` (src/gen/client.ts)" in summary
     assert "- **Nested Entry Points:** `pkg/routers/__init__.py` inside `pkg/__init__.py`: `Route`, `router`" in summary
     assert "- **Restored by the Stale-Scope Guard:** `legacy` (src/legacy.ts:9), `older` (src/older.ts)" in summary
-    # A surface that leaves nothing out writes none of the three lines.
+    assert "- **Extraction Gaps:** `fn` (src/fn.ts:3), `Sym` (src/sym.ts), `Lance` (not located)" in summary
+    # A surface that leaves nothing out and has no gap writes none of the four lines.
     assert not [line for line in GOLDEN_BARREL.splitlines() if "Scoped Out" in line or "Nested Entry" in line
-                or "Restored by" in line]
+                or "Restored by" in line or "Extraction Gaps" in line]
+    assert not mod._left_out({**RENDER_SURFACE, "extractionGaps": []})
 
 
 @pytest.mark.parametrize("coverage, signatures, error", [

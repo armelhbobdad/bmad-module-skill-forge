@@ -223,7 +223,9 @@ reading files and writing one JSON object:
                             records them), looked up by the
                             name its defining file gives it (an aliased
                             re-export's `local`) and that file.
-                            extraction_gaps are listed to read by eye, and
+                            extraction_gaps are listed with their file and
+                            line in `extractionGaps`, which
+                            reconcile-coverage.py's render lists (#1048), and
                             the runner's warnings join `warnings`. A Python
                             top __init__.py inside the folder of another top
                             that exports a public name (a sub-package
@@ -245,7 +247,9 @@ reading files and writing one JSON object:
                             --brief) matches its file; no recipe reads its
                             file, so its kind is the one --provenance gives
                             the name at that file (PROVENANCE_KINDS), else
-                            none. A tier_a_include glob
+                            none, as is the kind of a name exports[] gives
+                            none at its file, such as an extraction_gaps
+                            name (#1020). A tier_a_include glob
                             the runner lists as matching no file
                             (scope.unmatched_tier_a_include, [] when the key
                             is absent) counts no name. An extraction the
@@ -267,12 +271,14 @@ reading files and writing one JSON object:
                             tier_a_include set is no tier A list
               --name        a name read by eye whose file is not known
               --provenance  the provenance entries' named exports (State 2),
-                            and the kinds of restored names
+                            and the kinds of restored names and of names
+                            exports[] gives no kind at their file
               --metadata    the metadata.json exports[] names (States 2, 3)
             A surface read from the source (--extraction, --quick or
             --per-file) takes no name from --provenance and --metadata:
             they are the baselines of the candidates and guards, and the
-            map gives only a restored name its kind. Without
+            map gives a kind only to a restored name or one exports[] gives
+            none at its file, such as an extraction gap. Without
             one, with --provenance and --metadata both, `state2` gives the
             provenance count, the metadata count and their union count,
             which compute-score.py turns into the State 2 divergence. --fold
@@ -1242,9 +1248,12 @@ def _record(name, kind, file, line, signature_line, origin) -> dict:
             "origin": origin}
 
 
-# A provenance map's export_type, read case-insensitively, as the kind of a restored name (#913): the type kinds
+# A provenance map's export_type, read case-insensitively, as the kind of a restored name (#913) or a name exports[]
+# gives no kind at its file, such as an extraction gap (#1020): the type kinds
 # score-signatures.py's Type Coverage counts (a dataclass, NamedTuple or TypedDict is a class, a Protocol an
-# interface, a type alias a type), and `function` and `const`, which are no type (a TypeVar is no type). Any
+# interface, a type alias a type), and `function` and `const`, which are no type (a TypeVar is no type). The
+# function kinds a map records by eye, `async_function`, `decorator` and a React `component`, are `function`
+# (#1032): no recipe gives such a name a kind, so a class component a map labels `component` reads as one too. Any
 # other export_type (`re-export`, `module`, `decorator_namespace`, ...) gives no kind.
 PROVENANCE_KINDS = {
     **dict.fromkeys(("class", "dataclass", "namedtuple", "typeddict"), "class"),
@@ -1253,18 +1262,22 @@ PROVENANCE_KINDS = {
     **dict.fromkeys(("type", "type_alias"), "type"),
     "struct": "struct",
     "trait": "trait",
-    **dict.fromkeys(("function", "method", "staticmethod", "classmethod"), "function"),
+    **dict.fromkeys(("function", "method", "staticmethod", "classmethod", "async_function", "decorator",
+                     "component"), "function"),
     **dict.fromkeys(("const", "constant", "variable", "sentinel", "typevar"), "const"),
 }
 
 
-def _restored_kinds(records: list[dict], provenance: dict | None) -> None:
-    """Give each restored record with no kind the kind PROVENANCE_KINDS reads
-    from the first provenance entry, in map order, with its name and its
-    file (both paths `_norm`ed) and a known kind; no other record changes."""
+def _provenance_kinds(records: list[dict], provenance: dict | None) -> None:
+    """Give each restored or extraction record with no kind and a file (a
+    name the stale-scope guard restored, or one exports[] gives no kind at
+    its file, such as an extraction gap, #1020) the kind PROVENANCE_KINDS
+    reads from the first provenance entry, in map order, with its name and
+    its file (both paths `_norm`ed) and a known kind; no other record
+    changes."""
     entries = _entries(provenance)
     for record in records:
-        if record["origin"] != "restored" or record["kind"] or not record["file"]:
+        if record["origin"] not in ("restored", "extraction") or record["kind"] or not record["file"]:
             continue
         file = _norm(record["file"])
         record["kind"] = next(
@@ -1870,9 +1883,10 @@ def surface(args: argparse.Namespace) -> dict:
     sets["all"] = sorted({r["name"] for r in records})
     # A nested Python top's records count in the scope sets, never in `all`.
     records += extracted["nestedRecords"] if extracted is not None else []
-    # A restored name takes its kind from the provenance map at its file (#913): no set, count or guard changes.
+    # A restored name, or one exports[] gives no kind at its file such as an extraction gap, takes its kind from the
+    # provenance map at its file (#913, #1020): no set, count or guard changes.
     if provenance is not None:
-        _restored_kinds(records, provenance)
+        _provenance_kinds(records, provenance)
     records.sort(key=lambda r: (r["name"], str(r["file"] or ""), r["origin"]))
 
     # The scope: the one the extractor recorded, else the brief's.

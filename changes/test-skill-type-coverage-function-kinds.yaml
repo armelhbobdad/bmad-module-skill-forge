@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill now reads a restored name (a root export the stale-scope guard brings back when a `scope.include` glob matches no file) as a function when the skill's provenance map records it as an `async_function`, a `decorator` or a React `component`, as it already did for `function`. Before, such a name got no kind, so Type Coverage's warning named it as a name that may be a type, and the report dropped the warning that the source has no interface, type alias, enum or class even when that was true. The score does not change: Type Coverage counts the same types.
+issues: [1032]
+prs: [1053]

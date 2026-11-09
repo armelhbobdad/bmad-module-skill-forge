@@ -1791,8 +1791,15 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     assert "`extraction.fallback.needed`" in forge and "`extraction.readByEye`" in forge
     assert "the recipes' internal matches are never part of it" in _flow(_read(SOURCE_ACCESS))
     assert "reads the full declaration at `{file}:{line}`" in forge
+    # #1022: plan writes a null `line` for a name read by eye alone in its file (as a check, a candidate or a bound
+    # declaration); the judge finds the declaration in its file and gives that line on the mismatch, never the null
+    # `score` refuses. The candidate and bound sentences read their declarations "as above", so a candidate with a
+    # null `line` beside a check that has one is found in the candidate's own file.
+    assert ("reads the full declaration at `{file}:{line}` (all of it, not only `signatureLine`'s one physical line; "
+            "with `line` null, find it in `{file}` and give its mismatch that line)") in forge
+    assert "read in full at its `file` and `line` as above" in forge
     # #781: a check the citations do not settle names each candidate
-    assert ("A check with `candidates` reads each and reports a mismatch only when the documented signature "
+    assert ("A check with `candidates` reads each as above and reports a mismatch only when the documented signature "
             "matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the "
             "result's `file` stays its `files[]` entry) and its `difference` tagged against it") in forge
     # #826: a check that offers a name's other documented forms is compared with each, by the rules file
@@ -1822,6 +1829,11 @@ def test_the_forge_tier_reads_by_eye_every_file_the_surface_names():
     # Whatever the branch, each file read by eye and each file no one could open is listed, never dropped silently.
     assert bullets[2] == ("- In the Coverage Analysis section, list each `readByEye` file as read by eye, each "
                           "`extraction.unread` file as unread.")
+    # #1048: no gap is read by eye; the signature plan judges a documented one that has a file (one with none is
+    # planned under the files[] entry "", which names no file to read) and §5's render lists them all.
+    assert bullets[3] == ("- `extractionGaps[]` names exports no recipe found: on the surface, judged below when "
+                          "documented and located; read none by eye.")
+    assert "read their signature by eye" not in section
     assert "`extraction.status` is `incomplete`" not in section
     # Quick tier and the fallback per-file scan list theirs the same way.
     assert _flow(_read(COVERAGE_TIERS)).count("in the Coverage Analysis section as read by eye") == 2
@@ -1846,16 +1858,19 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
             "compares their signatures") in held
     assert "When a `scope.include` glob matches no file (`guards.staleScope.fires`" in held
     assert "are back in it (`guards.staleScope.restored`)" in held
-    # #913: a restored name takes the kind the provenance map gives it, and Type Coverage names one with none
-    assert ("(`guards.staleScope.restored`), each with the kind the provenance map gives its name at its file when "
-            "the map is given (a dataclass, NamedTuple or TypedDict is a class, a Protocol an interface, a type alias "
-            "a type, a TypeVar no type), and Type Coverage leaves out one still without a kind and says so in its "
-            "warnings.") in held
+    # #913: a restored name takes the kind the provenance map gives it, and Type Coverage names one with none;
+    # #1020: so does any name the recipes give no kind at its file, an extraction gap or one found only elsewhere
+    assert ("(`guards.staleScope.restored`). Each restored name, and each name no recipe gives a kind at its file "
+            "(such as one in `extractionGaps`), takes the kind the provenance map gives its name at its file when the map is given (a dataclass, "
+            "NamedTuple or TypedDict is a class, a Protocol an interface, a type alias a type, a TypeVar no type), and "
+            "Type Coverage leaves out one still without a kind and says so in its warnings.") in held
     # #695: a stale tier A glob fires the guard too and counts no name
     assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
             "and counts no name") in held
-    # the report lists every name the surface leaves out of the barrel or puts back in it, through §5's render
-    assert "§5's render lists `excluded.outsideScope`, `excluded.nestedEntries` and the restored names" in forge
+    # the report lists every name the surface leaves out of the barrel or puts back in it, and the extraction gaps
+    # (#1048), through §5's render
+    assert ("§5's render lists `excluded.outsideScope`, `excluded.nestedEntries`, the restored names and "
+            "`extractionGaps`") in forge
     section4 = _flow(_slice(_read(COVERAGE), "### 4. The Denominator Record", "### 4b."))
     assert "`guards.staleScope.fires` a Medium `brief-scope-stale` gap at the brief" in section4
     protocol = _flow(_read(SOURCE_ACCESS))
@@ -2579,6 +2594,15 @@ CARVED_TO_BRANCHES = {
         "\n"
         "\"**Docs-only skill detected.** Coverage check evaluates documentation completeness rather than "
         "source code coverage.\""
+    ), (
+        # §2c's docsOnly command runs only on the docs-only branch, which loaded this section at §0
+        "§2c's `docsOnly` branch: Export Coverage is the documentation completeness ratio, complete over "
+        "documented items, and `incomplete[]` lists each incomplete item with the fields it lacks:\n"
+        "\n"
+        "```bash\n"
+        "uv run {reconcileScript} --denominator-source docsOnly --inventory \"{run_dir}/inventory.json\" "
+        "--output \"{run_dir}/coverage.json\"\n"
+        "```"
     )],
     "Split-Body Sources": [(
         "The Source is `{reference_file}:{reference_line}`, of two references the one that sorts last, unless the "

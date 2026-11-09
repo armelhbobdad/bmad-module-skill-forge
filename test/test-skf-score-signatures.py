@@ -311,8 +311,9 @@ def test_nothing_to_compare_scores_100_with_a_warning(tmp_path):
 
 NO_TYPES = ("the source surface has no interface, type alias, enum or class: Type Coverage has nothing to cover "
             "and scores 100")
-KINDLESS = ("Type Coverage leaves out each name the stale-scope guard restored with no kind (the provenance map, "
-            "when one is given, gives it no kind Type Coverage reads at its file): ")
+KINDLESS = ("Type Coverage leaves out each name the stale-scope guard restored or the extraction recorded with no "
+            "kind, such as an extraction gap (the provenance map, when one is given, gives it no kind Type Coverage "
+            "reads at its file): ")
 
 
 def _restored(name: str, kind: str | None, origin: str = "restored") -> dict:
@@ -325,7 +326,10 @@ def test_a_restored_name_with_no_kind_is_named_not_counted(tmp_path):
     is a type, so it leaves the name out and names it in a warning, in place
     of the one that says the surface has no type; the score never drops. A
     name with a kind on any record (a restored one the provenance map typed,
-    or an extraction record beside a kindless restored one) counts."""
+    or an extraction record beside a kindless restored one) counts. #1020:
+    an extraction record with no kind (an extraction gap) is named too, but
+    a per-file one alone is not: a fallback scan's name outside its
+    types_found is no type."""
     inventory = _write(tmp_path / "inventory.json", {"exports": [
         {"name": "Cls", "kind": "class", "params": "", "return_type": "Cls"},
     ], "cross_check_mismatches": []})
@@ -351,6 +355,17 @@ def test_a_restored_name_with_no_kind_is_named_not_counted(tmp_path):
                                                "sets": {"all": ["Cls"]}})
     out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
     assert out["warnings"] == [KINDLESS + "`Cls`"]
+    # An extraction gap with no kind is named beside a restored one; a per-file name with no kind alone is not.
+    surface = _write(tmp_path / "gaps.json", {
+        "exports": [_restored("Gap", None, "extraction"), _restored("Old", None), _restored("Fn", None, "per-file"),
+                    _restored("Cls", "class", "extraction")],
+        "sets": {"all": ["Cls", "Fn", "Gap", "Old"]}})
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
+    assert (out["documentedTypes"], out["totalTypes"], out["warnings"]) == (1, 1, [KINDLESS + "`Gap`, `Old`"])
+    surface = _write(tmp_path / "per-file.json", {"exports": [_restored("Fn", None, "per-file")],
+                                                  "sets": {"all": ["Fn"]}})
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
+    assert [w for w in out["warnings"] if "Type Coverage" in w] == [NO_TYPES]
     # With no record, the surface still has no type.
     surface = _write(tmp_path / "bare.json", {"exports": [], "sets": {"all": ["Cls", "y"]}})
     out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
@@ -2118,6 +2133,46 @@ def test_the_extraction_s_line_wins_in_its_file(tmp_path, exports, at, candidate
     assert [(c["file"], c["line"]) for c in check.get("candidates", [])] == candidates
 
 
+def test_a_by_eye_record_alone_plans_no_line_and_is_scored_at_the_judge_s(tmp_path):
+    """#1022: a name read by eye alone in its file has a per-file record, which lists names only, so plan writes its
+    check, and a form bound to it, with `line` and `signatureLine` null, as the module docstring's plan output says.
+    coverage-check.md section 2 tells the judge to find the declaration in that file and give its line on the
+    mismatch: score records it there, bound or not. A mismatch that copies the null `line` breaks the schema."""
+    doc = " ".join(mod.__doc__.split())
+    assert ("`line` and `signatureLine` are null on a check, a candidate or a `bound` entry whose surface record has "
+            "no line: a name read by eye alone in its file, whose per-file result lists names only, or a record "
+            "with no file.") in doc
+    # A check whose record has no file names no file to read, so the docstring never says a judge finds it there.
+    assert ("The judge finds a declaration that has a file in that `file` and gives its mismatch the line it found "
+            "there (#1022). A check whose record has no file sits under the `files[]` entry \"\", which names no file "
+            "to read: a judge reads only its `bound` forms, each at its bound declaration.") in doc
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n`configure(path, *, strict=False)` reads [AST:{CONFIG}].\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [CONFIGURE_FORMS[0]], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {"exports": [CONFIGURE_BY_EYE], "sets": {"all": ["configure"]}})
+    found = {"name": "configure", "line": 132, "source_sig": "(path)", "documented_sig": "(path, *, strict=False)",
+             "issue": "the source takes no `strict`"}
+    for skill in (["--skill-dir", str(tmp_path / "skill")], []):
+        plan = tmp_path / "signature-plan.json"
+        proc = _run("plan", "--inventory", inventory, "--surface", surface, *skill, "--output", str(plan))
+        assert proc.returncode == 0, proc.stderr
+        [check] = json.loads(proc.stdout)["files"][0]["checks"]
+        assert (check["line"], check["signatureLine"]) == (None, None)
+        assert check.get("bound", []) == ([{"form": 0, "file": CONFIG, "line": None, "signatureLine": None}]
+                                          if skill else [])
+        for line, code in ((132, 0), (None, 2)):
+            results = _write(tmp_path / "s.txt", json.dumps({"file": CONFIG, "signature_mismatches": [
+                {**found, "line": line}]}))
+            proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan),
+                        "--results", results)
+            assert proc.returncode == code, proc.stdout + proc.stderr
+            out = json.loads(proc.stdout)
+            if code:
+                assert out["violations"] == ["s.txt.signature_mismatches[0]: `line` must be a line number (an "
+                                             "integer from 1)"]
+            else:
+                assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(CONFIG, 132)]
+
+
 @pytest.mark.parametrize("exports", [
     [{**CONFIGURE_BY_EYE, "file": f"./{CONFIG}"}, CONFIGURE_RECORD, LEGACY_RECORD],
     [CONFIGURE_BY_EYE, CONFIGURE_RECORD, LEGACY_RECORD],
@@ -2591,7 +2646,9 @@ def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tm
                           "--results", results).stdout)
     # the declaration line is the bound one, 319, so the evidence at 322 is in its body
     assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, 319, "Info")]
-    assert not any("createTest" in w for w in out["warnings"]), out["warnings"]
+    # No warning says the judge named another file; the extraction record has no kind, so Type Coverage names it
+    # (#1020).
+    assert out["warnings"] == [KINDLESS + "`createTest`"]
     assert (out["comparedNames"], out["totalDocumented"]) == (["createTest"], 1)
     out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
     assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, "Critical")]
