@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill halts `inventory-invalid` on a list `params` it refused, run Test Skill again: the skill under test needs no change.
 issues: [1043]
+prs: [1058]

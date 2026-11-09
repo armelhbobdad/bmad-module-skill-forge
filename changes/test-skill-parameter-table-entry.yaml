@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill now stops at the hard gate on a parameter table, correct the parameter names or types the source contradicts, add the required parameters it leaves out, and add the optional parameters it leaves out or label the table partial in its column header or the heading above it (for example `### Key parameters`), then run Test Skill again.
 issues: [1002]
+prs: [1058]

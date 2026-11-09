@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   Test Skill's documented inventory now gives a `const` that a place writes only as the call that builds its function, such as `const badgeVariants = cva(…)`, with no parameter list, function type or return type of its own, no `params`, `return_type` or `usage_signature` at that place, so that place is never compared: the call is the factory's form, not the const's. A call expression is now a usage form only of the name it calls, so `cva(…)` after an assignment is never recorded as the const's usage. A component keeps the declaration form the skill writes for it, and a const written with its own parameter list, function type or return type keeps its function form. Two strict runs on the same skill now compare the same names, and such a const is no longer compared as one that takes no parameter, which recorded a false Critical `signature-mismatch` when the function it holds takes one.
 issues: [1019]
+prs: [1058]
