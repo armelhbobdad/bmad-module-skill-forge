@@ -325,8 +325,9 @@ reads it; a re-export row declares nothing) in a file none of the name's
 records names and no scope.exclude glob matches, as {name, kind, file,
 line, signatureLine}, its file with forward slashes and no leading `./`,
 its line and signature line taken as a record's are; sorted, each
-declaration once however its path is written, and [] with none, with no
-extraction or with one the per-file scan replaces. Such a declaration is a
+declaration once however its path is written, and [] with none; null
+with no extraction or with one the per-file scan replaces, which looks for
+none, so null means never looked for (#1026). Such a declaration is a
 same-named function no entry point exports, as cognee's lightweight
 `run_pipeline`, which a lazy `__getattr__` passes on beside the
 orchestrator a namespace exports. They are no records: they join no set,
@@ -1893,9 +1894,11 @@ def surface(args: argparse.Namespace) -> dict:
     scope = extracted["scope"] if extracted is not None and any(extracted["scope"].values()) else None
     if scope is None:
         scope = brief["scope"] if brief is not None else _scope(None, None, None)
-    # Each other declaration of a surface name (#918), for the signature plan alone: no record, set or count.
+    # Each other declaration of a surface name (#918), for the signature plan alone: no record, set or count. Only
+    # a runner extraction looks for them, so with no extraction, or one the per-file scan replaces, the list is
+    # null (never looked for), not [] (none found), and the split-body Source settles no pair on it (#1026).
     others = (other_declarations(records, extracted["declarations"], extracted["aliases"], scope["exclude"])
-              if extracted is not None else [])
+              if extracted is not None and not extracted["extraction"]["fallback"]["needed"] else None)
     # A tier A glob the runner lists as matching no file counts no name, and
     # so does one whose folder or file differs from every scope.include
     # glob's before any `*` or `?` (`gen/**` beside `src/**`) or one a

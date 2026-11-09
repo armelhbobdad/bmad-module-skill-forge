@@ -739,7 +739,10 @@ class TestStagesRecordTheirGaps:
         (`datasets.list_data`, `agents.delete`) fell to "no source settled it" and had update-skill copy SKILL.md's
         form, missing a required parameter, over a reference line the source agrees with; and a root record of the
         bare name (`cognee.delete` for `agents.delete`) could settle a pair against the wrong declaration. A method
-        pair gives its `owner`, and the Source reads the member the owner's body declares, never a bare-name record."""
+        pair gives its `owner`, and the Source reads the member the owner's body declares, never a bare-name record.
+        #1026: a surface the fallback per-file scan builds never looks for other declarations, yet wrote
+        `otherDeclarations` as [], so one recorded declaration settled a pair a full extraction leaves unsettled. It
+        now writes null, and the one declaration decides only on a list."""
         text = _read(COVERAGE_FILE)
         section1 = _flow(_slice(text, "### 1. Extract Documented Exports", "#### 1a."))
         assert ("For each export two or more of the files it reads document, it compares the SKILL.md body with "
@@ -783,8 +786,10 @@ class TestStagesRecordTheirGaps:
                        "At State 1 and the Forge tier or above, with `workspaceDrift` not `overridden`",
                        "set the two forms its `issue` gives against the export's declaration at the `file` and "
                        "`line` `surface.json` gives",
-                       "when that one declaration decides (no overload set, no second declaring file, no "
-                       "`otherDeclarations` entry of the export's name)",
+                       # #1026: a null list, which no runner extraction looked for, decides nothing
+                       "when that one declaration decides (no overload set, no second declaring file, and an "
+                       "`otherDeclarations` list, not `null`, with no entry of the export's name; `null` means no "
+                       "runner extraction looked for one, as after the fallback per-file scan)",
                        # the other side when only the reference agrees, else the default, the reference that sorts last
                        "when `{reference_file}`'s form agrees and the other side's does not, the Source is the other "
                        "side, `SKILL.md:{skill_md_line}` or `{other_file}:{other_line}`.",
@@ -795,6 +800,10 @@ class TestStagesRecordTheirGaps:
                        "`{reference_file}` to edit, taking the other side's form (`{other_file}`'s, for two "
                        "references)"):
             assert needle in rule, needle
+        # #1026: the surface paragraph says what a surface no runner extraction built writes for that list
+        assert ("It is `null`, not `[]`, when no runner extraction looked for them: a surface with no extraction, or "
+                "one the fallback per-file scan builds, with or without the runner's JSON.") in _flow(
+                    _read(REFS / "source-access-protocol.md"))
         # #1035: a method pair is settled by the member its owner's body declares, read from the owner's record, by
         # the same one-declaration test, before the remediation that cites the declaration's `file:line`
         member = ("A pair that gives an `owner` is a `method`'s (inventory-contract.md): its declaration is the member "

@@ -504,7 +504,8 @@ def load_other_declarations(path: str) -> list[dict]:
     surface name, in a file none of its records names, that the extraction
     records and no entry point exports, which plan may bind a form to. Each
     one with a name and a file; [] when the surface has none (an older
-    surface included)."""
+    surface included) or writes null, which it does when no runner
+    extraction looked for them (#1026)."""
     data = _read_json(path, "--surface")
     items = data.get("otherDeclarations") if isinstance(data, dict) else None
     return [d for d in (items if isinstance(items, list) else [])
