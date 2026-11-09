@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory contract now says when a method gets an entry of its own and what a class's form leaves out. A method a place writes with a form of its own, such as a class body, a methods list or a row's cell, gets a `method` entry there besides its class's `methods` item, and so does a method the skill calls through an instance or its class, such as `builder.provide(KEY, value)`, with that class as `owner`; such a call is never a usage of a same-named function, so `canvas.getByRole('button')` can no longer be compared with a `getByRole` function and raise a false Critical `signature-mismatch`. A class's `params`, a `method`'s and each `methods` item now leave out a leading `self` or `cls`. Before, oh-my-skills rehearsal readers gave a class's methods entries on one run and none on the next, so the split-body cross-check compared them only sometimes. This can block a skill that passed: a method whose form two files write differently is now compared on every run, and each such difference is a High `split-body-mismatch` gap.
+migration: |
+  If Test Skill now stops at the hard gate on a `split-body-mismatch` for a method, make the two files write the method's form alike (the gap's Source names the side the source contradicts), then run Test Skill again.
+issues: [1035, 1045]

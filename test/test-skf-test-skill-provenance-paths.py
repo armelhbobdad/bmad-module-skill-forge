@@ -1821,6 +1821,26 @@ def test_the_inventory_contract_gives_an_example_call_beside_a_form_no_entry():
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
 
+def test_a_method_with_a_form_of_its_own_gets_an_entry_and_no_receiver():
+    """Coherence review (oh-my-skills rehearsals): no sentence said whether a method a class's place writes with its
+    own form (cognee's GraphSnapshot row, cocoindex's Task body) gets a `method` entry besides its `methods` item, so
+    one reader cross-checked all of Task's methods and another none; whether a call through an instance
+    (`builder.provide(KEY, value)`) is that method's place; and whether `canvas.getByRole('button')`, read literally
+    through the receiver clause, is a usage of the `getByRole` function, a false Critical. Readers also kept or
+    dropped a leading `self` in a class's form read from `def __init__(self, ...)`. Each now has one reading."""
+    contract = _flow(_read(INVENTORY_CONTRACT))
+    methods = ("Each `methods` item starts with the method's name, optionally after `async` (`async "
+               "next_uuid(dep=None)`). A method a place writes with a form of its own (a class body, a methods list, "
+               "a row's cell) gets a `method` entry there with that form, besides its class's `methods` item, and so "
+               "does one the skill calls through an instance or the class it documents with that member "
+               "(`builder.provide(KEY, value)`, `canvas.getByRole('button')`), the class as `owner` and the call in "
+               "`usage_signature`, never a usage of a same-named function. A class's `params`, a `method`'s and each "
+               "`methods` item leave out a leading `self` or `cls`. A `const` holding a component")
+    assert contract.count(methods) == 1
+    assert contract.index("A function the skill documents in a module is a `function` named bare") < contract.index(
+        methods), "after the module-function rule it sits beside"
+
+
 def test_a_column_s_partial_label_reaches_every_form_its_cells_write_as_the_floor_reads_it():
     """Coherence review (oh-my-skills rehearsals): "labels each of its rows" left open whether a column's label
     reaches a usage form or another name's form a row's cell writes (cognee's `cognee_network_visualization` inside
