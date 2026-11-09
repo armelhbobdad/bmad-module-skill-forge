@@ -75,9 +75,15 @@ order, others before, among or after them (#1028): the whole list in the
 skill's order the contract has an entry write when the skill puts an own
 member before or among the shared ones. Elsewhere, or with no `at`, such a
 longer list is another form of the name, which never carries the pin nor
-counts as its copy. A pinned `usage_signature` is carried only as given
-or after the shared text and `; `. A field the signature leaves blank, and
-the entry's other fields (its `usage_signature` beside a pinned `params`,
+counts as its copy. At the origin, so is one an entry labels
+`signature_form` "partial" where the signature gives no label and whose
+other members hold an ellipsis item (`...` or `…` alone): a second overload
+the pinned place writes (#1043), labelled by its own `...`, whose label is
+never refused as one added to the pin. Unlabelled, such a list is still the
+pin's copy, the shared members spelled out, a `...` among them included
+(#1028). A pinned `usage_signature` is carried only as given or after the
+shared text and `; `. A field the signature leaves blank, and the entry's
+other fields (its `usage_signature` beside a pinned `params`,
 its `params` beside a pinned `usage_signature`), are not read, but for one:
 a signature read from a column under a partial label (`Signature
 (simplified)`, `Props (simplified)`, load-coverage-inputs.py's
@@ -404,6 +410,10 @@ FLOOR_SIGNATURE_FIELDS = ("params", "usage_signature", "return_type")
 # (#1029), which the entry at that origin copies; an origin with none gives
 # its entries none there.
 FLOOR_LABEL_FIELD, FLOOR_LABEL = "signature_form", "partial"
+# A member that is an ellipsis item alone (score-signatures.py's ELLIPSES): a `params` an entry labels partial at an
+# unlabelled pin's place, longer than the pin by members that hold one, is another form, never the pin's copy
+# (_another_form, #1043).
+ELLIPSIS_ITEMS = ("...", "…")
 
 # Characters that continue an identifier in the languages SKF documents
 # (`$` for JS/TS names such as `$state`).
@@ -997,12 +1007,41 @@ def _members(text):
     return members[:-1] if members and not members[-1] else members
 
 
+def _others(given, wanted):
+    """The members of the `params` text `given` besides the members of `wanted`, which it holds in their order, the
+    others before, among or after them, or None when it does not hold them so."""
+    rest, others = iter(_members(given)), []
+    for member in _members(wanted):
+        for item in rest:
+            if item == member:
+                break
+            others.append(item)
+        else:
+            return None
+    return others + list(rest)
+
+
 def _holds_in_order(given, wanted):
     """Whether the `params` text `given` holds each member of `wanted` in its order, other members before, among
     or after them (#1028: the whole list the contract has an entry write when the skill puts a name's own member
-    before or among the members it states once for several names)."""
-    rest = iter(_members(given))
-    return all(member in rest for member in _members(wanted))
+    before or among the members it states once for several names, a `...` among those included)."""
+    return _others(given, wanted) is not None
+
+
+def _another_form(entry, signature, place):
+    """Whether an entry that carries an unlabelled floor origin's signature at its `place` (_carries) is another
+    form the place writes, never the pin's copy (#1043): its `at` is that place, it gives `signature_form`
+    "partial", which the signature does not, and its `params` is longer than the pinned one by members that hold an
+    ellipsis item (`...` or `…` alone), as a row's second overload (`run(task: Task)` or `run(task: Task, ...)`)
+    labelled by its own `...` is. It neither carries the pin nor has its label refused as one added to it, while an
+    unlabelled such list is the pin's copy, the shared members spelled out with a `...` among them (#1028), and a
+    labelled longer list with no `...` there is the pin's form, its label refused (#1029)."""
+    if FLOOR_LABEL_FIELD in signature or entry.get(FLOOR_LABEL_FIELD) != FLOOR_LABEL:
+        return False
+    if parse_at(entry.get("at")) != place or "params" not in signature:
+        return False
+    others = _others(field_text(entry.get("params")), field_text(signature["params"]))
+    return others is not None and any(item in ELLIPSIS_ITEMS for item in others)
 
 
 def _carries(entry, signature, place):
@@ -1012,7 +1051,8 @@ def _carries(entry, signature, place):
     then `; `) included, and, for an entry whose `at` is the origin's `place` (parse_at), a `params` whose members
     hold the pinned ones in their order among others (_holds_in_order, #1028): a longer list elsewhere or with no
     `at` is another form of the name, which neither carries the pin nor stands in for its copy; and, when it gives
-    the partial label (#888), the entry's `signature_form` is that label too."""
+    the partial label (#888), the entry's `signature_form` is that label too. floor_check also sets aside, at an
+    unlabelled pin, a labelled longer list a `...` makes longer (_another_form, #1043)."""
     if FLOOR_LABEL_FIELD in signature and entry.get(FLOOR_LABEL_FIELD) != signature[FLOOR_LABEL_FIELD]:
         return False
     here = parse_at(entry.get("at")) == place
@@ -1070,7 +1110,8 @@ def floor_check(inventory, floor, skill_package_path=None):
     label is refused the same way when an entry of that name that gives its
     form there or with no `at` gives `signature_form` "partial" (#1029): one
     violation, while a labelled copy whose `at` is another place stays
-    valid.
+    valid, and a second overload its place writes, labelled by its own
+    `...`, is no copy of it (_another_form, #1043).
     """
     listed = inventory.get("references")
     files = {"SKILL.md"} | {_listed_path(ref, skill_package_path)
@@ -1118,7 +1159,11 @@ def floor_check(inventory, floor, skill_package_path=None):
                                   f"gives its form without its `signature_form` there or with no `at`; copy it as "
                                   f"given, with `at` {at}")
             continue
-        carriers = [(idx, e) for idx, e in entries if e.get("name") == name and _carries(e, signature, place)]
+        # A second overload the pinned place writes, labelled by its own `...`, is another form (#1043): it neither
+        # carries the pin nor has its label refused, while an unlabelled list a `...` makes longer is still the pin's
+        # copy, the shared members spelled out (#1028).
+        carriers = [(idx, e) for idx, e in entries if e.get("name") == name and _carries(e, signature, place)
+                    and not _another_form(e, signature, place)]
         if any(e.get(FLOOR_LABEL_FIELD) == FLOOR_LABEL and (e.get("at") is None or parse_at(e["at"]) == place)
                for _, e in carriers):
             # An unlabelled pin's label is the floor's too (#1029): an entry that gives its form there or with no

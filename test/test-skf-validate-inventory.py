@@ -1991,7 +1991,10 @@ def test_a_labelled_longer_form_elsewhere_is_no_labelled_copy_of_a_pin(tmp_path)
     a longer list carries it only at the pin's own place (#1028). A longer form the skill writes elsewhere and
     labels with its own `...` (`fetchData(url: string, retries?: number, ...)` in prose), with no `at` or a bad one,
     is another form, labelled as the contract says: it stays valid, with only the missing-`at` warning, beside the
-    unlabelled copy at the row. Given as the row's own form (`at` the row), its label is still refused."""
+    unlabelled copy at the row. Coherence review: a list a `...` makes longer and its entry labels partial is never
+    the pin's copy, at the row either (#1043: a row may write a second form), so its label stands there too, while
+    a labelled longer list with no `...` at the row is the pin's form, the shared members spelled out (#1028), and
+    its label is still refused."""
     pkg = _package(tmp_path, FORM_TABLE + "\nAlso `fetchData(url: string, retries?: number, ...)` in prose.\n")
     floor = tmp_path / "inventory-floor.json"
     proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
@@ -2014,7 +2017,116 @@ def test_a_labelled_longer_form_elsewhere_is_no_labelled_copy_of_a_pin(tmp_path)
             at, r["violations"], r["warnings"])
     r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, **AT_ROW}),
                                        ("fetchData", "function", {**longer, **AT_ROW})), pkg, read)
+    assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (r["violations"], r["warnings"])
+    spelled = {**longer, "params": "url: string, retries?: number, signal?: AbortSignal"}
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, **AT_ROW}),
+                                       ("fetchData", "function", {**spelled, **AT_ROW})), pkg, read)
     assert r["valid"] is False and r["violations"] == [LABEL_ADDED_VIOLATION], r["violations"]
+
+
+OVERLOAD_ROW = ("# demo\n\n| Function | Signature | Description |\n|---|---|---|\n"
+                "| `run` | `run(task: Task)` or `run(task: Task, ...)` | runs a task |\n")
+
+
+def test_a_second_overload_a_pinned_row_labels_with_its_own_ellipsis_keeps_its_label(tmp_path):
+    """Coherence review of #1043, #1028 and #1029: a Signature cell that writes a full form, then a longer form of
+    the name that adds a bare `...` (`run(task: Task)` or `run(task: Task, ...)`), is pinned by its leading span,
+    with no label. The contract gives the row an entry per form, each with the row as `at`, and labels the second
+    partial by its own `...`; the validator read that longer list as the pin's copy, the shared members spelled out,
+    and refused its label as one added to the pin. It now passes with no warning, while the second form alone
+    carries no pin, so the pinned form must still be copied, and the label on the pinned form itself is still
+    refused."""
+    pkg = _package(tmp_path, OVERLOAD_ROW)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    pinned = {"params": "task: Task", "return_type": ""}
+    assert read["names"][0]["origins"] == [_floor_origin("SKILL.md", 5, "table-row", pinned)]
+    first = ("run", "function", {"params": "task: Task", "at": "SKILL.md:5"})
+    second = ("run", "function", {"params": "task: Task, ...", "signature_form": "partial", "at": "SKILL.md:5"})
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(_signed(first, second).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--floor", str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["valid"] is True and result["violations"] == [] and result["warnings"] == []
+    pin = (f'floor: `run` is documented at SKILL.md:5 (table-row) with the signature {json.dumps(pinned)}, but ')
+    r = mod.validate_inventory(_signed(second), pkg, read)
+    assert r["valid"] is False and r["violations"] == [
+        pin + 'no inventory entry of that name carries it; copy it as given, with `at` "SKILL.md:5"'], r["violations"]
+    labelled = ("run", "function", {**first[2], "signature_form": "partial"})
+    r = mod.validate_inventory(_signed(labelled, second), pkg, read)
+    assert r["valid"] is False and r["violations"] == [
+        pin + 'an inventory entry of that name gives its form with `signature_form` "partial" there or with no '
+        '`at`, a label the floor does not pin; copy it as given, without that label, with `at` "SKILL.md:5"'], (
+        r["violations"])
+    # Only a labelled list that a `...` makes longer, at the unlabelled pin's place, is another form; the in-order
+    # carry itself still reads a `...` among the others as a member (#1028).
+    place = ("SKILL.md", 5)
+    assert mod._another_form(second[2], pinned, place)
+    assert mod._another_form({**second[2], "params": "…, task: Task"}, pinned, place)
+    assert not mod._another_form({**second[2], "signature_form": "full"}, pinned, place)
+    assert not mod._another_form({k: v for k, v in second[2].items() if k != "signature_form"}, pinned, place)
+    assert not mod._another_form({**second[2], "at": "SKILL.md:1"}, pinned, place)
+    assert not mod._another_form(labelled[2], pinned, place)
+    assert not mod._another_form({**second[2], "params": "task: Task, id"}, pinned, place)
+    assert not mod._another_form(second[2], {**pinned, "signature_form": "partial"}, place)
+    assert mod._holds_in_order("..., task: Task", "task: Task") and mod._holds_in_order("task: Task, …", "task: Task")
+
+
+def test_a_whole_list_whose_shared_members_hold_an_ellipsis_still_carries_the_pin(tmp_path):
+    """Coherence review of #1043 against #1028: the second-overload fix read every list a `...` made longer than a
+    pin as another form, so where the members the skill states once for several names hold a `...` (`id,
+    scope=Scope(), ...`) and each name puts its own member first, the whole list in the skill's order the contract
+    asks for (`content, id, scope=Scope(), ..., title=None`, unlabelled, at the row) was refused with "no inventory
+    entry of that name carries it", which main accepted. Only a list the entry labels partial at an unlabelled pin
+    is another form now, so the unlabelled whole list passes `--floor` (exit 0), as the `; ` shape does, a labelled
+    one still carries no pin, and at a labelled pin the labelled whole list passes."""
+    caption = ("# Demo\n\nBoth models take the base fields `id, scope=Scope(), ...` right after their leading first "
+               "argument.\n\n| Class | Kind | {} |\n| --- | --- | --- |\n| `Note` | class | `(content, title=None)` |\n"
+               "| `Task` | class | `(title, done=False)` |\n")
+    pkg = _package(tmp_path / "plain", caption.format("Signature"))
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert [(n["name"], [o.get("signature") for o in n["origins"]]) for n in read["names"]] == [
+        ("Note", [{"params": "content, title=None", "return_type": ""}]),
+        ("Task", [{"params": "title, done=False", "return_type": ""}])]
+    note = ("Note", "class", {"params": "content, id, scope=Scope(), ..., title=None", "at": "SKILL.md:7"})
+    task = ("Task", "class", {"params": "title, id, scope=Scope(), ..., done=False", "at": "SKILL.md:8"})
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(_signed(note, task).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--floor", str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["valid"] is True and result["violations"] == [] and result["warnings"] == []
+    shared = (("Note", "class", {"params": "id, scope=Scope(), ...; content, title=None", "at": "SKILL.md:7"}),
+              ("Task", "class", {"params": "id, scope=Scope(), ...; title, done=False", "at": "SKILL.md:8"}))
+    r = mod.validate_inventory(_signed(*shared), pkg, read)
+    assert r["valid"] is True and r["warnings"] == [], (r["violations"], r["warnings"])
+    labelled = [(n, k, {**e, "signature_form": "partial"}) for n, k, e in (note, task)]
+    r = mod.validate_inventory(_signed(*labelled), pkg, read)
+    assert r["valid"] is False and r["violations"] == [
+        f'floor: `{name}` is documented at SKILL.md:{line} (table-row) with the signature {{"params": "{params}", '
+        f'"return_type": ""}}, but no inventory entry of that name carries it; copy it as given, with `at` '
+        f'"SKILL.md:{line}"' for name, line, params in (("Note", 7, "content, title=None"),
+                                                        ("Task", 8, "title, done=False"))], r["violations"]
+
+    pkg = _package(tmp_path / "labelled", caption.format("Signature (simplified)"))
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"][0]["origins"][0]["signature"] == {
+        "params": "content, title=None", "return_type": "", "signature_form": "partial"}
+    r = mod.validate_inventory(_signed(*labelled), pkg, read)
+    assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (r["violations"], r["warnings"])
 
 
 ELLIPSIS_TABLE = ("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"

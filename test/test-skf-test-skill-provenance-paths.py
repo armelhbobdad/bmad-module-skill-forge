@@ -2007,8 +2007,9 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "and the validator refuses an inventory with no entry there that does. The label at a place "
             "`inventory-floor.json` gives a `signature` is the `signature`'s: an entry that gives its form there or "
             "with no `at` gives `\"partial\"` only when the `signature` does, and the validator refuses one that adds "
-            "it (a skill labels such a form partial in its column header, not in words). Where the skill documents "
-            "several names and states members they share once") in contract
+            "it (a skill labels such a form partial in its column header, not in words), while another form the "
+            "place writes keeps its own label (a second overload in the row whose own `...` labels it partial). "
+            "Where the skill documents several names and states members they share once") in contract
     rules = _flow(runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py").__doc__)
     assert ("an origin whose place writes the name's signature in a fixed form that is surely complete also "
             "carries it as `signature`" in rules and "no signature read" not in rules)
