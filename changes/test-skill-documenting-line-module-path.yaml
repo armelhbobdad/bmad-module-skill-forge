@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  A stale name's gap in Test Skill's Gap Report now cites the line that documents the name when the skill writes it only as a module path, such as `cognee.exceptions` for `exceptions`: a code span, a heading or an export table's first cell that is a dotted path whose last segment is the name, after a call's `(` is cut (`pkg.connect(url)`), now documents it. oms-cognee's `exceptions` and `migration` gaps used to cite a bare `SKILL.md`, asked to update or remove their documentation there, and had an Issue that read "the skill documents"; their Source, Issue and remediation now name the first line that writes `cognee.exceptions` or `cognee.migration`, and the Issue of a documented extra or any other stale-name gap for such a name opens with that line too. Such a line ranks below a line whose code span is the name itself and above a declaration in a fenced code block; a path that ends in another name, or one written among other words, still documents nothing. Scores, the hard gate and the gap count are unchanged.
+issues: [1011]

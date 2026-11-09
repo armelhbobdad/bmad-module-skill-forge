@@ -69,6 +69,11 @@ counts and the Gap Report is rendered from:
     that holds the name among other words, a quoted string in prose or
     holding other words, a fence in an HTML comment or a data block; an
     unreadable input is skipped, and the floor is read once
+  - a name written only as a module path (#1011): a code span, or a
+    heading's or export-table first cell's text, that is a dotted path
+    ending in the name once a call's `(` is cut documents it, below an
+    exact span and above a fenced declaration; a path ending in another
+    name, or one among other words, documents nothing
   - a name no line documents (#1006): the first `at` the --inventory
     result gives an entry of the name that is no `method` (SKILL.md's,
     then by path, then the lowest line) is its Source, its Issue's line
@@ -1418,6 +1423,53 @@ class TestCoverageAdapter:
             "references/blocks/operators.md": "# Ops\n\n| Symbol / keyword | Use |\n| --- | --- |\n| `AND` | x |\n"})
         assert [mod._documenting_line(skill, name) for name in ("Canvas", "getByRole", "AND")] == [
             "references/blocks/doc.md:5", "references/blocks/queries.md:5", "SKILL.md:3"]
+
+    # #1011: oms-cognee's `exceptions` and `migration`, written only as module paths (`cognee.exceptions`)
+    @pytest.mark.parametrize("files, name, expected", [
+        # a heading's code span, and a list item's
+        ({"SKILL.md": "# demo\n\n### Exceptions: `pkg.exceptions`\n"}, "exceptions", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nPublic exports:\n\n- `pkg.migration`: schema migrations.\n"}, "migration",
+         "SKILL.md:5"),
+        # a heading's or an export-table first cell's whole text, a call cut at `(`, a longer path
+        ({"SKILL.md": "# demo\n\n## pkg.exceptions\n"}, "exceptions", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\n| Function | Purpose |\n| --- | --- |\n| pkg.run_migrations() | Runs them. |\n"},
+         "run_migrations", "SKILL.md:5"),
+        ({"SKILL.md": "# demo\n\nCall `pkg.connect(url)` first.\n"}, "connect", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nSee `pkg.modules.pipelines.task`.\n"}, "task", "SKILL.md:3"),
+        # in the tier the first file wins, then the lowest line
+        ({"SKILL.md": "# demo\n\nSee `pkg.other`.\n\nSee `pkg.migration`.\n\nAnd `pkg.migration`.\n",
+          "references/a.md": "# A\n\n- `pkg.migration` runs.\n"}, "migration", "SKILL.md:5"),
+        # a bare span of a later file and a heading of the name win; a fenced declaration does not
+        ({"SKILL.md": SEE, "references/a.md": "# A\n\nThe path `a.b.task`.\n",
+          "references/b.md": "# B\n\nThe `task` step.\n"}, "task", "references/b.md:3"),
+        ({"SKILL.md": "# demo\n\nSee `pkg.get`.\n\n## get\n"}, "get", "SKILL.md:5"),
+        ({"SKILL.md": "# demo\n\n```python\ndef connect():\n    pass\n```\n",
+          "references/a.md": "# A\n\n`pkg.connect` opens a connection.\n"}, "connect", "references/a.md:3"),
+    ], ids=["dotted-heading", "dotted-prose-span", "dotted-heading-text", "dotted-export-cell-call",
+            "dotted-call-span", "dotted-long-path", "dotted-first-file", "module-path-after-bare-span",
+            "module-path-after-heading", "module-path-before-fence"])
+    def test_a_module_path_documents_its_last_segment(self, tmp_path: Path, files: dict, name: str, expected: str):
+        """#1011: a name the skill writes only as the last segment of a dotted path of plain identifiers, once a
+        call's `(` is cut, in a code span or a heading's or export-table first cell's text, is documented there,
+        below an exact span and above a fenced declaration: its Source, Issue and remediation cite that line."""
+        skill = self._skill_package(tmp_path / "skill", files)
+        assert mod._documenting_line(skill, name) == expected
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]}, skill_dir=str(skill))
+        assert (record["source"], record["issue"]) == (
+            expected, f"`{expected}` documents `{name}`, which the enumerated source API surface lacks")
+        assert record["remediation"].endswith(f"documentation at {expected}: the enumerated source surface does not "
+                                              "export it.")
+
+    def test_a_module_path_documents_only_its_last_segment(self, tmp_path: Path):
+        """#1011: a path that ends in another name, a span that holds a path among other words or before a space
+        and its call, a bare word, a heading that holds one among other words, the frontmatter and an HTML comment
+        never document `add`."""
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": (
+            "---\nname: demo\ndescription: Use `pkg.add` to install.\n---\n"
+            "# demo\n\nRun pkg.add to install, or `pkg.add.all`, `import pkg.add` or `pkg.add (x)`.\n\n"
+            "## Installing with pkg.add\n\n<!-- `pkg.add` -->\n")})
+        assert mod._documenting_line(skill, "add") is None
+        assert mod._documenting_line(skill, "all") == "SKILL.md:7"
 
     def test_the_append_cli_cites_the_declaration_not_the_frontmatter(self, ledger: Path, tmp_path: Path):
         """#922 through `append --from coverage --skill-dir`: oms-uitripled's `add` was cited at its frontmatter;
