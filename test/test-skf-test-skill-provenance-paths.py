@@ -1449,9 +1449,12 @@ def test_an_entry_with_no_form_gives_one_place_as_its_at(tmp_path):
     next. Readers also split on whether a mention, a heading or prose that names a name with no form gives an entry
     beside the ones its other places give, and at which line. An entry with no compared form now gives its place as
     `at`, a `method` and a return-only form aside; a place that writes a name with no form, members or fields gives
-    no entry when another place gives one, the floor's places aside; and of several such places the first alone
-    gives one. The example shows a class and a type entry with an `at`, and the validator keeps a type entry's `at`
-    on a line that writes the name with no warning."""
+    no entry when another place gives one, the floor's places aside; and of several such places of a name the skill
+    documents the first alone gives one. Coherence review: that last clause gives no entry to a name the skill writes
+    only at such places (an import and a prose code span, as oms-uitripled's `CardContent`), which the rehearsals
+    left for a maintainer decision, so it reaches only a name the skill documents. The example shows a class and a
+    type entry with an `at`, and the validator keeps a type entry's `at` on a line that writes the name with no
+    warning."""
     contract = _flow(_read(INVENTORY_CONTRACT))
     formless_at = ("That line writes the entry's `name`, or, in a fenced block, the block does. An entry with no "
                    "compared form gives its place as `at` too, a `method` and a form that writes only a `return_type` "
@@ -1459,11 +1462,12 @@ def test_an_entry_with_no_form_gives_one_place_as_its_at(tmp_path):
     one_place = ("such as a stale name's, cites that line. A place that writes a name but no form of it, and no "
                  "`methods`, `properties` or `fields` its entry would carry (a mention, a bare code span, an "
                  "import, a heading or prose that names or describes it), gives it no entry when another place gives the name one, "
-                 "unless `inventory-floor.json` gives that place; of several such places of a name no other place "
-                 "gives an entry, the first alone gives one: in SKILL.md, else the file that sorts first by path, at "
-                 "its lowest line.")
+                 "unless `inventory-floor.json` gives that place; of several such places of a name the skill "
+                 "documents and no other place gives an entry, the first alone gives one: in SKILL.md, else the file "
+                 "that sorts first by path, at its lowest line.")
     for sentence in (formless_at, one_place):
         assert sentence in contract and contract.count(sentence) == 1, sentence
+    assert "of several such places of a name no other place gives an entry" not in contract
     assert "a form that writes only a `return_type` gives no `at`" in contract
     example = json.loads(re.search(r"```json\n(.*?)\n```", _read(INVENTORY_CONTRACT), re.S).group(1))["exports"]
     assert [e.get("at") for e in example if e["name"] in ("ClassName", "TypeName")] == ["SKILL.md:48", "SKILL.md:52"]
@@ -1744,7 +1748,8 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     header, its caption or the nearest heading above it (`### Key parameters`) labels it partial. Under a heading
     that already writes the name's form, the table adds no entry: two forms at one place would bind neither to the
     declaration its citation names, for a name declared more than once."""
-    s1 = ("A function's or a class's form the skill writes as a call expression of its own name (after `await`, "
+    s1 = ("A function's, a method's or a class's form the skill writes as a call expression of its own name (after "
+          "`await`, "
           "`new` or an assignment, through a receiver or module path such as `coco.`, or as a statement in a "
           "fenced example; in running text or a description cell, only a call that passes an argument and writes "
           "no parameter type, `?`, bare `*` or `/`, with or without such a prefix, and no return type unless such "
@@ -1824,24 +1829,64 @@ def test_the_inventory_contract_gives_an_example_call_beside_a_form_no_entry():
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
 
-def test_a_method_with_a_form_of_its_own_gets_an_entry_and_no_receiver():
+def test_a_method_with_a_form_of_its_own_gets_an_entry_and_no_receiver(tmp_path):
     """Coherence review (oh-my-skills rehearsals): no sentence said whether a method a class's place writes with its
     own form (cognee's GraphSnapshot row, cocoindex's Task body) gets a `method` entry besides its `methods` item, so
     one reader cross-checked all of Task's methods and another none; whether a call through an instance
     (`builder.provide(KEY, value)`) is that method's place; and whether `canvas.getByRole('button')`, read literally
     through the receiver clause, is a usage of the `getByRole` function, a false Critical. Readers also kept or
-    dropped a leading `self` in a class's form read from `def __init__(self, ...)`. Each now has one reading."""
+    dropped a leading `self` in a class's form read from `def __init__(self, ...)`. Each now has one reading.
+    Coherence review of that fix (rehearsal of oms-cognee): the call sentence named only a function's or a class's
+    form, so for a method written as an untyped call in a methods list or a bullet (Task's `execute(args, kwargs,
+    next_batch_size=None)`, cognee's config setters) two readers wrote bare-name `params` and one a usage, where all
+    three had written a usage before; it now names a method's form too, and the method
+    sentence records such a call in `usage_signature`, a running-text place included. One reader also read a class
+    body's `def __init__(self, ...)` as a `method` entry and gave `Task` and `CogneeApiError` no `params`, which left
+    the constructor out of the signature check; a class body's constructor is now its class's `params`. Coherence
+    review of that fix: it named only a class body, so a constructor a methods list (oms-cocoindex 0.3.37's
+    `__init__(fl: Flow, ...)` under `**FlowLiveUpdater**`) or a row's cell (1.0.0's `Environment` row) writes still
+    fell under the method sentence, an uncompared `__init__` method entry for a literal reader and the class's
+    `params` for one who read by analogy. Every place's constructor is now its class's `params`, at the `class` line
+    or else the nearest line of that place that writes the class's name, which the validator keeps with no warning
+    where the `__init__` line itself would be dropped."""
     contract = _flow(_read(INVENTORY_CONTRACT))
     methods = ("Each `methods` item starts with the method's name, optionally after `async` (`async "
                "next_uuid(dep=None)`). A method a place writes with a form of its own (a class body, a methods list, "
-               "a row's cell) gets a `method` entry there with that form, besides its class's `methods` item, and so "
-               "does one the skill calls through an instance or the class it documents with that member "
-               "(`builder.provide(KEY, value)`, `canvas.getByRole('button')`), the class as `owner` and the call in "
-               "`usage_signature`, never a usage of a same-named function. A class's `params`, a `method`'s and each "
+               "a row's cell, running text) gets a `method` entry there with that form, a call recorded in "
+               "`usage_signature` as a function's is (`execute(args, kwargs, next_batch_size=None)` in a methods "
+               "list), besides its class's `methods` item, and so does one the skill calls through an instance or the "
+               "class it documents with that member (`builder.provide(KEY, value)`, `canvas.getByRole('button')`), "
+               "the class as `owner` and the call in `usage_signature`, never a usage of a same-named function. A "
+               "constructor a place writes (`def __init__(self, ...)`, `constructor(...)`, in a class body, a methods "
+               "list, a row's cell or running text) is its class's form, never a `method` entry: the class's "
+               "`params`, at the `class` line in a class body, else at the nearest line of that place that writes the "
+               "class's name (a label line such as `**FlowLiveUpdater**`). A class's `params`, a `method`'s and each "
                "`methods` item leave out a leading `self` or `cls`. A `const` holding a component")
     assert contract.count(methods) == 1
+    assert "A constructor a class body writes" not in contract
+    assert contract.count("A function's, a method's or a class's form the skill writes as a call expression") == 1
+    assert "A function's or a class's form the skill writes as a call expression" not in contract
     assert contract.index("A function the skill documents in a module is a `function` named bare") < contract.index(
         methods), "after the module-function rule it sits beside"
+    validator = runpy_module(SCRIPTS_DIR / "validate-inventory.py")
+    package = tmp_path / "skill"
+    package.mkdir()
+    (package / "SKILL.md").write_text(
+        "# Demo\n\n**`FlowLiveUpdater`**\n\n- `__init__(fl: Flow, options: FlowLiveUpdaterOptions | None = None)`\n"
+        "- `start()`\n", encoding="utf-8")
+
+    def ctor_at(at):
+        entry = {"name": "FlowLiveUpdater", "kind": "class", "description": "",
+                 "params": "fl: Flow, options: FlowLiveUpdaterOptions | None = None", "at": at}
+        inventory = {"exports": [entry], "references": [], "cross_check_mismatches": []}
+        return validator.validate_inventory(json.dumps(inventory), str(package))
+
+    label = ctor_at("SKILL.md:3")
+    assert label["valid"] is True and label["warnings"] == [], (label["violations"], label["warnings"])
+    assert label["inventory"]["exports"][0]["at"] == "SKILL.md:3"
+    init_line = ctor_at("SKILL.md:5")
+    assert init_line["valid"] is True and "at" not in init_line["inventory"]["exports"][0]
+    assert any("does not write `FlowLiveUpdater`" in w for w in init_line["warnings"]), init_line["warnings"]
 
 
 def test_a_type_alias_carries_no_form_and_an_unlabelled_const_is_a_constant():
