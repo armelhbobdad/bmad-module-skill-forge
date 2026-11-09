@@ -33,6 +33,12 @@ and none of the `difference` tags. These tests keep:
   may leave out, each export's form read alone (#843), and forms attributed
   to two declarations of one name never compared with each other there
   (#927);
+- the forms one file writes for one name as an overload set read there as
+  one documented set, as a source's is, its own forms never compared with
+  each other (#1017);
+- a leading receiver one documented form writes and the other leaves out
+  never compared there, since neither form is the source, by every
+  receiver score-signatures.py drops, Rust's `&mut self` included (#1045);
 - a partial label in a table's column header labelling each of its rows;
 - a name written with empty parentheses in running text or a description
   cell (any cell but an export table's first cell and a call or signature
@@ -236,6 +242,29 @@ def test_a_caller_following_a_narrower_form_makes_a_valid_call():
     assert "`Callable[[A], X] | Callable[[A], Y]` and `(a: A) -> X | Y`" in spellings
     overloads = _section("Overload sets")
     assert "the unions of the overloads' types" in overloads
+
+
+def test_a_documented_overload_set_is_read_as_one_set():
+    """#1017 (oms-cognee 1.6.2): Overload sets spoke only of a source declaration, so in the split-body cross-check a
+    body form that defaults `dataset` and `format` could be compared with one documented `@overload` stub that
+    requires both and fail on optionality, though it matches the implementation the same reference writes after its
+    stubs. The forms one file writes for one name as an overload set are one documented set, read as a source's is:
+    a form on the other side matching its implementation, a stub or the stubs' unions is no mismatch, and the set's
+    own forms are never compared with each other."""
+    overloads = _section("Overload sets")
+    source = ("A declaration opening an overload set (Python `@overload` stubs, TS bodiless signatures) is read through "
+              "its implementation")
+    documented = ("In the split-body cross-check, the forms one file writes for one name as an overload set "
+                  "(`@overload` stubs or TS bodiless signatures, and the implementation after them when the file "
+                  "writes it) are one documented overload set, read as a source's is: a form on the other side that "
+                  "matches its implementation, any of its stubs or, position by position, the unions of the stubs' "
+                  "parameter types is no mismatch, so a form that defaults `format` matches a set whose stub requires "
+                  "it and whose implementation defaults it.")
+    own = "The set's own forms are compared neither with each other nor with its implementation."
+    for sentence in (source, documented, own):
+        assert sentence in overloads, sentence
+    assert overloads.index(source) < overloads.index(documented) < overloads.index(own), "the source's rule comes first"
+    assert _flow(_read(RULES)).count("one documented overload set") == 1, "one copy"
 
 
 def test_a_usage_form_is_read_as_what_it_writes():
@@ -462,7 +491,7 @@ def test_a_call_to_a_class_is_compared_with_its_constructor():
     instance = ("A call to an instance is compared with its class's `__call__` (`fn = _FunctionDecorator()`, then "
                 "`fn(memo=True)`), its overloads read as Overload sets says, and a name bound to a class with that "
                 "class's constructor (`Symbol = core.Symbol`, whose stub declares `__new__(cls, name: str)`).")
-    receivers = "(`self`, `cls`, `&self`, `this: T`)"
+    receivers = "(`self`, `cls`, `&self`, `&'a self`, `&mut self`, `mut self`, `this: T`)"
     receiver = (f"A leading receiver the source writes {receivers} is never compared, and a form's own leading "
                 "receiver is dropped only when the source leads with one too: `(self, a)` against `def f(a)` is a "
                 "mismatch.")
@@ -500,7 +529,11 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
     of bare names may too, except where that shifts a caller's positions. An ellipsis claims nothing, as everywhere,
     and each side's partial label is read from its own file, since the export's `signature_form` is one.
     #927: two same-named declarations are two exports, so forms attributed to different declarations of one name
-    (their own citations at `at`, or §2's `bound`) are never compared with each other there."""
+    (their own citations at `at`, or §2's `bound`) are never compared with each other there.
+    #1045 (oms-cognee 1.6.2): the receiver rule spoke only of a source, so `execute(args, kwargs,
+    next_batch_size=None)` against `execute(self, args, kwargs, next_batch_size=None)` was a High mismatch for a reader
+    taking `self` as a parameter the defaulting form leaves out, and no mismatch for one dropping it by analogy. Neither
+    form is the source, so each form's own leading receiver is dropped before the two are compared."""
     reading = _section("Reading a form")
     assert ("In the split-body cross-check both forms are documented: each is read by these rules, a type, return "
             "type or type arguments one of them leaves out are not compared, and a parameter's optionality is "
@@ -552,6 +585,30 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
     assert paragraph.index(homonyms) < paragraph.index(reader) < paragraph.index(each), "the reader's default sits between"
     assert paragraph.endswith(each), "the #927 rule ends the split-body paragraph"
     assert rules.count("attributed to different declarations") == 1, "one copy"
+    # #1017: forms one file writes as an overload set are read as one set, by the rule under Overload sets
+    pointer = "The forms one file writes for one name as an overload set are read as one set, as Overload sets says."
+    first = "and a parameter's optionality is compared only when both forms state it."
+    assert pointer in paragraph, pointer
+    assert paragraph.index(first) < paragraph.index(pointer) < paragraph.index(homonyms), "after the first sentence"
+    # #1045: a receiver only one form writes is never compared, after the first sentence, by every receiver
+    # score-signatures.py drops, Rust's `&mut self` and `mut self` too, since no script reads these two forms;
+    # against the source, `(self, a)` and `def f(a)` still differ
+    listed = ("self", "cls", "&self", "&'a self", "&mut self", "mut self", "this: T")
+    receivers = "(" + ", ".join(f"`{r}`" for r in listed) + ")"
+    receiver = (f"A leading receiver {receivers} that one form writes and the other leaves out is never compared: "
+                "neither form is the source, so each form's own leading receiver is dropped before the two are "
+                "compared.")
+    assert receiver in paragraph, receiver
+    assert paragraph.index(first) < paragraph.index(receiver) < paragraph.index(pointer), "after the first sentence"
+    assert rules.count("neither form is the source") == 1, "one copy"
+    source_rule = _paragraph(rules, "A call to a class is compared with its constructor")
+    assert receivers in source_rule, "the source rule lists every receiver RECEIVER_RE drops, as the split-body rule does"
+    spec = importlib.util.spec_from_file_location("score_signatures", SCORE_SIGNATURES)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for item, extension in zip(listed, (".py", ".py", ".rs", ".rs", ".rs", ".rs", ".ts")):
+        assert module._parameters(f"({item}, value)", extension)[0]["receiver"], f"{item} is a receiver the script drops"
+    assert "`(self, a)` against `def f(a)` is a mismatch." in reading, "the source's rule is unchanged"
     # the `bound` rule it points at ("below") stays below it
     flowed = _flow(rules)
     assert flowed.index(each) < flowed.index("A form the check binds (`bound`")

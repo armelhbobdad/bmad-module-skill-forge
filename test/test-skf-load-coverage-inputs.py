@@ -1665,13 +1665,52 @@ def test_an_other_declaration_written_twice_is_listed_once():
     assert out == [{"name": "f", "kind": "function", "file": "b.py", "line": 3, "signatureLine": "def f():"}]
 
 
-def test_no_extraction_or_a_replaced_one_gives_no_other_declaration(tmp_path):
-    """#918: other declarations come from a runner extraction alone: a fallback one, which the per-file scan
-    replaces, and a surface read by eye give none."""
+def test_no_extraction_or_a_replaced_one_leaves_other_declarations_unknown(tmp_path):
+    """#918, #1026: other declarations come from a runner extraction alone. A fallback one, which the per-file scan
+    replaces, a surface read by eye and a Quick-tier one never look for them, so `otherDeclarations` is null, not
+    the [] of an extraction that looked and found none, which the split-body Source reads as no other declaration
+    (test_a_same_named_declaration_no_entry_point_exports_is_an_other_declaration keeps the runner's lists)."""
     fallback = {**PIPELINES, "status": "no-ast-grep"}
     out = _surface(tmp_path / "fallback", "--extraction", _write(tmp_path / "fallback" / "e.json", fallback))
-    assert out["extraction"]["fallback"]["needed"] and out["otherDeclarations"] == []
-    assert _surface(tmp_path / "eye", "--name", "run_pipeline")["otherDeclarations"] == []
+    assert out["extraction"]["fallback"]["needed"] and out["otherDeclarations"] is None
+    assert _surface(tmp_path / "eye", "--name", "run_pipeline")["otherDeclarations"] is None
+    quick = _write(tmp_path / "quick" / "quick-1.json", {"exports": [
+        {"name": "run_pipeline", "type": "function", "source_file": ORCHESTRATOR, "defined_in": ORCHESTRATOR}]})
+    assert _surface(tmp_path / "quick", "--quick", quick)["otherDeclarations"] is None
+    assert ("and [] with none; null with no extraction or with one the per-file scan replaces, which looks for none, "
+            "so null means never looked for (#1026).") in " ".join(mod.__doc__.split())
+    # both docstrings name the split-body Source, the reader the null is for, beside score-signatures.py
+    assert ("and so does test-skill's Split-Body Sources (coverage-check-branches.md), which lets one declaration "
+            "settle a split-body pair only on a list.") in " ".join(mod.__doc__.split())
+    assert "score-signatures.py plan and test-skill's Split-Body Sources read them." in " ".join(
+        mod.other_declarations.__doc__.split())
+    assert "only score-signatures.py reads them" not in " ".join((mod.__doc__ + mod.other_declarations.__doc__).split())
+
+
+@pytest.mark.parametrize("runner_json", [True, False], ids=["with-the-runner-json", "no-runner-json"])
+def test_a_fallback_scan_surface_leaves_other_declarations_unknown(tmp_path, runner_json):
+    """#1026 (oms-cognee run_pipeline): the fallback per-file scan reads the orchestrator's and run_tasks' files,
+    not the lightweight runner's, and its results name no other declaration. Its surface records run_pipeline at
+    the orchestrator's file with no line, and `otherDeclarations` is null, with the runner's no-ast-grep JSON or
+    without it, so the split-body Source never settles a pair by that one record as if nothing else declared the
+    name; a full extraction of the same tree lists the lightweight runner. A scan that reads the runner's file
+    too records run_pipeline twice and still lists nothing."""
+    per_file = [_write(tmp_path / f"per-file-{n}.txt", {"file": file, "exports_found": [name],
+                                                        "signature_mismatches": []})
+                for n, (file, name) in enumerate([(ORCHESTRATOR, "run_pipeline"), (RUN_TASKS, "run_tasks"),
+                                                  (LIGHTWEIGHT, "run_pipeline")], 1)]
+    runner = (["--extraction", _write(tmp_path / "e.json", {**PIPELINES, "status": "no-ast-grep", "exports": []})]
+              if runner_json else [])
+    out = _surface(tmp_path / "two", *("--per-file", per_file[0], "--per-file", per_file[1]), "--fallback-scan",
+                   *runner)
+    assert [(e["name"], e["file"], e["line"]) for e in out["exports"]] == [
+        ("run_pipeline", ORCHESTRATOR, None), ("run_tasks", RUN_TASKS, None)]
+    assert out["otherDeclarations"] is None
+    out = _surface(tmp_path / "three", *(arg for path in per_file for arg in ("--per-file", path)),
+                   "--fallback-scan", *runner)
+    assert [(e["name"], e["file"]) for e in out["exports"]] == [
+        ("run_pipeline", ORCHESTRATOR), ("run_pipeline", LIGHTWEIGHT), ("run_tasks", RUN_TASKS)]
+    assert out["otherDeclarations"] is None
 
 
 @pytest.mark.parametrize("patch, reason", [

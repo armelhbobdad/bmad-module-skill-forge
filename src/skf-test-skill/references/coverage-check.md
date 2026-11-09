@@ -101,7 +101,7 @@ uv run {validateInventoryScript} --input "{run_dir}/inventory-response.txt" --sk
 
 ### 1b. Cross-Check Split-Body Consistency
 
-Only when the validated inventory's `references` is non-empty. Each `cross_check_mismatches` entry is a High `split-body-mismatch` gap. §5b records it titled `Split-body mismatch: {export} ({reference_file})`, with its `export` and its Source at the side the source contradicts (`{reference_file}` when no source settles it): update-skill edits that file to match the other without reading the source. An entry for two references the body does not settle is titled `Split-body mismatch: {export} ({other_file}, {reference_file})`.
+Only when the validated inventory's `references` is non-empty. Each `cross_check_mismatches` entry is a High `split-body-mismatch` gap. §5b records it titled `Split-body mismatch: {export} ({reference_file})`, with its `export` and its Source at the side the source contradicts (`{reference_file}` when no source settles it): update-skill makes the edits its remediation names, reading no source. An entry for two references the body does not settle is titled `Split-body mismatch: {export} ({other_file}, {reference_file})`.
 
 ### 2. Analyze Source Code (Tier-Dependent)
 

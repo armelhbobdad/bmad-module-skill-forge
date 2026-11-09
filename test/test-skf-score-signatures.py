@@ -1943,6 +1943,18 @@ def test_a_form_bound_to_nothing_is_planned_as_before(tmp_path, tree, inventory)
     assert "bound" not in _homonym_check(json.loads(plan.stdout))
 
 
+def test_a_surface_whose_other_declarations_are_null_plans_as_one_with_none(tmp_path):
+    """#1026: a surface no runner extraction built (the fallback per-file scan's) writes `otherDeclarations` as
+    null, never looked for. plan reads it as an empty list: byte for byte the plan of the same surface with [], the
+    orchestrator's form bound to its record and the lightweight form, whose citation names no declaration plan
+    knows, unbound."""
+    tree = {"SKILL.md": HOMONYM_SKILL}
+    plans = [_homonym_plan(tmp_path / key, tree, {**HOMONYMS, "otherDeclarations": others}).stdout
+             for key, others in (("null", None), ("empty", []))]
+    assert plans[0] == plans[1]
+    assert _homonym_check(json.loads(plans[0]))["bound"] == [ORCHESTRATOR_BOUND]
+
+
 def test_a_form_whose_place_validation_drops_is_planned_unbound(tmp_path):
     """#918: an `at` validate-inventory.py finds bad never refuses the inventory; it drops it with a warning. The
     lightweight form's `at` names the line after its form, which does not write `run_pipeline` but cites the

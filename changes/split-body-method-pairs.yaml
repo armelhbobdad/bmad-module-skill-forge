@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's split-body cross-check now settles a pair of a method's forms by the method itself. The reader gives the pair the method's `owner` (`agents` for `agents.get`), and the Source reads the member of that name the owner's class body declares, from the owner's record in `surface.json`, or the function a namespace object binds it to (`session.add_feedback`, a keyword of the `types.SimpleNamespace(...)` call that builds `session`), so a `split-body-mismatch` gap cites the side that declaration contradicts and its remediation cites the member's file and line. Before, `surface.json` records no class member, so every method pair said no source settled it and had Update Skill copy the other side's form, even over a reference line that matches the source, and a root export of the same bare name (`cognee.delete` beside `agents.delete`) could settle the pair against the wrong declaration. A record of the bare name never stands in for the member: with no record of the owner, no such member it declares or binds, or no `owner` on a pair of a name the inventory lists only as a method, the pair stays unsettled. Methods of one name on different owners (`agents.get`, `datasets.get`) are two methods, and their forms are never a pair.
+issues: [1035]
+prs: [1054]

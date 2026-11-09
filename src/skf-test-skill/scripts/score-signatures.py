@@ -168,9 +168,10 @@ ratios and the gap records of the wrong signatures.
              ellipsis claims nothing about what it stands for. A keyword or
              name before the group, a default's value, a `*` or `/` marker,
              the names of `*args` and `**kwargs`, and a leading receiver the
-             source writes (`self`, `cls`, `&self`, `this: T`) are never
-             compared; the documented list's own receiver is dropped only
-             when the source's list leads with one too, so a module-level
+             source writes (`self`, `cls`, `&self`, `&'a self`, `&mut self`,
+             `mut self`, `this: T`) are never compared; the documented
+             list's own receiver is dropped only when the source's list
+             leads with one too, so a module-level
              function whose first parameter is named `self` or `cls` is read
              as a method. A signature with no group, on either side, is
              compared by the text before its return. Still refused, on the
@@ -504,7 +505,8 @@ def load_other_declarations(path: str) -> list[dict]:
     surface name, in a file none of its records names, that the extraction
     records and no entry point exports, which plan may bind a form to. Each
     one with a name and a file; [] when the surface has none (an older
-    surface included)."""
+    surface included) or writes null, which it does when no runner
+    extraction looked for them (#1026)."""
     data = _read_json(path, "--surface")
     items = data.get("otherDeclarations") if isinstance(data, dict) else None
     return [d for d in (items if isinstance(items, list) else [])

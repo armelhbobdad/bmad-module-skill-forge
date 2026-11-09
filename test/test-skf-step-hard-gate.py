@@ -734,7 +734,22 @@ class TestStagesRecordTheirGaps:
         reference line when it cannot or neither side agrees. Each record names its reference file in its title, so
         two references that disagree with one body are two gaps, and its remediation names both files. #841: the
         cross-check also compares two references the body does not settle (it does not document the export, or
-        agrees with both), and §5b loads the Source rule from the branch file's Split-Body Sources section."""
+        agrees with both), and §5b loads the Source rule from the branch file's Split-Body Sources section.
+        #1035 (oms-cognee 1.6.2): `surface.json` records no class member, so every pair of a `method`'s forms
+        (`datasets.list_data`, `agents.delete`) fell to "no source settled it" and had update-skill copy SKILL.md's
+        form, missing a required parameter, over a reference line the source agrees with; and a root record of the
+        bare name (`cognee.delete` for `agents.delete`) could settle a pair against the wrong declaration. A method
+        pair gives its `owner`, and the Source reads the member the owner's body declares, or the function a namespace
+        object binds it to (`session.add_feedback`, a `types.SimpleNamespace` keyword), never a bare-name record; two
+        owners' methods of one name are never a pair.
+        #1026: a surface the fallback per-file scan builds never looks for other declarations, yet wrote
+        `otherDeclarations` as [], so one recorded declaration settled a pair a full extraction leaves unsettled. It
+        now writes null, and the one declaration decides only on a list.
+        #1027: a pair nothing decides because the name has two declarations had update-skill copy one side's form
+        over the other, though each can be right for its own declaration (core's and the React renderer's
+        `composeStory`, #927). When each form agrees with a different declaration, the remediation names no form to
+        take and asks for each declaration's citation beside its form, which the next run's reader and §2's `bound`
+        read; §1b and the record format no longer say update-skill always copies the other side."""
         text = _read(COVERAGE_FILE)
         section1 = _flow(_slice(text, "### 1. Extract Documented Exports", "#### 1a."))
         assert ("For each export two or more of the files it reads document, it compares the SKILL.md body with "
@@ -750,12 +765,25 @@ class TestStagesRecordTheirGaps:
                 "then line, as `other_file` and `other_line`, with the one that sorts last as `reference_file` and "
                 "`reference_line`.") in contract
         assert '"other_file": "references/api-reference.md", "other_line": 40' in contract
+        # #1035: a method pair also gives its entries' `owner`, which the Source reads, and the example shows one
+        assert ("Each file is its path in the package, such as `references/api-reference.md`. A pair of a "
+                "`method`'s forms also gives the `owner` its entries give (`agents` above), so the split-body Source "
+                "reads that owner's member, never a same-named declaration elsewhere; `owner` is not validated."
+                ) in contract
+        # one pair gives one owner, so methods of one name on two owners are never a pair
+        assert ("`owner` is not validated. Methods of one name whose entries give different owners (`agents.get`, "
+                "`datasets.get`) are two methods, and their forms are never a pair.") in contract
+        example = json.loads(re.search(r"```json\n(.*?)\n```", _read(REFS / "inventory-contract.md"),
+                                       re.S).group(1))["cross_check_mismatches"]
+        assert [(e["export"], e["owner"]) for e in example if "owner" in e] == [("get", "agents")]
         section = _flow(_slice(text, "### 1b. Cross-Check", "### 2. Analyze"))
         assert "The SKILL.md body is authoritative" not in section
         assert "High `split-body-mismatch` gap" in section
         assert ("§5b records it titled `Split-body mismatch: {export} ({reference_file})`, with its `export` and its "
                 "Source at the side the source contradicts (`{reference_file}` when no source settles it): "
-                "update-skill edits that file to match the other without reading the source") in section
+                "update-skill makes the edits its remediation names, reading no source") in section
+        # #1027: a remediation may ask for citations instead of a copy, so §1b no longer says it always copies
+        assert "to match the other without reading the source" not in section
         assert ("An entry for two references the body does not settle is titled `Split-body mismatch: {export} "
                 "({other_file}, {reference_file})`.") in section
         # §5b keeps the sentence that loads the Source rule; the rule itself is a branch section
@@ -770,8 +798,10 @@ class TestStagesRecordTheirGaps:
                        "At State 1 and the Forge tier or above, with `workspaceDrift` not `overridden`",
                        "set the two forms its `issue` gives against the export's declaration at the `file` and "
                        "`line` `surface.json` gives",
-                       "when that one declaration decides (no overload set, no second declaring file, no "
-                       "`otherDeclarations` entry of the export's name)",
+                       # #1026: a null list, which no runner extraction looked for, decides nothing
+                       "when that one declaration decides (no overload set, no second declaring file, and an "
+                       "`otherDeclarations` list, not `null`, with no entry of the export's name; `null` means no "
+                       "runner extraction looked for one, as after the fallback per-file scan)",
                        # the other side when only the reference agrees, else the default, the reference that sorts last
                        "when `{reference_file}`'s form agrees and the other side's does not, the Source is the other "
                        "side, `SKILL.md:{skill_md_line}` or `{other_file}:{other_line}`.",
@@ -782,6 +812,53 @@ class TestStagesRecordTheirGaps:
                        "`{reference_file}` to edit, taking the other side's form (`{other_file}`'s, for two "
                        "references)"):
             assert needle in rule, needle
+        # #1026: the surface paragraph says what a surface no runner extraction built writes for that list
+        assert ("It is `null`, not `[]`, when no runner extraction looked for them: a surface with no extraction, or "
+                "one the fallback per-file scan builds, with or without the runner's JSON.") in _flow(
+                    _read(REFS / "source-access-protocol.md"))
+        # #1035: a method pair is settled by the member its owner's body declares, read from the owner's record, or,
+        # for a namespace object such as cognee's `session`, by the function its keyword binds, by the same
+        # one-declaration test, before the remediation that cites the declaration's `file:line`
+        member = ("A pair that gives an `owner` is a `method`'s (inventory-contract.md): its declaration is the member "
+                  "of the method's bare name that the owner's body declares, read from the `file` and `line` of the "
+                  "owner's `surface.json` record, or, for an owner that binds the name to a function declared "
+                  "elsewhere (a keyword of the `types.SimpleNamespace(...)` call that builds it, a class attribute "
+                  "assigned a function), the declaration that binding names, read in the owner's file or through its "
+                  "import, and it decides when the owner's name has one declaration by the test above and the owner "
+                  "declares or binds the member once, with no overload set.")
+        # a bare-name record never stands in, and a pair the rule cannot place under its owner is settled by nothing
+        bare = ("A record of the bare name never stands in for the member, so with no record of the owner or no such "
+                "member, or with no `owner` on a pair whose `export` the inventory lists only as a `method`, nothing "
+                "decides.")
+        for sentence in (member, bare):
+            assert rule.count(sentence) == 1, sentence
+        assert (rule.index("the Source is the other side, `SKILL.md:{skill_md_line}`") < rule.index(member)
+                < rule.index(bare) < rule.index("Its remediation names the file to edit")), "before the remediation"
+        # #1027: a pair nothing decides because the name has two declarations sets each form against each of them,
+        # never for a method pair, whose declarations are members the bare name's records never stand in for. It
+        # runs under the State, tier and drift gate alone, so after a fallback scan that records the name in two
+        # files too, where each record has no line: the judge finds it by name in its file
+        homonyms = ("Under the State, tier and `workspaceDrift` conditions above, when nothing decides because the "
+                    "export's name has more than one declaration (a second declaring file, or an `otherDeclarations` "
+                    "entry of its name), on a pair that gives no `owner` and whose `export` the inventory does not "
+                    "list only as a `method`, set each form against each declaration of the name, its `surface.json` "
+                    "records and its `otherDeclarations` entries, read at their `file` and `line`, or found by its "
+                    "name in its `file` when its `line` is `null` (a per-file record): when each form agrees with a "
+                    "different one, the remediation names no form to take.")
+        # it asks for the citation each form's own citations are read from, and a module or owner the reader reads;
+        # a declaration with no line is cited by its file, which names every declaration there (form_citations)
+        cite = ("For each side it gives the form's file and line and the declaration that form agrees with, and asks "
+                "update-skill to add that declaration's citation, `[SRC:{file}:L{line}]`, or `[SRC:{file}]` for one "
+                "with no `line`, which names every declaration in its file, on the form's line or, in a fenced block, "
+                "on a comment line just above it, and to name the declaration's module or owner beside the form, so a "
+                "later run's reader and §2's `bound` keep the two apart.")
+        # the Source and the table keep the unsettled side, and every other pair keeps the copy
+        unsettled = ("Its Source stays `{reference_file}:{reference_line}` and its **Contradicted Side** "
+                     "`not settled`; every other pair keeps the remediation above.")
+        for sentence in (homonyms, cite, unsettled):
+            assert rule.count(sentence) == 1, sentence
+        assert (rule.index("taking the other side's form (`{other_file}`'s, for two references)") < rule.index(homonyms)
+                < rule.index(cite) < rule.index(unsettled)), "after the default remediation it narrows"
         assert "State 2" not in rule and "`signature_source`" not in rule
         formats = _flow(_read(FORMATS_FILE))
         assert ("Each row is a split-body gap coverage-check recorded. **Other Side** is the other file of its pair, "
@@ -794,6 +871,9 @@ class TestStagesRecordTheirGaps:
                 "`{other_file}:{other_line}`, when `{reference_file}` agrees with the source declaration and the other "
                 "side does not, else `{reference_file}:{reference_line}`, also when no source settled it. Its "
                 "remediation names the file to edit and the file and line whose form it takes") in formats
+        # #1027: or, for forms of two declarations, the citation to add beside each
+        assert ("whose form it takes, or, when each form agrees with a different declaration of the name, the "
+                "citation to add beside each, and update-skill changes only what it names as contradicting.") in formats
         # the table shows the pair's other side and which side the source contradicts
         assert ("| # | Reference File | Export | Issue | Other Side | Reference Line | Contradicted Side |"
                 in formats)

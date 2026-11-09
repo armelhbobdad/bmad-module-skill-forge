@@ -1,0 +1,6 @@
+type: changed
+scope: skf-test-skill, skf-update-skill
+summary: |
+  When Test Skill's split-body cross-check flags two forms of a name the source declares more than once (in a second file, or as a same-named declaration no entry point exports), such as core's and the React renderer's `composeStory`, and each form matches a different one of those declarations, the `split-body-mismatch` gap's remediation no longer has Update Skill copy one side's form over the other. For each side it names the form's file and line and the declaration that form matches, and asks for that declaration's `[SRC:]` citation beside the form, with its module or owner named, so the next run tells the two forms apart. Update Skill's `--from-test-report` run adds those citations and changes neither form. The gap stays High, with its Source at the reference line and the Reference Consistency table's Contradicted Side `not settled`, and every other pair keeps its remediation. Before, Update Skill rewrote a form that was right for its own declaration to match the other declaration's.
+issues: [1027]
+prs: [1054]
