@@ -1,0 +1,4 @@
+type: docs
+summary: |
+  The README's reference-output paragraph now gives the strict SKF 9.0.0 results that Verifying a Skill already quotes: run as Test Skill is designed, with its subagents, all four oh-my-skills reference skills pass, with oms-cocoindex, oms-storybook-react-vite and oms-uitripled at 100% and oms-cognee at 99%. It no longer gives the SKF 4.0.0 results, under which oms-uitripled and oms-storybook-react-vite were blocked.
+prs: [1075]
