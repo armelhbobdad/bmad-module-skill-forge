@@ -221,8 +221,9 @@ def test_skill_md_stays_under_its_token_budget():
     purpose, past the guideline: the foreground rule every SKILL.md carries word for word and the reading rule in
     the Headless row, to about 2,650 tokens. 10,740 characters holds it there without a tokenizer, so nothing else
     grows it. #965 grows the resolver sentence every SKILL.md carries word for word by 40 characters, to name the
-    missing SKF helper, so the ceiling is 10,761."""
-    assert len(_read(SKILL_MD)) < 10_761, len(_read(SKILL_MD))
+    missing SKF helper, so the ceiling was 10,761. #1037 grows the foreground rule by 108 characters, to have every
+    Agent call pass `run_in_background: false`, so the ceiling is 10,869."""
+    assert len(_read(SKILL_MD)) < 10_869, len(_read(SKILL_MD))
 
 # --- Every HALT names a known reason, its code and its phase ------------------------------
 

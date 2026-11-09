@@ -33,7 +33,7 @@ These rules apply to every step in this workflow:
 - Every verdict must cite evidence from the generated skills
 - Only load one step file at a time — never preload future steps
 - If any instruction references a subprocess or tool you lack, achieve the outcome in your main context thread
-- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`) and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
+- Run every subagent in the foreground, passing `run_in_background: false` on every Agent call (Claude Code runs a subagent in the background when the flag is left out), with parallel ones as several such calls in one message, and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision; a gate that picks its default for the user (step 1's offer of the newest earlier report) also records that decision in the run sink the moment it decides
