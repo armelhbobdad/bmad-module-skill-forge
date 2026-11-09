@@ -383,6 +383,20 @@ declaration of the name, and so does test-skill's Split-Body Sources
 (coverage-check-branches.md), which lets one declaration settle a
 split-body pair only on a list.
 
+Unresolved stars (surface `unresolvedStars`, #1005): each `export *` or
+`export type *` from another package (a specifier with no leading `.` or
+`/`) that a read of the source met and no script resolves, as {file, line,
+statement}: from a complete extraction, each entry_points.unresolved item
+named `*` in a JavaScript-family file (statement `export * from '<from>'`,
+line null); from each --quick output, each `unlisted` record whose
+statement is such an `export * from`; from each --per-file result, each
+`unresolved_stars` string, `<line>: <statement>` (line null when it opens
+with no number), at the result's file, a non-string skipped. Sorted, each
+once (one statement two inputs list, with or without its `;`, is one star:
+a star is its file and specifier, kept with its line), and [] with none.
+They join no record, set, count or guard: gap-ledger.py reads them, so a stale name the skill cites at such a file
+is an Info observation, not a Medium gap.
+
 Candidates and guards (with an extraction, --brief or --metadata): each
 set's count, the metadata `stats.effective_denominator` (--metadata), and
 the extractor's own effective_denominator and its basis; for the
@@ -667,6 +681,13 @@ NOT_PATTERN_REFERENCE = frozenset({"specific-modules", "component-library", "doc
 # The languages skf-extract-public-api.py's recipes read (its LANGUAGE_FAMILIES).
 RECIPE_LANGUAGES = frozenset({"python", "rust", "go", "golang", "typescript", "ts", "tsx", "javascript", "js",
                               "jsx", "vue"})
+# The extensions of skf-extract-public-api.py's JavaScript family (its EXTENSION_LANGUAGES), whose `export *` from
+# another package the runner leaves unresolved (#1005).
+JS_FAMILY_EXTENSIONS = frozenset({".ts", ".mts", ".cts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue"})
+# A per-file result's `unresolved_stars` item: `<line>: <statement>` (groups: the line, the statement).
+STAR_ITEM_RE = re.compile(r"\s*(\d+)\s*:\s*(.*\S)\s*")
+# The module specifier of an `unresolvedStars` statement (group 2), which tells two listings of one star apart.
+STAR_SPECIFIER_RE = re.compile(r"""\bfrom\s*(['"])(.+?)\1""")
 
 
 class InputError(Exception):
@@ -1815,6 +1836,54 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
     }
 
 
+def _bare(specifier: object) -> bool:
+    """Whether a module specifier names another package: a non-empty string with no leading `.` or `/`."""
+    return isinstance(specifier, str) and bool(specifier.strip()) and not specifier.strip().startswith((".", "/"))
+
+
+def _star(file: object, line: object, statement: object) -> dict | None:
+    """An `unresolvedStars` item, or None for one with no file or statement."""
+    if not (isinstance(file, str) and file.strip() and isinstance(statement, str) and statement.strip()):
+        return None
+    return {"file": _norm(file), "line": _count(line) or None, "statement": statement.strip()}
+
+
+def extraction_stars(data: dict) -> list[dict]:
+    """The runner's `export *` from another package (#1005): each
+    entry_points.unresolved item named `*` whose `from` is bare, in a
+    JavaScript-family file. The runner records no line for it."""
+    points = data.get("entry_points") if isinstance(data.get("entry_points"), dict) else {}
+    stars = []
+    for item in points.get("unresolved") or []:
+        if (isinstance(item, dict) and item.get("name") == "*" and _bare(item.get("from"))
+                and isinstance(item.get("file"), str)
+                and posixpath.splitext(item["file"])[1].lower() in JS_FAMILY_EXTENSIONS):
+            stars.append(_star(item["file"], None, f"export * from '{item['from'].strip()}'"))
+    return [s for s in stars if s]
+
+
+def quick_stars(data: dict) -> list[dict]:
+    """A --quick output's `export * from` another package (#1005): each
+    `unlisted` record whose statement is one and whose specifier is bare."""
+    stars = [_star(u.get("file"), u.get("line"), u.get("statement")) for u in data.get("unlisted") or []
+             if isinstance(u, dict) and isinstance(u.get("statement"), str)
+             and u["statement"].startswith("export * from") and _bare(u.get("specifier"))]
+    return [s for s in stars if s]
+
+
+def _unique_stars(stars: list[dict]) -> list[dict]:
+    """Each star once, sorted by file, line and statement (#1005): a --quick record and a per-file result can list
+    one statement, as `export * from 'x'` and as the source writes it (`export * from 'x';`), so a star is its file
+    and the specifier its statement names (its line and statement when it names none), kept with a line when one of
+    its listings has one, else its first statement in order."""
+    kept: dict[tuple, dict] = {}
+    for star in sorted(stars, key=lambda s: (s["line"] is None, s["file"], s["line"] or 0, s["statement"])):
+        specifier = STAR_SPECIFIER_RE.search(star["statement"])
+        key = (star["file"], specifier.group(2)) if specifier else (star["file"], star["line"], star["statement"])
+        kept.setdefault(key, star)
+    return sorted(kept.values(), key=lambda s: (s["file"], s["line"] or 0, s["statement"]))
+
+
 def from_quick(data: dict) -> list[dict]:
     exports = data.get("exports")
     if not isinstance(exports, list):
@@ -1823,8 +1892,9 @@ def from_quick(data: dict) -> list[dict]:
             for e in exports if isinstance(e, dict) and isinstance(e.get("name"), str) and e["name"]]
 
 
-def from_per_file(path: str) -> tuple[list[dict], list[str]]:
-    """(the records of one per-file result, its schema breaches)."""
+def from_per_file(path: str) -> tuple[list[dict], list[str], list[dict]]:
+    """(the records of one per-file result, its schema breaches, its
+    `unresolved_stars` as `unresolvedStars` items, #1005)."""
     scorer = _sibling("score-signatures.py")
     try:
         text = Path(path).read_bytes().decode("utf-8-sig")
@@ -1832,15 +1902,21 @@ def from_per_file(path: str) -> tuple[list[dict], list[str]]:
         raise InputError(f"cannot read --per-file {path}: {exc}") from exc
     results, errors = scorer.parse_result_text(text, Path(path).name)
     if errors:
-        return [], errors
-    records = []
+        return [], errors, []
+    records, stars = [], []
     for result in results:
         types = set(result.get("types_found") or [])
         for name in sorted(set(result.get("exports_found") or []) | types):
             if name:
                 records.append(_record(name, "type" if name in types else None, result["file"], None, None,
                                        "per-file"))
-    return records, []
+        listed = result.get("unresolved_stars")
+        # Not schema-checked: an item that is no string is skipped, never a breach.
+        for item in listed if isinstance(listed, list) else []:
+            if isinstance(item, str):
+                m = STAR_ITEM_RE.fullmatch(item)
+                stars.append(_star(result["file"], int(m.group(1)) if m else None, m.group(2) if m else item))
+    return records, [], [s for s in stars if s]
 
 
 def fold_names(names: list[str], prefixes: list[str], keep: set[str],
@@ -1939,6 +2015,8 @@ def surface(args: argparse.Namespace) -> dict:
     warnings: list[str] = []
     out: dict = {"candidates": None, "guards": None, "denominator": None, "state2": None, "canonical": None,
                  "extraction": None, "extractionGaps": [], "excluded": {"outsideScope": [], "nestedEntries": []}}
+    # Each `export *` from another package a read of the source met (#1005): no record, set or count.
+    stars: list[dict] = []
 
     meta = _object(args.metadata, "--metadata") if args.metadata else None
     provenance = _object(args.provenance, "--provenance") if args.provenance else None
@@ -1959,16 +2037,20 @@ def surface(args: argparse.Namespace) -> dict:
         out["extractionGaps"] = extracted["gaps"]
         out["excluded"] = {"outsideScope": extracted["outside"], "nestedEntries": extracted["nested"]}
         warnings += [f"{Path(args.extraction).name}: {w}" for w in data.get("warnings") or [] if isinstance(w, str)]
+        # one the per-file scan replaces gives no star: the scan's results list theirs
+        stars += [] if extracted["extraction"]["fallback"]["needed"] else extraction_stars(data)
     quick_outputs = []
     for path in args.quick or []:
         data = _object(path, "--quick")
         quick_outputs.append(data)
         records += from_quick(data)
+        stars += quick_stars(data)
         warnings += [f"{Path(path).name}: {w}" for w in data.get("warnings") or [] if isinstance(w, str)]
     violations: list[str] = []
     for path in args.per_file or []:
-        found, errors = from_per_file(path)
+        found, errors, starred = from_per_file(path)
         records += found
+        stars += starred
         violations += errors
     if violations:
         raise SchemaError(violations)
@@ -2190,6 +2272,7 @@ def surface(args: argparse.Namespace) -> dict:
         },
         "exports": records,
         "otherDeclarations": others,
+        "unresolvedStars": _unique_stars(stars),
         "sets": sets,
         **out,
         "warnings": warnings,

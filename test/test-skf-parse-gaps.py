@@ -911,6 +911,18 @@ def test_the_provenance_unverified_reason_holds_the_alias_case():
         assert needle in reason, needle
 
 
+def test_the_brief_scope_stale_reason_keeps_the_restored_files():
+    """#1009: a restored export stays only while an include glob matches no file, so the reason (and gap-driven.md's
+    bullet, which equals it) asks for an include glob over each restored file the skill documents beside the glob
+    edit, or an exclude glob for one it leaves out, not the glob edit alone."""
+    reason = mod.NOT_ROUTED_REASONS["brief-scope-stale"]
+    for needle in ("edits the brief's scope globs by hand", "since update-skill does not rewrite them",
+                   "adds a `scope.include` glob for each restored file whose exports the skill documents",
+                   "a `scope.exclude` one for each it leaves out",
+                   "a restored export stays only while an include glob matches no file"):
+        assert needle in reason, needle
+
+
 def test_translate_leaves_a_stale_name_unrouted_with_its_reason():
     """#798: no source line to repair a stale name from, and removing its documentation could delete a name the
     surface missed: a person decides, so translate writes no entry for it."""

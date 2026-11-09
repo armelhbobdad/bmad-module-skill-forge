@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill no longer records a Medium `stale-documentation` gap for a Python package the skill documents by its import path when the skill's citations name both the package's `__init__.py` and the module of the same name inside it, such as `pkg/errors/__init__.py` and `pkg/errors/errors.py`. The two files are the one module that path names, but the gap ledger settled a name declared in several files only when the skill cited exactly one of them, so the report asked the author to update or remove correct documentation, and re-running Test Skill could not clear it. Citations of only a package's `__init__.py` and modules named like it directly in its folder (`NAME.py` or `NAME.pyi`) now settle on the package: the name is an Info `Documented extra: {name}` at the package's `__init__.py`, and two cited files in different packages still keep the Medium gap.
+issues: [1012]
+prs: [1059]

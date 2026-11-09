@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill no longer records a Medium `stale-documentation` gap for a documented name that the source declares once inside the brief's scope when a copy of its file lies outside it, such as a docs app in a monorepo that keeps its own copy of a provider file. `classify-stale` in `skf-verify-provenance-completeness.py` had no brief input, so when the provenance map spans several packages its walk read the whole repository and counted the copy that a `scope.exclude` glob matches, or that no `scope.include` glob covers, as a second declaration; with no single declaring file, the report asked the author to update or remove accurate documentation. With its new `--brief` flag, which Test Skill now passes when the skill has a brief, a file the brief scopes out no longer counts as a declaration when a file in the brief's scope declares the name, so the name is an Info `Documented extra: {name}` at its one declaration in scope. A file the provenance map cites for the name still settles it wherever it lies, a rename that clears a fabricated signature is still found in any file, and a name declared only in files the brief scopes out keeps those declarations, so its gap is the same as without the flag.
+issues: [1007]
+prs: [1059]

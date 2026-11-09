@@ -14,9 +14,10 @@ counts and the Gap Report is rendered from:
     while it is being removed is retried until the lock deadline and then
     LEDGER_LOCKED naming the refusal, and a refusal off Windows, with
     nothing at the lock path or with a folder there is WRITE_FAILED
-  - render: severity order, counts, the Remediation Summary, the Gap Entry
-    lines, --heading, the clean pass, errors on stderr only, the group
-    taken from the category
+  - render: severity order, counts, the Remediation Summary (each row's
+    effort from the categories of its gaps, with their counts, #1047), the
+    Gap Entry lines, --heading, the clean pass, errors on stderr only, the
+    group taken from the category
   - summary and categories
   - append --from: each adapter's records (coverage, guards, numerator,
     metadata-coherence, provenance-line, coherence and structure, the
@@ -35,9 +36,19 @@ counts and the Gap Report is rendered from:
     `defined_at` extensions are pinned to the verifier's, and the
     coverage-check §5b call records one; a homonym (no `defined_at`,
     several `declared_in` files) is one when the skill's `[AST:]`/`[SRC:]`
-    citations on a line naming it cite exactly one of those files, and
-    stays Medium when they cite two or none, without --skill-dir, or with
+    citations on a line naming it cite exactly one of those files, or
+    only a package's `__init__.py` and a module of its name in that
+    folder (#1012, at the package), and
+    stays Medium when they cite any other two or none, without --skill-dir, or with
     a `declared_in` that is not a list of several `file:line` items
+  - a name cited at another package's `export *` (#1005): a stale name
+    with no `defined_at` whose skill citations cite a file the surface's
+    `unresolvedStars` lists is an Info `observation` `Not checked by
+    script: {name} (another package's export *)` at the documenting line,
+    naming each star and asking no change, beside a hand-written `Not
+    checked by script: {name}`; another cited file, no --skill-dir, a
+    missing or malformed list, a `defined_at`, a rescope or a fabricated
+    name keeps its gap
   - an inflated `scope.include` union (#795): when the inflation guard
     fires on the set the barrel branch counts, its undocumented names are
     one Medium `denominator-inflation` gap at the brief listing at most 50
@@ -59,6 +70,30 @@ counts and the Gap Report is rendered from:
     that holds the name among other words, a quoted string in prose or
     holding other words, a fence in an HTML comment or a data block; an
     unreadable input is skipped, and the floor is read once
+  - a name written only as a module path (#1011): a code span that is a
+    dotted path ending in the name once a call's `(` is cut documents it,
+    below an exact span and above a fenced declaration (a heading's or
+    export-table first cell's text that is one ranks with a heading, #1041);
+    a path ending in another name, or one among other words, documents
+    nothing
+  - a module-qualified export (#1041): a heading's or export-table first
+    cell's code span or text that is such a path once floor's cuts are
+    made ranks with a heading of the name, and a code span that calls the
+    name after an assignment, `await`, `new` or a module ranks with a
+    span of the name, so an earlier bare span no longer wins; a call with
+    a space or type arguments before its `(`, or none, documents nothing
+  - a module path's module (#1011 and #1041 review): a dotted path keys
+    its last segment only when its first segment is a module the skill's
+    fenced code imports (`import pkg`, `from pkg.x import y`, `import a.b
+    as c`, `import * as ns from`), so a type's method row, a receiver's
+    call or an attribute access (`Client.connect()`, `client.connect(url)`,
+    `store.state`) never outranks the line that documents the name
+  - a name no line documents (#1006): the first `at` the --inventory
+    result gives an entry of the name that is no `method` (SKILL.md's,
+    then by path, then the lowest line) is its Source, its Issue's line
+    and the line its remediation names, a scoped-out name's too, and a
+    fabricated name's Issue line; a line a tier finds still wins, and an
+    inventory that is no object with an `exports` list is refused
   - an aliased name's provenance line (#911): with --stale, an unverified
     line of a name classify-stale marks `aliased` names the alias and asks
     to record the rename if no other entry already has its `export_name`,
@@ -619,9 +654,64 @@ class TestRender:
         assert "**Non-blocking (Medium + Low + Info):** 2" in text
         assert "### Remediation Summary" in text
         assert "| Low | 0 | None |" in text
-        assert "| Critical | 1 | Read the source code" in text
+        assert f"| Critical | 1 | signature-mismatch (1): {mod.ACTIONS['signature-mismatch']} |" in text
+        assert f"| High | 1 | inaccurate-reference (1): {mod.ACTIONS['inaccurate-reference']} |" in text
         assert "| **Total** | **4** | |" in text
         assert not text.startswith("## Gap Report")
+
+    def test_summary_effort_comes_from_the_rows_categories(self, ledger: Path):
+        """#1047: the Estimated Effort cell was one string per severity, so a Medium row whose only gap was a
+        metadata-drift gap asked for type definitions while the gap asked to re-run Create Skill. Each row now
+        lists the categories of its gaps, in the order its first gap comes, each with its count and action."""
+        append(ledger, "coverage-check", [
+            record(severity="Medium", category="stale-documentation", title="Stale documentation: a", export="a"),
+            record(severity="Medium", category="missing-export", title="Missing export: b", export="b"),
+            record(severity="Medium", category="stale-documentation", title="Stale documentation: c", export="c"),
+            record(severity="Medium", category="metadata-drift", title="barrel drift", source="metadata.json"),
+        ])
+        text = run("render", "--ledger", str(ledger)).stdout
+        assert (f"| Medium | 4 | stale-documentation (2): {mod.ACTIONS['stale-documentation']}; missing-export (1): "
+                f"{mod.ACTIONS['missing-export']}; metadata-drift (1): {mod.ACTIONS['metadata-drift']} |") in text
+        assert "| High | 0 | None |" in text
+
+    def test_a_metadata_drift_row_points_to_create_skill(self, ledger: Path, tmp_path: Path):
+        """The report #1047 found: a Medium row whose only gap is a barrel metadata-drift gap, whose remediation
+        re-runs Create Skill."""
+        result = tmp_path / "coherence.json"
+        result.write_text(json.dumps({"findings": [{"severity": "Medium", "title": "barrel drift: 40 vs 31",
+                                                    "detail": "exports[] holds 31 names"}]}), encoding="utf-8")
+        proc = run("append", "--ledger", str(ledger), "--stage", "coverage-check", "--from", "metadata-coherence",
+                   "--input", str(result))
+        assert proc.returncode == 0, proc.stdout
+        text = run("render", "--ledger", str(ledger)).stdout
+        [row] = [line for line in text.splitlines() if line.startswith("| Medium |")]
+        assert row == f"| Medium | 1 | metadata-drift (1): {mod.ACTIONS['metadata-drift']} |"
+        assert "re-run Create Skill" in row
+        assert "type definitions" not in text
+        assert "Re-run Create Skill" in text.split("**Remediation:**", 1)[1]
+
+    def test_the_brief_scope_stale_action_keeps_the_restored_files(self, ledger: Path):
+        """#1047 review: a stale include glob's row asks for the step #1009's remediation adds, an include glob
+        over each restored file the skill documents, since fixing the glob alone drops its restored exports."""
+        stale = {"applicable": True, "fires": True, "unmatchedInclude": ["python/cocoindex/old/**"],
+                 "restored": [{"name": "App", "file": "python/cocoindex/_internal/app.py", "line": 3}]}
+        records = mod.from_guards({"inputs": {}, "guards": {"staleScope": stale}})
+        assert append(ledger, "coverage-check", records).returncode == 0
+        text = run("render", "--ledger", str(ledger)).stdout
+        [row] = [line for line in text.splitlines() if line.startswith("| Medium |")]
+        assert row == f"| Medium | 1 | brief-scope-stale (1): {mod.ACTIONS['brief-scope-stale']} |"
+        for needle in ("edit the brief's stale scope globs", "a `scope.include` glob over each restored file",
+                       "a `scope.exclude` one for each it leaves out"):
+            assert needle in row, needle
+        assert "add a `scope.include` glob that covers it" in text.split("**Remediation:**", 1)[1]
+
+    def test_every_category_has_one_cell_safe_action(self):
+        # a pipe ends the table cell, and `; ` parts one category's entry from the next
+        assert set(mod.ACTIONS) == set(mod.CATEGORIES)
+        for category, action in mod.ACTIONS.items():
+            assert action and action == action.strip(), category
+            assert not {"|", ";", "\n", chr(0x2014)} & set(action), category
+            assert not action[0].isupper(), category
 
     def test_gap_entry_lines(self, ledger: Path):
         _mixed_ledger(ledger)
@@ -1403,6 +1493,146 @@ class TestCoverageAdapter:
         assert [mod._documenting_line(skill, name) for name in ("Canvas", "getByRole", "AND")] == [
             "references/blocks/doc.md:5", "references/blocks/queries.md:5", "SKILL.md:3"]
 
+    # Fenced code that imports `pkg`, so that a dotted path from `pkg.` is a module path (#1011 and #1041 review)
+    IMPORTS_PKG = "\n```python\nimport pkg\n```\n"
+
+    # #1011: oms-cognee's `exceptions` and `migration`, written only as module paths (`cognee.exceptions`)
+    @pytest.mark.parametrize("files, name, expected", [
+        # a heading's code span, and a list item's
+        ({"SKILL.md": "# demo\n\n### Exceptions: `pkg.exceptions`\n"}, "exceptions", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nPublic exports:\n\n- `pkg.migration`: schema migrations.\n"}, "migration",
+         "SKILL.md:5"),
+        # a heading's or an export-table first cell's whole text, a call cut at `(`, a longer path
+        ({"SKILL.md": "# demo\n\n## pkg.exceptions\n"}, "exceptions", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\n| Function | Purpose |\n| --- | --- |\n| pkg.run_migrations() | Runs them. |\n"},
+         "run_migrations", "SKILL.md:5"),
+        ({"SKILL.md": "# demo\n\nCall `pkg.connect(url)` first.\n"}, "connect", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nSee `pkg.modules.pipelines.task`.\n"}, "task", "SKILL.md:3"),
+        # in the tier the first file wins, then the lowest line
+        ({"SKILL.md": "# demo\n\nSee `pkg.other`.\n\nSee `pkg.migration`.\n\nAnd `pkg.migration`.\n",
+          "references/a.md": "# A\n\n- `pkg.migration` runs.\n"}, "migration", "SKILL.md:5"),
+        # a bare span of a later file and a heading of the name win; a fenced declaration does not
+        ({"SKILL.md": SEE, "references/a.md": "# A\n\nThe path `a.b.task`.\n",
+          "references/b.md": "# B\n\nThe `task` step.\n"}, "task", "references/b.md:3"),
+        ({"SKILL.md": "# demo\n\nSee `pkg.get`.\n\n## get\n"}, "get", "SKILL.md:5"),
+        ({"SKILL.md": "# demo\n\n```python\ndef connect():\n    pass\n```\n",
+          "references/a.md": "# A\n\n`pkg.connect` opens a connection.\n"}, "connect", "references/a.md:3"),
+    ], ids=["dotted-heading", "dotted-prose-span", "dotted-heading-text", "dotted-export-cell-call",
+            "dotted-call-span", "dotted-long-path", "dotted-first-file", "module-path-after-bare-span",
+            "module-path-after-heading", "module-path-before-fence"])
+    def test_a_module_path_documents_its_last_segment(self, tmp_path: Path, files: dict, name: str, expected: str):
+        """#1011: in a skill whose fenced code imports `pkg`, a name the skill writes only as the last segment of
+        a dotted path of plain identifiers from `pkg`, once a call's `(` is cut, is documented there, a code span
+        below an exact span and above a fenced declaration, a heading's or export-table first cell's text with a
+        heading of the name (#1041): its Source, Issue and remediation cite that line."""
+        skill = self._skill_package(tmp_path / "skill", {**files, "SKILL.md": files["SKILL.md"] + self.IMPORTS_PKG})
+        assert mod._documenting_line(skill, name) == expected
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]}, skill_dir=str(skill))
+        assert (record["source"], record["issue"]) == (
+            expected, f"`{expected}` documents `{name}`, which the enumerated source API surface lacks")
+        assert record["remediation"].endswith(f"documentation at {expected}: the enumerated source surface does not "
+                                              "export it.")
+
+    def test_a_module_path_documents_only_its_last_segment(self, tmp_path: Path):
+        """#1011: a path that ends in another name, a span that holds a path among other words or before a space
+        and its call, a bare word, a heading that holds one among other words, the frontmatter and an HTML comment
+        never document `add`."""
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": (
+            "---\nname: demo\ndescription: Use `pkg.add` to install.\n---\n"
+            "# demo\n\nRun pkg.add to install, or `pkg.add.all`, `import pkg.add` or `pkg.add (x)`.\n\n"
+            "## Installing with pkg.add\n\n<!-- `pkg.add` -->\n" + self.IMPORTS_PKG)})
+        assert mod._documenting_line(skill, "add") is None
+        assert mod._documenting_line(skill, "all") == "SKILL.md:7"
+
+    # #1041: oms-cognee's `run_migrations` row (`cognee.run_migrations`) and `wait_for_background_tasks` call lost
+    # to an earlier bare span in a Confidence bullet and in a "not covered here" disclaimer
+    CONFIDENCE = "# demo\n\n- **Confidence:** T1-low (2): `run_migrations`, `tools`.\n\n"
+    DISCLAIMER = "# API\n\n- Top-level names not covered here: `wait_for_background_tasks`.\n"
+
+    @pytest.mark.parametrize("files, name, expected", [
+        # a heading's or export-table first cell's code span or text that is a module path, cut as floor cuts a name
+        ({"SKILL.md": CONFIDENCE + "| Function | Purpose |\n| --- | --- |\n| `pkg.run_migrations` | Runs them. |\n"},
+         "run_migrations", "SKILL.md:7"),
+        ({"SKILL.md": CONFIDENCE + "| Function | Purpose |\n| --- | --- |\n| pkg.run_migrations() | Runs them. |\n"},
+         "run_migrations", "SKILL.md:7"),
+        ({"SKILL.md": "# demo\n\nSee `Client` below.\n\n### `new pkg.Client<T>(opts)`\n"}, "Client", "SKILL.md:5"),
+        # a heading's module path in a later file before a bare span of an earlier one
+        ({"SKILL.md": "# demo\n\n- Not covered here: `exceptions`.\n",
+          "references/api.md": "# API\n\n## Errors: `pkg.exceptions`\n"}, "exceptions", "references/api.md:3"),
+        # a usage form's call after `await` and a receiver, an assignment, or `new`
+        ({"SKILL.md": "# demo\n\nThen `await pkg.wait_for_background_tasks()` drains them.\n",
+          "references/api.md": DISCLAIMER}, "wait_for_background_tasks", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nRead with `x = get(key)`.\n"}, "get", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nOpen one with `const client = new Client(opts)`.\n"}, "Client", "SKILL.md:3"),
+        # a call ranks with an exact span: the lowest line wins, and a heading of the name in a later file
+        ({"SKILL.md": "# demo\n\nCall `pkg.get(key)`.\n\nThe `get` step.\n"}, "get", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nCall `await pkg.get(key)`.\n", "references/api.md": "# API\n\n## get\n"}, "get",
+         "references/api.md:3"),
+    ], ids=["dotted-export-cell-before-bare-span", "dotted-cell-text-before-bare-span", "dotted-heading-span-cuts",
+            "dotted-heading-later-file", "qualified-call-before-disclaimer", "assignment-call", "new-call",
+            "qualified-call-lowest-line", "heading-before-qualified-call"])
+    def test_a_qualified_export_outranks_a_bare_span(self, tmp_path: Path, files: dict, name: str, expected: str):
+        """#1041: in a skill whose fenced code imports `pkg`, a heading's or export-table first cell's code span or
+        text that, once floor's cuts are made, is a dotted path from `pkg` ending in the name ranks with a heading of
+        the name, and a code span that calls the name after an assignment, `await`, `new` or `pkg.` ranks with a
+        span of the name, so an earlier bare span no longer wins: the Source, Issue and remediation cite the line
+        that documents the export."""
+        skill = self._skill_package(tmp_path / "skill", {**files, "SKILL.md": files["SKILL.md"] + self.IMPORTS_PKG})
+        assert mod._documenting_line(skill, name) == expected
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]}, skill_dir=str(skill))
+        assert (record["source"], record["issue"]) == (
+            expected, f"`{expected}` documents `{name}`, which the enumerated source API surface lacks")
+        assert record["remediation"].endswith(f"documentation at {expected}: the enumerated source surface does not "
+                                              "export it.")
+
+    def test_a_usage_form_documents_only_the_name_it_calls(self, tmp_path: Path):
+        """#1041: a comparison, an assignment or `await` with no call, a space or type arguments before the `(`, a
+        longer name and an array type in an export cell never document `add`; the name a call writes does."""
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": (
+            "# demo\n\nCompare `x == add(y)`, `x = add`, `await pkg.add`, `pkg.add (x)`, `pkg.add<T>(x)` and "
+            "`pkg.adder(x)`.\n\n| Function | Purpose |\n| --- | --- |\n| pkg.add[] | A list. |\n"
+            "| `pkg.add.all()` | All of them. |\n" + self.IMPORTS_PKG)})
+        assert mod._documenting_line(skill, "add") is None
+        assert (mod._documenting_line(skill, "adder"), mod._documenting_line(skill, "all")) == (
+            "SKILL.md:3", "SKILL.md:8")
+
+    @pytest.mark.parametrize("files, name, expected", [
+        # a type's method row, and an instance's method call, before the module-level function's own span
+        ({"SKILL.md": "# demo\n\n| Export | Description |\n|---|---|\n| `Client.connect()` | Opens it. |\n\n"
+                      "- `connect(url)` opens a module-level connection\n"}, "connect", "SKILL.md:7"),
+        ({"SKILL.md": "# demo\n\n## Key API: Client.connect\n\nOpen one with `client.connect(url)` or "
+                      "`await client.connect(url)`.\n\n- `connect(url)` connects.\n"}, "connect", "SKILL.md:7"),
+        # an attribute access in prose before the name's fenced declaration
+        ({"SKILL.md": "# demo\n\nRead `store.state` after each dispatch.\n",
+          "references/setup.md": "# Setup\n\n```ts\nexport type state = {\n  count: number\n}\n```\n"}, "state",
+         "references/setup.md:4"),
+        # a module the skill never imports qualifies nothing
+        ({"SKILL.md": "# demo\n\nSee `other.migration` and `await other.wait_all()`.\n"}, "migration", None),
+        # each import form names a module: an alias, a submodule's root, a `from` import, a JS namespace import
+        ({"SKILL.md": "# demo\n\nSee `ops.litellm`.\n\n```python\nimport pkg.ops as ops, json\n```\n"}, "litellm",
+         "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nSee `pkg.ops.litellm`.\n\n```python\nimport pkg.ops as ops\n```\n"}, "litellm",
+         "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nThen `await pkg.drain()`.\n\n```python\nfrom pkg.api import add  # noqa\n```\n"},
+         "drain", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nCall `ns.get(key)`.\n\n```ts\nimport * as ns from 'pkg';\n```\n"}, "get",
+         "SKILL.md:3"),
+        # a relative import, a named or default JS import, and an import in a comment or a data block name none
+        ({"SKILL.md": ("# demo\n\nSee `ns.get`, `x.get` and `y.get`.\n\n```python\nfrom . import ns\n# import x\n```\n"
+                       "\n```ts\nimport { ns } from 'pkg';\nimport y from 'y';\n```\n\n```yaml\nimport: x\n```\n"
+                       "\n<!--\n```python\nimport x\n```\n-->\n")}, "get", None),
+    ], ids=["type-method-row", "receiver-call", "attribute-access", "no-import", "python-alias",
+            "python-submodule-root", "python-from", "js-namespace", "no-module-bound"])
+    def test_only_a_module_the_skill_imports_qualifies_a_name(self, tmp_path: Path, files: dict, name: str,
+                                                              expected: str | None):
+        """#1011 and #1041 review: a dotted path keys its last segment only when its first segment is a module the
+        skill's fenced code imports, so a type's method row, a receiver's call or an attribute access never takes a
+        stale name's gap from the line that documents it, or from its fenced declaration."""
+        skill = self._skill_package(tmp_path / "skill", {**files, "SKILL.md": files["SKILL.md"] + self.IMPORTS_PKG})
+        assert mod._documenting_line(skill, name) == expected
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]}, skill_dir=str(skill))
+        assert record["source"] == (expected or "SKILL.md")
+
     def test_the_append_cli_cites_the_declaration_not_the_frontmatter(self, ledger: Path, tmp_path: Path):
         """#922 through `append --from coverage --skill-dir`: oms-uitripled's `add` was cited at its frontmatter;
         without --skill-dir the skill documents it, as before."""
@@ -1424,6 +1654,93 @@ class TestCoverageAdapter:
         [record] = ledger_records(other)
         assert (record["source"], record["issue"]) == (
             "SKILL.md", "the skill documents `add`, which the enumerated source API surface lacks")
+
+    # #1006: oms-uitripled's `UILibraryContextValue`, written only as a declaration without `export` in a fence,
+    # which no tier reads; the validated inventory places it on the declaration's line
+    CONTEXT_TYPE = "UILibraryContextValue"
+    SETUP = ("# Setup\n\nWrap the app in the provider.\n\n```ts\ntype UILibraryContextValue = {\n"
+             "  library: string;\n};\n```\n")
+    SETUP_INVENTORY = {"exports": [{"name": CONTEXT_TYPE, "kind": "type", "description": "",
+                                    "at": "references/setup.md:6"}]}
+
+    def test_a_name_no_line_documents_takes_its_inventory_place(self, tmp_path: Path):
+        """#1006: the first `at` the inventory gives the name is its Source, its Issue's line and the line its
+        remediation names, on the enumerated and the scalar branch, with --skill-dir or without; a name the brief
+        scopes out cites it too, and a fabricated name's Issue opens with it. Without the inventory: `SKILL.md`."""
+        name = self.CONTEXT_TYPE
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": self.SEE, "references/setup.md": self.SETUP})
+        assert mod._documenting_line(skill, name) is None
+        cov = {"branch": "enumerated", "missing": [], "stale": [name]}
+        [record] = mod.from_coverage(cov, skill_dir=str(skill), inventory=self.SETUP_INVENTORY)
+        assert brief([record]) == [("Medium", "stale-documentation", f"Stale documentation: {name}",
+                                    "references/setup.md:6", name)]
+        assert record["issue"] == (f"`references/setup.md:6` documents `{name}`, which the enumerated source API "
+                                   "surface lacks")
+        assert record["remediation"] == (f"Check `{name}` against the source and update or remove its documentation "
+                                         "at references/setup.md:6: the enumerated source surface does not export it.")
+        [record] = mod.from_coverage(cov, skill_dir=str(skill))
+        assert (record["source"], record["issue"]) == (
+            "SKILL.md", f"the skill documents `{name}`, which the enumerated source API surface lacks")
+        scalar = {"branch": "scalar", "staleApplicable": True, "missingCount": 0, "denominator": 3, "stale": [name]}
+        [record] = mod.from_coverage(scalar, inventory=self.SETUP_INVENTORY)
+        assert record["source"] == "references/setup.md:6"
+
+        inventory = {"exports": [{"name": "Rescoped", "kind": "class", "at": "references/a.md:4"}]}
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Rescoped"]},
+                                     surface=self.BRIEFED_SURFACE, stale=self.RESCOPED, inventory=inventory)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: Rescoped",
+                                    "references/a.md:4", "Rescoped")]
+        assert record["issue"].startswith("`references/a.md:4` documents `Rescoped`, which the entry point ")
+        assert record["remediation"].endswith("remove the documentation of `Rescoped` at references/a.md:4.")
+        inventory = {"exports": [{"name": "ghost", "kind": "function", "params": "", "at": "SKILL.md:9"}]}
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["ghost"]},
+                                     stale=[{"name": "ghost", "fabricated": True, "source": "src/g.ts:2"}],
+                                     inventory=inventory)
+        assert (record["category"], record["source"]) == ("fabricated-signature", "src/g.ts:2")
+        assert record["issue"].startswith("`SKILL.md:9` documents `ghost`, which ")
+
+    @pytest.mark.parametrize("files, entries, expected", [
+        # a line a tier finds keeps it, whatever the inventory says
+        ({"SKILL.md": "# demo\n\n`get` reads a key.\n"}, [{"name": "get", "kind": "function", "at": "SKILL.md:9"}],
+         "SKILL.md:3"),
+        # SKILL.md's `at` first, then the first file in path order, then its lowest line
+        ({}, [{"name": "get", "kind": "function", "at": a} for a in ("references/b.md:3", "SKILL.md:20",
+                                                                     "references/a.md:7")], "SKILL.md:20"),
+        ({}, [{"name": "get", "kind": "function", "at": a} for a in ("references/b.md:3", "references/a.md:7",
+                                                                     "./references/a.md:5")], "references/a.md:5"),
+        # no `at`, a malformed one, a method's (its name is a member's) or another name's: no place
+        ({}, [{"name": "get", "kind": "function"}], "SKILL.md"),
+        ({}, [{"name": "get", "kind": "function", "at": a} for a in ("SKILL.md", "SKILL.md:0", ":4", 7, None)],
+         "SKILL.md"),
+        ({}, [{"name": "get", "kind": "method", "owner": "Client", "at": "SKILL.md:5"}], "SKILL.md"),
+        ({}, [{"name": "put", "kind": "function", "at": "SKILL.md:5"}, "get"], "SKILL.md"),
+    ], ids=["tier-first", "skill-md-first", "path-then-line", "no-at", "malformed-at", "method", "other-name"])
+    def test_the_inventory_place_is_the_first_at_of_the_name(self, tmp_path: Path, files: dict, entries: list,
+                                                             expected: str):
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": self.SEE} | files)
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["get"]}, skill_dir=str(skill),
+                                     inventory={"exports": entries, "references": []})
+        assert record["source"] == expected, record
+
+    def test_the_append_cli_reads_the_inventory(self, ledger: Path, tmp_path: Path):
+        """#1006 through `append --from coverage --inventory`; an inventory that is no object with an `exports`
+        list is refused, and nothing is written."""
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": self.SEE, "references/setup.md": self.SETUP})
+        coverage = write_json(tmp_path / "coverage.json",
+                              {"branch": "enumerated", "missing": [], "stale": [self.CONTEXT_TYPE]})
+        inventory = write_json(tmp_path / "inventory.json", self.SETUP_INVENTORY)
+        proc = from_file(ledger, "coverage-check", "coverage", coverage, skill_dir=skill, inventory=inventory)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert [r["source"] for r in ledger_records(ledger)] == ["references/setup.md:6"]
+        other = tmp_path / "2.0.0" / f"test-findings-{RUN_ID}.json"
+        for data, error in ((["not", "it"], "--inventory (validate-inventory.py) is not that script's result: it "
+                                           "needs an object with 'exports'"),
+                            ({"exports": {"get": "SKILL.md:3"}}, "--inventory: 'exports' must be a list")):
+            proc = from_file(other, "coverage-check", "coverage", coverage, skill_dir=skill,
+                             inventory=write_json(tmp_path / "bad.json", data))
+            assert proc.returncode == 2
+            assert (json.loads(proc.stdout)["code"], json.loads(proc.stdout)["error"]) == ("INVALID_INPUT", error)
+            assert not other.exists()
 
     def test_a_name_written_only_as_a_word_documents_nothing(self, tmp_path: Path):
         """The frontmatter, a bare word, a code span that holds the name among other words or before a space, a
@@ -1526,6 +1843,32 @@ class TestCoverageAdapter:
         assert record["issue"].endswith("the source still declares; of the 2 files that declare it, the skill "
                                         "cites only `pkg/tasks/task.py`")
 
+    # #1012: a package and the module of its own name inside it are one module, the package.
+    @pytest.mark.parametrize("name, skill_md, declared_in, among", [
+        ("errors", "# demo\n\n`pkg.errors` `[AST:pkg/errors/errors.py:L10]` · `[SRC:pkg/errors/__init__.py:L15]`\n",
+         ["pkg/errors/__init__.py:1", "pkg/errors/errors.py:1"], 2),
+        ("errors", "# demo\n\n`errors` `[AST:pkg/errors/errors.pyi:L4]` `[SRC:./pkg/errors/__init__.py:L1]`\n",
+         ["pkg/errors/__init__.py:1", "pkg/errors/errors.pyi:1"], 2),
+        ("errors", "# demo\n\n`errors` `[AST:pkg/errors/errors.py:L10]` `[SRC:pkg/errors/__init__.py:L15]`\n",
+         ["pkg/errors/__init__.py:1", "pkg/errors/errors.py:1", "pkg/legacy/errors.py:3"], 3),
+        ("errors", "# demo\n\n### `errors`\n\n`[AST:errors/errors.py:L10]` `[SRC:errors/__init__.py:L15]`\n",
+         ["errors/__init__.py:1", "errors/errors.py:1"], 2),
+        ("exceptions", ("# demo\n\n`cognee.exceptions` `[AST:cognee/exceptions/exceptions.py:L10]` · "
+                        "`[SRC:cognee/exceptions/exceptions.py:L28-L66]` · "
+                        "`[SRC:cognee/exceptions/__init__.py:L15]`\n"),
+         ["cognee/exceptions/__init__.py:1", "cognee/exceptions/exceptions.py:1"], 2),
+    ], ids=["a-module", "a-stub", "a-third-file-not-cited", "a-top-level-package", "both-cited-on-the-line"])
+    def test_a_package_cited_with_its_same_named_module_is_a_documented_extra(
+            self, tmp_path: Path, name: str, skill_md: str, declared_in: list[str], among: int):
+        """Citations of only a package's `__init__.py` and a module of the name directly in its folder settle on
+        the package, which the name's import path resolves to, and the issue names both files."""
+        record = self._homonym(tmp_path, skill_md, item=self.HOMONYM | {"declared_in": declared_in}, name=name)
+        package, module = declared_in[0].rsplit(":", 1)[0], declared_in[1].rsplit(":", 1)[0]
+        assert brief([record]) == [("Info", "observation", f"Documented extra: {name}", declared_in[0], name)]
+        assert record["issue"].endswith(
+            f"the source still declares; of the {among} files that declare it, the skill cites only the package "
+            f"`{package}` and its same-named module `{module}`, so the gap is at the package")
+
     def test_a_nested_references_file_counts(self, tmp_path: Path):
         (tmp_path / "skill" / "references" / "api").mkdir(parents=True)
         (tmp_path / "skill" / "references" / "api" / "tasks.md").write_bytes(
@@ -1548,12 +1891,133 @@ class TestCoverageAdapter:
             "pkg/models/Task.py:9", "pkg/tasks/task.py"]}}),
         ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\n", {"item": HOMONYM | {"declared_in": None}}),
         ("# demo\n\n`Rescoped` `[AST:pkg/tasks/task.py:L24]`\n", {"name": "Rescoped"}),
+        ("# demo\n\n`errors` `[AST:pkg/errors/__init__.py:L1]` `[AST:pkg/other/errors.py:L1]`\n",
+         {"name": "errors", "item": HOMONYM | {"declared_in": ["pkg/errors/__init__.py:1", "pkg/other/errors.py:1"]}}),
+        (("# demo\n\n`errors` `[AST:pkg/errors/__init__.py:L1]` `[AST:pkg/errors/errors.py:L1]` "
+          "`[AST:pkg/errors/helpers.py:L4]`\n"),
+         {"name": "errors", "item": HOMONYM | {"declared_in": [
+             "pkg/errors/__init__.py:1", "pkg/errors/errors.py:1", "pkg/errors/helpers.py:4"]}}),
+        ("# demo\n\n`errors` `[AST:pkg/errs/__init__.py:L1]` `[AST:pkg/errs/errors.py:L1]`\n",
+         {"name": "errors", "item": HOMONYM | {"declared_in": ["pkg/errs/__init__.py:1", "pkg/errs/errors.py:1"]}}),
+        ("# demo\n\n`errors` `[AST:pkg/errors/__init__.py:L1]` `[AST:pkg/errors/sub/errors.py:L1]`\n",
+         {"name": "errors", "item": HOMONYM | {"declared_in": [
+             "pkg/errors/__init__.py:1", "pkg/errors/sub/errors.py:1"]}}),
+        ("# demo\n\n`errors` `[AST:pkg/a/errors/__init__.py:L1]` `[AST:pkg/b/errors/__init__.py:L1]`\n",
+         {"name": "errors", "item": HOMONYM | {"declared_in": [
+             "pkg/a/errors/__init__.py:1", "pkg/b/errors/__init__.py:1"]}}),
     ], ids=["both-cited", "neither-cited", "cited-two-lines-on", "both-on-the-next-line", "named-only-in-a-citation",
             "no-skill-dir",
-            "one-file", "not-a-list", "an-item-without-a-line", "no-declared-in", "rescoped"])
+            "one-file", "not-a-list", "an-item-without-a-line", "no-declared-in", "rescoped",
+            "a-package-and-a-module-of-another-package", "a-package-its-module-and-another-file",
+            "a-package-not-named-like-it", "a-module-below-the-package-folder", "two-packages"])
     def test_any_other_homonym_stays_medium(self, tmp_path: Path, skill_md: str, kwargs: dict):
         record = self._homonym(tmp_path, skill_md, **kwargs)
         assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
+
+    # #1005: oms-storybook documents @vitest/spy's `Mock`, cited at spy.ts's `export type * from '@vitest/spy'`,
+    # which no script resolves, so the enumerated surface never holds the names it passes on.
+    SPY = {"file": "code/core/src/test/spy.ts", "line": 15, "statement": "export type * from '@vitest/spy';"}
+    SPY_MD = "# demo\n\n`Mock` mocks a function. `[AST:code/core/src/test/spy.ts:L15]`\n"
+    UNPLACED = {"name": "Mock", "fabricated": False, "source": None, "defined_at": None, "declared_in": [],
+                "reason": "no-entry"}
+    STARRED_TITLE = "Not checked by script: Mock (another package's export *)"
+
+    def _starred(self, tmp_path: Path, skill_md: str = SPY_MD, stars: object = (SPY,), item: dict | None = UNPLACED,
+                 surface: dict | None = None, skill: bool = True, refs: str | None = None) -> dict:
+        skill_dir = tmp_path / "skill"
+        (skill_dir / "references").mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_bytes(skill_md.encode("utf-8"))
+        if refs is not None:
+            (skill_dir / "references" / "api.md").write_bytes(refs.encode("utf-8"))
+        surface = dict(self.EXCLUDED_SURFACE if surface is None else surface)
+        if stars is not None:
+            surface["unresolvedStars"] = list(stars) if isinstance(stars, tuple) else stars
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Mock"]}, surface=surface,
+                                     stale=None if item is None else [item],
+                                     skill_dir=str(skill_dir) if skill else None)
+        return record
+
+    @pytest.mark.parametrize("kwargs, where", [
+        ({}, "SKILL.md:3"),
+        ({"item": None}, "SKILL.md:3"),
+        ({"surface": SURFACE | {"extraction": None}}, "SKILL.md:3"),
+        ({"item": UNPLACED | {"declared_in": ["pkg/a/mock.ts:1", "pkg/b/mock.ts:1"]}}, "SKILL.md:3"),
+        ({"skill_md": "# demo\n\nSee references.\n",
+          "refs": "# API\n\n- `Mock` `[SRC:./code/core/src/test/spy.ts:L15-L15]`\n"}, "references/api.md:3"),
+        ({"skill_md": "# demo\n\n### `Mock`\n\n`[AST:code/core/src/test/spy.ts:L15]`\n"}, "SKILL.md:3"),
+    ], ids=["classify-stale-placed-it-nowhere", "no-classify-stale", "a-surface-with-no-extraction",
+            "a-homonym-cited-at-neither-file", "a-reference-file-and-a-range", "a-heading-then-its-citation"])
+    def test_a_name_cited_at_another_packages_star_is_not_checked_by_script(self, tmp_path: Path, kwargs: dict,
+                                                                           where: str):
+        """An Info `observation` at the documenting line, naming the star statement and its file and asking no
+        change unless that package lacks the name."""
+        record = self._starred(tmp_path, **kwargs)
+        assert brief([record]) == [("Info", "observation", self.STARRED_TITLE, where, "Mock")]
+        star = "`export type * from '@vitest/spy';` (`code/core/src/test/spy.ts:15`)"
+        assert record["remediation"] == (
+            f"No change unless the other package does not export `Mock`: a file the skill cites passes on that "
+            f"package's names through {star}, and no script reads them, so check by hand that the package exports "
+            "`Mock`.")
+        assert record["issue"] == (f"`{where}` documents `Mock`, which the enumerated source API surface lacks; a "
+                                   f"file the skill cites passes on another package's names through {star}, which "
+                                   "no script resolves")
+        assert record["severity"] not in mod.BLOCKING
+
+    def test_each_star_of_a_cited_file_is_named(self, tmp_path: Path):
+        """The runner's star has no line; a file the skill does not cite names nothing."""
+        runner = {"file": "./code/core/src/test/spy.ts", "line": None, "statement": "export * from 'tinyspy'"}
+        other = {"file": "code/core/src/index.ts", "line": 2, "statement": "export * from 'zod'"}
+        record = self._starred(tmp_path, stars=(self.SPY, runner, other))
+        assert record["title"] == self.STARRED_TITLE
+        assert ("through `export type * from '@vitest/spy';` (`code/core/src/test/spy.ts:15`) and `export * from "
+                "'tinyspy'` (`./code/core/src/test/spy.ts`), and no script") in record["remediation"]
+        assert "zod" not in record["remediation"] + record["issue"]
+
+    def test_a_hand_written_record_of_the_name_stays_its_own_gap(self, tmp_path: Path, ledger: Path):
+        """#1005 review: §5b appends the coverage call's records, then the Deep tier's hand-written `Not checked
+        by script: {name}` at the same documenting line. The script's record has a title of its own, so the
+        ledger keeps both, never the hand-written one as a duplicate of it."""
+        starred = self._starred(tmp_path)
+        hand = {"severity": "Info", "category": "observation", "title": "Not checked by script: Mock",
+                "source": "SKILL.md:3", "export": "Mock",
+                "remediation": "Correct the documentation to match the source; no script checks this."}
+        assert json.loads(append(ledger, "coverage-check", [starred]).stdout)["appended"] == ["GAP-001"]
+        out = json.loads(append(ledger, "coverage-check", [starred, hand]).stdout)
+        assert (out["appended"], out["duplicates"]) == (["GAP-002"], ["GAP-001"])
+        assert [r["title"] for r in ledger_records(ledger)] == [self.STARRED_TITLE, "Not checked by script: Mock"]
+
+    @pytest.mark.parametrize("kwargs", [
+        {"skill_md": "# demo\n\n`Mock` mocks. `[AST:code/core/src/test/other.ts:L15]`\n"},
+        {"skill_md": "# demo\n\n`Mock` mocks. `[AST:code/core/src/test/spy.ts]`\n"},
+        {"skill_md": "# demo\n\n`Mock` mocks.\nPlain text.\nSee `[AST:code/core/src/test/spy.ts:L15]`\n"},
+        {"skill": False},
+        {"stars": None},
+        {"stars": "code/core/src/test/spy.ts"},
+        {"stars": ({"file": "code/core/src/test/spy.ts", "line": 15},
+                   {"file": 3, "statement": "export * from 'x'"}, "code/core/src/test/spy.ts")},
+        {"item": UNPLACED | {"defined_at": "code/core/src/test/mock.ts:3"}, "surface": SURFACE | {"extraction": None}},
+    ], ids=["another-file-cited", "a-citation-with-no-line", "cited-on-a-line-without-it", "no-skill-dir",
+            "no-unresolved-stars", "not-a-list", "malformed-items", "a-declaration-no-extraction-can-place"])
+    def test_any_other_unplaced_name_stays_medium(self, tmp_path: Path, kwargs: dict):
+        record = self._starred(tmp_path, **kwargs)
+        where = "SKILL.md:3" if kwargs.get("skill", True) else "SKILL.md"
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: Mock", where, "Mock")], \
+            record
+
+    def test_a_scoped_out_or_fabricated_name_keeps_its_gap(self, tmp_path: Path):
+        """A row that says the brief scopes the name's file out keeps the scoped-out Medium, and a fabricated
+        name stays Critical, whatever star the cited file holds."""
+        rescoped = {"name": "Mock", "file": "code/core/src/old.ts", "line": 2, "entry": "code/core/src/index.ts",
+                    "excludeGlob": "code/core/src/old.ts", "outsideInclude": False}
+        surface = self.SURFACE | {"extraction": {"status": "ok"},
+                                  "excluded": {"outsideScope": [rescoped], "nestedEntries": []}}
+        record = self._starred(tmp_path, surface=surface)
+        assert (record["severity"], record["title"]) == ("Medium", "Stale documentation: Mock")
+        assert "scopes out `code/core/src/old.ts:2`, where it is defined" in record["remediation"]
+        record = self._starred(tmp_path, item=self.UNPLACED | {"fabricated": True,
+                                                                "source": "code/core/src/test/spy.ts:15"})
+        assert brief([record]) == [("Critical", "fabricated-signature", "Fabricated signature: Mock",
+                                    "code/core/src/test/spy.ts:15", "Mock")]
 
     @pytest.mark.parametrize("excluded, message", [
         (["Rescoped"], "'excluded' must be an object"),
@@ -1986,26 +2450,37 @@ class TestCountAdapters:
         assert brief(records) == [("Medium", "brief-scope-stale",
                                    "stale brief scope: scope.include globs match no source file",
                                    "data/cognee/skill-brief.yaml", None)]
-        # Each restored export comes with its file, the one the remediation may add to scope.exclude.
+        # Each restored export comes with its file, the one the remediation asks an include or exclude glob for.
         assert records[0]["issue"] == (
             "the `scope.include` glob `cognee/pipelines.py` matches no file in the source tested; the `all` set "
             "restores 2 root exports, defined in files no include glob covers: `Task` in "
             "`cognee/pipelines/task.py`, `run_pipeline` in `cognee/pipelines/run.py`")
-        # update-skill never rewrites an include glob: the fix is a hand edit of the brief.
-        assert records[0]["remediation"] == (
-            "Edit `scope.include` in `data/cognee/skill-brief.yaml` by hand so each glob matches the files it "
-            "meant in this version of the source (update-skill does not rewrite an include glob), and add to "
-            "`scope.exclude` any restored file the brief meant to leave out.")
+        # update-skill never rewrites an include glob: the fix is a hand edit of the brief. A restored name stays
+        # only while an include glob is stale, so fixing the glob alone would drop it from the surface (#1009).
+        restored = (" A restored export stays on the surface only while an include glob matches no file, so for "
+                    "each file that defines one ({files}) add a `scope.include` glob that covers it when the skill "
+                    "documents its exports, or a `scope.exclude` glob when the skill leaves them out.")
+        fix = ("Edit `scope.include` in `data/cognee/skill-brief.yaml` by hand so each glob matches the files it "
+               "meant in this version of the source (update-skill does not rewrite an include glob).")
+        assert records[0]["remediation"] == fix + restored.format(
+            files="`cognee/pipelines/run.py`, `cognee/pipelines/task.py`")
+        # Two restored names in one file: the file is listed once, as an include glob covers it once.
+        stale["restored"].append({"name": "TaskConfig", "file": "cognee/pipelines/task.py", "line": 9})
+        assert mod.from_guards(surface)[0]["remediation"] == fix + restored.format(
+            files="`cognee/pipelines/run.py`, `cognee/pipelines/task.py`")
         # One restored export and two globs: each count takes its own grammatical number.
         stale.update(unmatchedInclude=["cognee/pipelines.py", "docs/**"], restored=stale["restored"][:1])
         assert mod.from_guards(surface)[0]["issue"] == (
             "the `scope.include` globs `cognee/pipelines.py`, `docs/**` match no file in the source tested; the "
             "`all` set restores 1 root export, defined in a file no include glob covers: `Task` in "
             "`cognee/pipelines/task.py`")
+        assert mod.from_guards(surface)[0]["remediation"] == fix + restored.format(files="`cognee/pipelines/task.py`")
         # Without --brief the surface records no brief path: the gap cites the bare file name.
         stale["restored"] = []
         record = mod.from_guards({"inputs": {}, "guards": {"staleScope": stale}})[0]
         assert record["source"] == "skill-brief.yaml" and record["issue"].endswith("; no root export was restored")
+        # With nothing restored there is no file to keep or leave out: the fix is the glob edit alone.
+        assert record["remediation"] == fix.replace("data/cognee/skill-brief.yaml", "skill-brief.yaml")
         stale["fires"] = False
         assert mod.from_guards(surface) == []
         stale.update(fires=True, unmatchedInclude="cognee/pipelines.py")
@@ -2049,7 +2524,10 @@ class TestCountAdapters:
         assert records[0]["remediation"] == (
             "Edit `scope.include` and `scope.tier_a_include` in `data/cognee/skill-brief.yaml` by hand so each "
             "glob matches the files it meant in this version of the source (update-skill does not rewrite an "
-            "include or tier A glob), and add to `scope.exclude` any restored file the brief meant to leave out.")
+            "include or tier A glob). A restored export stays on the surface only while an include glob matches no "
+            "file, so for each file that defines one (`cognee/pipelines/task.py`) add a `scope.include` glob that "
+            "covers it when the skill documents its exports, or a `scope.exclude` glob when the skill leaves them "
+            "out.")
         # An empty tier A list leaves the include-only gap as #677 wrote it.
         stale["unmatchedTierAInclude"] = []
         assert mod.from_guards(surface)[0]["title"] == "stale brief scope: scope.include globs match no source file"
@@ -2466,9 +2944,10 @@ class TestAppendFrom:
     @pytest.mark.parametrize("kind, inputs, options, message", [
         ("coherence", 1, {"metadata": "m.json"}, "--from coherence does not read --metadata"),
         ("coverage", 1, {"served": "usage"}, "--from coverage does not read --served"),
+        ("guards", 1, {"inventory": "inventory.json"}, "--from guards does not read --inventory"),
         ("numerator", 2, {}, "--from numerator reads one --input file"),
         ("structure", 0, {}, "--from structure reads one or more --input files"),
-    ], ids=["stray-metadata", "stray-served", "two-inputs", "no-input"])
+    ], ids=["stray-metadata", "stray-served", "stray-inventory", "two-inputs", "no-input"])
     def test_a_call_its_kind_does_not_read_is_refused(self, ledger: Path, tmp_path: Path, kind, inputs, options,
                                                       message):
         result = write_json(tmp_path / "result.json", {"inflated": False})
@@ -2526,11 +3005,14 @@ class TestTheProseCalls:
     def test_coverage_check_records_every_script_gap(self, ledger: Path, tmp_path: Path):
         run_dir, skill = tmp_path / "run", tmp_path / "skill"
         skill.mkdir()
-        (skill / "SKILL.md").write_bytes(b"# demo\n\n`oldName()` still documented.\n\n`Task(fn)` wraps a step.\n")
+        (skill / "SKILL.md").write_bytes(b"# demo\n\n`oldName()` still documented.\n\n`Task(fn)` wraps a step.\n\n"
+                                         b"```ts\ntype Ctx = { id: string };\n```\n")
         write_json(run_dir / "signature-gaps.json", [record(severity="Critical", category="signature-mismatch",
                                                              title="Signature mismatch: helper", export="helper")])
         write_json(run_dir / "coverage.json", {"branch": "enumerated", "missing": ["Options", "fetchData"],
-                                               "stale": ["oldName", "ghost", "Task"]})
+                                               "stale": ["oldName", "ghost", "Task", "Ctx"]})
+        # #1006: §1a's inventory places `Ctx`, which no line documents as an export
+        write_json(run_dir / "inventory.json", {"exports": [{"name": "Ctx", "kind": "type", "at": "SKILL.md:8"}]})
         write_json(run_dir / "surface.json", TestCoverageAdapter.EXCLUDED_SURFACE | {"guards": {
             "deflation": {"fires": True, "rederived": 9, "pct": 50.0, "effectiveDenominator": 6},
             "inflation": {"fires": False}, "umbrella": {"umbrella": False}}})
@@ -2568,8 +3050,8 @@ class TestTheProseCalls:
         # a name classify-stale found fabricated, recorded first, takes no provenance line gap for its gone file
         assert [r["category"] for r in ledger_records(ledger) if r.get("export") == "ghost"] == [
             "fabricated-signature"]
-        stale = next(r for r in ledger_records(ledger) if r["category"] == "stale-documentation")
-        assert (stale["source"], stale["export"]) == ("SKILL.md:3", "oldName")
+        stale = [(r["source"], r["export"]) for r in ledger_records(ledger) if r["category"] == "stale-documentation"]
+        assert stale == [("SKILL.md:3", "oldName"), ("SKILL.md:8", "Ctx")]
         extra = next(r for r in ledger_records(ledger) if r["category"] == "observation")
         assert (extra["title"], extra["source"], extra["export"]) == ("Documented extra: Task", "src/task.ts:4", "Task")
         assert extra["issue"].startswith("`SKILL.md:5` documents `Task`")

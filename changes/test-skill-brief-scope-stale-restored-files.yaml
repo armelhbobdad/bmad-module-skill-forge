@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill, skf-update-skill
+summary: |
+  Following Test Skill's Medium `brief-scope-stale` remediation no longer shrinks the Export Coverage denominator. When a `scope.include` glob in the skill brief matches no file, the coverage surface restores the root exports defined in a file no include glob covers, but only while some include glob stays stale. The remediation asked only to fix each glob and to add to `scope.exclude` any restored file the brief meant to leave out, so fixing the glob dropped every restored export from the surface, and each one the skill documents came back on the next run as a Medium `stale-documentation` gap. The remediation now says a restored export stays only while an include glob matches no file, lists each file that defines one once, and asks for a `scope.include` glob that covers it when the skill documents its exports, or a `scope.exclude` glob when the skill leaves them out. With nothing restored it asks for the glob edit alone. Update Skill's not-routed reason for the gap says the same.
+issues: [1009]
+prs: [1059]

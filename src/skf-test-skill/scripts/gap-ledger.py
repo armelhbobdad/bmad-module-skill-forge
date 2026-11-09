@@ -61,8 +61,8 @@ Subcommands:
 
   append --ledger <path> --stage <stage> --from <kind> --input <file>...
          [--surface <file>] [--signatures <file>] [--numerator <file>]
-         [--stale <file>] [--provenance <file>] [--skill-dir <dir>]
-         [--metadata <path>] [--served <family>]...
+         [--stale <file>] [--provenance <file>] [--inventory <file>]
+         [--skill-dir <dir>] [--metadata <path>] [--served <family>]...
       Build the records from the result file a script wrote (see Adapters
       below) instead of reading them, then append them as above, with the
       same output. A gap a script finds is recorded with a fixed title,
@@ -76,7 +76,8 @@ Adapters (--from), each record classified by its Gap Severity row
 cites (never read; default `metadata.json`):
 
   coverage  --input reconcile-coverage.py's result; --surface, --signatures,
-            --numerator, --stale, --provenance, --skill-dir, --metadata.
+            --numerator, --stale, --provenance, --inventory, --skill-dir,
+            --metadata.
             Barrel branch: each `missing` name is a Medium `missing-export`
             gap `Missing export: {name}`, or a Medium `missing-type` gap
             `Missing type: {name}` when the --signatures result lists it in
@@ -117,8 +118,12 @@ cites (never read; default `metadata.json`):
             citations on the lines of SKILL.md and references/**/*.md that
             name it (outside the citations), or on the next non-blank line
             after one, cite exactly one of those files: the gap
-            is at that file's `declared_in` item, and two cited or none
-            leave it Medium. The documented extra's remediation asks no
+            is at that file's `declared_in` item. A package
+            `<dir>/NAME/__init__.py` cited with only modules named NAME
+            directly in its folder (`<dir>/NAME/NAME.py` or `.pyi`) counts
+            as that one file, the package `<dir>.NAME` resolves to (#1012);
+            any other two cited, or none, leave it Medium. The documented
+            extra's remediation asks no
             change (update-skill never routes it) and says whether signature
             scoring compared its documented signature (a name the
             --signatures result lists in `comparedNames`). `excluded` is
@@ -132,26 +137,45 @@ cites (never read; default `metadata.json`):
             heading, or the first cell of a table whose header's first
             cell names exports (floor's table headers, a compound
             `Component / Props` one included), whose text is the
-            name or holds a code span floor reads as the name; (3) a line
-            whose inline code span is the name, or the name directly
-            followed by `(`; (4) a column-0 declaration of it in a fenced
+            name or holds a code span floor reads as the name, or whose
+            text or code span, cut as floor cuts a name, is a module path
+            whose last segment is the name
+            (`cognee.run_migrations()` for `run_migrations`, #1041); (3) a
+            line whose inline code span is the name, the name directly
+            followed by `(`, or a usage form that calls it (an assignment,
+            `await`, `new` or a module path, then the name directly followed
+            by `(`: `await cognee.add(data)`, #1041); (4) a line whose
+            code span, cut at a call's `(`, is a module path whose last
+            segment is the name, `cognee.exceptions` for `exceptions`
+            (#1011), a module path being a dotted path of plain identifiers
+            whose first segment is a module the skill's fenced code imports
+            (`import cognee`, `from cognee.x import y`, `import a.b as c`,
+            `import * as ns from`), never a receiver's or a type's path
+            (`client.connect(url)`, `Client.connect`); (5) a column-0
+            declaration of it in a fenced
             block of a language floor's `_declared_names` reads (JS/TS,
             Python, Rust, Go), cited or not, so a def an example writes
             under the name is cited only when nothing above documents it;
-            (5) a line of a fenced block that holds the name as a whole
+            (6) a line of a fenced block that holds the name as a whole
             quoted string (`"name"` or `'name'`), such as an `__all__` item.
-            Tiers 2 to 5 read SKILL.md, then every .md file under
+            Tiers 2 to 6 read SKILL.md, then every .md file under
             references/, subfolders included, in path order, outside the
-            frontmatter (2 and 3 outside fenced code and HTML comments, 4
-            and 5 inside a fence outside an HTML comment and a data block
+            frontmatter (2 to 4 outside fenced code and HTML comments, 5
+            and 6 inside a fence outside an HTML comment and a data block
             (json, yaml...)); within a tier the first file, then its lowest
             line, wins. A bare word, a span that holds the name among other
             words (`uitripled add`), or a quoted string outside a fence or
-            holding other words too (`"add x"`) documents nothing; with no
-            such line, or without --skill-dir, the Source is `SKILL.md`.
+            holding other words too (`"add x"`) documents nothing. With no
+            such line, or without --skill-dir, the line that documents it
+            is the first `at` the --inventory result (validate-inventory.py,
+            which keeps an `at` only on a line that writes the name) gives
+            an entry of the name that is no `method`: SKILL.md's, then the
+            first file in path order, then its lowest line (#1006). With
+            none, the Source is `SKILL.md`. An --inventory that is no object
+            with an `exports` list is INVALID_INPUT.
             Floor's InputError (no SKILL.md, or a top-level file it cannot
             read or decode) leaves tier 1 empty, and a skill file that
-            cannot be read leaves tiers 2 to 5 empty. One whose
+            cannot be read leaves tiers 2 to 6 empty. One whose
             `excluded.outsideScope` row says the brief scopes its file out
             (`excludeGlob`, the `scope.exclude` glob that matches it, or
             `outsideInclude`, no `scope.include` glob covering it), unless
@@ -162,11 +186,23 @@ cites (never read; default `metadata.json`):
             documentation, narrow that exclude glob (a removal needs a
             `demoted-exclude` amendment) or widen `scope.include`, else
             remove it. A row the
-            brief does not explain keeps the wording above. Every stale
-            name's issue (fabricated, documented extra, stale documentation
-            or scoped out) opens with the line that documents it, as
-            `file:line` (with --skill-dir), else with `the skill`, whatever
-            its Source. Scalar and stack branches: a
+            brief does not explain keeps the wording above. Any other with
+            no `defined_at` (every name without --stale), with --skill-dir,
+            whose skill citations on a line naming it (as a homonym's are
+            read) cite a file the --surface result's `unresolvedStars` lists
+            (an `export *` from another package no script resolves, #1005)
+            is an Info `observation` gap `Not checked by script: {name}
+            (another package's export *)` (so that a Deep-tier hand-written
+            `Not checked by script: {name}` stays its own gap) at
+            the line that documents the name, else `SKILL.md`: its issue and
+            remediation name each such statement and its file, and the
+            remediation asks no change unless that package lacks the name.
+            A missing or malformed `unresolvedStars` counts as empty. Every
+            stale name's issue (fabricated, documented extra, not checked,
+            stale documentation or scoped out) opens with the line that
+            documents it, as
+            `file:line` (with --skill-dir or --inventory), else with `the
+            skill`, whatever its Source. Scalar and stack branches: a
             `missingCount` above 0 is one Medium `missing-export` gap
             `{missingCount} of {denominator} exports not documented` at
             `{meta}`, except that a scalar count taken from the verified
@@ -205,7 +241,12 @@ cites (never read; default `metadata.json`):
             `guards.staleScope.fires` is one Medium `brief-scope-stale` gap
             at that brief, whose issue names each `unmatchedInclude` glob,
             each `restored` name with its file and each
-            `unmatchedTierAInclude` glob. The `scope.include`-basis
+            `unmatchedTierAInclude` glob. Its remediation asks to fix the
+            stale globs and, when a name was restored, says a restored name
+            stays only while an include glob matches no file, so each file
+            defining one, listed once, takes a `scope.include` glob to keep
+            its exports or a `scope.exclude` glob to leave them out (#1009).
+            The `scope.include`-basis
             deflation gap and the inflation gap say the brief has no
             `scope.tier_a_include` when `guards.tierAInclude` lists no glob,
             that no glob matches a file when each is an
@@ -279,7 +320,10 @@ cites (never read; default `metadata.json`):
   render --ledger <path> [--heading]
       Print the Gap Report body in Markdown on stdout: the totals, the
       Remediation Summary table and one Gap Entry per record, Critical first,
-      then by id. Each entry names its category as `{group} ({category})`,
+      then by id. A summary row's Estimated Effort lists each category of
+      its gaps, in the order its first gap comes, as `{category} ({count}):
+      {action}` (ACTIONS), or `None` for a row with no gap (#1047).
+      Each entry names its category as `{group} ({category})`,
       which skf-parse-gaps.py reads back for a report whose ledger is gone.
       --heading adds the `## Gap Report` line. With no records the body says
       no gaps were found.
@@ -406,13 +450,51 @@ REQUIRED_FIELDS = ("severity", "category", "title", "source", "remediation")
 OPTIONAL_FIELDS = ("issue", "export")
 ASSIGNED_FIELDS = ("id", "group", "stage")
 
-# The Remediation Summary's Estimated Effort column, per severity.
-EFFORT = {
-    "Critical": "Read the source code and write or correct the documentation",
-    "High": "Read the source code and write or correct the documentation",
-    "Medium": "Add type definitions, interface docs or the missing section",
-    "Low": "Add examples or metadata",
-    "Info": "Optional improvements, no action required",
+# The Remediation Summary's Estimated Effort column, per category: what a gap of each category asks, worded to fit
+# every remediation of that category and update-skill's routing of it (gap-driven.md). Severity does not decide the
+# fix, so a row lists the categories of its gaps, each with its count and action, joined with `; `, which no action
+# holds (#1047).
+ACTIONS = {
+    "missing-export": "document each export from its definition in the source",
+    "signature-mismatch": "update each documented signature to the one the source defines",
+    "fabricated-signature": "remove each name from the skill, or correct it to the export the source defines",
+    "stale-documentation": "check each name against the source and the brief's scope, then update or remove its "
+                           "documentation or fix the scope (Update Skill does not repair it)",
+    "missing-type": "document each type, with its fields or members, from the source",
+    "provenance-completeness": "add a provenance map entry for each documented export the map lacks",
+    "provenance-line": "point each provenance entry at the file and line that define its export, and move its "
+                       "citations there",
+    "provenance-unverified": "check by hand which line defines each export, then correct its provenance entry as "
+                             "its remediation says",
+    "metadata-drift": "re-run Create Skill or edit the brief's scope, as each remediation says (counts that differ "
+                      "only by `Type::method` entries need no fix, and a hand edit of the counts does not hold)",
+    "denominator-inflation": "list the files of the authored surface in the brief's `scope.tier_a_include`, as each "
+                             "remediation says",
+    "brief-scope-stale": "edit the brief's stale scope globs by hand so each matches the files it meant, and add a "
+                         "`scope.include` glob over each restored file the skill documents (a `scope.exclude` one "
+                         "for each it leaves out), as each remediation says (Update Skill does not rewrite them)",
+    "numerator-inflation": "document the absent exports in SKILL.md or references/, reading each from the source",
+    "multi-denominator": "none, since the barrel and the documented surface measure different sets by design",
+    "migration-section": "make SKILL.md's migration section match the T2-future annotation data, as each "
+                         "remediation says",
+    "broken-reference": "point each reference at a target that exists, or remove it",
+    "inaccurate-reference": "correct each reference so it matches its target",
+    "reference-escape": "point each reference inside the skill package or its source tree, or remove it",
+    "integration-pattern": "add to each integration pattern the evidence its issue names as missing",
+    "split-body-mismatch": "correct the file each Source names, so both files document the export alike",
+    "scripts-assets": "add or correct SKILL.md's Scripts & Assets section so it lists each file in `scripts/` and "
+                      "`assets/`",
+    "scripts-assets-provenance": "add each file's row to the provenance map's `file_entries`, or remove the file "
+                                 "from the skill",
+    "structural": "fix each section, code fence, table row or usage example as its remediation says",
+    "metadata": "add the missing optional metadata or examples",
+    "observation": "apply each only when you agree, as its remediation says, since it is advisory (a documented "
+                   "extra needs no change)",
+    "discovery": "add to the description the trigger phrases each remediation names, or run the skipped discovery "
+                 "test as its remediation says",
+    "description": "edit the SKILL.md frontmatter description as each gap suggests",
+    "external-validator": "apply each skill-check diagnostic or Tessl Review suggestion to SKILL.md as its "
+                          "remediation says",
 }
 
 _ID_RE = re.compile(r"^GAP-(\d{3,})$")
@@ -421,6 +503,18 @@ _RUN_ID_FROM_NAME = re.compile(r"^test-findings-(.+)\.json$")
 # A whole quoted string, `"name"` or `'name'`. The lookahead lets matches overlap, so an apostrophe earlier on the
 # line (`don't 'add'`) does not swallow the next string; the text between two strings is a harmless extra key.
 _QUOTED_RE = re.compile(r"""(?=(["'])([^"'\n]+)\1)""")
+# A dotted path of plain identifiers (`cognee.exceptions`), its last segment group 1 (#1011).
+_MODULE_PATH_RE = re.compile(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\.([A-Za-z_$][\w$]*)")
+# A plain identifier directly followed by `(`, group 1: the name a usage form calls after its prefix (#1041).
+_CALLED_RE = re.compile(r"([A-Za-z_$][\w$]*)\(")
+# The dotted path a usage prefix ends with (`cognee.` in `await cognee.`), its first segment group 1.
+_RECEIVER_RE = re.compile(r"([A-Za-z_$][\w$]*)\.(?:[A-Za-z_$][\w$]*\.)*$")
+# A fenced line that imports a module under a name: Python's `import a.b [as c], d` (group 1) and `from a.b import`
+# (group 2, `a` the root; a relative import binds none), JS/TS's `import * as ns from` (group 3). A dotted path
+# qualifies a name only when its first segment is such a module, never a receiver or a type (`client.`, `Client.`).
+_IMPORT_RE = re.compile(
+    r"\s*(?:import\s+([A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?(?:\s*,\s*[A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?)*)"
+    r"\s*;?\s*$|from\s+([A-Za-z_]\w*)[\w.]*\s+import\b|import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\b)")
 
 
 class LedgerError(Exception):
@@ -789,7 +883,7 @@ FAMILIES = ("description", "usage", "api_surface")
 # refuses any other, so a call that passes a file it would ignore fails.
 ADAPTER_OPTIONS: dict[str, frozenset[str]] = {
     "coverage": frozenset(
-        {"surface", "signatures", "numerator", "stale", "provenance", "skill_dir", "metadata"}
+        {"surface", "signatures", "numerator", "stale", "provenance", "inventory", "skill_dir", "metadata"}
     ),
     "guards": frozenset({"metadata"}),
     "numerator": frozenset({"metadata"}),
@@ -921,6 +1015,45 @@ def _provenance_sources(provenance: dict | None) -> dict[str, str]:
     return sources
 
 
+def _module_path_name(text: str, roots: frozenset[str]) -> str | None:
+    """The last segment of the dotted path of plain identifiers `text` writes once floor's `_floor_name` cuts are
+    made, a leading `new ` and everything from the first `(`, `<` or `[` (`run_migrations` for
+    `cognee.run_migrations()`, #1041), when the path's first segment is one of the modules the skill imports
+    (`roots`, `_module_roots`); None for any other text, an array type (`pkg.Foo[]`) or a path through a receiver or
+    a type (`client.connect`, `Client.connect`) among them."""
+    text = text.strip()
+    if text.startswith("new "):
+        text = text[4:]
+    cut = re.match(r"([^(<\[]*)(\[\s*\])?", text)
+    module = None if cut.group(2) else _MODULE_PATH_RE.fullmatch(cut.group(1).strip())
+    return module.group(1) if module and cut.group(1).strip().split(".", 1)[0] in roots else None
+
+
+def _module_roots(files: list[tuple[str, list[str]]], segments, coverage) -> frozenset[str]:
+    """The names the skill's fenced code imports a module under (`_IMPORT_RE`): `cognee` for `import cognee` or
+    `from cognee.x import y`, `c` and `a` for `import a.b as c`, `ns` for `import * as ns from 'x'`. Read from every
+    fence `_documenting_lines` reads (not one in an HTML comment or a data block), comments and strings masked,
+    never the frontmatter."""
+    roots: set[str] = set()
+    for _rel, lines in files:
+        start = segments._frontmatter_end(lines)
+        blocks, code = segments._fenced_blocks(lines, start)
+        comments = coverage._html_comment_lines(lines, start, code)
+        for opening, closing, info in blocks:
+            language = segments._language(info)
+            if opening in comments or language in segments.DATA_LANGUAGES:
+                continue
+            for line in segments.mask_code("\n".join(lines[opening + 1:closing]), language).split("\n"):
+                match = _IMPORT_RE.match(line)
+                if match and match.group(1):
+                    for part in match.group(1).split(","):
+                        module, *alias = re.split(r"\s+as\s+", part.strip())
+                        roots.update([module.split(".", 1)[0], *alias])
+                elif match:
+                    roots.add(match.group(2) or match.group(3))
+    return frozenset(roots)
+
+
 def _documenting_lines(skill_dir: Path) -> dict[str, str]:
     """name -> the `file:line` that documents it as an export, the first tier
     that holds the name winning:
@@ -931,31 +1064,44 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
       2. a heading, or the first cell of a table whose header's first cell
          names exports (floor's `_floor_table_header`: `Functions`, `Queries`,
          `Component / Props`), whose stripped text is the name
-         or holds a code span floor's `_floor_name` reads as the name;
-      3. a line whose inline code span, stripped, is the name, or the name
-         directly followed by `(`;
-      4. a column-0 public declaration of it in a fenced code block (floor's
+         or holds a code span floor's `_floor_name` reads as the name, or
+         whose text or code span, once `_floor_name`'s cuts are made, is a
+         module path whose last segment is the name
+         (`cognee.run_migrations()` for `run_migrations`, #1041);
+      3. a line whose inline code span, stripped, is the name, the name
+         directly followed by `(`, or a usage form that calls it: floor's
+         `USAGE_PREFIX_RE` prefix (an assignment, `await`, `new` or a module
+         path), not empty, then the name directly followed by `(`
+         (`await cognee.add(data)`, `x = get(key)`, #1041);
+      4. a line whose inline code span, stripped and cut at a call's `(`, is
+         a module path whose last segment is the name, `cognee.exceptions`
+         for `exceptions` (#1011);
+      5. a column-0 public declaration of it in a fenced code block (floor's
          `_declared_names`), cited or not, so a def an example writes under
          the name (a connector author's own `mount_table_target`) is cited
          only when nothing above documents it;
-      5. a raw (unmasked) line of a fenced code block that holds the name as a
+      6. a raw (unmasked) line of a fenced code block that holds the name as a
          whole quoted string (`"name"` or `'name'`), such as an `__all__`
          item; it only replaces the bare `SKILL.md` fallback.
 
-    Tiers 2 to 5 read SKILL.md, then every .md file under references/,
+    Tiers 2 to 6 read SKILL.md, then every .md file under references/,
     subfolders included, in path order (locate-export-segments.py
-    `skill_files`), never the frontmatter: tiers 2 and 3 outside fenced code
-    and HTML comments, tiers 4 and 5 inside a fence outside an HTML comment
+    `skill_files`), never the frontmatter: tiers 2 to 4 outside fenced code
+    and HTML comments, tiers 5 and 6 inside a fence outside an HTML comment
     and a data block (json, yaml...). Within a tier the first file, then its
     lowest line, wins. A bare word, a span that holds the name among other
     words (`uitripled add`), or a quoted string outside a fence or holding
-    other words too (`"add x"`) documents nothing. An input a tier cannot
+    other words too (`"add x"`) documents nothing. A module path is a dotted
+    path of plain identifiers whose first segment is a module the skill's
+    fenced code imports (`_module_roots`), so a receiver's or a type's path
+    (`client.connect(url)`, `Client.connect`, `store.state`) documents
+    nothing. An input a tier cannot
     read is skipped: floor's InputError (no SKILL.md, a file that is not
-    UTF-8) leaves tier 1 empty, an unreadable file tiers 2 to 5."""
+    UTF-8) leaves tier 1 empty, an unreadable file tiers 2 to 6."""
     coverage = _sibling("load-coverage-inputs.py")
     segments = _sibling("locate-export-segments.py")
-    # In merge order: floor, heading or export-table cell, code span, fenced declaration, quoted string.
-    tiers: list[dict[str, str]] = [{}, {}, {}, {}, {}]
+    # In merge order: floor, heading or export-table cell, code span, module path, fenced declaration, quoted string.
+    tiers: list[dict[str, str]] = [{}, {}, {}, {}, {}, {}]
     try:
         for entry in coverage.floor(str(skill_dir))["names"]:
             origin = entry["origins"][0]
@@ -966,6 +1112,8 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
         files = segments.skill_files(skill_dir)
     except OSError:
         files = []
+    # the modules a dotted path may start with: never a receiver or a type the skill names
+    roots = _module_roots(files, segments, coverage)
     # floor's fence filter: a fence in an HTML comment or a data block declares and quotes nothing, and a Svelte
     # block's `export let` is a component prop. Unlike floor, an unheaded fence counts; a Svelte, shell or untagged
     # fence's quoted strings count too.
@@ -981,10 +1129,10 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
             raw = lines[opening + 1:closing]
             masked = segments.mask_code("\n".join(raw), language).split("\n")
             for offset, declared in coverage._declared_names(masked, language, js_family):
-                tiers[3].setdefault(declared, f"{rel}:{opening + offset + 2}")
+                tiers[4].setdefault(declared, f"{rel}:{opening + offset + 2}")
             for offset, line in enumerate(raw):
                 for match in _QUOTED_RE.finditer(line):
-                    tiers[4].setdefault(match.group(2), f"{rel}:{opening + offset + 2}")
+                    tiers[5].setdefault(match.group(2), f"{rel}:{opening + offset + 2}")
         headings, prose = segments._prose(lines, start, code)
         shaped = [(index, text) for index, _level, text, _above in headings]
         written = list(shaped)
@@ -994,14 +1142,29 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
                 if coverage._floor_table_header(coverage._cells(block["header"])[0]):
                     shaped.append((block["start"], coverage._cells(lines[block["start"]])[0]))
         for index, text in sorted(shaped):
-            for key in [text.strip()] + [coverage._floor_name(span) for span in segments._inline_code(text)]:
+            # its text, or a code span, that is a module path keys the path's last segment too (#1041)
+            spans = [coverage._floor_name(span) or _module_path_name(span, roots)
+                     for span in segments._inline_code(text)]
+            for key in [text.strip(), _module_path_name(text, roots)] + spans:
                 if key:
                     tiers[1].setdefault(key, f"{rel}:{index + 1}")
         for index, text in sorted(written):
             for span in map(str.strip, segments._inline_code(text)):
-                for key in (span, span.split("(", 1)[0] if "(" in span else None):
+                # a usage form keys the name it calls after an assignment, `await`, `new` or a module (#1041)
+                prefix = coverage.USAGE_PREFIX_RE.match(span)
+                receiver = _RECEIVER_RE.search(prefix.group())
+                called = (_CALLED_RE.match(span, prefix.end())
+                          if prefix.group() and (receiver is None or receiver.group(1) in roots) else None)
+                for key in (span, span.split("(", 1)[0] if "(" in span else None, called and called.group(1)):
                     if key:
                         tiers[2].setdefault(key, f"{rel}:{index + 1}")
+        # a module path keys its last segment: each code span (#1011); a heading's or export cell's is tier 2's
+        paths = [(index, span) for index, text in written for span in segments._inline_code(text)]
+        for index, text in sorted(paths):
+            path = text.strip().split("(", 1)[0]
+            module = _MODULE_PATH_RE.fullmatch(path)
+            if module and path.split(".", 1)[0] in roots:
+                tiers[3].setdefault(module.group(1), f"{rel}:{index + 1}")
     found: dict[str, str] = {}
     for tier in tiers:
         for key, line in tier.items():
@@ -1013,6 +1176,28 @@ def _documenting_line(skill_dir: Path, name: str) -> str | None:
     """The `file:line` that documents `name` as an export in the skill at
     `skill_dir` (`_documenting_lines`), else None."""
     return _documenting_lines(skill_dir).get(name)
+
+
+def _inventory_places(inventory: object) -> dict[str, str]:
+    """name -> the first `at` the --inventory result (validate-inventory.py's, which with --skill-package keeps
+    only an `at` whose line writes the name) gives an entry of that name that is no `method`: SKILL.md's, then
+    the first file in path order, then its lowest line, as `_documenting_lines` orders its tiers (#1006). An
+    entry with no `at`, or one that is no "<path>:<line>", gives none. An inventory that is no object with an
+    `exports` list raises AdapterError."""
+    if inventory is None:
+        return {}
+    exports = _list(_object(inventory, "--inventory (validate-inventory.py)", "exports"), "exports", "--inventory")
+    parse_at = _sibling("validate-inventory.py").parse_at
+    first: dict[str, tuple[bool, str, int]] = {}
+    for entry in exports:
+        if not isinstance(entry, dict) or entry.get("kind") == "method" or not isinstance(entry.get("name"), str):
+            continue
+        at = parse_at(entry.get("at"))
+        if at is not None:
+            key = (at[0] != "SKILL.md", *at)
+            if entry["name"] not in first or key < first[entry["name"]]:
+                first[entry["name"]] = key
+    return {name: f"{path}:{line}" for name, (_, path, line) in first.items()}
 
 
 def _documents(doc: str | None, name: str) -> str:
@@ -1099,14 +1284,19 @@ _DEFINED_AT_RE = re.compile(
 
 
 def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
-                         skill_dir: str | None = None) -> tuple[str, int] | None:
+                         skill_dir: str | None = None) -> tuple[str, int, list[str]] | None:
     """Where the source declares a stale name that is a documented extra, given
     a surface built from an extraction whose `excluded.outsideScope` does not
-    list the name: (the item's `defined_at`, 0), or, with no `defined_at`,
+    list the name: (the item's `defined_at`, 0, []), or, with no `defined_at`,
     (the one `declared_in` item whose file the skill cites on a line that
-    names it, the number of files `declared_in` lists) when it lists several.
+    names it, the number of files `declared_in` lists, []) when it lists
+    several. Cited items that are only a package `<dir>/NAME/__init__.py` and
+    modules named NAME directly in its folder (`<dir>/NAME/NAME.py` or
+    `.pyi`) count as that one file, the package the import path `<dir>.NAME`
+    resolves to (#1012): (its item, the count, those modules' items).
     None for anything else, which stays a Medium gap: no `defined_at` and no
-    single cited declaring file (two or more cited, none, or no --skill-dir),
+    single cited declaring file (two or more cited that are not such a
+    package and its modules, none, or no --skill-dir),
     a `defined_at` or `declared_in` item not a Python or TS/JS `file:line`, a
     dotted name, no surface or one without an extraction, or a name a brief
     scoped out (a namespace's member named like its namespace scopes out
@@ -1118,7 +1308,7 @@ def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
     if defined_at is not None:
         if not isinstance(defined_at, str) or not _DEFINED_AT_RE.match(defined_at):
             return None
-        return defined_at, 0
+        return defined_at, 0, []
     declared_in = item.get("declared_in")
     if not skill_dir or not isinstance(declared_in, list) or not all(
             isinstance(d, str) and _DEFINED_AT_RE.match(d) for d in declared_in):
@@ -1129,8 +1319,18 @@ def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
     if len(by_file) < 2:
         return None
     cited = citations._skill_cited_files(Path(skill_dir), name)
-    chosen = [d for f, d in sorted(by_file.items()) if f in cited]
-    return (chosen[0], len(by_file)) if len(chosen) == 1 else None
+    chosen = [f for f in sorted(by_file) if f in cited]
+    if len(chosen) == 1:
+        return by_file[chosen[0]], len(by_file), []
+    # a package and modules of its own name directly in its folder: the one module `<dir>.NAME` (#1012)
+    packages = [f for f in chosen if f == f"{name}/__init__.py" or f.endswith(f"/{name}/__init__.py")]
+    if len(packages) != 1:
+        return None
+    folder = packages[0][:-len("__init__.py")]
+    modules = [f for f in chosen if f != packages[0]]
+    if not modules or any(f not in (f"{folder}{name}.py", f"{folder}{name}.pyi") for f in modules):
+        return None
+    return by_file[packages[0]], len(by_file), [by_file[f] for f in modules]
 
 
 def _missing_export(name: str, where: str | None, meta: str, kind: str = "export") -> dict:
@@ -1229,6 +1429,40 @@ def _scoped_out_gap(name: str, row: dict, doc: str | None, brief: str) -> dict:
         export=name)
 
 
+def _star_files(surface: dict | None) -> dict[str, list[dict]]:
+    """{a file as citations compare it: the `export *` statements from another package it holds} from the
+    --surface result's `unresolvedStars` (#1005). A missing list (an older surface) or a malformed one, and an
+    item with no file or statement, give none: a list no script checks never halts a run."""
+    stars = (surface or {}).get("unresolvedStars")
+    cited_path = _sibling("validate-inventory.py")._cited_path
+    held: dict[str, list[dict]] = {}
+    for star in stars if isinstance(stars, list) else []:
+        if (isinstance(star, dict) and isinstance(star.get("file"), str) and star["file"].strip()
+                and isinstance(star.get("statement"), str) and star["statement"].strip()):
+            held.setdefault(cited_path(star["file"]), []).append(star)
+    return held
+
+
+def _unchecked_star_gap(name: str, stars: list[dict], doc: str | None) -> dict:
+    """The Info `observation` of a stale name with no `defined_at` that the skill cites at a file holding an
+    `export *` from another package (#1005): no script reads that package, so the surface cannot hold the
+    names it passes on, and the name may well be one of them. Its title is not the Deep tier's hand-written
+    `Not checked by script: {name}`, which the ledger would read as the same gap at the same line."""
+    def at(star: dict) -> str:
+        line = _count(star.get("line"))
+        return f"`{star['statement']}` (`{star['file']}{f':{line}' if line else ''}`)"
+
+    through = " and ".join(at(s) for s in stars)
+    return _gap(
+        "Info", "observation", f"Not checked by script: {name} (another package's export *)", doc or "SKILL.md",
+        f"No change unless the other package does not export `{name}`: a file the skill cites passes on that "
+        f"package's names through {through}, and no script reads them, so check by hand that the package exports "
+        f"`{name}`.",
+        issue=f"{_documents(doc, name)}, which the enumerated source API surface lacks; a file the skill cites "
+              f"passes on another package's names through {through}, which no script resolves",
+        export=name)
+
+
 def _named_inputs(surface: object, signatures: object) -> tuple[dict | None, set[str], set[str]]:
     """The --surface result, the names --signatures lists in `missingTypes` and the names whose documented
     signature it compared (`comparedNames`), for a result that names its missing and stale exports."""
@@ -1256,13 +1490,18 @@ def _missing_gaps(cov: dict, surface: dict | None, types: set[str], meta: str) -
 
 
 def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str],
-                skill_dir: str | None) -> list[dict]:
-    """One gap per `stale` name: fabricated, a documented extra, or stale documentation (with its own wording
-    for a name defined in a file the brief scopes out, #796)."""
+                skill_dir: str | None, inventory: object = None) -> list[dict]:
+    """One gap per `stale` name: fabricated, a documented extra, not checked by script (cited at a file whose
+    `export *` from another package no script resolves, #1005), or stale documentation (with its own wording
+    for a name defined in a file the brief scopes out, #796). A name no line documents (`_documenting_lines`)
+    is documented at its inventory place (`_inventory_places`, #1006), else by the skill."""
     records: list[dict] = []
     # `excluded` is read once a stale name may be a documented extra
     outside: dict[str, dict] | None = None
     outside_read = False
+    # the files holding another package's `export *`, and the skill's lines, read once a name may need them
+    stars: dict[str, list[dict]] | None = None
+    texts: list[list[str]] | None = None
     classified: dict[str, dict] = {}
     if stale is not None:
         if not isinstance(stale, list):
@@ -1271,10 +1510,12 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
     names = _names(cov, "stale", "--input")
     # the lines that document each name, read once for every stale name
     documenting = _documenting_lines(Path(skill_dir)) if skill_dir and names else {}
+    # the validated inventory's place of a name no line documents as an export (#1006)
+    placed = _inventory_places(inventory)
     for name in names:
         item = classified.get(name) or {}
         cited = item.get("source")
-        doc = documenting.get(name)
+        doc = documenting.get(name) or placed.get(name)
         if item.get("fabricated") is True:
             if not isinstance(cited, str) or not cited:
                 # a Critical gap needs the line it cites: never downgrade it
@@ -1291,10 +1532,16 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
             outside, outside_read = _outside_scope(surface, classified, skill_dir), True
         extra = _documented_extra_at(name, item, outside, skill_dir)
         if extra:
-            declared, among = extra
+            declared, among, modules = extra
             # a homonym: the one declaring file the skill's own citations name
             picked = (f"; of the {among} files that declare it, the skill cites only "
                       f"`{declared.rsplit(':', 1)[0]}`") if among else ""
+            if modules:
+                # a package cited with its same-named module, #1012
+                same_named = " and ".join(f"`{m.rsplit(':', 1)[0]}`" for m in modules)
+                picked = (f"; of the {among} files that declare it, the skill cites only the package "
+                          f"`{declared.rsplit(':', 1)[0]}` and its same-named module {same_named}, so the gap is at "
+                          "the package")
             # never routed: update-skill leaves an `observation` alone. Signature scoring compares a
             # documented signature of a name on the surface's records (a nested sub-package's) alone.
             checked = ("Signature scoring compares its documented signature with the surface's record of it."
@@ -1312,6 +1559,17 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
             # an entry point exports it from a file the brief scopes out (#796)
             records.append(_scoped_out_gap(name, outside[name], doc, _brief_of(surface)))
             continue
+        if skill_dir and item.get("defined_at") is None:
+            # no file declares it, and the skill cites a file that passes on another package's names (#1005)
+            citations = _sibling("validate-inventory.py")
+            if stars is None:
+                stars = _star_files(surface)
+                texts = citations.skill_markdown_lines(Path(skill_dir)) if stars else []
+            cited = citations._skill_cited_files(Path(skill_dir), name, texts) if stars else set()
+            through = [s for f in sorted(cited) for s in stars.get(f, [])]
+            if through:
+                records.append(_unchecked_star_gap(name, through, doc))
+                continue
         records.append(_gap(
             "Medium", "stale-documentation", f"Stale documentation: {name}", doc or "SKILL.md",
             f"Check `{name}` against the source and update or remove its documentation at "
@@ -1345,7 +1603,7 @@ def _residual_gap(cov: dict, meta: str) -> list[dict]:
 
 def from_coverage(cov: object, surface: object = None, signatures: object = None, numerator: object = None,
                   stale: object = None, provenance: object = None, skill_dir: str | None = None,
-                  metadata: str | None = None) -> list[dict]:
+                  metadata: str | None = None, inventory: object = None) -> list[dict]:
     """reconcile-coverage.py's result: missing and stale names, or the missing count."""
     cov = _object(cov, "--input (reconcile-coverage.py)", "branch")
     meta = metadata or _DEFAULT_METADATA
@@ -1354,7 +1612,7 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
     if branch == "enumerated":
         surface, types, scored = _named_inputs(surface, signatures)
         records += _missing_gaps(cov, surface, types, meta)
-        records += _stale_gaps(cov, surface, stale, scored, skill_dir)
+        records += _stale_gaps(cov, surface, stale, scored, skill_dir, inventory)
     elif branch in ("scalar", "stack"):
         # A scalar result that counts its set lists its missing names, and one on a surface read from the
         # source its stale names: each is recorded as the barrel branch's are.
@@ -1384,7 +1642,7 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
                     issue=f"SKILL.md and references/ name {cov.get('documented')} of the {denominator} exports "
                           f"the {branch} denominator counts"))
         if stale_named:
-            records += _stale_gaps(cov, surface, stale, scored, skill_dir)
+            records += _stale_gaps(cov, surface, stale, scored, skill_dir, inventory)
     elif branch != "docsOnly":
         raise AdapterError(f"--input (reconcile-coverage.py): unknown branch {branch!r}")
     return records
@@ -1528,11 +1786,17 @@ def from_guards(surface: object, metadata: str | None = None) -> list[dict]:
         else:
             tier_a = (f"the `scope.tier_a_include` globs {_code(tier_a_globs)} match no file in the source "
                       "tested, so they count no name")
-        exclude = ", and add to `scope.exclude` any restored file the brief meant to leave out"
+        # A restored name stays only while an include glob matches no file, so once the globs match, its file
+        # needs an include glob to keep it, or an exclude glob to leave it out (#1009).
+        files = sorted({file for _, file in restored if file})
+        defining = f" ({_code(files)})" if files else ""
+        kept = (" A restored export stays on the surface only while an include glob matches no file, so for each "
+                f"file that defines one{defining} add a `scope.include` glob that covers it when the skill "
+                "documents its exports, or a `scope.exclude` glob when the skill leaves them out.") if restored else ""
         if not tier_a_globs:  # the include globs alone, as #677 wrote the gap
             lists, rewrite, clauses = ["scope.include"], "an include glob", [unmatched, back]
         elif not globs:  # no include glob is stale, so nothing was restored
-            lists, rewrite, clauses, exclude = ["scope.tier_a_include"], "a tier A glob", [tier_a], ""
+            lists, rewrite, clauses, kept = ["scope.tier_a_include"], "a tier A glob", [tier_a], ""
         else:
             lists = ["scope.include", "scope.tier_a_include"]
             rewrite, clauses = "an include or tier A glob", [unmatched, back, tier_a]
@@ -1541,7 +1805,7 @@ def from_guards(surface: object, metadata: str | None = None) -> list[dict]:
             "Medium", "brief-scope-stale", f"stale brief scope: {' and '.join(lists)} globs match no source file",
             brief,
             f"Edit {edit} in `{brief}` by hand so each glob matches the files it meant in this version of the "
-            f"source (update-skill does not rewrite {rewrite}){exclude}.",
+            f"source (update-skill does not rewrite {rewrite}).{kept}",
             issue="; ".join(clauses)))
     return records
 
@@ -1873,7 +2137,7 @@ def build_records(args: argparse.Namespace) -> list[dict]:
     data = read_result(inputs[0], "--input")
     if kind == "coverage":
         files = {o: read_result(getattr(args, o), "--" + o) if getattr(args, o) is not None else None
-                 for o in ("surface", "signatures", "numerator", "stale", "provenance")}
+                 for o in ("surface", "signatures", "numerator", "stale", "provenance", "inventory")}
         return from_coverage(data, skill_dir=args.skill_dir, metadata=args.metadata, **files)
     if kind == "guards":
         return from_guards(data, args.metadata)
@@ -1919,7 +2183,12 @@ def render_gap_report(ledger: dict, heading: bool = False) -> str:
         "|----------|-------|------------------|",
     ]
     for severity in SEVERITIES:
-        effort = EFFORT[severity] if counts[severity] else "None"
+        # each category of the row's gaps, in the order its first gap comes (#1047)
+        by_category: dict[str, int] = {}
+        for gap in records:
+            if gap["severity"] == severity:
+                by_category[gap["category"]] = by_category.get(gap["category"], 0) + 1
+        effort = "; ".join(f"{c} ({n}): {ACTIONS[c]}" for c, n in by_category.items()) or "None"
         lines.append(f"| {severity} | {counts[severity]} | {effort} |")
     lines += [f"| **Total** | **{len(records)}** | |", ""]
     for record in records:
@@ -2103,6 +2372,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--stale", help="coverage: classify-stale's result (fabricated signatures, documented extras); "
                                    "provenance-line: the same (the names a rename declares)")
     p.add_argument("--provenance", help="coverage: the provenance map (an absent name's Source)")
+    p.add_argument("--inventory", help="coverage: validate-inventory.py's inventory (the `at` of a stale name no "
+                                       "line documents)")
     p.add_argument("--skill-dir", help="coverage: the skill package (a stale name's documenting line)")
     p.add_argument("--metadata", help="the metadata.json path a record cites as its Source (not read)")
     p.add_argument("--served", action="append", choices=FAMILIES,
