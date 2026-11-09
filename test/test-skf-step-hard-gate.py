@@ -1625,8 +1625,16 @@ class TestOutputFormats:
         assert re.findall(r"^\*\*Mismatches Found:\*\*.*$", block, flags=re.MULTILINE) == [
             "**Mismatches Found:** {the number of cross_check_mismatches entries}"]
         assert ("**Mismatches Found** is the number of `cross_check_mismatches` entries in `{run_dir}/inventory.json`, "
-                "one for each pair of places whose forms disagree, so an export can count more than once."
+                "one for each pair of places whose forms disagree, so an export can count more than once, and 0 when "
+                "that inventory's `references` is empty, since coverage-check records no split-body gap then."
                 ) in _flow(section)
+        # Review of #1033: the section renders whenever references/ exists, but coverage-check §1b records the
+        # entries as the section's rows only for a non-empty `references`, where `crossChecked` reads SKILL.md alone
+        # (0), so the count follows the rows there.
+        section1b = _flow(_slice(_read(COVERAGE_FILE), "### 1b. Cross-Check Split-Body Consistency", "### 2."))
+        assert section1b.startswith("### 1b. Cross-Check Split-Body Consistency Only when the validated inventory's "
+                                    "`references` is non-empty. Each `cross_check_mismatches` entry is a High "
+                                    "`split-body-mismatch` gap."), section1b[:200]
         # The key the format names is the inventory's list, kept whole once each `export` names an entry.
         validator = _load("skf_validate_inventory_for_mismatch_test", TS_DIR / "scripts" / "validate-inventory.py")
 

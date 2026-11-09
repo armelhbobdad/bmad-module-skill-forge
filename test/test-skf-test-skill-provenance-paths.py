@@ -1548,8 +1548,8 @@ EXAMPLE_CALL = (
     "A call or JSX element of a name that a fenced example writes is not a place of its own when the skill also "
     "writes that name's form at a place that is no example (a heading, a table row, a props table, running text or "
     "a fenced declaration), unless the nearest heading above the example names a usage (`## Usage`, "
-    "`### Basic usage`): it gives no entry, so it is never compared, and a name whose only forms are in fenced "
-    "examples keeps them.")
+    "`### Basic usage`; a bold label line such as `**Usage:**` is no heading): it gives no entry, so it is never "
+    "compared, and a name whose only forms are in fenced examples keeps them.")
 
 
 def test_the_inventory_contract_gives_an_example_call_beside_a_form_no_entry():
@@ -1558,8 +1558,10 @@ def test_the_inventory_contract_gives_an_example_call_beside_a_form_no_entry():
     three readers recorded different usage forms and a run compared a form the next one did not. The contract now
     says such an example is no place of its own and gives no entry, unless the nearest heading above it names a
     usage, while a name whose only forms are in fenced examples keeps them, so its docs-only coverage still counts
-    it. The sentence follows the call-expression rule it narrows, in the contract paragraph, and coverage-check.md,
-    which loads the contract, does not grow."""
+    it. A bold label line such as `**Usage:**` is no heading (review of #997: storybook writes its `defineMain`
+    example under one, which one reader could count as a usage heading and the next not). The sentence follows the
+    call-expression rule it narrows, in the contract paragraph, and coverage-check.md, which loads the contract,
+    does not grow."""
     [paragraph] = [p for p in _read(INVENTORY_CONTRACT).split("\n\n")
                    if p.startswith("The contract `validate-inventory.py` checks")]
     contract = _flow(paragraph)
@@ -1790,8 +1792,9 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "blank one is the reader's, and a form the skill writes only in prose is an entry of its own; a "
             "`signature` read from a cell under a partial label (`Signature (simplified)`, `Props (simplified)`, "
             "`(partial)`, `(key parameters)`) or from a Key params cell, or whose parameter group holds a `...` or "
-            "`…` standing in for omitted "
-            "members, also gives `signature_form` `\"partial\"`, which that entry copies, "
+            "`…` that is a member of its own, standing in for omitted "
+            "members (not one inside a nested type, object or element), also gives `signature_form` `\"partial\"`, "
+            "which that entry copies, "
             "and the validator refuses an inventory with no entry there that does. The label at a place "
             "`inventory-floor.json` gives a `signature` is the `signature`'s: an entry that gives its form there or "
             "with no `at` gives `\"partial\"` only when the `signature` does, and the validator refuses one that adds "

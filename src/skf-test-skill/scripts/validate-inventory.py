@@ -67,14 +67,16 @@ does: each of those fields the signature pins non-blank gives the same
 field_text (whitespace runs as one space, a list's items joined with `, `,
 a null field as blank), and a `params` or `usage_signature` that opens with
 the shared text the contract has several names' entries carry, then `; `,
-carries the pinned one after it. A `params` also carries the pinned one
-when its members, cut at the commas outside brackets and strings
-(score-signatures.py's `_split`, each member as field_text gives it), hold
-each pinned member in the pinned order, others before, among or after
-them (#1028): the whole list in the skill's order the contract has an
-entry write when the skill puts an own member before or among the shared
-ones. A pinned `usage_signature` is carried only as given or after the
-shared text and `; `. A field the signature leaves blank, and
+carries the pinned one after it. The `params` of an entry whose `at` is
+that origin also carries the pinned one when its members, cut at the
+commas outside brackets and strings (score-signatures.py's `_split`, each
+member as field_text gives it), hold each pinned member in the pinned
+order, others before, among or after them (#1028): the whole list in the
+skill's order the contract has an entry write when the skill puts an own
+member before or among the shared ones. Elsewhere, or with no `at`, such a
+longer list is another form of the name, which never carries the pin nor
+counts as its copy. A pinned `usage_signature` is carried only as given
+or after the shared text and `; `. A field the signature leaves blank, and
 the entry's other fields (its `usage_signature` beside a pinned `params`,
 its `params` beside a pinned `usage_signature`), are not read, but for one:
 a signature read from a column under a partial label (`Signature
@@ -872,21 +874,23 @@ def _holds_in_order(given, wanted):
     return all(member in rest for member in _members(wanted))
 
 
-def _carries(entry, signature):
+def _carries(entry, signature, place):
     """Whether an entry carries a floor origin's signature: each field the signature gives (`params` or
     `usage_signature`, and `return_type`) and pins non-blank has the same field_text there, a `params` or
     `usage_signature` that opens with members the skill states once for several names (the contract's shared text,
-    then `; `) included, and a `params` whose members hold the pinned ones in their order among others
-    (_holds_in_order, #1028); and, when it gives the partial label (#888), the entry's `signature_form` is that
-    label too."""
+    then `; `) included, and, for an entry whose `at` is the origin's `place` (parse_at), a `params` whose members
+    hold the pinned ones in their order among others (_holds_in_order, #1028): a longer list elsewhere or with no
+    `at` is another form of the name, which neither carries the pin nor stands in for its copy; and, when it gives
+    the partial label (#888), the entry's `signature_form` is that label too."""
     if FLOOR_LABEL_FIELD in signature and entry.get(FLOOR_LABEL_FIELD) != signature[FLOOR_LABEL_FIELD]:
         return False
+    here = parse_at(entry.get("at")) == place
     for field in FLOOR_SIGNATURE_FIELDS:
         if field not in signature:
             continue
         wanted, given = field_text(signature[field]), field_text(entry.get(field))
         if wanted and given != wanted and not (field != "return_type" and given.endswith("; " + wanted)) and not (
-                field == "params" and _holds_in_order(given, wanted)):
+                here and field == "params" and _holds_in_order(given, wanted)):
             return False
     return True
 
@@ -911,8 +915,9 @@ def floor_check(inventory, floor, skill_package_path=None):
     signature pins non-blank (its `params` or, for a usage form, its
     `usage_signature`, and its `return_type`; a blank pinned `return_type`
     leaves the entry's free; a `params` or `usage_signature` may open with
-    shared text and `; `, and a `params` may hold the pinned members in
-    their order among others, _carries); one no entry carries is a violation
+    shared text and `; `, and the `params` of an entry whose `at` is that
+    origin may hold the pinned members in their order among others,
+    _carries); one no entry carries is a violation
     naming the origin and the signature, for a name left out too. A carried
     origin is placed when an entry that carries it gives that origin as its
     `at` (parse_at; #918). When none does, the `at` of each entry that
@@ -959,8 +964,8 @@ def floor_check(inventory, floor, skill_package_path=None):
 
     def carried(entry):
         """The checked origins of the entry's name whose signature it carries, (path, line) as parse_at gives."""
-        return {(_cited_path(o["file"]), o["line"]) for n, o in signed
-                if n == entry.get("name") and _carries(entry, _origin_signature(o))}
+        places = [((_cited_path(o["file"]), o["line"]), o) for n, o in signed if n == entry.get("name")]
+        return {place for place, o in places if _carries(entry, _origin_signature(o), place)}
 
     for name, origin in signed:
         signature = _origin_signature(origin)
@@ -974,15 +979,15 @@ def floor_check(inventory, floor, skill_package_path=None):
             # label, so no unlabelled twin, nor a copy that shows no place, is the form score-signatures.py keeps. A
             # copy whose `at` is another place is compared there.
             form = {f: signature[f] for f in FLOOR_SIGNATURE_FIELDS if f in signature}
-            copies = [e for _, e in entries if e.get("name") == name and _carries(e, form)]
+            copies = [e for _, e in entries if e.get("name") == name and _carries(e, form, place)]
             here = [e for e in copies if parse_at(e.get("at")) == place]
-            if not here or not all(_carries(e, signature) for e in copies
+            if not here or not all(_carries(e, signature, place) for e in copies
                                    if e.get("at") is None or parse_at(e["at"]) == place):
                 violations.append(f"{pinned}, but no inventory entry of that name at that place carries it, or one "
                                   f"gives its form without its `signature_form` there or with no `at`; copy it as "
                                   f"given, with `at` {at}")
             continue
-        carriers = [(idx, e) for idx, e in entries if e.get("name") == name and _carries(e, signature)]
+        carriers = [(idx, e) for idx, e in entries if e.get("name") == name and _carries(e, signature, place)]
         if any(e.get(FLOOR_LABEL_FIELD) == FLOOR_LABEL and (e.get("at") is None or parse_at(e["at"]) == place)
                for _, e in carriers):
             # An unlabelled pin's label is the floor's too (#1029): an entry that gives its form there or with no

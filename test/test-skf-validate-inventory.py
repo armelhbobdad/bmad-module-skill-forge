@@ -1127,6 +1127,54 @@ def test_a_pinned_form_among_shared_members_is_carried_in_order(tmp_path):
         assert r["valid"] is valid, (given, r["violations"])
 
 
+def test_a_longer_list_at_another_place_never_carries_a_pin(tmp_path):
+    """#1028 review: the in-order carry is the pinned place's own, for the entry whose `at` is the origin. A longer
+    form of the name written at another place (a reference's prose line), or one with no `at`, is another form: it
+    never carries the pin, so an inventory that leaves the row's form out, or drops a pinned member there, is still
+    refused, and it keeps its own `at`; at a labelled pin it is no unlabelled copy of the pinned form, so the
+    labelled copy at the row stays valid beside it, with the missing-`at` warning alone."""
+    row = "# Lib\n\n| Function | {} |\n|---|---|\n| `connect` | `connect(host: str, port: int)` |\n"
+    prose = {"api.md": "# API\n\nCall `connect(host: str, port: int, *, tls: bool)` to open a connection.\n"}
+    pkg = _package(tmp_path / "plain", row.format("Signature"), prose)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"][0]["origins"] == [
+        _floor_origin("SKILL.md", 5, "table-row", {"params": "host: str, port: int", "return_type": ""})]
+    longer = {"params": "host: str, port: int, *, tls: bool", "at": "references/api.md:3"}
+    refs = ["references/api.md"]
+    for entries in ([longer], [{"params": "host: str", "at": "SKILL.md:5"}, longer]):
+        r = mod.validate_inventory(_signed(*(("connect", "function", e) for e in entries), references=refs), pkg,
+                                   read)
+        assert r["valid"] is False and r["warnings"] == [] and r["violations"] == [
+            'floor: `connect` is documented at SKILL.md:5 (table-row) with the signature {"params": "host: str, '
+            'port: int", "return_type": ""}, but no inventory entry of that name carries it; copy it as given, with '
+            '`at` "SKILL.md:5"'], entries
+    r = mod.validate_inventory(_signed(("connect", "function", {"params": "host: str, port: int"}),
+                                       ("connect", "function", longer), references=refs), pkg, read)
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == [f"exports[0] (`connect`) carries a form but no `at`, so {UNBOUND}"]
+    assert [e.get("at") for e in r["inventory"]["exports"]] == [None, "references/api.md:3"]
+
+    pkg = _package(tmp_path / "labelled", row.format("Signature (simplified)"), prose)
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"][0]["origins"][0]["signature"] == {
+        "params": "host: str, port: int", "return_type": "", "signature_form": "partial"}
+    labelled = {"params": "host: str, port: int", "signature_form": "partial", "at": "SKILL.md:5"}
+    for at, warning in ((None, f"exports[1] (`connect`) carries a form but no `at`, so {UNBOUND}"),
+                        ("SKILL.md:1", 'exports[1] (`connect`): `at` "SKILL.md:1" is a line that does not write '
+                                       f"`connect`; it is dropped and {UNBOUND}")):
+        other = {"params": "host: str, port: int, *, tls: bool", **({} if at is None else {"at": at})}
+        r = mod.validate_inventory(_signed(("connect", "function", labelled), ("connect", "function", other),
+                                           references=refs), pkg, read)
+        assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [warning], (at, r["violations"])
+
+
 PROPS_SKILL = ("# Demo\n\n## `connect(host, port)`\n\nOpens a connection.\n\n### Canvas\n\n"
                "| Prop | Type | Default | Description |\n| --- | --- | --- | --- |\n"
                "| `of` | `ModuleExport` | | The story. |\n| `layout` | `L` | `\"padded\"` | The layout. |\n")
@@ -1621,6 +1669,37 @@ def test_a_partial_label_at_an_unlabelled_floor_pin_fails(tmp_path):
         r = mod.validate_inventory(_signed(*(("fetchData", "function", e) for e in entries)), pkg, read)
         assert r["valid"] is False and r["violations"] == [LABEL_ADDED_VIOLATION], (entries, r["violations"])
         assert r["warnings"] == warnings, (entries, r["warnings"])
+
+
+def test_a_labelled_longer_form_elsewhere_is_no_labelled_copy_of_a_pin(tmp_path):
+    """#1029 review: the refusal of a partial label at an unlabelled pin reads the entries that carry the pin, and
+    a longer list carries it only at the pin's own place (#1028). A longer form the skill writes elsewhere and
+    labels with its own `...` (`fetchData(url: string, retries?: number, ...)` in prose), with no `at` or a bad one,
+    is another form, labelled as the contract says: it stays valid, with only the missing-`at` warning, beside the
+    unlabelled copy at the row. Given as the row's own form (`at` the row), its label is still refused."""
+    pkg = _package(tmp_path, FORM_TABLE + "\nAlso `fetchData(url: string, retries?: number, ...)` in prose.\n")
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"][0]["origins"] == [_floor_origin("SKILL.md", 5, "table-row", FORM)]
+    longer = {"params": "url: string, retries?: number, ...", "return_type": "Promise<Data>",
+              "signature_form": "partial"}
+    for at, warnings in (
+        (None, [f"exports[1] (`fetchData`) carries a form but no `at`, so {UNBOUND}"]),
+        ("SKILL.md:1", ['exports[1] (`fetchData`): `at` "SKILL.md:1" is a line that does not write `fetchData`; '
+                        f"it is dropped and {UNBOUND}"]),
+        ("SKILL.md:7", []),
+    ):
+        other = {**longer, **({} if at is None else {"at": at})}
+        r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, **AT_ROW}),
+                                           ("fetchData", "function", other)), pkg, read)
+        assert r["valid"] is True and r["violations"] == [] and r["warnings"] == warnings, (
+            at, r["violations"], r["warnings"])
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, **AT_ROW}),
+                                       ("fetchData", "function", {**longer, **AT_ROW})), pkg, read)
+    assert r["valid"] is False and r["violations"] == [LABEL_ADDED_VIOLATION], r["violations"]
 
 
 ELLIPSIS_TABLE = ("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"
