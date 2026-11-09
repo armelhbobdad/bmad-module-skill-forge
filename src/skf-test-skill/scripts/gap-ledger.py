@@ -166,9 +166,21 @@ cites (never read; default `metadata.json`):
             documentation, narrow that exclude glob (a removal needs a
             `demoted-exclude` amendment) or widen `scope.include`, else
             remove it. A row the
-            brief does not explain keeps the wording above. Every stale
-            name's issue (fabricated, documented extra, stale documentation
-            or scoped out) opens with the line that documents it, as
+            brief does not explain keeps the wording above. Any other with
+            no `defined_at` (every name without --stale), with --skill-dir,
+            whose skill citations on a line naming it (as a homonym's are
+            read) cite a file the --surface result's `unresolvedStars` lists
+            (an `export *` from another package no script resolves, #1005)
+            is an Info `observation` gap `Not checked by script: {name}
+            (another package's export *)` (so that a Deep-tier hand-written
+            `Not checked by script: {name}` stays its own gap) at
+            the line that documents the name, else `SKILL.md`: its issue and
+            remediation name each such statement and its file, and the
+            remediation asks no change unless that package lacks the name.
+            A missing or malformed `unresolvedStars` counts as empty. Every
+            stale name's issue (fabricated, documented extra, not checked,
+            stale documentation or scoped out) opens with the line that
+            documents it, as
             `file:line` (with --skill-dir), else with `the skill`, whatever
             its Source. Scalar and stack branches: a
             `missingCount` above 0 is one Medium `missing-export` gap
@@ -1248,6 +1260,40 @@ def _scoped_out_gap(name: str, row: dict, doc: str | None, brief: str) -> dict:
         export=name)
 
 
+def _star_files(surface: dict | None) -> dict[str, list[dict]]:
+    """{a file as citations compare it: the `export *` statements from another package it holds} from the
+    --surface result's `unresolvedStars` (#1005). A missing list (an older surface) or a malformed one, and an
+    item with no file or statement, give none: a list no script checks never halts a run."""
+    stars = (surface or {}).get("unresolvedStars")
+    cited_path = _sibling("validate-inventory.py")._cited_path
+    held: dict[str, list[dict]] = {}
+    for star in stars if isinstance(stars, list) else []:
+        if (isinstance(star, dict) and isinstance(star.get("file"), str) and star["file"].strip()
+                and isinstance(star.get("statement"), str) and star["statement"].strip()):
+            held.setdefault(cited_path(star["file"]), []).append(star)
+    return held
+
+
+def _unchecked_star_gap(name: str, stars: list[dict], doc: str | None) -> dict:
+    """The Info `observation` of a stale name with no `defined_at` that the skill cites at a file holding an
+    `export *` from another package (#1005): no script reads that package, so the surface cannot hold the
+    names it passes on, and the name may well be one of them. Its title is not the Deep tier's hand-written
+    `Not checked by script: {name}`, which the ledger would read as the same gap at the same line."""
+    def at(star: dict) -> str:
+        line = _count(star.get("line"))
+        return f"`{star['statement']}` (`{star['file']}{f':{line}' if line else ''}`)"
+
+    through = " and ".join(at(s) for s in stars)
+    return _gap(
+        "Info", "observation", f"Not checked by script: {name} (another package's export *)", doc or "SKILL.md",
+        f"No change unless the other package does not export `{name}`: a file the skill cites passes on that "
+        f"package's names through {through}, and no script reads them, so check by hand that the package exports "
+        f"`{name}`.",
+        issue=f"{_documents(doc, name)}, which the enumerated source API surface lacks; a file the skill cites "
+              f"passes on another package's names through {through}, which no script resolves",
+        export=name)
+
+
 def _named_inputs(surface: object, signatures: object) -> tuple[dict | None, set[str], set[str]]:
     """The --surface result, the names --signatures lists in `missingTypes` and the names whose documented
     signature it compared (`comparedNames`), for a result that names its missing and stale exports."""
@@ -1276,12 +1322,16 @@ def _missing_gaps(cov: dict, surface: dict | None, types: set[str], meta: str) -
 
 def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str],
                 skill_dir: str | None) -> list[dict]:
-    """One gap per `stale` name: fabricated, a documented extra, or stale documentation (with its own wording
+    """One gap per `stale` name: fabricated, a documented extra, not checked by script (cited at a file whose
+    `export *` from another package no script resolves, #1005), or stale documentation (with its own wording
     for a name defined in a file the brief scopes out, #796)."""
     records: list[dict] = []
     # `excluded` is read once a stale name may be a documented extra
     outside: dict[str, dict] | None = None
     outside_read = False
+    # the files holding another package's `export *`, and the skill's lines, read once a name may need them
+    stars: dict[str, list[dict]] | None = None
+    texts: list[list[str]] | None = None
     classified: dict[str, dict] = {}
     if stale is not None:
         if not isinstance(stale, list):
@@ -1337,6 +1387,17 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
             # an entry point exports it from a file the brief scopes out (#796)
             records.append(_scoped_out_gap(name, outside[name], doc, _brief_of(surface)))
             continue
+        if skill_dir and item.get("defined_at") is None:
+            # no file declares it, and the skill cites a file that passes on another package's names (#1005)
+            citations = _sibling("validate-inventory.py")
+            if stars is None:
+                stars = _star_files(surface)
+                texts = citations.skill_markdown_lines(Path(skill_dir)) if stars else []
+            cited = citations._skill_cited_files(Path(skill_dir), name, texts) if stars else set()
+            through = [s for f in sorted(cited) for s in stars.get(f, [])]
+            if through:
+                records.append(_unchecked_star_gap(name, through, doc))
+                continue
         records.append(_gap(
             "Medium", "stale-documentation", f"Stale documentation: {name}", doc or "SKILL.md",
             f"Check `{name}` against the source and update or remove its documentation at "

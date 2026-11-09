@@ -2831,6 +2831,103 @@ def test_per_file_results_are_schema_checked(tmp_path):
     assert not stale.exists(), "a refused surface leaves no file for the next command to read"
 
 
+def test_an_external_star_reaches_the_surface(tmp_path):
+    """#1005: each `export *` from another package a read of the source met reaches `unresolvedStars`, from the
+    runner's entry_points.unresolved (a bare `from` in a JavaScript-family file, no line), a --quick output's
+    `unlisted` and a per-file result's `unresolved_stars`, so gap-ledger.py can tell a name passed on through it
+    from a removed one. A relative star, a named re-export, a subpath item, a Rust glob, a `require` and a
+    non-string item are left out, a bad item breaches no schema, and no name, set or denominator changes."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["entry_points"]["unresolved"] = [
+        {"entry": "src/index.ts", "name": "*", "from": "@vitest/spy", "file": "src/test/spy.ts"},
+        {"entry": "src/index.ts", "name": "*", "from": "./missing", "file": "src/index.ts"},
+        {"entry": "src/index.ts", "name": "z", "from": "zod", "file": "src/index.ts"},
+        {"package": ".", "subpath": "./gone", "targets": ["./dist/gone.js"]},
+        {"entry": "src/lib.rs", "name": "*", "from": "other::prelude", "file": "src/lib.rs"},
+    ]
+    quick = {"exports": [{"name": "spyOn", "type": "function", "source_file": "src/index.ts"}], "unlisted": [
+        {"file": "src/index.ts", "line": 3, "statement": "export * from 'tinyspy'", "specifier": "tinyspy",
+         "module_file": None},
+        {"file": "src/index.ts", "line": 4, "statement": "export * from './local'", "specifier": "./local",
+         "module_file": None},
+        {"file": "src/index.ts", "line": 5, "statement": "module.exports = require('x')", "specifier": "x",
+         "module_file": None}]}
+    per_file = {"file": "code/core/src/test/spy.ts", "exports_found": ["fn"], "signature_mismatches": [],
+                "unresolved_stars": ["15: export type * from '@vitest/spy';", 7, "export * from 'lodash'"]}
+    starred = tmp_path / "starred"
+    out = _surface(starred, "--extraction", _write(starred / "e.json", data),
+                   "--quick", _write(starred / "quick-1.json", quick),
+                   "--per-file", _write(starred / "per-file-1.json", per_file))
+    assert out["unresolvedStars"] == [
+        {"file": "code/core/src/test/spy.ts", "line": None, "statement": "export * from 'lodash'"},
+        {"file": "code/core/src/test/spy.ts", "line": 15, "statement": "export type * from '@vitest/spy';"},
+        {"file": "src/index.ts", "line": 3, "statement": "export * from 'tinyspy'"},
+        {"file": "src/test/spy.ts", "line": None, "statement": "export * from '@vitest/spy'"},
+    ]
+    # the same inputs without a star: everything but the inputs and the stars is unchanged
+    data["entry_points"]["unresolved"], quick["unlisted"], per_file["unresolved_stars"] = [], [], []
+    bare = tmp_path / "bare"
+    before = _surface(bare, "--extraction", _write(bare / "e.json", data),
+                      "--quick", _write(bare / "quick-1.json", quick),
+                      "--per-file", _write(bare / "per-file-1.json", per_file))
+    assert before["unresolvedStars"] == []
+    drop = ("inputs", "unresolvedStars")
+    assert {k: v for k, v in out.items() if k not in drop} == {k: v for k, v in before.items() if k not in drop}
+    # an extraction the per-file scan replaces gives no star: the scan's own results list theirs
+    data["entry_points"]["unresolved"] = [
+        {"entry": "src/index.ts", "name": "*", "from": "@vitest/spy", "file": "src/test/spy.ts"}]
+    data["status"] = "no-ast-grep"
+    fallback = tmp_path / "fallback"
+    assert _surface(fallback, "--extraction", _write(fallback / "e.json", data))["unresolvedStars"] == []
+
+
+def test_a_star_two_inputs_list_is_one_star(tmp_path):
+    """#1005 review: a --quick record and a per-file result that list one statement, one as quick mode writes it
+    and one as the source does (`;`, `type`), give one star, kept with its line; a star of the same file from
+    another package stays its own."""
+    data = json.loads(json.dumps(EXTRACTION))
+    data["entry_points"]["unresolved"] = [
+        {"entry": "src/index.ts", "name": "*", "from": "@vitest/spy", "file": "src/test/spy.ts"}]
+    quick = {"exports": [{"name": "spyOn", "type": "function", "source_file": "src/index.ts"}], "unlisted": [
+        {"file": "src/index.ts", "line": 3, "statement": "export * from 'other-lib'", "specifier": "other-lib",
+         "module_file": None}]}
+    index = {"file": "src/index.ts", "exports_found": ["spyOn"], "signature_mismatches": [],
+             "unresolved_stars": ["3: export * from 'other-lib';", "9: export * from \"third-lib\";"]}
+    spy = {"file": "src/test/spy.ts", "exports_found": ["fn"], "signature_mismatches": [],
+           "unresolved_stars": ["15: export type * from '@vitest/spy';"]}
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "e.json", data),
+                   "--quick", _write(tmp_path / "quick-1.json", quick),
+                   "--per-file", _write(tmp_path / "per-file-1.json", index),
+                   "--per-file", _write(tmp_path / "per-file-2.json", spy))
+    assert out["unresolvedStars"] == [
+        {"file": "src/index.ts", "line": 3, "statement": "export * from 'other-lib'"},
+        {"file": "src/index.ts", "line": 9, "statement": "export * from \"third-lib\";"},
+        {"file": "src/test/spy.ts", "line": 15, "statement": "export type * from '@vitest/spy';"},
+    ]
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+def test_the_runners_external_star_reaches_the_surface(tmp_path):
+    """#1005 end to end: the runner traces index.ts's `export * from './test/spy'` into spy.ts, whose `export type
+    * from '@vitest/spy'` it leaves unresolved, and the surface lists that star at spy.ts."""
+    source = tmp_path / "src"
+    for rel, text in {"package.json": '{"name": "fx", "version": "1.0.0", "exports": {".": "./src/index.ts"}}\n',
+                      "src/index.ts": "export * from './test/spy';\nexport function spyOn(o: unknown) {}\n",
+                      "src/test/spy.ts": "export type * from '@vitest/spy';\nexport const fn = 1;\n"}.items():
+        _write(source / rel, text)
+    extraction = tmp_path / "run" / "extract-full.json"
+    extraction.parent.mkdir()
+    proc = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source),
+                           "--output", str(extraction)], capture_output=True, text=True, timeout=600)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    out = _surface(tmp_path, "--extraction", str(extraction))
+    assert out["sets"]["all"] == ["fn", "spyOn"]
+    assert out["unresolvedStars"] == [
+        {"file": "src/test/spy.ts", "line": None, "statement": "export * from '@vitest/spy'"}]
+
+
 # A curated brief at Quick tier: two packages of a monorepo, read by the
 # quick parser; the brief scopes in core and api and names core's entry as
 # its tier A surface.

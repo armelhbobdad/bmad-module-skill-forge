@@ -40,6 +40,14 @@ counts and the Gap Report is rendered from:
     folder (#1012, at the package), and
     stays Medium when they cite any other two or none, without --skill-dir, or with
     a `declared_in` that is not a list of several `file:line` items
+  - a name cited at another package's `export *` (#1005): a stale name
+    with no `defined_at` whose skill citations cite a file the surface's
+    `unresolvedStars` lists is an Info `observation` `Not checked by
+    script: {name} (another package's export *)` at the documenting line,
+    naming each star and asking no change, beside a hand-written `Not
+    checked by script: {name}`; another cited file, no --skill-dir, a
+    missing or malformed list, a `defined_at`, a rescope or a fabricated
+    name keeps its gap
   - an inflated `scope.include` union (#795): when the inflation guard
     fires on the set the barrel branch counts, its undocumented names are
     one Medium `denominator-inflation` gap at the brief listing at most 50
@@ -1598,6 +1606,111 @@ class TestCoverageAdapter:
     def test_any_other_homonym_stays_medium(self, tmp_path: Path, skill_md: str, kwargs: dict):
         record = self._homonym(tmp_path, skill_md, **kwargs)
         assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
+
+    # #1005: oms-storybook documents @vitest/spy's `Mock`, cited at spy.ts's `export type * from '@vitest/spy'`,
+    # which no script resolves, so the enumerated surface never holds the names it passes on.
+    SPY = {"file": "code/core/src/test/spy.ts", "line": 15, "statement": "export type * from '@vitest/spy';"}
+    SPY_MD = "# demo\n\n`Mock` mocks a function. `[AST:code/core/src/test/spy.ts:L15]`\n"
+    UNPLACED = {"name": "Mock", "fabricated": False, "source": None, "defined_at": None, "declared_in": [],
+                "reason": "no-entry"}
+    STARRED_TITLE = "Not checked by script: Mock (another package's export *)"
+
+    def _starred(self, tmp_path: Path, skill_md: str = SPY_MD, stars: object = (SPY,), item: dict | None = UNPLACED,
+                 surface: dict | None = None, skill: bool = True, refs: str | None = None) -> dict:
+        skill_dir = tmp_path / "skill"
+        (skill_dir / "references").mkdir(parents=True, exist_ok=True)
+        (skill_dir / "SKILL.md").write_bytes(skill_md.encode("utf-8"))
+        if refs is not None:
+            (skill_dir / "references" / "api.md").write_bytes(refs.encode("utf-8"))
+        surface = dict(self.EXCLUDED_SURFACE if surface is None else surface)
+        if stars is not None:
+            surface["unresolvedStars"] = list(stars) if isinstance(stars, tuple) else stars
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Mock"]}, surface=surface,
+                                     stale=None if item is None else [item],
+                                     skill_dir=str(skill_dir) if skill else None)
+        return record
+
+    @pytest.mark.parametrize("kwargs, where", [
+        ({}, "SKILL.md:3"),
+        ({"item": None}, "SKILL.md:3"),
+        ({"surface": SURFACE | {"extraction": None}}, "SKILL.md:3"),
+        ({"item": UNPLACED | {"declared_in": ["pkg/a/mock.ts:1", "pkg/b/mock.ts:1"]}}, "SKILL.md:3"),
+        ({"skill_md": "# demo\n\nSee references.\n",
+          "refs": "# API\n\n- `Mock` `[SRC:./code/core/src/test/spy.ts:L15-L15]`\n"}, "references/api.md:3"),
+        ({"skill_md": "# demo\n\n### `Mock`\n\n`[AST:code/core/src/test/spy.ts:L15]`\n"}, "SKILL.md:3"),
+    ], ids=["classify-stale-placed-it-nowhere", "no-classify-stale", "a-surface-with-no-extraction",
+            "a-homonym-cited-at-neither-file", "a-reference-file-and-a-range", "a-heading-then-its-citation"])
+    def test_a_name_cited_at_another_packages_star_is_not_checked_by_script(self, tmp_path: Path, kwargs: dict,
+                                                                           where: str):
+        """An Info `observation` at the documenting line, naming the star statement and its file and asking no
+        change unless that package lacks the name."""
+        record = self._starred(tmp_path, **kwargs)
+        assert brief([record]) == [("Info", "observation", self.STARRED_TITLE, where, "Mock")]
+        star = "`export type * from '@vitest/spy';` (`code/core/src/test/spy.ts:15`)"
+        assert record["remediation"] == (
+            f"No change unless the other package does not export `Mock`: a file the skill cites passes on that "
+            f"package's names through {star}, and no script reads them, so check by hand that the package exports "
+            "`Mock`.")
+        assert record["issue"] == (f"`{where}` documents `Mock`, which the enumerated source API surface lacks; a "
+                                   f"file the skill cites passes on another package's names through {star}, which "
+                                   "no script resolves")
+        assert record["severity"] not in mod.BLOCKING
+
+    def test_each_star_of_a_cited_file_is_named(self, tmp_path: Path):
+        """The runner's star has no line; a file the skill does not cite names nothing."""
+        runner = {"file": "./code/core/src/test/spy.ts", "line": None, "statement": "export * from 'tinyspy'"}
+        other = {"file": "code/core/src/index.ts", "line": 2, "statement": "export * from 'zod'"}
+        record = self._starred(tmp_path, stars=(self.SPY, runner, other))
+        assert record["title"] == self.STARRED_TITLE
+        assert ("through `export type * from '@vitest/spy';` (`code/core/src/test/spy.ts:15`) and `export * from "
+                "'tinyspy'` (`./code/core/src/test/spy.ts`), and no script") in record["remediation"]
+        assert "zod" not in record["remediation"] + record["issue"]
+
+    def test_a_hand_written_record_of_the_name_stays_its_own_gap(self, tmp_path: Path, ledger: Path):
+        """#1005 review: §5b appends the coverage call's records, then the Deep tier's hand-written `Not checked
+        by script: {name}` at the same documenting line. The script's record has a title of its own, so the
+        ledger keeps both, never the hand-written one as a duplicate of it."""
+        starred = self._starred(tmp_path)
+        hand = {"severity": "Info", "category": "observation", "title": "Not checked by script: Mock",
+                "source": "SKILL.md:3", "export": "Mock",
+                "remediation": "Correct the documentation to match the source; no script checks this."}
+        assert json.loads(append(ledger, "coverage-check", [starred]).stdout)["appended"] == ["GAP-001"]
+        out = json.loads(append(ledger, "coverage-check", [starred, hand]).stdout)
+        assert (out["appended"], out["duplicates"]) == (["GAP-002"], ["GAP-001"])
+        assert [r["title"] for r in ledger_records(ledger)] == [self.STARRED_TITLE, "Not checked by script: Mock"]
+
+    @pytest.mark.parametrize("kwargs", [
+        {"skill_md": "# demo\n\n`Mock` mocks. `[AST:code/core/src/test/other.ts:L15]`\n"},
+        {"skill_md": "# demo\n\n`Mock` mocks. `[AST:code/core/src/test/spy.ts]`\n"},
+        {"skill_md": "# demo\n\n`Mock` mocks.\nPlain text.\nSee `[AST:code/core/src/test/spy.ts:L15]`\n"},
+        {"skill": False},
+        {"stars": None},
+        {"stars": "code/core/src/test/spy.ts"},
+        {"stars": ({"file": "code/core/src/test/spy.ts", "line": 15},
+                   {"file": 3, "statement": "export * from 'x'"}, "code/core/src/test/spy.ts")},
+        {"item": UNPLACED | {"defined_at": "code/core/src/test/mock.ts:3"}, "surface": SURFACE | {"extraction": None}},
+    ], ids=["another-file-cited", "a-citation-with-no-line", "cited-on-a-line-without-it", "no-skill-dir",
+            "no-unresolved-stars", "not-a-list", "malformed-items", "a-declaration-no-extraction-can-place"])
+    def test_any_other_unplaced_name_stays_medium(self, tmp_path: Path, kwargs: dict):
+        record = self._starred(tmp_path, **kwargs)
+        where = "SKILL.md:3" if kwargs.get("skill", True) else "SKILL.md"
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: Mock", where, "Mock")], \
+            record
+
+    def test_a_scoped_out_or_fabricated_name_keeps_its_gap(self, tmp_path: Path):
+        """A row that says the brief scopes the name's file out keeps the scoped-out Medium, and a fabricated
+        name stays Critical, whatever star the cited file holds."""
+        rescoped = {"name": "Mock", "file": "code/core/src/old.ts", "line": 2, "entry": "code/core/src/index.ts",
+                    "excludeGlob": "code/core/src/old.ts", "outsideInclude": False}
+        surface = self.SURFACE | {"extraction": {"status": "ok"},
+                                  "excluded": {"outsideScope": [rescoped], "nestedEntries": []}}
+        record = self._starred(tmp_path, surface=surface)
+        assert (record["severity"], record["title"]) == ("Medium", "Stale documentation: Mock")
+        assert "scopes out `code/core/src/old.ts:2`, where it is defined" in record["remediation"]
+        record = self._starred(tmp_path, item=self.UNPLACED | {"fabricated": True,
+                                                                "source": "code/core/src/test/spy.ts:15"})
+        assert brief([record]) == [("Critical", "fabricated-signature", "Fabricated signature: Mock",
+                                    "code/core/src/test/spy.ts:15", "Mock")]
 
     @pytest.mark.parametrize("excluded, message", [
         (["Rescoped"], "'excluded' must be an object"),

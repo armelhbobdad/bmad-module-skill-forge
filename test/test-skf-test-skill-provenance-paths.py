@@ -2163,6 +2163,13 @@ def test_the_deep_tier_asks_only_for_what_runs():
     assert "at Deep tier, its **Deep Tier** paragraph, which runs no check of its own" in _read(COVERAGE_TIERS)
     observation = next(row for row in _read(SCORING).splitlines() if row.startswith("| Info     | `observation`"))
     assert "`Not checked by script: {name}`, at the documenting line, written by hand" in observation
+    # #1005: and written by gap-ledger.py under a title of its own for a name cited at another package's star,
+    # so that a hand-written record of the name stays its own gap
+    assert ("written by hand (coverage-check §2 and §5b). Also a stale name with no `defined_at`, not scoped out by "
+            "the brief (`excluded.outsideScope`), that the skill cites at a file holding another package's "
+            "`export *` (`surface.json` `unresolvedStars`): `Not checked by script: {name} (another package's "
+            "export *)`, at the documenting line, written by gap-ledger.py and asking no change unless that package "
+            "lacks the name (coverage-check §2c)") in observation
     # the drift guard is init.md §5b's helper call, which runs at every tier
     init = _read(REFS / "init.md")
     assert "It runs the workspace drift guard" in _flow(init)
@@ -2726,9 +2733,11 @@ def test_a_star_from_another_package_adds_no_name(tmp_path):
     (a specifier that is no relative path), as the recipe runner's `resolve_js_module` reads no package name and
     leaves that star unresolved, so no run decides alone which of the package's names to count. §2 states it once
     for every by-eye branch; the Quick-tier warning and the fallback scan give the full wording. The result lists
-    the statement in `unresolved_stars`, which `surface` and `score` read past, and the Coverage Analysis section
-    names it unresolved. A named re-export from another package keeps its name; a star from the source is still
-    left to that module's own result."""
+    the statement in `unresolved_stars`, which `score` reads past, and the Coverage Analysis section names it
+    unresolved. A named re-export from another package keeps its name; a star from the source is still left to
+    that module's own result. #1005: `surface` lists the star in `unresolvedStars` (at Quick tier from the parser's
+    `unlisted` record, since a result that lists no name stays out), so §5b's coverage call records a stale name
+    the skill cites at that file as an Info `Not checked by script` observation, not a Medium gap."""
     text = _read(COVERAGE)
     section2 = _flow(_slice(text, "### 2. Analyze Source Code", "### 2b."))
     tiers = _read(COVERAGE_TIERS)
@@ -2792,6 +2801,8 @@ def test_a_star_from_another_package_adds_no_name(tmp_path):
     }).encode("utf-8"))
     surface = _exec(_choose(_command(COVERAGE_TIERS, "surface --quick")), values, tmp_path)
     assert surface["sets"]["all"] == ["spyOn", "z"] and "violations" not in surface
+    assert surface["unresolvedStars"] == [
+        {"file": "src/index.ts", "line": 1, "statement": "export * from '@vitest/spy'"}]
 
     # The fallback scan: a response that carries `unresolved_stars` passes `surface`'s schema check, adds only the
     # names it lists, and `score` reads it as a result.
@@ -2809,11 +2820,25 @@ def test_a_star_from_another_package_adds_no_name(tmp_path):
     _exec(_command(COVERAGE_TIERS, "uv run {scoreSignaturesScript} plan"), values, tmp_path)
     surface = _exec(_choose(_command(COVERAGE_TIERS, "surface --per-file")), values, tmp_path)
     assert surface["sets"]["all"] == ["spyOn", "z"] and "violations" not in surface
+    assert surface["unresolvedStars"] == [{"file": "src/index.ts", "line": 1, "statement": star[3:]}]
     command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score")).replace(
         '"{run_dir}/signatures-<n>.txt"', '"{run_dir}/per-file-<n>.txt"').replace("<set>", "all")
     scores = _exec(command, values, tmp_path)
     assert scores["signatureAccuracy"] == 100.0, scores
     assert json.loads((run / "signature-gaps.json").read_bytes()) == []
+
+    # #1005: a vitest type the skill documents at that file is no name to remove: §5b's coverage call (no
+    # classify-stale at these tiers) records it as an Info observation naming the star, at its documenting line.
+    with (skill / "SKILL.md").open("ab") as handle:
+        handle.write(b"`Mock` mocks a function. `[AST:src/index.ts:L1]`\n")
+    (run / "coverage.json").write_bytes(json.dumps(
+        {"branch": "enumerated", "missing": [], "stale": ["Mock"]}).encode("utf-8"))
+    values["{ledgerFile}"] = (tmp_path / "test-findings-20261108T000000Z-abcdef12.json").as_posix()
+    _exec(_choose(_command(COVERAGE, "--from coverage"), keep=("--surface",)), values, tmp_path)
+    [record] = json.loads(Path(values["{ledgerFile}"]).read_bytes())["records"]
+    assert (record["severity"], record["category"], record["title"], record["source"]) == (
+        "Info", "observation", "Not checked by script: Mock (another package's export *)", "SKILL.md:4")
+    assert f"through `{star[3:]}` (`src/index.ts:1`)" in record["remediation"], record
 
 
 def test_the_fallback_scan_reads_an_overload_set_whole():

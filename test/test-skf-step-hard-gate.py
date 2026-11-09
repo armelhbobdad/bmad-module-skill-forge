@@ -1050,6 +1050,35 @@ class TestStaleNameLineCheck:
         ):
             assert needle in flow, needle
 
+    def test_a_name_cited_at_another_packages_star_is_not_checked_by_script(self, section: str,
+                                                                           tmp_path: pathlib.Path) -> None:
+        """#1005: a stale name no file declares, which the skill cites at a file holding an `export *` from
+        another package, is the Info observation §2c names, before the Medium catch-all, and §5b's coverage call
+        records it so: the surface lists the star in `unresolvedStars`."""
+        flow = _flow(section)
+        # #1005 review: a name the brief scopes out keeps its scoped-out Medium, and the record's title is not
+        # the hand-written one's
+        rule = ("With no `defined_at`, one cited at an `unresolvedStars` file and not scoped out is an Info "
+                "`observation` naming the star.")
+        assert rule in flow
+        assert flow.index(rule) < flow.index("Any other stale name (")
+        medium = next(r for r in _read(SCORING_FILE).splitlines() if r.startswith("| Medium   | `stale-documentation`"))
+        assert ("not, with no `defined_at` and not scoped out by the brief, cited at a file holding another "
+                "package's `export *` (an Info `observation`)") in medium
+        skill = tmp_path / "skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(b"# demo\n\n`Mock` mocks. `[AST:src/test/spy.ts:L1]`\n")
+        surface = self._surface() | {"unresolvedStars": [
+            {"file": "src/test/spy.ts", "line": None, "statement": "export * from '@vitest/spy'"}]}
+        stale = [{"name": "Mock", "fabricated": False, "source": None, "defined_at": None, "declared_in": []}]
+        [record] = gap_ledger.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Mock"]},
+                                            surface=surface, stale=stale, skill_dir=str(skill))
+        assert (record["severity"], record["category"], record["title"], record["source"]) == (
+            "Info", "observation", "Not checked by script: Mock (another package's export *)", "SKILL.md:3")
+        [record] = gap_ledger.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Mock"]},
+                                            surface=self._surface(), stale=stale, skill_dir=str(skill))
+        assert (record["severity"], record["category"]) == ("Medium", "stale-documentation")
+
     def _classify(self, tmp_path: pathlib.Path, files: dict[str, str], stale: list[str],
                   entries: list[dict], kinds: dict[str, str] | None = None, brief: str | None = None) -> list[dict]:
         """The classify-stale call as §2c writes it, over `files` below the source root, with §1a's
