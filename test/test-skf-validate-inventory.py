@@ -1006,7 +1006,7 @@ def test_a_floor_form_the_inventory_changes_fails(tmp_path):
         r = mod.validate_inventory(_signed(("connect", "function", {"params": "url", "return_type": returned,
                                                                     "at": "SKILL.md:3"})), floor=floor)
         assert r["valid"] is True, (returned, r["violations"])
-    r = mod.validate_inventory(_signed(("connect", "function", {"params": "url, opts", "return_type": "Socket",
+    r = mod.validate_inventory(_signed(("connect", "function", {"params": "opts", "return_type": "Socket",
                                                                 "at": "SKILL.md:3"})), floor=floor)
     assert r["violations"] == [
         'floor: `connect` is documented at SKILL.md:3 (heading) with the signature {"params": "url", '
@@ -1045,8 +1045,9 @@ def test_a_floor_form_the_inventory_changes_fails(tmp_path):
 def test_a_pinned_form_after_shared_members_is_carried(tmp_path):
     """#888: the contract has each of several names whose members the skill states once carry that shared text,
     then `; `, then its own members in its `params`. The floor pins the row's own Signature cell, so a `params`
-    that opens with the shared text and `; ` carries it, as the pinned form copied alone does; a `params` that
-    only ends with the pinned text, with no `; ` before it, does not."""
+    that opens with the shared text and `; ` carries it, as the pinned form copied alone does. #1028: a `params`
+    that only ends with the pinned text, with no `; ` before it, carries it too, since it holds the pinned members
+    in their order after another (test_a_pinned_form_among_shared_members_is_carried_in_order)."""
     pkg = _package(tmp_path, "# Demo\n\nEach model has the base fields `id, scope=Scope()`.\n\n"
                              "| Class | Kind | Signature |\n| --- | --- | --- |\n"
                              "| `Note` | class | `(content, title=None)` |\n| `Task` | class | `(title, done=False)` |\n")
@@ -1066,10 +1067,64 @@ def test_a_pinned_form_after_shared_members_is_carried(tmp_path):
     r = mod.validate_inventory(_signed(("Note", "class", {"params": "id, content, title=None", "at": "SKILL.md:7"}),
                                        ("Task", "class", {"params": "title, done=False", "at": "SKILL.md:8"})),
                                pkg, read)
-    assert r["valid"] is False and r["violations"] == [
-        'floor: `Note` is documented at SKILL.md:7 (table-row) with the signature {"params": "content, title=None", '
-        '"return_type": ""}, but no inventory entry of that name carries it; copy it as given, with `at` '
-        '"SKILL.md:7"']
+    assert r["valid"] is True and r["warnings"] == [], (r["violations"], r["warnings"])
+
+
+def test_a_pinned_form_among_shared_members_is_carried_in_order(tmp_path):
+    """#1028: where the skill puts a name's own member before the members it states once for several names
+    (`leading`), the contract has the entry write the name's whole list in the skill's order, a pinned place
+    included. A pinned `params` is carried when the entry's members, cut at top-level commas, hold each pinned
+    member in the pinned order, others before, among or after them: the whole list passes `--floor` (exit 0), as a
+    list `params` and the `; ` shape do, while a list that reorders or drops a pinned member is refused. A member
+    with a nested comma (`Dict[str, int]`) is one member, and a pinned `usage_signature` is still carried only as
+    given or after the shared text and `; `."""
+    pkg = _package(tmp_path, "# Demo\n\nBoth models take the base fields `id, scope=Scope()` right after their leading "
+                             "first argument.\n\n| Class | Kind | Signature |\n| --- | --- | --- |\n"
+                             "| `Note` | class | `(content, title=None)` |\n"
+                             "| `Task` | class | `(title, done=False)` |\n")
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert [(n["name"], [o.get("signature") for o in n["origins"]]) for n in read["names"]] == [
+        ("Note", [{"params": "content, title=None", "return_type": ""}]),
+        ("Task", [{"params": "title, done=False", "return_type": ""}])]
+    task = ("Task", "class", {"params": "title, id, scope=Scope(), done=False", "at": "SKILL.md:8"})
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(_signed(("Note", "class", {"params": "content, id, scope=Scope(), title=None",
+                                                    "at": "SKILL.md:7"}), task).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--floor", str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["valid"] is True and result["violations"] == [] and result["warnings"] == []
+    for note in (["content", "id", "scope=Scope()", "title=None"], "content, title=None, id, scope=Scope(),",
+                 "id, scope=Scope(); content, title=None"):
+        r = mod.validate_inventory(_signed(("Note", "class", {"params": note, "at": "SKILL.md:7"}), task), pkg, read)
+        assert r["valid"] is True and r["warnings"] == [], (note, r["violations"], r["warnings"])
+    # A pinned member out of its order, or dropped, is refused.
+    for note in ("title=None, content, id, scope=Scope()", "content, id, scope=Scope()",
+                 "content, id, scope=Scope(), title=Scope()"):
+        r = mod.validate_inventory(_signed(("Note", "class", {"params": note, "at": "SKILL.md:7"}), task), pkg, read)
+        assert r["valid"] is False and r["violations"] == [
+            'floor: `Note` is documented at SKILL.md:7 (table-row) with the signature {"params": "content, '
+            'title=None", "return_type": ""}, but no inventory entry of that name carries it; copy it as given, '
+            'with `at` "SKILL.md:7"'], note
+    # A nested comma is inside its member: `content: Dict[str, id, int]` is no `content: Dict[str, int]`.
+    nested = _floor(("Note", [("SKILL.md", 3, "heading", {"params": "content: Dict[str, int], title=None",
+                                                          "return_type": ""})]))
+    for note, valid in (("id, content: Dict[str, int], scope=Scope(), title=None", True),
+                        ("content: Dict[str, id, int], title=None", False)):
+        r = mod.validate_inventory(_signed(("Note", "class", {"params": note, "at": "SKILL.md:3"})), floor=nested)
+        assert r["valid"] is valid, (note, r["violations"])
+    # A pinned usage form is carried as given or after the shared text and `; `, never among other members.
+    usage = _floor(("Client", [("SKILL.md", 3, "heading", {"usage_signature": "new Client(opts)",
+                                                           "return_type": ""})]))
+    for given, valid in (("new Client(opts)", True), ("id; new Client(opts)", True), ("id, new Client(opts)", False)):
+        r = mod.validate_inventory(_signed(("Client", "class", {"usage_signature": given, "at": "SKILL.md:3"})),
+                                   floor=usage)
+        assert r["valid"] is valid, (given, r["violations"])
 
 
 PROPS_SKILL = ("# Demo\n\n## `connect(host, port)`\n\nOpens a connection.\n\n### Canvas\n\n"

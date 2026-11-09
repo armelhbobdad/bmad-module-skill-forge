@@ -1503,7 +1503,8 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     expression, a function's or a class's, whole as a usage, which the rules read as a call, unless the floor pins its
     place, while a class written as a parameter list or a signature (`Note`) keeps `params`. #917: an own member
     the skill puts before or among the shared ones could not be encoded, since own members always followed `; `;
-    the entry now writes the whole list in the skill's order, unless the floor pins that place. #931: a Prop/Type/
+    the entry now writes the whole list in the skill's order, since #1028 at a place the floor pins too, unless it
+    pins a usage form there, which validate-inventory.py still carries only as given or after `; `. #931: a Prop/Type/
     Default table had no encoding, so one table gave a false Critical, a match or no check by how it was flattened;
     it is now an entry of its own, at the heading or caption above it that writes the name, its rows one object type
     with no mark, so it states no optionality. Each sentence sits at its place on the contract's paragraph, and
@@ -1517,8 +1518,8 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
           "parameter names.")
     s2 = ("When the skill places one of the name's own members before or among the shared ones (`leading`, "
           "`first`), the entry writes the name's whole list in the order the skill gives instead, the shared members "
-          "spelled out and no `; `, unless `inventory-floor.json` gives that place a `signature`, whose `params` then "
-          "stays after the shared text and `; `.")
+          "spelled out and no `; `, unless `inventory-floor.json` gives that place a usage form, whose "
+          "`usage_signature` then stays after the shared text and `; `.")
     s3 = ("A table that documents one export's props, a row per prop with its type (Create Skill's "
           "`| Prop | Type | Default | Description |`, or one with a Required column), is a place of its own: its "
           "entry, whatever its kind, gives as `at` the nearest heading or caption above the table that writes the "
@@ -1537,6 +1538,7 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     assert contract.endswith(f"copy the label, never judge the form. {s3}"), contract[-200:]
     for sentence in (s1, s2, s3):
         assert contract.count(sentence) == 1, sentence
+    assert "whose `params` then stays after the shared text" not in contract, "#1028: a pinned `params` is in order"
     assert "\u2014" not in paragraph and "\u2013" not in paragraph, "no em or en dash"
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
@@ -1712,7 +1714,8 @@ def test_the_floor_runs_before_the_inventory_subagent():
     names the places pinned (a one-span Props, Params or Parameters cell and a usage form too, step 2) and the
     partial label a Signature or Props header pins with the form, and §1a refuses an inventory that changes one.
     #1030: the contract and the script say a header with a Signature part heads a Signature cell, and that a
-    compound Props header and an Arguments, Args, Usage, Syntax or Example cell stay the reader's."""
+    compound Props header and an Arguments, Args, Usage, Syntax or Example cell stay the reader's. #1028: a pinned
+    `params` may also spell the shared members out among its own, in the skill's order."""
     text = _read(COVERAGE)
     section1 = _slice(text, "### 1. Extract Documented Exports", "#### 1a.")
     assert _command(COVERAGE, "uv run {coverageInputsScript} floor") == FLOOR_COMMAND
@@ -1750,7 +1753,9 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "`Props / Usage` or `Props / Type` cell and an Arguments, Args, Usage, Syntax or Example cell are none of "
             "these, so their forms stay the reader's) has that form as its entry, with that place as its `at`, "
             "whatever its kind, its non-blank fields kept as given (a "
-            "`params` or `usage_signature` may open with the shared text the next sentence gives, then `; `); a "
+            "`params` or `usage_signature` may open with the shared text the next sentence gives, then `; `, and a "
+            "`params` may spell the shared members out before, among or after its own, in the order the skill "
+            "gives); a "
             "blank one is the reader's, and a form the skill writes only in prose is an entry of its own; a "
             "`signature` read from a cell under a partial label (`Signature (simplified)`, `Props (simplified)`, "
             "`(partial)`, `(key parameters)`) also gives `signature_form` `\"partial\"`, which that entry copies, "
