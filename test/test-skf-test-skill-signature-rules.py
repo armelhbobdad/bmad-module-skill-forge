@@ -1149,26 +1149,36 @@ def test_an_empty_parenthesized_mention_is_no_form():
     catalog.md writes `fetchComponent(componentName)` and `add(componentName, options)` in prose with no prefix, which
     the split-body reader, reading prose directly, could take for a list of bare names and compare by name. The rules
     paragraph now ends on the prose call: a call, whatever comes before the name, unless it writes a parameter type,
-    a return type or a `?`."""
-    mention = "A name written with empty parentheses in running text or a description cell is a mention, not a form"
+    a return type or a `?`. Coherence review (oh-my-skills rehearsals on cognee, cocoindex and storybook): readers
+    split on a placeholder call `name(...)`, which is neither empty nor passes an argument, so it is a mention as
+    `name()` is; on `run_migrations() -> list[str]` in prose, now a signature with an empty list; on a list with a
+    bare `*` or `/`, which no call writes, so it stays a parameter list; and on a prefixed call followed by its
+    return type, such as cocoindex's `await coco.mount([subpath,] processor_fn, *args, **kwargs) ->
+    ComponentMountHandle`, which read as bare names made `[subpath,]` a parameter the source lacks: after such a
+    prefix it stays a call."""
+    mention = ("A name written with empty parentheses, or with only `...` or `…` between them, in running text or a "
+               "description cell is a mention, not a form")
     prefix = ", whatever comes before the name (`await`, `new`, an assignment, a receiver or a module path)"
     cell = ("A description cell is any table cell but an export table's first cell and a cell whose column writes the "
             "call or signature, by its role (Signature, Props, Params, Parameters, Arguments, Usage, Syntax, Example "
             "and the like); a heading or an export table's first cell that writes `name()` is a form")
     prose_call = ("A name written with arguments in running text or a description cell is a call (below), not a list "
-                  "of bare names, whatever comes before the name, unless it writes a parameter type, a return type or "
-                  "a `?`.")
+                  "of bare names, whatever comes before the name, unless it writes a parameter type, a `?`, a bare `*` "
+                  "or `/` (no call writes one), or a return type with no `await`, `new`, assignment, receiver or "
+                  "module path before the name (`await coco.mount(fn) -> Handle` is a call).")
+    returned = ("unless a return type follows its empty parentheses (`run_migrations() -> list[str]`)")
     contract_text = _read(REFS / "inventory-contract.md")
     contract = _paragraph(contract_text, "The contract `validate-inventory.py` checks")
     assert (f"{mention}{prefix}: its entry leaves `params` and `usage_signature` out (a cell reading \"`instrument()` "
-            f"wraps functions\", a line reading \"`await cognee.disconnect()` returns to local mode\"). {cell}, "
-            "recorded as written.") in contract
+            f"wraps functions\", a line reading \"`await cognee.disconnect()` returns to local mode\"), {returned}, "
+            f"which makes it a signature, `params` `\"\"` with that `return_type`. {cell}, recorded as written.") in contract
     assert contract.index("and leaves a key out when the skill documents nothing for it.") < contract.index(
         mention), "after the rule for a key the skill documents nothing for"
     rules = _read(RULES)
     paragraph = _paragraph(rules, mention)
-    assert paragraph == (f"{mention}{prefix}: it claims nothing and is not compared. {cell}, an empty call "
-                         f"(below). {prose_call}"), paragraph
+    assert paragraph == (f"{mention}{prefix}: it claims nothing and is not compared, {returned}, a signature whose "
+                         f"empty list claims the export takes none. {cell}, an empty call (below). {prose_call}"), (
+        paragraph)
     reading = _section("Reading a form")
     assert reading.index(paragraph) < reading.index("Three kinds of form do not claim a complete parameter list:"), \
         "before the forms that claim no complete parameter list, not inside the call-example rule"
