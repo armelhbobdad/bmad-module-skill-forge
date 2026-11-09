@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill no longer compares a function or class an example defines with the library export of the same name when its fenced block decorates it with that export, passes it to that export or registers it through it, whatever else the block defines, as in oms-cocoindex's `@coco.lifespan` over `async def lifespan(builder: coco.EnvironmentBuilder):`, unless the inventory floor pins a signature there: that definition is the reader's own code, so its entry carries no form and records no gap. A decorator that is an attribute of the export, such as a property's `@x.setter`, still leaves the definition a form. The reader's-own-code rule now lists these triggers and the block that also defines names the skill does not document as its only ones, so one reader no longer leaves such a definition out while the next records a Critical `signature-mismatch` that fails the run.
+issues: [1010]

@@ -1429,7 +1429,17 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
     update-skill to remove the accurate scoping sentence, and the next recorded none. The sentence after the alias one
     says a not-covered sentence documents nothing and gives no entry, in any form; any other place that documents the
     name, prose that describes it or a place the floor gives included, still gives one, so `setup_logging`, which the
-    skill also describes elsewhere, keeps its entry and validate-inventory.py still finds every floor name."""
+    skill also describes elsewhere, keeps its entry and validate-inventory.py still finds every floor name.
+
+    #1010: the own-code sentence had one trigger, a block that also defines names the skill does not document as
+    exports, and its words before the colon read as a rule of their own, so a block that defines only the user's
+    function under an export's name, decorated by that export (oms-cocoindex's `@coco.lifespan` over
+    `async def lifespan(builder: coco.EnvironmentBuilder):`), was left out by one reader and compared by the next with
+    lifespan's overloads as a blocking Critical `signature-mismatch`. The sentence now lists its triggers as the only
+    ones: the block also defines undocumented names, or, whatever else it defines, decorates the definition with,
+    passes it to or registers it through that export itself, never through an attribute of it, so a quoted
+    `@x.setter` over `def x` stays a form; a declaration the floor gives a `signature` still stays that place's form.
+    A library's declaration is never decorated by its own name, so the decorator trigger cannot strip a quoted one."""
     type_only = (
         "A name the skill writes only in a type position (a parameter type, a return type or a type argument inside "
         "another entry's documented type or signature, or a parameter table's Type cell) is a type mention, not an "
@@ -1453,11 +1463,14 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
         "skill's `const` label), wherever the skill writes it, a description cell included; a bare `name()` there is "
         "still a mention; only a constant holding neither a component nor a function is a data constant.")
     own_code = (
-        "A function or class an example defines as the reader's own code is not a form of a same-named export: when "
-        "its fenced block also defines names the skill does not document as exports, at a place "
-        "`inventory-floor.json` gives no `signature`, its entry there leaves `params`, `return_type` and "
-        "`usage_signature` out, as a mention's does, so it is never compared and records no gap; a declaration the "
-        "floor gives a `signature` stays that place's form.")
+        "A function or class an example defines is the reader's own code, not a form of a same-named export, only at "
+        "a place `inventory-floor.json` gives no `signature` and only when its fenced block also defines names the "
+        "skill does not document as exports or, whatever else the block defines, decorates the definition with, "
+        "passes it to or registers it through that export itself, by its name or through a receiver or module path "
+        "(`@coco.lifespan` over `async def lifespan(builder: coco.EnvironmentBuilder):`), never through an attribute "
+        "of it such as `@x.setter`: its entry there leaves `params`, `return_type` and `usage_signature` out, as a "
+        "mention's does, so it is never compared and records no gap; a declaration the floor gives a `signature` "
+        "stays that place's form.")
     text = _read(INVENTORY_CONTRACT)
     paragraphs = [_flow(block).strip() for block in re.split(r"\n[ \t]*\n", text) if block.strip()]
     paragraph = f"{type_only} {alias_or_unexported} {not_covered} {function_constant} {own_code}"
@@ -1475,6 +1488,18 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
                   "a fenced declaration"):
         assert place in type_only and place in alias_or_unexported, place
     assert "a code span that is the name" in type_only and "a code span that is the name" not in alias_or_unexported
+    # #1010: the own-code triggers are the only ones, so the words before them never decide alone; a decorated,
+    # passed or registered def is the reader's own code whatever else its block defines, the decorator being the
+    # export itself (a quoted property setter stays a form), and a floor `signature` still keeps its place's form
+    assert "is not a form of a same-named export:" not in paragraph
+    for phrase in ("only at a place `inventory-floor.json` gives no `signature` and only when",
+                   "its fenced block also defines names the skill does not document as exports or",
+                   ("whatever else the block defines, decorates the definition with, passes it to or registers it "
+                    "through that export itself"),
+                   "(`@coco.lifespan` over `async def lifespan(builder: coco.EnvironmentBuilder):`)",
+                   "never through an attribute of it such as `@x.setter`"):
+        assert phrase in own_code, phrase
+    assert own_code.endswith("a declaration the floor gives a `signature` stays that place's form.")
     at = paragraphs.index(paragraph)
     assert paragraphs[at - 1].startswith("The contract `validate-inventory.py` checks"), paragraphs[at - 1][:80]
     assert paragraphs[at + 1].startswith("A `cross_check_mismatches` entry gives"), paragraphs[at + 1][:80]
