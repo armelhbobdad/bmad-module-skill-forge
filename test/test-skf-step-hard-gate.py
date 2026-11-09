@@ -739,7 +739,9 @@ class TestStagesRecordTheirGaps:
         (`datasets.list_data`, `agents.delete`) fell to "no source settled it" and had update-skill copy SKILL.md's
         form, missing a required parameter, over a reference line the source agrees with; and a root record of the
         bare name (`cognee.delete` for `agents.delete`) could settle a pair against the wrong declaration. A method
-        pair gives its `owner`, and the Source reads the member the owner's body declares, never a bare-name record.
+        pair gives its `owner`, and the Source reads the member the owner's body declares, or the function a namespace
+        object binds it to (`session.add_feedback`, a `types.SimpleNamespace` keyword), never a bare-name record; two
+        owners' methods of one name are never a pair.
         #1026: a surface the fallback per-file scan builds never looks for other declarations, yet wrote
         `otherDeclarations` as [], so one recorded declaration settled a pair a full extraction leaves unsettled. It
         now writes null, and the one declaration decides only on a list.
@@ -768,6 +770,9 @@ class TestStagesRecordTheirGaps:
                 "`method`'s forms also gives the `owner` its entries give (`agents` above), so the split-body Source "
                 "reads that owner's member, never a same-named declaration elsewhere; `owner` is not validated."
                 ) in contract
+        # one pair gives one owner, so methods of one name on two owners are never a pair
+        assert ("`owner` is not validated. Methods of one name whose entries give different owners (`agents.get`, "
+                "`datasets.get`) are two methods, and their forms are never a pair.") in contract
         example = json.loads(re.search(r"```json\n(.*?)\n```", _read(REFS / "inventory-contract.md"),
                                        re.S).group(1))["cross_check_mismatches"]
         assert [(e["export"], e["owner"]) for e in example if "owner" in e] == [("get", "agents")]
@@ -811,12 +816,16 @@ class TestStagesRecordTheirGaps:
         assert ("It is `null`, not `[]`, when no runner extraction looked for them: a surface with no extraction, or "
                 "one the fallback per-file scan builds, with or without the runner's JSON.") in _flow(
                     _read(REFS / "source-access-protocol.md"))
-        # #1035: a method pair is settled by the member its owner's body declares, read from the owner's record, by
-        # the same one-declaration test, before the remediation that cites the declaration's `file:line`
+        # #1035: a method pair is settled by the member its owner's body declares, read from the owner's record, or,
+        # for a namespace object such as cognee's `session`, by the function its keyword binds, by the same
+        # one-declaration test, before the remediation that cites the declaration's `file:line`
         member = ("A pair that gives an `owner` is a `method`'s (inventory-contract.md): its declaration is the member "
                   "of the method's bare name that the owner's body declares, read from the `file` and `line` of the "
-                  "owner's `surface.json` record, and it decides when the owner's name has one declaration by the "
-                  "test above and that body declares the member once, with no overload set.")
+                  "owner's `surface.json` record, or, for an owner that binds the name to a function declared "
+                  "elsewhere (a keyword of the `types.SimpleNamespace(...)` call that builds it, a class attribute "
+                  "assigned a function), the declaration that binding names, read in the owner's file or through its "
+                  "import, and it decides when the owner's name has one declaration by the test above and the owner "
+                  "declares or binds the member once, with no overload set.")
         # a bare-name record never stands in, and a pair the rule cannot place under its owner is settled by nothing
         bare = ("A record of the bare name never stands in for the member, so with no record of the owner or no such "
                 "member, or with no `owner` on a pair whose `export` the inventory lists only as a `method`, nothing "
@@ -826,18 +835,23 @@ class TestStagesRecordTheirGaps:
         assert (rule.index("the Source is the other side, `SKILL.md:{skill_md_line}`") < rule.index(member)
                 < rule.index(bare) < rule.index("Its remediation names the file to edit")), "before the remediation"
         # #1027: a pair nothing decides because the name has two declarations sets each form against each of them,
-        # never for a method pair, whose declarations are members the bare name's records never stand in for
-        homonyms = ("Under the conditions above, when nothing decides because the export's name has more than one "
-                    "declaration (a second declaring file, or an `otherDeclarations` entry of its name), on a pair "
-                    "that gives no `owner` and whose `export` the inventory does not list only as a `method`, set "
-                    "each form against each declaration of the name, its `surface.json` records and its "
-                    "`otherDeclarations` entries, read at their `file` and `line`: when each form agrees with a "
+        # never for a method pair, whose declarations are members the bare name's records never stand in for. It
+        # runs under the State, tier and drift gate alone, so after a fallback scan that records the name in two
+        # files too, where each record has no line: the judge finds it by name in its file
+        homonyms = ("Under the State, tier and `workspaceDrift` conditions above, when nothing decides because the "
+                    "export's name has more than one declaration (a second declaring file, or an `otherDeclarations` "
+                    "entry of its name), on a pair that gives no `owner` and whose `export` the inventory does not "
+                    "list only as a `method`, set each form against each declaration of the name, its `surface.json` "
+                    "records and its `otherDeclarations` entries, read at their `file` and `line`, or found by its "
+                    "name in its `file` when its `line` is `null` (a per-file record): when each form agrees with a "
                     "different one, the remediation names no form to take.")
-        # it asks for the citation each form's own citations are read from, and a module or owner the reader reads
+        # it asks for the citation each form's own citations are read from, and a module or owner the reader reads;
+        # a declaration with no line is cited by its file, which names every declaration there (form_citations)
         cite = ("For each side it gives the form's file and line and the declaration that form agrees with, and asks "
-                "update-skill to add that declaration's citation, `[SRC:{file}:L{line}]`, on the form's line or, in a "
-                "fenced block, on a comment line just above it, and to name the declaration's module or owner beside "
-                "the form, so a later run's reader and §2's `bound` keep the two apart.")
+                "update-skill to add that declaration's citation, `[SRC:{file}:L{line}]`, or `[SRC:{file}]` for one "
+                "with no `line`, which names every declaration in its file, on the form's line or, in a fenced block, "
+                "on a comment line just above it, and to name the declaration's module or owner beside the form, so a "
+                "later run's reader and §2's `bound` keep the two apart.")
         # the Source and the table keep the unsettled side, and every other pair keeps the copy
         unsettled = ("Its Source stays `{reference_file}:{reference_line}` and its **Contradicted Side** "
                      "`not settled`; every other pair keeps the remediation above.")

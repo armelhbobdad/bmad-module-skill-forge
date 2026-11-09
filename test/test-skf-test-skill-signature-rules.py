@@ -37,8 +37,8 @@ and none of the `difference` tags. These tests keep:
   one documented set, as a source's is, its own forms never compared with
   each other (#1017);
 - a leading receiver one documented form writes and the other leaves out
-  never compared there, since neither form is the source, by the receiver
-  set the source rule names (#1045);
+  never compared there, since neither form is the source, by every
+  receiver score-signatures.py drops, Rust's `&mut self` included (#1045);
 - a partial label in a table's column header labelling each of its rows;
 - a name written with empty parentheses in running text or a description
   cell (any cell but an export table's first cell and a call or signature
@@ -491,7 +491,7 @@ def test_a_call_to_a_class_is_compared_with_its_constructor():
     instance = ("A call to an instance is compared with its class's `__call__` (`fn = _FunctionDecorator()`, then "
                 "`fn(memo=True)`), its overloads read as Overload sets says, and a name bound to a class with that "
                 "class's constructor (`Symbol = core.Symbol`, whose stub declares `__new__(cls, name: str)`).")
-    receivers = "(`self`, `cls`, `&self`, `this: T`)"
+    receivers = "(`self`, `cls`, `&self`, `&'a self`, `&mut self`, `mut self`, `this: T`)"
     receiver = (f"A leading receiver the source writes {receivers} is never compared, and a form's own leading "
                 "receiver is dropped only when the source leads with one too: `(self, a)` against `def f(a)` is a "
                 "mismatch.")
@@ -590,16 +590,24 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
     first = "and a parameter's optionality is compared only when both forms state it."
     assert pointer in paragraph, pointer
     assert paragraph.index(first) < paragraph.index(pointer) < paragraph.index(homonyms), "after the first sentence"
-    # #1045: a receiver only one form writes is never compared, after the first sentence, by the receiver set the
-    # source rule (and score-signatures.py) names; against the source, `(self, a)` and `def f(a)` still differ
-    receivers = "(`self`, `cls`, `&self`, `this: T`)"
+    # #1045: a receiver only one form writes is never compared, after the first sentence, by every receiver
+    # score-signatures.py drops, Rust's `&mut self` and `mut self` too, since no script reads these two forms;
+    # against the source, `(self, a)` and `def f(a)` still differ
+    listed = ("self", "cls", "&self", "&'a self", "&mut self", "mut self", "this: T")
+    receivers = "(" + ", ".join(f"`{r}`" for r in listed) + ")"
     receiver = (f"A leading receiver {receivers} that one form writes and the other leaves out is never compared: "
                 "neither form is the source, so each form's own leading receiver is dropped before the two are "
                 "compared.")
     assert receiver in paragraph, receiver
     assert paragraph.index(first) < paragraph.index(receiver) < paragraph.index(pointer), "after the first sentence"
     assert rules.count("neither form is the source") == 1, "one copy"
-    assert receivers in _paragraph(rules, "A call to a class is compared with its constructor"), "one receiver set"
+    source_rule = _paragraph(rules, "A call to a class is compared with its constructor")
+    assert receivers in source_rule, "the source rule lists every receiver RECEIVER_RE drops, as the split-body rule does"
+    spec = importlib.util.spec_from_file_location("score_signatures", SCORE_SIGNATURES)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for item, extension in zip(listed, (".py", ".py", ".rs", ".rs", ".rs", ".rs", ".ts")):
+        assert module._parameters(f"({item}, value)", extension)[0]["receiver"], f"{item} is a receiver the script drops"
     assert "`(self, a)` against `def f(a)` is a mismatch." in reading, "the source's rule is unchanged"
     # the `bound` rule it points at ("below") stays below it
     flowed = _flow(rules)

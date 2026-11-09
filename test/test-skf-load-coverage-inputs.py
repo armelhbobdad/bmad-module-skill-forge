@@ -1679,6 +1679,12 @@ def test_no_extraction_or_a_replaced_one_leaves_other_declarations_unknown(tmp_p
     assert _surface(tmp_path / "quick", "--quick", quick)["otherDeclarations"] is None
     assert ("and [] with none; null with no extraction or with one the per-file scan replaces, which looks for none, "
             "so null means never looked for (#1026).") in " ".join(mod.__doc__.split())
+    # both docstrings name the split-body Source, the reader the null is for, beside score-signatures.py
+    assert ("and so does test-skill's Split-Body Sources (coverage-check-branches.md), which lets one declaration "
+            "settle a split-body pair only on a list.") in " ".join(mod.__doc__.split())
+    assert "score-signatures.py plan and test-skill's Split-Body Sources read them." in " ".join(
+        mod.other_declarations.__doc__.split())
+    assert "only score-signatures.py reads them" not in " ".join((mod.__doc__ + mod.other_declarations.__doc__).split())
 
 
 @pytest.mark.parametrize("runner_json", [True, False], ids=["with-the-runner-json", "no-runner-json"])

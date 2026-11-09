@@ -331,9 +331,11 @@ none, so null means never looked for (#1026). Such a declaration is a
 same-named function no entry point exports, as cognee's lightweight
 `run_pipeline`, which a lazy `__getattr__` passes on beside the
 orchestrator a namespace exports. They are no records: they join no set,
-no count and no guard, and only score-signatures.py reads them, plan
-binding a documented form to one when the form's own citations name it and
-no other declaration of the name.
+no count and no guard. score-signatures.py plan reads them, binding a
+documented form to one when the form's own citations name it and no other
+declaration of the name, and so does test-skill's Split-Body Sources
+(coverage-check-branches.md), which lets one declaration settle a
+split-body pair only on a list.
 
 Candidates and guards (with an extraction, --brief or --metadata): each
 set's count, the metadata `stats.effective_denominator` (--metadata), and
@@ -1430,7 +1432,7 @@ def other_declarations(records: list[dict], declarations: list[dict], aliases: d
     record of the name names and no exclude glob matches, as {name, kind,
     file, line, signatureLine}, the file normalised (_norm), sorted, each
     declaration once however its path is written. They are no records:
-    only score-signatures.py reads them."""
+    score-signatures.py plan and test-skill's Split-Body Sources read them."""
     files: dict[str, set[str]] = {}
     for record in records:
         files.setdefault(record["name"], set()).update([_norm(record["file"])] if record.get("file") else [])
