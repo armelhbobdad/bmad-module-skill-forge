@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's Deep-tier migration check now counts Section 4b as present only when SKILL.md has the level-2 heading `## Migration & Deprecation Warnings` exactly, the heading Create Skill emits and the other Section 4b gates match. A section under any other heading, such as `## Migration from v1`, is not Section 4b whatever it holds: with `t2_future_count: 0` it records no `migration-section` gap, and with a count above 0 the skill gets the Medium Case 1 gap for a missing Section 4b. Before, the check named the section without saying whether a retitled migration section counted, so two runs of the same skill could record different `migration-section` gaps and send Update Skill different structural fixes.
+issues: [1000]

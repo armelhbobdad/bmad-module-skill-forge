@@ -368,6 +368,31 @@ def test_awk_detection_contract_reads_the_bound_report():
     assert "the detection contract below reads it" in _flow(_slice(text, "## Gate Check", "## Scope of Section 4b"))
 
 
+def test_section_4b_is_the_exact_heading():
+    """#1000: the Case Rules detect Section 4b by the exact heading create-skill emits and the other gates match,
+    so a migration section under another heading is not Section 4b and two runs cannot read it two ways: with
+    T2-future = 0 it raises no Case, and with T2-future > 0 and no such heading it is Case 1."""
+    heading = "Migration & Deprecation Warnings"
+    rules = _flow(_slice(_read(MIGRATION), "## Case Rules", "**Detection contract.**"))
+    assert ("Section 4b is present only when SKILL.md's body has a level-2 heading whose text is exactly "
+            f"`{heading}`: the heading `skf-create-skill/assets/compile-assembly-rules.md` has create-skill emit "
+            "verbatim, and the one `skf-shard-body.py` and `scan-doc-rot.py` match.") in rules
+    assert ("A section under any other heading, such as `## Migration from v1`, is not Section 4b, whatever it "
+            "holds: with T2-future = 0 it raises no Case, and with T2-future > 0 and no such heading it is "
+            "Case 1.") in rules
+    assert "field: this is the authoritative count, not the narrative body." in rules
+    assert "Check whether SKILL.md contains" not in rules, "the old wording left the heading rule to the reader"
+    # The key the rule names is the one create-skill emits verbatim and both scripts match.
+    assembly = _flow(_read(SRC / "skf-create-skill" / "assets" / "compile-assembly-rules.md"))
+    assert f"Emit the heading verbatim as `## {heading}`. Downstream gates match that exact text" in assembly
+    shard = runpy_module(SCRIPTS / "skf-shard-body.py")
+    assert heading in shard.TIER1_HEADINGS
+    assert shard.present_tier1([f"## {heading}", "## Migration from v1"]) == {heading}
+    scan = runpy_module(SRC / "skf-create-skill" / "scripts" / "scan-doc-rot.py")
+    assert scan.migration_section_range(f"## {heading}\n- old renamed to new\n") == (1, 3)
+    assert scan.migration_section_range("## Migration from v1\n- old renamed to new\n") is None
+
+
 def test_case_4_is_an_evidence_report_without_the_pinned_count():
     """#784: Case 4 is reached only when the evidence report exists and pins no usable `t2_future_count` (absent,
     not a non-negative integer, or no frontmatter at all, as in every create-stack-skill report), so its note says
