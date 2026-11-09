@@ -51,7 +51,7 @@ Write no em dashes (U+2014) in anything you add, including commit messages: use 
 
 ### Tool Versions
 
-[`src/shared/tool-requirements.yaml`](src/shared/tool-requirements.yaml) is the one list of the tools SKF uses (Node.js, Python, uv, git, gh, ast-grep, ccc, qmd, tessl, skill-check), with each tool's minimum and tested versions. Its header says how those numbers are set: `tested` names versions a run actually used, and a minimum starts at a tested version and comes down only after a run on an older one passes. The prerequisites table in `docs/getting-started.md` is generated from it, so to change a version:
+[`src/shared/tool-requirements.yaml`](src/shared/tool-requirements.yaml) is the one list of the tools SKF uses (Node.js, Python, uv, git, gh, ast-grep, ccc, qmd, tessl, skill-check, snyk-agent-scan), with each tool's minimum and tested versions. Its header says how those numbers are set: `tested` names versions a run actually used, and a minimum starts at a tested version and comes down only after a run on an older one passes. The prerequisites table in `docs/getting-started.md` is generated from it, so to change a version:
 
 1. Edit `src/shared/tool-requirements.yaml`, not the table.
 2. Run `node tools/tool-requirements.js --write` to regenerate the table.

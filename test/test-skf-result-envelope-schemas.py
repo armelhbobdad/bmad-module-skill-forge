@@ -294,7 +294,8 @@ SECURITY_RESULT = [("skf-quick-skill-result-envelope.v1.json", ("summary",)),
 @pytest.mark.parametrize("name,where", SECURITY_RESULT, ids=[name for name, _ in SECURITY_RESULT])
 def test_security_result_is_the_scan_outcome(name, where):
     """#902: an optional `pass`, `warn` or `skipped`, so a pipeline tells a scan that could not run from one that
-    ran; a halt carries none, and `pass` says only what the scan's exit and skill-check's report show."""
+    ran; a halt carries none, and `pass` is a scan the scanner finished with no risk, never an analysis error
+    (#892)."""
     schema = _load(SCHEMA_DIR / name)
     holder = schema
     for key in where:
@@ -308,8 +309,10 @@ def test_security_result_is_the_scan_outcome(name, where):
         assert mod._validate_against_schema(value, prop) == [], value
     for value in ("passed", "SKIP", None):
         assert mod._validate_against_schema(value, prop), value
-    assert "exited 0 and skill-check reported no finding" in prop["description"]
-    assert "does not show that the scan found nothing" in prop["description"]
+    assert "'pass': Snyk Agent Scan, which skf-security-scan.py runs, analysed the package and reported no risk." \
+        in prop["description"]
+    assert "or an analysis error such as a rejected token" in prop["description"]
+    assert "skill-check" not in prop["description"]
     # no scan step runs at a halt: the halt line validates and leaves the field out
     meta = _meta(schema)
     proc = subprocess.run(

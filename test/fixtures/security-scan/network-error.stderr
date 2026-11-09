@@ -1,0 +1,3 @@
+Traceback (most recent call last):
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientProxyConnectionError: Cannot connect to host 127.0.0.1:9 ssl:default [Connect call failed ('127.0.0.1', 9)]

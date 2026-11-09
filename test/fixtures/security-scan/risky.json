@@ -1,0 +1,26 @@
+{
+  "scan_path_responses": [
+    {
+      "client": "/work/skills/demo",
+      "path": "/work/skills",
+      "server_risks": [],
+      "skill_risks": [
+        {
+          "name": "demo",
+          "files": [
+            {
+              "name": "SKILL.md",
+              "type": "instruction"
+            }
+          ],
+          "risk_indexes": {
+            "prompt_injection_skill_instructions": {
+              "score": 800,
+              "evidence": "Instructs the agent to ignore prior instructions"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

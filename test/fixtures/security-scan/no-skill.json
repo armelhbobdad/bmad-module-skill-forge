@@ -1,0 +1,10 @@
+{
+  "scan_path_responses": [
+    {
+      "client": "/work/empty",
+      "path": "/work/empty",
+      "server_risks": [],
+      "skill_risks": []
+    }
+  ]
+}

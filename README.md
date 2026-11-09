@@ -175,7 +175,7 @@ SKF builds on these excellent open-source tools:
 | [ast-grep MCP](https://github.com/ast-grep/ast-grep-mcp)         | MCP server for memory-efficient AST queries (recommended)              |
 | [cocoindex-code](https://github.com/cocoindex-io/cocoindex-code) | Semantic code search and file pre-ranking (Forge+; optional on Deep)   |
 | [QMD](https://github.com/tobi/qmd)                               | Local hybrid search engine for knowledge indexing (Deep tier)          |
-| [skill-check](https://github.com/thedaviddias/skill-check)       | Skill validation, auto-fix, quality scoring, and security scanning     |
+| [skill-check](https://github.com/thedaviddias/skill-check)       | Skill validation, auto-fix and quality scoring                         |
 | [Snyk Agent Scan](https://github.com/snyk/agent-scan)            | Security scanning for prompt injection and data exposure (optional)    |
 | [tessl](https://tessl.io)                                        | Opt-in Tessl Review: AI-judge scoring of description and content       |
 | [BMAD Method](https://github.com/bmad-code-org/BMAD-METHOD)      | Agent-workflow framework that SKF extends as a module                  |

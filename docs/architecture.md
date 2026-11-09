@@ -87,7 +87,7 @@ Ferris operates in five workflow-driven modes (mode is determined by which workf
 | Tool | Wraps | Purpose |
 |------|-------|---------|
 | **`gh_bridge`** | GitHub CLI (`gh`) | Source code access, issue mining, release tracking, PR intelligence |
-| **`skill-check`** | [thedaviddias/skill-check](https://github.com/thedaviddias/skill-check) | Validation + auto-fix (`check --fix`), quality scoring (0-100), security scan, split-body, diff comparison |
+| **`skill-check`** | [thedaviddias/skill-check](https://github.com/thedaviddias/skill-check) | Validation + auto-fix (`check --fix`), quality scoring (0-100), split-body, diff comparison |
 | **`tessl`** | [tessl](https://tessl.io) (`tessl review run`) | Opt-in Tessl Review of the skill folder: validation checks and AI judges for the description and the content, with suggestions. Off unless `tessl_review_workspace` is set in preferences; needs a Tessl account |
 | **`ast_bridge`** | ast-grep CLI | Structural extraction, custom AST queries, co-import detection |
 | **`ccc_bridge`** | cocoindex-code | Semantic code search, project indexing, file discovery pre-ranking |
@@ -208,7 +208,7 @@ The installer copies the workflow folders (`skf-*/`), `knowledge/`, `shared/`, `
 - SKF's Python helper scripts start other programs with a list of arguments, never a shell command string, so a name or path cannot slip in extra commands. Some steps have the assistant run shell commands itself. The GitHub search for a function's history, for example, first strips every character except letters, digits and underscores from the function names it inserts.
 - Input sanitization: allowlist characters for repo names, file paths, patterns
 - File paths validated against project root (no directory traversal)
-- **Source code never leaves the machine.** All processing is local (AST, QMD, validation). The one exception is opt-in: with `tessl_review_workspace` set in preferences, create-skill and test-skill send the compiled skill (its `SKILL.md`, `references/`, `scripts/` and `assets/`, which can hold copies of source files) to Tessl Review, and each review stays in that Tessl workspace's history.
+- **Source code never leaves the machine.** All processing is local (AST, QMD, validation). There are two opt-in exceptions. With `tessl_review_workspace` set in preferences, create-skill and test-skill send the compiled skill (its `SKILL.md`, `references/`, `scripts/` and `assets/`, which can hold copies of source files) to Tessl Review, and each review stays in that Tessl workspace's history. With `SNYK_TOKEN` set, Quick Skill, Create Skill, Update Skill and Create Stack Skill send the skill package they wrote, with the machine's host name and user name, to Snyk's analysis server for the security scan: `shared/scripts/skf-security-scan.py` runs Snyk Agent Scan through `uvx`, at the version SKF pins.
 - The health check at the end of each workflow can report problems in SKF's own instructions as GitHub issues on the SKF repository. Nothing is filed until you review and confirm it. Headless runs save their findings in `forge-data/improvement-queue/` instead.
 - `doc_fetcher` informs users which URLs will be fetched externally before processing
 

@@ -92,7 +92,7 @@
         "security_result": {
           "type": "string",
           "enum": ["pass", "warn", "skipped"],
-          "description": "The outcome of write.md §7's security scan, from the Security row of this update's Validation Summary in the evidence report (PASS as 'pass', WARN as 'warn', SKIP as 'skipped'), and the value follows that row. 'pass': the scan exited 0 and skill-check reported no finding, which does not show that the scan found nothing. 'warn': it reported findings. 'skipped': it did not run (skill-check unavailable, or the scan could not run, such as without SNYK_TOKEN). Absent on 'no-changes', 'detect-only' and 'dry-run', which run no scan, at every halt, and when that row is missing or starts with another word."
+          "description": "The outcome of write.md §7's security scan, from the Security row of this update's Validation Summary in the evidence report (PASS as 'pass', WARN as 'warn', SKIP as 'skipped'), and the value follows that row. 'pass': Snyk Agent Scan, which skf-security-scan.py runs, analysed the package and reported no risk. 'warn': it reported risks. 'skipped': it did not run or could not finish its analysis (no SNYK_TOKEN, no uvx, a scanner that failed or ran out of time, or an analysis error such as a rejected token). Absent on 'no-changes', 'detect-only' and 'dry-run', which run no scan, at every halt, and when that row is missing or starts with another word."
         },
         "headless_decisions": {
           "type": "array",
