@@ -1532,7 +1532,7 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     contract = _flow(paragraph)
     # S1 after the rule that a heading's `name()` is a form, before the methods; S2 after the shared text it
     # extends, before the partial label; S3 ends the paragraph.
-    assert f"is a form, recorded as written. {s1} A `method`'s `name` is the bare method name" in contract
+    assert f"is a form, recorded as written. {s1} {EXAMPLE_CALL} A `method`'s `name` is the bare method" in contract
     assert (f"as `Note(content, title=None)` and `Task(title, done=False)`). {s2} An entry whose signature the skill "
             "labels partial") in contract
     assert contract.endswith(f"copy the label, never judge the form. {s3}"), contract[-200:]
@@ -1540,6 +1540,32 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
         assert contract.count(sentence) == 1, sentence
     assert "whose `params` then stays after the shared text" not in contract, "#1028: a pinned `params` is in order"
     assert "\u2014" not in paragraph and "\u2013" not in paragraph, "no em or en dash"
+    assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
+
+
+# #997: a call a fenced example writes is no place of its own beside the name's form elsewhere.
+EXAMPLE_CALL = (
+    "A call or JSX element of a name that a fenced example writes is not a place of its own when the skill also "
+    "writes that name's form at a place that is no example (a heading, a table row, a props table, running text or "
+    "a fenced declaration), unless the nearest heading above the example names a usage (`## Usage`, "
+    "`### Basic usage`): it gives no entry, so it is never compared, and a name whose only forms are in fenced "
+    "examples keeps them.")
+
+
+def test_the_inventory_contract_gives_an_example_call_beside_a_form_no_entry():
+    """#997 decision 1: whether a reader recorded a call a fenced example writes (storybook's `defineMain({ ... })`
+    and `withThemeFromJSXProvider({ ... })`) beside the name's documented signature was the reader's choice, so
+    three readers recorded different usage forms and a run compared a form the next one did not. The contract now
+    says such an example is no place of its own and gives no entry, unless the nearest heading above it names a
+    usage, while a name whose only forms are in fenced examples keeps them, so its docs-only coverage still counts
+    it. The sentence follows the call-expression rule it narrows, in the contract paragraph, and coverage-check.md,
+    which loads the contract, does not grow."""
+    [paragraph] = [p for p in _read(INVENTORY_CONTRACT).split("\n\n")
+                   if p.startswith("The contract `validate-inventory.py` checks")]
+    contract = _flow(paragraph)
+    assert contract.count(EXAMPLE_CALL) == 1
+    assert f"as parameter names. {EXAMPLE_CALL} A `method`'s `name`" in contract
+    assert "\u2014" not in EXAMPLE_CALL and "\u2013" not in EXAMPLE_CALL, "no em or en dash"
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
 
@@ -1716,7 +1742,9 @@ def test_the_floor_runs_before_the_inventory_subagent():
     #1030: the contract and the script say a header with a Signature part heads a Signature cell, and that a
     compound Props header and an Arguments, Args, Usage, Syntax or Example cell stay the reader's. #1028: a pinned
     `params` may also spell the shared members out among its own, in the skill's order. #1029: an ellipsis item
-    labels a pinned form partial too, and the label at a pinned place is the floor's, so the reader adds none."""
+    labels a pinned form partial too, and the label at a pinned place is the floor's, so the reader adds none.
+    #997: a Key params cell on a callable row is a pinned place too, its form partial, and the script says which
+    cells it leaves the reader, a prose-qualified one among them."""
     text = _read(COVERAGE)
     section1 = _slice(text, "### 1. Extract Documented Exports", "#### 1a.")
     assert _command(COVERAGE, "uv run {coverageInputsScript} floor") == FLOOR_COMMAND
@@ -1749,7 +1777,9 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "compares") in contract
     assert ("A place `inventory-floor.json` gives a `signature` (a cited function declaration, a Signature cell, a "
             "Props, Params or Parameters cell that is one code span, or a heading or an export table's first cell "
-            "that writes one call; a usage form, such as `new Client(opts)`, in `usage_signature`; a header with a "
+            "that writes one call; a usage form, such as `new Client(opts)`, in `usage_signature`; a Key params "
+            "cell that opens with the row's name and its parameter group, on a row whose Kind cell names a function, "
+            "method, class, generator or hook, such as `sync fn` or `abstract class`; a header with a "
             "Signature part, such as `Signature / Purpose` or `Props / Signature`, heads a Signature cell, while a "
             "`Props / Usage` or `Props / Type` cell and an Arguments, Args, Usage, Syntax or Example cell are none of "
             "these, so their forms stay the reader's) has that form as its entry, with that place as its `at`, "
@@ -1759,7 +1789,8 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "gives); a "
             "blank one is the reader's, and a form the skill writes only in prose is an entry of its own; a "
             "`signature` read from a cell under a partial label (`Signature (simplified)`, `Props (simplified)`, "
-            "`(partial)`, `(key parameters)`), or whose parameter group holds a `...` or `…` standing in for omitted "
+            "`(partial)`, `(key parameters)`) or from a Key params cell, or whose parameter group holds a `...` or "
+            "`…` standing in for omitted "
             "members, also gives `signature_form` `\"partial\"`, which that entry copies, "
             "and the validator refuses an inventory with no entry there that does. The label at a place "
             "`inventory-floor.json` gives a `signature` is the `signature`'s: an entry that gives its form there or "
@@ -1781,6 +1812,11 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "#1030)") in rules
     assert ("a compound header with no Signature part (`Props / Usage`, `Props / Type`) and an Arguments, Args, "
             "Usage, Syntax or Example header leave the column unread: its form stays the reader's.") in rules
+    assert ("With no such span, last a Key params or Key parameters cell (#997), on a row whose Kind cell names a "
+            "callable as a whole word") in rules
+    assert ("with `signature_form` \"partial\", as the header labels each row. A table with no Kind column, a row "
+            "of another kind (`tuple`, `type alias`)") in rules
+    assert ("So does a cell's span that prose qualifies or that sits among other spans") in rules
     assert "a Props, Params or Parameters cell that is one code span" in _flow(_read(INVENTORY_CONTRACT)).split(
         "keeps one `kind` in every place.", 1)[1].split("Where the skill documents several names", 1)[0]
     for rule in ("Signature cell", "Props (simplified)", "leading code span"):

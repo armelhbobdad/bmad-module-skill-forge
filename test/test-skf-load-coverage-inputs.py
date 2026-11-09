@@ -1068,6 +1068,84 @@ def test_floor_pins_a_props_cell_and_a_usage_form(tmp_path):
     assert json.loads(first.read_bytes()) == out
 
 
+KEY_PARAMS_FORMS = (
+    "| Export | Kind | Key params | Source |\n"                                                          # 1
+    "|---|---|---|---|\n"                                                                                # 2
+    "| `MemorySource` | abstract class | `MemorySource(mode=\"re-derive\")`: base of every source; "
+    "subclasses implement async `records()`. | [SRC:base.py:L36] |\n"                                    # 3
+    "| `IMPORT_MODES` | tuple | `(\"re-derive\", \"preserve\", \"hybrid\")`: the modes. | [SRC:base.py:L19] |\n"  # 4
+    "| `Mem0Source` | class | `Mem0Source(data, mode=\"re-derive\")`: `data` is a path. | [SRC:mem0.py:L26] |\n"  # 5
+    "| `read_manifest` | sync fn | `read_manifest(directory) -> COGXManifest \\| None`: `None` when absent. | |\n"  # 6
+    "| `read_archive` | sync generator | `read_archive(directory) -> Iterator[COGXRecord]`: streams. | |\n"   # 7
+    "| `GraphSnapshot` | pydantic model | `dataset_name=\"\", nodes=[]` (DataPoint instances), `edges=[]` | |\n"  # 8
+    "| `COGXRecord` | type alias | `A \\| B`, discriminated by `kind`. | |\n"                                # 9
+    "| `COGX_VERSION` | str | `\"0.1\"`: the version. | |\n"                                               # 10
+    "| `datapoint_registry` | sync fn | `datapoint_registry() -> dict[str, type[DataPoint]]`: each class. | |\n"  # 11
+    "| `z` | function | `import { z } from \"zod\"` | |\n"                                                  # 12
+    "| `formats` | function | `(\"json\", None)` | |\n"                                                    # 13
+    "| `empty` | method | `{}` | |\n"                                                                     # 14
+    "| `run` | async fn | `await run(a, b)`: runs it. | |\n"                                               # 15
+    "| `other` | function | `elsewhere(a)`: another name. | |\n"                                          # 16
+    "| `alt` | function | `alt(a)` or `alt(a, b)` | |\n"                                                  # 17
+    "| `GraphitiSource` | class | Same `ZepSource(data, mode=\"hybrid\")` constructor. | |\n"              # 18
+    "\n"                                                                                                 # 19
+    "| Export | Key params |\n"                                                                          # 20
+    "|---|---|\n"                                                                                        # 21
+    "| `Context` | `Context(req, env)` |\n"                                                              # 22
+    "\n"                                                                                                 # 23
+    "| Export | Kind | Key params / shape |\n"                                                          # 24
+    "|---|---|---|\n"                                                                                    # 25
+    "| `shaped` | function | `shaped(a, b)` |\n"                                                         # 26
+    "\n"                                                                                                 # 27
+    "| Function | Kind | Signature | **Key Parameters** |\n"                                           # 28
+    "|---|---|---|---|\n"                                                                                # 29
+    "| `signed` | function | `signed(a: int, b: str) -> str` | `signed(a)` |\n"                          # 30
+    "| `keyed` | Function | | `keyed(a, b=1)` |\n"                                                       # 31
+)
+
+
+def test_floor_pins_a_key_params_cell_on_a_callable_row(tmp_path):
+    """#997: Create Skill's Key API Summary writes a `Key params` column, which the floor never read, so readers
+    recorded different forms there. Its cell is now read last, after the Props step, on a row whose Kind cell names
+    a callable as a whole word, any case (`abstract class`, `class`, `sync fn`, `sync generator`, `Function`): its
+    leading code span, `\\|` read as `|` and prose after it left out, when that is the row name's complete form with
+    the name written, pinned with `signature_form` "partial" as the header labels each row (an empty group with a
+    return too). A `tuple`, `pydantic model`, `type alias` or `str` row, a span with no name or another (a tuple
+    literal, an import, `elsewhere(a)`), no complete form (`{}`, a usage), a cell that writes a second form of the
+    name, a cell that opens with prose, a table with no Kind column and a compound `Key params / shape` header pin
+    nothing, and a Signature cell beside it wins. The same skill gives the same bytes."""
+    root = _skill(tmp_path, KEY_PARAMS_FORMS)
+    out = mod.floor(str(root))
+    assert {n["name"]: [(o["line"], o.get("signature")) for o in n["origins"]] for n in out["names"]} == {
+        "COGXRecord": [(9, None)],
+        "COGX_VERSION": [(10, None)],
+        "Context": [(22, None)],
+        "GraphSnapshot": [(8, None)],
+        "GraphitiSource": [(18, None)],
+        "IMPORT_MODES": [(4, None)],
+        "Mem0Source": [(5, _labelled(_signature('data, mode="re-derive"')))],
+        "MemorySource": [(3, _labelled(_signature('mode="re-derive"')))],
+        "alt": [(17, None)],
+        "datapoint_registry": [(11, _labelled(_signature("", "dict[str, type[DataPoint]]")))],
+        "empty": [(14, None)],
+        "formats": [(13, None)],
+        "keyed": [(31, _labelled(_signature("a, b=1")))],
+        "other": [(16, None)],
+        "read_archive": [(7, _labelled(_signature("directory", "Iterator[COGXRecord]")))],
+        "read_manifest": [(6, _labelled(_signature("directory", "COGXManifest | None")))],
+        "run": [(15, None)],
+        "shaped": [(26, None)],
+        "signed": [(30, _signature("a: int, b: str", "str"))],
+        "z": [(12, None)],
+    }
+    first, second = tmp_path / "floor-1.json", tmp_path / "floor-2.json"
+    for target in (first, second):
+        proc = _run("floor", "--skill-dir", str(root), "--output", str(target))
+        assert proc.returncode == 0, proc.stderr
+    assert first.read_bytes() == second.read_bytes()
+    assert json.loads(first.read_bytes()) == out
+
+
 @pytest.mark.parametrize("span, name", [
     ("new Client()", "Client"), ("<Canvas />", "Canvas"), ("<Canvas of={X} /> <Canvas />", "Canvas"),
     ("<Canvas>x</Canvas>", "Canvas"), ("client.get(k).data", "get"), ("x = Canvas(a) + 1", "Canvas"),

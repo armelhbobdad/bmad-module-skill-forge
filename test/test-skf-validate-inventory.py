@@ -1649,6 +1649,53 @@ def test_an_ellipsis_pin_on_the_floor_is_carried_with_its_label(tmp_path):
         'there or with no `at`; copy it as given, with `at` "SKILL.md:5"'], r["violations"]
 
 
+KEY_PARAMS_TABLE = ("# Demo\n\n| Export | Kind | Key params | Source |\n|---|---|---|---|\n"
+                    '| `Mem0Source` | class | `Mem0Source(data, mode="re-derive")`: `data` is a path. | |\n'
+                    '| `IMPORT_MODES` | tuple | `("re-derive", "preserve")`: the modes. | |\n')
+
+
+def test_a_key_params_pin_on_the_floor_is_carried_with_its_label(tmp_path):
+    """#997: a Key params cell on a `class` row is pinned with `signature_form` "partial", the label its header
+    gives each row, so the label rule holds for it: the labelled copy at the row is valid with no warning, while a
+    copy without the label (exit 2, no inventory file left), a usage recorded in its place and another form there
+    are each one violation naming the origin and the labelled signature. A `tuple` row's cell pins nothing, so its
+    name is carried with no form."""
+    pkg = _package(tmp_path, KEY_PARAMS_TABLE)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    pinned = {"params": 'data, mode="re-derive"', "return_type": "", "signature_form": "partial"}
+    assert [(n["name"], n["origins"]) for n in read["names"]] == [
+        ("IMPORT_MODES", [_floor_origin("SKILL.md", 6, "table-row")]),
+        ("Mem0Source", [_floor_origin("SKILL.md", 5, "table-row", pinned)])]
+    modes = ("IMPORT_MODES", "constant", {"description": ""})
+    r = mod.validate_inventory(_signed(("Mem0Source", "class", {**pinned, **AT_ROW}), modes), pkg, read)
+    assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (r["violations"], r["warnings"])
+    assert r["floor"] == {"names": 2, "checked": 2, "absent": []}
+
+    violation = ("floor: `Mem0Source` is documented at SKILL.md:5 (table-row) with the signature "
+                 f"{json.dumps(pinned)}, but no inventory entry of that name at that place carries it, or one gives "
+                 'its form without its `signature_form` there or with no `at`; copy it as given, with `at` '
+                 '"SKILL.md:5"')
+    unlabelled = {"params": 'data, mode="re-derive"', "return_type": "", **AT_ROW}
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(("Mem0Source", "class", unlabelled), modes).encode("utf-8"))
+    out.write_bytes(b"{}")
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [violation] and result["output"] is None
+    assert not out.exists()
+    for fields in ({"usage_signature": 'Mem0Source(data, mode="re-derive")', "return_type": "", **AT_ROW},
+                   {"params": "data", "return_type": "", "signature_form": "partial", **AT_ROW}):
+        r = mod.validate_inventory(_signed(("Mem0Source", "class", fields), modes), pkg, read)
+        assert r["valid"] is False and r["violations"] == [violation], (fields, r["violations"])
+
+
 USAGE_SKILL = ("# Demo\n\n"
                "| Component | Props | Purpose |\n| --- | --- | --- |\n"
                "| `Title` | `TitleProps = { of?: Of }` | Renders the title. |\n\n"
