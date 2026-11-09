@@ -11,7 +11,9 @@ documented inventory, the shape is validated. That validation is pure
 structural checking (strip wrapping fences, parse JSON, assert required keys
 and types, assert each export entry is a dict with a non-empty `name` and a
 `kind` drawn from a fixed enum and, when present, a `signature_form` of
-`partial` or `full`, and assert each cross-check mismatch carries its fields
+`partial` or `full`, and no key outside the contract's ENTRY_KEYS (#1001: a
+`usage` written for `usage_signature` would leave its form uncompared, so
+it is refused), and assert each cross-check mismatch carries its fields
 and one other side, in order), with exactly one correct pass/fail per input
 and no interpretation of meaning. It is therefore script work, not prompt
 work; the prompt reads this verdict and owns only the HALT decision.
@@ -248,7 +250,8 @@ Exit codes:
      --skill-package folder holds no readable SKILL.md, or the --floor file
      cannot be read or is not a floor, a malformed `signature` among them
      (usage error)
-  2  inventory invalid (parse failure, schema violation, a sampled name
+  2  inventory invalid (parse failure, schema violation, an entry key the
+     contract does not define among them, a sampled name
      absent, a floor name left out or a floor signature no entry carries,
      or a labelled one no entry at its place carries with its label, or
      that an entry there or with no `at` gives without it;
@@ -313,6 +316,24 @@ SIGNATURE_KINDS = ("function", "method")
 
 # An entry's signature fields, the ones form_key reads (score-signatures.py reads them from here).
 SIGNATURE_FIELDS = ("params", "return_type", "usage_signature")
+
+# The keys an exports[] entry may carry, the contract's (inventory-contract.md lists them in this order). Any
+# other is a violation naming the entry (#1001): score-signatures.py reads only SIGNATURE_FIELDS, so a `usage`
+# written for `usage_signature` would leave the documented form uncompared.
+ENTRY_KEYS = (
+    "name",
+    "kind",
+    "description",
+    "params",
+    "return_type",
+    "usage_signature",
+    "signature_form",
+    "at",
+    "owner",
+    "methods",
+    "properties",
+    "fields",
+)
 
 # The fields of a floor origin's `signature` (#888), each a string, and the
 # ones the floor check compares with an entry's: `return_type` and either
@@ -1224,6 +1245,19 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
             violations.append(
                 f"exports[{idx}]{label}: `signature_form` must be `partial` or `full` when present, "
                 f"not {json.dumps(entry['signature_form'])}"
+            )
+
+    # An entry carries only the contract's keys (#1001), whatever their values: each entry with another is a
+    # violation naming those keys, in the entry's order, and the contract's.
+    entry_keys = ", ".join(f"`{k}`" for k in ENTRY_KEYS[:-1]) + f" and `{ENTRY_KEYS[-1]}`"
+    for idx, entry in enumerate(exports):
+        unknown = [f"`{k}`" for k in entry if k not in ENTRY_KEYS] if isinstance(entry, dict) else []
+        if unknown:
+            label = f" (`{entry['name']}`)" if isinstance(entry.get("name"), str) and entry["name"] else ""
+            named = unknown[0] if len(unknown) == 1 else ", ".join(unknown[:-1]) + f" and {unknown[-1]}"
+            verb = "is not a key" if len(unknown) == 1 else "are not keys"
+            violations.append(
+                f"exports[{idx}]{label}: {named} {verb} the contract defines; an entry carries only {entry_keys}"
             )
 
     # Each entry that carries a compared form is asked for its place, `at`, in a file the inventory reads (#918):

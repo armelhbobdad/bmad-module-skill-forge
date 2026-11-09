@@ -1361,6 +1361,9 @@ def test_the_inventory_contract_lists_the_validators_kinds():
     listed = re.search(r"each `kind` is one of (.+?); every entry", section).group(1)
     assert re.findall(r"`([a-z]+)`", listed) == list(validator.VALID_KINDS)
     assert "every entry carries the `description`" in section
+    # #1001: the keys an entry may carry, every other one refused
+    keys = re.search(r"An entry carries no key but (.+?), and the validator refuses", section).group(1)
+    assert re.findall(r"`([a-z_]+)`", keys) == list(validator.ENTRY_KEYS)
     # #841: a cross-check entry's fields and its other side, the body's line or a second reference's path and line
     entry = re.search(r"A `cross_check_mismatches` entry gives (.+?)\.\s*$", section).group(1)
     for field in validator.REQUIRED_MISMATCH_FIELDS + validator.BODY_SIDE + validator.REFERENCE_SIDE:

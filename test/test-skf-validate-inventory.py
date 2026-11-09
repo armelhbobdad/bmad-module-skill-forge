@@ -148,6 +148,45 @@ def test_all_kinds_accepted():
     assert r["rejectedCount"] == 0
 
 
+def test_an_entry_key_the_contract_does_not_define_is_refused(tmp_path):
+    """#1001: an entry key outside the contract, such as `usage` written for `usage_signature`, passed with no
+    violation, and score-signatures.py reads only SIGNATURE_FIELDS, so the documented form was never compared. Each
+    entry with such a key is now a violation naming the entry, its unknown keys and the keys an entry carries, so the
+    re-dispatched reader spreads its fields into them; an entry using every contract key passes, null-valued too."""
+    every = {"name": "Client", "kind": "class", "description": "A client.", "params": "api_key, timeout=5",
+             "return_type": "Client", "usage_signature": "Client(api_key, timeout=5)", "signature_form": "full",
+             "at": "SKILL.md:6", "owner": "sdk", "methods": ["close()"], "properties": ["api_key"],
+             "fields": ["timeout"]}
+    assert set(every) == set(mod.ENTRY_KEYS) and len(mod.ENTRY_KEYS) == 12
+    for entry in (every, dict.fromkeys(mod.ENTRY_KEYS) | {"name": "Client", "kind": "class"}):
+        r = mod.validate_inventory(json.dumps({"exports": [entry], "cross_check_mismatches": []}))
+        assert r["valid"] is True and r["violations"] == [], entry
+    usage = {"name": "Client", "kind": "class", "usage": "client = Client(api_key=\"k\", timeout=5)",
+             "description": "A client.", "at": "SKILL.md:6"}
+    keys = ", ".join(f"`{k}`" for k in mod.ENTRY_KEYS[:-1]) + f" and `{mod.ENTRY_KEYS[-1]}`"
+    raw = json.dumps({"exports": [{"name": "ok", "kind": "function"}, usage,
+                                  {"kind": "class", "signature": "Client(api_key)", "line": 6}],
+                      "cross_check_mismatches": []})
+    r = mod.validate_inventory(raw)
+    assert r["valid"] is False and r["inventory"] is None and r["rejectedCount"] == 1
+    assert r["violations"][1:] == [
+        f"exports[1] (`Client`): `usage` is not a key the contract defines; an entry carries only {keys}",
+        f"exports[2]: `signature` and `line` are not keys the contract defines; an entry carries only {keys}"]
+    # The CLI exits 2 and writes no inventory, with or without --floor (the floor check runs once the schema passed).
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(json.dumps({"exports": [usage], "cross_check_mismatches": []}).encode("utf-8"))
+    floor = tmp_path / "inventory-floor.json"
+    floor.write_bytes(json.dumps({"names": []}).encode("utf-8"))
+    output = tmp_path / "inventory.json"
+    for extra in ([], ["--floor", str(floor)]):
+        output.write_bytes(b"{}")
+        p = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--output", str(output), *extra],
+                           capture_output=True, text=True)
+        assert p.returncode == 2, p.stderr
+        assert [v for v in json.loads(p.stdout)["violations"] if "`usage`" in v], p.stdout
+        assert not output.exists()
+
+
 @pytest.mark.parametrize("form", ["short", "Partial", "", True, ["partial"]],
                          ids=["short", "capitalized", "empty", "boolean", "list"])
 def test_a_signature_form_is_partial_or_full(form):

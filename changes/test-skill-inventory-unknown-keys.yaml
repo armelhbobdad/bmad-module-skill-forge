@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's `validate-inventory.py` now refuses an inventory whose export entry carries a key the inventory contract does not define, such as `usage` written for `usage_signature`. Before, such a key passed with no violation and no warning, and the signature check reads only `params`, `return_type` and `usage_signature`, so the form that entry recorded was never compared and a wrong call form could pass the hard gate. Each such entry is now a violation naming the entry, its unknown keys and the keys an entry carries (`name`, `kind`, `description`, `params`, `return_type`, `usage_signature`, `signature_form`, `at`, `owner`, `methods`, `properties` and `fields`), so the reader is dispatched again once with them, and the run halts `inventory-invalid` the second time. An inventory that passed can now be refused.
+migration: |
+  If Test Skill halts with `inventory-invalid` on an entry key the contract does not define, run it again: the skill needs no change for it. If the form the entry now carries stops the skill at the hard gate on a `signature-mismatch`, correct that form in the skill, then run Test Skill again.
+issues: [1001]
