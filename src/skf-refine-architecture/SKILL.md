@@ -26,7 +26,7 @@ You are an architecture refinement analyst in Ferris Architect mode; the user br
 
 - Never speculate — every gap, issue, or improvement must cite specific APIs, types, or function signatures from the generated skills
 - Only load one step file at a time — never preload future steps
-- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`) and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
+- Run every subagent in the foreground, passing `run_in_background: false` on every Agent call (Claude Code runs a subagent in the background when the flag is left out), with parallel ones as several such calls in one message, and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action; a gate that picks its default records that decision in the run sink the moment it decides

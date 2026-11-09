@@ -465,8 +465,20 @@ Usage:
       [--keep <name>]... [--monorepo] [--pattern-reference-intent] [--curated-subset] \\
       [--barrel barrel|empty|none] [--output <file>]
 
+Stdout: the result. With --output the file holds it, and stdout is a
+summary that gives each field under the file's key and names the file
+(#1040):
+  census    {"docsOnly", "localCitations", "output"}
+  floor     {"summary", "output"}
+  metadata  {"skillType", "inflationSignature", "stack": {"basis",
+            "denominator"} or null, "output"}
+  surface   {"exports": the number of records, "denominator",
+            "extraction": {"readByEye", "unread", "fallback"} or null,
+            "extractionGaps": the gaps, whose files and lines the step
+            reads by eye, "output"}
+
 Exit codes:
-  0  the result was printed (and written to --output)
+  0  the result was printed, or written to --output and its summary printed
   1  an input file is missing, unreadable or not the JSON (or the YAML
      brief) it should be, or the --skill-dir holds no SKILL.md or a skill
      file that is not UTF-8 (one line on stderr)
@@ -2079,18 +2091,18 @@ def _build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("census", help="count the citation forms: is the skill docs-only?")
     p.add_argument("--skill-dir", required=True, help="the skill package: SKILL.md and references/")
-    p.add_argument("--output", help="also write the result to this file")
+    p.add_argument("--output", help="write the result to this file and print only its summary")
     p.set_defaults(func=_cmd_census)
 
     p = sub.add_parser("floor", help="the names the skill documents in a fixed form, which the inventory keeps")
     p.add_argument("--skill-dir", required=True, help="the skill package: SKILL.md and references/")
-    p.add_argument("--output", help="also write the result to this file")
+    p.add_argument("--output", help="write the result to this file and print only its summary")
     p.set_defaults(func=_cmd_floor)
 
     p = sub.add_parser("metadata", help="the metadata.json and provenance-map counts")
     p.add_argument("--metadata", required=True, help="the skill's metadata.json")
     p.add_argument("--provenance", help="the provenance map, when there is one")
-    p.add_argument("--output", help="also write the result to this file")
+    p.add_argument("--output", help="write the result to this file and print only its summary")
     p.set_defaults(func=_cmd_metadata)
 
     p = sub.add_parser("surface", help="the enumerated source surface, its name sets and candidates")
@@ -2122,9 +2134,30 @@ def _build_parser() -> argparse.ArgumentParser:
                    help="the entry points as you read them, where no extraction or quick output tells: none (no "
                         "barrel file at any recognized entry-point path), empty (the primary one exports nothing) "
                         "or barrel")
-    p.add_argument("--output", help="also write the result to this file")
+    p.add_argument("--output", help="write the result to this file and print only its summary")
     p.set_defaults(func=surface)
     return parser
+
+
+def _summary(cmd: str, result: dict, output: str) -> dict:
+    """What a subcommand prints when --output holds its result: the fields the step decides on, under the keys the
+    file gives them (a list as its length, a stack without its names), and the file's path as `output`. The surface's
+    extractionGaps stay a list: coverage-check §2 reads each gap's file and line from the JSON it has in hand."""
+    if cmd == "census":
+        summary = {"docsOnly": result["docsOnly"], "localCitations": result["localCitations"]}
+    elif cmd == "floor":
+        summary = {"summary": result["summary"]}
+    elif cmd == "metadata":
+        stack = result["stack"]
+        summary = {"skillType": result["skillType"], "inflationSignature": result["inflationSignature"],
+                   "stack": {"basis": stack["basis"], "denominator": stack["denominator"]} if stack else None}
+    else:
+        extraction = result["extraction"]
+        summary = {"exports": len(result["exports"]), "denominator": result["denominator"],
+                   "extraction": ({key: extraction[key] for key in ("readByEye", "unread", "fallback")}
+                                  if extraction else None),
+                   "extractionGaps": result["extractionGaps"]}
+    return {**summary, "output": output}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -2143,6 +2176,8 @@ def main(argv: list[str] | None = None) -> int:
         target = Path(args.output)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes((json.dumps(result, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+        # The step reads the result from the file, so stdout gives only its summary and the path (#1040).
+        result = _summary(args.cmd, result, args.output)
     print(json.dumps(result, indent=2))
     return 0
 

@@ -207,7 +207,8 @@ Input: the subagent's RAW response text (JSON, optionally wrapped in a markdown
 code fence — a leading line of three backticks with an optional language tag and
 a trailing line of three backticks are stripped before parsing).
 
-Output (stdout, one object):
+Output (stdout, one object; with --output, whose file holds the inventory,
+it leaves out `inventory` and `completeness` and gives `output` instead):
   {
     "valid": <bool>,             # true only when parse + every schema check pass
     "violations": [<str>, ...],  # human-readable failures; empty when valid
@@ -232,7 +233,8 @@ Output (stdout, one object):
       "names": <int>,            # the floor's names
       "checked": <int>,          # those with an origin in SKILL.md or a listed reference
       "absent": [<name>, ...]    # the checked names no inventory entry lists
-    }
+    },
+    "output": <path> | null      # with --output: the file written, null when invalid
   }
 
 Exit codes:
@@ -1242,7 +1244,7 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
                 f"spot-check: `{name}` is listed as an export, but SKILL.md and the "
                 f"listed reference files never write it"
             )
-        # In the inventory object, so --output writes it and stdout's `inventory` equals the file.
+        # In the inventory object, so the --output file carries it.
         data["crossChecked"] = cross_checked(exports, _package_texts(data, skill_package_path)[0])
         warnings.extend(place_warnings(data, skill_package_path))
     floor_result = None
@@ -1281,7 +1283,8 @@ def _build_parser():
             "the required-keys/types/enum/mismatch-field contract, then with "
             "--skill-package spot-checks sampled names against the package and --floor checks it "
             "keeps the floor's names, returning "
-            "{valid, violations, warnings, rejectedCount, exportsCount, inventory, completeness, spotCheck, floor}."
+            "{valid, violations, warnings, rejectedCount, exportsCount, inventory, completeness, spotCheck, floor} "
+            "(with --output, `output` in place of inventory and completeness)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -1310,7 +1313,7 @@ def _build_parser():
     parser.add_argument(
         "--output",
         metavar="PATH",
-        help="Write the validated inventory to this file when it is valid.",
+        help="Write the validated inventory to this file when it is valid, and print the result without it.",
     )
     parser.add_argument(
         "--skill-package",
@@ -1376,6 +1379,10 @@ def main(argv=None):
             write_json(args.output, result["inventory"])
         else:
             Path(args.output).unlink(missing_ok=True)
+        # The step reads the inventory from the file, and no step reads its completeness on stdout, so stdout keeps
+        # the verdict and the checks and names the file, null when none was written (#1040).
+        result = {key: value for key, value in result.items() if key not in ("inventory", "completeness")}
+        result["output"] = args.output if result["valid"] else None
     print(json.dumps(result, indent=2))
     return 0 if result["valid"] else 2
 

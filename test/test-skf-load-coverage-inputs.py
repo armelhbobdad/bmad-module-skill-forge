@@ -172,10 +172,15 @@ PROVENANCE = {"entries": [
 
 
 def _surface(tmp_path: Path, *args: str) -> dict:
+    """The surface the command writes to --output, after checking that stdout is its summary (#1040)."""
     proc = _run("surface", *args, "--output", str(tmp_path / "surface.json"))
     assert proc.returncode == 0, proc.stderr
-    out = json.loads(proc.stdout)
-    assert json.loads((tmp_path / "surface.json").read_text(encoding="utf-8")) == out
+    out = json.loads((tmp_path / "surface.json").read_text(encoding="utf-8"))
+    extraction = out["extraction"]
+    assert json.loads(proc.stdout) == {
+        "exports": len(out["exports"]), "denominator": out["denominator"],
+        "extraction": extraction and {key: extraction[key] for key in ("readByEye", "unread", "fallback")},
+        "extractionGaps": out["extractionGaps"], "output": str(tmp_path / "surface.json")}
     return out
 
 
@@ -214,6 +219,17 @@ def test_census_counts_each_form(tmp_path):
     out = mod.census(str(root))
     assert out["citations"] == {"EXT": 2, "AST": 1, "SRC": 1, "from skill": 1, "QMD": 1, "DOC": 0}
     assert out["localCitations"] == 3
+
+
+def test_census_with_output_prints_a_summary(tmp_path):
+    """#1040: with --output the census goes to the file and stdout gives `docsOnly`, which the step binds, the local
+    citation count and the path."""
+    root = _skill(tmp_path, "[EXT:a] [EXT:b]", {"r.md": "[QMD:c:d]"})
+    target = tmp_path / "run" / "census.json"
+    proc = _run("census", "--skill-dir", str(root), "--output", str(target))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == {"docsOnly": True, "localCitations": 0, "output": str(target)}
+    assert json.loads(target.read_bytes()) == mod.census(str(root))
 
 
 def test_census_without_a_skill_md_exits_1(tmp_path):
@@ -566,6 +582,18 @@ def test_floor_is_byte_identical_across_runs(tmp_path):
         _origin("SKILL.md", 3, "heading"), _origin("SKILL.md", 15, "declaration"),
         _origin("references/api.md", 3, "table-row")]}
     assert [n["name"] for n in out["names"]] == sorted(n["name"] for n in out["names"])
+
+
+def test_floor_with_output_prints_only_its_summary(tmp_path):
+    """#1040: the floor goes to the file, which the reader and the validator read by path, and stdout gives its
+    `summary` and the path, no name list."""
+    root = _skill(tmp_path, "# Demo\n\n### `fetchData`\n", {"api.md": API_TABLE})
+    target = tmp_path / "run" / "inventory-floor.json"
+    proc = _run("floor", "--skill-dir", str(root), "--output", str(target))
+    assert proc.returncode == 0, proc.stderr
+    written = json.loads(target.read_bytes())
+    assert written == mod.floor(str(root)) and written["summary"]["names"] == len(written["names"]) > 1
+    assert json.loads(proc.stdout) == {"summary": written["summary"], "output": str(target)}
 
 
 FIXED_FORMS = (
@@ -1070,10 +1098,22 @@ def test_a_stack_without_a_map_counts_libraries_and_pairs():
 
 
 def test_metadata_cli_writes_the_file(tmp_path):
+    """#1040: the counts go to the file, and stdout gives the skill type, the inflation signature, a stack's
+    denominator without its names, and the path."""
     meta = _write(tmp_path / "metadata.json", METADATA)
+    provenance = _write(tmp_path / "provenance-map.json", PROVENANCE)
     out_path = tmp_path / "run" / "coverage-inputs.json"
-    proc = _run("metadata", "--metadata", meta, "--output", str(out_path))
-    assert proc.returncode == 0 and json.loads(out_path.read_text(encoding="utf-8")) == json.loads(proc.stdout)
+    proc = _run("metadata", "--metadata", meta, "--provenance", provenance, "--output", str(out_path))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(out_path.read_text(encoding="utf-8")) == json.loads(
+        _run("metadata", "--metadata", meta, "--provenance", provenance).stdout)
+    assert json.loads(proc.stdout) == {"skillType": "single", "inflationSignature": False, "stack": None,
+                                       "output": str(out_path)}
+    stack = _write(tmp_path / "stack" / "metadata.json", {"skill_type": "stack", "libraries": ["liba", "libb"]})
+    proc = _run("metadata", "--metadata", stack, "--output", str(out_path))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(out_path.read_text(encoding="utf-8"))["stack"]["compositionNames"] == ["liba", "libb"]
+    assert json.loads(proc.stdout)["stack"] == {"basis": "composition", "denominator": 2}
 
 
 def test_a_missing_metadata_file_exits_1(tmp_path):
@@ -1103,6 +1143,28 @@ def test_the_extraction_surface_is_the_public_names_less_outside_scope(tmp_path)
     helper = next(e for e in out["exports"] if e["name"] == "helper")
     assert (helper["file"], helper["line"]) == ("src/helper.ts", 1)
     assert out["extraction"]["fallback"] == {"needed": False, "reason": None}
+
+
+def test_the_surface_with_output_prints_only_its_summary(tmp_path):
+    """#1040: with --output the surface goes to the file alone, which the later commands and the step read by path,
+    and stdout gives what the step decides on: the record count, the denominator, the extraction's by-eye, unread
+    and fallback fields, the extraction gaps (coverage-check §2 reads each one's file and line by eye from the JSON
+    it has in hand, so they stay a list), and the path. Without --output stdout is the surface."""
+    extraction = _write(tmp_path / "extract-full.json", EXTRACTION)
+    meta = _write(tmp_path / "metadata.json", METADATA)
+    target = tmp_path / "run" / "surface.json"
+    proc = _run("surface", "--extraction", extraction, "--metadata", meta, "--output", str(target))
+    assert proc.returncode == 0, proc.stderr
+    whole = _run("surface", "--extraction", extraction, "--metadata", meta)
+    assert whole.returncode == 0, whole.stderr
+    out = json.loads(whole.stdout)
+    assert json.loads(target.read_bytes()) == out
+    assert json.loads(proc.stdout) == {
+        "exports": 7, "denominator": out["denominator"],
+        "extraction": {"readByEye": [], "unread": [], "fallback": {"needed": False, "reason": None}},
+        "extractionGaps": [{"name": "gapFn", "file": "src/gap.ts", "line": 7}], "output": str(target)}
+    assert out["denominator"]["branch"] == "barrel" and len(out["exports"]) == 7
+    assert "fetchData" not in proc.stdout and "candidates" not in proc.stdout
 
 
 def test_the_extraction_name_sets_and_candidates(tmp_path):

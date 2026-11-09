@@ -38,14 +38,18 @@ printed no result line. So:
 
 - all sixteen SKILL.md files, Ferris's Critical Actions included, carry one
   identical rule: every subagent runs in the foreground, every long-running
-  command is waited for, and no turn ends while either still runs;
+  command is waited for, and no turn ends while either still runs; the rule
+  has every Agent call pass `run_in_background: false`, since Claude Code
+  runs a subagent in the background when the flag is left out (#1037);
 - no .md, .py, .yaml, .toml, .json or .csv file under src/, read one
   paragraph at a time with its wrapped lines joined, holds
   `run_in_background: true`, a "background agent", "subagent" or
   "sub-agent", `nohup`, `disown`, "in the background", "background
   process", "job", "task", "run", "shell" or "command", or "backgrounded",
-  and each `run_in_background` it names directly follows `never` or
-  `never with`;
+  and each `run_in_background` it names is directly followed by `: false`
+  in a clause with no word that negates or drops it, so a rule that only
+  says to leave the flag out ("never with `run_in_background`", "never
+  with `run_in_background: false`") fails too;
 - each skill's headless contract (the sixteen places HEADLESS_CONTRACTS
   names) says a run that printed no envelope line has no result to read,
   whatever the process exit code;
@@ -377,11 +381,14 @@ def test_each_export_gate_states_the_row_default_and_records_it(name):
 
 # ─── every subagent and long-running command is waited for ─────────────────
 
-# The one rule sentence every SKILL.md carries, word for word.
+# The one rule sentence every SKILL.md carries, word for word. It names the flag's value, not only the flag: Claude
+# Code runs a subagent in the background when the flag is left out, so "never with `run_in_background`" read word for
+# word started one there (#1037).
 FOREGROUND_RULE = (
-    "- Run every subagent in the foreground (parallel ones as several calls in one message, never with "
-    "`run_in_background`) and wait for every long-running command to exit before the next instruction; in a "
-    "headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.")
+    "- Run every subagent in the foreground, passing `run_in_background: false` on every Agent call (Claude Code runs "
+    "a subagent in the background when the flag is left out), with parallel ones as several such calls in one "
+    "message, and wait for every long-running command to exit before the next instruction; in a headless run, never "
+    "end a turn while either still runs, since under `claude -p` a run stops when its turn ends.")
 SKILLS = sorted(d.name for d in SRC.iterdir() if (d / "SKILL.md").is_file())
 # Ferris, the agent, states his standing rules under Critical Actions; each workflow under Workflow Rules.
 RULES_HEADING = {skill: "## Critical Actions" if skill == "skf-forger" else "## Workflow Rules" for skill in SKILLS}
@@ -392,17 +399,25 @@ BACKGROUND_RE = re.compile(
     r"|\bin\s+(?:the\s+)?background\b|\bbackground\s+(?:process(?:es)?|jobs?|tasks?|runs?|shells?|commands?)\b"
     r"|\bbackgrounded\b")
 SENTENCE_RE = re.compile(r"(?<=[.!?])\s+(?=[A-Z`*])")
+# What ends the clause around a `run_in_background: false`, and the words that negate or drop the setting in it.
+CLAUSE_END_RE = re.compile(r"[.,;:!?()|]")
+NEGATION_RE = re.compile(r"(?i)\b(?:never|not|no|nor|without|omit(?:s|ted|ting)?|leave|leaves|leaving|left|out"
+                         r"|drop(?:s|ped|ping)?|skip(?:s|ped|ping)?|remove[ds]?|removing)\b|n['’]t\b")
 # The one background run the scan allows: an interactive run's long `ccc index`, which the step waits for, in a
 # sentence that also keeps a headless run in the foreground (a headless run stops when its turn ends).
 INTERACTIVE_INDEX = ("in an interactive run, an index that can outlast that timeout may run in the background "
                      "instead, the step waiting for it to exit before it goes on; a headless run keeps it in the "
                      "foreground")
+# The one other "in the background" the scan allows: the rule's reason for passing the flag, which names the tool's
+# default only right after the instruction that overrides it (#1037).
+FLAG_DEFAULT = ("passing `run_in_background: false` on every Agent call (Claude Code runs a subagent in the "
+                "background when the flag is left out)")
 SCANNED = {".md", ".py", ".yaml", ".toml", ".json", ".csv"}
 # The sites that recommended a background run, or a timeout only a background run enforces, and what they say now.
 FORMER_BACKGROUND_SITES = {
-    "knowledge/tool-resolution.md": ("Several foreground Agent calls in one message, never `run_in_background`",
+    "knowledge/tool-resolution.md": ("Several Agent calls in one message, each with `run_in_background: false`",
                                      "`xargs -P` (it waits for every job)",
-                                     "Agent tool (foreground, sequential per unit)"),
+                                     "Agent tool with `run_in_background: false`, sequential per unit"),
     "skf-setup/references/ccc-index.md": (
         f"Run the call in the foreground with the shell's longest timeout ({INTERACTIVE_INDEX}); a call the shell "
         "stops at that timeout goes on as the paragraph after the command says:",
@@ -487,13 +502,21 @@ def _paragraphs(text: str):
 
 
 def _background_findings(paragraph: str) -> list[str]:
-    """What in a paragraph runs something in the background, or names `run_in_background` without a `never`."""
+    """What in a paragraph runs something in the background, or names `run_in_background` without setting it false."""
     paragraph = " ".join(paragraph.split())
     found = [f"background run: {m.group(0)!r}" for sentence in SENTENCE_RE.split(paragraph)
-             for m in BACKGROUND_RE.finditer(sentence.replace(INTERACTIVE_INDEX, ""))]
+             for m in BACKGROUND_RE.finditer(sentence.replace(INTERACTIVE_INDEX, "").replace(FLAG_DEFAULT, ""))]
+    # Leaving the flag out runs the subagent in the background, so the only safe mention sets it false (#1037), in a
+    # clause that neither negates nor drops it ("never with `run_in_background: false`", "Leave ... out").
     for match in re.finditer(r"run_in_background", paragraph):
-        if not re.search(r"\bnever (?:with )?`?$", paragraph[:match.start()]):
-            found.append("`run_in_background` that `never` does not directly precede")
+        setting = re.match(r"`?\s*[:=]\s*`?false\b`?", paragraph[match.end():], re.IGNORECASE)
+        if not setting:
+            found.append("`run_in_background` that `: false` does not directly follow")
+            continue
+        before = CLAUSE_END_RE.split(paragraph[:match.start()])[-1]
+        after = CLAUSE_END_RE.split(paragraph[match.end() + setting.end():])[0]
+        if NEGATION_RE.search(before) or NEGATION_RE.search(after):
+            found.append("`run_in_background: false` in a clause that negates or drops it")
     return found
 
 
@@ -536,6 +559,22 @@ def test_no_src_file_recommends_a_background_run():
     "Run it under nohup.",
     "Agent calls, or `run_in_background`, run them.",
     "Agent calls (`run_in_background`\nis never set).",
+    # #1037: leaving the flag out runs the subagent in the background, so each wording that only leaves it out fails
+    "Several calls in one message, never with `run_in_background`.",
+    "Agent calls, never `run_in_background`.",
+    "Run every subagent in the foreground (parallel ones as several calls in one message, never\nwith "
+    "`run_in_background`).",
+    "Leave `run_in_background` out of each Agent call.",
+    "Pass `run_in_background: true` on every Agent call.",
+    # ... and so does each wording that names the false setting only to negate or drop it
+    "Agent calls, never with `run_in_background: false`.",
+    "In an interactive run, a subagent may run without `run_in_background: false`.",
+    "Leave `run_in_background: false` out of each Agent call.",
+    "Do not pass `run_in_background: false`.",
+    "On every Agent call `run_in_background: false` is left out.",
+    # the flag's default is allowed only as the reason right after the instruction that passes it false
+    "Claude Code runs a subagent in the background.",
+    "Run every subagent in the foreground (Claude Code runs a subagent in the background when the flag is left out).",
     # the interactive allowance needs its headless half: without it, a background index is a background run
     "In an interactive run, an index that can outlast that timeout may run in the background instead.",
     "In an interactive run, a subagent may run in the background instead, the step waiting for it to exit.",
@@ -546,10 +585,11 @@ def test_the_background_scan_catches_each_form(text):
 
 
 @pytest.mark.parametrize("text", [
-    "Several calls in one message, never with `run_in_background`.",
-    "Agent calls, never `run_in_background`.",
-    "Run every subagent in the foreground (parallel ones as several calls in one message, never\nwith "
-    "`run_in_background`).",
+    FOREGROUND_RULE,
+    "Run every subagent in the foreground, passing `run_in_background: false` on every Agent call (Claude Code runs "
+    "a\nsubagent in the background when the flag is left out), with parallel ones as several such calls.",
+    "Several Agent calls in one message, each with `run_in_background: false`.",
+    "Agent tool with `run_in_background: false`, sequential per unit.",
     "Run the call in the foreground with the shell's longest timeout.",
     f"Run the call in the foreground with the shell's longest timeout ({INTERACTIVE_INDEX}); a call the shell stops "
     "at that timeout goes on.",

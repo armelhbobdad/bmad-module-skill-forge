@@ -607,6 +607,50 @@ def test_report_renews_the_lock_before_it_writes_the_result_files(tmp_path):
     assert taken_over.returncode == 3 and json.loads(taken_over.stdout)["acquired"] is False
 
 
+def test_each_subagent_dispatch_renews_the_lock(tmp_path):
+    """#1044: the coverage reader, the signature judges and the discovery subagents
+    all run before report.md §4c, and the lock goes stale 60 minutes after it was
+    taken or last renewed, so SKILL.md has the run renew it as each dispatch returns
+    and before the discovery subagents start, until report.md §7 releases it. A run
+    without subagents does that work in the main thread (coverage-check.md §1 and §2,
+    coherence-check.md), so it renews as that work ends."""
+    rules = _slice(_read(SKILL_MD), "## Workflow Rules", "## Stages")
+    rule = _flow(next((line for line in rules.splitlines() if RENEW in line), ""))
+    for needle in ("renew the run lock each time a subagent dispatch returns",
+                   "(once for parallel calls sent in one message)",
+                   "or, without subagents, the main thread finishes the work a step gives a subagent",
+                   "before report.md §4b.2 spawns its discovery subagents",
+                   "until report.md §7 releases it", "60 minutes after it was taken or last renewed",
+                   "Exit 3 (another run took the lock over) HALTs `another-run-active`",
+                   "exit 1 or 2, or no JSON, HALTs `helper-failed`",
+                   "phase `<step>:run-lock` (`coverage-check:run-lock`, say)"):
+        assert needle in rule, needle
+    # Its HALTs come after §6a, so the release rule above it covers them.
+    assert rules.index(RELEASE) < rules.index(RENEW)
+    assert "report.md §4c renews the lock through it" not in _read(INIT)
+    assert "goes stale 60 minutes after it was taken or last renewed" in _flow(_read(REPORT))
+    docs = _flow(_slice(_read(REPO_ROOT / "docs" / "troubleshooting.md"),
+                        "### Test Skill stops with `another-run-active`", "\n### "))
+    assert "`coverage-check:run-lock`" in docs and "one of two points" not in docs
+    # The report step renews around its discovery subagents too, under the same phase as §4c's renewal.
+    assert "`report:run-lock` around its discovery subagents or just before it writes its results" in docs
+    assert "or, without subagents, the main thread finishes a subagent's work" in docs
+    init_comments = _flow(_read(INIT).replace("\n#", ""))
+    assert "or, without subagents, as the main thread finishes a subagent's work" in init_comments
+
+    # A renewal restarts the window even on a lock past it, so a second run is refused.
+    forge_version = tmp_path / "v"
+    owner = json.loads(_run(ACQUIRE, _lock_values(forge_version), tmp_path).stdout)["owner"]
+    lock = forge_version / ".test-skill.lock"
+    lock.write_text(json.dumps({"owner": owner, "acquired_at": "2000-01-01T00:00:00Z",
+                                "tool": "skf-run-lock"}) + "\n", encoding="utf-8")
+    renewed = _run(RENEW, _lock_values(forge_version, run_owner=owner), tmp_path)
+    kept = json.loads(renewed.stdout)
+    assert renewed.returncode == 0 and kept["refreshed"] is True and kept["held_since"] != "2000-01-01T00:00:00Z"
+    second = _run(ACQUIRE, _lock_values(forge_version), tmp_path)
+    assert second.returncode == 3 and json.loads(second.stdout)["held_by"] == owner
+
+
 @pytest.mark.parametrize("name", AFTER_THE_LOCK)
 def test_every_halt_after_the_lock_releases_it(name):
     text = _read(REFS / name)
@@ -650,10 +694,16 @@ def test_the_contract_documents_the_lock():
     text = _read(CONTRACT)
     row = next(line for line in text.splitlines() if line.startswith("| **Concurrency** |"))
     for needle in ("`{forge_version}/.test-skill.lock`", "`skf-run-lock.py`", "report.md §4c renews it",
-                   '`halt_reason: "another-run-active"`', "(exit 1)"):
+                   '`halt_reason: "another-run-active"`', "(exit 1)",
+                   "SKILL.md Workflow Rules renew it each time a subagent dispatch returns",
+                   "or, without subagents, the main thread finishes the work a step gives a subagent"):
         assert needle in row, needle
     envelope = _slice(text, "## Result Envelope (Headless)", "## Result Files")
     assert "| `another-run-active` |" in envelope
+    # #1044: both reasons a renewal halts name the renewals SKILL.md asks for.
+    for reason in ("another-run-active", "helper-failed"):
+        reason_row = next(line for line in envelope.splitlines() if line.startswith(f"| `{reason}` |"))
+        assert "the lock renewals of SKILL.md Workflow Rules" in reason_row, reason
     records = _flow(_slice(text, "## Result Files", "## Emitting a Halt"))
     assert "`skf-test-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; it picks the name" in records
     assert "PID" not in records
@@ -1519,6 +1569,73 @@ def test_the_inventory_subagent_writes_its_own_response():
             "absent or empty") in doc
 
 
+def test_the_inventory_reader_reads_the_skill_alone():
+    """#1036: the §1 reader reads only the files §1 hands it, and never an earlier run's folder, test report,
+    ledger or result file, which halted runs leave beside `{run_dir}`, so its inventory reads the skill alone and
+    copies no earlier run's readings. The rule names those files outright and lives in the contract the reader is
+    handed by absolute path and reads itself, so it reaches the reader whatever the parent's prompt says, and
+    coverage-check.md stays under its budget."""
+    text = _read(INVENTORY_CONTRACT)
+    scope = ("The reader in coverage-check.md §1 reads only the files that section hands it: SKILL.md, the "
+             "`references/*.md` files, `inventory-floor.json`, this contract and signature-comparison-rules.md. It "
+             "never opens another run's folder under `_bmad-output/.skf-run/`, a test report, a "
+             "`test-findings-*.json` ledger or a `skf-test-skill-result-*.json` file, so its inventory reads the "
+             "skill alone.")
+    [paragraph] = [p for p in text.split("\n\n") if p.startswith("The reader in coverage-check.md §1 reads only")]
+    assert scope in _flow(paragraph)
+    assert text.index(paragraph) < text.index("```json"), "before the JSON shape, the first thing the reader reads"
+    assert "\u2014" not in paragraph and "\u2013" not in paragraph, "no em or en dash"
+    # The files it may read are the ones §1 hands it; the contract reaches the reader by absolute path, and without
+    # subagents the parent loads it and builds the inventory under the same rule.
+    coverage = _read(COVERAGE)
+    section1 = _flow(_slice(coverage, "### 1. Extract Documented Exports", "#### 1a."))
+    for handed in ("given `{run_dir}` and the path to SKILL.md and to its `references/` directory",
+                   "It is given `{run_dir}/inventory-floor.json` too",
+                   "`{signatureRulesFile}`, whose absolute path (under `{skill-root}`) it is given",
+                   "in `{inventoryContractFile}`, whose absolute path (under `{skill-root}`) the subagent is given",
+                   "Without subagents, the parent loads `{inventoryContractFile}`"):
+        assert handed in section1, handed
+    assert f"signatureRulesFile: 'references/{SIGNATURE_RULES.name}'" in coverage
+    # The earlier-run files it names are the ones a run leaves: its run folder, report, ledger and result record.
+    assert 'mkdir -p "{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}"' in _read(INIT)
+    assert "ledgerFile: '{forge_version}/test-findings-{run_id}.json'" in coverage
+    report = _read(REPORT)
+    assert "publishedReportFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'" in report
+    assert "It writes `{forge_version}/skf-test-skill-result-{YYYYMMDD-HHmmss}.json`" in report
+    assert len(coverage) < COVERAGE_CHAR_BUDGET
+
+
+def test_the_inventory_reader_runs_no_script_and_writes_one_file():
+    """#1046: the §1 reader runs no SKF script, reads no script's code, and writes or deletes no file but its
+    response, so it never validates and fixes its own draft out of sight, settles a reading by what the scripts
+    accept, or leaves and deletes a file outside `{run_dir}`. Validation is §1a's, with the one re-dispatch
+    Inventory Failures allows. The rule joins #1036's in the contract the reader is handed by absolute path and
+    reads itself, the file that names `validate-inventory.py` to it, so coverage-check.md stays under its budget."""
+    text = _read(INVENTORY_CONTRACT)
+    limit = ("It runs no SKF script (coverage-check.md §1a runs `validate-inventory.py` on its response), reads no "
+             "script's code, and writes or deletes no file but `{run_dir}/inventory-response.txt`: this contract and "
+             "signature-comparison-rules.md alone decide its readings.")
+    [paragraph] = [p for p in text.split("\n\n") if p.startswith("The reader in coverage-check.md §1 reads only")]
+    assert limit in _flow(paragraph)
+    assert _flow(text).count("It runs no SKF script") == 1
+    assert text.index(paragraph) < text.index("```json"), "before the JSON shape, the first thing the reader reads"
+    assert text.index(paragraph) < text.index("The contract `validate-inventory.py` checks"), "before it names it"
+    assert "\u2014" not in paragraph and "\u2013" not in paragraph, "no em or en dash"
+    # The script it leaves alone is the one §1a runs on that file, and a refused response gets one re-dispatch.
+    coverage = _read(COVERAGE)
+    assert "validateInventoryScript: 'scripts/validate-inventory.py'" in coverage
+    section1a = _flow(_slice(coverage, "#### 1a.", "### 1b."))
+    assert 'uv run {validateInventoryScript} --input "{run_dir}/inventory-response.txt"' in section1a
+    failures = _flow(_slice(_read(COVERAGE_BRANCHES), "## Inventory Failures", "## States 2 to 4"))
+    assert "Re-dispatch the §1 subagent once" in failures
+    # The one file it writes is the one §1 hands it, with the Write tool; run state stays in `{run_dir}`.
+    section1 = _flow(_slice(coverage, "### 1. Extract Documented Exports", "#### 1a."))
+    assert "to `{run_dir}/inventory-response.txt` with the Write tool, never a shell" in section1
+    assert "Run state (the scripts' files, the emitter's payloads) lives in `{run_dir}`" in _read(SKILL_MD)
+    assert f"signatureRulesFile: 'references/{SIGNATURE_RULES.name}'" in coverage
+    assert len(coverage) < COVERAGE_CHAR_BUDGET
+
+
 @pytest.mark.parametrize("left", ["absent", "empty"])
 def test_an_inventory_file_left_absent_or_empty_is_saved_before_it_is_validated(tmp_path, left):
     """#814: a subagent that returned the JSON, or wrote nothing, leaves no response to validate: the §1a command
@@ -2026,8 +2143,14 @@ EXTRACTION = {
 }
 
 
+# The (script, subcommand) pairs that, given --output, print only a summary of the file they write.
+SUMMARIZED_COMMANDS = frozenset({("{scoreSignaturesScript}", "plan")} | {
+    ("{coverageInputsScript}", cmd) for cmd in ("census", "floor", "metadata", "surface")})
+
+
 def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
-    """Run one prose command (an `echo '<json>' | uv run ...` pipe included) and return its JSON."""
+    """Run one prose command (an `echo '<json>' | uv run ...` pipe included) and return its JSON: for a
+    SUMMARIZED_COMMANDS command, the JSON of the file its --output names."""
     stdin = b""
     if command.startswith("echo '"):
         payload, command = command[len("echo '"):].split("' | ", 1)
@@ -2053,6 +2176,11 @@ def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
     assert proc.returncode == 0, (command, proc.stdout.decode("utf-8"), proc.stderr.decode("utf-8"))
     if redirect is not None:
         target.write_bytes(proc.stdout)
+    if words and (m.group(1), words[0]) in SUMMARIZED_COMMANDS and "--output" in words:
+        # #1018, #1040: such a command prints a summary that names its --output file, and the step reads the file
+        written = words[words.index("--output") + 1]
+        assert json.loads(proc.stdout)["output"] == written, (command, proc.stdout.decode("utf-8"))
+        return json.loads(Path(written).read_bytes())
     return json.loads(proc.stdout)
 
 

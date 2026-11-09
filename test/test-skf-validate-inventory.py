@@ -401,7 +401,37 @@ def test_cli_input_file_with_an_apostrophe_validates(tmp_path):
     assert p.returncode == 0, p.stdout + p.stderr
     written = json.loads(out_path.read_text(encoding="utf-8"))
     assert written["exports"][0]["description"].startswith("Parses the user's input; it's")
-    assert written == json.loads(p.stdout)["inventory"]
+    assert written == mod.validate_inventory(raw)["inventory"]
+    assert json.loads(p.stdout)["output"] == str(out_path)
+
+
+def test_output_prints_the_verdict_without_the_inventory(tmp_path):
+    """#1040: with --output the inventory goes to the file alone, so stdout keeps the verdict, the violations and
+    warnings the step reads there and the counts, never a copy of the inventory or its completeness, which no step
+    reads, and names the file; null when the inventory is refused and no file is left. Without --output stdout is
+    the whole result, as before."""
+    exports = [{"name": f"fn{i}", "kind": "function", "description": "Does it."} for i in range(40)]
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(json.dumps({"exports": exports, "cross_check_mismatches": []}).encode("utf-8"))
+    out_path = tmp_path / "run" / "inventory.json"
+    command = [sys.executable, str(SCRIPT), "--input", str(response), "--output", str(out_path)]
+    p = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert json.loads(p.stdout) == {"valid": True, "violations": [], "warnings": [], "rejectedCount": 0,
+                                    "exportsCount": 40, "output": str(out_path)}
+    assert "fn7" not in p.stdout and "Does it." not in p.stdout
+    whole = subprocess.run(command[:-2], capture_output=True, text=True, encoding="utf-8")
+    assert whole.returncode == 0, whole.stdout + whole.stderr
+    full = json.loads(whole.stdout)
+    assert json.loads(out_path.read_text(encoding="utf-8")) == full["inventory"]
+    assert full["completeness"]["total"] == 40 and len(whole.stdout) > 10 * len(p.stdout)
+    response.write_bytes(json.dumps({"exports": exports + [{"name": "x", "kind": "widget"}],
+                                     "cross_check_mismatches": []}).encode("utf-8"))
+    p = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
+    assert p.returncode == 2, p.stdout + p.stderr
+    refused = json.loads(p.stdout)
+    assert refused["valid"] is False and refused["violations"] and refused["output"] is None
+    assert "inventory" not in refused and not out_path.exists()
 
 
 def test_cli_invalid_input_file_removes_a_stale_inventory(tmp_path):
@@ -694,7 +724,7 @@ def test_no_cross_checked_without_the_package():
     assert "spotCheck" not in r
 
 
-def test_cli_output_carries_cross_checked_and_equals_stdout(tmp_path):
+def test_cli_output_carries_cross_checked_and_stdout_names_it(tmp_path):
     pkg = _package(tmp_path, "# Demo\n\n`shared()` and `own()`.\n", {"x.md": "`shared(n)`\n"})
     response = tmp_path / "inventory-response.txt"
     response.write_bytes(_inventory("own", "shared", references=["references/x.md"]).encode("utf-8"))
@@ -704,11 +734,13 @@ def test_cli_output_carries_cross_checked_and_equals_stdout(tmp_path):
     assert proc.returncode == 0, proc.stdout + proc.stderr
     written = json.loads(out.read_text(encoding="utf-8"))
     assert written["crossChecked"] == {"count": 1, "names": ["shared"]}
-    assert written == json.loads(proc.stdout)["inventory"]
+    assert written == mod.validate_inventory(response.read_text(encoding="utf-8"), pkg)["inventory"]
+    stdout = json.loads(proc.stdout)
+    assert (stdout["output"], stdout["spotCheck"]["absent"], "inventory" in stdout) == (str(out), [], False)
     # An invalid inventory still leaves no file.
     response.write_bytes(_inventory("own", "shared", "ghost", references=["references/x.md"]).encode("utf-8"))
     proc = subprocess.run(command, capture_output=True, text=True, encoding="utf-8")
-    assert proc.returncode == 2 and json.loads(proc.stdout)["inventory"] is None
+    assert proc.returncode == 2 and json.loads(proc.stdout)["output"] is None
     assert not out.exists()
 
 
@@ -770,7 +802,7 @@ def test_a_dropped_floor_name_fails_and_removes_the_inventory(tmp_path):
     assert result["violations"] == [
         "floor: `fetchAll` is documented at SKILL.md:5 (table-row), but no inventory entry lists it"]
     assert result["floor"] == {"names": 2, "checked": 2, "absent": ["fetchAll"]}
-    assert result["spotCheck"]["absent"] == [] and result["inventory"] is None
+    assert result["spotCheck"]["absent"] == [] and result["output"] is None
     assert not out.exists()
 
 
@@ -795,7 +827,7 @@ def test_a_dropped_bracket_generic_floor_name_fails(tmp_path):
     assert result["violations"] == [
         "floor: `App` is documented at SKILL.md:5 (table-row), but no inventory entry lists it"]
     assert result["floor"] == {"names": 2, "checked": 2, "absent": ["App"]}
-    assert result["spotCheck"]["absent"] == [] and result["inventory"] is None
+    assert result["spotCheck"]["absent"] == [] and result["output"] is None
     assert not out.exists()
 
 
@@ -854,7 +886,7 @@ def test_a_floor_form_the_inventory_changes_fails(tmp_path):
     assert proc.returncode == 2, proc.stdout + proc.stderr
     result = json.loads(proc.stdout)
     assert result["violations"] == [FORM_VIOLATION]
-    assert result["floor"] == {"names": 1, "checked": 1, "absent": []} and result["inventory"] is None
+    assert result["floor"] == {"names": 1, "checked": 1, "absent": []} and result["output"] is None
     assert not out.exists()
 
     read = mod.read_floor(floor)
@@ -975,7 +1007,7 @@ def test_a_pinned_call_keeps_its_params_and_a_props_table_is_placed_at_its_headi
         'floor: `connect` is documented at SKILL.md:3 (heading) with the signature {"params": "host, port", '
         '"return_type": ""}, but no inventory entry of that name carries it; copy it as given, with `at` '
         '"SKILL.md:3"']
-    assert result["inventory"] is None and not out.exists()
+    assert result["output"] is None and not out.exists()
     pinned = ("connect", "function", {"params": "host, port", "description": "", "at": "SKILL.md:3"})
     r = mod.validate_inventory(_signed(pinned, canvas), pkg, read)
     assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (r["violations"], r["warnings"])
@@ -1368,7 +1400,7 @@ def test_a_floor_partial_label_is_carried_at_its_origin(tmp_path):
                           encoding="utf-8")
     assert proc.returncode == 2, proc.stdout + proc.stderr
     result = json.loads(proc.stdout)
-    assert result["violations"] == [PARTIAL_VIOLATION] and result["inventory"] is None
+    assert result["violations"] == [PARTIAL_VIOLATION] and result["output"] is None
     assert not out.exists()
 
     for entries, warnings in (
@@ -1445,7 +1477,7 @@ def test_a_props_cell_and_a_usage_form_pinned_on_the_floor_are_carried_at_their_
     assert proc.returncode == 2, proc.stdout + proc.stderr
     result = json.loads(proc.stdout)
     assert result["violations"] == [pinned.format("add", 13, json.dumps(ADD)) + elsewhere.format(13)]
-    assert result["inventory"] is None and not out.exists()
+    assert result["output"] is None and not out.exists()
     for changed, violation in (
         ({"Title": {"params": "{ of?: Of }", "return_type": "", "at": "SKILL.md:5"}},
          pinned.format("Title", 5, json.dumps(TITLE)) + elsewhere.format(5)),

@@ -1,0 +1,6 @@
+type: fixed
+scope: all workflows, skf-forger
+summary: |
+  Every workflow, and Ferris, now keeps its subagents in the foreground in Claude Code: the rule tells the agent to pass `run_in_background: false` on every Agent call, since Claude Code runs a subagent in the background when the flag is left out. The rule used to say only "never with `run_in_background`", so an Agent call that followed it word for word could start its subagent in the background, and the run then spent turns polling for the result to keep a headless `claude -p` turn from ending before the subagent did.
+issues: [1037]
+prs: [1055]

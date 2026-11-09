@@ -98,19 +98,19 @@ Parse SKILL.md for the three most "organic" prompts found in its `description`, 
 - Omit the skill name or explicit command invocation
 - Reflect how a user would actually ask for this capability
 
-If SKILL.md does not contain enough organic examples, synthesize 3 from the skill's exports/capability summary using the patterns from §4b.4 below.
+If SKILL.md does not contain enough organic examples, synthesize 3 from the skill's exports/capability summary using the patterns from §4b.4 below. Every prompt, organic or synthesized, describes the task in a user's own words and names no export, no skill name and no library or package name, since the catalog descriptions list those; replace any such name with what it does (for `remember`, "save this to the agent's memory").
 
 **4b.2 Spawn a discovery subagent:**
 
 **Subagents-unavailable guard (precedes the spawn).** If subagents cannot be spawned in this environment (e.g. a headless/CI pipeline with no subagent capability), do not fall back to answering the routing in the main thread: the main thread knows which skill is under test, so it would self-route to `3/3 PASS` and inflate the Discovery score, the exact false confidence §4b.0 warns against. Instead record the skip with the reason `subagents unavailable, routing test requires isolated context`, exclude the discovery check from Discovery Quality scoring (do not count it PASS or FAIL), and skip to §4b.5.
 
-For each of the 3 prompts, spawn an isolated subagent with NO prior context about which skill is under test. Provide only:
+For each of the 3 prompts, spawn an isolated subagent with NO prior context about which skill is under test and no file or shell tools (where the platform lets a subagent be spawned without tools, do so), since the run lock and the in-progress report in `{forge_version}` both name that skill. Provide only:
 1. A compact list of every skill in `{discovery_catalog}` (the same set §4b.0 counted): name + description line from that entry's SKILL.md frontmatter
 2. The prompt text
 
 Instruction to the subagent:
 
-> "You are an agent selecting the best skill to handle a user request. Here is the catalog: {catalog}. The user says: '{prompt}'. Return JSON: `{\"selected_skill\": \"<name>\", \"confidence\": \"<high|medium|low>\", \"reasoning\": \"<one sentence>\"}`. If no skill fits, return `{\"selected_skill\": null, ...}`. Return only JSON."
+> "You are an agent selecting the best skill to handle a user request. Here is the catalog: {catalog}. The user says: '{prompt}'. Return JSON: `{\"selected_skill\": \"<name>\", \"confidence\": \"<high|medium|low>\", \"reasoning\": \"<one sentence>\"}`. If no skill fits, return `{\"selected_skill\": null, ...}`. Answer from this catalog alone: read no file and use no tool. Return only JSON."
 
 **4b.3 Evaluate discovery results:**
 
@@ -133,7 +133,7 @@ Either gap has the SKILL.md frontmatter `description` as its Source, the misrout
 Realistic prompt patterns for synthesis (§4b.1 fallback):
 - Vague: "can you help me with this {artifact} my boss sent"
 - Implicit: "why did {metric} drop last {period}"
-- Abbreviated: "run the {keyword} thing on this data"
+- Abbreviated: "run the {task word} thing on this data" ({task word} is a plain word for the job, such as memory or indexing, never an export or library name)
 
 **4b.5 Record the discovery gap.** A skip, a WARN or a FAIL is one gap; a PASS records none. Record it in the ledger, with the record between the two markers exactly as it is (`{gapLedgerScript}` resolves relative to the skill root):
 
@@ -202,7 +202,7 @@ test-skill delegates its terminal step to the shared health-check. Install
 the SKF module or run from a development checkout with src/ present.
 ```
 
-**Renew the run lock** before anything below writes. The lock init.md §6a took goes stale 60 minutes after it was taken, and a long run can outlast that; an acquire by the owner that holds the lock renews it. From `{project-root}`, run:
+**Renew the run lock** before anything below writes. The lock init.md §6a took goes stale 60 minutes after it was taken or last renewed, and the steps since the last renewal can outlast that; an acquire by the owner that holds the lock renews it. From `{project-root}`, run:
 
 ```bash
 uv run {runLockHelper} acquire --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"

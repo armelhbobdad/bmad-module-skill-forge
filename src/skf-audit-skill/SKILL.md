@@ -28,7 +28,7 @@ You are a skill auditor in Ferris Audit mode: a deterministic drift-detection wo
 
 - Never fabricate findings — all data must trace to source code with file:line citations
 - Only load one step file at a time — never preload future steps
-- Run every subagent in the foreground (parallel ones as several calls in one message, never with `run_in_background`) and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
+- Run every subagent in the foreground, passing `run_in_background: false` on every Agent call (Claude Code runs a subagent in the background when the flag is left out), with parallel ones as several such calls in one message, and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
 - Update `stepsCompleted` in output file frontmatter before loading next step
 - Always communicate in `{communication_language}`
 - If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision; step 1's gates (manifest-vs-link, upstream-drift, baseline confirm) also record theirs in the run sink as they decide

@@ -155,8 +155,11 @@ def test_the_plan_compares_each_documented_signature_on_the_surface(tmp_path):
     out_path = tmp_path / "signature-plan.json"
     proc = _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(out_path))
     assert proc.returncode == 0, proc.stderr
-    plan = json.loads(proc.stdout)
-    assert json.loads(out_path.read_text(encoding="utf-8")) == plan
+    plan = json.loads(out_path.read_text(encoding="utf-8"))
+    assert plan == json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    # #1018: the step reads the plan from the file, so stdout gives only its counts and the path
+    assert json.loads(proc.stdout) == {"compared": 2, "files": 2, "checks": 2, "documented": 4,
+                                       "output": str(out_path)}
     assert plan["compared"] == 2  # stale and useThing are not on the surface; a method never is
     assert plan["files"] == [
         {"file": "src/helper.ts", "checks": [{"name": "helper", "line": 1,
@@ -175,6 +178,22 @@ def test_the_plan_without_a_surface_is_the_signature_map(tmp_path):
     plan = json.loads(_run("plan", "--inventory", inventory).stdout)
     assert plan["files"] == [] and plan["compared"] == 0
     assert plan["documentedSignatures"]["useThing"] == {"usage_signature": "useThing(): Thing"}
+
+
+def test_the_plan_with_output_prints_only_a_summary(tmp_path):
+    """#1018: with --output the plan goes to the file alone and stdout is its summary, so the step's run files hold
+    the one copy. The fallback scan's plan has no surface, hence no files and no checks: `documented` counts the
+    signature map it sends each subagent. Without --output stdout is the plan, as before."""
+    inventory, _ = _files(tmp_path)
+    out_path = tmp_path / "run" / "signature-plan.json"
+    proc = _run("plan", "--inventory", inventory, "--output", str(out_path))
+    assert proc.returncode == 0, proc.stderr
+    summary = json.loads(proc.stdout)
+    assert summary == {"compared": 0, "files": 0, "checks": 0, "documented": 4, "output": str(out_path)}
+    assert "documentedSignatures" not in proc.stdout and "useThing" not in proc.stdout
+    plan = json.loads(out_path.read_text(encoding="utf-8"))
+    assert plan == json.loads(_run("plan", "--inventory", inventory).stdout)
+    assert len(plan["documentedSignatures"]) == summary["documented"]
 
 
 # --------------------------------------------------------------------------
@@ -2167,7 +2186,7 @@ def test_a_by_eye_record_alone_plans_no_line_and_is_scored_at_the_judge_s(tmp_pa
         plan = tmp_path / "signature-plan.json"
         proc = _run("plan", "--inventory", inventory, "--surface", surface, *skill, "--output", str(plan))
         assert proc.returncode == 0, proc.stderr
-        [check] = json.loads(proc.stdout)["files"][0]["checks"]
+        [check] = json.loads(plan.read_bytes())["files"][0]["checks"]
         assert (check["line"], check["signatureLine"]) == (None, None)
         assert check.get("bound", []) == ([{"form": 0, "file": CONFIG, "line": None, "signatureLine": None}]
                                           if skill else [])
@@ -2643,7 +2662,7 @@ def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tm
                 "--output", str(plan))
     assert proc.returncode == 0, proc.stderr
     documented = {"params": "story: Story, annotations?: Annotations", "return_type": "Test"}
-    assert json.loads(proc.stdout)["files"] == [{"file": "", "checks": [{
+    assert json.loads(plan.read_text(encoding="utf-8"))["files"] == [{"file": "", "checks": [{
         "name": "createTest", "line": None, "signatureLine": None, "documented": documented,
         "bound": [{"form": 0, "file": PORTABLE, "line": 319, "signatureLine": "export function createTest("}]}]}]
     without = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
@@ -2776,7 +2795,7 @@ def test_a_function_only_a_lazy_re_export_reaches_is_compared_where_its_form_cit
     proc = _run("plan", "--inventory", str(inventory), "--surface", str(surface), "--skill-dir", str(skill),
                 "--output", str(plan))
     assert proc.returncode == 0, proc.stderr
-    [group] = json.loads(proc.stdout)["files"]
+    [group] = json.loads(plan.read_text(encoding="utf-8"))["files"]
     [check] = group["checks"]
     assert (group["file"], check["line"], "candidates" in check) == (ORCHESTRATOR, 53, False)
     forms = [check["documented"], *check["alternatives"]]
@@ -2950,7 +2969,7 @@ def test_a_no_parameter_form_that_states_a_return_is_compared(tmp_path):
     plan_path = tmp_path / "signature-plan.json"
     proc = _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(plan_path))
     assert proc.returncode == 0, proc.stderr
-    [check] = json.loads(proc.stdout)["files"][0]["checks"]
+    [check] = json.loads(plan_path.read_text(encoding="utf-8"))["files"][0]["checks"]
     assert check["documented"] == {"usage_signature": "coco.default_env()"}
     assert check["alternatives"] == [{"params": "", "return_type": "Environment"}]
     for sig in ("() -> Environment", "default_env() -> Environment", "coco.default_env() -> Environment",

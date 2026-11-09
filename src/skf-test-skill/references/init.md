@@ -40,8 +40,10 @@ checkWorkspaceDriftProbeOrder:
   - '{project-root}/src/shared/scripts/skf-check-workspace-drift.py'
 # Resolve `{runLockHelper}` to the first existing path; §6a HALTs if neither
 # exists. §6a takes the run lock and the run id through it, and it stays
-# bound for the rest of the run: report.md §4c renews the lock through it,
-# and every later HALT and report.md §7 release it.
+# bound for the rest of the run: SKILL.md Workflow Rules renew the lock
+# through it as each subagent dispatch returns (or, without subagents, as
+# the main thread finishes a subagent's work), report.md §4c renews it
+# before the result files, and every later HALT and report.md §7 release it.
 runLockProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
   - '{project-root}/src/shared/scripts/skf-run-lock.py'
