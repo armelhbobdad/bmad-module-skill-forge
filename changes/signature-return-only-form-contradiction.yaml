@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `signature-mismatch` gap for a form whose `params` is `""` or `[]` while the source takes a required parameter, write the parameters the source declares (the gap's `source_sig`) in the skill's signature for that name, then run Test Skill again.
 issues: [1025]
+prs: [1056]

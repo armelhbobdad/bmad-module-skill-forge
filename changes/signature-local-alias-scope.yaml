@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `signature-mismatch` gap whose source declares a local alias under a name the package exports, write the type the alias names in the package's exported names, as the gap's `source_sig` gives it (for example `ThemesParameters['themes']`), then run Test Skill again.
 issues: [1050]
+prs: [1056]

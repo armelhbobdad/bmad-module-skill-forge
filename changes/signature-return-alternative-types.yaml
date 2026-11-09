@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `signature-mismatch` gap whose documented return names a type the source never returns, remove that alternative from the return, or reword it so it names no type, then run Test Skill again.
 issues: [1042]
+prs: [1056]
