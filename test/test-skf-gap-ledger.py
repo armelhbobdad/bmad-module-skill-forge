@@ -705,6 +705,25 @@ class TestRender:
             assert needle in row, needle
         assert "add a `scope.include` glob that covers it" in text.split("**Remediation:**", 1)[1]
 
+    def test_the_split_body_action_fits_a_homonym_pair(self, ledger: Path):
+        """Coherence review of #1047 and #1027: a split-body gap whose two forms document different declarations of
+        one name names no form to take, and asks for each side's citation and module or owner, so a row that asked
+        only to correct the Source's file until both files document the export alike told the reader to copy one
+        form over the other. The action now names both remediations, a common pair's and a homonym pair's."""
+        homonym = ("Name each form's declaration: on `SKILL.md:42` add `[SRC:a/client.py:L3]` and name the `a` "
+                   "module beside the form, and on `references/api.md:18` add `[SRC:b/client.py:L7]` and name the "
+                   "`b` module beside the form. Change no form.")
+        append(ledger, "coverage-check", [
+            record(category="split-body-mismatch", title="Split-body mismatch: connect", export="connect",
+                   source="references/api.md:18", remediation=homonym)])
+        text = run("render", "--ledger", str(ledger)).stdout
+        [row] = [line for line in text.splitlines() if line.startswith("| High |")]
+        assert row == f"| High | 1 | split-body-mismatch (1): {mod.ACTIONS['split-body-mismatch']} |"
+        for needle in ("correct the file each Source names so both files document the export alike",
+                       "where the two forms document different declarations",
+                       "add beside each form the citation and the module or owner its remediation names"):
+            assert needle in row, needle
+
     def test_every_category_has_one_cell_safe_action(self):
         # a pipe ends the table cell, and `; ` parts one category's entry from the next
         assert set(mod.ACTIONS) == set(mod.CATEGORIES)
