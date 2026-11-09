@@ -1391,6 +1391,18 @@ class TestCoverageAdapter:
         assert record["remediation"].endswith(f"documentation at {expected}: the enumerated source surface does not "
                                               "export it.")
 
+    def test_a_compound_export_table_header_makes_its_first_cell_export_shaped(self, tmp_path: Path):
+        """#1004: in a nested reference, which the floor does not read, the first cell of a `Component / Props` or
+        `Queries` table is export-shaped (floor's table headers), so it wins over SKILL.md's earlier code span; a
+        `Symbol / keyword` table's first cell is a code span, so SKILL.md's earlier one wins."""
+        skill = self._skill_package(tmp_path / "skill", {
+            "SKILL.md": "# demo\n\nRender with `Canvas`, query with `getByRole`, join with `AND`.\n",
+            "references/blocks/doc.md": "# Doc\n\n| Component / Props | Kind |\n| --- | --- |\n| `Canvas` | x |\n",
+            "references/blocks/queries.md": "# Q\n\n| Queries | Kind |\n| --- | --- |\n| `getByRole` | x |\n",
+            "references/blocks/operators.md": "# Ops\n\n| Symbol / keyword | Use |\n| --- | --- |\n| `AND` | x |\n"})
+        assert [mod._documenting_line(skill, name) for name in ("Canvas", "getByRole", "AND")] == [
+            "references/blocks/doc.md:5", "references/blocks/queries.md:5", "SKILL.md:3"]
+
     def test_the_append_cli_cites_the_declaration_not_the_frontmatter(self, ledger: Path, tmp_path: Path):
         """#922 through `append --from coverage --skill-dir`: oms-uitripled's `add` was cited at its frontmatter;
         without --skill-dir the skill documents it, as before."""

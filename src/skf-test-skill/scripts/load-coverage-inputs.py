@@ -39,8 +39,14 @@ reading files and writing one JSON object:
                            singular or plural and bare or wrapped in `**`
                            or `__`, Export, Symbol, Function, Class,
                            Interface, Type, Hook, Component, Helper,
-                           Constant, Enum or API (a Name, Method, Prop,
-                           Param, Import or Subpath table gives none). The
+                           Constant, Enum, API or Query, or is parts split
+                           at `/`, each read the same way, whose first is
+                           one of those words and each other one of them
+                           or Props, Params or Parameters
+                           (`Component / Props`, `Function/Type`; #1004).
+                           A Name, Method, Prop, Param, Import or Subpath
+                           table gives none, and so does a `Prop / Type`
+                           or `Symbol / keyword` one. The
                            row's Kind cell, as written, is the name's
                            `kindLabel`: the skill's own label, never mapped
                            to a kind (the first in origin order when two
@@ -513,11 +519,13 @@ CITATION_FORMS = {
 LOCAL_FORMS = ("AST", "SRC", "from skill")
 # floor: the forms a documented name takes, in the order an origin on one line sorts by.
 FLOOR_FORMS = ("table-row", "heading", "declaration")
-# The first header cells (lower case, singular or plural) of a table whose first column names exports.
+# The header words (lower case, singular or plural) of a table whose first column names exports: its first header
+# cell is one, or parts split at `/` whose first is one and each other one or a FLOOR_PROPS_HEADERS word, as
+# `Component / Props` is and `Prop / Type` and `Symbol / keyword` are not (_floor_table_header, #1004).
 FLOOR_TABLE_HEADERS = frozenset({
     "export", "exports", "symbol", "symbols", "function", "functions", "class", "classes", "interface", "interfaces",
     "type", "types", "hook", "hooks", "component", "components", "helper", "helpers", "constant", "constants",
-    "enum", "enums", "api", "apis"})
+    "enum", "enums", "api", "apis", "query", "queries"})
 # The header words (as _header_label reads them, a partial label cut) of a floor table's column that writes the row's
 # signature (#888); a header with any other text after the word, such as `Signature (TypeScript)`, is not one.
 FLOOR_SIGNATURE_HEADERS = frozenset({"signature", "signatures"})
@@ -737,6 +745,22 @@ def _header_word(cell: str) -> str:
     """A header cell's word, lower case, unwrapped from `**` or `__`."""
     m = EMPHASIS_RE.fullmatch(cell)
     return (m.group(2) if m else cell).strip().lower()
+
+
+def _header_parts(cell: str) -> list[str]:
+    """A header cell's word (_header_word) split at each `/`, each part stripped and read as _header_word reads a
+    cell: `Component / Props`, `**Function/Type**` and `**Component** / Props` give two parts, a cell with no `/`
+    its one word."""
+    return [_header_word(part.strip()) for part in _header_word(cell).split("/")]
+
+
+def _floor_table_header(cell: str) -> bool:
+    """Whether a table's first header cell names exports, so the floor reads that table's first column (#1004): its
+    first part (_header_parts) is one of FLOOR_TABLE_HEADERS and each other part one of them or of
+    FLOOR_PROPS_HEADERS. `Functions`, `Queries`, `Component / Props` and `Function/Type` do; `Name`, `Prop / Type`,
+    `Props / Component` and `Symbol / keyword` do not."""
+    first, *rest = _header_parts(cell)
+    return first in FLOOR_TABLE_HEADERS and all(part in FLOOR_TABLE_HEADERS | FLOOR_PROPS_HEADERS for part in rest)
 
 
 def _header_label(cell: str) -> tuple[str, bool]:
@@ -1110,7 +1134,7 @@ def floor(skill_dir: str) -> dict:
             if block["kind"] != "table-row" or block["header"] is None:
                 continue
             header = _cells(block["header"])
-            if _header_word(header[0]) not in FLOOR_TABLE_HEADERS:
+            if not _floor_table_header(header[0]):
                 continue
             row = _cells(lines[block["start"]])
             kind_at = next((i for i, cell in enumerate(header) if _header_word(cell) == "kind"), None)

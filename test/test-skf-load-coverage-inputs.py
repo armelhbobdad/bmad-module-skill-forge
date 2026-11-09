@@ -311,6 +311,44 @@ def test_floor_reads_no_other_header_word(tmp_path, header):
     assert mod.floor(str(_skill(tmp_path, body)))["names"] == []
 
 
+@pytest.mark.parametrize("header, read", [
+    ("Queries", True), ("**Query**", True), ("Component / Props", True), ("**Function/Type**", True),
+    ("**Component** / __Props__", True), ("Hook / Component / Params", True),
+    ("Symbol / keyword", False), ("Prop / Type", False), ("Name / Type", False), ("Props / Component", False),
+    ("Command / flag", False), ("Function /", False), ("Function (sync/async)", False)])
+def test_floor_reads_a_compound_header_by_its_parts(tmp_path, header, read):
+    """#1004: Query and Queries are header words, and a first header cell split at `/` names exports when its first
+    part is a header word and every other part one or Props, Params or Parameters, each part bare or wrapped in
+    `**` or `__`. A props table (`Prop / Type`), a keyword table (`Symbol / keyword`) and an empty part give none."""
+    body = f"| {header} | Kind |\n| --- | --- |\n| `useThing` | hook |\n"
+    names = [{"name": "useThing", "kindLabel": "hook", "origins": [_origin("SKILL.md", 3, "table-row")]}]
+    assert mod.floor(str(_skill(tmp_path, body)))["names"] == (names if read else [])
+
+
+def test_floor_reads_storybook_s_queries_and_component_props_tables(tmp_path):
+    """#1004, the two tables of oms-storybook-react-vite that gave no floor name: a `Queries` row gives each name
+    its first cell writes, and a `Component / Props` row its component with its Signature cell's form; the
+    compound first cell is never read as a Props column. Two runs give the same bytes."""
+    root = _skill(tmp_path, "# Demo\n", {
+        "core-api.md": ("| Queries | Kind | Signature (each name in the row) | Source |\n"
+                        "| --- | --- | --- | --- |\n"
+                        "| `getByRole`, `queryByRole` | function | `(role, options?)` | [SRC:dom.ts:L4] |\n"),
+        "doc-blocks.md": ("| Component / Props | Kind | Signature | Source |\n"
+                          "| --- | --- | --- | --- |\n"
+                          "| `Canvas` | component | `<Canvas of={Story} />` | [SRC:blocks.tsx:L9] |\n"
+                          "| `Meta` | component | - | [SRC:blocks.tsx:L30] |\n")})
+    out = mod.floor(str(root))
+    assert out["names"] == [
+        {"name": "Canvas", "kindLabel": "component",
+         "origins": [_origin("references/doc-blocks.md", 3, "table-row", _usage("<Canvas of={Story} />"))]},
+        {"name": "Meta", "kindLabel": "component", "origins": [_origin("references/doc-blocks.md", 4, "table-row")]},
+        {"name": "getByRole", "kindLabel": "function", "origins": [_origin("references/core-api.md", 3, "table-row")]},
+        {"name": "queryByRole", "kindLabel": "function",
+         "origins": [_origin("references/core-api.md", 3, "table-row")]},
+    ]
+    assert json.dumps(out) == json.dumps(mod.floor(str(root)))
+
+
 def test_floor_keeps_the_first_kind_label_in_origin_order(tmp_path):
     """Two tables label one name differently: the first label in origin order (file order, then line) is the
     name's `kindLabel`, the skill's own label; a later one is not kept."""

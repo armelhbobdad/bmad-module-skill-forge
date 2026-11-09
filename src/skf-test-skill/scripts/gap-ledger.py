@@ -130,7 +130,8 @@ cites (never read; default `metadata.json`):
             the name winning: (1) its first origin in the documented
             inventory's floor (load-coverage-inputs.py floor); (2) a
             heading, or the first cell of a table whose header's first
-            cell names exports (floor's table headers), whose text is the
+            cell names exports (floor's table headers, a compound
+            `Component / Props` one included), whose text is the
             name or holds a code span floor reads as the name; (3) a line
             whose inline code span is the name, or the name directly
             followed by `(`; (4) a column-0 declaration of it in a fenced
@@ -927,8 +928,9 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
       1. its first origin in the documented inventory's floor
          (load-coverage-inputs.py `floor`: SKILL.md and the top-level
          references/*.md);
-      2. a heading, or the first cell of a table whose header's first cell is
-         one of floor's `FLOOR_TABLE_HEADERS`, whose stripped text is the name
+      2. a heading, or the first cell of a table whose header's first cell
+         names exports (floor's `_floor_table_header`: `Functions`, `Queries`,
+         `Component / Props`), whose stripped text is the name
          or holds a code span floor's `_floor_name` reads as the name;
       3. a line whose inline code span, stripped, is the name, or the name
          directly followed by `(`;
@@ -989,7 +991,7 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
         for block in prose:
             written += [(i, lines[i]) for i in range(block["start"], block["end"] + 1)]
             if block["kind"] == "table-row" and block["header"] is not None:
-                if coverage._header_word(coverage._cells(block["header"])[0]) in coverage.FLOOR_TABLE_HEADERS:
+                if coverage._floor_table_header(coverage._cells(block["header"])[0]):
                     shaped.append((block["start"], coverage._cells(lines[block["start"]])[0]))
         for index, text in sorted(shaped):
             for key in [text.strip()] + [coverage._floor_name(span) for span in segments._inline_code(text)]:
