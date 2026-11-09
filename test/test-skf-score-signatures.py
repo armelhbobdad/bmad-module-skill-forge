@@ -311,8 +311,9 @@ def test_nothing_to_compare_scores_100_with_a_warning(tmp_path):
 
 NO_TYPES = ("the source surface has no interface, type alias, enum or class: Type Coverage has nothing to cover "
             "and scores 100")
-KINDLESS = ("Type Coverage leaves out each name the stale-scope guard restored with no kind (the provenance map, "
-            "when one is given, gives it no kind Type Coverage reads at its file): ")
+KINDLESS = ("Type Coverage leaves out each name the stale-scope guard restored or the extraction recorded with no "
+            "kind, such as an extraction gap (the provenance map, when one is given, gives it no kind Type Coverage "
+            "reads at its file): ")
 
 
 def _restored(name: str, kind: str | None, origin: str = "restored") -> dict:
@@ -325,7 +326,10 @@ def test_a_restored_name_with_no_kind_is_named_not_counted(tmp_path):
     is a type, so it leaves the name out and names it in a warning, in place
     of the one that says the surface has no type; the score never drops. A
     name with a kind on any record (a restored one the provenance map typed,
-    or an extraction record beside a kindless restored one) counts."""
+    or an extraction record beside a kindless restored one) counts. #1020:
+    an extraction record with no kind (an extraction gap) is named too, but
+    a per-file one alone is not: a fallback scan's name outside its
+    types_found is no type."""
     inventory = _write(tmp_path / "inventory.json", {"exports": [
         {"name": "Cls", "kind": "class", "params": "", "return_type": "Cls"},
     ], "cross_check_mismatches": []})
@@ -351,6 +355,17 @@ def test_a_restored_name_with_no_kind_is_named_not_counted(tmp_path):
                                                "sets": {"all": ["Cls"]}})
     out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
     assert out["warnings"] == [KINDLESS + "`Cls`"]
+    # An extraction gap with no kind is named beside a restored one; a per-file name with no kind alone is not.
+    surface = _write(tmp_path / "gaps.json", {
+        "exports": [_restored("Gap", None, "extraction"), _restored("Old", None), _restored("Fn", None, "per-file"),
+                    _restored("Cls", "class", "extraction")],
+        "sets": {"all": ["Cls", "Fn", "Gap", "Old"]}})
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
+    assert (out["documentedTypes"], out["totalTypes"], out["warnings"]) == (1, 1, [KINDLESS + "`Gap`, `Old`"])
+    surface = _write(tmp_path / "per-file.json", {"exports": [_restored("Fn", None, "per-file")],
+                                                  "sets": {"all": ["Fn"]}})
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
+    assert [w for w in out["warnings"] if "Type Coverage" in w] == [NO_TYPES]
     # With no record, the surface still has no type.
     surface = _write(tmp_path / "bare.json", {"exports": [], "sets": {"all": ["Cls", "y"]}})
     out = json.loads(_run("score", "--inventory", inventory, "--surface", surface).stdout)
@@ -2591,7 +2606,9 @@ def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tm
                           "--results", results).stdout)
     # the declaration line is the bound one, 319, so the evidence at 322 is in its body
     assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, 319, "Info")]
-    assert not any("createTest" in w for w in out["warnings"]), out["warnings"]
+    # No warning says the judge named another file; the extraction record has no kind, so Type Coverage names it
+    # (#1020).
+    assert out["warnings"] == [KINDLESS + "`createTest`"]
     assert (out["comparedNames"], out["totalDocumented"]) == (["createTest"], 1)
     out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
     assert [(m["file"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, "Critical")]

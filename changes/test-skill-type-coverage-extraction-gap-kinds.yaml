@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's Type Coverage now counts a public name the recipes give no kind at its file, such as one no recipe found (an extraction gap, listed in the surface's `extractionGaps`), when the skill's provenance map gives that name a type kind at that file, as it already did for a name the stale-scope guard restored. Before, such a name had no kind and Type Coverage left it out with no warning, so the type count depended on how a name reached the surface: on oms-cocoindex, once the brief's include globs were fixed, six type aliases the guard had restored became extraction gaps, and Type Coverage counted 36 types instead of 42 on an unchanged skill. The Type Coverage warning the report lists now names each extraction gap still without a kind, and any other name the extraction records with none, beside the restored names it already named, in place of the warning that the source has no types. The names of a fallback per-file scan are read as before. An undocumented type among these names now lowers Type Coverage and is reported as a Medium `missing-type` gap instead of a `missing-export` one, so a run that passed can fail.
+migration: |
+  Re-run Test Skill at Forge or Deep tier, then document in SKILL.md each type a new `Missing type` gap names.
+issues: [1020]

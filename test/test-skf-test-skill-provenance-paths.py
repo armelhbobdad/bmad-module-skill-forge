@@ -1846,11 +1846,12 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
             "compares their signatures") in held
     assert "When a `scope.include` glob matches no file (`guards.staleScope.fires`" in held
     assert "are back in it (`guards.staleScope.restored`)" in held
-    # #913: a restored name takes the kind the provenance map gives it, and Type Coverage names one with none
-    assert ("(`guards.staleScope.restored`), each with the kind the provenance map gives its name at its file when "
-            "the map is given (a dataclass, NamedTuple or TypedDict is a class, a Protocol an interface, a type alias "
-            "a type, a TypeVar no type), and Type Coverage leaves out one still without a kind and says so in its "
-            "warnings.") in held
+    # #913: a restored name takes the kind the provenance map gives it, and Type Coverage names one with none;
+    # #1020: so does any name the recipes give no kind at its file, an extraction gap or one found only elsewhere
+    assert ("(`guards.staleScope.restored`). Each restored name, and each name no recipe gives a kind at its file "
+            "(such as one in `extractionGaps`), takes the kind the provenance map gives its name at its file when the map is given (a dataclass, "
+            "NamedTuple or TypedDict is a class, a Protocol an interface, a type alias a type, a TypeVar no type), and "
+            "Type Coverage leaves out one still without a kind and says so in its warnings.") in held
     # #695: a stale tier A glob fires the guard too and counts no name
     assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
             "and counts no name") in held

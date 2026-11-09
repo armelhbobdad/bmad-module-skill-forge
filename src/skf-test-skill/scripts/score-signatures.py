@@ -108,9 +108,10 @@ ratios and the gap records of the wrong signatures.
              a type kind (TYPE_KINDS: interface, type alias, enum and class,
              with a Rust struct counted as a class and a trait as an
              interface) and documented types those the inventory documents;
-             a name the stale-scope guard restored whose kind the provenance
-             map does not give (#913) is left out and named in `warnings`,
-             in place of the warning that the surface has no type
+             a name the stale-scope guard restored (#913) or the extraction
+             recorded with no kind, such as an extraction gap (#1020), whose
+             kind the provenance map does not give is left out and named in
+             `warnings`, in place of the warning that the surface has no type
          A category with nothing to compare scores 100 (nothing documented
          is wrong) and says so in `warnings`. Each signature mismatch of a
          compared name is graded (grade()) against the documented form its
@@ -1862,18 +1863,20 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
 
     pool = surface if type_names is None else set(type_names)
     types = {n for n in pool if kind_of(n) in TYPE_KINDS}
-    # A name the stale-scope guard restored with no kind (#913: the provenance map gives it none at its file) may be
-    # a type: Type Coverage leaves it out and names it, never lowering the score.
+    # A name the stale-scope guard restored (#913) or the extraction recorded with no kind, such as an extraction gap
+    # (#1020), may be a type when the provenance map gives it none at its file: Type Coverage leaves it out and names
+    # it, never lowering the score. A per-file name outside its result's types_found is no type.
     kindless = sorted(n for n in pool - fallback_types if kind_of(n) is None
-                      and any(r.get("origin") == "restored" for r in by_name.get(n, [])))
+                      and any(r.get("origin") in ("restored", "extraction") for r in by_name.get(n, [])))
     documented_types = types & documented
     if types:
         type_coverage = round2(len(documented_types) / len(types) * 100)
     else:
         type_coverage = 100.0
     if kindless:
-        warnings.append("Type Coverage leaves out each name the stale-scope guard restored with no kind (the "
-                        "provenance map, when one is given, gives it no kind Type Coverage reads at its file): "
+        warnings.append("Type Coverage leaves out each name the stale-scope guard restored or the extraction "
+                        "recorded with no kind, such as an extraction gap (the provenance map, when one is given, "
+                        "gives it no kind Type Coverage reads at its file): "
                         + ", ".join(f"`{n}`" for n in kindless))
     elif not types:
         warnings.append("the source surface has no interface, type alias, enum or class: Type "
