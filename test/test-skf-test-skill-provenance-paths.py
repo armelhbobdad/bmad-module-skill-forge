@@ -1421,7 +1421,15 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
     recorded a Medium `stale-documentation` gap for accurate prose and Info documented extras for seven `*Props`
     types, and the next recorded none. The sentence after the type mention gives such a name an entry only from the
     structural places of the type mention's list, never from a code span in prose or a description cell; those places
-    cover every origin the floor lists, so validate-inventory.py never refuses an inventory that follows it."""
+    cover every origin the floor lists, so validate-inventory.py never refuses an inventory that follows it.
+
+    #1013: the same code span trigger gave an entry to a name the skill writes only in a sentence saying it does not
+    cover it (oms-cognee's "`load_env_file`, `describe_resolution` and `setup_logging` are among them but out of scope
+    for this skill"), so one reader recorded a Medium `stale-documentation` gap per such name, whose remediation tells
+    update-skill to remove the accurate scoping sentence, and the next recorded none. The sentence after the alias one
+    says a not-covered sentence documents nothing and gives no entry, in any form; any other place that documents the
+    name, prose that describes it or a place the floor gives included, still gives one, so `setup_logging`, which the
+    skill also describes elsewhere, keeps its entry and validate-inventory.py still finds every floor name."""
     type_only = (
         "A name the skill writes only in a type position (a parameter type, a return type or a type argument inside "
         "another entry's documented type or signature, or a parameter table's Type cell) is a type mention, not an "
@@ -1433,6 +1441,11 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
         "is not an export the skill documents either: it gets an entry only from a place `inventory-floor.json` "
         "gives it, a heading, an export table's first cell or a fenced declaration of it (an import is not one), "
         "never from a code span in prose or a description cell.")
+    not_covered = (
+        "A sentence saying the skill does not cover a name (\"out of scope for this skill\", \"not covered here\") "
+        "does not document it and gives it no entry, whatever form it writes the name in; any other place that "
+        "documents the name (a form, prose or a description cell that calls or describes it, or a place "
+        "`inventory-floor.json` gives it) still gives it one.")
     function_constant = (
         "A `const` whose value is a function (annotated with a function type, bound to an arrow, a `function` or a "
         "call that returns one, or written with a parameter list) carries the function form the skill writes for it "
@@ -1447,8 +1460,15 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
         "floor gives a `signature` stays that place's form.")
     text = _read(INVENTORY_CONTRACT)
     paragraphs = [_flow(block).strip() for block in re.split(r"\n[ \t]*\n", text) if block.strip()]
-    paragraph = f"{type_only} {alias_or_unexported} {function_constant} {own_code}"
-    assert paragraphs.count(paragraph) == 1, "the four sentences are one paragraph of their own"
+    paragraph = f"{type_only} {alias_or_unexported} {not_covered} {function_constant} {own_code}"
+    assert paragraphs.count(paragraph) == 1, "the five sentences are one paragraph of their own"
+    # #1013: the not-covered sentence names both phrasings, takes away every form the sentence writes, and keeps the
+    # entry any other place gives, prose that describes the name and a floor place included, so it narrows only that
+    # sentence and never drops a name validate-inventory.py requires
+    for phrase in ('"out of scope for this skill"', '"not covered here"', "whatever form",
+                   "prose or a description cell that calls or describes it",
+                   "a place `inventory-floor.json` gives it"):
+        assert phrase in not_covered, phrase
     # #1008: the alias sentence keeps the type mention's structural places and drops only its code spans, so a name
     # the floor lists (a table row, a heading or a fenced declaration) keeps the entry validate-inventory.py requires
     for place in ("a place `inventory-floor.json` gives it", "a heading", "an export table's first cell",

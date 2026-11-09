@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's documented inventory now leaves out a name the skill writes only in a sentence saying the skill does not cover it, such as "out of scope for this skill" or "not covered here", whatever form that sentence writes the name in. Any other place that documents the name, such as prose or a description cell that calls or describes it, or a place the inventory floor lists, still gives it an entry. An accurate scoping sentence no longer records a Medium `stale-documentation` gap telling update-skill to remove it, and two readers of the same skill record the same gaps; a name the source exports and the brief keeps in scope now counts as undocumented when only such a sentence names it.
+issues: [1013]
