@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory contract now settles three places oh-my-skills rehearsal readers read two ways. A heading names a usage when its text holds the word usage, whatever qualifies it, such as `### Usage pattern` or `### Per-test-file usage`, so a fenced call under it is compared on every run. A call or JSX element of a component that a props table row's cell writes, such as `<Canvas of={ButtonStories.Primary} />`, is an example of that prop, not a usage of its own. A comment line in a fenced block is no place and states no form or return type, so a typed form or a return written only in a comment, such as `# returns the dataset's PipelineRunInfo`, is no longer compared by one run and skipped by the next.
+issues: [997]

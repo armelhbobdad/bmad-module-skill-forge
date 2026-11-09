@@ -1760,7 +1760,8 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     s3 = ("A table that documents one export's props, a row per prop with its type (Create Skill's "
           "`| Prop | Type | Default | Description |`, or one with a Required column), is a place of its own: its "
           "entry, whatever its kind, gives as `at` the nearest heading or caption above the table that writes the "
-          "name (a row writes a prop, not the name) and as `params` one object type of the rows in row order, "
+          "name (a row writes a prop, not the name, and a call or JSX element of the name a row's cell writes is an "
+          "example of that prop, never a place of its own) and as `params` one object type of the rows in row order, "
           "`{ prop: Type; ... }`, `prop` alone for an empty Type cell and each `\\|` read as `|`, with no default, `?` "
           "or Required mark, so it states no optionality (signature-comparison-rules.md compares it as a typed props "
           "list); a partial label in its column header still labels it partial.")
@@ -1795,8 +1796,9 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
 EXAMPLE_CALL = (
     "A call or JSX element of a name that a fenced example writes is not a place of its own when the skill also "
     "writes that name's form at a place that is no example (a heading, a table row, a props table, running text or "
-    "a fenced declaration), unless the nearest heading above the example names a usage (`## Usage`, "
-    "`### Basic usage`; a bold label line such as `**Usage:**` is no heading): it gives no entry, so it is never "
+    "a fenced declaration), unless the nearest heading above the example names a usage, its text holding the word "
+    "usage whatever qualifies it (`## Usage`, `### Basic usage`, `### Usage pattern`; a bold label line such as "
+    "`**Usage:**` is no heading): it gives no entry, so it is never "
     "compared, and a name whose only forms are in fenced examples keeps them.")
 
 
@@ -1817,6 +1819,27 @@ def test_the_inventory_contract_gives_an_example_call_beside_a_form_no_entry():
     assert f"as parameter names. {EXAMPLE_CALL} A `method`'s `name`" in contract
     assert "\u2014" not in EXAMPLE_CALL and "\u2013" not in EXAMPLE_CALL, "no em or en dash"
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
+
+
+def test_a_qualified_usage_heading_a_props_row_call_and_a_fenced_comment_are_read_one_way():
+    """Coherence review (oh-my-skills rehearsals): readers split on whether `### Usage pattern` or
+    `### Per-test-file usage` names a usage, so a fenced call under it was a place for one reader and none for
+    another; on whether a props table row's `<Canvas of={ButtonStories.Primary} />` is a usage of the component; and
+    on whether a comment line in a fenced block, such as storybook's `//   start: ({ ... }: { ... }) => Promise<...>`
+    or cognee's `# no return annotation; returns the dataset's PipelineRunInfo`, writes a form or a return type the
+    signature check then compares. A heading whose text holds the word usage names one, a call or element a props
+    row writes is an example of that prop, and a comment is no place and states no form or return type."""
+    contract = _flow(_read(INVENTORY_CONTRACT))
+    assert "its text holding the word usage whatever qualifies it (`## Usage`, `### Basic usage`, `### Usage pattern`" in (
+        EXAMPLE_CALL)
+    assert ("(a row writes a prop, not the name, and a call or JSX element of the name a row's cell writes is an "
+            "example of that prop, never a place of its own)") in contract
+    comment = ("A comment in a fenced block is no place of its own and states no form or return type: a form or a "
+               "return it writes (`// start: ({ options }: {...}) => Promise<void>`, `# returns the dataset's "
+               "PipelineRunInfo`) is a note on the code, not a form of the name.")
+    assert contract.count(comment) == 1
+    assert contract.index("An entry with no compared form gives its place as `at` too") < contract.index(comment), (
+        "beside the rules for a place's line")
 
 
 def test_the_inventory_subagent_writes_its_own_response():
