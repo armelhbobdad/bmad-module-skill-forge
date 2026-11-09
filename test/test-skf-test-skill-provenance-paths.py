@@ -1822,6 +1822,11 @@ def test_the_forge_tier_reads_by_eye_every_file_the_surface_names():
     # Whatever the branch, each file read by eye and each file no one could open is listed, never dropped silently.
     assert bullets[2] == ("- In the Coverage Analysis section, list each `readByEye` file as read by eye, each "
                           "`extraction.unread` file as unread.")
+    # #1048: no gap is read by eye; the signature plan judges a documented one that has a file (one with none is
+    # planned under the files[] entry "", which names no file to read) and §5's render lists them all.
+    assert bullets[3] == ("- `extractionGaps[]` names exports no recipe found: on the surface, judged below when "
+                          "documented and located; read none by eye.")
+    assert "read their signature by eye" not in section
     assert "`extraction.status` is `incomplete`" not in section
     # Quick tier and the fallback per-file scan list theirs the same way.
     assert _flow(_read(COVERAGE_TIERS)).count("in the Coverage Analysis section as read by eye") == 2
@@ -1855,8 +1860,10 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     # #695: a stale tier A glob fires the guard too and counts no name
     assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
             "and counts no name") in held
-    # the report lists every name the surface leaves out of the barrel or puts back in it, through §5's render
-    assert "§5's render lists `excluded.outsideScope`, `excluded.nestedEntries` and the restored names" in forge
+    # the report lists every name the surface leaves out of the barrel or puts back in it, and the extraction gaps
+    # (#1048), through §5's render
+    assert ("§5's render lists `excluded.outsideScope`, `excluded.nestedEntries`, the restored names and "
+            "`extractionGaps`") in forge
     section4 = _flow(_slice(_read(COVERAGE), "### 4. The Denominator Record", "### 4b."))
     assert "`guards.staleScope.fires` a Medium `brief-scope-stale` gap at the brief" in section4
     protocol = _flow(_read(SOURCE_ACCESS))

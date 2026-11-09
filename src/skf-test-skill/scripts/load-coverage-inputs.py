@@ -223,7 +223,9 @@ reading files and writing one JSON object:
                             records them), looked up by the
                             name its defining file gives it (an aliased
                             re-export's `local`) and that file.
-                            extraction_gaps are listed to read by eye, and
+                            extraction_gaps are listed with their file and
+                            line in `extractionGaps`, which
+                            reconcile-coverage.py's render lists (#1048), and
                             the runner's warnings join `warnings`. A Python
                             top __init__.py inside the folder of another top
                             that exports a public name (a sub-package

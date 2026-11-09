@@ -127,12 +127,12 @@ Build the surface from it, with the metadata, the brief when the skill has one a
 uv run {coverageInputsScript} surface --extraction "{run_dir}/extract-full.json" --metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] [--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"] [--monorepo] [--pattern-reference-intent] [--curated-subset] --output "{run_dir}/surface.json"
 ```
 
-The surface holds what `{sourceAccessProtocol}` **What the Surface Holds** says (its exclusions and the stale-scope guard). §5's render lists `excluded.outsideScope`, `excluded.nestedEntries` and the restored names. Decide what to do from the JSON, not from the exit code:
+The surface holds what `{sourceAccessProtocol}` **What the Surface Holds** says (its exclusions and the stale-scope guard). §5's render lists `excluded.outsideScope`, `excluded.nestedEntries`, the restored names and `extractionGaps`. Decide what to do from the JSON, not from the exit code:
 
 - `extraction.fallback.needed` is true, or the runner printed no JSON on an exit other than 2: load `{coverageTiersFile}` and run its **Fallback Per-File Scan** in place of the rest of this tier.
 - `extraction.readByEye` is non-empty (a file the run could not parse or decode, or a failed call left unread): keep the surface, read by eye only the files it names, save a per-file result for each, and run `surface` again with them, once (the second call starts no new pass).
 - In the Coverage Analysis section, list each `readByEye` file as read by eye, each `extraction.unread` file as unread.
-- `extractionGaps[]` names exports no recipe found: they are on the surface; read their signature by eye at their `file` and `line`.
+- `extractionGaps[]` names exports no recipe found: on the surface, judged below when documented and located; read none by eye.
 
 **Compare the signatures.** A script lists the comparisons; subagents judge them:
 

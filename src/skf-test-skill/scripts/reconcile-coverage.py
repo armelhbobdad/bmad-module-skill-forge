@@ -194,8 +194,10 @@ header lines, from the run files:
                        or puts back: `excluded.outsideScope` (scoped out
                        by the brief), `excluded.nestedEntries` (a nested
                        Python entry point's names) and
-                       `guards.staleScope.restored`, each line only when
-                       it names one
+                       `guards.staleScope.restored`, and the names no
+                       recipe found (`extractionGaps`, each at its file
+                       and line, one with no file listed as not located,
+                       #1048), each line only when it names one
   ### Category Scores  Export Coverage, and Signature Accuracy and Type
                        Coverage from --signatures (N/A without it)
 Exit 0 when it printed; 1 when an input cannot be read or is not the
@@ -600,18 +602,22 @@ def _incomplete(item):
 
 
 def _left_out(surface):
-    """The Coverage Summary lines for the names the surface leaves out or puts back, each only when it names one.
+    """The Coverage Summary lines for the names the surface leaves out or puts back, and for the names no recipe
+    found (one the runner's trace placed in no file is not located), each only when it names one.
 
     >>> for line in _left_out({
     ...         "excluded": {"outsideScope": [{"name": "gen", "file": "src/gen.ts"}],
     ...                      "nestedEntries": [{"entry": "pkg/api/__init__.py", "within": "pkg/__init__.py",
     ...                                         "names": ["router"]}]},
-    ...         "guards": {"staleScope": {"restored": [{"name": "old", "file": "src/old.ts", "line": 4}]}}}):
+    ...         "guards": {"staleScope": {"restored": [{"name": "old", "file": "src/old.ts", "line": 4}]}},
+    ...         "extractionGaps": [{"name": "fn", "file": "src/fn.ts", "line": 3},
+    ...                            {"name": "Lance", "file": None, "line": None}]}):
     ...     print(line)
     - **Scoped Out by the Brief:** `gen` (src/gen.ts)
     - **Nested Entry Points:** `pkg/api/__init__.py` inside `pkg/__init__.py`: `router`
     - **Restored by the Stale-Scope Guard:** `old` (src/old.ts:4)
-    >>> _left_out({"excluded": {"outsideScope": [], "nestedEntries": []}, "guards": None})
+    - **Extraction Gaps:** `fn` (src/fn.ts:3), `Lance` (not located)
+    >>> _left_out({"excluded": {"outsideScope": [], "nestedEntries": []}, "guards": None, "extractionGaps": []})
     []
     """
     def items(value):
@@ -640,6 +646,12 @@ def _left_out(surface):
                 if isinstance(i.get("name"), str)]
     if restored:
         lines.append(f"- **Restored by the Stale-Scope Guard:** {', '.join(restored)}")
+    # A name no recipe found is on the surface: the signature plan judges it when documented, and no step reads it
+    # by eye, so the summary lists it (#1048).
+    gaps = [f"`{i['name']}`{where(i) or ' (not located)'}" for i in items(surface.get("extractionGaps"))
+            if isinstance(i.get("name"), str)]
+    if gaps:
+        lines.append(f"- **Extraction Gaps:** {', '.join(gaps)}")
     return lines
 
 
