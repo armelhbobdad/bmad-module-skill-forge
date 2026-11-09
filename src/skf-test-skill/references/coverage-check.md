@@ -60,11 +60,9 @@ Bind `{docs_only_mode}` ← `docsOnly`. Exit 1 printed its error on stderr: HALT
 
 **A docs-only run**: load `{coverageBranchesFile}` and follow its **Docs-Only Run** section.
 
-A source-based skill continues with §0b.
-
 ### 0b. Load Source Access Protocol
 
-Load `{sourceAccessProtocol}` and follow both sections: **Source API Surface Definition** (the denominator clause §2b picks) and **Source Access Resolution** (the 5-state waterfall that decides how the source is read and sets `analysis_confidence`; State 5 makes the run docs-only).
+Load `{sourceAccessProtocol}` and follow its **Source API Surface Definition** (the denominator clause §2b picks) and **Source Access Resolution** (the 5-state waterfall that sets `analysis_confidence`; State 5 makes the run docs-only).
 
 **Workspace layout.** The Source API Surface Definition's monorepo tests read `{source_is_monorepo}`. At State 1 (local source), resolve `{detectWorkspacesHelper}` ← first existing path in `{detectWorkspacesProbeOrder}` and run (`{stageHelperPayloadScript}` pipes it the tree and root manifests from disk; leave `--brief` out with no brief):
 
@@ -107,7 +105,7 @@ Only when the validated inventory's `references` is non-empty. Each `cross_check
 
 ### 2. Analyze Source Code (Tier-Dependent)
 
-Identify the public API surface from the package entry points (0b), as deep as the tier allows. Whichever branch runs, `{coverageInputsScript} surface` writes it to `{run_dir}/surface.json`, which §2b, §2c, §4 and step 5 read. Names read by eye reach it as per-file results, `{"file": "<path>", "exports_found": [<each name>], "signature_mismatches": []}` for each file, saved to `{run_dir}/per-file-<n>.json` with the Write tool and given to `surface` with one `--per-file` each. An `export * from` or `export type * from` another package adds no name: list `<line>: <statement>` in `unresolved_stars` and Coverage Analysis.
+Identify the public API surface from the package entry points (0b), as deep as the tier allows; whichever branch runs, `{coverageInputsScript} surface` writes it to `{run_dir}/surface.json`. Names read by eye reach it as per-file results, `{"file": "<path>", "exports_found": [<each name>], "signature_mismatches": []}` for each file, saved to `{run_dir}/per-file-<n>.json` with the Write tool and given to `surface` with one `--per-file` each. An `export * from` or `export type * from` another package adds no name: list `<line>: <statement>` in `unresolved_stars` and Coverage Analysis.
 
 **Exits.** Every `{coverageInputsScript}` and `{scoreSignaturesScript}` command in §2 and §2b exits 0, or exits 1 with its error on stderr: HALT with it (`halt_reason: "helper-failed"`, phase `coverage-check:surface`). `surface` with a `--per-file`, and `score`, also exit 2 when a subagent response breaks the schema: re-dispatch that subagent once with its `violations[]` appended (or correct a result the main thread wrote), save the new response over the old one and run the command again; a second failure HALTs the same way.
 
@@ -121,7 +119,7 @@ At State 1, run the recipe runner once over the source. Resolve `{extractPublicA
 uv run {extractPublicApiHelper} --mode full --source-root "{source_path}" --brief "{forge_data_folder}/{skill_name}/skill-brief.yaml" --tier {detected_tier} --head-cap 0 --output "{run_dir}/extract-full.json"
 ```
 
-Exit 2 is an input error (a brief the runner cannot read, say) or a failure the runner did not foresee, named in one line on stderr with no JSON: HALT with that line (`halt_reason: "helper-failed"`, phase `coverage-check:surface`). No Fallback Per-File Scan stands in for it: every flag here is fixed, so the error is a defect to surface.
+Exit 2 is an input error (a brief the runner cannot read, say) or a failure the runner did not foresee, named in one line on stderr with no JSON: HALT with that line (`halt_reason: "helper-failed"`, phase `coverage-check:surface`). No Fallback Per-File Scan stands in for it.
 
 Build the surface from it, with the metadata, the brief when the skill has one and, when init.md §2 bound one, the provenance map (the baselines of the §2b candidates and guards; they add no name):
 
@@ -150,8 +148,6 @@ For each `files[]` entry, delegate one subagent with its checks and the absolute
 
 Tag a mismatch's `difference` as `{signatureRulesFile}` says: `score` (§2b) checks the facts. One tagged `annotation-contradicted` also gives `evidence_line`, the body line that returns the documented type.
 
-`plan` gives a check `candidates` when the surface records its name in several files and the skill's citations do not settle one.
-
 A check with `candidates` reads each and reports a mismatch only when the documented signature matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the result's `file` stays its `files[]` entry) and its `difference` tagged against it.
 
 A check with `alternatives` (the other forms the skill documents for the name) is compared with each of them too, as `{signatureRulesFile}` says, each mismatch naming its form as `form`.
@@ -166,18 +162,18 @@ Save each response to `{run_dir}/signatures-<n>.txt` with the Write tool. Withou
 
 ### 2b. Resolve the Denominator and Guard Zero Exports
 
-Load the metadata and provenance-map counts once, for §2c, §4b and the numerator check below (pass `--provenance` when init.md §2 bound `{forge_provenance_map}`):
+Load the metadata and provenance-map counts once (pass `--provenance` when init.md §2 bound `{forge_provenance_map}`):
 
 ```bash
 uv run {coverageInputsScript} metadata --metadata "{resolved_skill_package}/metadata.json" [--provenance "{forge_provenance_map}"] --output "{run_dir}/coverage-inputs.json"
 ```
 
-**Pick the denominator.** `surface.json` `denominator` holds the Source API Surface Definition clause (§0b) `surface` picked: its §2c `branch` (`barrel`, `scalar` or `stack`), `surfaceSet` (the set the barrel branch counts, as the scalar one does when `setCounted` is true, and the signature score reads) and `ladderStep`. When `absentSet` names a set the surface lacks (the scope sets need the brief's globs and names that carry their files, `subpaths` and `root` an extraction), `surfaceSet` is `all` and the `Denominator:` line (§4) adds `({absentSet} set absent: all set used)`. When `rebuild` is `provenance-fold`, load `{coverageBranchesFile}` and rerun State 2's command from its **States 2 to 4** section without `--metadata` and with `--fold` and `--pattern-reference-intent`, running nothing else from that section, and read the `denominator` it writes.
+**Pick the denominator.** `surface.json` `denominator` holds the Source API Surface Definition clause (§0b) `surface` picked: its §2c `branch` (`barrel`, `scalar` or `stack`), `surfaceSet` (the set the barrel branch counts, as the scalar one does when `setCounted` is true, and the signature score reads) and `ladderStep`. When `absentSet` names a set the surface lacks, `surfaceSet` is `all` and the `Denominator:` line (§4) adds `({absentSet} set absent: all set used)`. When `rebuild` is `provenance-fold`, load `{coverageBranchesFile}` and rerun State 2's command from its **States 2 to 4** section without `--metadata` and with `--fold` and `--pattern-reference-intent`, running nothing else from that section, and read the `denominator` it writes.
 
 - **A stack skill** (`branch` `stack`): `coverage-inputs.json` `stack.denominator`. Its own barrel is empty by design, and its `[from skill: …]` citations never make it docs-only. **If `stack.denominator` is 0**: HALT (`halt_reason: "indeterminate-surface"`, phase `coverage-check:denominator`) with `Error: stack composition surface empty: {skill_name} cites no contracts, libraries, or integration pairs, so Export Coverage is undefined. Verify the stack was compiled from at least one constituent skill.` Do not write the Coverage Analysis section; this is an indeterminate state, not a FAIL.
 - **A docs-only skill**: the `docsOnly` branch, over the inventory.
 
-**Numerator ground truth.** A declared count equal to the denominator (`stats.exports_documented == stats.effective_denominator`, the inflation signature) may be padded to a tautological 100%. Run the check on every source-based skill; without the signature (a stack and a reference app carry none) it reports `skipped`:
+**Numerator ground truth.** A declared count equal to the denominator (`stats.exports_documented == stats.effective_denominator`, the inflation signature) may be padded to a tautological 100%. Run it on every source-based skill (without the signature it reports `skipped`):
 
 ```bash
 uv run {numeratorVerifyScript} --inputs "{run_dir}/coverage-inputs.json" --skill-dir "{resolved_skill_package}" --output "{run_dir}/numerator.json"
@@ -198,17 +194,17 @@ Export Coverage is undefined, and scoring would yield a vacuous PASS. Fix one of
 
 Do not write the Coverage Analysis section or attach a score: this is an indeterminate state, not a FAIL. **If `docs_only_mode == true` and the validated inventory documents no item:** HALT the same way with "docs-only skill declares zero items: no API surface to test".
 
-**Score the signatures** (Forge, Forge+ and Deep tier at State 1, once §2 compared them). Give `{scoreSignaturesScript}` `denominator.surfaceSet` as `--surface-set`. Type Coverage then counts that set's types alone, so a type the clause leaves out (a stratified skill's deferred Tier B) lowers neither Export Coverage nor Type Coverage. Give it one `--results` per saved response (the fallback scan's `per-file-<n>.txt`, else the `signatures-<n>.txt`), and `--source-root` whenever the source is local (State 1, Forge tier or above), under a drift override too, since the judges read that tree:
+**Score the signatures** (Forge, Forge+ and Deep tier at State 1, once §2 compared them). Give `{scoreSignaturesScript}` `denominator.surfaceSet` as `--surface-set`. Give it one `--results` per saved response (the fallback scan's `per-file-<n>.txt`, else the `signatures-<n>.txt`), and `--source-root` whenever the source is local (State 1, Forge tier or above), under a drift override too, since the judges read that tree:
 
 ```bash
 uv run {scoreSignaturesScript} score --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --surface-set <set> --plan "{run_dir}/signature-plan.json" [--source-root "{source_path}"] --results "{run_dir}/signatures-<n>.txt" --output "{run_dir}/signatures.json" --gaps-output "{run_dir}/signature-gaps.json"
 ```
 
-It grades each mismatch of a compared name from facts it checks, never a `difference` alone, into `signature-gaps.json`: a Low `signature-mismatch` gap for a `parameter-name` difference in a file the plan offered when it is TS/JS, Go, Rust, Java, C or C++, an Info `observation` titled `Partial signature: {name}` for an `omitted-optional` one on a `partial` form, an Info `observation` titled `Annotation contradicted: {name}` (no change to the skill: report the annotation upstream) for an `annotation-contradicted` one whose facts check (a documented return type, the same parameters on both sides, and an `evidence_line` between the declaration and the next one, whose line returns in the `--source-root` file), a Critical `signature-mismatch` gap otherwise (Python included). A signature gap is titled `Signature mismatch: {name}`, with `export` `{name}`, its Source at `{file}:{line}` and both signatures in its Issue (for a name documented in several forms, each gap's title ends `(form {n} of {m})` and its Issue names that form); §5b appends that file to the ledger. A Low or Info one counts as matching, and §5 renders it so. A bound form's mismatch is recorded at its bound declaration, a judge that names another file listed in `warnings`; a bound declaration joins no name, set or count. §5's render lists its `warnings` (a mismatch for a name never compared, a category with nothing to compare).
+It grades each mismatch of a compared name from facts it checks, never a `difference` alone, into `signature-gaps.json`: a Low `signature-mismatch` gap for a `parameter-name` difference in a file the plan offered when it is TS/JS, Go, Rust, Java, C or C++, an Info `observation` titled `Partial signature: {name}` for an `omitted-optional` one on a `partial` form, an Info `observation` titled `Annotation contradicted: {name}` (no change to the skill: report the annotation upstream) for an `annotation-contradicted` one whose facts check (a documented return type, the same parameters on both sides, and an `evidence_line` between the declaration and the next one, whose line returns in the `--source-root` file), a Critical `signature-mismatch` gap otherwise (Python included). A signature gap is titled `Signature mismatch: {name}`, with `export` `{name}`, its Source at `{file}:{line}` and both signatures in its Issue (for a name documented in several forms, each gap's title ends `(form {n} of {m})` and its Issue names that form); §5b appends that file to the ledger. A bound form's mismatch is recorded at its bound declaration, a judge that names another file listed in `warnings`; a bound declaration joins no name, set or count. §5's render lists its `warnings` (a mismatch for a name never compared, a category with nothing to compare).
 
 ### 2c. Reconcile Documented vs Source Surface (Deterministic Intersection)
 
-`{reconcileScript}` reconciles the §1 inventory with the source surface and writes `{run_dir}/coverage.json`, whose `exportCoverage` is the Export Coverage step 5 hands to the scoring script. Run the branch §2b picked:
+`{reconcileScript}` reconciles the §1 inventory with the source surface into `{run_dir}/coverage.json`, whose `exportCoverage` step 5 hands to the scoring script. Run the branch §2b picked:
 
 1. **Barrel**, with the name set §2b picked as `--surface-set`:
 
@@ -218,17 +214,13 @@ It grades each mismatch of a compared name from facts it checks, never a `differ
 
 2. **Scalar or stack**: load `{coverageBranchesFile}` and follow its **Scalar and Stack Branches** section, which runs the branch's command.
 
-3. **Docs-only**: Export Coverage is the documentation completeness ratio, complete over documented items, and `incomplete[]` lists each incomplete item with the fields it lacks:
-
-   ```bash
-   uv run {reconcileScript} --denominator-source docsOnly --inventory "{run_dir}/inventory.json" --output "{run_dir}/coverage.json"
-   ```
+3. **Docs-only**: the command in the Docs-Only Run section of coverage-check-branches.md.
 
 Exit 2 printed an `INVALID_INPUT` envelope: correct the input it names and run it again. Exit 1: HALT with its stderr (`halt_reason: "helper-failed"`, phase `coverage-check:reconcile`).
 
 **Classify what the script found.** §5b records each of these gaps from the run files:
 
-- **Missing names** (`missing`, barrel or scalar): Medium `missing-export` gaps (Medium `missing-type` for a name `signatures.json` lists in `missingTypes`), each at the file `surface.json` records for it, so update-skill can re-extract the export from it; when `guards.inflation.fires` on a stratified-scope or multi-entry `scope.include` set, one Medium `denominator-inflation` gap beside the guard's at the brief lists them instead. A missing export does not block: it lowers Export Coverage.
+- **Missing names** (`missing`, barrel or scalar): Medium `missing-export` gaps (Medium `missing-type` for a name `signatures.json` lists in `missingTypes`), each at the file `surface.json` records for it, so update-skill can re-extract the export from it; when `guards.inflation.fires` on a stratified-scope or multi-entry `scope.include` set, one Medium `denominator-inflation` gap beside the guard's at the brief lists them instead.
 - **Stale names** (`stale` when `staleApplicable` is true): each is a documented name the enumerated source surface lacks. Where ast-grep read the source at the pinned commit (Forge, Forge+ or Deep tier, `analysis_confidence` `full`, `workspaceDrift` not `overridden` in the `{outputFile}` frontmatter) and init.md §2 bound `{forge_provenance_map}`, check the lines the skill cites for them: resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` and run once:
 
   ```bash
@@ -251,7 +243,7 @@ Load `{coverageBranchesFile}` and follow its **Metadata Count Cross-Check** sect
 
 ### 4c. Provenance Line Check
 
-Check that the provenance map records each export at the line that defines it (the `def` or declaration line, not a decorator or blank line above it), so update-skill can move a wrong line. Run this section only when `analysis_confidence` is `full`, `{forge_version}/provenance-map.json` exists, and the `{outputFile}` frontmatter's `workspaceDrift` is not `overridden` (init.md §5b: the drifted tree is not the pinned commit). Otherwise skip to section 5.
+Check that the provenance map records each export at its definition line (not a decorator or blank line above it). Run this section only when `analysis_confidence` is `full`, `{forge_version}/provenance-map.json` exists, and the `{outputFile}` frontmatter's `workspaceDrift` is not `overridden` (init.md §5b: the drifted tree is not the pinned commit). Otherwise skip to section 5.
 
 Resolve `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}`. If neither path exists, skip to section 5: the check is advisory. Otherwise run:
 
@@ -263,7 +255,7 @@ uv run {verifyProvenanceCompletenessHelper} verify \
     -o "{run_dir}/provenance-verify.json"
 ```
 
-Rely on the file, not the exit code (exit 1 means findings); on exit 2 the helper writes no file: skip to section 5. §5b records each `stale[]` item by its `reason`: `line-not-definition` is a Low `provenance-line` gap when its `definition_lines` holds a line, else an Info `provenance-unverified` gap (the rules may not cover its shape: the export is unverified, not gone); `file-missing` (the pinned source lacks the file) and `line-out-of-bounds` (the line is past its end, or below 1) are Low `provenance-line` gaps; `line-invalid` (not a line number) is an Info `provenance-unverified` gap. A bookkeeping variant (`X_def`, `X_exact`, `a11y_X`) the cited file never names is checked against `X`. Its Source is exactly the `file:line` the map records (the file alone for `line-invalid`), the citation update-skill's rule R5 reads. A name §2c's `fabricated-signature` gap covers takes no such gap.
+Rely on the file, not the exit code (exit 1 means findings); on exit 2 the helper writes no file: skip to section 5. §5b records each `stale[]` item by its `reason`: `line-not-definition` is a Low `provenance-line` gap when its `definition_lines` holds a line, else an Info `provenance-unverified` gap (the rules may not cover its shape: the export is unverified, not gone); `file-missing` (the pinned source lacks the file) and `line-out-of-bounds` (the line is past its end, or below 1) are Low `provenance-line` gaps; `line-invalid` (not a line number) is an Info `provenance-unverified` gap. A bookkeeping variant (`X_def`, `X_exact`, `a11y_X`) the cited file never names is checked against `X`. Its Source is exactly the `file:line` the map records (the file alone for `line-invalid`). A name §2c's `fabricated-signature` gap covers takes no such gap.
 
 This section reports none of the helper's `missing`, `orphaned` or `citations` findings, and no gap it records blocks the gate.
 
@@ -294,7 +286,7 @@ Exit 0: write its output unchanged where the section below places it. Exit 2 is 
 
 ### 5b. Record the Coverage Gaps
 
-Record every gap this step found in the gap ledger `{ledgerFile}`: the hard gate (step 4c) decides from it, and the report step renders the Gap Report from it. `{gapLedgerScript}` writes the record of each gap a script found from that script's file: §2b's signature mismatches, §2c's missing names, missing count and stale names, §4's guard gaps, §4b's count findings and numerator gap, and §4c's provenance line gaps, each with the severity and category of its row in the Gap Severity table of `{scoringRulesFile}` and a fixed title, Source, `export` and Remediation. Run each command whose `--input` file this run wrote, leaving out a bracketed flag whose file does not exist: a run file this run did not write, or `--provenance` when init.md §2 bound no `{forge_provenance_map}`:
+Record every gap this step found in the gap ledger `{ledgerFile}`, which the hard gate (step 4c) decides from and the report step renders. `{gapLedgerScript}` writes each gap a script found from that script's file, with the severity and category of its row in the Gap Severity table of `{scoringRulesFile}` and a fixed title, Source, `export` and Remediation. Run each command whose `--input` file this run wrote, leaving out a bracketed flag whose file does not exist: a run file this run did not write, or `--provenance` when init.md §2 bound no `{forge_provenance_map}`:
 
 ```bash
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check --input "{run_dir}/signature-gaps.json"
@@ -317,7 +309,7 @@ SKF_GAPS
 
 Rely on the JSON of each command:
 
-- Exit 0: the records are in the ledger. `appended` names the id each new record received, and `duplicates` the ones a rerun of this step had already recorded.
+- Exit 0: the records are in the ledger.
 - Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct each record `errors[]` names (its `index` counts from 0), or the file or flag the `error` names, and run the command again.
 - Exit 1: HALT with the script's `error` (`halt_reason: "helper-failed"`, phase `coverage-check:ledger`).
 

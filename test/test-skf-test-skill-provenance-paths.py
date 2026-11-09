@@ -2579,6 +2579,15 @@ CARVED_TO_BRANCHES = {
         "\n"
         "\"**Docs-only skill detected.** Coverage check evaluates documentation completeness rather than "
         "source code coverage.\""
+    ), (
+        # §2c's docsOnly command runs only on the docs-only branch, which loaded this section at §0
+        "§2c's `docsOnly` branch: Export Coverage is the documentation completeness ratio, complete over "
+        "documented items, and `incomplete[]` lists each incomplete item with the fields it lacks:\n"
+        "\n"
+        "```bash\n"
+        "uv run {reconcileScript} --denominator-source docsOnly --inventory \"{run_dir}/inventory.json\" "
+        "--output \"{run_dir}/coverage.json\"\n"
+        "```"
     )],
     "Split-Body Sources": [(
         "The Source is `{reference_file}:{reference_line}`, of two references the one that sorts last, unless the "
