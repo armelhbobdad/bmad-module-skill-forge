@@ -1821,6 +1821,30 @@ def test_the_inventory_contract_gives_an_example_call_beside_a_form_no_entry():
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
 
+def test_a_column_s_partial_label_reaches_every_form_its_cells_write_as_the_floor_reads_it():
+    """Coherence review (oh-my-skills rehearsals): "labels each of its rows" left open whether a column's label
+    reaches a usage form or another name's form a row's cell writes (cognee's `cognee_network_visualization` inside
+    `visualize_graph`'s Key params cell, storybook's `<Meta of={ButtonStories} />` under `Purpose and key params`),
+    and a return-only form; whether a header that names key parameters among other words labels at all, which the
+    floor reads as no label; and whether `api_key=...`, an argument's value, labels a call partial. The label now
+    reaches every form the cells write, only from a whole `Key params` header or one in parentheses after its word,
+    never from an argument's value, and a return-only form carries none."""
+    contract = _flow(_read(INVENTORY_CONTRACT))
+    sentence = ("An entry whose signature the skill labels partial (simplified, key parameters, a `...` standing in "
+                "for omitted members as a member or argument of its own, not rest or variadic syntax nor an "
+                "argument's value such as `api_key=...`; a label in a table's column header, such as `Props "
+                "(simplified)`, labels each of its rows, every form their cells write included, a usage form or "
+                "another name's form among them, but only as the whole header, `Key params`, or in parentheses after "
+                "its word, as inventory-floor.json reads one, so `Purpose and key params` labels none) carries "
+                "`signature_form: \"partial\"`, any other `\"full\"` or no key, and a form that writes only a "
+                "`return_type` carries none: copy the label, never judge the form.")
+    assert contract.count(sentence) == 1
+    floor = runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py")
+    assert {"key params", "key parameters"} <= floor.FLOOR_PARTIAL_LABELS
+    assert floor._header_label("Purpose and key params")[1] is False
+    assert floor._header_label("Props (simplified)")[1] is True
+
+
 def test_a_qualified_usage_heading_a_props_row_call_and_a_fenced_comment_are_read_one_way():
     """Coherence review (oh-my-skills rehearsals): readers split on whether `### Usage pattern` or
     `### Per-test-file usage` names a usage, so a fenced call under it was a place for one reader and none for

@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory contract now says how far a table column's partial label reaches, as the inventory floor reads one. A label labels every form its column's cells write, a usage form and another name's form included, but only when it is the whole header, such as `Key params`, or stands in parentheses after its word, such as `Props (simplified)`, so a `Purpose and key params` column labels none. A form that writes only a return type carries no label, and an ellipsis labels a call partial only as an argument of its own, never as an argument's value such as `api_key=...`. Before, oh-my-skills rehearsal readers labelled the same forms partial on one run and full on the next, which decides whether a left-out optional parameter is an Info observation or a Critical `signature-mismatch`. This can block a skill that passed: a form in a column headed with other words around its label, such as `Purpose and key params`, which readers often labelled partial, is now full, so an optional parameter it leaves out is a Critical `signature-mismatch` instead of an Info observation.
+migration: |
+  If Test Skill now stops at the hard gate on a `signature-mismatch` for a form in such a column, head the column `Key params` or put the label in parentheses after its word, such as `Purpose (key params)`, or write the form in full, then run Test Skill again.
+issues: [997, 1029]
