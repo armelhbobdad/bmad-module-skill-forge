@@ -1056,12 +1056,19 @@ def test_an_empty_parenthesized_mention_is_no_form():
     writes `name()` a form, so a correct zero-argument signature there is still compared. #1014: oms-cognee's prose
     line reads `await cognee.disconnect()` returns to local mode, which also fit the call-expression sentence, so one
     reader recorded no form and another a usage that leaves out a required argument. Both files now say the mention
-    holds whatever comes before the name, the contract with that line as its example."""
+    holds whatever comes before the name, the contract with that line as its example. #1016: oms-uitripled's
+    catalog.md writes `fetchComponent(componentName)` and `add(componentName, options)` in prose with no prefix, which
+    the split-body reader, reading prose directly, could take for a list of bare names and compare by name. The rules
+    paragraph now ends on the prose call: a call, whatever comes before the name, unless it writes a parameter type,
+    a return type or a `?`."""
     mention = "A name written with empty parentheses in running text or a description cell is a mention, not a form"
     prefix = ", whatever comes before the name (`await`, `new`, an assignment, a receiver or a module path)"
     cell = ("A description cell is any table cell but an export table's first cell and a cell whose column writes the "
             "call or signature, by its role (Signature, Props, Params, Parameters, Arguments, Usage, Syntax, Example "
             "and the like); a heading or an export table's first cell that writes `name()` is a form")
+    prose_call = ("A name written with arguments in running text or a description cell is a call (below), not a list "
+                  "of bare names, whatever comes before the name, unless it writes a parameter type, a return type or "
+                  "a `?`.")
     contract_text = _read(REFS / "inventory-contract.md")
     contract = _paragraph(contract_text, "The contract `validate-inventory.py` checks")
     assert (f"{mention}{prefix}: its entry leaves `params` and `usage_signature` out (a cell reading \"`instrument()` "
@@ -1072,7 +1079,7 @@ def test_an_empty_parenthesized_mention_is_no_form():
     rules = _read(RULES)
     paragraph = _paragraph(rules, mention)
     assert paragraph == (f"{mention}{prefix}: it claims nothing and is not compared. {cell}, an empty call "
-                         "(below)."), paragraph
+                         f"(below). {prose_call}"), paragraph
     reading = _section("Reading a form")
     assert reading.index(paragraph) < reading.index("Three kinds of form do not claim a complete parameter list:"), \
         "before the forms that claim no complete parameter list, not inside the call-example rule"

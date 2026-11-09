@@ -1595,10 +1595,16 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     name, so `const badgeVariants = cva(…)`, a call after an assignment, is a form of `cva`, never of
     `badgeVariants`, while `h = await coco.mount(fn)` stays a form of `mount`. #1014: in running text or a
     description cell the sentence takes only a call that passes an argument, so `await cognee.disconnect()` in prose
-    stays the mention the sentence before it makes it, never also a usage."""
+    stays the mention the sentence before it makes it, never also a usage. #1016 (oms-uitripled): a call with
+    arguments and no prefix in running text or a description cell, such as `add(componentName, options)`, matched
+    no listed context, so one reader recorded it as a usage and another as bare-name `params`, whose names a Python
+    declaration grades Critical; the sentence now takes such a call with or without a prefix, unless it writes a
+    parameter type, a return type or a `?`, which leaves it a signature."""
     s1 = ("A function's or a class's form the skill writes as a call expression of its own name (after `await`, "
           "`new` or an assignment, through a receiver or module path such as `coco.`, or as a statement in a "
-          "fenced example; in running text or a description cell, only a call that passes an argument), at "
+          "fenced example; in running text or a description cell, only a call that passes an argument and writes "
+          "no parameter type, return type or `?`, such as `add(componentName, options)`, with or without such a "
+          "prefix), at "
           "a place `inventory-floor.json` gives no `signature` (below), is recorded whole in `usage_signature`, never "
           "in `params`, whatever names its arguments use, and a return type the skill writes for it in "
           "`return_type`, while a class's form written as a parameter list or a signature stays in `params` (`Note` "

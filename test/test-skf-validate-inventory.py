@@ -610,6 +610,45 @@ def test_a_function_written_as_a_call_carries_its_form():
     assert (out["denominator"], out["documented"], out["incomplete"]) == (3, 1, r["completeness"]["incomplete"])
 
 
+PROSE_CALL_SKILL = ("# Demo\n\n`fetchComponent(componentName)` loads a component's source.\n\n"
+                    "| Export | Kind | Description |\n| --- | --- | --- |\n"
+                    "| `add` | function | `add(componentName, options)` writes it to the project. |\n")
+
+
+def test_a_prose_call_with_arguments_is_left_to_the_reader_as_a_usage(tmp_path):
+    """#1016 (oms-uitripled): the contract records a call with arguments and no prefix in running text or a
+    description cell (`fetchComponent(componentName)`, `add(componentName, options)`) whole in `usage_signature`,
+    so its argument names are never compared with the declaration's parameter names. The floor reads no prose and
+    no Description cell, so it pins no signature at either place and the reader's routing decides: an inventory
+    that records both as usages, each at its own line, passes --floor (exit 0) with no violation or warning, each
+    entry missing only its return type, and is written as given. No script changed."""
+    pkg = _package(tmp_path, PROSE_CALL_SKILL)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("add", [_floor_origin("SKILL.md", 7, "table-row")])], "neither prose call is pinned a signature"
+    exports = [("fetchComponent", "function", {"usage_signature": "fetchComponent(componentName)",
+                                               "description": "Loads a component's source.", "at": "SKILL.md:3"}),
+               ("add", "function", {"usage_signature": "add(componentName, options)",
+                                    "description": "Writes it to the project.", "at": "SKILL.md:7"})]
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*exports).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 1, "checked": 1, "absent": []}
+    written = json.loads(out.read_bytes())
+    assert mod.completeness(written["exports"])["incomplete"] == [
+        {"name": name, "kind": "function", "missing": ["return_type"]} for name in ("fetchComponent", "add")]
+    assert written["exports"] == [
+        {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each usage kept as given"
+
+
 # --------------------------------------------------------------------------
 # The shared whole-name match
 # --------------------------------------------------------------------------
