@@ -870,6 +870,69 @@ def test_floor_pins_a_signature_header_s_partial_label(tmp_path, header, labelle
     assert json.loads(first.read_bytes()) == out
 
 
+@pytest.mark.parametrize("header, read, labelled", [
+    ("Signature / Purpose", True, False), ("Props / Signature", True, False), ("**Signature / Value**", True, False),
+    ("Signature / shape (at pin)", True, False), ("Signatures/Purpose", True, False),
+    ("Signature (simplified) / Purpose", True, True), ("Purpose / **Signature (key params)**", True, True),
+    ("Props / Usage", False, False), ("Props / Type", False, False), ("Purpose and key params", False, False),
+    ("Key params / shape", False, False), ("Signature (sync/async)", False, False),
+    ("Arguments", False, False), ("Args", False, False), ("Param", False, False), ("Parameter", False, False),
+    ("Usage", False, False), ("Syntax", False, False), ("Example", False, False)])
+def test_floor_reads_a_compound_signature_header_by_its_parts(tmp_path, header, read, labelled):
+    """#1030: a header split at `/` with a part that is Signature or Signatures, each part bare or wrapped in `**`,
+    is a Signature column: its cell's leading code span is pinned as a Signature cell's is, a description after the
+    span left out, a complete form or a usage form, and that part's own partial label labels it. A compound header
+    with no Signature part (`Props / Usage`, `Props / Type`) and an Arguments, Args, Param, Parameter, Usage, Syntax
+    or Example header stay unread, so the row pins nothing."""
+    body = (f"| Export | Kind | {header} |\n"                                          # 1
+            "| --- | --- | --- |\n"                                                    # 2
+            "| `call` | function | `call(a: int, b: str) -> str` - calls it. |\n"      # 3
+            "| `run` | function | `await run(a, b)` - runs it. |\n")                    # 4
+    out = mod.floor(str(_skill(tmp_path, body)))
+    pins = {"call": _signature("a: int, b: str", "str"), "run": _usage("await run(a, b)")}
+    expected = {name: (_labelled(pin) if labelled else pin) if read else None for name, pin in pins.items()}
+    assert {n["name"]: [o.get("signature") for o in n["origins"]] for n in out["names"]} == {
+        name: [pin] for name, pin in expected.items()}
+
+
+def test_floor_pins_storybook_s_signature_purpose_and_props_signature_cells(tmp_path):
+    """#1030, the tables of oms-storybook-react-vite whose forms the floor left to the reader: a `Signature / Purpose`
+    and a `Props / Signature` cell that opens with a complete form, then a description, pin that form, `\\|` read as
+    `|`. Under `Props / Signature`, a constant's value (`'--unknown--'`) and an object type (`{ children }`) pin
+    nothing, and a `Props / Type` cell is never read, so a type alias is not pinned as `params`. Two runs give the
+    same bytes."""
+    root = _skill(tmp_path, "# Demo\n", {
+        "core-api.md": ("| Export | Kind | Signature / Purpose | Source |\n"
+                        "| --- | --- | --- | --- |\n"
+                        "| `fn` | function | `fn<T>(implementation?: T): Mock<T>` Creates a mock. | [SRC:spy.ts:L4] |\n"
+                        "| `configure` | function | `configure(configDelta: ConfigFn \\| Partial<Config>): void` "
+                        "Sets the config. | [SRC:config.ts:L9] |\n"),
+        "doc-blocks.md": ("| Export | Kind | Props / Signature | Purpose | Source |\n"
+                          "| --- | --- | --- | --- | --- |\n"
+                          "| `argsHash` | function | `argsHash(args: Args): ArgsHash` | Hashes. | [SRC:a.ts:L1] |\n"
+                          "| `UNKNOWN_ARGS_HASH` | constant | `'--unknown--'` | Placeholder. | [SRC:a.ts:L8] |\n"
+                          "| `SourceContainer` | component | `{ children: ReactNode }` | Wraps. | [SRC:s.tsx:L3] |\n"
+                          "\n"
+                          "| Export | Kind | Props / Type | Purpose |\n"
+                          "| --- | --- | --- | --- |\n"
+                          "| `ExternalDocsProps` | type | `ExternalDocsProps<T> = { of?: T }` | Props. |\n")})
+    out = mod.floor(str(root))
+    assert {n["name"]: [(o["file"], o["line"], o.get("signature")) for o in n["origins"]] for n in out["names"]} == {
+        "ExternalDocsProps": [("references/doc-blocks.md", 9, None)],
+        "SourceContainer": [("references/doc-blocks.md", 5, None)],
+        "UNKNOWN_ARGS_HASH": [("references/doc-blocks.md", 4, None)],
+        "argsHash": [("references/doc-blocks.md", 3, _signature("args: Args", "ArgsHash"))],
+        "configure": [("references/core-api.md", 4, _signature("configDelta: ConfigFn | Partial<Config>", "void"))],
+        "fn": [("references/core-api.md", 3, _signature("implementation?: T", "Mock<T>"))],
+    }
+    first, second = tmp_path / "floor-1.json", tmp_path / "floor-2.json"
+    for target in (first, second):
+        proc = _run("floor", "--skill-dir", str(root), "--output", str(target))
+        assert proc.returncode == 0, proc.stderr
+    assert first.read_bytes() == second.read_bytes()
+    assert json.loads(first.read_bytes()) == out
+
+
 PROPS_FORMS = (
     "| Component | Props | Purpose |\n"                                                       # 1
     "| --- | --- | --- |\n"                                                                     # 2

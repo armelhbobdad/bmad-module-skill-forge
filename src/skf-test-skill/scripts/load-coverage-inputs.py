@@ -116,7 +116,10 @@ reading files and writing one JSON object:
               table-row    a row whose first cell names one name (a row
                            naming several gives none), each cell's `\\|`
                            read as `|`: the leading code span of its
-                           Signature or Signatures cell, else, when that
+                           Signature or Signatures cell, a header split
+                           at `/` with a part that is one included
+                           (`Signature / Purpose`, `Props / Signature`;
+                           #1030), else, when that
                            span writes no parameter group (`Typed<X>`),
                            the one span of its first cell that gives the
                            name (another export's span there, as in
@@ -147,9 +150,15 @@ reading files and writing one JSON object:
                            also carries `signature_form` "partial", so the
                            label is the script's, not the reader's; the
                            first-cell form never does, as the label heads
-                           that column only. Any other text after the word
-                           (`Signature (TypeScript)`, `Props / Usage`)
-                           leaves the column unread.
+                           that column only; a compound Signature header
+                           reads its Signature part's label
+                           (`Signature (simplified) / Purpose`). Any other
+                           text after the word (`Signature (TypeScript)`),
+                           a compound header with no Signature part
+                           (`Props / Usage`, `Props / Type`) and an
+                           Arguments, Args, Usage, Syntax or Example
+                           header leave the column unread: its form stays
+                           the reader's.
               heading      its code span, a complete form, else a usage
                            form (`new Client(opts)`: a name is cut as
                            above, so no other usage names one there)
@@ -527,11 +536,14 @@ FLOOR_TABLE_HEADERS = frozenset({
     "type", "types", "hook", "hooks", "component", "components", "helper", "helpers", "constant", "constants",
     "enum", "enums", "api", "apis", "query", "queries"})
 # The header words (as _header_label reads them, a partial label cut) of a floor table's column that writes the row's
-# signature (#888); a header with any other text after the word, such as `Signature (TypeScript)`, is not one.
+# signature (#888): its header is one, or has a part split at `/` that is one, as `Signature / Purpose` and
+# `Props / Signature` do (_signature_column, #1030); a header with any other text after the word, such as
+# `Signature (TypeScript)`, is not one, and neither is an Arguments, Args, Usage, Syntax or Example header.
 FLOOR_SIGNATURE_HEADERS = frozenset({"signature", "signatures"})
 # The header words (as _header_label reads them, a partial label cut) of a floor table's column that writes the row's
 # props or parameters (#888): its cell is read only when it is exactly one code span, and only after the Signature
-# and first-cell forms; a `Props / Usage` or `Key params` header is not one.
+# and first-cell forms; the whole header is the word, so a `Props / Usage`, `Props / Type` or `Key params` header
+# is not one (#1030: the whole-span read would pin a type alias or a constant's value there).
 FLOOR_PROPS_HEADERS = frozenset({"props", "params", "parameters"})
 # The partial labels (lower case, whitespace runs as one space) a header may give in parentheses after its word, as
 # `Signature (simplified)` and `Props (simplified)` do (#888): each form read from that Signature, Props, Params or
@@ -989,6 +1001,15 @@ def _column(labels: list[tuple[str, bool]], words: frozenset) -> tuple[int | Non
     return next(((i, labelled) for i, (word, labelled) in enumerate(labels) if word in words), (None, False))
 
 
+def _signature_column(header: list[str]) -> tuple[int | None, bool]:
+    """The first header cell with a part (_header_parts) whose word, as _header_label reads that part, is one of
+    FLOOR_SIGNATURE_HEADERS, and that part's partial label (#1030): `Signature`, `Signature / Purpose`,
+    `Props / Signature` and `Signature (simplified) / Purpose`, labelled, are one; `Signature (TypeScript)`,
+    `Props / Usage` and `Usage` are not. (None, False) for none."""
+    parts = ((i, _header_label(part)) for i, cell in enumerate(header) for part in _header_parts(cell))
+    return next(((i, labelled) for i, (word, labelled) in parts if word in FLOOR_SIGNATURE_HEADERS), (None, False))
+
+
 def _leading_span(cell: str) -> str | None:
     """The code span a table cell opens with, None when it opens with none."""
     run = len(cell) - len(cell.lstrip("`"))
@@ -998,16 +1019,18 @@ def _leading_span(cell: str) -> str | None:
 
 def _row_form(header: list[str], row: list[str]) -> dict | None:
     """The signature a floor table's row writes for the one name its first cell names (a row naming several gives
-    none), each cell's `\\|` read as `|`: the leading code span of its Signature or Signatures cell, else, when that
-    span writes no parameter group, the one span of its first cell that gives that name (another export's span there
-    gives nothing), each a complete form (_call_form), else a usage form (_usage_form, #888). A Signature span with a
-    group that is neither gives none, and so does such a first-cell span. Only then its Props, Params or Parameters
-    cell, when the whole cell is one code span (trailing prose or several spans leave it the reader's): a complete
+    none), each cell's `\\|` read as `|`: the leading code span of its Signature or Signatures cell, a header with a
+    part split at `/` that is one included (`Signature / Purpose`, `Props / Signature`; _signature_column, #1030),
+    else, when that span writes no parameter group, the one span of its first cell that gives that name (another
+    export's span there gives nothing), each a complete form (_call_form), else a usage form (_usage_form, #888). A
+    Signature span with a group that is neither gives none, and so does such a first-cell span. Only then its Props,
+    Params or Parameters cell, its whole header the word (`Props / Usage` and `Props / Type` are none), when the
+    whole cell is one code span (trailing prose or several spans leave it the reader's): a complete
     form, else a usage form, else none when it writes a parameter group or opens a JSX element, or when it only names
     a type or writes a placeholder (`ButtonProps`, `ComponentProps<typeof Link>`, `None`, `-`), else the span whole as
     `params`, `return_type` "", kept as written. A Signature, Props, Params or Parameters header may carry a partial
     label (_header_label, #888): the form its cell gives then also gives `signature_form` "partial", the first-cell
-    form never."""
+    form never. An Arguments, Args, Usage, Syntax or Example cell is never read: its form stays the reader's."""
     segments = _sibling("locate-export-segments.py")
     scorer = _sibling("score-signatures.py")
     names = {name for name in map(_floor_name, segments._inline_code(row[0])) if name}
@@ -1016,7 +1039,7 @@ def _row_form(header: list[str], row: list[str]) -> dict | None:
     [name] = names
     cells = [cell.replace("\\|", "|") for cell in row]
     labels = [_header_label(cell) for cell in header]
-    at, partial = _column(labels, FLOOR_SIGNATURE_HEADERS)
+    at, partial = _signature_column(header)
     span = _leading_span(cells[at]) if at is not None and at < len(cells) else None
     if span is not None and (form := _span_form(span, name)):
         return _labelled(form, partial)

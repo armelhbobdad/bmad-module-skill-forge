@@ -1710,7 +1710,9 @@ def test_the_floor_runs_before_the_inventory_subagent():
     from it, and §1a refuses an inventory that leaves one of its names out. Its form rules are the script's.
     #888: an origin's `signature` is that place's entry, kept as given, the contract says so for every kind and
     names the places pinned (a one-span Props, Params or Parameters cell and a usage form too, step 2) and the
-    partial label a Signature or Props header pins with the form, and §1a refuses an inventory that changes one."""
+    partial label a Signature or Props header pins with the form, and §1a refuses an inventory that changes one.
+    #1030: the contract and the script say a header with a Signature part heads a Signature cell, and that a
+    compound Props header and an Arguments, Args, Usage, Syntax or Example cell stay the reader's."""
     text = _read(COVERAGE)
     section1 = _slice(text, "### 1. Extract Documented Exports", "#### 1a.")
     assert _command(COVERAGE, "uv run {coverageInputsScript} floor") == FLOOR_COMMAND
@@ -1743,8 +1745,11 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "compares") in contract
     assert ("A place `inventory-floor.json` gives a `signature` (a cited function declaration, a Signature cell, a "
             "Props, Params or Parameters cell that is one code span, or a heading or an export table's first cell "
-            "that writes one call; a usage form, such as `new Client(opts)`, in `usage_signature`) has that form as "
-            "its entry, with that place as its `at`, whatever its kind, its non-blank fields kept as given (a "
+            "that writes one call; a usage form, such as `new Client(opts)`, in `usage_signature`; a header with a "
+            "Signature part, such as `Signature / Purpose` or `Props / Signature`, heads a Signature cell, while a "
+            "`Props / Usage` or `Props / Type` cell and an Arguments, Args, Usage, Syntax or Example cell are none of "
+            "these, so their forms stay the reader's) has that form as its entry, with that place as its `at`, "
+            "whatever its kind, its non-blank fields kept as given (a "
             "`params` or `usage_signature` may open with the shared text the next sentence gives, then `; `); a "
             "blank one is the reader's, and a form the skill writes only in prose is an entry of its own; a "
             "`signature` read from a cell under a partial label (`Signature (simplified)`, `Props (simplified)`, "
@@ -1759,6 +1764,10 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "several spans leave it the reader's)") in rules
     assert "A span that is no complete form is a usage form" in rules
     assert "`Signature (simplified)`" in rules and "a labelled one is not a Signature column" not in rules
+    assert ("a header split at `/` with a part that is one included (`Signature / Purpose`, `Props / Signature`; "
+            "#1030)") in rules
+    assert ("a compound header with no Signature part (`Props / Usage`, `Props / Type`) and an Arguments, Args, "
+            "Usage, Syntax or Example header leave the column unread: its form stays the reader's.") in rules
     assert "a Props, Params or Parameters cell that is one code span" in _flow(_read(INVENTORY_CONTRACT)).split(
         "keeps one `kind` in every place.", 1)[1].split("Where the skill documents several names", 1)[0]
     for rule in ("Signature cell", "Props (simplified)", "leading code span"):
