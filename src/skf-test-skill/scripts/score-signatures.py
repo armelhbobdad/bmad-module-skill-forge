@@ -277,7 +277,8 @@ Usage:
   uv run score-signatures.py score --inventory <file> --surface <file> [--surface-set <set>] [--plan <file>] \\
       [--source-root <dir>] --results <file> [--results <file> ...] [--output <file>] [--gaps-output <file>]
 
-Output (stdout; --output also writes it, --gaps-output writes the records):
+Output (stdout; --output also writes it, --gaps-output writes the records;
+plan with --output writes the plan and prints only its summary):
   plan:  {"compared": N, "files": [{"file", "checks": [{"name", "line",
           "signatureLine", "documented": {...}, "alternatives": [{...}]
           (only when the name has another form that lists members or
@@ -288,6 +289,10 @@ Output (stdout; --output also writes it, --gaps-output writes the records):
           citations name one declaration of the name)}]}],
           "documentedSignatures": {...}, "documentedAlternatives": {name:
           [{...}], for each name with alternatives}}
+         or, with --output, the summary {"compared": N, "files": the
+         number of files[] entries, "checks": the number of checks,
+         "documented": the number of documentedSignatures entries,
+         "output": the --output path}
          `line` and `signatureLine` are null on a check, a candidate or a
          `bound` entry whose surface record has no line: a name read by eye
          alone in its file, whose per-file result lists names only, or a
@@ -1932,6 +1937,10 @@ def _cmd_plan(args: argparse.Namespace) -> tuple[dict, int]:
     out = plan(inventory, names, exports, args.skill_dir, others)
     if args.output:
         _write_json(args.output, out)
+        # The step reads the plan from the file, so stdout gives only its counts and the path (#1018).
+        return {"compared": out["compared"], "files": len(out["files"]),
+                "checks": sum(len(group["checks"]) for group in out["files"]),
+                "documented": len(out["documentedSignatures"]), "output": args.output}, 0
     return out, 0
 
 
@@ -1974,7 +1983,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skill-dir", help="the skill package under test: its citations pick the declaration of a name "
                                        "the surface records in several files, and bind each form whose own "
                                        "citations name one declaration of its name to it")
-    p.add_argument("--output", help="also write the plan to this file")
+    p.add_argument("--output", help="write the plan to this file and print only its summary")
     p.set_defaults(func=_cmd_plan)
 
     p = sub.add_parser("score", help="the two category scores and the mismatch gap records")

@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  `score-signatures.py plan` now prints only a summary when it is given `--output`: the number of signatures it compares, the number of files and checks, the number of documented signatures and the path it wrote. The whole plan goes to that file alone, `signature-plan.json` in the run folder, where Test Skill reads it. It used to print the whole plan as well, so every Forge, Forge+ and Deep run and every fallback per-file scan put a second copy of it into the agent's context, which for a large skill ran past the tool output limit. Without `--output` it still prints the plan, and no score, verdict or gap changes.
+issues: [1018]

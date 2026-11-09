@@ -2026,8 +2026,13 @@ EXTRACTION = {
 }
 
 
+# The (script, subcommand) pairs that, given --output, print only a summary of the file they write.
+SUMMARIZED_COMMANDS = frozenset({("{scoreSignaturesScript}", "plan")})
+
+
 def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
-    """Run one prose command (an `echo '<json>' | uv run ...` pipe included) and return its JSON."""
+    """Run one prose command (an `echo '<json>' | uv run ...` pipe included) and return its JSON: for a
+    SUMMARIZED_COMMANDS command, the JSON of the file its --output names."""
     stdin = b""
     if command.startswith("echo '"):
         payload, command = command[len("echo '"):].split("' | ", 1)
@@ -2053,6 +2058,11 @@ def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
     assert proc.returncode == 0, (command, proc.stdout.decode("utf-8"), proc.stderr.decode("utf-8"))
     if redirect is not None:
         target.write_bytes(proc.stdout)
+    if words and (m.group(1), words[0]) in SUMMARIZED_COMMANDS and "--output" in words:
+        # #1018: such a command prints a summary that names its --output file, and the step reads the file
+        written = words[words.index("--output") + 1]
+        assert json.loads(proc.stdout)["output"] == written, (command, proc.stdout.decode("utf-8"))
+        return json.loads(Path(written).read_bytes())
     return json.loads(proc.stdout)
 
 
