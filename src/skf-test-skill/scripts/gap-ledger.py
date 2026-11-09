@@ -117,8 +117,12 @@ cites (never read; default `metadata.json`):
             citations on the lines of SKILL.md and references/**/*.md that
             name it (outside the citations), or on the next non-blank line
             after one, cite exactly one of those files: the gap
-            is at that file's `declared_in` item, and two cited or none
-            leave it Medium. The documented extra's remediation asks no
+            is at that file's `declared_in` item. A package
+            `<dir>/NAME/__init__.py` cited with only modules named NAME
+            directly in its folder (`<dir>/NAME/NAME.py` or `.pyi`) counts
+            as that one file, the package `<dir>.NAME` resolves to (#1012);
+            any other two cited, or none, leave it Medium. The documented
+            extra's remediation asks no
             change (update-skill never routes it) and says whether signature
             scoring compared its documented signature (a name the
             --signatures result lists in `comparedNames`). `excluded` is
@@ -1099,14 +1103,19 @@ _DEFINED_AT_RE = re.compile(
 
 
 def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
-                         skill_dir: str | None = None) -> tuple[str, int] | None:
+                         skill_dir: str | None = None) -> tuple[str, int, list[str]] | None:
     """Where the source declares a stale name that is a documented extra, given
     a surface built from an extraction whose `excluded.outsideScope` does not
-    list the name: (the item's `defined_at`, 0), or, with no `defined_at`,
+    list the name: (the item's `defined_at`, 0, []), or, with no `defined_at`,
     (the one `declared_in` item whose file the skill cites on a line that
-    names it, the number of files `declared_in` lists) when it lists several.
+    names it, the number of files `declared_in` lists, []) when it lists
+    several. Cited items that are only a package `<dir>/NAME/__init__.py` and
+    modules named NAME directly in its folder (`<dir>/NAME/NAME.py` or
+    `.pyi`) count as that one file, the package the import path `<dir>.NAME`
+    resolves to (#1012): (its item, the count, those modules' items).
     None for anything else, which stays a Medium gap: no `defined_at` and no
-    single cited declaring file (two or more cited, none, or no --skill-dir),
+    single cited declaring file (two or more cited that are not such a
+    package and its modules, none, or no --skill-dir),
     a `defined_at` or `declared_in` item not a Python or TS/JS `file:line`, a
     dotted name, no surface or one without an extraction, or a name a brief
     scoped out (a namespace's member named like its namespace scopes out
@@ -1118,7 +1127,7 @@ def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
     if defined_at is not None:
         if not isinstance(defined_at, str) or not _DEFINED_AT_RE.match(defined_at):
             return None
-        return defined_at, 0
+        return defined_at, 0, []
     declared_in = item.get("declared_in")
     if not skill_dir or not isinstance(declared_in, list) or not all(
             isinstance(d, str) and _DEFINED_AT_RE.match(d) for d in declared_in):
@@ -1129,8 +1138,18 @@ def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
     if len(by_file) < 2:
         return None
     cited = citations._skill_cited_files(Path(skill_dir), name)
-    chosen = [d for f, d in sorted(by_file.items()) if f in cited]
-    return (chosen[0], len(by_file)) if len(chosen) == 1 else None
+    chosen = [f for f in sorted(by_file) if f in cited]
+    if len(chosen) == 1:
+        return by_file[chosen[0]], len(by_file), []
+    # a package and modules of its own name directly in its folder: the one module `<dir>.NAME` (#1012)
+    packages = [f for f in chosen if f == f"{name}/__init__.py" or f.endswith(f"/{name}/__init__.py")]
+    if len(packages) != 1:
+        return None
+    folder = packages[0][:-len("__init__.py")]
+    modules = [f for f in chosen if f != packages[0]]
+    if not modules or any(f not in (f"{folder}{name}.py", f"{folder}{name}.pyi") for f in modules):
+        return None
+    return by_file[packages[0]], len(by_file), [by_file[f] for f in modules]
 
 
 def _missing_export(name: str, where: str | None, meta: str, kind: str = "export") -> dict:
@@ -1291,10 +1310,16 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
             outside, outside_read = _outside_scope(surface, classified, skill_dir), True
         extra = _documented_extra_at(name, item, outside, skill_dir)
         if extra:
-            declared, among = extra
+            declared, among, modules = extra
             # a homonym: the one declaring file the skill's own citations name
             picked = (f"; of the {among} files that declare it, the skill cites only "
                       f"`{declared.rsplit(':', 1)[0]}`") if among else ""
+            if modules:
+                # a package cited with its same-named module, #1012
+                same_named = " and ".join(f"`{m.rsplit(':', 1)[0]}`" for m in modules)
+                picked = (f"; of the {among} files that declare it, the skill cites only the package "
+                          f"`{declared.rsplit(':', 1)[0]}` and its same-named module {same_named}, so the gap is at "
+                          "the package")
             # never routed: update-skill leaves an `observation` alone. Signature scoring compares a
             # documented signature of a name on the surface's records (a nested sub-package's) alone.
             checked = ("Signature scoring compares its documented signature with the surface's record of it."

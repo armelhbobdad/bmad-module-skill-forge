@@ -1036,7 +1036,8 @@ class TestStaleNameLineCheck:
             "A name with a `defined_at` (the source still declares it there, an import never counting, a module "
             "so named counting unless the name's inventory kind rules it out), or whose `declared_in` lists several "
             "files of which the skill's `[AST:]`/`[SRC:]` "
-            "citations on lines naming it cite exactly one, is a documented extra: an Info `observation` gap at "
+            "citations on lines naming it cite exactly one (or a package and its same-named module), is a "
+            "documented extra: an Info `observation` gap at "
             "that declaration, when `surface.json` has an `extraction` and its `excluded.outsideScope` does not "
             "list the name",
             "(no `defined_at` and no single cited declaring file, one scoped out, no `extraction`, a dotted name,",
@@ -1258,6 +1259,33 @@ class TestStaleNameLineCheck:
              "cognee/modules/pipelines/operations/run_tasks.py:6"),
             ("Info", "observation", "Documented extra: low_level", "cognee/low_level.py:1")]
         assert not [r for r in records if r["category"] == "stale-documentation"]
+
+    def test_a_package_and_its_same_named_module_are_one_documented_extra(self, tmp_path: pathlib.Path) -> None:
+        """#1012: classify-stale lists `cognee/exceptions/__init__.py` and the module `exceptions.py` inside it
+        as two declaring files of `exceptions`, and a skill line that documents `cognee.exceptions` cites both.
+        They are the one module that import path names, so the record is an Info documented extra at the
+        package, not a Medium asking to remove documentation of a module that exists."""
+        files = {
+            "cognee/__init__.py": "from .api.v1.add import add\n",
+            "cognee/api/__init__.py": "",
+            "cognee/api/v1/__init__.py": "",
+            "cognee/api/v1/add/__init__.py": "from .add import add\n",
+            "cognee/api/v1/add/add.py": "async def add(data):\n    pass\n",
+            "cognee/exceptions/__init__.py": "from .exceptions import CogneeApiError\n",
+            "cognee/exceptions/exceptions.py": "class CogneeApiError(Exception):\n    pass\n",
+        }
+        entries = [{"export_name": "add", "source_file": "cognee/api/v1/add/add.py", "source_line": 1}]
+        out = self._classify(tmp_path, files, ["exceptions"], entries)
+        assert [(o["defined_at"], o["declared_in"]) for o in out] == [
+            (None, ["cognee/exceptions/__init__.py:1", "cognee/exceptions/exceptions.py:1"])]
+        cov = json.loads((tmp_path / "run" / "coverage.json").read_bytes())
+        skill = tmp_path / "skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(b"# cognee\n\n`cognee.exceptions` `[AST:cognee/exceptions/exceptions.py:L1]` "
+                                         b"\xc2\xb7 `[SRC:cognee/exceptions/__init__.py:L1]`\n")
+        records = gap_ledger.from_coverage(cov, surface=self._surface(), stale=out, skill_dir=str(skill))
+        assert [(r["severity"], r["category"], r["title"], r["source"]) for r in records] == [
+            ("Info", "observation", "Documented extra: exceptions", "cognee/exceptions/__init__.py:1")]
 
 
 # ---------------------------------------------------------------------------

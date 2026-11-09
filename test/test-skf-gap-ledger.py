@@ -35,8 +35,10 @@ counts and the Gap Report is rendered from:
     `defined_at` extensions are pinned to the verifier's, and the
     coverage-check §5b call records one; a homonym (no `defined_at`,
     several `declared_in` files) is one when the skill's `[AST:]`/`[SRC:]`
-    citations on a line naming it cite exactly one of those files, and
-    stays Medium when they cite two or none, without --skill-dir, or with
+    citations on a line naming it cite exactly one of those files, or
+    only a package's `__init__.py` and a module of its name in that
+    folder (#1012, at the package), and
+    stays Medium when they cite any other two or none, without --skill-dir, or with
     a `declared_in` that is not a list of several `file:line` items
   - an inflated `scope.include` union (#795): when the inflation guard
     fires on the set the barrel branch counts, its undocumented names are
@@ -1526,6 +1528,32 @@ class TestCoverageAdapter:
         assert record["issue"].endswith("the source still declares; of the 2 files that declare it, the skill "
                                         "cites only `pkg/tasks/task.py`")
 
+    # #1012: a package and the module of its own name inside it are one module, the package.
+    @pytest.mark.parametrize("name, skill_md, declared_in, among", [
+        ("errors", "# demo\n\n`pkg.errors` `[AST:pkg/errors/errors.py:L10]` · `[SRC:pkg/errors/__init__.py:L15]`\n",
+         ["pkg/errors/__init__.py:1", "pkg/errors/errors.py:1"], 2),
+        ("errors", "# demo\n\n`errors` `[AST:pkg/errors/errors.pyi:L4]` `[SRC:./pkg/errors/__init__.py:L1]`\n",
+         ["pkg/errors/__init__.py:1", "pkg/errors/errors.pyi:1"], 2),
+        ("errors", "# demo\n\n`errors` `[AST:pkg/errors/errors.py:L10]` `[SRC:pkg/errors/__init__.py:L15]`\n",
+         ["pkg/errors/__init__.py:1", "pkg/errors/errors.py:1", "pkg/legacy/errors.py:3"], 3),
+        ("errors", "# demo\n\n### `errors`\n\n`[AST:errors/errors.py:L10]` `[SRC:errors/__init__.py:L15]`\n",
+         ["errors/__init__.py:1", "errors/errors.py:1"], 2),
+        ("exceptions", ("# demo\n\n`cognee.exceptions` `[AST:cognee/exceptions/exceptions.py:L10]` · "
+                        "`[SRC:cognee/exceptions/exceptions.py:L28-L66]` · "
+                        "`[SRC:cognee/exceptions/__init__.py:L15]`\n"),
+         ["cognee/exceptions/__init__.py:1", "cognee/exceptions/exceptions.py:1"], 2),
+    ], ids=["a-module", "a-stub", "a-third-file-not-cited", "a-top-level-package", "both-cited-on-the-line"])
+    def test_a_package_cited_with_its_same_named_module_is_a_documented_extra(
+            self, tmp_path: Path, name: str, skill_md: str, declared_in: list[str], among: int):
+        """Citations of only a package's `__init__.py` and a module of the name directly in its folder settle on
+        the package, which the name's import path resolves to, and the issue names both files."""
+        record = self._homonym(tmp_path, skill_md, item=self.HOMONYM | {"declared_in": declared_in}, name=name)
+        package, module = declared_in[0].rsplit(":", 1)[0], declared_in[1].rsplit(":", 1)[0]
+        assert brief([record]) == [("Info", "observation", f"Documented extra: {name}", declared_in[0], name)]
+        assert record["issue"].endswith(
+            f"the source still declares; of the {among} files that declare it, the skill cites only the package "
+            f"`{package}` and its same-named module `{module}`, so the gap is at the package")
+
     def test_a_nested_references_file_counts(self, tmp_path: Path):
         (tmp_path / "skill" / "references" / "api").mkdir(parents=True)
         (tmp_path / "skill" / "references" / "api" / "tasks.md").write_bytes(
@@ -1548,9 +1576,25 @@ class TestCoverageAdapter:
             "pkg/models/Task.py:9", "pkg/tasks/task.py"]}}),
         ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\n", {"item": HOMONYM | {"declared_in": None}}),
         ("# demo\n\n`Rescoped` `[AST:pkg/tasks/task.py:L24]`\n", {"name": "Rescoped"}),
+        ("# demo\n\n`errors` `[AST:pkg/errors/__init__.py:L1]` `[AST:pkg/other/errors.py:L1]`\n",
+         {"name": "errors", "item": HOMONYM | {"declared_in": ["pkg/errors/__init__.py:1", "pkg/other/errors.py:1"]}}),
+        (("# demo\n\n`errors` `[AST:pkg/errors/__init__.py:L1]` `[AST:pkg/errors/errors.py:L1]` "
+          "`[AST:pkg/errors/helpers.py:L4]`\n"),
+         {"name": "errors", "item": HOMONYM | {"declared_in": [
+             "pkg/errors/__init__.py:1", "pkg/errors/errors.py:1", "pkg/errors/helpers.py:4"]}}),
+        ("# demo\n\n`errors` `[AST:pkg/errs/__init__.py:L1]` `[AST:pkg/errs/errors.py:L1]`\n",
+         {"name": "errors", "item": HOMONYM | {"declared_in": ["pkg/errs/__init__.py:1", "pkg/errs/errors.py:1"]}}),
+        ("# demo\n\n`errors` `[AST:pkg/errors/__init__.py:L1]` `[AST:pkg/errors/sub/errors.py:L1]`\n",
+         {"name": "errors", "item": HOMONYM | {"declared_in": [
+             "pkg/errors/__init__.py:1", "pkg/errors/sub/errors.py:1"]}}),
+        ("# demo\n\n`errors` `[AST:pkg/a/errors/__init__.py:L1]` `[AST:pkg/b/errors/__init__.py:L1]`\n",
+         {"name": "errors", "item": HOMONYM | {"declared_in": [
+             "pkg/a/errors/__init__.py:1", "pkg/b/errors/__init__.py:1"]}}),
     ], ids=["both-cited", "neither-cited", "cited-two-lines-on", "both-on-the-next-line", "named-only-in-a-citation",
             "no-skill-dir",
-            "one-file", "not-a-list", "an-item-without-a-line", "no-declared-in", "rescoped"])
+            "one-file", "not-a-list", "an-item-without-a-line", "no-declared-in", "rescoped",
+            "a-package-and-a-module-of-another-package", "a-package-its-module-and-another-file",
+            "a-package-not-named-like-it", "a-module-below-the-package-folder", "two-packages"])
     def test_any_other_homonym_stays_medium(self, tmp_path: Path, skill_md: str, kwargs: dict):
         record = self._homonym(tmp_path, skill_md, **kwargs)
         assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
