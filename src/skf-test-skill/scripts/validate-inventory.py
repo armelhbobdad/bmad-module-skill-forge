@@ -165,8 +165,10 @@ stale homonym, score-signatures.py to plan a signature check at the
 declaration the skill cites. A form's own citations are shared the same way
 (#918): `form_citations` gives the citations of the form an `at` places, on
 its line; on the next non-blank line, unless that line writes the name (it
-is another place of the name, such as the next table row) or, inside a
-fenced block, is a comment (it heads the next declaration); for a line
+is another place of the name) or, inside a fenced block, is a comment (it
+heads the next declaration), and never after a table row outside a fenced
+block, whose own citations are in its cells (the next row documents
+another export); for a line
 inside a fenced block, on the comment lines just above it in the block;
 and, when the block holds no other place the inventory gives the name, on
 the block's first non-blank line when it is a comment and on the first
@@ -545,9 +547,12 @@ def form_citations(lines: list[str], line: int, name: str,
 
     - on that line;
     - on the next non-blank line, unless that line writes `name` outside
-      its citations (another place of the name, such as the next table
-      row, whose citations are its own) or, inside a fenced block, is a
-      comment (it heads the next declaration);
+      its citations (another place of the name, whose citations are its
+      own) or, inside a fenced block, is a comment (it heads the next
+      declaration), and never after a table row outside a fenced block
+      (locate-export-segments.py's TABLE_ROW_RE, the floor's row), whose
+      own citations are in its cells: the next row documents another
+      export, and a line after the table is the table's;
     - for a line inside a fenced block (_fence_holding), on the comment
       lines just above it in the block, its own heading;
     - and, when no line of `others` is in that block's body (a block that
@@ -567,7 +572,8 @@ def form_citations(lines: list[str], line: int, name: str,
     fence = _fence_holding(lines, index)
     places = [lines[index]]
     following = _first_filled(lines, index + 1)
-    if not _writes(pattern, following) and not (fence is not None and _COMMENT_MARKER_RE.match(following)):
+    row = fence is None and _segments().TABLE_ROW_RE.match(lines[index])
+    if not row and not _writes(pattern, following) and not (fence is not None and _COMMENT_MARKER_RE.match(following)):
         places.append(following)
     if fence is not None:
         opening, closing = fence

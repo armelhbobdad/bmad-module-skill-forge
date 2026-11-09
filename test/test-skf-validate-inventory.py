@@ -1582,6 +1582,27 @@ def test_a_neighbouring_line_that_is_another_place_of_the_name_is_not_read():
     assert mod.form_citations(note, 5, "Mode") == {("other/types.ts", 1, 1)}
 
 
+def test_a_table_row_s_own_citations_are_in_its_cells():
+    """#998 (oms-cocoindex `Settings`): a table row outside a fenced block (the floor's table row) reads no line after
+    it, whatever name that line writes. The next row documents another export, whose citations are its own, so a
+    row that cites its declaration keeps that citation alone and a row that cites none has none; a line after the
+    table is the table's, not its last row's. A heading still reads the next non-blank line, and a line that opens
+    with `|` in a fenced block is code, read by the fence rules."""
+    rows = ["| Export | Kind | Source |", "| --- | --- | --- |",
+            "| `Settings` | class | [AST:pkg/_internal/setting.py:L56] |",
+            "| `ServerSettings` | class | [AST:pkg/setting.py:L93] |"]
+    assert mod.form_citations(rows, 3, "Settings") == {("pkg/_internal/setting.py", 56, 56)}
+    assert mod.form_citations(rows, 4, "ServerSettings") == {("pkg/setting.py", 93, 93)}
+    uncited = ["  | `Settings` | class | The settings |", "| `ServerSettings` | class | [AST:pkg/setting.py:L93] |"]
+    assert mod.form_citations(uncited, 1, "Settings") == set()
+    last = ["| `Settings` | class |", "", "[AST:pkg/setting.py:L93]"]
+    assert mod.form_citations(last, 1, "Settings") == set()
+    heading = ["### `Settings`", "", "[AST:pkg/_internal/setting.py:L56]", "", "| `ServerSettings` | class |"]
+    assert mod.form_citations(heading, 1, "Settings") == {("pkg/_internal/setting.py", 56, 56)}
+    fenced = ["```elixir", "| Settings.load(path)", "[AST:pkg/_internal/setting.py:L56]", "```"]
+    assert mod.form_citations(fenced, 2, "Settings") == {("pkg/_internal/setting.py", 56, 56)}
+
+
 @pytest.mark.parametrize("citations, file, line, named", [
     ({("a.py", 37, 37)}, "a.py", 37, True),
     ({("a.py", 37, 37)}, "./a.py", 37, True),
