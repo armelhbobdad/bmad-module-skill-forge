@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's signature rules now read a type name with or without the module or namespace path it is written through, when both name one declaration: a documented `Environment` matches the source's `environment.Environment` written after `from . import environment`, as `ZodType` matches `z.ZodType` and `ndarray` matches `np.ndarray`. The rules named only a `typing.`, `collections.abc.` or `React.` prefix, so a judge that read that list as closed raised a Critical `signature-mismatch` gap on a correct form and failed the hard gate. Two declarations that only share a name stay two types. Test Skill's scoring script reads a type's own name with or without its module path too when it checks the facts of a mismatch tagged `annotation-contradicted`, so such a mismatch whose parameters write a type through a module path on one side only is now an Info `observation` instead of a Critical gap; it compares two different module paths, a `Literal[...]` value and a Rust `::` path as written, and inside a callable's arrow type it still drops only those three prefixes.
+issues: [999]
+prs: [1056]

@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's signature rules now read a return written as a type followed by other types it names as alternatives, in a parenthetical or a list and each with an optional condition, as the union of every type it names, while the words that name no type, such as `with dry_run=True` or `for "pydantic"`, state nothing. A documented `RememberResult (DryRunEstimate with dry_run=True, PresortReport with dry_run="presort", or dict)` therefore matches the source's `Union["RememberResult", "DryRunEstimate", "PresortReport", dict]`, and `GraphSnapshot for "pydantic", ExportResult for "cogx"` states both types. Before, a judge that read the parenthetical as a description, as `HTML str` is read, compared only `RememberResult` and raised a Critical `signature-mismatch` gap on the correct form, failing the hard gate, while another judge passed the same skill. A type a parenthetical names other than as an alternative (`Response (see Request)`) stays a description. Because the named alternatives now count, a documented alternative the source never returns makes the documented return differ from the source's, a Critical gap that some runs passed, so such a skill can now stop at the hard gate.
+migration: |
+  If a skill now stops at the hard gate on a `signature-mismatch` gap whose documented return names a type the source never returns, remove that alternative from the return, or reword it so it names no type, then run Test Skill again.
+issues: [1042]
+prs: [1056]

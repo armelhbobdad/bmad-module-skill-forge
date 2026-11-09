@@ -931,9 +931,10 @@ def test_the_mismatch_s_file_says_how_its_language_reads_the_parameters(tmp_path
 
 
 def _parameter_fact(documented_sig: str, source_sig: str, extension: str = ".py") -> str | None:
-    """contradiction_fact for a mismatch at a file of `extension` whose facts other than its parameters check."""
+    """contradiction_fact for a mismatch at a file of `extension` whose facts other than its parameters check, on a
+    form that lists parameters, so `documented_sig` is the text compared (#1025)."""
     entry = {"documented_sig": documented_sig, "source_sig": source_sig, "evidence_line": 19}
-    return mod.contradiction_fact(entry, {"return_type": "X"}, f"src/viz{extension}", 12)
+    return mod.contradiction_fact(entry, {"params": "x", "return_type": "X"}, f"src/viz{extension}", 12)
 
 
 def _check_parameters(documented_sig: str, source_sig: str, extension: str, reason: str | None) -> None:
@@ -1122,12 +1123,40 @@ def test_a_group_inside_type_parameters_states_no_return_type():
     ("(a: typing.Any) -> X", "(a: Any) -> Y", None),
     ("(a: collections.abc.Sequence[int]) -> X", "(a: Sequence[int]) -> Y", None),
     ("(children: ReactNode) => X", "(children: React.ReactNode) => Y", None),
-    ("(a: typing_extensions.Self) -> X", "(a: Self) -> Y", "`a` is typed `typing_extensions.Self`"),
+    ("(a: typing_extensions.Self) -> X", "(a: Self) -> Y", None),
+    ("(e: Environment) -> X", "(e: environment.Environment) -> Y", None),
+    ('(df: "pd.DataFrame") -> X', "(df: DataFrame) -> Y", None),
+    ("(s: ZodType) => X", "(s: z.ZodType) => Y", None),
+    ("(a: np.ndarray[Any]) -> X", "(a: ndarray[Any]) -> Y", None),
+    ("(a: t.List[int]) -> X", "(a: list[int]) -> Y", None),
+    ("(a: models.Foo) -> X", "(a: models.Bar) -> Y",
+     "`a` is typed `models.Foo` in the documented list, `models.Bar` in the source"),
+    ("(a: models.Foo) -> X", "(a: other.Foo) -> Y",
+     "`a` is typed `models.Foo` in the documented list, `other.Foo` in the source"),
+    ("(o: Chart.Options) => X", "(o: Axis.Options) => Y", "`o` is typed `Chart.Options`"),
+    ("(a: Literal['config.yaml']) -> X", "(a: Literal['settings.yaml']) -> Y", "`a` is typed `Literal['config.yaml']`"),
+    ("(a: Literal[Color.RED]) -> X", "(a: Literal['RED']) -> Y", "`a` is typed `Literal[Color.RED]`"),
+    ('(a: Literal["a"]) -> X', "(a: Literal['a']) -> Y", None),
+    ("(a: 'a.b') => X", "(a: 'c.b') => Y", "`a` is typed `'a.b'` in the documented list, `'c.b'` in the source"),
+    ("(cb: (n: React.ReactNode) => void) => X", "(cb: (n: ReactNode) => void) => Y", None),
+    ("(cb: (e: env.Environment) => void) => X", "(cb: (e: Environment) => void) => Y",
+     "`cb` is typed `(e:env.Environment)=>void`"),
+    ("(p: std::path::PathBuf) -> X", "(p: PathBuf) -> Y", "`p` is typed `std::path::PathBuf`"),
     ("(a: Optional[int]) -> X", "(a: int | None) -> Y", None),
     ("(a: Union[int, None]) -> X", "(a: int | None) -> Y", None),
     ("(a: Optional[int]) -> X", "(a: str | None) -> Y", "`a` is typed `Optional[int]`"),
     ("(a: Union[A, B]) -> X", "(a: A | B) -> Y", None),
     ("(a: B | A) -> X", "(a: A | B) -> Y", None),
+    ("(a: str / list[str] / None) -> X", "(a: str | list[str] | None) -> Y", None),
+    ("(a: string / number) => X", "(a: number | string) => Y", None),
+    ("(a: list[str / int]) -> X", "(a: list[int | str]) -> Y", None),
+    ("(a: str / None, /) -> X", "(a: str | None, /) -> Y", None),
+    ("(a: str / None) -> X", "(a: int | None) -> Y",
+     "`a` is typed `str/None` in the documented list, `int|None` in the source"),
+    ("(a: Literal['x/y']) -> X", "(a: Literal['y/x']) -> Y", "`a` is typed `Literal['x/y']`"),
+    ("(a: Annotated[int, 'a/b']) -> X", "(a: Annotated[int, 'b/a']) -> Y", "`a` is typed `Annotated[int,'a/b']`"),
+    ("(a: 'x/y') => X", "(a: 'x' | 'y') => Y", "`a` is typed `'x/y'` in the documented list"),
+    ("(a: Pydantic BaseModel) -> X", "(a: BaseModel) -> Y", "`a` is typed `Pydantic BaseModel`"),
     ("(a: List[int]) -> X", "(a: list[int]) -> Y", None),
     ("(a: Dict[str, int]) -> X", "(a: dict[str, int]) -> Y", None),
     ("(a: Tuple[int, str]) -> X", "(a: tuple[int, str]) -> Y", None),
@@ -1148,9 +1177,19 @@ def test_a_group_inside_type_parameters_states_no_return_type():
     ("(schema: VectorSchemaProvider) -> X", "(schema: VectorSchemaProvider | MultiVectorSchemaProvider) -> Y", None),
     ("(schema: A | B) -> X", "(schema: A) -> Y", "`schema` is typed `A|B` in the documented list, `A` in the source"),
     ("(a: T) -> X", "(a: U) -> Y", "`a` is typed `T` in the documented list, `U` in the source"),
-], ids=["a-typing-prefix", "a-collections-abc-prefix", "a-react-prefix", "a-typing-extensions-prefix-is-compared",
-        "optional-and-a-none-union", "union-with-none", "optional-of-another-type", "union-and-a-bar",
-        "a-union-in-any-order", "typing-list", "typing-dict", "typing-tuple", "typing-set", "typing-frozenset",
+], ids=["a-typing-prefix", "a-collections-abc-prefix", "a-react-prefix", "a-typing-extensions-prefix",
+        "a-module-the-source-imports", "a-module-alias-in-a-forward-reference", "a-namespace-import",
+        "a-module-alias-before-type-arguments", "a-module-alias-of-typing", "another-final-name-is-compared",
+        "two-paths-to-one-final-name-are-compared", "two-namespaces-to-one-final-name-are-compared",
+        "a-literal-string-is-no-path", "a-literal-member-is-no-forward-reference", "a-literal-string-in-either-quote",
+        "a-string-literal-type-is-no-path", "a-react-prefix-inside-a-callable",
+        "a-module-path-inside-a-callable-is-compared", "a-rust-path-is-compared", "optional-and-a-none-union", "union-with-none", "optional-of-another-type", "union-and-a-bar",
+        "a-union-in-any-order", "a-slash-union", "a-slash-union-in-ts", "a-slash-union-in-type-arguments",
+        "a-slash-union-beside-the-positional-only-marker", "a-slash-union-of-another-type",
+        "a-slash-in-a-string-is-no-union", "a-slash-in-a-quoted-argument-is-no-union",
+        "a-slash-in-a-string-literal-type-is-no-union",
+        "a-type-written-as-a-description-is-compared-as-its-text",
+        "typing-list", "typing-dict", "typing-tuple", "typing-set", "typing-frozenset",
         "typing-type", "a-list-of-another-type", "a-bare-typing-alias", "a-parenthesized-union",
         "a-forward-reference", "array-and-brackets",
         "readonly-array-and-readonly-brackets", "an-array-is-no-readonly-array", "type-arguments-the-form-leaves-out",
@@ -1158,12 +1197,18 @@ def test_a_group_inside_type_parameters_states_no_return_type():
         "a-documented-member-of-the-source-s-union", "a-documented-union-wider-than-the-source-s",
         "a-renamed-type-variable"])
 def test_types_both_sides_write_are_compared_by_the_rules_equivalent_spellings(documented_sig, source_sig, reason):
-    """A type both sides write is compared as Equivalent spellings and Annotations read it: a `typing.`,
-    `collections.abc.` or `React.` prefix (not `typing_extensions.`), `Optional` and `Union` against `|`, a
-    union in any order, `typing`'s aliases against the builtins, a quoted forward reference, `Array<T>` against
+    """A type both sides write is compared as Equivalent spellings and Annotations read it: a type's name by its
+    final name, with or without the module or namespace path it is written through on one side (#999: `typing.`,
+    `typing_extensions.`, `environment.`, `z.`, `np.`, in a quoted forward reference too), while two different
+    paths stay two names, a `Literal[...]` argument is a value (a string in either quote alike) and a string literal
+    type is no path, and a type read as one text (a callable's arrow) drops only a `typing.`, `collections.abc.` or
+    `React.` prefix, so another module path there, like a Rust `::` path, stays a difference; `Optional` and
+    `Union` against `|`, a union in any order, `typing`'s aliases against the builtins, a quoted forward reference, `Array<T>` against
     `T[]` and `ReadonlyArray<T>` against `readonly T[]`, and type arguments one side leaves out; a documented type
     that names some of the source's union members agrees, one wider than the source's does not, and a renamed type
-    variable stays a difference."""
+    variable stays a difference. #1003: a `/` between types is a `|`, as a table's Type cell writes a union, in type
+    arguments and beside a positional-only `/` marker too, but not inside a string, and a type written as a
+    description (`Pydantic BaseModel`) is compared as its text, on the strict side."""
     _check_parameters(documented_sig, source_sig, ".ts" if "=>" in documented_sig else ".py", reason)
 
 
@@ -1203,19 +1248,23 @@ def test_a_ts_js_literal_default_has_its_literal_s_type(documented_sig, source_s
     ("(data, tasks, ...) -> X", "(tasks, data) -> Y", ".py", "`tasks` comes before `data` in the source"),
     ("(tasks: str, ...) -> X", "(tasks: list[Task], data) -> Y", ".py", "`tasks` is typed `str`"),
     ("(...items) => X", "(...rest) => Y", ".ts", "`...items` is not a source parameter"),
+    ("Settings(**config) -> X", "(self, host: str, port: int) -> Y", ".py", "`**config` is not a source parameter"),
     ("(a: int) -> X", "(a: int, b: int = 1) -> Y", ".py", "the documented list writes 1 parameter, the source 2"),
 ], ids=["bare-names-leave-out-an-optional", "bare-names-leave-out-a-required", "bare-names-write-one-too-many",
         "bare-names-out-of-order", "a-positional-shift-in-ts", "no-positional-shift-in-python",
         "positional-names-against-keyword-only", "by-name-after-args", "an-ellipsis", "a-unicode-ellipsis",
         "an-ellipsis-alone", "an-ellipsis-with-a-name-the-source-lacks", "an-ellipsis-out-of-order",
-        "an-ellipsis-with-a-typed-member-that-differs", "a-rest-is-no-ellipsis", "a-typed-list-claims-to-be-complete"])
+        "an-ellipsis-with-a-typed-member-that-differs", "a-rest-is-no-ellipsis",
+        "a-call-s-unpacking-is-still-refused", "a-typed-list-claims-to-be-complete"])
 def test_a_form_that_claims_no_complete_list_need_not_write_every_parameter(documented_sig, source_sig, extension,
                                                                             reason):
     """Reading a form: a list of bare names need not write an optional source parameter, but each name it writes
     must be one, in the source's order (by name alone after a `*` marker), and it may not leave out a required one,
     nor, in a language without keyword arguments, an optional one before a name it writes. A list holding an
     ellipsis claims nothing about what it stands for; the members it writes are still checked. A TS/JS rest is no
-    ellipsis, and a list that writes a type, a default or a `?` must write every parameter."""
+    ellipsis, and a list that writes a type, a default or a `?` must write every parameter. A Python call's
+    `**config` is read as a `**kwargs` the source must declare (#1024), on the strict side, where the rules read
+    it as passing `host` and `port`."""
     _check_parameters(documented_sig, source_sig, extension, reason)
 
 
@@ -2892,12 +2941,21 @@ def test_every_documented_form_of_a_name_is_offered_as_an_alternative(tmp_path, 
     ([{**BRIEF, "return_type": "JSX.Element"}, {**BRIEF, "return_type": "JSX.Element", "usage_signature": None}],
      [{"params": "{ of }", "return_type": "JSX.Element"}]),
     ([BRIEF, {**BRIEF, "usage_signature": [], "return_type": "  "}], [{"params": "{ of }"}]),
+    ([{"name": "Canvas", "kind": "function", "return_type": "JSX.Element"},
+      {"name": "Canvas", "kind": "function", "params": "", "return_type": "JSX.Element"}],
+     [{"params": "", "return_type": "JSX.Element"}]),
+    ([{"name": "Canvas", "kind": "function", "params": [], "return_type": "JSX.Element"},
+      {"name": "Canvas", "kind": "function", "params": None, "return_type": "JSX.Element"}],
+     [{"params": [], "return_type": "JSX.Element"}]),
 ], ids=["full-label-and-none", "none-and-full-label", "list-and-joined-string", "whitespace", "partial-then-full",
-        "full-then-partial", "partial-full-pair-around-another", "a-null-key", "an-empty-list-and-a-blank-key"])
+        "full-then-partial", "partial-full-pair-around-another", "a-null-key", "an-empty-list-and-a-blank-key",
+        "no-params-then-empty-params", "empty-params-then-null-params"])
 def test_entries_that_say_the_same_thing_are_one_form(entries, forms):
     """Two entries that differ only by a `full` label, a list against its items joined, or spacing are one form, so
     no copy of a form is offered as its own alternative. Of two that differ only by the partial label, the full one
-    stands, where the rank would have put it: a partial copy never lowers a full form's grade."""
+    stands, where the rank would have put it: a partial copy never lowers a full form's grade. Of two that differ
+    only by a blank `params` against none (absent or null), the blank one stands in either order (#1025): it claims
+    the export takes none, where the other claims nothing about parameters."""
     assert mod.documented_forms(entries) == {"Canvas": forms}
     assert mod.documented_signatures(entries) == {"Canvas": forms[0]}
 
@@ -3000,6 +3058,37 @@ def test_a_no_parameter_form_that_states_a_return_is_compared(tmp_path):
     no_params = mod.documented_forms([HELPER, {"name": "helper", "kind": "function", "return_type": "number"}])
     assert [mod._form_text(f) for f in no_params["helper"]] == ["(x: number) -> number", "-> number"]
     assert mod._form_text({"return_type": "number"}) == "-> number"
+
+
+DEFAULT_ENV_LINES = [f"# line {n}" for n in range(1, 20)]
+DEFAULT_ENV_LINES[11] = DEFAULT_ENV_SURFACE["exports"][0]["signatureLine"]
+DEFAULT_ENV_LINES[15] = "    return env"
+
+
+@pytest.mark.parametrize("form", [{"return_type": "Environment"}, {"params": "", "return_type": "Environment"}],
+                         ids=["no-params", "empty-params"])
+@pytest.mark.parametrize("documented_sig", ["-> Environment", "() -> Environment"],
+                         ids=["its-return-alone", "an-empty-group"])
+def test_a_contradicted_return_on_a_form_that_lists_no_parameter_is_info(tmp_path, form, documented_sig):
+    """#1025: the #914 alternative states only a return type, with no `params` key or a blank one, and the body
+    returns the type it states where the declaration annotates another. The parameter fact was checked on the text
+    the judge wrote, so `-> Environment` (as _form_text writes the form) had no parameter group and the tagged
+    mismatch was Critical, while `() -> Environment` was Info. It is read from the form: one with no `params` claims
+    nothing about parameters, and a blank one claims none against a declaration that takes none, so each writing is
+    an Info observation, with no warning."""
+    (tmp_path / "coco").mkdir()
+    (tmp_path / "coco" / "env.py").write_bytes(("\n".join(DEFAULT_ENV_LINES) + "\n").encode("utf-8"))
+    entries = [DEFAULT_ENV_USAGE, {"name": "default_env", "kind": "function", **form}]
+    assert mod.documented_forms(entries)["default_env"] == [{"usage_signature": "coco.default_env()"}, form]
+    mismatch = {"name": "default_env", "line": 12, "form": 1, "source_sig": "() -> EnvironmentSettings",
+                "documented_sig": documented_sig, "difference": "annotation-contradicted", "evidence_line": 16,
+                "issue": "the annotation says `EnvironmentSettings`; the body returns the environment"}
+    out = mod.score(entries, ["default_env"], DEFAULT_ENV_SURFACE["exports"],
+                    [{"file": "coco/env.py", "signature_mismatches": [mismatch]}], source_root=str(tmp_path))
+    assert [m["severity"] for m in out["mismatches"]] == ["Info"], out["warnings"]
+    assert (out["matchingSignatures"], out["signatureAccuracy"]) == (1, 100.0)
+    assert not any("annotation-contradicted" in w or "`form`" in w for w in out["warnings"]), out["warnings"]
+    assert [g["title"] for g in out["gapRecords"]] == ["Annotation contradicted: default_env (form 2 of 2)"]
 
 
 def test_quotes_reads_a_name_before_the_group_and_an_empty_list():
@@ -3329,6 +3418,74 @@ def test_an_annotation_contradicted_mismatch_is_checked_against_its_form(tmp_pat
         assert [m["severity"] for m in out["mismatches"]] == [severity]
         failed = [w for w in out["warnings"] if "the documented signature states no return type" in w]
         assert len(failed) == (1 if form == 1 else 0), out["warnings"]
+
+
+G_LINES = ["def g(a: int) -> bytes:", "    text = str(a)", "    return text"]
+
+
+@pytest.mark.parametrize("form, documented_sig, severity", [
+    ({"return_type": "str"}, "-> str", "Info"),
+    ({"return_type": "str"}, "() -> str", "Info"),
+    ({"return_type": "str"}, "(a: int) -> str", "Info"),
+    ({"params": None, "return_type": "str"}, "() -> str", "Info"),
+    ({"params": "", "return_type": "str"}, "-> str", "Critical"),
+    ({"params": "", "return_type": "str"}, "() -> str", "Critical"),
+    ({"params": "", "return_type": "str"}, "(a: int) -> str", "Critical"),
+    ({"params": [], "return_type": "str"}, "(a: int) -> str", "Critical"),
+    ({"params": "a: int", "return_type": "str"}, "(a: int) -> str", "Info"),
+    ({"params": "a: int", "return_type": "str"}, "() -> str", "Critical"),
+    ({"usage_signature": "g()", "return_type": "str"}, "() -> str", "Critical"),
+    ({"params": "", "usage_signature": "g(a)", "return_type": "str"}, "g(a) -> str", "Info"),
+], ids=["no-params-its-return-alone", "no-params-an-empty-group", "no-params-the-source-s-parameters",
+        "null-params", "empty-params-its-return-alone", "empty-params-an-empty-group",
+        "empty-params-the-source-s-parameters", "an-empty-params-list", "listed-params", "listed-params-misquoted",
+        "no-params-beside-a-usage", "empty-params-beside-a-usage"])
+def test_a_contradicted_return_s_parameters_are_the_ones_its_form_claims(tmp_path, form, documented_sig, severity):
+    """#1025: against `def g(a: int) -> bytes:`, whose body returns a `str`, a form with no `params` (absent or null)
+    and no usage form claims nothing about parameters, so its tagged mismatch is Info however the judge writes it,
+    the source's parameters copied or not. A blank `params` (`""` or `[]`) claims the export takes none, so it is
+    Critical however the judge writes it, `()` quoted in the warning, where a `documented_sig` that copied `(a: int)`
+    was Info. A form that lists parameters, or gives a usage form beside no or a blank `params`, keeps the check of
+    the parameters `documented_sig` writes."""
+    (tmp_path / "g.py").write_bytes(("\n".join(G_LINES) + "\n").encode("utf-8"))
+    record = {"name": "g", "kind": "function", "file": "g.py", "line": 1, "signatureLine": G_LINES[0],
+              "origin": "extraction"}
+    mismatch = {"name": "g", "line": 1, "source_sig": "(a: int) -> bytes", "documented_sig": documented_sig,
+                "issue": "the annotation says `bytes`; the body returns a `str`",
+                "difference": "annotation-contradicted", "evidence_line": 3}
+    out = mod.score([{"name": "g", "kind": "function", **form}], ["g"], [record],
+                    [{"file": "g.py", "signature_mismatches": [mismatch]}], source_root=str(tmp_path))
+    assert [m["severity"] for m in out["mismatches"]] == [severity], out["warnings"]
+    found = [w for w in out["warnings"] if "annotation-contradicted" in w]
+    if severity == "Info":
+        assert found == [], found
+    else:
+        assert found == ["g.py:1: the mismatch for `g` is tagged annotation-contradicted, but its parameters differ: "
+                         "documented `()`, source `(a: int)`: the required source parameter `a` is left out: graded "
+                         "as an untagged mismatch (Critical)"]
+
+
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)], ids=["no-params-first", "empty-params-first"])
+def test_a_blank_and_a_missing_params_are_one_form_graded_alike_in_either_order(tmp_path, order):
+    """#1025: a skill writes `g() -> str` in one place (`params: ""`) and only its return in another (no `params`).
+    The two say the same thing as _form_key reads them, so they are one form, and the one that stood was the first:
+    with the return-only entry first, the tagged mismatch `() -> str` against `def g(a: int)` was Info and the
+    skill's claim that `g` takes no argument was never compared. The blank one, the stronger claim, now stands in
+    either order, so the mismatch is Critical whichever entry the inventory gives first."""
+    (tmp_path / "g.py").write_bytes(("\n".join(G_LINES) + "\n").encode("utf-8"))
+    entries = [{"name": "g", "kind": "function", "return_type": "str"},
+               {"name": "g", "kind": "function", "params": "", "return_type": "str"}]
+    inventory = [entries[i] for i in order]
+    assert mod.documented_forms(inventory) == {"g": [{"params": "", "return_type": "str"}]}
+    record = {"name": "g", "kind": "function", "file": "g.py", "line": 1, "signatureLine": G_LINES[0],
+              "origin": "extraction"}
+    mismatch = {"name": "g", "line": 1, "source_sig": "(a: int) -> bytes", "documented_sig": "() -> str",
+                "issue": "the annotation says `bytes`; the body returns a `str`",
+                "difference": "annotation-contradicted", "evidence_line": 3}
+    out = mod.score(inventory, ["g"], [record], [{"file": "g.py", "signature_mismatches": [mismatch]}],
+                    source_root=str(tmp_path))
+    assert [m["severity"] for m in out["mismatches"]] == ["Critical"], out["warnings"]
+    assert (out["matchingSignatures"], out["signatureAccuracy"]) == (0, 0.0)
 
 
 def test_score_grades_by_the_forms_the_plan_offered(tmp_path):

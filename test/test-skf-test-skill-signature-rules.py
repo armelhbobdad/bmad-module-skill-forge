@@ -170,9 +170,13 @@ def test_a_form_claims_only_what_it_writes():
     """#835: optionality is stated only by a default, a `?` or an optional marker, never by a type: a list that states
     it for no member has its optionality uncompared, and once one member states it the unmarked ones claim to be
     required. A default's value is not compared. In the split-body cross-check an annotation either form leaves out
-    is not compared."""
+    is not compared. #1025: an entry with no `params` key and no usage form writes no parameter list, so it claims
+    nothing about parameters, while a blank `params` claims the export takes none."""
     reading = _section("Reading a form")
     assert "A form claims only what it writes" in reading
+    assert ("A type or a return type it does not write claims nothing (Annotations). An entry with no `params` key and "
+            "no usage form writes no parameter list: it claims nothing about parameters, and only what it writes, such "
+            "as its return type, is compared. `params: \"\"` or `[]` claims the export takes none.") in reading
     assert "The source's declaration decides" in reading
     assert "with one exception, a return annotation the body contradicts (Annotations)" in reading
     assert ("Optionality is stated only by a default, a `?` (on the name, or as `?:`) or an optional marker: "
@@ -233,7 +237,12 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
 
 def test_a_caller_following_a_narrower_form_makes_a_valid_call():
     """A documented parameter type naming some of a union's members, a union of callables written as one callable
-    returning a union, and a form taking the unions of an overload set's parameter types are no mismatch."""
+    returning a union, and a form taking the unions of an overload set's parameter types are no mismatch. #1023:
+    Overload sets named only Python `@overload` stubs and TS bodiless signatures, so overloaded constructors and
+    functions in Java, Kotlin, C# and C++, which the fallback per-file scan's judges read by this file, had no
+    stated reading, and a correct `new Client("localhost", 8080)` compared with one constructor could be a Critical
+    mismatch that blocks the hard gate. A name declared several times with no implementation they share is one set
+    too, and a form matching any of its declarations is no mismatch."""
     annotations = _section("Annotations")
     assert ("A documented parameter type that names some of the members of the source's union is no mismatch, since a "
             "caller passing it makes a valid call") in annotations
@@ -241,6 +250,15 @@ def test_a_caller_following_a_narrower_form_makes_a_valid_call():
     spellings = _section("Equivalent spellings")
     assert "`Callable[[A], X] | Callable[[A], Y]` and `(a: A) -> X | Y`" in spellings
     overloads = _section("Overload sets")
+    languages = ("(overloaded constructors in Java, Kotlin, C# and C++, a Kotlin class's primary and secondary "
+                 "constructors among them, and overloaded methods in those languages and functions in Kotlin and C++)")
+    separate = ("A name declared several times with different parameter lists and no implementation they share "
+                f"{languages} is one set too: a documented form that matches any of its declarations is no mismatch "
+                "(`new Client(\"localhost\", 8080)` matches `Client(String host, int port)` beside "
+                "`Client(String host)`).")
+    assert separate in overloads, "#1023: other languages' overloads are one set"
+    assert overloads.index(OVERLOAD_RULE) < overloads.index(separate), "after the stub rule, which stays as it is"
+    assert _read(RULES).count("no implementation they share") == 1, "one copy"
     assert "the unions of the overloads' types" in overloads
 
 
@@ -273,15 +291,32 @@ def test_a_usage_form_is_read_as_what_it_writes():
     call as its arguments in order; a spread, children or `...args` can pass a required member; each usage of a list
     is a form of its own. #916 (oms-cocoindex): a call written with placeholder names, which the inventory contract
     records as a usage, is read the same way, its names arguments at their positions and never parameter names, and
-    a bracketed argument is optional, so the call is compared with and without it."""
+    a bracketed argument is optional, so the call is compared with and without it. #1024: the rule said what a JSX
+    spread or a TS/JS `...args` passes but not Python's `*items` or `**mapping`, so `Settings(**config)` read
+    literally passed no required parameter, a Critical that blocks the hard gate. It now says what each unpacking
+    passes, keeps the arguments written beside it compared, and the placeholder `*args` and `**kwargs` unpack the
+    same way."""
     reading = _section("Reading a form")
     assert ("A component usage `<X a={x} b=\"y\" />` reads as a list of bare names of the props it sets, and a call "
             "`f(a, b)` as its arguments in order, each the parameter at its position (or, written `name=value`, the one "
             "it names).") in reading
-    assert ("A JSX spread (`{...props}`) or children can pass a required prop, and a call's `...args` a required "
-            "parameter, so neither leaves one out.") in reading
-    assert ("An entry's `usage_signature` written as a usage is read this way, and each usage in a list of usages is "
-            "compared as a form of its own, under its entry's `form` index.") in reading
+    spread = ("A JSX spread (`{...props}`) or children can pass a required prop, and a call's `...args` a required "
+              "parameter, so neither leaves one out.")
+    assert spread in reading
+    unpacking = ("A Python `*items` argument can pass every parameter a caller may pass by position from its position "
+                 "on, and a `**mapping` argument every one a caller may pass by name, so neither leaves such a "
+                 "parameter out (`Settings(**config)` matches `__init__(self, host, port)`), while the arguments the "
+                 "call writes beside them are still compared (`Settings(**config, debug=True)` is a mismatch when the "
+                 "constructor takes neither `debug` nor `**kwargs`); a `*items` never passes a keyword-only "
+                 "parameter, nor a `**mapping` a positional-only one.")
+    usage = ("An entry's `usage_signature` written as a usage is read this way, and each usage in a list of usages is "
+             "compared as a form of its own, under its entry's `form` index.")
+    assert usage in reading
+    assert f"{spread} {unpacking} {usage}" in reading, "#1024: right after the spread sentence, before the usage rule"
+    assert reading.count("`Settings(**config)`") == 1, "#1024: one copy of the unpacking rule"
+    # score-signatures.py's parameter fact still refuses an unpacking, on the strict side, and its docstring says so
+    assert ("a call's `*items` or `**mapping` argument (read as a `*args` or `**kwargs` the source must declare, so "
+            "`Settings(**config)` against `__init__(self, host, port)` differs)") in _flow(_read(SCORE_SIGNATURES))
     assert reading.count("`usage_signature`") == 1, "one copy of the usage rule"
     # the bullet it extends, and the bare-names rule it reads by
     call = _paragraph(_read(RULES), "- A call or usage example passes values")
@@ -289,7 +324,8 @@ def test_a_usage_form_is_read_as_what_it_writes():
     assert "A list of bare names, with no type, default or `?`" in reading
     placeholder = ("A call written with placeholder names (`await coco.mount([subpath,] process_fn, *args, "
                    "**kwargs)`), which the inventory contract records as a usage, is read the same way: its names "
-                   "are arguments at their positions, never parameter names, and a bracketed argument (`[subpath,]`) "
+                   "are arguments at their positions, never parameter names, its `*args` and `**kwargs` unpack as "
+                   "above, and a bracketed argument (`[subpath,]`) "
                    "is optional, so the call is compared with and without it, each as a call.")
     assert f"under its entry's `form` index. {placeholder}" in call, "the call bullet's last sentence"
     [bullet] = [line for line in _read(RULES).splitlines() if line.startswith("- A call or usage example")]
@@ -475,7 +511,11 @@ def test_a_call_to_a_class_is_compared_with_its_constructor():
     fields included (a pydantic model's keyword-only); an instance's with its `__call__`; an alias's with its class's.
     The receiver rule is score-signatures.py's, so both name one receiver set: the source's leading receiver is never
     compared and the form's own is dropped only when the source leads with one. A callee's `*args` or `**kwargs`
-    takes any extra argument, and a constructor written only outside the source tree counts as matching (#925)."""
+    takes any extra argument, and a constructor written only outside the source tree counts as matching (#925).
+    #1023: a class in another language was compared with "the constructor it declares", one of them, and only
+    Python's, TS/JS's and Go's variadics took extra arguments, so `new Command("ls", "-l", "-a")` against
+    `Command(String name, String... args)` passed arguments that did not exist. Such a class is compared with every
+    constructor it declares, as one overload set, and Java's, C#'s, Kotlin's, C's and C++'s variadics are named."""
     reading = _section("Reading a form")
     opening = "A call to a class is compared with its constructor"
     constructor = ("A call to a class is compared with its constructor: in Python, the parameters after `self` of the "
@@ -484,8 +524,8 @@ def test_a_call_to_a_class_is_compared_with_its_constructor():
                    "NamedTuple that declares no `__init__` with the fields it generates, in declaration order, base "
                    "fields first, a default marking a field optional, a field kept out of the constructor "
                    "(`init=False`, a `ClassVar`) none of them, and a pydantic model's keyword-only; a TS/JS class with "
-                   "its `constructor(...)`, else its nearest base's; a class in another language with the constructor "
-                   "it declares.")
+                   "its `constructor(...)`, else its nearest base's; a class in another language with the constructors "
+                   "it declares, read as Overload sets says.")
     form = "Any other form that documents a class is compared with that same constructor."
     component = "A component is compared by its props (Components), not its constructor."
     instance = ("A call to an instance is compared with its class's `__call__` (`fn = _FunctionDecorator()`, then "
@@ -496,7 +536,8 @@ def test_a_call_to_a_class_is_compared_with_its_constructor():
                 "receiver is dropped only when the source leads with one too: `(self, a)` against `def f(a)` is a "
                 "mismatch.")
     variadics = ("An argument past the parameters a declaration takes by position exists when it takes `*args`, a "
-                 "TS/JS `...args` or Go's `...T`, and a keyword no parameter names exists when it takes `**kwargs`, so "
+                 "TS/JS `...args`, Go's `...T`, Java's `T...`, C#'s `params T[]`, Kotlin's `vararg` or a C or C++ "
+                 "`...`, and a keyword no parameter names exists when it takes `**kwargs`, so "
                  "`Task(fn, max_chunk_size=512)` matches `__init__(self, executable, *args, **kwargs)`; a pass-through "
                  "`__init__(self, *args, **kwargs)` is compared as written, so any call matches it.")
     outside = ("A class whose constructor is written only in a package outside the source tree (one that declares none "
@@ -614,6 +655,29 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
     assert flowed.index(each) < flowed.index("A form the check binds (`bound`")
 
 
+def test_a_type_naming_some_of_the_other_form_s_union_agrees_in_the_split_body_cross_check():
+    """#1015: Annotations' union rule speaks of the source's union, and the split-body cross-check has no source, so
+    one judge carried it over and found a table's `list[str]` agreeing with a fenced `list[str] | None = None`
+    while another raised a High `split-body-mismatch` on the same pair. The split-body paragraph now carries the
+    rule over, in either direction, for a parameter type only: a return type keeps Annotations' own rule."""
+    rules = _read(RULES)
+    paragraph = _paragraph(rules, "In the split-body cross-check both forms are documented")
+    union = ("A parameter type one form writes that names some of the members of the other form's union agrees with it, "
+             "in either direction, as it does against the source (Annotations): `node_name: list[str]` matches "
+             "`node_name: list[str] | None = None`.")
+    assert union in paragraph
+    # among the paragraph's type readings: after its first sentence, before the ellipsis and omission rules
+    first = "and a parameter's optionality is compared only when both forms state it."
+    ellipsis = "An ellipsis claims nothing about the members it stands for, required ones included."
+    assert paragraph.index(first) < paragraph.index(union) < paragraph.index(ellipsis), "#1015: beside the type rule"
+    assert _flow(rules).count("names some of the members of the other form's union") == 1, "one copy"
+    # the Annotations rule it points at, which keeps the source's union and the return type's own rule
+    annotations = _section("Annotations")
+    assert ("A documented parameter type that names some of the members of the source's union is no mismatch, since a "
+            "caller passing it makes a valid call") in annotations
+    assert "a documented return type must cover every member the source can return." in annotations
+
+
 def test_each_export_s_form_is_read_alone():
     """#843: GAP-105 read a bare-name list's parameters as required because every other row of its Key API Summary
     table wrote defaults. A form is one export's: the rows of other exports state nothing about it."""
@@ -722,6 +786,14 @@ def test_an_annotation_a_form_leaves_out_is_not_compared():
     assert ("A parameter written without a type is not compared on type: its name and order are, and its optionality "
             "as Reading a form says.") in annotations
     assert "Bare `*args` matches `*args: P.args`, and `**kwargs` matches `**kwargs: P.kwargs`." in annotations
+    # #1003: a parameter's or prop's type written as a description gets the reading a return's has, so a Type cell
+    # such as `Pydantic BaseModel` or `Union (many)` has one reading for every judge. It closes the first bullet,
+    # apart from the return bullets, as the parameter-side sentence there.
+    described = ("A parameter's or prop's type written as a description is read as a return type is (below): a "
+                 "description followed by a type (`Pydantic BaseModel`) states that type, and text that names no type "
+                 "(`Union (many)`) states none, so it is not compared, as an unwritten type is not.")
+    [untyped] = [line for line in _read(RULES).splitlines() if line.startswith("- A parameter written without a type")]
+    assert untyped.endswith("`**kwargs: P.kwargs`. " + described), "#1003: on the parameter bullet"
     assert "A return type the form does not state is not compared." in annotations
     assert ("or in its language's own position (Go's result list after the parameters, the type before the name in C, "
             "C++ and Java)") in annotations
@@ -780,6 +852,37 @@ def test_a_return_written_as_value_names_states_no_return_type():
     assert lines[i + 1].endswith("and a description followed by a type (`HTML str`) each state one."), "#957: last"
 
 
+def test_a_return_that_names_alternative_types_after_its_type_states_their_union():
+    """#1042: oms-cognee writes `RememberResult (DryRunEstimate with dry_run=True, ...)` for a function declared
+    `-> Union["RememberResult", "DryRunEstimate", "PresortReport", dict]`. Read as `RememberResult` with a described
+    parenthetical, as `HTML str` is read, it leaves out three members, an untagged Critical; read as the union of
+    every type it names, it is a match. Annotations now gives the union reading, the conditions naming no type, and
+    keeps a type a parenthetical names for another reason a description. score-signatures.py's _states_return
+    already reads such a return as a stated one, and the script never compares return types, so only prose changes.
+    A bullet of its own, so the value-names bullet still ends on its `HTML str` clause. It names both bounds, so an
+    alternative the source never returns is a mismatch for every judge, not only for one that reads past "(below)"."""
+    annotations = _section("Annotations")
+    alternatives = ("- A return written as a type followed by other types it names as alternatives, in a parenthetical "
+                    "or a list, each with an optional condition (`RememberResult (DryRunEstimate with dry_run=True, "
+                    "PresortReport with dry_run=\"presort\", or dict)`, `GraphSnapshot for \"pydantic\", ExportResult "
+                    "for \"cogx\"`), states the union of every type it names, and the words that name no type "
+                    "(`with dry_run=True`, `for \"pydantic\"`) state nothing: it matches the source's union when it "
+                    "names every member and no other: a member it leaves out is a mismatch (below), and so is one the "
+                    "source never returns. A type a parenthetical "
+                    "names other than as an alternative (`Response (see Request)`) is description, so only the type "
+                    "before it is stated.")
+    assert alternatives in annotations
+    lines = _read(RULES).splitlines()
+    values = "- A return written as names of values rather than types,"
+    [i] = [n for n, line in enumerate(lines) if line.startswith(values)]
+    assert lines[i + 1] == alternatives, "#1042: right after the value-names bullet"
+    assert lines[i + 2].startswith("- A type the source leaves unannotated"), "and before the unannotated-type bullet"
+    assert _flow(_read(RULES)).count("other types it names as alternatives") == 1, "one copy"
+    # the rule its "(below)" points at, and the description reading it sets apart, both stay
+    assert "a documented return type must cover every member the source can return." in annotations
+    assert "a description followed by a type (`HTML str`) each state one." in annotations
+
+
 def test_two_spellings_of_one_type_are_no_mismatch():
     spellings = _section("Equivalent spellings")
     for spelling in ("`Optional[X]`, `Union[X, None]` and `X | None`", "`Union[A, B]` and `A | B`",
@@ -795,6 +898,42 @@ def test_two_spellings_of_one_type_are_no_mismatch():
                      "Type arguments the source leaves out are not compared either: the form's `dict[str, Any]` "
                      "matches the source's bare `dict`"):
         assert spelling in spellings, spelling
+    # #999: the three prefixes are examples of a path, not the full set, so a type written through a module the
+    # source imports names the declaration its bare name does, as score-signatures.py's _final_name reads it.
+    assert ("- A name with or without the module or namespace path it is written through, such as a `typing.`, "
+            "`collections.abc.` or `React.` prefix or a module or namespace the source imports under its own name or "
+            "an alias, when both name one declaration: `React.ReactNode` and `ReactNode`; `environment.Environment`, "
+            "after `from . import environment`, and `Environment`; `z.ZodType` and `ZodType`. Two declarations that "
+            "only share a name stay two types.") in spellings
+    assert "with or without its `typing.`" not in spellings, "#999: no closed list of three prefixes"
+    # #1050: a type name has one reading for every judge. A form's name is the type the skill documents or the package
+    # exports, a name the source writes is read in its file's scope, so a local alias that reuses the exported name is
+    # read through the type it names; `source_sig` writes that type by its exported name, so the gap's remediation
+    # never asks for the local spelling the form already copies. A local declaration that is no alias (a local
+    # `interface Options` beside an exported `Options`) keeps its own name, and `source_sig` rewrites only an alias
+    # that reuses a documented or exported name, so neither asks the form for the text it already writes.
+    assert ("- A type alias the source declares and the type it names. A type name a form writes means the type the "
+            "skill documents or the package exports under that name, and the source file's own declaration of it only "
+            "when there is none, or when the file declares the name other than as an alias (a local "
+            "`interface Options`). A name the source writes means the declaration in its file's scope, a local alias "
+            "read through the type it names and an import alias as the type it imports: the documented "
+            "`ThemesParameters['themes']` matches a return of the local "
+            "`type ThemesParameters = Parameters['themes']`, declared over "
+            "`import type { ThemesParameters as Parameters }`. When such an alias reuses a name the skill documents or "
+            "the package exports, a mismatch's `source_sig` writes it as the type "
+            "it names, by its exported name when it has one (`ThemesParameters['themes']`, not the local "
+            "`ThemesParameters`), so the form the gap asks for matches the source.") in spellings
+    # #1003: a Markdown Type cell cannot hold a bare `|`, so Create Skill's tables write a union with `/`; it spells
+    # the union, as score-signatures.py's _type_key reads it, while a `/` alone in a parameter list stays the
+    # positional-only marker Reading a form names.
+    slash = ("- `A / B` written between types in one parameter's or prop's type and `A | B`, as a table's Type cell, "
+             "where a bare `|` cannot stand, writes a union: `str / list[str] / None` and `str | list[str] | None`. "
+             "A `/` written alone in a parameter list stays the positional-only marker (Reading a form).")
+    assert slash in spellings
+    lines = _read(RULES).splitlines()
+    [i] = [n for n, line in enumerate(lines) if line.startswith("- `Optional[X]`, `Union[X, None]` and `X | None`")]
+    assert lines[i + 1] == slash, "#1003: beside the other union spellings"
+    assert "A positional-only `/` or keyword-only `*` marker" in _section("Reading a form"), "the marker it names"
 
 
 def test_every_difference_the_script_accepts_is_defined_in_the_rules_file_alone():
@@ -812,11 +951,14 @@ def test_every_difference_the_script_accepts_is_defined_in_the_rules_file_alone(
     assert TAG_DEFINITION in tags
     assert ("`parameter-name` (only parameter names differ: types, order, optionality and return type equal; a "
             "destructured property is part of a type)") in tags
+    # #1025: a form that writes no parameter list claims nothing about parameters, so its mismatch is tagged too
     assert ("`annotation-contradicted` (only the return type differs: `documented_sig` and `source_sig` write the same "
-            "parameters, and the body returns the documented type at the mismatch's `evidence_line`, as Annotations "
-            "says)") in tags
-    assert ("A parameter or field with a default or a `?`, a TS/JS rest parameter, or a Python `*args` or "
-            "`**kwargs`, is optional") in tags
+            "parameters, or the form writes no parameter list, and the body returns the documented type at the "
+            "mismatch's `evidence_line`, as Annotations says)") in tags
+    # #1023: every language's variadic parameter is optional, as a TS/JS rest parameter is
+    assert ("A parameter or field with a default or a `?`, or a variadic parameter (a TS/JS rest parameter, a Python "
+            "`*args` or `**kwargs`, Go's `...T`, Java's `T...`, C#'s `params T[]`, Kotlin's `vararg` or a C or C++ "
+            "`...`), is optional") in tags
     assert "a Rust `Option<T>` field a struct literal still requires is not" in tags
     assert ("A renamed component prop is never `parameter-name`: callers set props by name, so it is a mismatch with "
             "no tag.") in tags
@@ -851,10 +993,13 @@ def test_a_contradicted_return_annotation_is_a_visible_note_that_never_blocks():
             "too, since the judges read that tree:") in section2b
     assert ("an Info `observation` titled `Annotation contradicted: {name}` (no change to the skill: report the "
             "annotation upstream) for an `annotation-contradicted` one whose facts check (a documented return type, "
-            "the same parameters on both sides, and an `evidence_line` between the declaration and the next one, whose "
-            "line returns in the `--source-root` file)") in section2b
+            # #1025: as scoring-rules.md's Info row and the rules' Difference tags read it
+            "the same parameters on both sides or a form with no parameter list, and an `evidence_line` between the "
+            "declaration and the next one, whose line returns in the `--source-root` file)") in section2b
     [info] = [line for line in _read(SCORING).splitlines() if line.startswith("| Info     | `observation`")]
-    assert ("whose documented signature states a return type and writes the source's parameters, and whose "
+    # #1025: or its form writes no parameter list
+    assert ("whose documented signature states a return type and writes the source's parameters (or its form writes "
+            "no parameter list), and whose "
             "`evidence_line`, the body line that returns the documented type, comes after the declaration and before "
             "the next one and, with the local source, starts with `return` (or is a one-line declaration's own "
             "expression body)") in info
