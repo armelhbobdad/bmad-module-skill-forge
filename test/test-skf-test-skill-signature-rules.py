@@ -427,8 +427,9 @@ def test_a_bound_form_is_compared_with_its_own_declaration_alone():
     assert "a form that writes only a `return_type` gives no `at`" in contract
     assert ("when they name exactly one, at its line or below it, before the next declaration the surface records "
             "in its file (otherwise as it compares any form). For a name declared more than once, a place that writes "
-            "two of its forms that differ (a row that documents one declaration's form and quotes another's as a "
-            "contrast) gives none of them a citation, so each is bound only by its other places") in contract
+            "two of its forms that differ (a row that documents one declaration's form and quotes another current "
+            "declaration's form as a contrast) gives none of them a citation, so each is bound only by its other "
+            "places") in contract
     assert ("A missing or bad `at` (malformed, in another file, on a line that does not write the name, or not the "
             "place `inventory-floor.json` gives that form's `signature`) leaves its form unbound in the same way, and "
             "the validator lists it in its `warnings` instead of refusing the inventory.") in contract

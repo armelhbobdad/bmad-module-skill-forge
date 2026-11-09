@@ -1304,6 +1304,49 @@ def test_a_parameter_table_is_placed_at_the_heading_that_names_it(tmp_path):
         assert "at" not in r["inventory"]["exports"][0]
 
 
+MIGRATION_SKILL = ("# Demo\n\n## Migrating from v0.3\n\n"
+                   "| v0.3.37 (gone) | v1.0.0 (replacement) |\n| --- | --- |\n"
+                   "| `Settings(database=DatabaseConnectionSpec(url=...))` | `Settings(db_path=...)` |\n"
+                   "| `SentenceTransformerEmbed(model=...)` | `embed_text(model=...)` |\n\n"
+                   "| Export | Kind | Before (removed) | Signature |\n| --- | --- | --- | --- |\n"
+                   "| `connect` | function | `connect(url, pool=4)` | `connect(url: str) -> Conn` |\n")
+
+
+def test_a_removed_form_gives_no_entry_and_the_floor_needs_none(tmp_path):
+    """#1038 (oms-cocoindex): the contract gives a form the skill marks as removed or as an earlier version's (a
+    migration table's "v0.3.37 (gone)" column, an export table's "Before (removed)" cell) no entry, whether or not
+    the covered version still exports the name, and the current form beside it is that place's entry. The floor
+    never conflicts with that: a migration table's header gives no origin, and an export table pins only its
+    Signature cell, never the removed one, so an inventory that leaves out every old cell (`SentenceTransformerEmbed`
+    included, a name 1.0.0 no longer exports) and keeps each current form at its row passes --floor (exit 0) with no
+    violation or warning and is written as given. No script changed."""
+    pkg = _package(tmp_path, MIGRATION_SKILL)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("connect", [_floor_origin("SKILL.md", 12, "table-row", {"params": "url: str", "return_type": "Conn"})])], (
+        "only the Signature cell is pinned; no old cell and no migration row gives an origin")
+    exports = [("Settings", "class", {"usage_signature": "Settings(db_path=...)", "description": "",
+                                      "at": "SKILL.md:7"}),
+               ("embed_text", "function", {"usage_signature": "embed_text(model=...)", "description": "",
+                                           "at": "SKILL.md:8"}),
+               ("connect", "function", {"params": "url: str", "return_type": "Conn", "description": "",
+                                        "at": "SKILL.md:12"})]
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*exports).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 1, "checked": 1, "absent": []}
+    assert json.loads(out.read_bytes())["exports"] == [
+        {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each current form kept as given"
+
+
 FACTORY_SKILL = ("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"
                  "| `badgeVariants` | const | `const badgeVariants = cva(…)` |\n\n"
                  "```ts\n// [SRC:src/button.ts:L5]\nexport const buttonVariants = cva(…)\n```\n\n"

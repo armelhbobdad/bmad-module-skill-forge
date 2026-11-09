@@ -1402,6 +1402,38 @@ def test_the_inventory_contract_gives_a_component_constant_a_usage_signature():
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
 
+def test_the_inventory_contract_gives_a_removed_or_earlier_version_form_no_entry():
+    """#1038 (oms-cocoindex): a migration row wrote the old call `Settings(database=DatabaseConnectionSpec(url=...))`
+    in its "v0.3.37 (gone)" column beside the 1.0.0 form of the same class. "Listed once per place, each entry with
+    that place's form" supported recording the old cell, a call passing a keyword the 1.0.0 dataclass lacks (a
+    Critical `signature-mismatch` that blocks the hard gate), and only the reader's own judgment left it out. The
+    contract now says such a form is no form of the current export and gives no entry, even for a name the covered
+    version no longer exports (no Medium `stale-documentation` gap that tells Update Skill to delete an accurate
+    historical row), while the current form beside it is that place's entry; a form marked only deprecated stays a
+    form, and a floor place keeps its entry and its `signature`. It extends the rule for a name documented in several
+    places, which it directly follows, and the contrast clause now names only another current declaration's form."""
+    contract = _flow(_read(INVENTORY_CONTRACT))
+    several = ("A name documented in several places is listed once per place, each entry with that place's form "
+               "(`Card` above), and keeps one `kind` in every place.")
+    removed = ("A form the skill marks as removed, or as the form of a version before the one it covers (a migration "
+               "table's old-version column, a cell or row labelled gone, removed, before or old), is not a form of "
+               "the current export and gives no entry, whether or not the covered version still exports the name, "
+               "so it is never compared and records no gap: the current form beside it is that place's entry.")
+    kept = ("A form marked only deprecated, and still present in the covered version, stays a form, a place "
+            "`inventory-floor.json` gives the name still gives it an entry, and a `signature` the floor gives there "
+            "stays that place's form.")
+    assert f"{several} {removed} {kept}" in contract
+    assert contract.count(removed) == 1 and contract.count(kept) == 1
+    # a migration row's old cell is no second form of the name, so the place quotes no contrast that unbinds the other
+    assert ("a place that writes two of its forms that differ (a row that documents one declaration's form and "
+            "quotes another current declaration's form as a contrast) gives none of them a citation") in contract
+    assert "quotes another's as a contrast" not in contract
+    paragraphs = [_flow(block).strip() for block in re.split(r"\n[ \t]*\n", _read(INVENTORY_CONTRACT))]
+    [paragraph] = [p for p in paragraphs if removed in p]
+    assert paragraph.startswith("The contract `validate-inventory.py` checks"), paragraph[:80]
+    assert "\u2014" not in paragraph and "\u2013" not in paragraph, "no em or en dash"
+
+
 def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms():
     """#967, #970, #973: the contract left three cases to the reader, so one text scored differently between runs. A
     name written only inside another entry's type (`ExceptionContext` in `Callable[[BaseException, ExceptionContext],
@@ -1892,8 +1924,11 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "place.") in section1a
     assert "{the notes §1a to §4b add to this section}" in text
     contract = _flow(_read(INVENTORY_CONTRACT))
-    assert ("and keeps one `kind` in every place. An entry whose `params` or `usage_signature` the signature check "
-            "compares") in contract
+    # after the rule for a name documented in several places and #1038's removed forms, which follow it
+    assert ("and a `signature` the floor gives there stays that place's form. An entry whose `params` or "
+            "`usage_signature` the signature check compares") in contract
+    assert contract.index("and keeps one `kind` in every place.") < contract.index(
+        "An entry whose `params` or `usage_signature` the signature check compares")
     assert ("A place `inventory-floor.json` gives a `signature` (a cited function declaration, a Signature cell, a "
             "Props, Params or Parameters cell that is one code span, or a heading or an export table's first cell "
             "that writes one call; a usage form, such as `new Client(opts)`, in `usage_signature`; a Key params "
