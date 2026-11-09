@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  The Remediation Summary in Test Skill's Gap Report now fills each row's Estimated Effort from the gaps that row counts: each of their categories, in the order its first gap comes, as `{category} ({count}): {action}`, where it used to give one fixed text per severity. A Medium row whose only gap was a `metadata-drift` gap asked to add type definitions, interface docs or the missing section, while the gap itself asked to re-run Create Skill; that row now reads `metadata-drift (1): re-run Create Skill or edit the brief's scope, as each remediation says`, with a note that counts which differ only by `Type::method` entries need no fix. A row with no gaps still reads `None`, the column header and each gap's own entry are unchanged, and no verdict, score, gap or Update Skill routing changes.
+issues: [1047]

@@ -14,9 +14,10 @@ counts and the Gap Report is rendered from:
     while it is being removed is retried until the lock deadline and then
     LEDGER_LOCKED naming the refusal, and a refusal off Windows, with
     nothing at the lock path or with a folder there is WRITE_FAILED
-  - render: severity order, counts, the Remediation Summary, the Gap Entry
-    lines, --heading, the clean pass, errors on stderr only, the group
-    taken from the category
+  - render: severity order, counts, the Remediation Summary (each row's
+    effort from the categories of its gaps, with their counts, #1047), the
+    Gap Entry lines, --heading, the clean pass, errors on stderr only, the
+    group taken from the category
   - summary and categories
   - append --from: each adapter's records (coverage, guards, numerator,
     metadata-coherence, provenance-line, coherence and structure, the
@@ -653,9 +654,64 @@ class TestRender:
         assert "**Non-blocking (Medium + Low + Info):** 2" in text
         assert "### Remediation Summary" in text
         assert "| Low | 0 | None |" in text
-        assert "| Critical | 1 | Read the source code" in text
+        assert f"| Critical | 1 | signature-mismatch (1): {mod.ACTIONS['signature-mismatch']} |" in text
+        assert f"| High | 1 | inaccurate-reference (1): {mod.ACTIONS['inaccurate-reference']} |" in text
         assert "| **Total** | **4** | |" in text
         assert not text.startswith("## Gap Report")
+
+    def test_summary_effort_comes_from_the_rows_categories(self, ledger: Path):
+        """#1047: the Estimated Effort cell was one string per severity, so a Medium row whose only gap was a
+        metadata-drift gap asked for type definitions while the gap asked to re-run Create Skill. Each row now
+        lists the categories of its gaps, in the order its first gap comes, each with its count and action."""
+        append(ledger, "coverage-check", [
+            record(severity="Medium", category="stale-documentation", title="Stale documentation: a", export="a"),
+            record(severity="Medium", category="missing-export", title="Missing export: b", export="b"),
+            record(severity="Medium", category="stale-documentation", title="Stale documentation: c", export="c"),
+            record(severity="Medium", category="metadata-drift", title="barrel drift", source="metadata.json"),
+        ])
+        text = run("render", "--ledger", str(ledger)).stdout
+        assert (f"| Medium | 4 | stale-documentation (2): {mod.ACTIONS['stale-documentation']}; missing-export (1): "
+                f"{mod.ACTIONS['missing-export']}; metadata-drift (1): {mod.ACTIONS['metadata-drift']} |") in text
+        assert "| High | 0 | None |" in text
+
+    def test_a_metadata_drift_row_points_to_create_skill(self, ledger: Path, tmp_path: Path):
+        """The report #1047 found: a Medium row whose only gap is a barrel metadata-drift gap, whose remediation
+        re-runs Create Skill."""
+        result = tmp_path / "coherence.json"
+        result.write_text(json.dumps({"findings": [{"severity": "Medium", "title": "barrel drift: 40 vs 31",
+                                                    "detail": "exports[] holds 31 names"}]}), encoding="utf-8")
+        proc = run("append", "--ledger", str(ledger), "--stage", "coverage-check", "--from", "metadata-coherence",
+                   "--input", str(result))
+        assert proc.returncode == 0, proc.stdout
+        text = run("render", "--ledger", str(ledger)).stdout
+        [row] = [line for line in text.splitlines() if line.startswith("| Medium |")]
+        assert row == f"| Medium | 1 | metadata-drift (1): {mod.ACTIONS['metadata-drift']} |"
+        assert "re-run Create Skill" in row
+        assert "type definitions" not in text
+        assert "Re-run Create Skill" in text.split("**Remediation:**", 1)[1]
+
+    def test_the_brief_scope_stale_action_keeps_the_restored_files(self, ledger: Path):
+        """#1047 review: a stale include glob's row asks for the step #1009's remediation adds, an include glob
+        over each restored file the skill documents, since fixing the glob alone drops its restored exports."""
+        stale = {"applicable": True, "fires": True, "unmatchedInclude": ["python/cocoindex/old/**"],
+                 "restored": [{"name": "App", "file": "python/cocoindex/_internal/app.py", "line": 3}]}
+        records = mod.from_guards({"inputs": {}, "guards": {"staleScope": stale}})
+        assert append(ledger, "coverage-check", records).returncode == 0
+        text = run("render", "--ledger", str(ledger)).stdout
+        [row] = [line for line in text.splitlines() if line.startswith("| Medium |")]
+        assert row == f"| Medium | 1 | brief-scope-stale (1): {mod.ACTIONS['brief-scope-stale']} |"
+        for needle in ("edit the brief's stale scope globs", "a `scope.include` glob over each restored file",
+                       "a `scope.exclude` one for each it leaves out"):
+            assert needle in row, needle
+        assert "add a `scope.include` glob that covers it" in text.split("**Remediation:**", 1)[1]
+
+    def test_every_category_has_one_cell_safe_action(self):
+        # a pipe ends the table cell, and `; ` parts one category's entry from the next
+        assert set(mod.ACTIONS) == set(mod.CATEGORIES)
+        for category, action in mod.ACTIONS.items():
+            assert action and action == action.strip(), category
+            assert not {"|", ";", "\n", chr(0x2014)} & set(action), category
+            assert not action[0].isupper(), category
 
     def test_gap_entry_lines(self, ledger: Path):
         _mixed_ledger(ledger)

@@ -1712,7 +1712,7 @@ class TestOutputFormats:
             "### Remediation Summary",
             "| Severity | Count | Estimated Effort |",
             "|----------|-------|------------------|",
-            f"| Critical | 1 | {gap_ledger.EFFORT['Critical']} |",
+            f"| Critical | 1 | signature-mismatch (1): {gap_ledger.ACTIONS['signature-mismatch']} |",
             "| High | 0 | None |",
             "| Medium | 0 | None |",
             "| Low | 0 | None |",

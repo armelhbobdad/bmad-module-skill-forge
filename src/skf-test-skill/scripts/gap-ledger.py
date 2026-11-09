@@ -320,7 +320,10 @@ cites (never read; default `metadata.json`):
   render --ledger <path> [--heading]
       Print the Gap Report body in Markdown on stdout: the totals, the
       Remediation Summary table and one Gap Entry per record, Critical first,
-      then by id. Each entry names its category as `{group} ({category})`,
+      then by id. A summary row's Estimated Effort lists each category of
+      its gaps, in the order its first gap comes, as `{category} ({count}):
+      {action}` (ACTIONS), or `None` for a row with no gap (#1047).
+      Each entry names its category as `{group} ({category})`,
       which skf-parse-gaps.py reads back for a report whose ledger is gone.
       --heading adds the `## Gap Report` line. With no records the body says
       no gaps were found.
@@ -447,13 +450,51 @@ REQUIRED_FIELDS = ("severity", "category", "title", "source", "remediation")
 OPTIONAL_FIELDS = ("issue", "export")
 ASSIGNED_FIELDS = ("id", "group", "stage")
 
-# The Remediation Summary's Estimated Effort column, per severity.
-EFFORT = {
-    "Critical": "Read the source code and write or correct the documentation",
-    "High": "Read the source code and write or correct the documentation",
-    "Medium": "Add type definitions, interface docs or the missing section",
-    "Low": "Add examples or metadata",
-    "Info": "Optional improvements, no action required",
+# The Remediation Summary's Estimated Effort column, per category: what a gap of each category asks, worded to fit
+# every remediation of that category and update-skill's routing of it (gap-driven.md). Severity does not decide the
+# fix, so a row lists the categories of its gaps, each with its count and action, joined with `; `, which no action
+# holds (#1047).
+ACTIONS = {
+    "missing-export": "document each export from its definition in the source",
+    "signature-mismatch": "update each documented signature to the one the source defines",
+    "fabricated-signature": "remove each name from the skill, or correct it to the export the source defines",
+    "stale-documentation": "check each name against the source and the brief's scope, then update or remove its "
+                           "documentation or fix the scope (Update Skill does not repair it)",
+    "missing-type": "document each type, with its fields or members, from the source",
+    "provenance-completeness": "add a provenance map entry for each documented export the map lacks",
+    "provenance-line": "point each provenance entry at the file and line that define its export, and move its "
+                       "citations there",
+    "provenance-unverified": "check by hand which line defines each export, then correct its provenance entry as "
+                             "its remediation says",
+    "metadata-drift": "re-run Create Skill or edit the brief's scope, as each remediation says (counts that differ "
+                      "only by `Type::method` entries need no fix, and a hand edit of the counts does not hold)",
+    "denominator-inflation": "list the files of the authored surface in the brief's `scope.tier_a_include`, as each "
+                             "remediation says",
+    "brief-scope-stale": "edit the brief's stale scope globs by hand so each matches the files it meant, and add a "
+                         "`scope.include` glob over each restored file the skill documents (a `scope.exclude` one "
+                         "for each it leaves out), as each remediation says (Update Skill does not rewrite them)",
+    "numerator-inflation": "document the absent exports in SKILL.md or references/, reading each from the source",
+    "multi-denominator": "none, since the barrel and the documented surface measure different sets by design",
+    "migration-section": "make SKILL.md's migration section match the T2-future annotation data, as each "
+                         "remediation says",
+    "broken-reference": "point each reference at a target that exists, or remove it",
+    "inaccurate-reference": "correct each reference so it matches its target",
+    "reference-escape": "point each reference inside the skill package or its source tree, or remove it",
+    "integration-pattern": "add to each integration pattern the evidence its issue names as missing",
+    "split-body-mismatch": "correct the file each Source names, so both files document the export alike",
+    "scripts-assets": "add or correct SKILL.md's Scripts & Assets section so it lists each file in `scripts/` and "
+                      "`assets/`",
+    "scripts-assets-provenance": "add each file's row to the provenance map's `file_entries`, or remove the file "
+                                 "from the skill",
+    "structural": "fix each section, code fence, table row or usage example as its remediation says",
+    "metadata": "add the missing optional metadata or examples",
+    "observation": "apply each only when you agree, as its remediation says, since it is advisory (a documented "
+                   "extra needs no change)",
+    "discovery": "add to the description the trigger phrases each remediation names, or run the skipped discovery "
+                 "test as its remediation says",
+    "description": "edit the SKILL.md frontmatter description as each gap suggests",
+    "external-validator": "apply each skill-check diagnostic or Tessl Review suggestion to SKILL.md as its "
+                          "remediation says",
 }
 
 _ID_RE = re.compile(r"^GAP-(\d{3,})$")
@@ -2142,7 +2183,12 @@ def render_gap_report(ledger: dict, heading: bool = False) -> str:
         "|----------|-------|------------------|",
     ]
     for severity in SEVERITIES:
-        effort = EFFORT[severity] if counts[severity] else "None"
+        # each category of the row's gaps, in the order its first gap comes (#1047)
+        by_category: dict[str, int] = {}
+        for gap in records:
+            if gap["severity"] == severity:
+                by_category[gap["category"]] = by_category.get(gap["category"], 0) + 1
+        effort = "; ".join(f"{c} ({n}): {ACTIONS[c]}" for c, n in by_category.items()) or "None"
         lines.append(f"| {severity} | {counts[severity]} | {effort} |")
     lines += [f"| **Total** | **{len(records)}** | |", ""]
     for record in records:
