@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory reader now reads only the skill under test: its `SKILL.md`, the `references/*.md` files, `inventory-floor.json`, the inventory contract and the signature rules. It never opens another run's folder under `_bmad-output/.skf-run/`, a test report, a `test-findings-*.json` ledger or a `skf-test-skill-result-*.json` file. A halted run keeps its folder, and a reader that opened it could copy that run's inventory and cross-check mismatches into a run meant to test the skill afresh, so two runs could agree only because one copied the other. The rule sits in the inventory contract the reader reads itself, so it holds whatever the reader's prompt says. Readings that were copied from an earlier run may now differ.
+issues: [1036]

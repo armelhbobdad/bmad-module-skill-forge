@@ -1519,6 +1519,42 @@ def test_the_inventory_subagent_writes_its_own_response():
             "absent or empty") in doc
 
 
+def test_the_inventory_reader_reads_the_skill_alone():
+    """#1036: the §1 reader reads only the files §1 hands it, and never an earlier run's folder, test report,
+    ledger or result file, which halted runs leave beside `{run_dir}`, so its inventory reads the skill alone and
+    copies no earlier run's readings. The rule names those files outright and lives in the contract the reader is
+    handed by absolute path and reads itself, so it reaches the reader whatever the parent's prompt says, and
+    coverage-check.md stays under its budget."""
+    text = _read(INVENTORY_CONTRACT)
+    scope = ("The reader in coverage-check.md §1 reads only the files that section hands it: SKILL.md, the "
+             "`references/*.md` files, `inventory-floor.json`, this contract and signature-comparison-rules.md. It "
+             "never opens another run's folder under `_bmad-output/.skf-run/`, a test report, a "
+             "`test-findings-*.json` ledger or a `skf-test-skill-result-*.json` file, so its inventory reads the "
+             "skill alone.")
+    [paragraph] = [p for p in text.split("\n\n") if p.startswith("The reader in coverage-check.md §1 reads only")]
+    assert scope in _flow(paragraph)
+    assert text.index(paragraph) < text.index("```json"), "before the JSON shape, the first thing the reader reads"
+    assert "\u2014" not in paragraph and "\u2013" not in paragraph, "no em or en dash"
+    # The files it may read are the ones §1 hands it; the contract reaches the reader by absolute path, and without
+    # subagents the parent loads it and builds the inventory under the same rule.
+    coverage = _read(COVERAGE)
+    section1 = _flow(_slice(coverage, "### 1. Extract Documented Exports", "#### 1a."))
+    for handed in ("given `{run_dir}` and the path to SKILL.md and to its `references/` directory",
+                   "It is given `{run_dir}/inventory-floor.json` too",
+                   "`{signatureRulesFile}`, whose absolute path (under `{skill-root}`) it is given",
+                   "in `{inventoryContractFile}`, whose absolute path (under `{skill-root}`) the subagent is given",
+                   "Without subagents, the parent loads `{inventoryContractFile}`"):
+        assert handed in section1, handed
+    assert f"signatureRulesFile: 'references/{SIGNATURE_RULES.name}'" in coverage
+    # The earlier-run files it names are the ones a run leaves: its run folder, report, ledger and result record.
+    assert 'mkdir -p "{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}"' in _read(INIT)
+    assert "ledgerFile: '{forge_version}/test-findings-{run_id}.json'" in coverage
+    report = _read(REPORT)
+    assert "publishedReportFile: '{forge_version}/test-report-{skill_name}-{run_id}.md'" in report
+    assert "It writes `{forge_version}/skf-test-skill-result-{YYYYMMDD-HHmmss}.json`" in report
+    assert len(coverage) < COVERAGE_CHAR_BUDGET
+
+
 @pytest.mark.parametrize("left", ["absent", "empty"])
 def test_an_inventory_file_left_absent_or_empty_is_saved_before_it_is_validated(tmp_path, left):
     """#814: a subagent that returned the JSON, or wrote nothing, leaves no response to validate: the §1a command

@@ -1,5 +1,7 @@
 # Documented Inventory Contract
 
+The reader in coverage-check.md §1 reads only the files that section hands it: SKILL.md, the `references/*.md` files, `inventory-floor.json`, this contract and signature-comparison-rules.md. It never opens another run's folder under `_bmad-output/.skf-run/`, a test report, a `test-findings-*.json` ledger or a `skf-test-skill-result-*.json` file, so its inventory reads the skill alone.
+
 The JSON coverage-check.md §1's reader writes to `{run_dir}/inventory-response.txt`: every export the skill documents, in this shape.
 
 ```json
