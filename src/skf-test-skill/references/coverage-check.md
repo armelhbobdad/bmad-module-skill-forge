@@ -134,13 +134,13 @@ The surface holds what `{sourceAccessProtocol}` **What the Surface Holds** says 
 - In the Coverage Analysis section, list each `readByEye` file as read by eye, each `extraction.unread` file as unread.
 - `extractionGaps[]` names exports no recipe found: on the surface, judged below when documented and located; read none by eye.
 
-**Compare the signatures.** A script lists the comparisons; subagents judge them:
+**Compare the signatures.** A script plans; subagents judge:
 
 ```bash
 uv run {scoreSignaturesScript} plan --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --skill-dir "{resolved_skill_package}" --output "{run_dir}/signature-plan.json"
 ```
 
-For each `files[]` entry, delegate one subagent with its checks and the absolute path of `{signatureRulesFile}` (under `{skill-root}`). For each check it reads the full declaration at `{file}:{line}` (all of it: `signatureLine` is one physical line, and a multi-line signature cut there reads as a mismatch), compares it with the check's `documented` signature by the rules of that file, and returns only this JSON, with no prose and no markdown fences:
+For each `files[]` entry, delegate one subagent with its checks and the absolute path of `{signatureRulesFile}` (under `{skill-root}`). For each check it reads the full declaration at `{file}:{line}` (all of it, not only `signatureLine`'s one physical line; with `line` null, find it in `{file}` and give its mismatch that line), compares it with the check's `documented` signature by the rules of that file, and returns only this JSON, with no prose and no markdown fences:
 
 ```json
 {"file": "src/utils.ts", "signature_mismatches": [{"name": "formatDate", "line": 42, "source_sig": "(date: Date, format?: string) => string", "documented_sig": "(date: Date) => string", "issue": "missing optional parameter 'format'", "difference": "omitted-optional"}]}
@@ -148,7 +148,7 @@ For each `files[]` entry, delegate one subagent with its checks and the absolute
 
 Tag a mismatch's `difference` as `{signatureRulesFile}` says: `score` (§2b) checks the facts. One tagged `annotation-contradicted` also gives `evidence_line`, the body line that returns the documented type.
 
-A check with `candidates` reads each and reports a mismatch only when the documented signature matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the result's `file` stays its `files[]` entry) and its `difference` tagged against it.
+A check with `candidates` reads each as above and reports a mismatch only when the documented signature matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the result's `file` stays its `files[]` entry) and its `difference` tagged against it.
 
 A check with `alternatives` (the other forms the skill documents for the name) is compared with each of them too, as `{signatureRulesFile}` says, each mismatch naming its form as `form`.
 

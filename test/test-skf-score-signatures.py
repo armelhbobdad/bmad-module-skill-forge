@@ -2133,6 +2133,46 @@ def test_the_extraction_s_line_wins_in_its_file(tmp_path, exports, at, candidate
     assert [(c["file"], c["line"]) for c in check.get("candidates", [])] == candidates
 
 
+def test_a_by_eye_record_alone_plans_no_line_and_is_scored_at_the_judge_s(tmp_path):
+    """#1022: a name read by eye alone in its file has a per-file record, which lists names only, so plan writes its
+    check, and a form bound to it, with `line` and `signatureLine` null, as the module docstring's plan output says.
+    coverage-check.md section 2 tells the judge to find the declaration in that file and give its line on the
+    mismatch: score records it there, bound or not. A mismatch that copies the null `line` breaks the schema."""
+    doc = " ".join(mod.__doc__.split())
+    assert ("`line` and `signatureLine` are null on a check, a candidate or a `bound` entry whose surface record has "
+            "no line: a name read by eye alone in its file, whose per-file result lists names only, or a record "
+            "with no file.") in doc
+    # A check whose record has no file names no file to read, so the docstring never says a judge finds it there.
+    assert ("The judge finds a declaration that has a file in that `file` and gives its mismatch the line it found "
+            "there (#1022). A check whose record has no file sits under the `files[]` entry \"\", which names no file "
+            "to read: a judge reads only its `bound` forms, each at its bound declaration.") in doc
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n`configure(path, *, strict=False)` reads [AST:{CONFIG}].\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [CONFIGURE_FORMS[0]], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {"exports": [CONFIGURE_BY_EYE], "sets": {"all": ["configure"]}})
+    found = {"name": "configure", "line": 132, "source_sig": "(path)", "documented_sig": "(path, *, strict=False)",
+             "issue": "the source takes no `strict`"}
+    for skill in (["--skill-dir", str(tmp_path / "skill")], []):
+        plan = tmp_path / "signature-plan.json"
+        proc = _run("plan", "--inventory", inventory, "--surface", surface, *skill, "--output", str(plan))
+        assert proc.returncode == 0, proc.stderr
+        [check] = json.loads(proc.stdout)["files"][0]["checks"]
+        assert (check["line"], check["signatureLine"]) == (None, None)
+        assert check.get("bound", []) == ([{"form": 0, "file": CONFIG, "line": None, "signatureLine": None}]
+                                          if skill else [])
+        for line, code in ((132, 0), (None, 2)):
+            results = _write(tmp_path / "s.txt", json.dumps({"file": CONFIG, "signature_mismatches": [
+                {**found, "line": line}]}))
+            proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan),
+                        "--results", results)
+            assert proc.returncode == code, proc.stdout + proc.stderr
+            out = json.loads(proc.stdout)
+            if code:
+                assert out["violations"] == ["s.txt.signature_mismatches[0]: `line` must be a line number (an "
+                                             "integer from 1)"]
+            else:
+                assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(CONFIG, 132)]
+
+
 @pytest.mark.parametrize("exports", [
     [{**CONFIGURE_BY_EYE, "file": f"./{CONFIG}"}, CONFIGURE_RECORD, LEGACY_RECORD],
     [CONFIGURE_BY_EYE, CONFIGURE_RECORD, LEGACY_RECORD],

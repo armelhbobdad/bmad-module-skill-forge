@@ -1791,8 +1791,15 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     assert "`extraction.fallback.needed`" in forge and "`extraction.readByEye`" in forge
     assert "the recipes' internal matches are never part of it" in _flow(_read(SOURCE_ACCESS))
     assert "reads the full declaration at `{file}:{line}`" in forge
+    # #1022: plan writes a null `line` for a name read by eye alone in its file (as a check, a candidate or a bound
+    # declaration); the judge finds the declaration in its file and gives that line on the mismatch, never the null
+    # `score` refuses. The candidate and bound sentences read their declarations "as above", so a candidate with a
+    # null `line` beside a check that has one is found in the candidate's own file.
+    assert ("reads the full declaration at `{file}:{line}` (all of it, not only `signatureLine`'s one physical line; "
+            "with `line` null, find it in `{file}` and give its mismatch that line)") in forge
+    assert "read in full at its `file` and `line` as above" in forge
     # #781: a check the citations do not settle names each candidate
-    assert ("A check with `candidates` reads each and reports a mismatch only when the documented signature "
+    assert ("A check with `candidates` reads each as above and reports a mismatch only when the documented signature "
             "matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the "
             "result's `file` stays its `files[]` entry) and its `difference` tagged against it") in forge
     # #826: a check that offers a name's other documented forms is compared with each, by the rules file

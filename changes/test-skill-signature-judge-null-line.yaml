@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's Forge-tier signature judges now know what to do with a check, a candidate or a bound declaration that the signature plan gives a null `line` and `signatureLine`, as it does for a name read by eye alone in its file (a per-file result lists names only): the judge finds the declaration in that file and gives the line it found on its mismatch. Before, the step told the judge to read the declaration at `{file}:{line}` and to copy `file` and `line` onto the mismatch, so a judge that copied the null broke the result schema: `score-signatures.py score` exited 2, the run sent that judge back once, and a second such result halted the coverage check (`helper-failed`). The documentation of `score-signatures.py` now says when `plan` writes these fields as null. Scores do not change.
+issues: [1022]

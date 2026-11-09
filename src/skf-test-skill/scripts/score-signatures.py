@@ -287,6 +287,14 @@ Output (stdout; --output also writes it, --gaps-output writes the records):
           citations name one declaration of the name)}]}],
           "documentedSignatures": {...}, "documentedAlternatives": {name:
           [{...}], for each name with alternatives}}
+         `line` and `signatureLine` are null on a check, a candidate or a
+         `bound` entry whose surface record has no line: a name read by eye
+         alone in its file, whose per-file result lists names only, or a
+         record with no file. The judge finds a declaration that has a file
+         in that `file` and gives its mismatch the line it found there
+         (#1022). A check whose record has no file sits under the `files[]`
+         entry "", which names no file to read: a judge reads only its
+         `bound` forms, each at its bound declaration.
   score: {"valid": true, "signatureAccuracy", "matchingSignatures",
           "totalDocumented", "comparedNames": [the names compared],
           "typeCoverage", "documentedTypes", "totalTypes",
