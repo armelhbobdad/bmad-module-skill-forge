@@ -1593,10 +1593,12 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     with no mark, so it states no optionality. Each sentence sits at its place on the contract's paragraph, and
     coverage-check.md, which loads the contract, does not grow. #1019: the call expression is one of the entry's own
     name, so `const badgeVariants = cva(…)`, a call after an assignment, is a form of `cva`, never of
-    `badgeVariants`, while `h = await coco.mount(fn)` stays a form of `mount`."""
+    `badgeVariants`, while `h = await coco.mount(fn)` stays a form of `mount`. #1014: in running text or a
+    description cell the sentence takes only a call that passes an argument, so `await cognee.disconnect()` in prose
+    stays the mention the sentence before it makes it, never also a usage."""
     s1 = ("A function's or a class's form the skill writes as a call expression of its own name (after `await`, "
           "`new` or an assignment, through a receiver or module path such as `coco.`, or as a statement in a "
-          "fenced example), at "
+          "fenced example; in running text or a description cell, only a call that passes an argument), at "
           "a place `inventory-floor.json` gives no `signature` (below), is recorded whole in `usage_signature`, never "
           "in `params`, whatever names its arguments use, and a return type the skill writes for it in "
           "`return_type`, while a class's form written as a parameter list or a signature stays in `params` (`Note` "

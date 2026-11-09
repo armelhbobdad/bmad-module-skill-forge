@@ -6,7 +6,7 @@ Every signature judge compares by these rules: coverage-check.md §1's split-bod
 
 A form claims only what it writes, and only what it claims is compared. Its parameter list claims each parameter it lists, in that order, and no other: a parameter it leaves out is one it says the export does not take (Difference tags say when that is `omitted-optional`). A type or a return type it does not write claims nothing (Annotations). An entry with no `params` key and no usage form writes no parameter list: it claims nothing about parameters, and only what it writes, such as its return type, is compared. `params: ""` or `[]` claims the export takes none.
 
-A name written with empty parentheses in running text or a description cell is a mention, not a form: it claims nothing and is not compared. A description cell is any table cell but an export table's first cell and a cell whose column writes the call or signature, by its role (Signature, Props, Params, Parameters, Arguments, Usage, Syntax, Example and the like); a heading or an export table's first cell that writes `name()` is a form, an empty call (below).
+A name written with empty parentheses in running text or a description cell is a mention, not a form, whatever comes before the name (`await`, `new`, an assignment, a receiver or a module path): it claims nothing and is not compared. A description cell is any table cell but an export table's first cell and a cell whose column writes the call or signature, by its role (Signature, Props, Params, Parameters, Arguments, Usage, Syntax, Example and the like); a heading or an export table's first cell that writes `name()` is a form, an empty call (below).
 
 Three kinds of form do not claim a complete parameter list:
 
