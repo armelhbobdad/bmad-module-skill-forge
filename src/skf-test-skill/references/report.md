@@ -202,7 +202,7 @@ test-skill delegates its terminal step to the shared health-check. Install
 the SKF module or run from a development checkout with src/ present.
 ```
 
-**Renew the run lock** before anything below writes. The lock init.md §6a took goes stale 60 minutes after it was taken, and a long run can outlast that; an acquire by the owner that holds the lock renews it. From `{project-root}`, run:
+**Renew the run lock** before anything below writes. The lock init.md §6a took goes stale 60 minutes after it was taken or last renewed, and the steps since the last renewal can outlast that; an acquire by the owner that holds the lock renews it. From `{project-root}`, run:
 
 ```bash
 uv run {runLockHelper} acquire --lock "{forge_version}/.test-skill.lock" --owner "{run_owner}"

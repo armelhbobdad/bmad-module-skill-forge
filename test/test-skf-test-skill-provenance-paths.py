@@ -607,6 +607,50 @@ def test_report_renews_the_lock_before_it_writes_the_result_files(tmp_path):
     assert taken_over.returncode == 3 and json.loads(taken_over.stdout)["acquired"] is False
 
 
+def test_each_subagent_dispatch_renews_the_lock(tmp_path):
+    """#1044: the coverage reader, the signature judges and the discovery subagents
+    all run before report.md §4c, and the lock goes stale 60 minutes after it was
+    taken or last renewed, so SKILL.md has the run renew it as each dispatch returns
+    and before the discovery subagents start, until report.md §7 releases it. A run
+    without subagents does that work in the main thread (coverage-check.md §1 and §2,
+    coherence-check.md), so it renews as that work ends."""
+    rules = _slice(_read(SKILL_MD), "## Workflow Rules", "## Stages")
+    rule = _flow(next((line for line in rules.splitlines() if RENEW in line), ""))
+    for needle in ("renew the run lock each time a subagent dispatch returns",
+                   "(once for parallel calls sent in one message)",
+                   "or, without subagents, the main thread finishes the work a step gives a subagent",
+                   "before report.md §4b.2 spawns its discovery subagents",
+                   "until report.md §7 releases it", "60 minutes after it was taken or last renewed",
+                   "Exit 3 (another run took the lock over) HALTs `another-run-active`",
+                   "exit 1 or 2, or no JSON, HALTs `helper-failed`",
+                   "phase `<step>:run-lock` (`coverage-check:run-lock`, say)"):
+        assert needle in rule, needle
+    # Its HALTs come after §6a, so the release rule above it covers them.
+    assert rules.index(RELEASE) < rules.index(RENEW)
+    assert "report.md §4c renews the lock through it" not in _read(INIT)
+    assert "goes stale 60 minutes after it was taken or last renewed" in _flow(_read(REPORT))
+    docs = _flow(_slice(_read(REPO_ROOT / "docs" / "troubleshooting.md"),
+                        "### Test Skill stops with `another-run-active`", "\n### "))
+    assert "`coverage-check:run-lock`" in docs and "one of two points" not in docs
+    # The report step renews around its discovery subagents too, under the same phase as §4c's renewal.
+    assert "`report:run-lock` around its discovery subagents or just before it writes its results" in docs
+    assert "or, without subagents, the main thread finishes a subagent's work" in docs
+    init_comments = _flow(_read(INIT).replace("\n#", ""))
+    assert "or, without subagents, as the main thread finishes a subagent's work" in init_comments
+
+    # A renewal restarts the window even on a lock past it, so a second run is refused.
+    forge_version = tmp_path / "v"
+    owner = json.loads(_run(ACQUIRE, _lock_values(forge_version), tmp_path).stdout)["owner"]
+    lock = forge_version / ".test-skill.lock"
+    lock.write_text(json.dumps({"owner": owner, "acquired_at": "2000-01-01T00:00:00Z",
+                                "tool": "skf-run-lock"}) + "\n", encoding="utf-8")
+    renewed = _run(RENEW, _lock_values(forge_version, run_owner=owner), tmp_path)
+    kept = json.loads(renewed.stdout)
+    assert renewed.returncode == 0 and kept["refreshed"] is True and kept["held_since"] != "2000-01-01T00:00:00Z"
+    second = _run(ACQUIRE, _lock_values(forge_version), tmp_path)
+    assert second.returncode == 3 and json.loads(second.stdout)["held_by"] == owner
+
+
 @pytest.mark.parametrize("name", AFTER_THE_LOCK)
 def test_every_halt_after_the_lock_releases_it(name):
     text = _read(REFS / name)
@@ -650,10 +694,16 @@ def test_the_contract_documents_the_lock():
     text = _read(CONTRACT)
     row = next(line for line in text.splitlines() if line.startswith("| **Concurrency** |"))
     for needle in ("`{forge_version}/.test-skill.lock`", "`skf-run-lock.py`", "report.md §4c renews it",
-                   '`halt_reason: "another-run-active"`', "(exit 1)"):
+                   '`halt_reason: "another-run-active"`', "(exit 1)",
+                   "SKILL.md Workflow Rules renew it each time a subagent dispatch returns",
+                   "or, without subagents, the main thread finishes the work a step gives a subagent"):
         assert needle in row, needle
     envelope = _slice(text, "## Result Envelope (Headless)", "## Result Files")
     assert "| `another-run-active` |" in envelope
+    # #1044: both reasons a renewal halts name the renewals SKILL.md asks for.
+    for reason in ("another-run-active", "helper-failed"):
+        reason_row = next(line for line in envelope.splitlines() if line.startswith(f"| `{reason}` |"))
+        assert "the lock renewals of SKILL.md Workflow Rules" in reason_row, reason
     records = _flow(_slice(text, "## Result Files", "## Emitting a Halt"))
     assert "`skf-test-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; it picks the name" in records
     assert "PID" not in records
