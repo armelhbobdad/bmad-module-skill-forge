@@ -137,13 +137,22 @@ cites (never read; default `metadata.json`):
             heading, or the first cell of a table whose header's first
             cell names exports (floor's table headers, a compound
             `Component / Props` one included), whose text is the
-            name or holds a code span floor reads as the name; (3) a line
-            whose inline code span is the name, or the name directly
-            followed by `(`; (4) a line whose code span, or the text of a
-            heading or first cell (2) reads, cut at a call's `(`, is a
-            dotted path of plain identifiers whose last segment is the
-            name: a module path, `cognee.exceptions` for `exceptions`
-            (#1011); (5) a column-0 declaration of it in a fenced
+            name or holds a code span floor reads as the name, or whose
+            text or code span, cut as floor cuts a name, is a module path
+            whose last segment is the name
+            (`cognee.run_migrations()` for `run_migrations`, #1041); (3) a
+            line whose inline code span is the name, the name directly
+            followed by `(`, or a usage form that calls it (an assignment,
+            `await`, `new` or a module path, then the name directly followed
+            by `(`: `await cognee.add(data)`, #1041); (4) a line whose
+            code span, cut at a call's `(`, is a module path whose last
+            segment is the name, `cognee.exceptions` for `exceptions`
+            (#1011), a module path being a dotted path of plain identifiers
+            whose first segment is a module the skill's fenced code imports
+            (`import cognee`, `from cognee.x import y`, `import a.b as c`,
+            `import * as ns from`), never a receiver's or a type's path
+            (`client.connect(url)`, `Client.connect`); (5) a column-0
+            declaration of it in a fenced
             block of a language floor's `_declared_names` reads (JS/TS,
             Python, Rust, Go), cited or not, so a def an example writes
             under the name is cited only when nothing above documents it;
@@ -455,6 +464,16 @@ _RUN_ID_FROM_NAME = re.compile(r"^test-findings-(.+)\.json$")
 _QUOTED_RE = re.compile(r"""(?=(["'])([^"'\n]+)\1)""")
 # A dotted path of plain identifiers (`cognee.exceptions`), its last segment group 1 (#1011).
 _MODULE_PATH_RE = re.compile(r"[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*\.([A-Za-z_$][\w$]*)")
+# A plain identifier directly followed by `(`, group 1: the name a usage form calls after its prefix (#1041).
+_CALLED_RE = re.compile(r"([A-Za-z_$][\w$]*)\(")
+# The dotted path a usage prefix ends with (`cognee.` in `await cognee.`), its first segment group 1.
+_RECEIVER_RE = re.compile(r"([A-Za-z_$][\w$]*)\.(?:[A-Za-z_$][\w$]*\.)*$")
+# A fenced line that imports a module under a name: Python's `import a.b [as c], d` (group 1) and `from a.b import`
+# (group 2, `a` the root; a relative import binds none), JS/TS's `import * as ns from` (group 3). A dotted path
+# qualifies a name only when its first segment is such a module, never a receiver or a type (`client.`, `Client.`).
+_IMPORT_RE = re.compile(
+    r"\s*(?:import\s+([A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?(?:\s*,\s*[A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?)*)"
+    r"\s*;?\s*$|from\s+([A-Za-z_]\w*)[\w.]*\s+import\b|import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\b)")
 
 
 class LedgerError(Exception):
@@ -955,6 +974,45 @@ def _provenance_sources(provenance: dict | None) -> dict[str, str]:
     return sources
 
 
+def _module_path_name(text: str, roots: frozenset[str]) -> str | None:
+    """The last segment of the dotted path of plain identifiers `text` writes once floor's `_floor_name` cuts are
+    made, a leading `new ` and everything from the first `(`, `<` or `[` (`run_migrations` for
+    `cognee.run_migrations()`, #1041), when the path's first segment is one of the modules the skill imports
+    (`roots`, `_module_roots`); None for any other text, an array type (`pkg.Foo[]`) or a path through a receiver or
+    a type (`client.connect`, `Client.connect`) among them."""
+    text = text.strip()
+    if text.startswith("new "):
+        text = text[4:]
+    cut = re.match(r"([^(<\[]*)(\[\s*\])?", text)
+    module = None if cut.group(2) else _MODULE_PATH_RE.fullmatch(cut.group(1).strip())
+    return module.group(1) if module and cut.group(1).strip().split(".", 1)[0] in roots else None
+
+
+def _module_roots(files: list[tuple[str, list[str]]], segments, coverage) -> frozenset[str]:
+    """The names the skill's fenced code imports a module under (`_IMPORT_RE`): `cognee` for `import cognee` or
+    `from cognee.x import y`, `c` and `a` for `import a.b as c`, `ns` for `import * as ns from 'x'`. Read from every
+    fence `_documenting_lines` reads (not one in an HTML comment or a data block), comments and strings masked,
+    never the frontmatter."""
+    roots: set[str] = set()
+    for _rel, lines in files:
+        start = segments._frontmatter_end(lines)
+        blocks, code = segments._fenced_blocks(lines, start)
+        comments = coverage._html_comment_lines(lines, start, code)
+        for opening, closing, info in blocks:
+            language = segments._language(info)
+            if opening in comments or language in segments.DATA_LANGUAGES:
+                continue
+            for line in segments.mask_code("\n".join(lines[opening + 1:closing]), language).split("\n"):
+                match = _IMPORT_RE.match(line)
+                if match and match.group(1):
+                    for part in match.group(1).split(","):
+                        module, *alias = re.split(r"\s+as\s+", part.strip())
+                        roots.update([module.split(".", 1)[0], *alias])
+                elif match:
+                    roots.add(match.group(2) or match.group(3))
+    return frozenset(roots)
+
+
 def _documenting_lines(skill_dir: Path) -> dict[str, str]:
     """name -> the `file:line` that documents it as an export, the first tier
     that holds the name winning:
@@ -965,13 +1023,18 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
       2. a heading, or the first cell of a table whose header's first cell
          names exports (floor's `_floor_table_header`: `Functions`, `Queries`,
          `Component / Props`), whose stripped text is the name
-         or holds a code span floor's `_floor_name` reads as the name;
-      3. a line whose inline code span, stripped, is the name, or the name
-         directly followed by `(`;
-      4. a line whose inline code span, or the text of a heading or
-         export-table first cell tier 2 reads, stripped and cut at a call's
-         `(`, is a dotted path of plain identifiers whose last segment is the
-         name: a module path, `cognee.exceptions` for `exceptions` (#1011);
+         or holds a code span floor's `_floor_name` reads as the name, or
+         whose text or code span, once `_floor_name`'s cuts are made, is a
+         module path whose last segment is the name
+         (`cognee.run_migrations()` for `run_migrations`, #1041);
+      3. a line whose inline code span, stripped, is the name, the name
+         directly followed by `(`, or a usage form that calls it: floor's
+         `USAGE_PREFIX_RE` prefix (an assignment, `await`, `new` or a module
+         path), not empty, then the name directly followed by `(`
+         (`await cognee.add(data)`, `x = get(key)`, #1041);
+      4. a line whose inline code span, stripped and cut at a call's `(`, is
+         a module path whose last segment is the name, `cognee.exceptions`
+         for `exceptions` (#1011);
       5. a column-0 public declaration of it in a fenced code block (floor's
          `_declared_names`), cited or not, so a def an example writes under
          the name (a connector author's own `mount_table_target`) is cited
@@ -987,7 +1050,11 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
     and a data block (json, yaml...). Within a tier the first file, then its
     lowest line, wins. A bare word, a span that holds the name among other
     words (`uitripled add`), or a quoted string outside a fence or holding
-    other words too (`"add x"`) documents nothing. An input a tier cannot
+    other words too (`"add x"`) documents nothing. A module path is a dotted
+    path of plain identifiers whose first segment is a module the skill's
+    fenced code imports (`_module_roots`), so a receiver's or a type's path
+    (`client.connect(url)`, `Client.connect`, `store.state`) documents
+    nothing. An input a tier cannot
     read is skipped: floor's InputError (no SKILL.md, a file that is not
     UTF-8) leaves tier 1 empty, an unreadable file tiers 2 to 6."""
     coverage = _sibling("load-coverage-inputs.py")
@@ -1004,6 +1071,8 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
         files = segments.skill_files(skill_dir)
     except OSError:
         files = []
+    # the modules a dotted path may start with: never a receiver or a type the skill names
+    roots = _module_roots(files, segments, coverage)
     # floor's fence filter: a fence in an HTML comment or a data block declares and quotes nothing, and a Svelte
     # block's `export let` is a component prop. Unlike floor, an unheaded fence counts; a Svelte, shell or untagged
     # fence's quoted strings count too.
@@ -1032,19 +1101,28 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
                 if coverage._floor_table_header(coverage._cells(block["header"])[0]):
                     shaped.append((block["start"], coverage._cells(lines[block["start"]])[0]))
         for index, text in sorted(shaped):
-            for key in [text.strip()] + [coverage._floor_name(span) for span in segments._inline_code(text)]:
+            # its text, or a code span, that is a module path keys the path's last segment too (#1041)
+            spans = [coverage._floor_name(span) or _module_path_name(span, roots)
+                     for span in segments._inline_code(text)]
+            for key in [text.strip(), _module_path_name(text, roots)] + spans:
                 if key:
                     tiers[1].setdefault(key, f"{rel}:{index + 1}")
         for index, text in sorted(written):
             for span in map(str.strip, segments._inline_code(text)):
-                for key in (span, span.split("(", 1)[0] if "(" in span else None):
+                # a usage form keys the name it calls after an assignment, `await`, `new` or a module (#1041)
+                prefix = coverage.USAGE_PREFIX_RE.match(span)
+                receiver = _RECEIVER_RE.search(prefix.group())
+                called = (_CALLED_RE.match(span, prefix.end())
+                          if prefix.group() and (receiver is None or receiver.group(1) in roots) else None)
+                for key in (span, span.split("(", 1)[0] if "(" in span else None, called and called.group(1)):
                     if key:
                         tiers[2].setdefault(key, f"{rel}:{index + 1}")
-        # a module path keys its last segment: each code span, and each heading's or export cell's text (#1011)
-        paths = [(index, span) for index, text in written for span in segments._inline_code(text)] + shaped
+        # a module path keys its last segment: each code span (#1011); a heading's or export cell's is tier 2's
+        paths = [(index, span) for index, text in written for span in segments._inline_code(text)]
         for index, text in sorted(paths):
-            module = _MODULE_PATH_RE.fullmatch(text.strip().split("(", 1)[0])
-            if module:
+            path = text.strip().split("(", 1)[0]
+            module = _MODULE_PATH_RE.fullmatch(path)
+            if module and path.split(".", 1)[0] in roots:
                 tiers[3].setdefault(module.group(1), f"{rel}:{index + 1}")
     found: dict[str, str] = {}
     for tier in tiers:

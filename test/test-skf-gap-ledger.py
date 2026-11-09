@@ -69,11 +69,24 @@ counts and the Gap Report is rendered from:
     that holds the name among other words, a quoted string in prose or
     holding other words, a fence in an HTML comment or a data block; an
     unreadable input is skipped, and the floor is read once
-  - a name written only as a module path (#1011): a code span, or a
-    heading's or export-table first cell's text, that is a dotted path
-    ending in the name once a call's `(` is cut documents it, below an
-    exact span and above a fenced declaration; a path ending in another
-    name, or one among other words, documents nothing
+  - a name written only as a module path (#1011): a code span that is a
+    dotted path ending in the name once a call's `(` is cut documents it,
+    below an exact span and above a fenced declaration (a heading's or
+    export-table first cell's text that is one ranks with a heading, #1041);
+    a path ending in another name, or one among other words, documents
+    nothing
+  - a module-qualified export (#1041): a heading's or export-table first
+    cell's code span or text that is such a path once floor's cuts are
+    made ranks with a heading of the name, and a code span that calls the
+    name after an assignment, `await`, `new` or a module ranks with a
+    span of the name, so an earlier bare span no longer wins; a call with
+    a space or type arguments before its `(`, or none, documents nothing
+  - a module path's module (#1011 and #1041 review): a dotted path keys
+    its last segment only when its first segment is a module the skill's
+    fenced code imports (`import pkg`, `from pkg.x import y`, `import a.b
+    as c`, `import * as ns from`), so a type's method row, a receiver's
+    call or an attribute access (`Client.connect()`, `client.connect(url)`,
+    `store.state`) never outranks the line that documents the name
   - a name no line documents (#1006): the first `at` the --inventory
     result gives an entry of the name that is no `method` (SKILL.md's,
     then by path, then the lowest line) is its Source, its Issue's line
@@ -1424,6 +1437,9 @@ class TestCoverageAdapter:
         assert [mod._documenting_line(skill, name) for name in ("Canvas", "getByRole", "AND")] == [
             "references/blocks/doc.md:5", "references/blocks/queries.md:5", "SKILL.md:3"]
 
+    # Fenced code that imports `pkg`, so that a dotted path from `pkg.` is a module path (#1011 and #1041 review)
+    IMPORTS_PKG = "\n```python\nimport pkg\n```\n"
+
     # #1011: oms-cognee's `exceptions` and `migration`, written only as module paths (`cognee.exceptions`)
     @pytest.mark.parametrize("files, name, expected", [
         # a heading's code span, and a list item's
@@ -1449,10 +1465,11 @@ class TestCoverageAdapter:
             "dotted-call-span", "dotted-long-path", "dotted-first-file", "module-path-after-bare-span",
             "module-path-after-heading", "module-path-before-fence"])
     def test_a_module_path_documents_its_last_segment(self, tmp_path: Path, files: dict, name: str, expected: str):
-        """#1011: a name the skill writes only as the last segment of a dotted path of plain identifiers, once a
-        call's `(` is cut, in a code span or a heading's or export-table first cell's text, is documented there,
-        below an exact span and above a fenced declaration: its Source, Issue and remediation cite that line."""
-        skill = self._skill_package(tmp_path / "skill", files)
+        """#1011: in a skill whose fenced code imports `pkg`, a name the skill writes only as the last segment of
+        a dotted path of plain identifiers from `pkg`, once a call's `(` is cut, is documented there, a code span
+        below an exact span and above a fenced declaration, a heading's or export-table first cell's text with a
+        heading of the name (#1041): its Source, Issue and remediation cite that line."""
+        skill = self._skill_package(tmp_path / "skill", {**files, "SKILL.md": files["SKILL.md"] + self.IMPORTS_PKG})
         assert mod._documenting_line(skill, name) == expected
         [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]}, skill_dir=str(skill))
         assert (record["source"], record["issue"]) == (
@@ -1467,9 +1484,98 @@ class TestCoverageAdapter:
         skill = self._skill_package(tmp_path / "skill", {"SKILL.md": (
             "---\nname: demo\ndescription: Use `pkg.add` to install.\n---\n"
             "# demo\n\nRun pkg.add to install, or `pkg.add.all`, `import pkg.add` or `pkg.add (x)`.\n\n"
-            "## Installing with pkg.add\n\n<!-- `pkg.add` -->\n")})
+            "## Installing with pkg.add\n\n<!-- `pkg.add` -->\n" + self.IMPORTS_PKG)})
         assert mod._documenting_line(skill, "add") is None
         assert mod._documenting_line(skill, "all") == "SKILL.md:7"
+
+    # #1041: oms-cognee's `run_migrations` row (`cognee.run_migrations`) and `wait_for_background_tasks` call lost
+    # to an earlier bare span in a Confidence bullet and in a "not covered here" disclaimer
+    CONFIDENCE = "# demo\n\n- **Confidence:** T1-low (2): `run_migrations`, `tools`.\n\n"
+    DISCLAIMER = "# API\n\n- Top-level names not covered here: `wait_for_background_tasks`.\n"
+
+    @pytest.mark.parametrize("files, name, expected", [
+        # a heading's or export-table first cell's code span or text that is a module path, cut as floor cuts a name
+        ({"SKILL.md": CONFIDENCE + "| Function | Purpose |\n| --- | --- |\n| `pkg.run_migrations` | Runs them. |\n"},
+         "run_migrations", "SKILL.md:7"),
+        ({"SKILL.md": CONFIDENCE + "| Function | Purpose |\n| --- | --- |\n| pkg.run_migrations() | Runs them. |\n"},
+         "run_migrations", "SKILL.md:7"),
+        ({"SKILL.md": "# demo\n\nSee `Client` below.\n\n### `new pkg.Client<T>(opts)`\n"}, "Client", "SKILL.md:5"),
+        # a heading's module path in a later file before a bare span of an earlier one
+        ({"SKILL.md": "# demo\n\n- Not covered here: `exceptions`.\n",
+          "references/api.md": "# API\n\n## Errors: `pkg.exceptions`\n"}, "exceptions", "references/api.md:3"),
+        # a usage form's call after `await` and a receiver, an assignment, or `new`
+        ({"SKILL.md": "# demo\n\nThen `await pkg.wait_for_background_tasks()` drains them.\n",
+          "references/api.md": DISCLAIMER}, "wait_for_background_tasks", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nRead with `x = get(key)`.\n"}, "get", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nOpen one with `const client = new Client(opts)`.\n"}, "Client", "SKILL.md:3"),
+        # a call ranks with an exact span: the lowest line wins, and a heading of the name in a later file
+        ({"SKILL.md": "# demo\n\nCall `pkg.get(key)`.\n\nThe `get` step.\n"}, "get", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nCall `await pkg.get(key)`.\n", "references/api.md": "# API\n\n## get\n"}, "get",
+         "references/api.md:3"),
+    ], ids=["dotted-export-cell-before-bare-span", "dotted-cell-text-before-bare-span", "dotted-heading-span-cuts",
+            "dotted-heading-later-file", "qualified-call-before-disclaimer", "assignment-call", "new-call",
+            "qualified-call-lowest-line", "heading-before-qualified-call"])
+    def test_a_qualified_export_outranks_a_bare_span(self, tmp_path: Path, files: dict, name: str, expected: str):
+        """#1041: in a skill whose fenced code imports `pkg`, a heading's or export-table first cell's code span or
+        text that, once floor's cuts are made, is a dotted path from `pkg` ending in the name ranks with a heading of
+        the name, and a code span that calls the name after an assignment, `await`, `new` or `pkg.` ranks with a
+        span of the name, so an earlier bare span no longer wins: the Source, Issue and remediation cite the line
+        that documents the export."""
+        skill = self._skill_package(tmp_path / "skill", {**files, "SKILL.md": files["SKILL.md"] + self.IMPORTS_PKG})
+        assert mod._documenting_line(skill, name) == expected
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]}, skill_dir=str(skill))
+        assert (record["source"], record["issue"]) == (
+            expected, f"`{expected}` documents `{name}`, which the enumerated source API surface lacks")
+        assert record["remediation"].endswith(f"documentation at {expected}: the enumerated source surface does not "
+                                              "export it.")
+
+    def test_a_usage_form_documents_only_the_name_it_calls(self, tmp_path: Path):
+        """#1041: a comparison, an assignment or `await` with no call, a space or type arguments before the `(`, a
+        longer name and an array type in an export cell never document `add`; the name a call writes does."""
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": (
+            "# demo\n\nCompare `x == add(y)`, `x = add`, `await pkg.add`, `pkg.add (x)`, `pkg.add<T>(x)` and "
+            "`pkg.adder(x)`.\n\n| Function | Purpose |\n| --- | --- |\n| pkg.add[] | A list. |\n"
+            "| `pkg.add.all()` | All of them. |\n" + self.IMPORTS_PKG)})
+        assert mod._documenting_line(skill, "add") is None
+        assert (mod._documenting_line(skill, "adder"), mod._documenting_line(skill, "all")) == (
+            "SKILL.md:3", "SKILL.md:8")
+
+    @pytest.mark.parametrize("files, name, expected", [
+        # a type's method row, and an instance's method call, before the module-level function's own span
+        ({"SKILL.md": "# demo\n\n| Export | Description |\n|---|---|\n| `Client.connect()` | Opens it. |\n\n"
+                      "- `connect(url)` opens a module-level connection\n"}, "connect", "SKILL.md:7"),
+        ({"SKILL.md": "# demo\n\n## Key API: Client.connect\n\nOpen one with `client.connect(url)` or "
+                      "`await client.connect(url)`.\n\n- `connect(url)` connects.\n"}, "connect", "SKILL.md:7"),
+        # an attribute access in prose before the name's fenced declaration
+        ({"SKILL.md": "# demo\n\nRead `store.state` after each dispatch.\n",
+          "references/setup.md": "# Setup\n\n```ts\nexport type state = {\n  count: number\n}\n```\n"}, "state",
+         "references/setup.md:4"),
+        # a module the skill never imports qualifies nothing
+        ({"SKILL.md": "# demo\n\nSee `other.migration` and `await other.wait_all()`.\n"}, "migration", None),
+        # each import form names a module: an alias, a submodule's root, a `from` import, a JS namespace import
+        ({"SKILL.md": "# demo\n\nSee `ops.litellm`.\n\n```python\nimport pkg.ops as ops, json\n```\n"}, "litellm",
+         "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nSee `pkg.ops.litellm`.\n\n```python\nimport pkg.ops as ops\n```\n"}, "litellm",
+         "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nThen `await pkg.drain()`.\n\n```python\nfrom pkg.api import add  # noqa\n```\n"},
+         "drain", "SKILL.md:3"),
+        ({"SKILL.md": "# demo\n\nCall `ns.get(key)`.\n\n```ts\nimport * as ns from 'pkg';\n```\n"}, "get",
+         "SKILL.md:3"),
+        # a relative import, a named or default JS import, and an import in a comment or a data block name none
+        ({"SKILL.md": ("# demo\n\nSee `ns.get`, `x.get` and `y.get`.\n\n```python\nfrom . import ns\n# import x\n```\n"
+                       "\n```ts\nimport { ns } from 'pkg';\nimport y from 'y';\n```\n\n```yaml\nimport: x\n```\n"
+                       "\n<!--\n```python\nimport x\n```\n-->\n")}, "get", None),
+    ], ids=["type-method-row", "receiver-call", "attribute-access", "no-import", "python-alias",
+            "python-submodule-root", "python-from", "js-namespace", "no-module-bound"])
+    def test_only_a_module_the_skill_imports_qualifies_a_name(self, tmp_path: Path, files: dict, name: str,
+                                                              expected: str | None):
+        """#1011 and #1041 review: a dotted path keys its last segment only when its first segment is a module the
+        skill's fenced code imports, so a type's method row, a receiver's call or an attribute access never takes a
+        stale name's gap from the line that documents it, or from its fenced declaration."""
+        skill = self._skill_package(tmp_path / "skill", {**files, "SKILL.md": files["SKILL.md"] + self.IMPORTS_PKG})
+        assert mod._documenting_line(skill, name) == expected
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]}, skill_dir=str(skill))
+        assert record["source"] == (expected or "SKILL.md")
 
     def test_the_append_cli_cites_the_declaration_not_the_frontmatter(self, ledger: Path, tmp_path: Path):
         """#922 through `append --from coverage --skill-dir`: oms-uitripled's `add` was cited at its frontmatter;
