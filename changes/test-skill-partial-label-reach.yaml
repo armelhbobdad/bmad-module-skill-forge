@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill now stops at the hard gate on a `signature-mismatch` for a form in such a column, head the column `Key params` or put the label in parentheses after its word, such as `Purpose (key params)`, or write the form in full, then run Test Skill again.
 issues: [997, 1029]
+prs: [1060]

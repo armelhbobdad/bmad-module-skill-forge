@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   Test Skill's `score-signatures.py score` now reads a Kotlin `vararg` parameter and a C or C++ `...` in the source as optional, as the signature comparison rules do, when it checks the parameter fact of an `annotation-contradicted` mismatch. A list of bare names such as `log(name): String` against `fun log(name: String, vararg args: Any): Any` writes the same parameters, so a correct tag is now graded Info. Before, the scorer read `vararg args` as one required parameter and failed the fact, so the mismatch stayed a Critical `signature-mismatch` that blocks the hard gate.
 issues: [1023]
+prs: [1060]

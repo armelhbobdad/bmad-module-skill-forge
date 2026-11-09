@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill now stops at the hard gate on a `signature-mismatch` for a form a skill writes in running text or a description cell, such as `name() -> T` or a list with a bare `*` or `/`, write the parameters in that form as the source declares them, or drop the return type after an empty `name()` that only mentions the export, then run Test Skill again.
 issues: [1014, 1016]
+prs: [1060]

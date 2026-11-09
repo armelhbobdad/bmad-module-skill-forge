@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   Test Skill now reads and keeps an inventory entry's blank `params` (`""` or `[]`) one way. The signature comparison rules read it as an empty list of bare names: it claims the export takes none, so a required parameter the source takes is a mismatch, while an optional one is no difference, as for a heading's empty call such as `### connect()` against `def connect(host="localhost", port=5432)`. Before, the rules said only that it claims the export takes none, so a judge could grade that heading a Critical `omitted-optional` mismatch that another judge, and `score-signatures.py`, read as a match. `score-signatures.py plan` now also keeps a blank `params` over an entry with no `params` whatever either's `signature_form` label, so a partial `f() -> R` beside a full return-only form of `f` is compared; before, the return-only form stood and the claim that `f` takes no argument was never checked.
 issues: [1025]
+prs: [1060]

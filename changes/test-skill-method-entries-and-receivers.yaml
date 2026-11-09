@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill now stops at the hard gate on a `split-body-mismatch` for a method, make the two files write the method's form alike (the gap's Source names the side the source contradicts), then run Test Skill again.
 issues: [1035, 1045]
+prs: [1060]
