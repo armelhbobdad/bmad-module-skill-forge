@@ -39,8 +39,14 @@ reading files and writing one JSON object:
                            singular or plural and bare or wrapped in `**`
                            or `__`, Export, Symbol, Function, Class,
                            Interface, Type, Hook, Component, Helper,
-                           Constant, Enum or API (a Name, Method, Prop,
-                           Param, Import or Subpath table gives none). The
+                           Constant, Enum, API or Query, or is parts split
+                           at `/`, each read the same way, whose first is
+                           one of those words and each other one of them
+                           or Props, Params or Parameters
+                           (`Component / Props`, `Function/Type`; #1004).
+                           A Name, Method, Prop, Param, Import or Subpath
+                           table gives none, and so does a `Prop / Type`
+                           or `Symbol / keyword` one. The
                            row's Kind cell, as written, is the name's
                            `kindLabel`: the skill's own label, never mapped
                            to a kind (the first in origin order when two
@@ -83,7 +89,9 @@ reading files and writing one JSON object:
             {"params", "return_type"} for a complete form or a Props cell
             (below) and {"usage_signature", "return_type"} for a usage form
             (and `signature_form` "partial" under a header's partial
-            label, below). `params` is the text inside the parameter group
+            label, for an ellipsis item or from a Key params cell, below).
+            `params` is the text
+            inside the parameter group
             (score-signatures.py's _group: the first pair of parentheses
             outside every bracket pair and string), and `return_type` the
             type written after it (score-signatures.py's _signature_parts),
@@ -110,7 +118,10 @@ reading files and writing one JSON object:
               table-row    a row whose first cell names one name (a row
                            naming several gives none), each cell's `\\|`
                            read as `|`: the leading code span of its
-                           Signature or Signatures cell, else, when that
+                           Signature or Signatures cell, a header split
+                           at `/` with a part that is one included
+                           (`Signature / Purpose`, `Props / Signature`;
+                           #1030), else, when that
                            span writes no parameter group (`Typed<X>`),
                            the one span of its first cell that gives the
                            name (another export's span there, as in
@@ -132,7 +143,24 @@ reading files and writing one JSON object:
                            `None`, `-`), else the span whole
                            as `params` with `return_type` ""
                            (`TitleProps = { of?: Of }`, `key: string`),
-                           kept as written. A Signature, Props, Params
+                           kept as written. With no such span, last a Key
+                           params or Key parameters cell (#997), on a row
+                           whose Kind cell names a callable as a whole
+                           word, any case (function, fn, func, method,
+                           class, constructor, generator or hook, singular
+                           or plural: `sync fn`, `abstract class`): its
+                           leading code span when that is the name's
+                           complete form with the name written
+                           (`Mem0Source(data, mode="re-derive")`), prose
+                           after it left out, with `signature_form`
+                           "partial", as the header labels each row. A
+                           table with no Kind column, a row of another
+                           kind (`tuple`, `type alias`), a span with no
+                           name or another (`("json", None)`, an import)
+                           or no complete form (`A | B`, `{}`), a cell
+                           that writes a second form of the name and a
+                           compound `Key params / shape` header pin
+                           nothing. A Signature, Props, Params
                            or Parameters header may give one partial
                            label in parentheses after its word, any case:
                            `Signature (simplified)`, `Props (simplified)`,
@@ -141,9 +169,15 @@ reading files and writing one JSON object:
                            also carries `signature_form` "partial", so the
                            label is the script's, not the reader's; the
                            first-cell form never does, as the label heads
-                           that column only. Any other text after the word
-                           (`Signature (TypeScript)`, `Props / Usage`)
-                           leaves the column unread.
+                           that column only; a compound Signature header
+                           reads its Signature part's label
+                           (`Signature (simplified) / Purpose`). Any other
+                           text after the word (`Signature (TypeScript)`),
+                           a compound header with no Signature part
+                           (`Props / Usage`, `Props / Type`) and an
+                           Arguments, Args, Usage, Syntax or Example
+                           header leave the column unread: its form stays
+                           the reader's.
               heading      its code span, a complete form, else a usage
                            form (`new Client(opts)`: a name is cut as
                            above, so no other usage names one there)
@@ -169,9 +203,21 @@ reading files and writing one JSON object:
                            x is {...}`, `() => {...}` or conditional type,
                            `): Promise<A> |`), or one whose brackets or
                            strings do not all close.
-            A form written only in prose is never read: it stays the
-            reader's. Each origin keeps the first signature its place
-            writes.
+            Whatever its form, a signature whose parameter group (its
+            `params`, or the group its `usage_signature` writes) holds an
+            ellipsis item, a member that is `...` or `…` alone as
+            score-signatures.py's _parameter reads one (a rest `...args`,
+            a `*args` and a default `x=...` are none), also carries
+            `signature_form` "partial" (#1029): the contract counts that
+            `...` as the skill's partial label, so it is the script's too,
+            and validate-inventory.py --floor refuses the label an entry
+            adds where the signature gives none. A form written only in
+            prose is never read: it stays the
+            reader's. So does a cell's span that prose qualifies or that
+            sits among other spans (`GraphSnapshot`'s `nodes=[]` then
+            "(DataPoint instances)"), beyond what the table-row form above
+            reads (#997): a rule there would guess at the skill's meaning.
+            Each origin keeps the first signature its place writes.
             Output: {"files": [...], "names": [{"name", "kindLabel",
             "origins": [{"file", "line", "form", "signature"?}]}],
             "summary": {"names", "byForm"}}, names sorted, each one's
@@ -513,22 +559,38 @@ CITATION_FORMS = {
 LOCAL_FORMS = ("AST", "SRC", "from skill")
 # floor: the forms a documented name takes, in the order an origin on one line sorts by.
 FLOOR_FORMS = ("table-row", "heading", "declaration")
-# The first header cells (lower case, singular or plural) of a table whose first column names exports.
+# The header words (lower case, singular or plural) of a table whose first column names exports: its first header
+# cell is one, or parts split at `/` whose first is one and each other one or a FLOOR_PROPS_HEADERS word, as
+# `Component / Props` is and `Prop / Type` and `Symbol / keyword` are not (_floor_table_header, #1004).
 FLOOR_TABLE_HEADERS = frozenset({
     "export", "exports", "symbol", "symbols", "function", "functions", "class", "classes", "interface", "interfaces",
     "type", "types", "hook", "hooks", "component", "components", "helper", "helpers", "constant", "constants",
-    "enum", "enums", "api", "apis"})
+    "enum", "enums", "api", "apis", "query", "queries"})
 # The header words (as _header_label reads them, a partial label cut) of a floor table's column that writes the row's
-# signature (#888); a header with any other text after the word, such as `Signature (TypeScript)`, is not one.
+# signature (#888): its header is one, or has a part split at `/` that is one, as `Signature / Purpose` and
+# `Props / Signature` do (_signature_column, #1030); a header with any other text after the word, such as
+# `Signature (TypeScript)`, is not one, and neither is an Arguments, Args, Usage, Syntax or Example header.
 FLOOR_SIGNATURE_HEADERS = frozenset({"signature", "signatures"})
 # The header words (as _header_label reads them, a partial label cut) of a floor table's column that writes the row's
 # props or parameters (#888): its cell is read only when it is exactly one code span, and only after the Signature
-# and first-cell forms; a `Props / Usage` or `Key params` header is not one.
+# and first-cell forms; the whole header is the word, so a `Props / Usage`, `Props / Type` or `Key params` header
+# is not one (#1030: the whole-span read would pin a type alias or a constant's value there).
 FLOOR_PROPS_HEADERS = frozenset({"props", "params", "parameters"})
+# The header words (as _header_label reads them, whitespace runs as one space) of a floor table's column that writes
+# a row's key parameters, as Create Skill's Key API Summary does (#997): its cell is read only after the Props step,
+# on a row whose Kind cell names a callable (FLOOR_CALLABLE_KIND_RE), and only when it opens with the row name's
+# complete form, which is then partial; a compound `Key params / shape` header is not one.
+FLOOR_KEY_PARAMS_HEADERS = frozenset({"key params", "key parameters"})
+# A Kind cell that names a callable, matched as a whole word in any case (#997): `function`, `sync fn`,
+# `async fn`, `abstract class`, `sync generator`, `method`, `hook`. A `tuple`, `type alias`, `str` or
+# `pydantic model` row's Key params cell writes a value or fields, not a call, so it is never read.
+FLOOR_CALLABLE_KIND_RE = re.compile(
+    r"\b(?:functions?|fns?|funcs?|methods?|class(?:es)?|constructors?|generators?|hooks?)\b", re.IGNORECASE)
 # The partial labels (lower case, whitespace runs as one space) a header may give in parentheses after its word, as
 # `Signature (simplified)` and `Props (simplified)` do (#888): each form read from that Signature, Props, Params or
 # Parameters column is partial, so an optional parameter it leaves out is Info, not Critical, and the floor pins the
-# label with the form.
+# label with the form, as it does for a form whose parameter group holds an ellipsis item (_ellipsis_labelled, #1029)
+# and for each form a Key params column gives (#997), whose header is that label.
 FLOOR_PARTIAL_LABELS = frozenset({"simplified", "partial", "key parameters", "key params"})
 # What a usage form writes before its name's complete form (#888), each part optional, in this order: an assignment
 # (`x =`, `a, b =`, `const { data } =`, `let [a, b] =`), `await`, `new`, and a receiver or module path (`cognee.`,
@@ -737,6 +799,22 @@ def _header_word(cell: str) -> str:
     """A header cell's word, lower case, unwrapped from `**` or `__`."""
     m = EMPHASIS_RE.fullmatch(cell)
     return (m.group(2) if m else cell).strip().lower()
+
+
+def _header_parts(cell: str) -> list[str]:
+    """A header cell's word (_header_word) split at each `/`, each part stripped and read as _header_word reads a
+    cell: `Component / Props`, `**Function/Type**` and `**Component** / Props` give two parts, a cell with no `/`
+    its one word."""
+    return [_header_word(part.strip()) for part in _header_word(cell).split("/")]
+
+
+def _floor_table_header(cell: str) -> bool:
+    """Whether a table's first header cell names exports, so the floor reads that table's first column (#1004): its
+    first part (_header_parts) is one of FLOOR_TABLE_HEADERS and each other part one of them or of
+    FLOOR_PROPS_HEADERS. `Functions`, `Queries`, `Component / Props` and `Function/Type` do; `Name`, `Prop / Type`,
+    `Props / Component` and `Symbol / keyword` do not."""
+    first, *rest = _header_parts(cell)
+    return first in FLOOR_TABLE_HEADERS and all(part in FLOOR_TABLE_HEADERS | FLOOR_PROPS_HEADERS for part in rest)
 
 
 def _header_label(cell: str) -> tuple[str, bool]:
@@ -959,10 +1037,36 @@ def _labelled(form: dict | None, partial: bool) -> dict | None:
     return {**form, "signature_form": "partial"} if form and partial else form
 
 
+def _ellipsis_labelled(signature: dict | None, extension: str = "") -> dict | None:
+    """`signature`, with `signature_form` "partial" when its parameter group holds an ellipsis item (#1029): a member,
+    cut at the commas outside every bracket pair and string (score-signatures.py's _split), that score-signatures.py's
+    _parameter reads as one, `...` or `…` alone, so a rest `...args`, a `*args` and a default `x=...` are none. The
+    group is the whole `params`, or the one a `usage_signature` writes (score-signatures.py's _group). The contract
+    counts such a `...` as the skill's partial label, so the floor pins it with the form, at every origin."""
+    if not signature:
+        return signature
+    scorer = _sibling("score-signatures.py")
+    text = signature.get("params")
+    if text is None:
+        group = scorer._group(signature["usage_signature"], extension)
+        text = signature["usage_signature"][group[0] + 1:group[1]] if group else ""
+    items = scorer._split(text, ",", extension)
+    return _labelled(signature, any(scorer._parameter(item.strip(), extension)["ellipsis"] for item in items))
+
+
 def _column(labels: list[tuple[str, bool]], words: frozenset) -> tuple[int | None, bool]:
     """The first header cell whose word (_header_label) is one of `words`, and its partial label; (None, False) for
     none."""
     return next(((i, labelled) for i, (word, labelled) in enumerate(labels) if word in words), (None, False))
+
+
+def _signature_column(header: list[str]) -> tuple[int | None, bool]:
+    """The first header cell with a part (_header_parts) whose word, as _header_label reads that part, is one of
+    FLOOR_SIGNATURE_HEADERS, and that part's partial label (#1030): `Signature`, `Signature / Purpose`,
+    `Props / Signature` and `Signature (simplified) / Purpose`, labelled, are one; `Signature (TypeScript)`,
+    `Props / Usage` and `Usage` are not. (None, False) for none."""
+    parts = ((i, _header_label(part)) for i, cell in enumerate(header) for part in _header_parts(cell))
+    return next(((i, labelled) for i, (word, labelled) in parts if word in FLOOR_SIGNATURE_HEADERS), (None, False))
 
 
 def _leading_span(cell: str) -> str | None:
@@ -972,18 +1076,46 @@ def _leading_span(cell: str) -> str | None:
     return spans[0] if spans and cell.startswith("`" * run + spans[0] + "`" * run) else None
 
 
+def _key_params_form(header: list[str], cells: list[str], name: str) -> dict | None:
+    """The signature a floor table row's Key params or Key parameters cell writes for `name` (#997), with
+    `signature_form` "partial", as that header labels each of its rows: the cell's leading code span, when the row's
+    Kind cell names a callable (FLOOR_CALLABLE_KIND_RE) and the span is `name`'s complete form with the name written
+    (_call_form: `Mem0Source(data, mode="re-derive")`, `read_manifest(directory) -> COGXManifest | None`), prose
+    after it left out. None for a table with no Kind column, a row of any other kind (`tuple`, `type alias`,
+    `pydantic model`), a span with no name or another one (`("json", None)`, `import { z } from "zod"`), one that is
+    no complete form (`A | B`, `{}`, a usage), and a cell that writes another form of `name` in a later span, so a
+    cell of alternatives stays the reader's. A compound `Key params / shape` header is never read."""
+    segments = _sibling("locate-export-segments.py")
+    words = [_header_label(cell)[0] for cell in header]
+    at = next((i for i, word in enumerate(words) if " ".join(word.split()) in FLOOR_KEY_PARAMS_HEADERS), None)
+    kind = next((i for i, word in enumerate(words) if word == "kind"), None)
+    if at is None or kind is None or max(at, kind) >= len(cells) or not FLOOR_CALLABLE_KIND_RE.search(cells[kind]):
+        return None
+    span = _leading_span(cells[at])
+    if span is None or SPAN_NAME_RE.match(span.strip()).group(1) != name or not (form := _call_form(span, name)):
+        return None
+    scorer = _sibling("score-signatures.py")
+    later = segments._inline_code(cells[at])[1:]
+    if any(_floor_name(other) == name and scorer._group(other.strip()) is not None for other in later):
+        return None  # the cell writes two forms of the name: which one the skill means is the reader's
+    return _labelled(form, True)
+
+
 def _row_form(header: list[str], row: list[str]) -> dict | None:
     """The signature a floor table's row writes for the one name its first cell names (a row naming several gives
-    none), each cell's `\\|` read as `|`: the leading code span of its Signature or Signatures cell, else, when that
-    span writes no parameter group, the one span of its first cell that gives that name (another export's span there
-    gives nothing), each a complete form (_call_form), else a usage form (_usage_form, #888). A Signature span with a
-    group that is neither gives none, and so does such a first-cell span. Only then its Props, Params or Parameters
-    cell, when the whole cell is one code span (trailing prose or several spans leave it the reader's): a complete
+    none), each cell's `\\|` read as `|`: the leading code span of its Signature or Signatures cell, a header with a
+    part split at `/` that is one included (`Signature / Purpose`, `Props / Signature`; _signature_column, #1030),
+    else, when that span writes no parameter group, the one span of its first cell that gives that name (another
+    export's span there gives nothing), each a complete form (_call_form), else a usage form (_usage_form, #888). A
+    Signature span with a group that is neither gives none, and so does such a first-cell span. Only then its Props,
+    Params or Parameters cell, its whole header the word (`Props / Usage` and `Props / Type` are none), when the
+    whole cell is one code span (trailing prose or several spans leave it the reader's): a complete
     form, else a usage form, else none when it writes a parameter group or opens a JSX element, or when it only names
     a type or writes a placeholder (`ButtonProps`, `ComponentProps<typeof Link>`, `None`, `-`), else the span whole as
     `params`, `return_type` "", kept as written. A Signature, Props, Params or Parameters header may carry a partial
     label (_header_label, #888): the form its cell gives then also gives `signature_form` "partial", the first-cell
-    form never."""
+    form never. With no Props, Params or Parameters span, last its Key params cell (_key_params_form, #997). An
+    Arguments, Args, Usage, Syntax or Example cell is never read: its form stays the reader's."""
     segments = _sibling("locate-export-segments.py")
     scorer = _sibling("score-signatures.py")
     names = {name for name in map(_floor_name, segments._inline_code(row[0])) if name}
@@ -992,7 +1124,7 @@ def _row_form(header: list[str], row: list[str]) -> dict | None:
     [name] = names
     cells = [cell.replace("\\|", "|") for cell in row]
     labels = [_header_label(cell) for cell in header]
-    at, partial = _column(labels, FLOOR_SIGNATURE_HEADERS)
+    at, partial = _signature_column(header)
     span = _leading_span(cells[at]) if at is not None and at < len(cells) else None
     if span is not None and (form := _span_form(span, name)):
         return _labelled(form, partial)
@@ -1006,7 +1138,7 @@ def _row_form(header: list[str], row: list[str]) -> dict | None:
     at, partial = _column(labels, FLOOR_PROPS_HEADERS)
     span = _whole_span(cells[at], segments) if at is not None and at < len(cells) else None
     if span is None:
-        return None
+        return _key_params_form(header, cells, name)
     if form := _span_form(span, name):
         return _labelled(form, partial)
     if scorer._group(span.strip()) is not None or ELEMENT_OPEN_RE.match(span.strip()) or not span.strip():
@@ -1095,11 +1227,11 @@ def floor(skill_dir: str) -> dict:
     signatures: dict[tuple[str, int, int, str], dict] = {}  # the first per (name, file, line, form), in span order
 
     def add(name: str | None, file_index: int, index: int, form: str, label: str | None = None,
-            signature: dict | None = None) -> None:
+            signature: dict | None = None, extension: str = "") -> None:
         if name:
             found.setdefault(name, set()).add((file_index, index + 1, form, label))
             if signature is not None:
-                signatures.setdefault((name, file_index, index + 1, form), signature)
+                signatures.setdefault((name, file_index, index + 1, form), _ellipsis_labelled(signature, extension))
 
     js_family = segments.JS_FAMILY - {"svelte"}  # a Svelte block's `export let` is a component prop
     for file_index, lines in enumerate(texts):
@@ -1110,7 +1242,7 @@ def floor(skill_dir: str) -> dict:
             if block["kind"] != "table-row" or block["header"] is None:
                 continue
             header = _cells(block["header"])
-            if _header_word(header[0]) not in FLOOR_TABLE_HEADERS:
+            if not _floor_table_header(header[0]):
                 continue
             row = _cells(lines[block["start"]])
             kind_at = next((i for i, cell in enumerate(header) if _header_word(cell) == "kind"), None)
@@ -1133,7 +1265,8 @@ def floor(skill_dir: str) -> dict:
                 name_end = _function_declaration(masked[offset], language, js_family)
                 signature = (_declaration_form(lines[opening + 1:closing], offset, language, name_end)
                              if name_end is not None else None)
-                add(name, file_index, opening + 1 + offset, "declaration", None, signature)
+                add(name, file_index, opening + 1 + offset, "declaration", None, signature,
+                    ".rs" if language in RUST_LANGUAGES else "")
 
     names = []
     by_form = dict.fromkeys(FLOOR_FORMS, 0)

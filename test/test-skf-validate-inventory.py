@@ -148,6 +148,45 @@ def test_all_kinds_accepted():
     assert r["rejectedCount"] == 0
 
 
+def test_an_entry_key_the_contract_does_not_define_is_refused(tmp_path):
+    """#1001: an entry key outside the contract, such as `usage` written for `usage_signature`, passed with no
+    violation, and score-signatures.py reads only SIGNATURE_FIELDS, so the documented form was never compared. Each
+    entry with such a key is now a violation naming the entry, its unknown keys and the keys an entry carries, so the
+    re-dispatched reader spreads its fields into them; an entry using every contract key passes, null-valued too."""
+    every = {"name": "Client", "kind": "class", "description": "A client.", "params": "api_key, timeout=5",
+             "return_type": "Client", "usage_signature": "Client(api_key, timeout=5)", "signature_form": "full",
+             "at": "SKILL.md:6", "owner": "sdk", "methods": ["close()"], "properties": ["api_key"],
+             "fields": ["timeout"]}
+    assert set(every) == set(mod.ENTRY_KEYS) and len(mod.ENTRY_KEYS) == 12
+    for entry in (every, dict.fromkeys(mod.ENTRY_KEYS) | {"name": "Client", "kind": "class"}):
+        r = mod.validate_inventory(json.dumps({"exports": [entry], "cross_check_mismatches": []}))
+        assert r["valid"] is True and r["violations"] == [], entry
+    usage = {"name": "Client", "kind": "class", "usage": "client = Client(api_key=\"k\", timeout=5)",
+             "description": "A client.", "at": "SKILL.md:6"}
+    keys = ", ".join(f"`{k}`" for k in mod.ENTRY_KEYS[:-1]) + f" and `{mod.ENTRY_KEYS[-1]}`"
+    raw = json.dumps({"exports": [{"name": "ok", "kind": "function"}, usage,
+                                  {"kind": "class", "signature": "Client(api_key)", "line": 6}],
+                      "cross_check_mismatches": []})
+    r = mod.validate_inventory(raw)
+    assert r["valid"] is False and r["inventory"] is None and r["rejectedCount"] == 1
+    assert r["violations"][1:] == [
+        f"exports[1] (`Client`): `usage` is not a key the contract defines; an entry carries only {keys}",
+        f"exports[2]: `signature` and `line` are not keys the contract defines; an entry carries only {keys}"]
+    # The CLI exits 2 and writes no inventory, with or without --floor (the floor check runs once the schema passed).
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(json.dumps({"exports": [usage], "cross_check_mismatches": []}).encode("utf-8"))
+    floor = tmp_path / "inventory-floor.json"
+    floor.write_bytes(json.dumps({"names": []}).encode("utf-8"))
+    output = tmp_path / "inventory.json"
+    for extra in ([], ["--floor", str(floor)]):
+        output.write_bytes(b"{}")
+        p = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--output", str(output), *extra],
+                           capture_output=True, text=True)
+        assert p.returncode == 2, p.stderr
+        assert [v for v in json.loads(p.stdout)["violations"] if "`usage`" in v], p.stdout
+        assert not output.exists()
+
+
 @pytest.mark.parametrize("form", ["short", "Partial", "", True, ["partial"]],
                          ids=["short", "capitalized", "empty", "boolean", "list"])
 def test_a_signature_form_is_partial_or_full(form):
@@ -243,6 +282,68 @@ def _violation(**fields) -> str:
     [violation] = r["violations"]
     assert violation.startswith("cross_check_mismatches[0]"), violation
     return violation
+
+
+EXPORT_RULE = ("`export` must name an inventory entry, by its `name` (a `method`'s bare `name`, or `{owner}.{name}` "
+               "for one that gives an `owner`), not ")
+
+
+@pytest.mark.parametrize("export", ["Widget", "", 3, None, ["run_tasks_parallel"], "run_tasks_parallel "],
+                         ids=["no-entry", "empty", "number", "null", "list", "trailing-space"])
+def test_a_mismatch_export_names_an_inventory_entry(export):
+    """#1033: a mismatch's `export` was checked only for its presence, so a name no entry has, an empty string or a
+    number passed, and §5b titled a High split-body gap with it. It is now one violation naming the value and the
+    spellings an `export` takes, so the re-dispatched reader can correct it."""
+    violation = _violation(export=export, skill_md_line=4)
+    assert f"{EXPORT_RULE}{json.dumps(export)}" in violation, violation
+
+
+def test_a_method_mismatch_names_its_bare_name_or_its_owner_and_name():
+    """An entry's `name` is an `export` (a dotted one as written), and a `method` entry that gives an `owner` is also
+    named `{owner}.{name}`. Another owner, a function under an owner and a method with no `owner` are refused."""
+    exports = [{"name": "run", "kind": "function"}, {"name": "datasets.list_data", "kind": "function"},
+               {"name": "get", "kind": "method", "owner": "Client"}, {"name": "put", "kind": "method"}]
+
+    def checked(export):
+        mismatch = {"export": export, "skill_md_line": 4, "reference_file": "references/b.md", "reference_line": 5,
+                    "issue": "SKILL.md shows (a), references/b.md (a, b)"}
+        return mod.validate_inventory(json.dumps({"exports": exports, "cross_check_mismatches": [mismatch]}))
+
+    for export in ("run", "datasets.list_data", "get", "Client.get", "put"):
+        r = checked(export)
+        assert r["valid"] is True, (export, r["violations"])
+        assert r["inventory"]["cross_check_mismatches"][0]["export"] == export
+    for export in ("Other.get", "Client.run", "Client.put", ".put", "list_data"):
+        r = checked(export)
+        assert r["valid"] is False and r["inventory"] is None, export
+        assert r["violations"] == [f"cross_check_mismatches[0]: {EXPORT_RULE}{json.dumps(export)}"], r["violations"]
+
+
+@pytest.mark.parametrize("export, code", [("Widget", 2), ("", 2), (3, 2), ("a", 0)])
+def test_the_cli_refuses_a_mismatch_export_no_entry_has_on_a_package(tmp_path, export, code):
+    """#1033's two-file package: SKILL.md writes `a(x)` at line 5, references/api.md writes `b(y)` at line 3, and the
+    inventory lists `a`. A mismatch naming no entry exits 2 and leaves no inventory, as any schema violation does;
+    one naming `a` passes."""
+    pkg = tmp_path / "pkg"
+    (pkg / "references").mkdir(parents=True)
+    (pkg / "SKILL.md").write_bytes(b"# Demo\n\nIntro.\n\n`a(x)` runs it.\n")
+    (pkg / "references" / "api.md").write_bytes(b"# API\n\n`b(y)` runs it.\n")
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(json.dumps({
+        "exports": [{"name": "a", "kind": "function"}], "references": ["references/api.md"],
+        "cross_check_mismatches": [{"export": export, "skill_md_line": 5, "reference_file": "references/api.md",
+                                    "reference_line": 3, "issue": "SKILL.md shows (x), references/api.md (y)"}],
+    }).encode("utf-8"))
+    output = tmp_path / "inventory.json"
+    p = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                        "--output", str(output)], capture_output=True, text=True)
+    assert p.returncode == code, p.stdout + p.stderr
+    result = json.loads(p.stdout)
+    if code:
+        assert result["violations"] == [f"cross_check_mismatches[0]: {EXPORT_RULE}{json.dumps(export)}"]
+        assert not output.exists()
+    else:
+        assert result["valid"] is True and output.exists()
 
 
 def test_cross_check_between_two_references_is_valid():
@@ -905,7 +1006,7 @@ def test_a_floor_form_the_inventory_changes_fails(tmp_path):
         r = mod.validate_inventory(_signed(("connect", "function", {"params": "url", "return_type": returned,
                                                                     "at": "SKILL.md:3"})), floor=floor)
         assert r["valid"] is True, (returned, r["violations"])
-    r = mod.validate_inventory(_signed(("connect", "function", {"params": "url, opts", "return_type": "Socket",
+    r = mod.validate_inventory(_signed(("connect", "function", {"params": "opts", "return_type": "Socket",
                                                                 "at": "SKILL.md:3"})), floor=floor)
     assert r["violations"] == [
         'floor: `connect` is documented at SKILL.md:3 (heading) with the signature {"params": "url", '
@@ -944,8 +1045,9 @@ def test_a_floor_form_the_inventory_changes_fails(tmp_path):
 def test_a_pinned_form_after_shared_members_is_carried(tmp_path):
     """#888: the contract has each of several names whose members the skill states once carry that shared text,
     then `; `, then its own members in its `params`. The floor pins the row's own Signature cell, so a `params`
-    that opens with the shared text and `; ` carries it, as the pinned form copied alone does; a `params` that
-    only ends with the pinned text, with no `; ` before it, does not."""
+    that opens with the shared text and `; ` carries it, as the pinned form copied alone does. #1028: a `params`
+    that only ends with the pinned text, with no `; ` before it, carries it too, since it holds the pinned members
+    in their order after another (test_a_pinned_form_among_shared_members_is_carried_in_order)."""
     pkg = _package(tmp_path, "# Demo\n\nEach model has the base fields `id, scope=Scope()`.\n\n"
                              "| Class | Kind | Signature |\n| --- | --- | --- |\n"
                              "| `Note` | class | `(content, title=None)` |\n| `Task` | class | `(title, done=False)` |\n")
@@ -965,10 +1067,112 @@ def test_a_pinned_form_after_shared_members_is_carried(tmp_path):
     r = mod.validate_inventory(_signed(("Note", "class", {"params": "id, content, title=None", "at": "SKILL.md:7"}),
                                        ("Task", "class", {"params": "title, done=False", "at": "SKILL.md:8"})),
                                pkg, read)
-    assert r["valid"] is False and r["violations"] == [
-        'floor: `Note` is documented at SKILL.md:7 (table-row) with the signature {"params": "content, title=None", '
-        '"return_type": ""}, but no inventory entry of that name carries it; copy it as given, with `at` '
-        '"SKILL.md:7"']
+    assert r["valid"] is True and r["warnings"] == [], (r["violations"], r["warnings"])
+
+
+def test_a_pinned_form_among_shared_members_is_carried_in_order(tmp_path):
+    """#1028: where the skill puts a name's own member before the members it states once for several names
+    (`leading`), the contract has the entry write the name's whole list in the skill's order, a pinned place
+    included. A pinned `params` is carried when the entry's members, cut at top-level commas, hold each pinned
+    member in the pinned order, others before, among or after them: the whole list passes `--floor` (exit 0), as a
+    list `params` and the `; ` shape do, while a list that reorders or drops a pinned member is refused. A member
+    with a nested comma (`Dict[str, int]`) is one member, and a pinned `usage_signature` is still carried only as
+    given or after the shared text and `; `."""
+    pkg = _package(tmp_path, "# Demo\n\nBoth models take the base fields `id, scope=Scope()` right after their leading "
+                             "first argument.\n\n| Class | Kind | Signature |\n| --- | --- | --- |\n"
+                             "| `Note` | class | `(content, title=None)` |\n"
+                             "| `Task` | class | `(title, done=False)` |\n")
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert [(n["name"], [o.get("signature") for o in n["origins"]]) for n in read["names"]] == [
+        ("Note", [{"params": "content, title=None", "return_type": ""}]),
+        ("Task", [{"params": "title, done=False", "return_type": ""}])]
+    task = ("Task", "class", {"params": "title, id, scope=Scope(), done=False", "at": "SKILL.md:8"})
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(_signed(("Note", "class", {"params": "content, id, scope=Scope(), title=None",
+                                                    "at": "SKILL.md:7"}), task).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--floor", str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["valid"] is True and result["violations"] == [] and result["warnings"] == []
+    for note in (["content", "id", "scope=Scope()", "title=None"], "content, title=None, id, scope=Scope(),",
+                 "id, scope=Scope(); content, title=None"):
+        r = mod.validate_inventory(_signed(("Note", "class", {"params": note, "at": "SKILL.md:7"}), task), pkg, read)
+        assert r["valid"] is True and r["warnings"] == [], (note, r["violations"], r["warnings"])
+    # A pinned member out of its order, or dropped, is refused.
+    for note in ("title=None, content, id, scope=Scope()", "content, id, scope=Scope()",
+                 "content, id, scope=Scope(), title=Scope()"):
+        r = mod.validate_inventory(_signed(("Note", "class", {"params": note, "at": "SKILL.md:7"}), task), pkg, read)
+        assert r["valid"] is False and r["violations"] == [
+            'floor: `Note` is documented at SKILL.md:7 (table-row) with the signature {"params": "content, '
+            'title=None", "return_type": ""}, but no inventory entry of that name carries it; copy it as given, '
+            'with `at` "SKILL.md:7"'], note
+    # A nested comma is inside its member: `content: Dict[str, id, int]` is no `content: Dict[str, int]`.
+    nested = _floor(("Note", [("SKILL.md", 3, "heading", {"params": "content: Dict[str, int], title=None",
+                                                          "return_type": ""})]))
+    for note, valid in (("id, content: Dict[str, int], scope=Scope(), title=None", True),
+                        ("content: Dict[str, id, int], title=None", False)):
+        r = mod.validate_inventory(_signed(("Note", "class", {"params": note, "at": "SKILL.md:3"})), floor=nested)
+        assert r["valid"] is valid, (note, r["violations"])
+    # A pinned usage form is carried as given or after the shared text and `; `, never among other members.
+    usage = _floor(("Client", [("SKILL.md", 3, "heading", {"usage_signature": "new Client(opts)",
+                                                           "return_type": ""})]))
+    for given, valid in (("new Client(opts)", True), ("id; new Client(opts)", True), ("id, new Client(opts)", False)):
+        r = mod.validate_inventory(_signed(("Client", "class", {"usage_signature": given, "at": "SKILL.md:3"})),
+                                   floor=usage)
+        assert r["valid"] is valid, (given, r["violations"])
+
+
+def test_a_longer_list_at_another_place_never_carries_a_pin(tmp_path):
+    """#1028 review: the in-order carry is the pinned place's own, for the entry whose `at` is the origin. A longer
+    form of the name written at another place (a reference's prose line), or one with no `at`, is another form: it
+    never carries the pin, so an inventory that leaves the row's form out, or drops a pinned member there, is still
+    refused, and it keeps its own `at`; at a labelled pin it is no unlabelled copy of the pinned form, so the
+    labelled copy at the row stays valid beside it, with the missing-`at` warning alone."""
+    row = "# Lib\n\n| Function | {} |\n|---|---|\n| `connect` | `connect(host: str, port: int)` |\n"
+    prose = {"api.md": "# API\n\nCall `connect(host: str, port: int, *, tls: bool)` to open a connection.\n"}
+    pkg = _package(tmp_path / "plain", row.format("Signature"), prose)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"][0]["origins"] == [
+        _floor_origin("SKILL.md", 5, "table-row", {"params": "host: str, port: int", "return_type": ""})]
+    longer = {"params": "host: str, port: int, *, tls: bool", "at": "references/api.md:3"}
+    refs = ["references/api.md"]
+    for entries in ([longer], [{"params": "host: str", "at": "SKILL.md:5"}, longer]):
+        r = mod.validate_inventory(_signed(*(("connect", "function", e) for e in entries), references=refs), pkg,
+                                   read)
+        assert r["valid"] is False and r["warnings"] == [] and r["violations"] == [
+            'floor: `connect` is documented at SKILL.md:5 (table-row) with the signature {"params": "host: str, '
+            'port: int", "return_type": ""}, but no inventory entry of that name carries it; copy it as given, with '
+            '`at` "SKILL.md:5"'], entries
+    r = mod.validate_inventory(_signed(("connect", "function", {"params": "host: str, port: int"}),
+                                       ("connect", "function", longer), references=refs), pkg, read)
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == [f"exports[0] (`connect`) carries a form but no `at`, so {UNBOUND}"]
+    assert [e.get("at") for e in r["inventory"]["exports"]] == [None, "references/api.md:3"]
+
+    pkg = _package(tmp_path / "labelled", row.format("Signature (simplified)"), prose)
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"][0]["origins"][0]["signature"] == {
+        "params": "host: str, port: int", "return_type": "", "signature_form": "partial"}
+    labelled = {"params": "host: str, port: int", "signature_form": "partial", "at": "SKILL.md:5"}
+    for at, warning in ((None, f"exports[1] (`connect`) carries a form but no `at`, so {UNBOUND}"),
+                        ("SKILL.md:1", 'exports[1] (`connect`): `at` "SKILL.md:1" is a line that does not write '
+                                       f"`connect`; it is dropped and {UNBOUND}")):
+        other = {"params": "host: str, port: int, *, tls: bool", **({} if at is None else {"at": at})}
+        r = mod.validate_inventory(_signed(("connect", "function", labelled), ("connect", "function", other),
+                                           references=refs), pkg, read)
+        assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [warning], (at, r["violations"])
 
 
 PROPS_SKILL = ("# Demo\n\n## `connect(host, port)`\n\nOpens a connection.\n\n### Canvas\n\n"
@@ -1418,6 +1622,159 @@ def test_a_floor_partial_label_is_carried_at_its_origin(tmp_path):
         assert r["warnings"] == warnings, (entries, r["warnings"])
 
 
+LABEL_ADDED_VIOLATION = (PINNED.format("SKILL.md:5") + ', but an inventory entry of that name gives its form with '
+                         '`signature_form` "partial" there or with no `at`, a label the floor does not pin; copy it '
+                         'as given, without that label, with `at` "SKILL.md:5"')
+
+
+def test_a_partial_label_at_an_unlabelled_floor_pin_fails(tmp_path):
+    """#1029: the label at a place the floor pins is the floor's. Where the pin gives no label, an entry of the name
+    that gives its form with `signature_form` "partial" at that place fails with exit 2, one violation naming the
+    origin, the signature and the `at`, and leaves no inventory file: score-signatures.py would grade a left-out
+    optional parameter Info, not Critical, where the skill gives no label. So does a labelled copy of the form with
+    no `at` (none given, or a bad one dropped), alone or beside the unlabelled carrier at the row. The form with no
+    label, or "full", at the row is valid, and so is a labelled copy whose `at` is another line that writes the name
+    (the prose line), compared there."""
+    pkg = _package(tmp_path, FORM_TABLE + "\nAlso `fetchData(url: string)` in prose.\n")
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"][0]["origins"] == [_floor_origin("SKILL.md", 5, "table-row", FORM)]
+    for entries in ([{**FORM, **AT_ROW}], [{**FORM, "signature_form": "full", **AT_ROW}],
+                    [{**FORM, **AT_ROW}, {**PARTIAL, "at": "SKILL.md:7"}]):
+        r = mod.validate_inventory(_signed(*(("fetchData", "function", e) for e in entries)), pkg, read)
+        assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (
+            entries, r["violations"], r["warnings"])
+
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(("fetchData", "function", {**PARTIAL, **AT_ROW})).encode("utf-8"))
+    out.write_bytes(b"{}")
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [LABEL_ADDED_VIOLATION] and result["output"] is None
+    assert not out.exists()
+
+    for entries, warnings in (
+        ([PARTIAL], [f"exports[0] (`fetchData`) carries a form but no `at`, so {UNBOUND}"]),
+        ([{**FORM, **AT_ROW}, PARTIAL], [f"exports[1] (`fetchData`) carries a form but no `at`, so {UNBOUND}"]),
+        ([{**FORM, **AT_ROW}, {**PARTIAL, "at": "SKILL.md:1"}],
+         [f'exports[1] (`fetchData`): `at` "SKILL.md:1" is a line that does not write `fetchData`; it is dropped '
+          f"and {UNBOUND}"]),
+    ):
+        r = mod.validate_inventory(_signed(*(("fetchData", "function", e) for e in entries)), pkg, read)
+        assert r["valid"] is False and r["violations"] == [LABEL_ADDED_VIOLATION], (entries, r["violations"])
+        assert r["warnings"] == warnings, (entries, r["warnings"])
+
+
+def test_a_labelled_longer_form_elsewhere_is_no_labelled_copy_of_a_pin(tmp_path):
+    """#1029 review: the refusal of a partial label at an unlabelled pin reads the entries that carry the pin, and
+    a longer list carries it only at the pin's own place (#1028). A longer form the skill writes elsewhere and
+    labels with its own `...` (`fetchData(url: string, retries?: number, ...)` in prose), with no `at` or a bad one,
+    is another form, labelled as the contract says: it stays valid, with only the missing-`at` warning, beside the
+    unlabelled copy at the row. Given as the row's own form (`at` the row), its label is still refused."""
+    pkg = _package(tmp_path, FORM_TABLE + "\nAlso `fetchData(url: string, retries?: number, ...)` in prose.\n")
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"][0]["origins"] == [_floor_origin("SKILL.md", 5, "table-row", FORM)]
+    longer = {"params": "url: string, retries?: number, ...", "return_type": "Promise<Data>",
+              "signature_form": "partial"}
+    for at, warnings in (
+        (None, [f"exports[1] (`fetchData`) carries a form but no `at`, so {UNBOUND}"]),
+        ("SKILL.md:1", ['exports[1] (`fetchData`): `at` "SKILL.md:1" is a line that does not write `fetchData`; '
+                        f"it is dropped and {UNBOUND}"]),
+        ("SKILL.md:7", []),
+    ):
+        other = {**longer, **({} if at is None else {"at": at})}
+        r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, **AT_ROW}),
+                                           ("fetchData", "function", other)), pkg, read)
+        assert r["valid"] is True and r["violations"] == [] and r["warnings"] == warnings, (
+            at, r["violations"], r["warnings"])
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**FORM, **AT_ROW}),
+                                       ("fetchData", "function", {**longer, **AT_ROW})), pkg, read)
+    assert r["valid"] is False and r["violations"] == [LABEL_ADDED_VIOLATION], r["violations"]
+
+
+ELLIPSIS_TABLE = ("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"
+                  "| `fetchData` | function | `(url: string, ...) => Promise<Data>` |\n")
+
+
+def test_an_ellipsis_pin_on_the_floor_is_carried_with_its_label(tmp_path):
+    """#1029: a plain Signature cell whose form holds an ellipsis item is pinned with `signature_form` "partial",
+    so the label rule of a header's label holds for it: the labelled copy at the row is valid, and the copy without
+    the label, which validated before, is one violation naming the origin and the labelled signature."""
+    pkg = _package(tmp_path, ELLIPSIS_TABLE)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    pinned = {"params": "url: string, ...", "return_type": "Promise<Data>", "signature_form": "partial"}
+    assert read["names"][0]["origins"] == [_floor_origin("SKILL.md", 5, "table-row", pinned)]
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**pinned, **AT_ROW})), pkg, read)
+    assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (r["violations"], r["warnings"])
+    unlabelled = {key: value for key, value in pinned.items() if key != "signature_form"}
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**unlabelled, **AT_ROW})), pkg, read)
+    assert r["valid"] is False and r["violations"] == [
+        f"floor: `fetchData` is documented at SKILL.md:5 (table-row) with the signature {json.dumps(pinned)}, but no "
+        "inventory entry of that name at that place carries it, or one gives its form without its `signature_form` "
+        'there or with no `at`; copy it as given, with `at` "SKILL.md:5"'], r["violations"]
+
+
+KEY_PARAMS_TABLE = ("# Demo\n\n| Export | Kind | Key params | Source |\n|---|---|---|---|\n"
+                    '| `Mem0Source` | class | `Mem0Source(data, mode="re-derive")`: `data` is a path. | |\n'
+                    '| `IMPORT_MODES` | tuple | `("re-derive", "preserve")`: the modes. | |\n')
+
+
+def test_a_key_params_pin_on_the_floor_is_carried_with_its_label(tmp_path):
+    """#997: a Key params cell on a `class` row is pinned with `signature_form` "partial", the label its header
+    gives each row, so the label rule holds for it: the labelled copy at the row is valid with no warning, while a
+    copy without the label (exit 2, no inventory file left), a usage recorded in its place and another form there
+    are each one violation naming the origin and the labelled signature. A `tuple` row's cell pins nothing, so its
+    name is carried with no form."""
+    pkg = _package(tmp_path, KEY_PARAMS_TABLE)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    pinned = {"params": 'data, mode="re-derive"', "return_type": "", "signature_form": "partial"}
+    assert [(n["name"], n["origins"]) for n in read["names"]] == [
+        ("IMPORT_MODES", [_floor_origin("SKILL.md", 6, "table-row")]),
+        ("Mem0Source", [_floor_origin("SKILL.md", 5, "table-row", pinned)])]
+    modes = ("IMPORT_MODES", "constant", {"description": ""})
+    r = mod.validate_inventory(_signed(("Mem0Source", "class", {**pinned, **AT_ROW}), modes), pkg, read)
+    assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (r["violations"], r["warnings"])
+    assert r["floor"] == {"names": 2, "checked": 2, "absent": []}
+
+    violation = ("floor: `Mem0Source` is documented at SKILL.md:5 (table-row) with the signature "
+                 f"{json.dumps(pinned)}, but no inventory entry of that name at that place carries it, or one gives "
+                 'its form without its `signature_form` there or with no `at`; copy it as given, with `at` '
+                 '"SKILL.md:5"')
+    unlabelled = {"params": 'data, mode="re-derive"', "return_type": "", **AT_ROW}
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(("Mem0Source", "class", unlabelled), modes).encode("utf-8"))
+    out.write_bytes(b"{}")
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [violation] and result["output"] is None
+    assert not out.exists()
+    for fields in ({"usage_signature": 'Mem0Source(data, mode="re-derive")', "return_type": "", **AT_ROW},
+                   {"params": "data", "return_type": "", "signature_form": "partial", **AT_ROW}):
+        r = mod.validate_inventory(_signed(("Mem0Source", "class", fields), modes), pkg, read)
+        assert r["valid"] is False and r["violations"] == [violation], (fields, r["violations"])
+
+
 USAGE_SKILL = ("# Demo\n\n"
                "| Component | Props | Purpose |\n| --- | --- | --- |\n"
                "| `Title` | `TitleProps = { of?: Of }` | Renders the title. |\n\n"
@@ -1580,6 +1937,27 @@ def test_a_neighbouring_line_that_is_another_place_of_the_name_is_not_read():
             "The other package declares its own `Mode`, with one member [AST:other/types.ts:L1]"]
     assert mod.form_citations(note, 2, "Mode") == set()
     assert mod.form_citations(note, 5, "Mode") == {("other/types.ts", 1, 1)}
+
+
+def test_a_table_row_s_own_citations_are_in_its_cells():
+    """#998 (oms-cocoindex `Settings`): a table row outside a fenced block (the floor's table row) reads no line after
+    it, whatever name that line writes. The next row documents another export, whose citations are its own, so a
+    row that cites its declaration keeps that citation alone and a row that cites none has none; a line after the
+    table is the table's, not its last row's. A heading still reads the next non-blank line, and a line that opens
+    with `|` in a fenced block is code, read by the fence rules."""
+    rows = ["| Export | Kind | Source |", "| --- | --- | --- |",
+            "| `Settings` | class | [AST:pkg/_internal/setting.py:L56] |",
+            "| `ServerSettings` | class | [AST:pkg/setting.py:L93] |"]
+    assert mod.form_citations(rows, 3, "Settings") == {("pkg/_internal/setting.py", 56, 56)}
+    assert mod.form_citations(rows, 4, "ServerSettings") == {("pkg/setting.py", 93, 93)}
+    uncited = ["  | `Settings` | class | The settings |", "| `ServerSettings` | class | [AST:pkg/setting.py:L93] |"]
+    assert mod.form_citations(uncited, 1, "Settings") == set()
+    last = ["| `Settings` | class |", "", "[AST:pkg/setting.py:L93]"]
+    assert mod.form_citations(last, 1, "Settings") == set()
+    heading = ["### `Settings`", "", "[AST:pkg/_internal/setting.py:L56]", "", "| `ServerSettings` | class |"]
+    assert mod.form_citations(heading, 1, "Settings") == {("pkg/_internal/setting.py", 56, 56)}
+    fenced = ["```elixir", "| Settings.load(path)", "[AST:pkg/_internal/setting.py:L56]", "```"]
+    assert mod.form_citations(fenced, 2, "Settings") == {("pkg/_internal/setting.py", 56, 56)}
 
 
 @pytest.mark.parametrize("citations, file, line, named", [

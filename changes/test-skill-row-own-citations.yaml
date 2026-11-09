@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill now reads a documented table row's own citations in its cells alone. The signature plan read the `[AST:]` and `[SRC:]` citations on the line after a form's place unless that line wrote the same name, so a row also took the citations of the next row, which documents another export: a row that cited its own declaration could name two declarations and be left unbound, and a row with no citation was bound to the declaration the next row cites and compared with it alone, which could record a false Critical `signature-mismatch` gap. A table row outside a fenced block now reads no line after it, a line after the table included, while a heading, a prose line and a form in a fenced block read the next line as before. For cocoindex, the `Settings` row that cites its declaration in `_internal/setting.py` is now bound to it, where the `ServerSettings` row's citation, which falls in the same-named `cocoindex.setting.Settings` class, left it unbound. This can block a skill that passed: a row whose own citation names one declaration no longer matches through another.
+migration: |
+  If a skill now stops at the hard gate on a table row compared with the declaration its own citation names, correct the form, or the citation when it points at the wrong declaration, then run Test Skill again. A row that relied on a citation written on the line after it, or after its table, takes that citation into one of its cells.
+issues: [998]
+prs: [1057]

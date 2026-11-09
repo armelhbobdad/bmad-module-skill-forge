@@ -58,8 +58,10 @@ ratios and the gap records of the wrong signatures.
          the places the inventory's `at` gives its entries
          (validate-inventory.py's form_citations): on that line; on the
          next non-blank line, unless that line writes the name (another
-         place of it, such as the next table row) or, in a fenced block, is
-         a comment (it heads the next declaration); in a fenced block, on
+         place of it) or, in a fenced block, is a comment (it heads the next
+         declaration), and never after a table row, whose own citations are
+         in its cells (the next row documents another export); in a fenced
+         block, on
          the comment lines just above it; and, when the block holds no other
          place the inventory gives the name, on the block's first non-blank
          line when it is a comment and on the first non-blank line after its

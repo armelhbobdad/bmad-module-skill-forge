@@ -11,7 +11,9 @@ documented inventory, the shape is validated. That validation is pure
 structural checking (strip wrapping fences, parse JSON, assert required keys
 and types, assert each export entry is a dict with a non-empty `name` and a
 `kind` drawn from a fixed enum and, when present, a `signature_form` of
-`partial` or `full`, and assert each cross-check mismatch carries its fields
+`partial` or `full`, and no key outside the contract's ENTRY_KEYS (#1001: a
+`usage` written for `usage_signature` would leave its form uncompared, so
+it is refused), and assert each cross-check mismatch carries its fields
 and one other side, in order), with exactly one correct pass/fail per input
 and no interpretation of meaning. It is therefore script work, not prompt
 work; the prompt reads this verdict and owns only the HALT decision.
@@ -30,7 +32,11 @@ is a positive integer. A pair of references is written in one order,
 `reference_line`) in codepoint order, so a rerun gives the gap one title and
 the ledger records it once; one export documented twice in one reference is
 a pair of its two lines. A violation of the other side names both shapes,
-and one of the order names both places.
+and one of the order names both places. Its `export` names an inventory
+entry (#1033): an entry's `name`, a `method`'s bare one, or `{owner}.{name}`
+for a `method` entry that gives an `owner` (mismatch_names). Any other
+value, an empty string or a number among them, is a violation, since §5b
+titles a split-body gap with it.
 
 With --skill-package it also runs the ground-truth spot-check (coverage-check.md
 §1a): it sorts the exports by name (a stable sort), samples the first, the
@@ -61,12 +67,22 @@ does: each of those fields the signature pins non-blank gives the same
 field_text (whitespace runs as one space, a list's items joined with `, `,
 a null field as blank), and a `params` or `usage_signature` that opens with
 the shared text the contract has several names' entries carry, then `; `,
-carries the pinned one after it. A field the signature leaves blank, and
+carries the pinned one after it. The `params` of an entry whose `at` is
+that origin also carries the pinned one when its members, cut at the
+commas outside brackets and strings (score-signatures.py's `_split`, each
+member as field_text gives it), hold each pinned member in the pinned
+order, others before, among or after them (#1028): the whole list in the
+skill's order the contract has an entry write when the skill puts an own
+member before or among the shared ones. Elsewhere, or with no `at`, such a
+longer list is another form of the name, which never carries the pin nor
+counts as its copy. A pinned `usage_signature` is carried only as given
+or after the shared text and `; `. A field the signature leaves blank, and
 the entry's other fields (its `usage_signature` beside a pinned `params`,
 its `params` beside a pinned `usage_signature`), are not read, but for one:
 a signature read from a column under a partial label (`Signature
 (simplified)`, `Props (simplified)`, load-coverage-inputs.py's
-FLOOR_PARTIAL_LABELS) also gives `signature_form` "partial", and an entry
+FLOOR_PARTIAL_LABELS), or one whose parameter group holds an ellipsis item
+(`...` or `…` alone, #1029), also gives `signature_form` "partial", and an entry
 carries it only with that `signature_form` too. Such an origin is carried
 only at its own place: by the entries of that name whose `at` is that
 origin and that give its form, at least one, each with the label, while
@@ -76,7 +92,11 @@ keep an unlabelled twin at the origin, or an unlabelled copy that shows
 no place, over the label. An unlabelled copy whose kept `at` is another
 place (with --skill-package, a line that writes the name) stays valid. A
 dropped label, such an unlabelled twin or copy, and a carrier elsewhere
-or with no `at`, is then a violation, never the warning below.
+or with no `at`, is then a violation, never the warning below. The label
+of an origin whose signature gives none is the floor's too (#1029): an
+entry of that name that gives its form with `signature_form` "partial",
+at that origin or with no `at`, is a violation, while such a copy whose
+kept `at` is another place stays valid.
 Each checked origin no entry carries is a violation naming the origin and
 its signature, for a name left out too, and the inventory is invalid: the
 form is never overwritten, so the re-dispatched subagent copies it as
@@ -165,8 +185,10 @@ stale homonym, score-signatures.py to plan a signature check at the
 declaration the skill cites. A form's own citations are shared the same way
 (#918): `form_citations` gives the citations of the form an `at` places, on
 its line; on the next non-blank line, unless that line writes the name (it
-is another place of the name, such as the next table row) or, inside a
-fenced block, is a comment (it heads the next declaration); for a line
+is another place of the name) or, inside a fenced block, is a comment (it
+heads the next declaration), and never after a table row outside a fenced
+block, whose own citations are in its cells (the next row documents
+another export); for a line
 inside a fenced block, on the comment lines just above it in the block;
 and, when the block holds no other place the inventory gives the name, on
 the block's first non-blank line when it is a comment and on the first
@@ -241,15 +263,19 @@ Exit codes:
   0  inventory valid (every sampled name found, every checked floor name
      kept and every checked floor signature carried; a missing or bad `at`
      is only a warning, but a labelled floor signature is carried only at
-     its own place, and never unlabelled there or with no `at`)
+     its own place, and never unlabelled there or with no `at`, and an
+     unlabelled one never labelled there or with no `at`)
   1  no input provided, the --input file cannot be read, the
      --skill-package folder holds no readable SKILL.md, or the --floor file
      cannot be read or is not a floor, a malformed `signature` among them
      (usage error)
-  2  inventory invalid (parse failure, schema violation, a sampled name
+  2  inventory invalid (parse failure, schema violation, an entry key the
+     contract does not define among them, a sampled name
      absent, a floor name left out or a floor signature no entry carries,
      or a labelled one no entry at its place carries with its label, or
-     that an entry there or with no `at` gives without it;
+     that an entry there or with no `at` gives without it, or an unlabelled
+     one an entry there or with no `at` gives with `signature_form`
+     "partial";
      result JSON emitted)
 """
 
@@ -312,6 +338,24 @@ SIGNATURE_KINDS = ("function", "method")
 # An entry's signature fields, the ones form_key reads (score-signatures.py reads them from here).
 SIGNATURE_FIELDS = ("params", "return_type", "usage_signature")
 
+# The keys an exports[] entry may carry, the contract's (inventory-contract.md lists them in this order). Any
+# other is a violation naming the entry (#1001): score-signatures.py reads only SIGNATURE_FIELDS, so a `usage`
+# written for `usage_signature` would leave the documented form uncompared.
+ENTRY_KEYS = (
+    "name",
+    "kind",
+    "description",
+    "params",
+    "return_type",
+    "usage_signature",
+    "signature_form",
+    "at",
+    "owner",
+    "methods",
+    "properties",
+    "fields",
+)
+
 # The fields of a floor origin's `signature` (#888), each a string, and the
 # ones the floor check compares with an entry's: `return_type` and either
 # `params` (a complete form or a props or parameter cell) or `usage_signature`
@@ -320,7 +364,9 @@ FLOOR_SIGNATURE_FIELDS = ("params", "usage_signature", "return_type")
 
 # The label a floor origin's `signature` may also give (#888), its key and its
 # one value: the partial label of the Signature, Props, Params or Parameters
-# column it was read from, which the entry at that origin copies.
+# column it was read from, or of an ellipsis item in its parameter group
+# (#1029), which the entry at that origin copies; an origin with none gives
+# its entries none there.
 FLOOR_LABEL_FIELD, FLOOR_LABEL = "signature_form", "partial"
 
 # Characters that continue an identifier in the languages SKF documents
@@ -492,6 +538,25 @@ def _segments():
     return _SEGMENTS_MODULE
 
 
+_SCORER_MODULE = None
+
+
+def _scorer():
+    """score-signatures.py beside this script, for its `_split`, which cuts a parameter list at the commas outside
+    every bracket pair and string: _carries reads a pinned `params` with it (#1028). score-signatures.py loads this
+    file only from a call, and `_split` makes none, so the two never load each other in a loop."""
+    global _SCORER_MODULE
+    if _SCORER_MODULE is None:
+        sibling = Path(__file__).resolve().parent / "score-signatures.py"
+        spec = importlib.util.spec_from_file_location("skf_validate_inventory_scorer", sibling)
+        if spec is None or spec.loader is None or not sibling.is_file():
+            raise ImportError(f"score-signatures.py not found beside {Path(__file__).name}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _SCORER_MODULE = module
+    return _SCORER_MODULE
+
+
 def compared_form(entry: dict) -> bool:
     """Whether score-signatures.py plan compares a form the entry's `params`
     or `usage_signature` writes, so the entry carries `at`: an entry that is
@@ -545,9 +610,12 @@ def form_citations(lines: list[str], line: int, name: str,
 
     - on that line;
     - on the next non-blank line, unless that line writes `name` outside
-      its citations (another place of the name, such as the next table
-      row, whose citations are its own) or, inside a fenced block, is a
-      comment (it heads the next declaration);
+      its citations (another place of the name, whose citations are its
+      own) or, inside a fenced block, is a comment (it heads the next
+      declaration), and never after a table row outside a fenced block
+      (locate-export-segments.py's TABLE_ROW_RE, the floor's row), whose
+      own citations are in its cells: the next row documents another
+      export, and a line after the table is the table's;
     - for a line inside a fenced block (_fence_holding), on the comment
       lines just above it in the block, its own heading;
     - and, when no line of `others` is in that block's body (a block that
@@ -567,7 +635,8 @@ def form_citations(lines: list[str], line: int, name: str,
     fence = _fence_holding(lines, index)
     places = [lines[index]]
     following = _first_filled(lines, index + 1)
-    if not _writes(pattern, following) and not (fence is not None and _COMMENT_MARKER_RE.match(following)):
+    row = fence is None and _segments().TABLE_ROW_RE.match(lines[index])
+    if not row and not _writes(pattern, following) and not (fence is not None and _COMMENT_MARKER_RE.match(following)):
         places.append(following)
     if fence is not None:
         opening, closing = fence
@@ -790,19 +859,38 @@ def _listed_path(ref, skill_package_path):
     return _cited_path(ref)
 
 
-def _carries(entry, signature):
+def _members(text):
+    """A parameter list's members, each as field_text gives it, cut at the commas outside every bracket pair and
+    string (score-signatures.py's _split, so `Dict[str, int]` stays one member), an empty last one dropped."""
+    members = [field_text(member) for member in _scorer()._split(text, ",")]
+    return members[:-1] if members and not members[-1] else members
+
+
+def _holds_in_order(given, wanted):
+    """Whether the `params` text `given` holds each member of `wanted` in its order, other members before, among
+    or after them (#1028: the whole list the contract has an entry write when the skill puts a name's own member
+    before or among the members it states once for several names)."""
+    rest = iter(_members(given))
+    return all(member in rest for member in _members(wanted))
+
+
+def _carries(entry, signature, place):
     """Whether an entry carries a floor origin's signature: each field the signature gives (`params` or
     `usage_signature`, and `return_type`) and pins non-blank has the same field_text there, a `params` or
     `usage_signature` that opens with members the skill states once for several names (the contract's shared text,
-    then `; `) included; and, when it gives the partial label (#888), the entry's `signature_form` is that label
-    too."""
+    then `; `) included, and, for an entry whose `at` is the origin's `place` (parse_at), a `params` whose members
+    hold the pinned ones in their order among others (_holds_in_order, #1028): a longer list elsewhere or with no
+    `at` is another form of the name, which neither carries the pin nor stands in for its copy; and, when it gives
+    the partial label (#888), the entry's `signature_form` is that label too."""
     if FLOOR_LABEL_FIELD in signature and entry.get(FLOOR_LABEL_FIELD) != signature[FLOOR_LABEL_FIELD]:
         return False
+    here = parse_at(entry.get("at")) == place
     for field in FLOOR_SIGNATURE_FIELDS:
         if field not in signature:
             continue
         wanted, given = field_text(signature[field]), field_text(entry.get(field))
-        if wanted and given != wanted and not (field != "return_type" and given.endswith("; " + wanted)):
+        if wanted and given != wanted and not (field != "return_type" and given.endswith("; " + wanted)) and not (
+                here and field == "params" and _holds_in_order(given, wanted)):
             return False
     return True
 
@@ -827,7 +915,9 @@ def floor_check(inventory, floor, skill_package_path=None):
     signature pins non-blank (its `params` or, for a usage form, its
     `usage_signature`, and its `return_type`; a blank pinned `return_type`
     leaves the entry's free; a `params` or `usage_signature` may open with
-    shared text and `; `, _carries); one no entry carries is a violation
+    shared text and `; `, and the `params` of an entry whose `at` is that
+    origin may hold the pinned members in their order among others,
+    _carries); one no entry carries is a violation
     naming the origin and the signature, for a name left out too. A carried
     origin is placed when an entry that carries it gives that origin as its
     `at` (parse_at; #918). When none does, the `at` of each entry that
@@ -845,7 +935,11 @@ def floor_check(inventory, floor, skill_package_path=None):
     It is otherwise one violation, a carrier elsewhere or with no `at`, an
     unlabelled twin there and an unlabelled copy with no `at` included; an
     unlabelled copy whose `at` is another place (with the package, a line
-    that writes the name) stays valid.
+    that writes the name) stays valid. An origin whose signature gives no
+    label is refused the same way when an entry of that name that gives its
+    form there or with no `at` gives `signature_form` "partial" (#1029): one
+    violation, while a labelled copy whose `at` is another place stays
+    valid.
     """
     listed = inventory.get("references")
     files = {"SKILL.md"} | {_listed_path(ref, skill_package_path)
@@ -870,8 +964,8 @@ def floor_check(inventory, floor, skill_package_path=None):
 
     def carried(entry):
         """The checked origins of the entry's name whose signature it carries, (path, line) as parse_at gives."""
-        return {(_cited_path(o["file"]), o["line"]) for n, o in signed
-                if n == entry.get("name") and _carries(entry, _origin_signature(o))}
+        places = [((_cited_path(o["file"]), o["line"]), o) for n, o in signed if n == entry.get("name")]
+        return {place for place, o in places if _carries(entry, _origin_signature(o), place)}
 
     for name, origin in signed:
         signature = _origin_signature(origin)
@@ -885,15 +979,25 @@ def floor_check(inventory, floor, skill_package_path=None):
             # label, so no unlabelled twin, nor a copy that shows no place, is the form score-signatures.py keeps. A
             # copy whose `at` is another place is compared there.
             form = {f: signature[f] for f in FLOOR_SIGNATURE_FIELDS if f in signature}
-            copies = [e for _, e in entries if e.get("name") == name and _carries(e, form)]
+            copies = [e for _, e in entries if e.get("name") == name and _carries(e, form, place)]
             here = [e for e in copies if parse_at(e.get("at")) == place]
-            if not here or not all(_carries(e, signature) for e in copies
+            if not here or not all(_carries(e, signature, place) for e in copies
                                    if e.get("at") is None or parse_at(e["at"]) == place):
                 violations.append(f"{pinned}, but no inventory entry of that name at that place carries it, or one "
                                   f"gives its form without its `signature_form` there or with no `at`; copy it as "
                                   f"given, with `at` {at}")
             continue
-        carriers = [(idx, e) for idx, e in entries if e.get("name") == name and _carries(e, signature)]
+        carriers = [(idx, e) for idx, e in entries if e.get("name") == name and _carries(e, signature, place)]
+        if any(e.get(FLOOR_LABEL_FIELD) == FLOOR_LABEL and (e.get("at") is None or parse_at(e["at"]) == place)
+               for _, e in carriers):
+            # An unlabelled pin's label is the floor's too (#1029): an entry that gives its form there or with no
+            # `at` (a bad one is dropped by now) and labels it partial would turn a left-out optional parameter's
+            # Critical into Info where the skill gives no label. A labelled copy whose `at` is another place is
+            # compared there.
+            violations.append(f"{pinned}, but an inventory entry of that name gives its form with `signature_form` "
+                              f"\"partial\" there or with no `at`, a label the floor does not pin; copy it as given, "
+                              f"without that label, with `at` {at}")
+            continue
         if any(parse_at(e.get("at")) == place for _, e in carriers):
             continue
         if not carriers:
@@ -981,10 +1085,25 @@ def _is_line(value):
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
-def mismatch_violations(idx, entry, skill_package_path=None):
+def mismatch_names(exports):
+    """The spellings a mismatch's `export` may take (#1033): each entry's non-empty string `name`, and
+    `{owner}.{name}` for a `method` entry whose `owner` is a non-empty string. The contract asks for the bare
+    `name`, the one `crossChecked` lists; the qualified one is accepted so a reader that writes it is not refused."""
+    names = set()
+    for entry in exports:
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str) and entry["name"]:
+            names.add(entry["name"])
+            if entry.get("kind") == "method" and isinstance(entry.get("owner"), str) and entry["owner"]:
+                names.add(f"{entry['owner']}.{entry['name']}")
+    return names
+
+
+def mismatch_violations(idx, entry, skill_package_path=None, names=None):
     """The violations of one cross_check_mismatches entry (an object).
 
-    A required field left out; a `reference_file` or `other_file` that is no
+    A required field left out; an `export` that is not a non-empty string
+    or, given `names` (mismatch_names), not one of them (#1033: §5b titles a
+    split-body gap with it); a `reference_file` or `other_file` that is no
     `references/**/*.md` path of the package; a line that is no positive
     integer; an other side that is not exactly one shape, `skill_md_line` or
     both of `other_file` and `other_line` (a JSON null counts as absent); or a
@@ -998,6 +1117,12 @@ def mismatch_violations(idx, entry, skill_package_path=None):
     missing = [f for f in REQUIRED_MISMATCH_FIELDS if f not in entry]
     if missing:
         violations.append(f"{where} missing field(s): {', '.join(missing)}")
+    if "export" in entry:
+        export = entry["export"]
+        if not (isinstance(export, str) and export) or (names is not None and export not in names):
+            violations.append(f"{where}: `export` must name an inventory entry, by its `name` (a `method`'s bare "
+                              "`name`, or `{owner}.{name}` for one that gives an `owner`), "
+                              f"not {json.dumps(export)}")
     ref = None
     if "reference_file" in entry:
         ref = _reference_path(entry["reference_file"], skill_package_path)
@@ -1220,6 +1345,19 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
                 f"not {json.dumps(entry['signature_form'])}"
             )
 
+    # An entry carries only the contract's keys (#1001), whatever their values: each entry with another is a
+    # violation naming those keys, in the entry's order, and the contract's.
+    entry_keys = ", ".join(f"`{k}`" for k in ENTRY_KEYS[:-1]) + f" and `{ENTRY_KEYS[-1]}`"
+    for idx, entry in enumerate(exports):
+        unknown = [f"`{k}`" for k in entry if k not in ENTRY_KEYS] if isinstance(entry, dict) else []
+        if unknown:
+            label = f" (`{entry['name']}`)" if isinstance(entry.get("name"), str) and entry["name"] else ""
+            named = unknown[0] if len(unknown) == 1 else ", ".join(unknown[:-1]) + f" and {unknown[-1]}"
+            verb = "is not a key" if len(unknown) == 1 else "are not keys"
+            violations.append(
+                f"exports[{idx}]{label}: {named} {verb} the contract defines; an entry carries only {entry_keys}"
+            )
+
     # Each entry that carries a compared form is asked for its place, `at`, in a file the inventory reads (#918):
     # one missing or bad is a warning, the bad one dropped.
     files = _read_files(data, skill_package_path)
@@ -1228,12 +1366,13 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
             warnings.extend(at_warnings(idx, entry, files, skill_package_path))
 
     # Each cross-check mismatch carries its fields and one other side of its
-    # pair, a pair of references in order.
+    # pair, a pair of references in order, and an `export` naming an entry (#1033).
+    names = mismatch_names(exports)
     for idx, entry in enumerate(cross):
         if not isinstance(entry, dict):
             violations.append(f"cross_check_mismatches[{idx}] is not an object")
             continue
-        violations.extend(mismatch_violations(idx, entry, skill_package_path))
+        violations.extend(mismatch_violations(idx, entry, skill_package_path, names))
 
     schema_valid = not violations
     checked = None

@@ -1,0 +1,6 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory contract now says that a call or JSX element a fenced example writes, such as storybook's `defineMain({ ... })` or `withThemeFromJSXProvider({ ... })`, gives the name no inventory entry when the skill also writes that name's form outside its examples, in a heading, a table row, a props table, running text or a fenced declaration, unless the nearest heading above the example names a usage, such as `## Usage`, where a bold label line such as `**Usage:**` is no heading. Before, the contract did not say, so one reader recorded such a call as a usage form of its own and the next did not, and two runs of one skill compared different forms. Such an example is no longer compared, so an example that drops a required argument is no longer a `signature-mismatch` gap of its own, and a name whose only forms are in fenced examples keeps them.
+issues: [997]
+prs: [1057]

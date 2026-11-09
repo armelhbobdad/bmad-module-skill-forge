@@ -383,13 +383,14 @@ def test_a_bound_form_is_compared_with_its_own_declaration_alone():
     bound = _paragraph(coverage, "A check's `bound` lists each form")
     assert "of its `surface.json` `otherDeclarations`" in bound
     assert ("Its own citations are the `[AST:]` and `[SRC:]` citations `{validateInventoryScript}` reads at the "
-            "inventory's `at`: on that line, on the line after it and around its fenced block, as its "
+            "inventory's `at`: on that line, after it unless it is a table row, and around its fenced block, as its "
             "`form_citations` says.") in bound
     # The full reading rule lives with the code that applies it, validate-inventory.py's docstring.
     rule = " ".join(_read(TEST_SKILL / "scripts" / "validate-inventory.py").split())
     assert ("`form_citations` gives the citations of the form an `at` places, on its line; on the next non-blank "
-            "line, unless that line writes the name (it is another place of the name, such as the next table row) "
-            "or, inside a fenced block, is a comment (it heads the next declaration); for a line inside a fenced "
+            "line, unless that line writes the name (it is another place of the name) or, inside a fenced block, is "
+            "a comment (it heads the next declaration), and never after a table row outside a fenced block, whose "
+            "own citations are in its cells (the next row documents another export); for a line inside a fenced "
             "block, on the comment lines just above it in the block; and, when the block holds no other place the "
             "inventory gives the name, on the block's first non-blank line when it is a comment and on the first "
             "non-blank line after its closing fence unless that line writes the name.") in rule

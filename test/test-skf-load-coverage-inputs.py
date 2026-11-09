@@ -311,6 +311,44 @@ def test_floor_reads_no_other_header_word(tmp_path, header):
     assert mod.floor(str(_skill(tmp_path, body)))["names"] == []
 
 
+@pytest.mark.parametrize("header, read", [
+    ("Queries", True), ("**Query**", True), ("Component / Props", True), ("**Function/Type**", True),
+    ("**Component** / __Props__", True), ("Hook / Component / Params", True),
+    ("Symbol / keyword", False), ("Prop / Type", False), ("Name / Type", False), ("Props / Component", False),
+    ("Command / flag", False), ("Function /", False), ("Function (sync/async)", False)])
+def test_floor_reads_a_compound_header_by_its_parts(tmp_path, header, read):
+    """#1004: Query and Queries are header words, and a first header cell split at `/` names exports when its first
+    part is a header word and every other part one or Props, Params or Parameters, each part bare or wrapped in
+    `**` or `__`. A props table (`Prop / Type`), a keyword table (`Symbol / keyword`) and an empty part give none."""
+    body = f"| {header} | Kind |\n| --- | --- |\n| `useThing` | hook |\n"
+    names = [{"name": "useThing", "kindLabel": "hook", "origins": [_origin("SKILL.md", 3, "table-row")]}]
+    assert mod.floor(str(_skill(tmp_path, body)))["names"] == (names if read else [])
+
+
+def test_floor_reads_storybook_s_queries_and_component_props_tables(tmp_path):
+    """#1004, the two tables of oms-storybook-react-vite that gave no floor name: a `Queries` row gives each name
+    its first cell writes, and a `Component / Props` row its component with its Signature cell's form; the
+    compound first cell is never read as a Props column. Two runs give the same bytes."""
+    root = _skill(tmp_path, "# Demo\n", {
+        "core-api.md": ("| Queries | Kind | Signature (each name in the row) | Source |\n"
+                        "| --- | --- | --- | --- |\n"
+                        "| `getByRole`, `queryByRole` | function | `(role, options?)` | [SRC:dom.ts:L4] |\n"),
+        "doc-blocks.md": ("| Component / Props | Kind | Signature | Source |\n"
+                          "| --- | --- | --- | --- |\n"
+                          "| `Canvas` | component | `<Canvas of={Story} />` | [SRC:blocks.tsx:L9] |\n"
+                          "| `Meta` | component | - | [SRC:blocks.tsx:L30] |\n")})
+    out = mod.floor(str(root))
+    assert out["names"] == [
+        {"name": "Canvas", "kindLabel": "component",
+         "origins": [_origin("references/doc-blocks.md", 3, "table-row", _usage("<Canvas of={Story} />"))]},
+        {"name": "Meta", "kindLabel": "component", "origins": [_origin("references/doc-blocks.md", 4, "table-row")]},
+        {"name": "getByRole", "kindLabel": "function", "origins": [_origin("references/core-api.md", 3, "table-row")]},
+        {"name": "queryByRole", "kindLabel": "function",
+         "origins": [_origin("references/core-api.md", 3, "table-row")]},
+    ]
+    assert json.dumps(out) == json.dumps(mod.floor(str(root)))
+
+
 def test_floor_keeps_the_first_kind_label_in_origin_order(tmp_path):
     """Two tables label one name differently: the first label in origin order (file order, then line) is the
     name's `kindLabel`, the skill's own label; a later one is not kept."""
@@ -832,6 +870,110 @@ def test_floor_pins_a_signature_header_s_partial_label(tmp_path, header, labelle
     assert json.loads(first.read_bytes()) == out
 
 
+def test_floor_pins_an_ellipsis_item_s_partial_label(tmp_path):
+    """#1029: a pinned form whose parameter group holds an ellipsis item, `...` or `…` alone, carries
+    `signature_form` "partial" whatever its origin (a Signature cell, the first-cell form, a usage form, a heading),
+    since the contract counts that `...` as the skill's partial label: the label is the script's, not the reader's.
+    A rest `...parts`, a `*args` and `**kwargs`, a default `x=...`, an ellipsis inside a nested type and a plain
+    form pin no label. The same skill gives the same bytes."""
+    body = ("| Export | Kind | Signature |\n"                                           # 1
+            "| --- | --- | --- |\n"                                                     # 2
+            "| `fetchData` | function | `(url: string, ...) => Promise<Data>` |\n"      # 3
+            "| `loadUser` | function | `(id: string) => Promise<User>` |\n"            # 4
+            "| `join` | function | `(...parts: string[]) => string` |\n"                # 5
+            "| `call` | function | `(*args, **kwargs) -> Any` |\n"                     # 6
+            "| `stub` | function | `(x=...) -> None` |\n"                              # 7
+            "| `on` | function | `(cb: (a, ...) => void) => void` |\n"                 # 8
+            "| `mergeProps(a, b, …)` | function | Merges props. |\n"                   # 9
+            "| `add` | function | `await cognee.add(data, …)` |\n"                     # 10
+            "\n"                                                                       # 11
+            "### `search(query_text, query_type=None, ...)`\n"                         # 12
+            "\n"                                                                       # 13
+            "### `route(path, …): Route`\n")                                          # 14
+    root = _skill(tmp_path, body)
+    out = mod.floor(str(root))
+    assert {n["name"]: [(o["line"], o.get("signature")) for o in n["origins"]] for n in out["names"]} == {
+        "add": [(10, _labelled(_usage("await cognee.add(data, …)")))],
+        "call": [(6, _signature("*args, **kwargs", "Any"))],
+        "fetchData": [(3, _labelled(_signature("url: string, ...", "Promise<Data>")))],
+        "join": [(5, _signature("...parts: string[]", "string"))],
+        "loadUser": [(4, _signature("id: string", "Promise<User>"))],
+        "mergeProps": [(9, _labelled(_signature("a, b, …")))],
+        "on": [(8, _signature("cb: (a, ...) => void", "void"))],
+        "route": [(14, _labelled(_signature("path, …", "Route")))],
+        "search": [(12, _labelled(_signature("query_text, query_type=None, ...")))],
+        "stub": [(7, _signature("x=...", "None"))]}
+    first, second = tmp_path / "floor-1.json", tmp_path / "floor-2.json"
+    for target in (first, second):
+        proc = _run("floor", "--skill-dir", str(root), "--output", str(target))
+        assert proc.returncode == 0, proc.stderr
+    assert first.read_bytes() == second.read_bytes()
+    assert json.loads(first.read_bytes()) == out
+
+
+@pytest.mark.parametrize("header, read, labelled", [
+    ("Signature / Purpose", True, False), ("Props / Signature", True, False), ("**Signature / Value**", True, False),
+    ("Signature / shape (at pin)", True, False), ("Signatures/Purpose", True, False),
+    ("Signature (simplified) / Purpose", True, True), ("Purpose / **Signature (key params)**", True, True),
+    ("Props / Usage", False, False), ("Props / Type", False, False), ("Purpose and key params", False, False),
+    ("Key params / shape", False, False), ("Signature (sync/async)", False, False),
+    ("Arguments", False, False), ("Args", False, False), ("Param", False, False), ("Parameter", False, False),
+    ("Usage", False, False), ("Syntax", False, False), ("Example", False, False)])
+def test_floor_reads_a_compound_signature_header_by_its_parts(tmp_path, header, read, labelled):
+    """#1030: a header split at `/` with a part that is Signature or Signatures, each part bare or wrapped in `**`,
+    is a Signature column: its cell's leading code span is pinned as a Signature cell's is, a description after the
+    span left out, a complete form or a usage form, and that part's own partial label labels it. A compound header
+    with no Signature part (`Props / Usage`, `Props / Type`) and an Arguments, Args, Param, Parameter, Usage, Syntax
+    or Example header stay unread, so the row pins nothing."""
+    body = (f"| Export | Kind | {header} |\n"                                          # 1
+            "| --- | --- | --- |\n"                                                    # 2
+            "| `call` | function | `call(a: int, b: str) -> str` - calls it. |\n"      # 3
+            "| `run` | function | `await run(a, b)` - runs it. |\n")                    # 4
+    out = mod.floor(str(_skill(tmp_path, body)))
+    pins = {"call": _signature("a: int, b: str", "str"), "run": _usage("await run(a, b)")}
+    expected = {name: (_labelled(pin) if labelled else pin) if read else None for name, pin in pins.items()}
+    assert {n["name"]: [o.get("signature") for o in n["origins"]] for n in out["names"]} == {
+        name: [pin] for name, pin in expected.items()}
+
+
+def test_floor_pins_storybook_s_signature_purpose_and_props_signature_cells(tmp_path):
+    """#1030, the tables of oms-storybook-react-vite whose forms the floor left to the reader: a `Signature / Purpose`
+    and a `Props / Signature` cell that opens with a complete form, then a description, pin that form, `\\|` read as
+    `|`. Under `Props / Signature`, a constant's value (`'--unknown--'`) and an object type (`{ children }`) pin
+    nothing, and a `Props / Type` cell is never read, so a type alias is not pinned as `params`. Two runs give the
+    same bytes."""
+    root = _skill(tmp_path, "# Demo\n", {
+        "core-api.md": ("| Export | Kind | Signature / Purpose | Source |\n"
+                        "| --- | --- | --- | --- |\n"
+                        "| `fn` | function | `fn<T>(implementation?: T): Mock<T>` Creates a mock. | [SRC:spy.ts:L4] |\n"
+                        "| `configure` | function | `configure(configDelta: ConfigFn \\| Partial<Config>): void` "
+                        "Sets the config. | [SRC:config.ts:L9] |\n"),
+        "doc-blocks.md": ("| Export | Kind | Props / Signature | Purpose | Source |\n"
+                          "| --- | --- | --- | --- | --- |\n"
+                          "| `argsHash` | function | `argsHash(args: Args): ArgsHash` | Hashes. | [SRC:a.ts:L1] |\n"
+                          "| `UNKNOWN_ARGS_HASH` | constant | `'--unknown--'` | Placeholder. | [SRC:a.ts:L8] |\n"
+                          "| `SourceContainer` | component | `{ children: ReactNode }` | Wraps. | [SRC:s.tsx:L3] |\n"
+                          "\n"
+                          "| Export | Kind | Props / Type | Purpose |\n"
+                          "| --- | --- | --- | --- |\n"
+                          "| `ExternalDocsProps` | type | `ExternalDocsProps<T> = { of?: T }` | Props. |\n")})
+    out = mod.floor(str(root))
+    assert {n["name"]: [(o["file"], o["line"], o.get("signature")) for o in n["origins"]] for n in out["names"]} == {
+        "ExternalDocsProps": [("references/doc-blocks.md", 9, None)],
+        "SourceContainer": [("references/doc-blocks.md", 5, None)],
+        "UNKNOWN_ARGS_HASH": [("references/doc-blocks.md", 4, None)],
+        "argsHash": [("references/doc-blocks.md", 3, _signature("args: Args", "ArgsHash"))],
+        "configure": [("references/core-api.md", 4, _signature("configDelta: ConfigFn | Partial<Config>", "void"))],
+        "fn": [("references/core-api.md", 3, _signature("implementation?: T", "Mock<T>"))],
+    }
+    first, second = tmp_path / "floor-1.json", tmp_path / "floor-2.json"
+    for target in (first, second):
+        proc = _run("floor", "--skill-dir", str(root), "--output", str(target))
+        assert proc.returncode == 0, proc.stderr
+    assert first.read_bytes() == second.read_bytes()
+    assert json.loads(first.read_bytes()) == out
+
+
 PROPS_FORMS = (
     "| Component | Props | Purpose |\n"                                                       # 1
     "| --- | --- | --- |\n"                                                                     # 2
@@ -917,6 +1059,84 @@ def test_floor_pins_a_props_cell_and_a_usage_form(tmp_path):
         "get": [(34, _usage("client.get(k)", "str"))],
         "useData": [(12, None)],
         "useKey": [(16, _signature("key: string"))],
+    }
+    first, second = tmp_path / "floor-1.json", tmp_path / "floor-2.json"
+    for target in (first, second):
+        proc = _run("floor", "--skill-dir", str(root), "--output", str(target))
+        assert proc.returncode == 0, proc.stderr
+    assert first.read_bytes() == second.read_bytes()
+    assert json.loads(first.read_bytes()) == out
+
+
+KEY_PARAMS_FORMS = (
+    "| Export | Kind | Key params | Source |\n"                                                          # 1
+    "|---|---|---|---|\n"                                                                                # 2
+    "| `MemorySource` | abstract class | `MemorySource(mode=\"re-derive\")`: base of every source; "
+    "subclasses implement async `records()`. | [SRC:base.py:L36] |\n"                                    # 3
+    "| `IMPORT_MODES` | tuple | `(\"re-derive\", \"preserve\", \"hybrid\")`: the modes. | [SRC:base.py:L19] |\n"  # 4
+    "| `Mem0Source` | class | `Mem0Source(data, mode=\"re-derive\")`: `data` is a path. | [SRC:mem0.py:L26] |\n"  # 5
+    "| `read_manifest` | sync fn | `read_manifest(directory) -> COGXManifest \\| None`: `None` when absent. | |\n"  # 6
+    "| `read_archive` | sync generator | `read_archive(directory) -> Iterator[COGXRecord]`: streams. | |\n"   # 7
+    "| `GraphSnapshot` | pydantic model | `dataset_name=\"\", nodes=[]` (DataPoint instances), `edges=[]` | |\n"  # 8
+    "| `COGXRecord` | type alias | `A \\| B`, discriminated by `kind`. | |\n"                                # 9
+    "| `COGX_VERSION` | str | `\"0.1\"`: the version. | |\n"                                               # 10
+    "| `datapoint_registry` | sync fn | `datapoint_registry() -> dict[str, type[DataPoint]]`: each class. | |\n"  # 11
+    "| `z` | function | `import { z } from \"zod\"` | |\n"                                                  # 12
+    "| `formats` | function | `(\"json\", None)` | |\n"                                                    # 13
+    "| `empty` | method | `{}` | |\n"                                                                     # 14
+    "| `run` | async fn | `await run(a, b)`: runs it. | |\n"                                               # 15
+    "| `other` | function | `elsewhere(a)`: another name. | |\n"                                          # 16
+    "| `alt` | function | `alt(a)` or `alt(a, b)` | |\n"                                                  # 17
+    "| `GraphitiSource` | class | Same `ZepSource(data, mode=\"hybrid\")` constructor. | |\n"              # 18
+    "\n"                                                                                                 # 19
+    "| Export | Key params |\n"                                                                          # 20
+    "|---|---|\n"                                                                                        # 21
+    "| `Context` | `Context(req, env)` |\n"                                                              # 22
+    "\n"                                                                                                 # 23
+    "| Export | Kind | Key params / shape |\n"                                                          # 24
+    "|---|---|---|\n"                                                                                    # 25
+    "| `shaped` | function | `shaped(a, b)` |\n"                                                         # 26
+    "\n"                                                                                                 # 27
+    "| Function | Kind | Signature | **Key Parameters** |\n"                                           # 28
+    "|---|---|---|---|\n"                                                                                # 29
+    "| `signed` | function | `signed(a: int, b: str) -> str` | `signed(a)` |\n"                          # 30
+    "| `keyed` | Function | | `keyed(a, b=1)` |\n"                                                       # 31
+)
+
+
+def test_floor_pins_a_key_params_cell_on_a_callable_row(tmp_path):
+    """#997: Create Skill's Key API Summary writes a `Key params` column, which the floor never read, so readers
+    recorded different forms there. Its cell is now read last, after the Props step, on a row whose Kind cell names
+    a callable as a whole word, any case (`abstract class`, `class`, `sync fn`, `sync generator`, `Function`): its
+    leading code span, `\\|` read as `|` and prose after it left out, when that is the row name's complete form with
+    the name written, pinned with `signature_form` "partial" as the header labels each row (an empty group with a
+    return too). A `tuple`, `pydantic model`, `type alias` or `str` row, a span with no name or another (a tuple
+    literal, an import, `elsewhere(a)`), no complete form (`{}`, a usage), a cell that writes a second form of the
+    name, a cell that opens with prose, a table with no Kind column and a compound `Key params / shape` header pin
+    nothing, and a Signature cell beside it wins. The same skill gives the same bytes."""
+    root = _skill(tmp_path, KEY_PARAMS_FORMS)
+    out = mod.floor(str(root))
+    assert {n["name"]: [(o["line"], o.get("signature")) for o in n["origins"]] for n in out["names"]} == {
+        "COGXRecord": [(9, None)],
+        "COGX_VERSION": [(10, None)],
+        "Context": [(22, None)],
+        "GraphSnapshot": [(8, None)],
+        "GraphitiSource": [(18, None)],
+        "IMPORT_MODES": [(4, None)],
+        "Mem0Source": [(5, _labelled(_signature('data, mode="re-derive"')))],
+        "MemorySource": [(3, _labelled(_signature('mode="re-derive"')))],
+        "alt": [(17, None)],
+        "datapoint_registry": [(11, _labelled(_signature("", "dict[str, type[DataPoint]]")))],
+        "empty": [(14, None)],
+        "formats": [(13, None)],
+        "keyed": [(31, _labelled(_signature("a, b=1")))],
+        "other": [(16, None)],
+        "read_archive": [(7, _labelled(_signature("directory", "Iterator[COGXRecord]")))],
+        "read_manifest": [(6, _labelled(_signature("directory", "COGXManifest | None")))],
+        "run": [(15, None)],
+        "shaped": [(26, None)],
+        "signed": [(30, _signature("a: int, b: str", "str"))],
+        "z": [(12, None)],
     }
     first, second = tmp_path / "floor-1.json", tmp_path / "floor-2.json"
     for target in (first, second):

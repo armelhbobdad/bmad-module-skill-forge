@@ -2119,6 +2119,38 @@ def test_a_neighbouring_place_s_citation_never_binds_a_form(tmp_path, text, at, 
     assert _homonym_check(plan).get("bound", []) == bound
 
 
+# #998: cocoindex's two Settings classes. The surface records the exported one in `_internal/setting.py`; the
+# `cocoindex.setting` module declares a twin, whose span runs past the next row's export, `ServerSettings`.
+SETTINGS = "python/cocoindex/_internal/setting.py"
+SETTINGS_TWIN = "python/cocoindex/setting.py"
+SETTINGS_SURFACE = {"exports": [{"name": "Settings", "kind": "class", "file": SETTINGS, "line": 56,
+                                 "signatureLine": "class Settings:", "origin": "extraction"}],
+                    "otherDeclarations": [{"name": "Settings", "kind": "class", "file": SETTINGS_TWIN, "line": 40,
+                                           "signatureLine": "class Settings:"}],
+                    "sets": {"all": ["Settings"]}}
+
+
+@pytest.mark.parametrize("own, bound", [
+    (f" [AST:{SETTINGS}:L56]", [{"form": 0, "file": SETTINGS, "line": 56, "signatureLine": "class Settings:"}]),
+    ("", []),
+], ids=["a-row-that-cites-its-declaration", "a-row-that-cites-none"])
+def test_the_next_row_s_citation_never_binds_a_row(tmp_path, own, bound):
+    """#998 (oms-cocoindex SKILL.md `Settings` row): the next row documents another export, `ServerSettings`, and
+    cites a line in the twin's span. A row's own citations are in its cells, so a row that cites its declaration
+    is bound to it, not left unbound between two, and a row that cites none is bound to nothing, never to the
+    twin."""
+    text = ("# Demo\n\n| Export | Signature | Source |\n| --- | --- | --- |\n"
+            f"| `Settings` | `Settings(app_namespace='')` |{own} |\n"
+            f"| `ServerSettings` | `ServerSettings(address)` | [AST:{SETTINGS_TWIN}:L93] |\n")
+    inventory = [{"name": "Settings", "kind": "class", "params": "app_namespace=''", "description": "",
+                  "at": "SKILL.md:5"}]
+    plan = json.loads(_homonym_plan(tmp_path, {"SKILL.md": text}, SETTINGS_SURFACE, inventory).stdout)
+    [group] = plan["files"]
+    [check] = group["checks"]
+    assert (group["file"], check["line"]) == (SETTINGS, 56) and "candidates" not in check
+    assert check.get("bound", []) == bound
+
+
 @pytest.mark.parametrize("second", [
     {"name": "run_pipeline", "kind": "function", "params": "", "description": "Takes none."},
     {"name": "run_pipeline", "kind": "function", "description": "Named, with no form."},
