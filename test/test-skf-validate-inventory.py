@@ -221,6 +221,61 @@ def test_a_bad_signature_form_fails_the_cli_and_writes_no_inventory(tmp_path):
     assert not output.exists()
 
 
+# A reading the contract leaves open (#1021), as the reader records it.
+UNDECIDED = {"export": "lifespan", "at": "SKILL.md:42",
+             "rule": "A function or class an example defines is the reader's own code ... only when its fenced block "
+                     "also defines names the skill does not document as exports",
+             "reading": "the block defines no other name, so `lifespan` is a form of the export",
+             "other_gap": "no gap: read as the reader's own code, it is never compared"}
+
+
+def test_an_undecided_reading_is_kept_in_the_inventory(tmp_path):
+    """#1021: the reader records each reading the contract or the signature rules leave open in `undecided`, and the
+    validator keeps it in the inventory it writes, which reconcile-coverage.py carries to the report. An empty list,
+    a null or no key is none, and an item may leave `at` out or null."""
+    readings = [UNDECIDED, {k: v for k, v in UNDECIDED.items() if k != "at"}, {**UNDECIDED, "at": None}]
+    response = tmp_path / "inventory-response.txt"
+    response.write_bytes(json.dumps({"exports": [{"name": "lifespan", "kind": "function"}],
+                                     "cross_check_mismatches": [], "undecided": readings}).encode("utf-8"))
+    output = tmp_path / "inventory.json"
+    p = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--output", str(output)],
+                       capture_output=True, text=True)
+    assert p.returncode == 0, p.stdout
+    assert json.loads(output.read_text(encoding="utf-8"))["undecided"] == readings
+    for none in ([], None):
+        r = mod.validate_inventory(json.dumps({"exports": [], "cross_check_mismatches": [], "undecided": none}))
+        assert r["valid"] is True and r["violations"] == [], none
+
+
+@pytest.mark.parametrize("undecided, warnings, kept", [
+    ("lifespan", ['`undecided` must be a list when present (may be empty), not "lifespan"; the list is dropped'],
+     None),
+    ({"export": "lifespan"},
+     ['`undecided` must be a list when present (may be empty), not {"export": "lifespan"}; the list is dropped'],
+     None),
+    (["lifespan"], ["undecided[0] is not an object; the item is dropped"], []),
+    ([{**UNDECIDED, "rule": "  "}], ["undecided[0]: `rule` must be a non-empty string; the item is dropped"], []),
+    ([{k: v for k, v in UNDECIDED.items() if k not in ("reading", "other_gap")}],
+     ["undecided[0]: `reading` must be a non-empty string; the item is dropped",
+      "undecided[0]: `other_gap` must be a non-empty string; the item is dropped"], []),
+    ([UNDECIDED, {**UNDECIDED, "export": 3}],
+     ["undecided[1]: `export` must be a non-empty string; the item is dropped"], [UNDECIDED]),
+    ([{**UNDECIDED, "at": ""}, UNDECIDED],
+     ['undecided[0]: `at` must be a non-empty string when present, not ""; the item is dropped'], [UNDECIDED]),
+], ids=["string", "object", "item-not-an-object", "blank-rule", "no-reading-or-other-gap", "export-not-a-string",
+        "blank-at"])
+def test_a_malformed_undecided_item_is_dropped_with_a_warning(undecided, warnings, kept):
+    """#1021: a script checks each open reading before the report names it: a value that is no list, an item that is
+    no object, a blank or missing `export`, `rule`, `reading` or `other_gap`, or a blank `at` is a warning naming the
+    item, which is dropped (a value that is no list drops the list), and the well-formed items stay. The list grades
+    nothing, so it never makes the inventory invalid: no reader is re-dispatched for it and no run halts on it."""
+    r = mod.validate_inventory(json.dumps({"exports": [{"name": "lifespan", "kind": "function"}],
+                                           "cross_check_mismatches": [], "undecided": undecided}))
+    assert r["valid"] is True and r["violations"] == [], r["violations"]
+    assert r["warnings"] == warnings
+    assert r["inventory"].get("undecided") == kept
+
+
 def test_cross_check_missing_fields():
     raw = json.dumps(
         {
@@ -608,6 +663,119 @@ def test_a_function_written_as_a_call_carries_its_form():
     pin.loader.exec_module(reconcile)
     out = reconcile.reconcile({"denominatorSource": "docsOnly", "exports": exports})
     assert (out["denominator"], out["documented"], out["incomplete"]) == (3, 1, r["completeness"]["incomplete"])
+
+
+PROSE_CALL_SKILL = ("# Demo\n\n`fetchComponent(componentName)` loads a component's source.\n\n"
+                    "| Export | Kind | Description |\n| --- | --- | --- |\n"
+                    "| `add` | function | `add(componentName, options)` writes it to the project. |\n")
+
+
+def test_a_prose_call_with_arguments_is_left_to_the_reader_as_a_usage(tmp_path):
+    """#1016 (oms-uitripled): the contract records a call with arguments and no prefix in running text or a
+    description cell (`fetchComponent(componentName)`, `add(componentName, options)`) whole in `usage_signature`,
+    so its argument names are never compared with the declaration's parameter names. The floor reads no prose and
+    no Description cell, so it pins no signature at either place and the reader's routing decides: an inventory
+    that records both as usages, each at its own line, passes --floor (exit 0) with no violation or warning, each
+    entry missing only its return type, and is written as given. No script changed."""
+    pkg = _package(tmp_path, PROSE_CALL_SKILL)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("add", [_floor_origin("SKILL.md", 7, "table-row")])], "neither prose call is pinned a signature"
+    exports = [("fetchComponent", "function", {"usage_signature": "fetchComponent(componentName)",
+                                               "description": "Loads a component's source.", "at": "SKILL.md:3"}),
+               ("add", "function", {"usage_signature": "add(componentName, options)",
+                                    "description": "Writes it to the project.", "at": "SKILL.md:7"})]
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*exports).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 1, "checked": 1, "absent": []}
+    written = json.loads(out.read_bytes())
+    assert mod.completeness(written["exports"])["incomplete"] == [
+        {"name": name, "kind": "function", "missing": ["return_type"]} for name in ("fetchComponent", "add")]
+    assert written["exports"] == [
+        {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each usage kept as given"
+
+
+OVERLOADS_API = ("# Core API\n\n| Export | Signature |\n| --- | --- |\n"
+                 "| `actions` | `(handlerMap: Record<T, string>, options?: ActionOptions)` or `(...handlers: T[])` |\n")
+OVERLOAD_FORMS = ["handlerMap: Record<T, string>, options?: ActionOptions", "...handlers: T[]"]
+
+
+def test_a_list_params_item_that_holds_several_parameters_is_refused(tmp_path):
+    """#1043 (oms-storybook-react-vite): a reader recorded both `actions` overloads of one row as one entry whose
+    list `params` gave a form per item. The validator accepted it, field_text joined the items into one parameter
+    list that matches neither overload, and score graded it Critical. A list `params` holds one parameter list's
+    members, one per item, so a list of two or more items one of which holds several parameters (cut at commas
+    outside brackets and strings) is refused: the CLI exits 2, the violation names the entry and the item and says to
+    give each form its own entry at that same `at`, and no inventory is left. The same two forms as two entries at
+    one `at` validate with no violation or warning. Items of one member each (a comma inside a type's brackets, a
+    string or an object type), a one-item list and a non-string item still pass. Review of #1043: a list of forms
+    also passed when each item wrote its whole form, in parentheses or as a call, when each overload took one
+    parameter (two items naming it), or when a Rust lifetime's `'` read as a quote; and a correct list was refused
+    when an item's type was a generic function type or a numpy member carried its `, optional` marker, with no way
+    out for a reader who already wrote one member per item. Those forms are refused now, those members pass, and the
+    violation also offers the whole list as one string."""
+    pkg = _package(tmp_path, "# Demo\n\nSee the core API.\n", {"core-api.md": OVERLOADS_API})
+    at = {"at": "references/core-api.md:5", "description": "Logs each handler."}
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+
+    def run(*entries):
+        response.write_bytes(_signed(*entries, references=["references/core-api.md"]).encode("utf-8"))
+        out.write_bytes(b"{}")
+        return subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                               "--output", str(out)], capture_output=True, text=True, encoding="utf-8")
+
+    proc = run(("actions", "function", {"params": OVERLOAD_FORMS, **at}))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["violations"] == [(
+        "exports[0] (`actions`): the `params` item \"handlerMap: Record<T, string>, options?: ActionOptions\" holds "
+        "several parameters, but a list `params` is one parameter list, one member per item, its items joined into "
+        "it: when each item is a form of its own (an overload), give each form its own entry with that same `at`; "
+        "otherwise write each member as an item of its own, or the whole list as one string")]
+    assert not out.exists(), "an invalid inventory removes the file an earlier attempt left"
+
+    proc = run(*(("actions", "function", {"params": form, **at}) for form in OVERLOAD_FORMS))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert [e["params"] for e in json.loads(out.read_bytes())["exports"]] == OVERLOAD_FORMS
+
+    def violations(params):
+        entry = {"name": "actions", "kind": "function", "params": params, "at": "references/core-api.md:5"}
+        return mod.validate_inventory(json.dumps({"exports": [entry], "cross_check_mismatches": []}))["violations"]
+
+    for params in (["handlerMap: Record<T, string>", "options?: ActionOptions"], ['sep: str = ", "', "end: str"],
+                   ["options: { a?: string, b: number }", "cb: (a: A, b: B) => void"], ["path", "size=(1, 2),"],
+                   [OVERLOAD_FORMS[0]], [{"a": 1, "b": 2}, "c"], [],
+                   # one member each: a generic function type, numpy and Google docstring members, Rust lifetimes, a
+                   # repeated `_`, unnamed C parameters, a function-typed member
+                   ["fn: <T, U>(x: T) => U", "opts: PipeOptions"], ["data : str", "timeout : float, optional"],
+                   ["n : int, default 5", "m : int"], ["timeout (float, optional)", "retries (int)"],
+                   ["x: &'a str", "y: HashMap<&'a str, u32>"], ["_: i32", "_: i32"], ["int", "int"],
+                   ["cmp: (a: T, b: T) => number", "x: T"], ["key: str", "x: Omit<P, 'a,b'>"]):
+        assert violations(params) == [], params
+    [two] = violations(["a, b", "c", "d: int, e: str"])
+    assert two.startswith('exports[0] (`actions`): the `params` items "a, b", "d: int, e: str" hold several '), two
+    # a list of forms in other shapes: each item a whole form, one parameter named twice, a Rust list of members
+    for params, problem in (
+            (["(handlerMap: Record<T, string>, options?: ActionOptions)", "(...handlers: T[])"],
+             'items "(handlerMap: Record<T, string>, options?: ActionOptions)", "(...handlers: T[])" write whole '
+             "forms"),
+            (["actions(handlerMap: Record<T, string>)", "actions(...handlers: T[]): void"],
+             'items "actions(handlerMap: Record<T, string>)", "actions(...handlers: T[]): void" write whole forms'),
+            (["fn: LifespanFn", "fn: None"], 'items "fn: LifespanFn", "fn: None" each name `fn`'),
+            (["a: &'a str, b: &'a str", "c: u32"], "item \"a: &'a str, b: &'a str\" holds several parameters")):
+        [refused] = violations(params)
+        assert refused.startswith(f"exports[0] (`actions`): the `params` {problem}, but a list `params` is "), refused
+        assert refused.endswith("or the whole list as one string"), refused
 
 
 # --------------------------------------------------------------------------
@@ -1222,6 +1390,153 @@ def test_a_pinned_call_keeps_its_params_and_a_props_table_is_placed_at_its_headi
     assert r["warnings"] == ['exports[1] (`Canvas`): `at` "SKILL.md:11" is a line that does not write `Canvas`; '
                              f"it is dropped and {mod.UNBOUND}"]
     assert "at" not in r["inventory"]["exports"][1]
+
+
+PARAMS_SKILL = ("# Demo\n\n## client.add\n\nAdds data.\n\n### Key parameters\n\n"
+                "| Param | Type | Default | Description |\n| --- | --- | --- | --- |\n"
+                "| `data` | `str \\| list[str]` | | The data. |\n"
+                "| `dataset_name` | `str` | `\"main\"` | The dataset. |\n")
+
+
+def test_a_parameter_table_is_placed_at_the_heading_that_names_it(tmp_path):
+    """#1002 (oms-cognee): a table of one function's parameters (`| Param | Type | Default | Description |`) is a
+    place of its own, as a props table is: its entry gives as `at` the nearest heading above it that writes the name
+    (`## client.add`, not `### Key parameters`, which labels it partial) and as `params` its rows in order, each
+    `\\|` read as `|`, with no default. The floor pins nothing there (a Param table and a heading with other words
+    give no origin), so such an entry passes --floor (exit 0) with no violation or warning and is written as given,
+    while one placed on the label heading or on a row, neither of which writes `add`, has its `at` dropped with a
+    warning, the inventory still valid. No script changed."""
+    pkg = _package(tmp_path, PARAMS_SKILL)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"] == [], "the parameter table and its headings pin nothing"
+    add = ("add", "function", {"params": "data: str | list[str], dataset_name: str", "description": "",
+                               "signature_form": "partial", "at": "SKILL.md:3"})
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(add).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert json.loads(out.read_bytes())["exports"] == [{"name": add[0], "kind": add[1], **add[2]}]
+    for line in (7, 11):
+        placed = (add[0], add[1], {**add[2], "at": f"SKILL.md:{line}"})
+        r = mod.validate_inventory(_signed(placed), pkg, read)
+        assert r["valid"] is True and r["violations"] == [], r["violations"]
+        assert r["warnings"] == [f'exports[0] (`add`): `at` "SKILL.md:{line}" is a line that does not write `add`; '
+                                 f"it is dropped and {mod.UNBOUND}"]
+        assert "at" not in r["inventory"]["exports"][0]
+
+
+MIGRATION_SKILL = ("# Demo\n\n## Migrating from v0.3\n\n"
+                   "| v0.3.37 (gone) | v1.0.0 (replacement) |\n| --- | --- |\n"
+                   "| `Settings(database=DatabaseConnectionSpec(url=...))` | `Settings(db_path=...)` |\n"
+                   "| `SentenceTransformerEmbed(model=...)` | `embed_text(model=...)` |\n\n"
+                   "| Export | Kind | Before (removed) | Signature |\n| --- | --- | --- | --- |\n"
+                   "| `connect` | function | `connect(url, pool=4)` | `connect(url: str) -> Conn` |\n")
+
+
+def test_a_removed_form_gives_no_entry_and_the_floor_needs_none(tmp_path):
+    """#1038 (oms-cocoindex): the contract gives a form the skill marks as removed or as an earlier version's (a
+    migration table's "v0.3.37 (gone)" column, an export table's "Before (removed)" cell) no entry, whether or not
+    the covered version still exports the name, and the current form beside it is that place's entry. The floor
+    never conflicts with that: a migration table's header gives no origin, and an export table pins only its
+    Signature cell, never the removed one, so an inventory that leaves out every old cell (`SentenceTransformerEmbed`
+    included, a name 1.0.0 no longer exports) and keeps each current form at its row passes --floor (exit 0) with no
+    violation or warning and is written as given. An export table's row labelled removed is a floor place, though,
+    and the floor still requires it, as the contract's floor exception says. No script changed."""
+    pkg = _package(tmp_path, MIGRATION_SKILL)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("connect", [_floor_origin("SKILL.md", 12, "table-row", {"params": "url: str", "return_type": "Conn"})])], (
+        "only the Signature cell is pinned; no old cell and no migration row gives an origin")
+    exports = [("Settings", "class", {"usage_signature": "Settings(db_path=...)", "description": "",
+                                      "at": "SKILL.md:7"}),
+               ("embed_text", "function", {"usage_signature": "embed_text(model=...)", "description": "",
+                                           "at": "SKILL.md:8"}),
+               ("connect", "function", {"params": "url: str", "return_type": "Conn", "description": "",
+                                        "at": "SKILL.md:12"})]
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*exports).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 1, "checked": 1, "absent": []}
+    assert json.loads(out.read_bytes())["exports"] == [
+        {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each current form kept as given"
+
+    # The contract's floor exception holds for a removed form too: an export table's row labelled removed is a place
+    # the floor gives, with its Signature cell, so an inventory that leaves it out is refused, and one that keeps it
+    # with that signature passes.
+    removed = _package(tmp_path / "removed-row", "# Demo\n\n| Export | Kind | Signature | Status |\n"
+                       "| --- | --- | --- | --- |\n"
+                       "| `open_db` | function | `open_db(path: str) -> Conn` | removed in 1.0 |\n")
+    floor = tmp_path / "removed-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(removed), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    pinned = {"params": "path: str", "return_type": "Conn"}
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("open_db", [_floor_origin("SKILL.md", 5, "table-row", pinned)])]
+
+    def check(*entries):
+        response.write_bytes(_signed(*entries).encode("utf-8"))
+        return subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(removed),
+                               "--floor", str(floor)], capture_output=True, text=True, encoding="utf-8")
+
+    proc = check(("connect", "function", {"description": ""}))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    assert any("`open_db`" in v and "no inventory entry lists it" in v for v in json.loads(proc.stdout)["violations"])
+    proc = check(("open_db", "function", {**pinned, "description": "", "at": "SKILL.md:5"}))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["warnings"] == []
+
+
+FACTORY_SKILL =("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"
+                 "| `badgeVariants` | const | `const badgeVariants = cva(…)` |\n\n"
+                 "```ts\n// [SRC:src/button.ts:L5]\nexport const buttonVariants = cva(…)\n```\n\n"
+                 "```ts\nconst onSubmit = make(…)\n```\n")
+
+
+def test_a_const_written_only_as_its_factory_call_has_no_pinned_form(tmp_path):
+    """#1019: the contract gives a `const` that a place writes only as the call that builds its function
+    (oms-uitripled's `const badgeVariants = cva(…)`) no `params`, `return_type` or `usage_signature` there, so
+    its entry is never compared, whatever the factory returns (an in-tree `make` that returns
+    `(event: Event) => void` included). The floor pins no signature at such a place, a Signature cell or a cited
+    fenced declaration, and an uncited block gives no origin, so an inventory whose entries there carry no form
+    passes --floor (exit 0) with no violation or warning and is written as given. No script changed."""
+    pkg = _package(tmp_path, FACTORY_SKILL)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("badgeVariants", [_floor_origin("SKILL.md", 5, "table-row")]),
+        ("buttonVariants", [_floor_origin("SKILL.md", 9, "declaration")])], (
+        "neither factory call is pinned a signature, and the uncited block gives no origin")
+    names = ("badgeVariants", "buttonVariants", "onSubmit")
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*[(name, "constant", {"description": ""}) for name in names]).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 2, "checked": 2, "absent": []}
+    assert json.loads(out.read_bytes())["exports"] == [
+        {"name": name, "kind": "constant", "description": ""} for name in names], "no form is added or asked for"
 
 
 def test_a_floor_name_of_an_unlisted_reference_is_not_checked():

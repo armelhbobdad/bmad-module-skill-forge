@@ -85,7 +85,8 @@ each sets the input field it names and wins over the same field in the JSON:
                         file gives it
   --skill-dir           skillPackagePath (scalar, stack)
   --inventory PATH      exports: the validated inventory validate-inventory.py
-                        wrote with --output
+                        wrote with --output; and its `undecided`, when it
+                        gives one
   --surface PATH        barrelSet: one name set of load-coverage-inputs.py
                         surface, chosen by --surface-set (default "all");
                         allSet, the whole surface both branches find a
@@ -120,7 +121,8 @@ Input schema (one object):
     "denominatorValue": <int>,                             # scalar/stack: resolved denominator
     "compositionNames": ["lib::x", ...],                   # stack: names to look up
     "skillPackagePath": "/path/to/skill",                  # scalar/stack: SKILL.md ∪ references
-    "verifiedNumerator": <int>                             # scalar: overrides the lookup count
+    "verifiedNumerator": <int>,                            # scalar: overrides the lookup count
+    "undecided": [ {"export", "at", "rule", "reading", "other_gap"} ]  # any branch: the inventory's open readings
   }
 
 Output (stdout, one object):
@@ -143,7 +145,8 @@ Output (stdout, one object):
     "surfaceSet": "<name>",      # scalar counting its set: the set it counted
     "surfaceSetSize": <int>,     # scalar counting its set: |S|
     "warnings": [str],           # scalar on a source-read surface: an empty S, or |S| unlike the denominator
-    "incomplete": [{"name", "kind", "missing"}]  # docsOnly only: the incomplete items
+    "incomplete": [{"name", "kind", "missing"}],  # docsOnly only: the incomplete items
+    "undecided": [{...}]         # any branch, when the input gives a non-empty one: copied unchanged (#1021)
   }
 
 Exit codes:
@@ -200,6 +203,12 @@ header lines, from the run files:
                        #1048), each line only when it names one
   ### Category Scores  Export Coverage, and Signature Accuracy and Type
                        Coverage from --signatures (N/A without it)
+  Borderline Calls     a Coverage Summary line after the warnings, only
+                       when one is given (#1021): each `undecided` item of
+                       --coverage (the inventory reader's), then of
+                       --signatures (the signature judges'), with its
+                       export, place, reading, the rule that leaves it open
+                       and what the other reading gives
 Exit 0 when it printed; 1 when an input cannot be read or is not the
 result of the script that writes it (one line on stderr); 2 a usage error.
 """
@@ -303,6 +312,8 @@ def _validate(inp):
             "Missing or invalid required field: denominatorSource "
             f"(must be one of: {', '.join(VALID_SOURCES)})"
         )
+    if inp.get("undecided") is not None and not isinstance(inp["undecided"], list):
+        return "`undecided` must be a list (the inventory's open readings) when present"
     if source == "barrel":
         if inp.get("barrelSet") is None and inp.get("perFileResults") is None:
             return "barrel branch requires either `barrelSet` or `perFileResults`"
@@ -419,7 +430,16 @@ def _docs_only(inp):
 
 
 def reconcile(inp, doc_text=None):
-    """Pure reconciliation. `doc_text` may be injected (tests); else loaded from disk."""
+    """Pure reconciliation. `doc_text` may be injected (tests); else loaded from disk. The inventory's open
+    readings, a non-empty `undecided` (#1021), ride along unchanged in every branch's result, for render."""
+    result = _reconcile(inp, doc_text)
+    if result.get("code") != "INVALID_INPUT" and inp.get("undecided"):
+        result["undecided"] = inp["undecided"]
+    return result
+
+
+def _reconcile(inp, doc_text=None):
+    """The branch `denominatorSource` picks (reconcile)."""
     err = _validate(inp)
     if err:
         return make_error(err)
@@ -601,6 +621,25 @@ def _incomplete(item):
     return f"`{item.get('name')}` ({item.get('kind')}) lacks {fields}"
 
 
+def _borderline(item, who):
+    """One reading the rules leave open (#1021), as Borderline Calls lists it: each field on one line, a closing
+    period dropped.
+
+    >>> print(_borderline({"export": "run", "at": "SKILL.md:9", "rule": "Own code.", "reading": "a form",
+    ...                    "other_gap": "no gap"}, "inventory reader"))
+    `run` (SKILL.md:9), inventory reader: a form; left open by: Own code; the other reading gives: no gap
+    >>> print(_borderline({"export": "x", "at": None, "rule": "r ...", "reading": "a", "other_gap": "g"}, "judge"))
+    `x`, judge: a; left open by: r ...; the other reading gives: g
+    """
+    def text(field):
+        value = " ".join(str(item.get(field) or "").split())
+        return value[:-1] if value.endswith(".") and not value.endswith("..") else value
+
+    place = f" ({text('at')})" if text("at") else ""
+    return (f"`{text('export')}`{place}, {who}: {text('reading')}; left open by: {text('rule')}; "
+            f"the other reading gives: {text('other_gap')}")
+
+
 def _left_out(surface):
     """The Coverage Summary lines for the names the surface leaves out or puts back, and for the names no recipe
     found (one the runner's trace placed in no file is not located), each only when it names one.
@@ -762,6 +801,13 @@ def render(coverage, surface=None, signatures=None):
     if warnings:
         lines.append("- **Scoring Warnings:**")
         lines += [f"  - {w}" for w in warnings]
+    # The readings the rules leave open that this verdict rests on (#1021): the inventory reader's, then the judges'.
+    calls = [_borderline(item, who) for data, who in ((coverage, "inventory reader"), (signatures, "signature judge"))
+             if data is not None and isinstance(data.get("undecided"), list)
+             for item in data["undecided"] if isinstance(item, dict)]
+    if calls:
+        lines.append("- **Borderline Calls:**")
+        lines += [f"  - {call}" for call in calls]
     if coverage.get("coverageCapped"):
         lines.append(f"- **Numerator Surplus:** {coverage.get('numeratorSurplus')}, uncapped coverage "
                      f"{_pct(coverage.get('coverageUncapped'))}")
@@ -827,6 +873,8 @@ def apply_file_inputs(inp, args):
         if not isinstance(data, dict) or not isinstance(data.get("exports"), list):
             raise InputFileError(f"--inventory {args.inventory} holds no `exports` list")
         inp["exports"] = data["exports"]
+        if data.get("undecided") is not None:
+            inp["undecided"] = data["undecided"]
     if args.surface is not None:
         data = _read_json_file(args.surface, "--surface")
         sets = data.get("sets") if isinstance(data, dict) else None

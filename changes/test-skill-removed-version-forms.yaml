@@ -1,0 +1,6 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's documented inventory now gives no entry to a form the skill marks as removed or as the form of a version before the one it covers, such as an old call in a migration table's old-version column or a cell labelled gone, removed, before or old, whether or not the covered version still exports the name: the current form beside it is that place's entry, and the old form is never compared. Before, the inventory contract did not say whether such a cell was a form of the current export, so one reader left out oms-cocoindex's `Settings(database=...)` in a `v0.3.37 (gone)` column while a reader following the contract literally could record it, a call passing a keyword the 1.0.0 class lacks: a Critical `signature-mismatch` that fails the hard gate, or, for a name the covered version no longer exports, a Medium `stale-documentation` gap that tells Update Skill to delete an accurate historical row. Such an old form beside the current one is no longer read as a second form that unbinds the current one from its citation. A form marked only deprecated and still present in the covered version is still compared, and so is a form the inventory floor pins.
+issues: [1038]
+prs: [1058]

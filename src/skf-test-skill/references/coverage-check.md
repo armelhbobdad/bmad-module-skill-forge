@@ -143,7 +143,7 @@ uv run {scoreSignaturesScript} plan --inventory "{run_dir}/inventory.json" --sur
 For each `files[]` entry, delegate one subagent with its checks and the absolute path of `{signatureRulesFile}` (under `{skill-root}`). For each check it reads the full declaration at `{file}:{line}` (all of it, not only `signatureLine`'s one physical line; with `line` null, find it in `{file}` and give its mismatch that line), compares it with the check's `documented` signature by the rules of that file, and returns only this JSON, with no prose and no markdown fences:
 
 ```json
-{"file": "src/utils.ts", "signature_mismatches": [{"name": "formatDate", "line": 42, "source_sig": "(date: Date, format?: string) => string", "documented_sig": "(date: Date) => string", "issue": "missing optional parameter 'format'", "difference": "omitted-optional"}]}
+{"file": "src/utils.ts", "signature_mismatches": [{"name": "formatDate", "line": 42, "source_sig": "(date: Date, format?: string) => string", "documented_sig": "(date: Date) => string", "issue": "missing optional parameter 'format'", "difference": "omitted-optional"}], "undecided": []}
 ```
 
 Tag a mismatch's `difference` as `{signatureRulesFile}` says: `score` (§2b) checks the facts. One tagged `annotation-contradicted` also gives `evidence_line`, the body line that returns the documented type.

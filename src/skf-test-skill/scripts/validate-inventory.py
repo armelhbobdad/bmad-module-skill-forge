@@ -111,6 +111,23 @@ is a violation naming the entry. score-signatures.py reads it: an optional
 member a partial form leaves out is an Info observation, not a wrong
 signature.
 
+An entry's list `params` (#1043) holds the members of one parameter list,
+one per item, never one form per item: field_text joins its items with
+`, ` into that list, and a place that writes several forms of a name (two
+overloads in one row) gives each form an entry of its own at that same
+`at`, which score-signatures.py compares on its own. A list of two or more
+items is a violation naming the entry and those items when one item holds
+several parameters (cut at each comma outside every bracket pair and
+string, as score-signatures.py's _split cuts a form, into two or more
+non-blank parts; a generic function type's type parameters, `<T, U>(`, and
+a numpy docstring member's `, optional` marker cut nothing), when one
+writes a whole form (a parameter group with at most a name before it,
+`(a, b)` or `run(a, b)`), or when two give one name before their `:` or
+`=`: its join would be one parameter list that matches none of its forms.
+The violation says to give each form its own entry, or else to write each
+member as an item or the whole list as one string. A one-item list, whose
+join is its item, and an item that is no string are not read this way.
+
 An entry's `at` (#918) is the place the skill writes its form,
 "<path>:<line>": the file as the package names it, SKILL.md or a file the
 inventory's `references` lists (normalized as a pair's file is, and left in
@@ -141,6 +158,20 @@ of each form's place (form_citations) to compare it with the declaration
 they name. A form that writes only a `return_type` gives no `at`, so it is
 never bound: plan compares it as it compares a form whose citations name no
 declaration.
+
+The inventory's optional `undecided` (#1021) lists each reading the
+inventory contract or signature-comparison-rules.md leaves open that the
+inventory rests on: each item gives `export`, `rule` (the sentence that
+leaves it open), `reading` (the reading taken) and `other_gap` (what the
+other reading would give) as non-empty strings, and may give its place as
+`at`, a non-empty string (undecided_violations). A value that is no list,
+an item that is no object and a blank or missing field are warnings naming
+the item, never violations (drop_undecided): the list grades nothing, so it
+never makes an inventory invalid, and the malformed item, or a value that
+is no list, is dropped; a null or no key is none. The inventory --output
+writes keeps the rest of the list, reconcile-coverage.py carries it into
+coverage.json and its render lists it under Borderline Calls. It changes
+no entry or check.
 
 Distinct from reconcile-coverage.py (coverage numerator arithmetic) and
 compute-score.py (weight tables): this script only validates the *shape* of the
@@ -330,6 +361,11 @@ OTHER_SIDE_SHAPES = (
     "`skill_md_line` (the SKILL.md body) or `other_file` and `other_line` "
     "(a second reference file)"
 )
+
+# The fields each `undecided` item (#1021) gives as a non-empty string: the name a reading the rules leave open
+# concerns, the rule that leaves it open, the reading taken and what the other reading would give. Its place, `at`,
+# is optional.
+UNDECIDED_FIELDS = ("export", "rule", "reading", "other_gap")
 
 # Kinds whose documented item also needs its parameters and return type to
 # be complete (the docs-only Export Coverage rule).
@@ -543,8 +579,9 @@ _SCORER_MODULE = None
 
 def _scorer():
     """score-signatures.py beside this script, for its `_split`, which cuts a parameter list at the commas outside
-    every bracket pair and string: _carries reads a pinned `params` with it (#1028). score-signatures.py loads this
-    file only from a call, and `_split` makes none, so the two never load each other in a loop."""
+    every bracket pair and string: _carries reads a pinned `params` with it (#1028), and the list `params` check
+    reads each item with it (#1043). score-signatures.py loads this file only from a call, and `_split` makes
+    none, so the two never load each other in a loop."""
     global _SCORER_MODULE
     if _SCORER_MODULE is None:
         sibling = Path(__file__).resolve().parent / "score-signatures.py"
@@ -800,6 +837,100 @@ def form_key(fields: dict) -> tuple:
     null, blank or empty key read as absent, and the `signature_form` label
     left out (score-signatures.py's documented_forms keeps the full one)."""
     return tuple((f, field_text(fields[f])) for f in SIGNATURE_FIELDS if f in fields and field_text(fields[f]))
+
+
+# A type-parameter list that opens a generic function type (`fn: <T, U>(x: T) => U`), closed just before the
+# parameter group it opens. No name comes before its `<`, so _levels reads it as an operator and its commas would
+# cut the member (_parameter_members masks them).
+TYPE_PARAMETERS_RE = re.compile(r"<[^<>]*(?:<[^<>]*>[^<>]*)*>(?=\s*\()")
+# A numpy docstring-style member (`timeout : float, optional`, `n : int, default 5`) and the marker after its type,
+# which follows a comma and is no parameter of its own.
+NUMPY_MEMBER_RE = re.compile(r"\s*\*{0,2}[A-Za-z_]\w*\s+:\s")
+NUMPY_MARKER_RE = re.compile(r",\s*(?:optional|default\b.*)\s*$", re.IGNORECASE | re.S)
+# The name a member gives before its `:`, `?:` or `=` (`fn: LifespanFn`, `...rest: T[]`, `**kw = None`); a `::`
+# (`std::string s`) or `==` gives none.
+MEMBER_NAME_RE = re.compile(r"\s*(?:\.\.\.|\*{1,2})?([A-Za-z_$][\w$]*)\s*\??\s*(?::(?!:)|=(?!=))")
+# The text before a whole form's parameter group: none, or a name with its receiver and type parameters (`actions`,
+# `client.get`, `run<T>`). `func` and `fn` open a function type instead (Go's `func(int)`), and a return follows the
+# group after `->`, `=>`, `→` or `:`.
+FORM_HEAD_RE = re.compile(r"(?:[A-Za-z_$][\w$.]*(?:<[^()]*>)?)?")
+FUNCTION_TYPE_HEADS = ("func", "fn")
+FORM_RETURN_RE = re.compile(r"->|=>|→|:")
+# A Rust lifetime after a `&`, a `+` or a `<` (`&'a str`, `impl Tr + 'a`, `Foo<'a>`): an item that writes one is cut
+# as a `.rs` form is, so its `'` opens no string, while a quote anywhere else still does (`Omit<P, 'a,b'>`).
+RUST_LIFETIME_RE = re.compile(r"(?:&|\+\s*|<)'[A-Za-z_]\w*(?=[\s,>+)]|$)")
+
+
+def _extension(text: str) -> str:
+    """The extension _split and _group read an item as: `.rs` when it writes a Rust lifetime (RUST_LIFETIME_RE),
+    else none."""
+    return ".rs" if RUST_LIFETIME_RE.search(text) else ""
+
+
+def _parameter_members(text: str) -> list[str]:
+    """The members `text` writes as a parameter list: cut at each comma outside every bracket pair and string, as
+    score-signatures.py cuts one (_split, which reads a Rust lifetime's `'`, as in `&'a str`, as no quote:
+    _extension), each stripped, the blank ones dropped. `handlerMap: Record<T, string>`, `sep: str = ", "`,
+    `options: { a?: string, b: number }`, a generic function type (`fn: <T, U>(x: T) => U`, TYPE_PARAMETERS_RE) and
+    a numpy docstring-style member with its marker (`timeout : float, optional`) are one member each."""
+    if NUMPY_MEMBER_RE.match(text):
+        while (marker := NUMPY_MARKER_RE.search(text)) is not None:
+            text = text[:marker.start()]
+    text = TYPE_PARAMETERS_RE.sub(lambda m: m.group(0).replace(",", " "), text)
+    return [part.strip() for part in _scorer()._split(text, ",", _extension(text)) if part.strip()]
+
+
+def _whole_form(text: str) -> bool:
+    """Whether a list `params` item writes a whole form, not one member: a parameter group that spans it, with at most
+    a name right before it (FORM_HEAD_RE) and nothing or a return after it (`(a: int, b: int)`, `actions(...h: T[])`,
+    `run(a) -> int`). A member whose own type is a function type (`cb: (x: T) => void`, Go's `func(int)`) is none,
+    and so is a Google docstring-style member, whose name a space parts from its group (`timeout (float, optional)`)."""
+    text = text.strip()
+    group = _scorer()._group(text, _extension(text))
+    if group is None:
+        return False
+    head, tail = text[:group[0]], text[group[1] + 1:].strip()
+    return (FORM_HEAD_RE.fullmatch(head) is not None and head not in FUNCTION_TYPE_HEADS
+            and (not tail or FORM_RETURN_RE.match(tail) is not None))
+
+
+def params_violations(idx: int, entry: dict) -> list[str]:
+    """A list `params` holds the members of one parameter list, one per item, and field_text joins its items into
+    that list with `, `, so a place that writes several forms of a name (two overloads in one row) gives each form an
+    entry of its own at that same `at` (#1043). A list of two or more string items reads as one form per item, whose
+    join matches none of them, when one item holds several parameters (_parameter_members), when one writes a whole
+    form (_whole_form), or when two give one name before their `:`, `?:` or `=` (MEMBER_NAME_RE; `_` aside, which
+    Rust and Go let a list repeat), since no parameter list names a parameter twice: one violation naming the entry
+    and each such item, and saying what to write instead, the whole list as one string included. A one-item list,
+    whose join is its item, and an item that is no string are not read."""
+    params = entry.get("params")
+    if not isinstance(params, list) or len(params) < 2:
+        return []
+    texts = [item for item in params if isinstance(item, str)]
+    several = [item for item in texts if len(_parameter_members(item)) > 1]
+    whole = [item for item in texts if item not in several and _whole_form(item)]
+    named = [(m.group(1), item) for item in texts if (m := MEMBER_NAME_RE.match(item)) and m.group(1) != "_"]
+    twice = [name for i, (name, _) in enumerate(named) if name not in [n for n, _ in named[:i]]
+             and sum(n == name for n, _ in named) > 1]
+
+    def listed(items: list[str]) -> str:
+        return ", ".join(json.dumps(item, ensure_ascii=False) for item in items)
+
+    problems = []
+    if several:
+        problems.append(f"item {listed(several)} holds several parameters" if len(several) == 1
+                        else f"items {listed(several)} hold several parameters")
+    if whole:
+        problems.append(f"item {listed(whole)} writes a whole form" if len(whole) == 1
+                        else f"items {listed(whole)} write whole forms")
+    for name in twice:
+        problems.append(f"items {listed([item for n, item in named if n == name])} each name `{name}`")
+    if not problems:
+        return []
+    return [(f"exports[{idx}] (`{entry['name']}`): the `params` {'; '.join(problems)}, but a list `params` is "
+             "one parameter list, one member per item, its items joined into it: when each item is a form of its own "
+             "(an overload), give each form its own entry with that same `at`; otherwise write each member as an "
+             "item of its own, or the whole list as one string")]
 
 
 # --- Floor ------------------------------------------------------------------
@@ -1173,6 +1304,65 @@ def mismatch_violations(idx, entry, skill_package_path=None, names=None):
     return violations
 
 
+def undecided_violations(value, source=""):
+    """The violations of an optional `undecided` list (#1021): each reading the
+    inventory contract or signature-comparison-rules.md leaves open that an
+    inventory, or a signature judge's result, rests on. Absent or null is
+    none; otherwise it is a list of objects, each giving `export`, `rule`,
+    `reading` and `other_gap` as non-empty strings and, when it gives one, an
+    `at` that is a non-empty string. `source` names where the list is read
+    (drop_undecided turns each into a warning, never a violation).
+
+    >>> undecided_violations(None), undecided_violations([])
+    ([], [])
+    >>> undecided_violations([{"export": "x", "rule": "r", "reading": "a", "other_gap": "g", "at": None}])
+    []
+    >>> undecided_violations([3, {"export": "x", "rule": " ", "reading": "a", "other_gap": "g"}], "s.txt")
+    ['s.txt.undecided[0] is not an object', 's.txt.undecided[1]: `rule` must be a non-empty string']
+    """
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        prefix = f"{source}: " if source else ""
+        return [f"{prefix}`undecided` must be a list when present (may be empty), not {json.dumps(value)}"]
+    violations = []
+    for idx, item in enumerate(value):
+        where = f"{source}.undecided[{idx}]" if source else f"undecided[{idx}]"
+        if not isinstance(item, dict):
+            violations.append(f"{where} is not an object")
+            continue
+        for field in UNDECIDED_FIELDS:
+            if not (isinstance(item.get(field), str) and item[field].strip()):
+                violations.append(f"{where}: `{field}` must be a non-empty string")
+        if item.get("at") is not None and not (isinstance(item["at"], str) and item["at"].strip()):
+            violations.append(f"{where}: `at` must be a non-empty string when present, not {json.dumps(item['at'])}")
+    return violations
+
+
+def drop_undecided(holder, source=""):
+    """Each problem of `holder`'s optional `undecided` list (undecided_violations) as a warning, never a violation
+    (#1021): the list grades nothing, so a malformed one never makes an inventory or a judge's result invalid, never
+    sends a reader or judge back and never halts a run. Each item with a problem is dropped from the list, the
+    well-formed ones kept in order, and a value that is no list is dropped from `holder`.
+
+    >>> holder = {"undecided": [{"export": "x", "rule": "r", "reading": "a", "other_gap": "g"}, 3]}
+    >>> drop_undecided(holder), [item["export"] for item in holder["undecided"]]
+    (['undecided[1] is not an object; the item is dropped'], ['x'])
+    >>> holder = {"undecided": "none"}
+    >>> drop_undecided(holder), holder
+    (['`undecided` must be a list when present (may be empty), not "none"; the list is dropped'], {})
+    """
+    value = holder.get("undecided")
+    problems = undecided_violations(value, source)
+    if not problems:
+        return []
+    if not isinstance(value, list):
+        del holder["undecided"]
+        return [f"{problem}; the list is dropped" for problem in problems]
+    holder["undecided"] = [item for item in value if not undecided_violations([item])]
+    return [f"{problem}; the item is dropped" for problem in problems]
+
+
 def _read_files(inventory, skill_package_path=None):
     """The files the inventory reads, as an `at` names them: `SKILL.md` and
     each `references` entry, _listed_path (relative to the package, forward
@@ -1327,6 +1517,8 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
         if kind not in VALID_KINDS:
             rejected += 1
             continue
+        # A list `params` is one parameter list, one member per item (#1043).
+        violations.extend(params_violations(idx, entry))
     if rejected > 0:
         subject = "entry does" if rejected == 1 else "entries do"
         violations.append(
@@ -1373,6 +1565,11 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
             violations.append(f"cross_check_mismatches[{idx}] is not an object")
             continue
         violations.extend(mismatch_violations(idx, entry, skill_package_path, names))
+
+    # Each reading the rules leave open (#1021) names its export, rule, reading and other gap; the inventory keeps
+    # the list for reconcile-coverage.py to carry to the report. It grades nothing, so a malformed item is a warning
+    # and is dropped, never a reason to refuse the inventory.
+    warnings.extend(drop_undecided(data))
 
     schema_valid = not violations
     checked = None

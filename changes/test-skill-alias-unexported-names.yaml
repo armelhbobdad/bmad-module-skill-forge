@@ -1,0 +1,6 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's documented inventory now leaves out a name the skill presents only as a local import alias of another name (such as `GridCellType` in "which `grid-cell.tsx` imports as `GridCellType`"), or says the source does not export, unless the skill also writes it in an export table's first cell, a heading, a fenced declaration or a place the inventory floor lists. A code span in prose or a description cell no longer gives such a name an entry, so accurate prose no longer records a Medium `stale-documentation` gap for an alias or an Info documented extra for an unexported type, and two readers of the same skill record the same gaps.
+issues: [1008]
+prs: [1058]

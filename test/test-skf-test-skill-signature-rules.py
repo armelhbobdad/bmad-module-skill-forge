@@ -166,6 +166,52 @@ def test_the_rules_file_is_a_reference_with_its_six_sections():
         assert judge in opening, judge
 
 
+def test_the_reader_and_each_coverage_judge_record_the_readings_the_rules_leave_open():
+    """#1021: the inventory reader and the signature judges could return only a fixed JSON with no field for a
+    reading the contract or these rules leave open, so a PASS that rested on one was published without naming it.
+    The inventory and each result of coverage-check.md §2's judge or the fallback scan now carry an `undecided` list,
+    a script checks it, and the Coverage Analysis section lists it under Borderline Calls. The list grades nothing,
+    so a malformed item is dropped with a warning, never refused. The contract's example item names a reading whose
+    other side changes a gap: a typed form's partial label grades a left-out optional parameter Info, not Critical,
+    where a call or an ellipsis, which leave out an optional parameter with no difference either way, would not."""
+    opening = _flow(_slice(_read(RULES), "# Signature Comparison Rules", "## Reading a form"))
+    assert ("Two of them, coverage-check.md §2's judge (or the main thread in its place) and coverage-check-tiers.md's "
+            "fallback per-file scan, also give each result an `undecided` list, empty when these rules leave none of "
+            "its readings open: each reading that a mismatch it reports, or one it leaves out, rests on, where no rule "
+            "settles the shape or two rules settle it differently.") in opening
+    assert ('Each item is `{"export", "at", "rule", "reading", "other_gap"}`: the name, the declaration\'s '
+            "`file:line` (or null), the rule that leaves it open (the sentence, quoted), the reading taken, and what "
+            "the other reading would give") in opening
+    assert ("`score-signatures.py` drops, with a warning, an item that is no object, leaves `export`, `rule`, "
+            "`reading` or `other_gap` blank or gives a blank `at`, never refusing the result for it, and carries each "
+            "other one into `signatures.json`, whose items the Coverage Analysis section lists under Borderline "
+            "Calls.") in opening
+    contract_text = _read(REFS / "inventory-contract.md")
+    contract = _paragraph(contract_text, "`undecided` lists each reading")
+    assert ("`undecided` lists each reading this contract or signature-comparison-rules.md leaves open that the "
+            "inventory rests on:") in contract
+    assert ("Each item gives the `export` it concerns, its place as `at` (as an entry gives it; null when it has "
+            "none), the `rule` that leaves it open (the sentence, quoted), the `reading` taken and, as `other_gap`, "
+            "what the other reading would give") in contract
+    assert ("`validate-inventory.py` drops, with a warning, an item that is no object, leaves `export`, `rule`, "
+            "`reading` or `other_gap` blank or gives a blank `at`, never refusing the inventory for it, and keeps the "
+            "rest of the list in the inventory it writes, and coverage-check.md §5's render lists each item under "
+            "Borderline Calls, so the report names each reading its verdict rests on. It changes no entry or "
+            "gap.") in contract
+    assert "refuses an item" not in contract and "refuses an item" not in opening
+    # The contract's example records one; §2's result example and the fallback scan's shape give the key.
+    example = json.loads(re.search(r"```json\n(.*?)\n```", contract_text, re.S).group(1))
+    assert [sorted(item) for item in example["undecided"]] == [["at", "export", "other_gap", "reading", "rule"]]
+    [item] = example["undecided"]
+    [entry] = [e for e in example["exports"] if e["name"] == item["export"] and e.get("at") == item["at"]]
+    assert "params" in entry and "usage_signature" not in entry, "a typed form, whose partial label changes a grade"
+    assert item["other_gap"] == ("a partial form: a left-out optional parameter would be an Info observation, not a "
+                                 "Critical signature-mismatch")
+    judge = re.search(r'```json\n(\{"file": "src/utils\.ts".*?)\n```', _read(COVERAGE), re.S).group(1)
+    assert json.loads(judge)["undecided"] == []
+    assert '"unresolved_stars": [...], "undecided": [...]}`' in _read(COVERAGE_TIERS)
+
+
 def test_a_form_claims_only_what_it_writes():
     """#835: optionality is stated only by a default, a `?` or an optional marker, never by a type: a list that states
     it for no member has its optionality uncompared, and once one member states it the unmarked ones claim to be
@@ -196,11 +242,22 @@ def test_a_form_that_opens_with_shared_text_writes_its_members():
     """6.0.0 release gate (oms-cognee): an inventory entry for one of several names a skill documents together
     carries the members they share, then `; `, then its own (inventory-contract.md). Reading a form says that form
     writes both, so a judge reads the shared members as part of it, before the name's own, and the required field
-    the shared text states is no member the form leaves out. A reading rule only: no comparison rule changes."""
+    the shared text states is no member the form leaves out. A reading rule only: no comparison rule changes.
+    #1034 (oms-cognee): a row listed `.create`, `.get` and the others bare beside `each with an optional user`, and
+    the split-body reader, which reads the row directly, could take that phrase for each name's partial form and
+    report every required parameter the reference writes as left out. A name listed bare beside such shared text is
+    a mention there, as the contract records it. A whole parameter list, call or signature a place writes once for
+    every name it lists is no such shared text but each name's own form, so that row is still compared."""
     reading = _section("Reading a form")
-    assert ("A form that opens with text the skill states once for several names, then `; ` and the name's own "
-            "members (inventory-contract.md), writes both: the members the shared text states are members that form "
-            "writes, read before its own.") in reading
+    shared = ("A form that opens with text the skill states once for several names, then `; ` and the name's own "
+              "members (inventory-contract.md), writes both: the members the shared text states are members that "
+              "form writes, read before its own.")
+    bare = ("A name listed bare beside such shared text, with no parameter list, call or signature of its own, is a "
+            "mention there, not a form: it claims nothing and is not compared.")
+    whole = ("A whole parameter list, call or signature written once for every name a place lists (one Signature "
+             "cell for a row that lists `get` and `head`) is no such shared text: it is each of those names' own form "
+             "there.")
+    assert f"{shared} {bare} {whole}" in reading
     assert reading.index("A default's value is not compared") < reading.index(
         "A form that opens with text the skill states once"), "after the paragraph on optionality"
 
@@ -210,7 +267,9 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
     complete parameter list, so an optional parameter they leave out is no difference, while a typed form still
     claims its list is complete (#834's `(date: Date) => string` stays `omitted-optional`). #916: an entry's `params`
     written as such a list names parameters whatever its names are, and a call expression comes as a usage, read as a
-    call, so the judge reads each form by the field the inventory contract routes it to."""
+    call, so the judge reads each form by the field the inventory contract routes it to. #1002: a parameter table,
+    which the contract now makes a place of its own, is a typed form read in row order, so the split-body
+    cross-check, which reads the table itself, claims its list complete as the §2 judge does its `params`."""
     reading = _section("Reading a form")
     assert "Three kinds of form do not claim a complete parameter list:" in reading
     assert ("It is compared as a call: each argument it passes must exist, by position or by name, and every required "
@@ -229,6 +288,10 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
                          "expression comes as a usage (inventory-contract.md) and is read as a call (above)."), bare
     assert ("A form that writes a type or a default for a parameter (`(date: Date) => string`) claims its list is "
             "complete: an optional parameter it leaves out is an `omitted-optional` difference") in reading
+    # the typed-form rule it extends, on the same paragraph
+    assert ("an optional parameter it leaves out is an `omitted-optional` difference (Difference tags). A parameter "
+            "table (inventory-contract.md) is such a form, its rows read in order as one typed parameter "
+            "list.") in reading
     assert "one it adds where the source has none is no difference: calls that follow the form are valid." in reading
     props = _section("Components")
     assert ("An optional own prop a typed props list or a table leaves out is an `omitted-optional` difference; one a "
@@ -414,8 +477,9 @@ def test_a_bound_form_is_compared_with_its_own_declaration_alone():
     assert "a form that writes only a `return_type` gives no `at`" in contract
     assert ("when they name exactly one, at its line or below it, before the next declaration the surface records "
             "in its file (otherwise as it compares any form). For a name declared more than once, a place that writes "
-            "two of its forms that differ (a row that documents one declaration's form and quotes another's as a "
-            "contrast) gives none of them a citation, so each is bound only by its other places") in contract
+            "two of its forms that differ (a row that documents one declaration's form and quotes another current "
+            "declaration's form as a contrast) gives none of them a citation, so each is bound only by its other "
+            "places") in contract
     assert ("A missing or bad `at` (malformed, in another file, on a line that does not write the name, or not the "
             "place `inventory-floor.json` gives that form's `signature`) leaves its form unbound in the same way, and "
             "the validator lists it in its `warnings` instead of refusing the inventory.") in contract
@@ -1053,20 +1117,33 @@ def test_an_empty_parenthesized_mention_is_no_form():
     the contract leaves `params` and `usage_signature` out for it, and the rules say, in a paragraph of their own
     before the forms that claim no complete parameter list, that it claims nothing. Both define a description cell by
     its column's role, the places #888 proposes to script, and keep a heading or an export table's first cell that
-    writes `name()` a form, so a correct zero-argument signature there is still compared."""
+    writes `name()` a form, so a correct zero-argument signature there is still compared. #1014: oms-cognee's prose
+    line reads `await cognee.disconnect()` returns to local mode, which also fit the call-expression sentence, so one
+    reader recorded no form and another a usage that leaves out a required argument. Both files now say the mention
+    holds whatever comes before the name, the contract with that line as its example. #1016: oms-uitripled's
+    catalog.md writes `fetchComponent(componentName)` and `add(componentName, options)` in prose with no prefix, which
+    the split-body reader, reading prose directly, could take for a list of bare names and compare by name. The rules
+    paragraph now ends on the prose call: a call, whatever comes before the name, unless it writes a parameter type,
+    a return type or a `?`."""
     mention = "A name written with empty parentheses in running text or a description cell is a mention, not a form"
+    prefix = ", whatever comes before the name (`await`, `new`, an assignment, a receiver or a module path)"
     cell = ("A description cell is any table cell but an export table's first cell and a cell whose column writes the "
             "call or signature, by its role (Signature, Props, Params, Parameters, Arguments, Usage, Syntax, Example "
             "and the like); a heading or an export table's first cell that writes `name()` is a form")
+    prose_call = ("A name written with arguments in running text or a description cell is a call (below), not a list "
+                  "of bare names, whatever comes before the name, unless it writes a parameter type, a return type or "
+                  "a `?`.")
     contract_text = _read(REFS / "inventory-contract.md")
     contract = _paragraph(contract_text, "The contract `validate-inventory.py` checks")
-    assert (f"{mention}: its entry leaves `params` and `usage_signature` out (a cell reading \"`instrument()` wraps "
-            f"functions\"). {cell}, recorded as written.") in contract
+    assert (f"{mention}{prefix}: its entry leaves `params` and `usage_signature` out (a cell reading \"`instrument()` "
+            f"wraps functions\", a line reading \"`await cognee.disconnect()` returns to local mode\"). {cell}, "
+            "recorded as written.") in contract
     assert contract.index("and leaves a key out when the skill documents nothing for it.") < contract.index(
         mention), "after the rule for a key the skill documents nothing for"
     rules = _read(RULES)
     paragraph = _paragraph(rules, mention)
-    assert paragraph == f"{mention}: it claims nothing and is not compared. {cell}, an empty call (below).", paragraph
+    assert paragraph == (f"{mention}{prefix}: it claims nothing and is not compared. {cell}, an empty call "
+                         f"(below). {prose_call}"), paragraph
     reading = _section("Reading a form")
     assert reading.index(paragraph) < reading.index("Three kinds of form do not claim a complete parameter list:"), \
         "before the forms that claim no complete parameter list, not inside the call-example rule"
