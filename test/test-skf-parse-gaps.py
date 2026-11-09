@@ -1038,6 +1038,36 @@ def test_translate_keeps_a_split_body_gaps_package_citation(citation, package):
                            "resolved_paths", "rejected_paths", "change_category", "remediation", "map_match"]
 
 
+def test_a_split_body_record_that_asks_for_citations_is_still_a_structural_fix(tmp_path: Path):
+    """#1027: when each form of a pair agrees with a different declaration of its name, Test Skill's remediation
+    names no form to take and asks for each declaration's `[SRC:]` citation beside its form. The record still
+    parses with its in-package Source and translates to a STRUCTURAL_FIX whose `package_citation` is that Source,
+    its remediation kept word for word for merge Priority 8, which adds the citations and changes no form."""
+    remediation = ("No source settled it: `composeStory` has two declarations. Add "
+                   "`[SRC:code/renderers/react/src/portable-stories.tsx:L45]` beside SKILL.md:120 and name the React "
+                   "renderer's module there; add `[SRC:code/core/src/csf/portable-stories.ts:L80]` beside "
+                   "references/core.md:30 and name core's module there. Change no form.")
+    ledger = write_ledger(tmp_path / "test-findings.json", "coverage-check", [{
+        "severity": "High", "category": "split-body-mismatch",
+        "title": "Split-body mismatch: composeStory (references/core.md)", "source": "references/core.md:30",
+        "export": "composeStory",
+        "issue": "SKILL.md shows (story, componentAnnotations, projectAnnotations) -> ComposedStory, "
+                 "references/core.md (story, componentAnnotations, projectAnnotations, exportsName) -> ComposedStory",
+        "remediation": remediation}])
+    code, out = parse("--ledger", str(ledger))
+    assert code == 0, out
+    [gap] = out["gaps"]
+    assert (gap["category"], gap["source_citation"]) == ("split-body-mismatch",
+                                                         {"file": "references/core.md", "line": 30})
+    manifest, summary = mod.translate_gaps(out, MAP_ENTRIES, {}, today="2026-10-03")
+    assert summary["status"] == "written", summary
+    [entry] = manifest["entries"]
+    assert (entry["name"], entry["change_category"]) == ("composeStory", "STRUCTURAL_FIX")
+    assert entry["package_citation"] == {"file": "references/core.md", "line": 30}
+    assert "source_citation" not in entry and "provenance_completeness" not in entry
+    assert entry["remediation"] == remediation
+
+
 def test_a_two_reference_split_body_record_reaches_translate_as_a_package_citation(tmp_path: Path):
     """#841: a ledger record of a pair of references, titled with both paths and cited at the one that sorts last
     (no source settled it), parses with its title and citation and translates to a STRUCTURAL_FIX whose

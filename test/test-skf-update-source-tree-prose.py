@@ -3419,7 +3419,8 @@ def test_split_body_findings_route_to_a_structural_fix(tmp_path, capsys):
 
 def test_merge_edits_the_file_a_split_body_finding_cites():
     """#778, #779: merge edits the file `package_citation` names, the side the pinned source contradicts, so a
-    wrong body is repaired too; the body is the side kept only when nothing names a side (#547's rule before)."""
+    wrong body is repaired too; the body is the side kept only when nothing names a side (#547's rule before).
+    #1027: a remediation that asks for citations adds them at the lines it names and changes no form."""
     priority8 = _slice(_read(MERGE), "**Priority 8:", "**Priority 8b")
     split = _slice(priority8, "- **A split-body consistency finding**", "\n")
     assert split.startswith("- **A split-body consistency finding** (rule R2: two files of the skill, the SKILL.md "
@@ -3437,6 +3438,11 @@ def test_merge_edits_the_file_a_split_body_finding_cites():
                   # only the contradicting parts, at each file's level of detail: the split stays a split
                   "Change only what the remediation names as contradicting (a parameter, a type, the return type), "
                   "taking it from the other file, and nothing more when it says both forms agree with the source",
+                  # #1027: forms of two declarations of one name are both right; test-skill asks for each one's
+                  # citation instead of a copy, so merge adds them where it says and overwrites neither form
+                  "A remediation that asks for citations instead (each form documents a different declaration of the "
+                  "name) names no form to take: add each citation it names at the line it names, in either file, with "
+                  "the module or owner it names, and change no form.",
                   "Keep each file's level of detail: the body keeps its brief form",
                   "a `|` the change puts inside a table cell is escaped (`\\|`)",
                   "Read no source",

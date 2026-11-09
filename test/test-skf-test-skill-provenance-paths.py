@@ -2621,7 +2621,17 @@ CARVED_TO_BRANCHES = {
         "Its remediation names the file to edit and the "
         "file and line whose form it takes, citing the declaration's `file:line`; when both forms agree with it, it "
         "says so and names what differs; when neither does, or nothing decides, it says no source settled it and "
-        "names `{reference_file}` to edit, taking the other side's form (`{other_file}`'s, for two references)."
+        "names `{reference_file}` to edit, taking the other side's form (`{other_file}`'s, for two references). "
+        "Under the conditions above, when nothing decides because the export's name has more than one declaration "
+        "(a second declaring file, or an `otherDeclarations` entry of its name), on a pair that gives no `owner` and "
+        "whose `export` the inventory does not list only as a `method`, set each form against each declaration of "
+        "the name, its `surface.json` records and its `otherDeclarations` entries, read at their `file` and `line`: "
+        "when each form agrees with a different one, the remediation names no form to take. For each side it gives "
+        "the form's file and line and the declaration that form agrees with, and asks update-skill to add that "
+        "declaration's citation, `[SRC:{file}:L{line}]`, on the form's line or, in a fenced block, on a comment line "
+        "just above it, and to name the declaration's module or owner beside the form, so a later run's reader and "
+        "§2's `bound` keep the two apart. Its Source stays `{reference_file}:{reference_line}` and its **Contradicted "
+        "Side** `not settled`; every other pair keeps the remediation above."
     )],
 }
 
