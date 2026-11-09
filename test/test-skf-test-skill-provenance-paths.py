@@ -1555,6 +1555,37 @@ def test_the_inventory_reader_reads_the_skill_alone():
     assert len(coverage) < COVERAGE_CHAR_BUDGET
 
 
+def test_the_inventory_reader_runs_no_script_and_writes_one_file():
+    """#1046: the §1 reader runs no SKF script, reads no script's code, and writes or deletes no file but its
+    response, so it never validates and fixes its own draft out of sight, settles a reading by what the scripts
+    accept, or leaves and deletes a file outside `{run_dir}`. Validation is §1a's, with the one re-dispatch
+    Inventory Failures allows. The rule joins #1036's in the contract the reader is handed by absolute path and
+    reads itself, the file that names `validate-inventory.py` to it, so coverage-check.md stays under its budget."""
+    text = _read(INVENTORY_CONTRACT)
+    limit = ("It runs no SKF script (coverage-check.md §1a runs `validate-inventory.py` on its response), reads no "
+             "script's code, and writes or deletes no file but `{run_dir}/inventory-response.txt`: this contract and "
+             "signature-comparison-rules.md alone decide its readings.")
+    [paragraph] = [p for p in text.split("\n\n") if p.startswith("The reader in coverage-check.md §1 reads only")]
+    assert limit in _flow(paragraph)
+    assert _flow(text).count("It runs no SKF script") == 1
+    assert text.index(paragraph) < text.index("```json"), "before the JSON shape, the first thing the reader reads"
+    assert text.index(paragraph) < text.index("The contract `validate-inventory.py` checks"), "before it names it"
+    assert "\u2014" not in paragraph and "\u2013" not in paragraph, "no em or en dash"
+    # The script it leaves alone is the one §1a runs on that file, and a refused response gets one re-dispatch.
+    coverage = _read(COVERAGE)
+    assert "validateInventoryScript: 'scripts/validate-inventory.py'" in coverage
+    section1a = _flow(_slice(coverage, "#### 1a.", "### 1b."))
+    assert 'uv run {validateInventoryScript} --input "{run_dir}/inventory-response.txt"' in section1a
+    failures = _flow(_slice(_read(COVERAGE_BRANCHES), "## Inventory Failures", "## States 2 to 4"))
+    assert "Re-dispatch the §1 subagent once" in failures
+    # The one file it writes is the one §1 hands it, with the Write tool; run state stays in `{run_dir}`.
+    section1 = _flow(_slice(coverage, "### 1. Extract Documented Exports", "#### 1a."))
+    assert "to `{run_dir}/inventory-response.txt` with the Write tool, never a shell" in section1
+    assert "Run state (the scripts' files, the emitter's payloads) lives in `{run_dir}`" in _read(SKILL_MD)
+    assert f"signatureRulesFile: 'references/{SIGNATURE_RULES.name}'" in coverage
+    assert len(coverage) < COVERAGE_CHAR_BUDGET
+
+
 @pytest.mark.parametrize("left", ["absent", "empty"])
 def test_an_inventory_file_left_absent_or_empty_is_saved_before_it_is_validated(tmp_path, left):
     """#814: a subagent that returned the JSON, or wrote nothing, leaves no response to validate: the §1a command
