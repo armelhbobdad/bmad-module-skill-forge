@@ -69,6 +69,12 @@ counts and the Gap Report is rendered from:
     that holds the name among other words, a quoted string in prose or
     holding other words, a fence in an HTML comment or a data block; an
     unreadable input is skipped, and the floor is read once
+  - a name no line documents (#1006): the first `at` the --inventory
+    result gives an entry of the name that is no `method` (SKILL.md's,
+    then by path, then the lowest line) is its Source, its Issue's line
+    and the line its remediation names, a scoped-out name's too, and a
+    fabricated name's Issue line; a line a tier finds still wins, and an
+    inventory that is no object with an `exports` list is refused
   - an aliased name's provenance line (#911): with --stale, an unverified
     line of a name classify-stale marks `aliased` names the alias and asks
     to record the rename if no other entry already has its `export_name`,
@@ -1435,6 +1441,93 @@ class TestCoverageAdapter:
         assert (record["source"], record["issue"]) == (
             "SKILL.md", "the skill documents `add`, which the enumerated source API surface lacks")
 
+    # #1006: oms-uitripled's `UILibraryContextValue`, written only as a declaration without `export` in a fence,
+    # which no tier reads; the validated inventory places it on the declaration's line
+    CONTEXT_TYPE = "UILibraryContextValue"
+    SETUP = ("# Setup\n\nWrap the app in the provider.\n\n```ts\ntype UILibraryContextValue = {\n"
+             "  library: string;\n};\n```\n")
+    SETUP_INVENTORY = {"exports": [{"name": CONTEXT_TYPE, "kind": "type", "description": "",
+                                    "at": "references/setup.md:6"}]}
+
+    def test_a_name_no_line_documents_takes_its_inventory_place(self, tmp_path: Path):
+        """#1006: the first `at` the inventory gives the name is its Source, its Issue's line and the line its
+        remediation names, on the enumerated and the scalar branch, with --skill-dir or without; a name the brief
+        scopes out cites it too, and a fabricated name's Issue opens with it. Without the inventory: `SKILL.md`."""
+        name = self.CONTEXT_TYPE
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": self.SEE, "references/setup.md": self.SETUP})
+        assert mod._documenting_line(skill, name) is None
+        cov = {"branch": "enumerated", "missing": [], "stale": [name]}
+        [record] = mod.from_coverage(cov, skill_dir=str(skill), inventory=self.SETUP_INVENTORY)
+        assert brief([record]) == [("Medium", "stale-documentation", f"Stale documentation: {name}",
+                                    "references/setup.md:6", name)]
+        assert record["issue"] == (f"`references/setup.md:6` documents `{name}`, which the enumerated source API "
+                                   "surface lacks")
+        assert record["remediation"] == (f"Check `{name}` against the source and update or remove its documentation "
+                                         "at references/setup.md:6: the enumerated source surface does not export it.")
+        [record] = mod.from_coverage(cov, skill_dir=str(skill))
+        assert (record["source"], record["issue"]) == (
+            "SKILL.md", f"the skill documents `{name}`, which the enumerated source API surface lacks")
+        scalar = {"branch": "scalar", "staleApplicable": True, "missingCount": 0, "denominator": 3, "stale": [name]}
+        [record] = mod.from_coverage(scalar, inventory=self.SETUP_INVENTORY)
+        assert record["source"] == "references/setup.md:6"
+
+        inventory = {"exports": [{"name": "Rescoped", "kind": "class", "at": "references/a.md:4"}]}
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Rescoped"]},
+                                     surface=self.BRIEFED_SURFACE, stale=self.RESCOPED, inventory=inventory)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: Rescoped",
+                                    "references/a.md:4", "Rescoped")]
+        assert record["issue"].startswith("`references/a.md:4` documents `Rescoped`, which the entry point ")
+        assert record["remediation"].endswith("remove the documentation of `Rescoped` at references/a.md:4.")
+        inventory = {"exports": [{"name": "ghost", "kind": "function", "params": "", "at": "SKILL.md:9"}]}
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["ghost"]},
+                                     stale=[{"name": "ghost", "fabricated": True, "source": "src/g.ts:2"}],
+                                     inventory=inventory)
+        assert (record["category"], record["source"]) == ("fabricated-signature", "src/g.ts:2")
+        assert record["issue"].startswith("`SKILL.md:9` documents `ghost`, which ")
+
+    @pytest.mark.parametrize("files, entries, expected", [
+        # a line a tier finds keeps it, whatever the inventory says
+        ({"SKILL.md": "# demo\n\n`get` reads a key.\n"}, [{"name": "get", "kind": "function", "at": "SKILL.md:9"}],
+         "SKILL.md:3"),
+        # SKILL.md's `at` first, then the first file in path order, then its lowest line
+        ({}, [{"name": "get", "kind": "function", "at": a} for a in ("references/b.md:3", "SKILL.md:20",
+                                                                     "references/a.md:7")], "SKILL.md:20"),
+        ({}, [{"name": "get", "kind": "function", "at": a} for a in ("references/b.md:3", "references/a.md:7",
+                                                                     "./references/a.md:5")], "references/a.md:5"),
+        # no `at`, a malformed one, a method's (its name is a member's) or another name's: no place
+        ({}, [{"name": "get", "kind": "function"}], "SKILL.md"),
+        ({}, [{"name": "get", "kind": "function", "at": a} for a in ("SKILL.md", "SKILL.md:0", ":4", 7, None)],
+         "SKILL.md"),
+        ({}, [{"name": "get", "kind": "method", "owner": "Client", "at": "SKILL.md:5"}], "SKILL.md"),
+        ({}, [{"name": "put", "kind": "function", "at": "SKILL.md:5"}, "get"], "SKILL.md"),
+    ], ids=["tier-first", "skill-md-first", "path-then-line", "no-at", "malformed-at", "method", "other-name"])
+    def test_the_inventory_place_is_the_first_at_of_the_name(self, tmp_path: Path, files: dict, entries: list,
+                                                             expected: str):
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": self.SEE} | files)
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["get"]}, skill_dir=str(skill),
+                                     inventory={"exports": entries, "references": []})
+        assert record["source"] == expected, record
+
+    def test_the_append_cli_reads_the_inventory(self, ledger: Path, tmp_path: Path):
+        """#1006 through `append --from coverage --inventory`; an inventory that is no object with an `exports`
+        list is refused, and nothing is written."""
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": self.SEE, "references/setup.md": self.SETUP})
+        coverage = write_json(tmp_path / "coverage.json",
+                              {"branch": "enumerated", "missing": [], "stale": [self.CONTEXT_TYPE]})
+        inventory = write_json(tmp_path / "inventory.json", self.SETUP_INVENTORY)
+        proc = from_file(ledger, "coverage-check", "coverage", coverage, skill_dir=skill, inventory=inventory)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert [r["source"] for r in ledger_records(ledger)] == ["references/setup.md:6"]
+        other = tmp_path / "2.0.0" / f"test-findings-{RUN_ID}.json"
+        for data, error in ((["not", "it"], "--inventory (validate-inventory.py) is not that script's result: it "
+                                           "needs an object with 'exports'"),
+                            ({"exports": {"get": "SKILL.md:3"}}, "--inventory: 'exports' must be a list")):
+            proc = from_file(other, "coverage-check", "coverage", coverage, skill_dir=skill,
+                             inventory=write_json(tmp_path / "bad.json", data))
+            assert proc.returncode == 2
+            assert (json.loads(proc.stdout)["code"], json.loads(proc.stdout)["error"]) == ("INVALID_INPUT", error)
+            assert not other.exists()
+
     def test_a_name_written_only_as_a_word_documents_nothing(self, tmp_path: Path):
         """The frontmatter, a bare word, a code span that holds the name among other words or before a space, a
         heading that holds a span with the name among other words, a span in an HTML comment, a fence in one (its
@@ -2637,9 +2730,10 @@ class TestAppendFrom:
     @pytest.mark.parametrize("kind, inputs, options, message", [
         ("coherence", 1, {"metadata": "m.json"}, "--from coherence does not read --metadata"),
         ("coverage", 1, {"served": "usage"}, "--from coverage does not read --served"),
+        ("guards", 1, {"inventory": "inventory.json"}, "--from guards does not read --inventory"),
         ("numerator", 2, {}, "--from numerator reads one --input file"),
         ("structure", 0, {}, "--from structure reads one or more --input files"),
-    ], ids=["stray-metadata", "stray-served", "two-inputs", "no-input"])
+    ], ids=["stray-metadata", "stray-served", "stray-inventory", "two-inputs", "no-input"])
     def test_a_call_its_kind_does_not_read_is_refused(self, ledger: Path, tmp_path: Path, kind, inputs, options,
                                                       message):
         result = write_json(tmp_path / "result.json", {"inflated": False})
@@ -2697,11 +2791,14 @@ class TestTheProseCalls:
     def test_coverage_check_records_every_script_gap(self, ledger: Path, tmp_path: Path):
         run_dir, skill = tmp_path / "run", tmp_path / "skill"
         skill.mkdir()
-        (skill / "SKILL.md").write_bytes(b"# demo\n\n`oldName()` still documented.\n\n`Task(fn)` wraps a step.\n")
+        (skill / "SKILL.md").write_bytes(b"# demo\n\n`oldName()` still documented.\n\n`Task(fn)` wraps a step.\n\n"
+                                         b"```ts\ntype Ctx = { id: string };\n```\n")
         write_json(run_dir / "signature-gaps.json", [record(severity="Critical", category="signature-mismatch",
                                                              title="Signature mismatch: helper", export="helper")])
         write_json(run_dir / "coverage.json", {"branch": "enumerated", "missing": ["Options", "fetchData"],
-                                               "stale": ["oldName", "ghost", "Task"]})
+                                               "stale": ["oldName", "ghost", "Task", "Ctx"]})
+        # #1006: §1a's inventory places `Ctx`, which no line documents as an export
+        write_json(run_dir / "inventory.json", {"exports": [{"name": "Ctx", "kind": "type", "at": "SKILL.md:8"}]})
         write_json(run_dir / "surface.json", TestCoverageAdapter.EXCLUDED_SURFACE | {"guards": {
             "deflation": {"fires": True, "rederived": 9, "pct": 50.0, "effectiveDenominator": 6},
             "inflation": {"fires": False}, "umbrella": {"umbrella": False}}})
@@ -2739,8 +2836,8 @@ class TestTheProseCalls:
         # a name classify-stale found fabricated, recorded first, takes no provenance line gap for its gone file
         assert [r["category"] for r in ledger_records(ledger) if r.get("export") == "ghost"] == [
             "fabricated-signature"]
-        stale = next(r for r in ledger_records(ledger) if r["category"] == "stale-documentation")
-        assert (stale["source"], stale["export"]) == ("SKILL.md:3", "oldName")
+        stale = [(r["source"], r["export"]) for r in ledger_records(ledger) if r["category"] == "stale-documentation"]
+        assert stale == [("SKILL.md:3", "oldName"), ("SKILL.md:8", "Ctx")]
         extra = next(r for r in ledger_records(ledger) if r["category"] == "observation")
         assert (extra["title"], extra["source"], extra["export"]) == ("Documented extra: Task", "src/task.ts:4", "Task")
         assert extra["issue"].startswith("`SKILL.md:5` documents `Task`")

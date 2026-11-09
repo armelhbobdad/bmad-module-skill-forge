@@ -415,7 +415,10 @@ class TestRunningTheGate:
         _write_json(run / "coverage.json", {"branch": "enumerated", "missing": ["alpha", "beta"], "stale": []})
         _write_json(run / "surface.json", {"inputs": {}, "guards": None, "exports": [
             {"name": name, "kind": "function", "file": "src/index.ts", "line": None} for name in ("alpha", "beta")]})
+        _write_json(run / "inventory.json", {"exports": []})
         call = _ledger_call(COVERAGE_FILE, "--from coverage", keep=("--surface",))
+        # #1006: §1a always writes the inventory, so the call reads it unbracketed (a stale name's place)
+        assert ' --inventory "{run_dir}/inventory.json" ' in call
         proc = _run(call, values | {"{run_dir}": run.as_posix(), "{resolved_skill_package}": tmp_path.as_posix()})
         out = json.loads(proc.stdout)
         assert (out["appended"], out["duplicates"], out["record_count"]) == (["GAP-001", "GAP-002"], [], 2)
@@ -944,6 +947,7 @@ class TestStagesRecordTheirGaps:
                                             "missing": [], "missingCount": 2, "numeratorSource": "verified"})
         _write_json(run / "numerator.json", {"inflated": True, "declared": 4, "verified": 2,
                                              "absent": ["alpha", "beta"]})
+        _write_json(run / "inventory.json", {"exports": []})
         provenance = _write_json(tmp_path / "provenance-map.json", {"entries": [
             {"export_name": "alpha", "source_file": "src/a.ts", "source_line": 7}]})
         call = _ledger_call(COVERAGE_FILE, "--from coverage", keep=("--numerator", "--provenance"))

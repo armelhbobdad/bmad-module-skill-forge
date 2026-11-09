@@ -61,8 +61,8 @@ Subcommands:
 
   append --ledger <path> --stage <stage> --from <kind> --input <file>...
          [--surface <file>] [--signatures <file>] [--numerator <file>]
-         [--stale <file>] [--provenance <file>] [--skill-dir <dir>]
-         [--metadata <path>] [--served <family>]...
+         [--stale <file>] [--provenance <file>] [--inventory <file>]
+         [--skill-dir <dir>] [--metadata <path>] [--served <family>]...
       Build the records from the result file a script wrote (see Adapters
       below) instead of reading them, then append them as above, with the
       same output. A gap a script finds is recorded with a fixed title,
@@ -76,7 +76,8 @@ Adapters (--from), each record classified by its Gap Severity row
 cites (never read; default `metadata.json`):
 
   coverage  --input reconcile-coverage.py's result; --surface, --signatures,
-            --numerator, --stale, --provenance, --skill-dir, --metadata.
+            --numerator, --stale, --provenance, --inventory, --skill-dir,
+            --metadata.
             Barrel branch: each `missing` name is a Medium `missing-export`
             gap `Missing export: {name}`, or a Medium `missing-type` gap
             `Missing type: {name}` when the --signatures result lists it in
@@ -151,8 +152,14 @@ cites (never read; default `metadata.json`):
             (json, yaml...)); within a tier the first file, then its lowest
             line, wins. A bare word, a span that holds the name among other
             words (`uitripled add`), or a quoted string outside a fence or
-            holding other words too (`"add x"`) documents nothing; with no
-            such line, or without --skill-dir, the Source is `SKILL.md`.
+            holding other words too (`"add x"`) documents nothing. With no
+            such line, or without --skill-dir, the line that documents it
+            is the first `at` the --inventory result (validate-inventory.py,
+            which keeps an `at` only on a line that writes the name) gives
+            an entry of the name that is no `method`: SKILL.md's, then the
+            first file in path order, then its lowest line (#1006). With
+            none, the Source is `SKILL.md`. An --inventory that is no object
+            with an `exports` list is INVALID_INPUT.
             Floor's InputError (no SKILL.md, or a top-level file it cannot
             read or decode) leaves tier 1 empty, and a skill file that
             cannot be read leaves tiers 2 to 5 empty. One whose
@@ -181,8 +188,8 @@ cites (never read; default `metadata.json`):
             stale name's issue (fabricated, documented extra, not checked,
             stale documentation or scoped out) opens with the line that
             documents it, as
-            `file:line` (with --skill-dir), else with `the skill`, whatever
-            its Source. Scalar and stack branches: a
+            `file:line` (with --skill-dir or --inventory), else with `the
+            skill`, whatever its Source. Scalar and stack branches: a
             `missingCount` above 0 is one Medium `missing-export` gap
             `{missingCount} of {denominator} exports not documented` at
             `{meta}`, except that a scalar count taken from the verified
@@ -810,7 +817,7 @@ FAMILIES = ("description", "usage", "api_surface")
 # refuses any other, so a call that passes a file it would ignore fails.
 ADAPTER_OPTIONS: dict[str, frozenset[str]] = {
     "coverage": frozenset(
-        {"surface", "signatures", "numerator", "stale", "provenance", "skill_dir", "metadata"}
+        {"surface", "signatures", "numerator", "stale", "provenance", "inventory", "skill_dir", "metadata"}
     ),
     "guards": frozenset({"metadata"}),
     "numerator": frozenset({"metadata"}),
@@ -1034,6 +1041,28 @@ def _documenting_line(skill_dir: Path, name: str) -> str | None:
     """The `file:line` that documents `name` as an export in the skill at
     `skill_dir` (`_documenting_lines`), else None."""
     return _documenting_lines(skill_dir).get(name)
+
+
+def _inventory_places(inventory: object) -> dict[str, str]:
+    """name -> the first `at` the --inventory result (validate-inventory.py's, which with --skill-package keeps
+    only an `at` whose line writes the name) gives an entry of that name that is no `method`: SKILL.md's, then
+    the first file in path order, then its lowest line, as `_documenting_lines` orders its tiers (#1006). An
+    entry with no `at`, or one that is no "<path>:<line>", gives none. An inventory that is no object with an
+    `exports` list raises AdapterError."""
+    if inventory is None:
+        return {}
+    exports = _list(_object(inventory, "--inventory (validate-inventory.py)", "exports"), "exports", "--inventory")
+    parse_at = _sibling("validate-inventory.py").parse_at
+    first: dict[str, tuple[bool, str, int]] = {}
+    for entry in exports:
+        if not isinstance(entry, dict) or entry.get("kind") == "method" or not isinstance(entry.get("name"), str):
+            continue
+        at = parse_at(entry.get("at"))
+        if at is not None:
+            key = (at[0] != "SKILL.md", *at)
+            if entry["name"] not in first or key < first[entry["name"]]:
+                first[entry["name"]] = key
+    return {name: f"{path}:{line}" for name, (_, path, line) in first.items()}
 
 
 def _documents(doc: str | None, name: str) -> str:
@@ -1326,10 +1355,11 @@ def _missing_gaps(cov: dict, surface: dict | None, types: set[str], meta: str) -
 
 
 def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str],
-                skill_dir: str | None) -> list[dict]:
+                skill_dir: str | None, inventory: object = None) -> list[dict]:
     """One gap per `stale` name: fabricated, a documented extra, not checked by script (cited at a file whose
     `export *` from another package no script resolves, #1005), or stale documentation (with its own wording
-    for a name defined in a file the brief scopes out, #796)."""
+    for a name defined in a file the brief scopes out, #796). A name no line documents (`_documenting_lines`)
+    is documented at its inventory place (`_inventory_places`, #1006), else by the skill."""
     records: list[dict] = []
     # `excluded` is read once a stale name may be a documented extra
     outside: dict[str, dict] | None = None
@@ -1345,10 +1375,12 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
     names = _names(cov, "stale", "--input")
     # the lines that document each name, read once for every stale name
     documenting = _documenting_lines(Path(skill_dir)) if skill_dir and names else {}
+    # the validated inventory's place of a name no line documents as an export (#1006)
+    placed = _inventory_places(inventory)
     for name in names:
         item = classified.get(name) or {}
         cited = item.get("source")
-        doc = documenting.get(name)
+        doc = documenting.get(name) or placed.get(name)
         if item.get("fabricated") is True:
             if not isinstance(cited, str) or not cited:
                 # a Critical gap needs the line it cites: never downgrade it
@@ -1436,7 +1468,7 @@ def _residual_gap(cov: dict, meta: str) -> list[dict]:
 
 def from_coverage(cov: object, surface: object = None, signatures: object = None, numerator: object = None,
                   stale: object = None, provenance: object = None, skill_dir: str | None = None,
-                  metadata: str | None = None) -> list[dict]:
+                  metadata: str | None = None, inventory: object = None) -> list[dict]:
     """reconcile-coverage.py's result: missing and stale names, or the missing count."""
     cov = _object(cov, "--input (reconcile-coverage.py)", "branch")
     meta = metadata or _DEFAULT_METADATA
@@ -1445,7 +1477,7 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
     if branch == "enumerated":
         surface, types, scored = _named_inputs(surface, signatures)
         records += _missing_gaps(cov, surface, types, meta)
-        records += _stale_gaps(cov, surface, stale, scored, skill_dir)
+        records += _stale_gaps(cov, surface, stale, scored, skill_dir, inventory)
     elif branch in ("scalar", "stack"):
         # A scalar result that counts its set lists its missing names, and one on a surface read from the
         # source its stale names: each is recorded as the barrel branch's are.
@@ -1475,7 +1507,7 @@ def from_coverage(cov: object, surface: object = None, signatures: object = None
                     issue=f"SKILL.md and references/ name {cov.get('documented')} of the {denominator} exports "
                           f"the {branch} denominator counts"))
         if stale_named:
-            records += _stale_gaps(cov, surface, stale, scored, skill_dir)
+            records += _stale_gaps(cov, surface, stale, scored, skill_dir, inventory)
     elif branch != "docsOnly":
         raise AdapterError(f"--input (reconcile-coverage.py): unknown branch {branch!r}")
     return records
@@ -1970,7 +2002,7 @@ def build_records(args: argparse.Namespace) -> list[dict]:
     data = read_result(inputs[0], "--input")
     if kind == "coverage":
         files = {o: read_result(getattr(args, o), "--" + o) if getattr(args, o) is not None else None
-                 for o in ("surface", "signatures", "numerator", "stale", "provenance")}
+                 for o in ("surface", "signatures", "numerator", "stale", "provenance", "inventory")}
         return from_coverage(data, skill_dir=args.skill_dir, metadata=args.metadata, **files)
     if kind == "guards":
         return from_guards(data, args.metadata)
@@ -2200,6 +2232,8 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--stale", help="coverage: classify-stale's result (fabricated signatures, documented extras); "
                                    "provenance-line: the same (the names a rename declares)")
     p.add_argument("--provenance", help="coverage: the provenance map (an absent name's Source)")
+    p.add_argument("--inventory", help="coverage: validate-inventory.py's inventory (the `at` of a stale name no "
+                                       "line documents)")
     p.add_argument("--skill-dir", help="coverage: the skill package (a stale name's documenting line)")
     p.add_argument("--metadata", help="the metadata.json path a record cites as its Source (not read)")
     p.add_argument("--served", action="append", choices=FAMILIES,
