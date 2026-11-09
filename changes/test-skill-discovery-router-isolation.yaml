@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   Test Skill's discovery subagents now pick a skill for each prompt from the catalog alone: they are spawned without file or shell tools where the platform allows it, and their instruction tells them to read no file and use no tool. They used to keep the default file and shell tools at the project root, where the run lock `.test-skill.lock` and the in-progress report `.skf-test-report-{skill_name}-{run_id}.md` in the skill's version folder both name the skill under test, so a subagent that looked around could route every prompt to it and score Discovery `3/3 PASS` for a description whose triggers misroute. Such a description now records the Medium or High `discovery` gap it should. A discovery gap still blocks nothing and changes no score or verdict.
 issues: [1039]
+prs: [1055]

@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill now halts with `inventory-invalid` on a skill that passed, read the violations the halt names, correct the SKILL.md or reference lines they point to (or report the reading as a Test Skill issue when the skill is right), then run Test Skill again.
 issues: [1036, 1046]
+prs: [1055]
