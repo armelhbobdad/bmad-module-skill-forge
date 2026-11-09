@@ -1441,6 +1441,46 @@ def test_the_inventory_contract_gives_a_component_constant_a_usage_signature():
     assert len(_read(COVERAGE)) < COVERAGE_CHAR_BUDGET
 
 
+def test_an_entry_with_no_form_gives_one_place_as_its_at(tmp_path):
+    """Coherence review of #1006 and the oh-my-skills rehearsals: the contract asked for `at` only on an entry
+    whose form is compared, and its example gave a type entry none, while #1006 made a stale name's Source, Issue
+    and remediation read that `at`. So oms-uitripled's `UILibraryContextValue`, written only as `type
+    UILibraryContextValue = {` in a fence, cited `references/setup.md:90` on one run and a bare `SKILL.md` on the
+    next. Readers also split on whether a mention, a heading or prose that names a name with no form gives an entry
+    beside the ones its other places give, and at which line. An entry with no compared form now gives its place as
+    `at`, a `method` and a return-only form aside; a place that writes a name with no form, members or fields gives
+    no entry when another place gives one, the floor's places aside; and of several such places the first alone
+    gives one. The example shows a class and a type entry with an `at`, and the validator keeps a type entry's `at`
+    on a line that writes the name with no warning."""
+    contract = _flow(_read(INVENTORY_CONTRACT))
+    formless_at = ("That line writes the entry's `name`, or, in a fenced block, the block does. An entry with no "
+                   "compared form gives its place as `at` too, a `method` and a form that writes only a `return_type` "
+                   "(below) aside, so a gap about its name, such as a stale name's, cites that line.")
+    one_place = ("such as a stale name's, cites that line. A place that writes a name but no form of it, and no "
+                 "`methods`, `properties` or `fields` its entry would carry (a mention, a bare code span, an import, a heading "
+                 "or prose that names or describes it), gives it no entry when another place gives the name one, "
+                 "unless `inventory-floor.json` gives that place; of several such places of a name no other place "
+                 "gives an entry, the first alone gives one: in SKILL.md, else the file that sorts first by path, at "
+                 "its lowest line.")
+    for sentence in (formless_at, one_place):
+        assert sentence in contract and contract.count(sentence) == 1, sentence
+    assert "a form that writes only a `return_type` gives no `at`" in contract
+    example = json.loads(re.search(r"```json\n(.*?)\n```", _read(INVENTORY_CONTRACT), re.S).group(1))["exports"]
+    assert [e.get("at") for e in example if e["name"] in ("ClassName", "TypeName")] == ["SKILL.md:48", "SKILL.md:52"]
+    validator = runpy_module(SCRIPTS_DIR / "validate-inventory.py")
+    package = tmp_path / "skill"
+    (package / "references").mkdir(parents=True)
+    (package / "SKILL.md").write_text("# Demo\n\nSee the setup.\n", encoding="utf-8")
+    (package / "references" / "setup.md").write_text(
+        "# Setup\n\n```ts\ntype UILibraryContextValue = {\n  library: string;\n};\n```\n", encoding="utf-8")
+    inventory = {"exports": [{"name": "UILibraryContextValue", "kind": "type", "description": "",
+                              "at": "references/setup.md:4"}],
+                 "references": ["references/setup.md"], "cross_check_mismatches": []}
+    result = validator.validate_inventory(json.dumps(inventory), str(package))
+    assert result["valid"] is True and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["inventory"]["exports"][0]["at"] == "references/setup.md:4"
+
+
 def test_the_inventory_contract_gives_a_removed_or_earlier_version_form_no_entry():
     """#1038 (oms-cocoindex): a migration row wrote the old call `Settings(database=DatabaseConnectionSpec(url=...))`
     in its "v0.3.37 (gone)" column beside the 1.0.0 form of the same class. "Listed once per place, each entry with
