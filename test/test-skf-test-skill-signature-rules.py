@@ -217,12 +217,23 @@ def test_a_form_claims_only_what_it_writes():
     it for no member has its optionality uncompared, and once one member states it the unmarked ones claim to be
     required. A default's value is not compared. In the split-body cross-check an annotation either form leaves out
     is not compared. #1025: an entry with no `params` key and no usage form writes no parameter list, so it claims
-    nothing about parameters, while a blank `params` claims the export takes none."""
+    nothing about parameters, while a blank `params` claims the export takes none. Coherence review of #1025: read
+    literally, takes none made an optional parameter a blank `params` leaves out an `omitted-optional` difference,
+    Critical on a full form, while a heading `### connect()` the reader records as `params: ""` is an empty call
+    that matches a source whose parameters are all optional, and score-signatures.py reads `()` as an empty list of
+    bare names. A blank `params` is now read as that list: a required parameter left out is a mismatch, an optional
+    one no difference."""
     reading = _section("Reading a form")
     assert "A form claims only what it writes" in reading
     assert ("A type or a return type it does not write claims nothing (Annotations). An entry with no `params` key and "
             "no usage form writes no parameter list: it claims nothing about parameters, and only what it writes, such "
-            "as its return type, is compared. `params: \"\"` or `[]` claims the export takes none.") in reading
+            "as its return type, is compared. `params: \"\"` or `[]` claims the export takes none, as an empty list of "
+            "bare names (below) does: a required parameter the source takes is a mismatch, and an optional one is no "
+            "difference, as for an empty call.") in reading
+    assert ("A list of bare names, with no type, default or `?` (`connect(host, port)`, `({ themes, defaultTheme })`), "
+            "names parameters without claiming the list is complete: an optional member it leaves out is no "
+            "difference, a required one is a mismatch.") in reading
+    assert "so it matches a source whose parameters are all optional" in reading
     assert "The source's declaration decides" in reading
     assert "with one exception, a return annotation the body contradicts (Annotations)" in reading
     assert ("Optionality is stated only by a default, a `?` (on the name, or as `?:`) or an optional marker: "

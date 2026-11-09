@@ -3547,6 +3547,30 @@ def test_a_blank_and_a_missing_params_are_one_form_graded_alike_in_either_order(
     assert (out["matchingSignatures"], out["signatureAccuracy"]) == (0, 0.0)
 
 
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)], ids=["no-params-first", "empty-params-first"])
+@pytest.mark.parametrize("labels", [(None, "partial"), ("partial", None)],
+                         ids=["a-partial-blank-params", "a-partial-return-only-form"])
+def test_a_blank_params_stands_for_both_entries_whatever_their_labels(order, labels):
+    """Coherence review of #1025: the blank `params` stood only when both entries gave the same label. A full
+    return-only `{return_type: R}` beside a partial `{params: "", return_type: R}` kept the return-only form, in
+    either order, so the plan never offered `()` and the skill's claim that `g` takes no argument was never
+    compared, though a partial label softens only an `omitted-optional` difference. The blank one now stands for
+    both whatever either's label, keeping its own label, while of two that differ only by the label the full one
+    still stands."""
+    entries = [{"name": "g", "kind": "function", "return_type": "str"},
+               {"name": "g", "kind": "function", "params": "", "return_type": "str"}]
+    for entry, label in zip(entries, labels):
+        if label:
+            entry["signature_form"] = label
+    blank = {key: value for key, value in entries[1].items() if key not in ("name", "kind")}
+    assert mod.documented_forms([entries[i] for i in order]) == {"g": [blank]}
+    full = [{"name": "g", "kind": "function", "params": "", "return_type": "str"}, entries[1]]
+    assert mod.documented_forms([full[i] for i in order]) == {"g": [{"params": "", "return_type": "str"}]}
+    # A blank `params` is an empty list of bare names: an optional parameter it leaves out is no difference.
+    assert mod._parameter_difference("()", "(host='localhost', port=5432)", ".py") is None
+    assert mod._parameter_difference("()", "(a: int)", ".py") == "the required source parameter `a` is left out"
+
+
 def test_score_grades_by_the_forms_the_plan_offered(tmp_path):
     """With --plan, `score` grades by the forms the plan offered the judge, and warns when the inventory it is given
     holds others: here the plan offered the partial typed list as form 1, the inventory no longer does."""
