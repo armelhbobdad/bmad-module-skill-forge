@@ -89,7 +89,8 @@ reading files and writing one JSON object:
             {"params", "return_type"} for a complete form or a Props cell
             (below) and {"usage_signature", "return_type"} for a usage form
             (and `signature_form` "partial" under a header's partial
-            label, below). `params` is the text inside the parameter group
+            label or for an ellipsis item, below). `params` is the text
+            inside the parameter group
             (score-signatures.py's _group: the first pair of parentheses
             outside every bracket pair and string), and `return_type` the
             type written after it (score-signatures.py's _signature_parts),
@@ -184,7 +185,16 @@ reading files and writing one JSON object:
                            x is {...}`, `() => {...}` or conditional type,
                            `): Promise<A> |`), or one whose brackets or
                            strings do not all close.
-            A form written only in prose is never read: it stays the
+            Whatever its form, a signature whose parameter group (its
+            `params`, or the group its `usage_signature` writes) holds an
+            ellipsis item, a member that is `...` or `…` alone as
+            score-signatures.py's _parameter reads one (a rest `...args`,
+            a `*args` and a default `x=...` are none), also carries
+            `signature_form` "partial" (#1029): the contract counts that
+            `...` as the skill's partial label, so it is the script's too,
+            and validate-inventory.py --floor refuses the label an entry
+            adds where the signature gives none. A form written only in
+            prose is never read: it stays the
             reader's. Each origin keeps the first signature its place
             writes.
             Output: {"files": [...], "names": [{"name", "kindLabel",
@@ -548,7 +558,7 @@ FLOOR_PROPS_HEADERS = frozenset({"props", "params", "parameters"})
 # The partial labels (lower case, whitespace runs as one space) a header may give in parentheses after its word, as
 # `Signature (simplified)` and `Props (simplified)` do (#888): each form read from that Signature, Props, Params or
 # Parameters column is partial, so an optional parameter it leaves out is Info, not Critical, and the floor pins the
-# label with the form.
+# label with the form, as it does for a form whose parameter group holds an ellipsis item (_ellipsis_labelled, #1029).
 FLOOR_PARTIAL_LABELS = frozenset({"simplified", "partial", "key parameters", "key params"})
 # What a usage form writes before its name's complete form (#888), each part optional, in this order: an assignment
 # (`x =`, `a, b =`, `const { data } =`, `let [a, b] =`), `await`, `new`, and a receiver or module path (`cognee.`,
@@ -995,6 +1005,23 @@ def _labelled(form: dict | None, partial: bool) -> dict | None:
     return {**form, "signature_form": "partial"} if form and partial else form
 
 
+def _ellipsis_labelled(signature: dict | None, extension: str = "") -> dict | None:
+    """`signature`, with `signature_form` "partial" when its parameter group holds an ellipsis item (#1029): a member,
+    cut at the commas outside every bracket pair and string (score-signatures.py's _split), that score-signatures.py's
+    _parameter reads as one, `...` or `…` alone, so a rest `...args`, a `*args` and a default `x=...` are none. The
+    group is the whole `params`, or the one a `usage_signature` writes (score-signatures.py's _group). The contract
+    counts such a `...` as the skill's partial label, so the floor pins it with the form, at every origin."""
+    if not signature:
+        return signature
+    scorer = _sibling("score-signatures.py")
+    text = signature.get("params")
+    if text is None:
+        group = scorer._group(signature["usage_signature"], extension)
+        text = signature["usage_signature"][group[0] + 1:group[1]] if group else ""
+    items = scorer._split(text, ",", extension)
+    return _labelled(signature, any(scorer._parameter(item.strip(), extension)["ellipsis"] for item in items))
+
+
 def _column(labels: list[tuple[str, bool]], words: frozenset) -> tuple[int | None, bool]:
     """The first header cell whose word (_header_label) is one of `words`, and its partial label; (None, False) for
     none."""
@@ -1142,11 +1169,11 @@ def floor(skill_dir: str) -> dict:
     signatures: dict[tuple[str, int, int, str], dict] = {}  # the first per (name, file, line, form), in span order
 
     def add(name: str | None, file_index: int, index: int, form: str, label: str | None = None,
-            signature: dict | None = None) -> None:
+            signature: dict | None = None, extension: str = "") -> None:
         if name:
             found.setdefault(name, set()).add((file_index, index + 1, form, label))
             if signature is not None:
-                signatures.setdefault((name, file_index, index + 1, form), signature)
+                signatures.setdefault((name, file_index, index + 1, form), _ellipsis_labelled(signature, extension))
 
     js_family = segments.JS_FAMILY - {"svelte"}  # a Svelte block's `export let` is a component prop
     for file_index, lines in enumerate(texts):
@@ -1180,7 +1207,8 @@ def floor(skill_dir: str) -> dict:
                 name_end = _function_declaration(masked[offset], language, js_family)
                 signature = (_declaration_form(lines[opening + 1:closing], offset, language, name_end)
                              if name_end is not None else None)
-                add(name, file_index, opening + 1 + offset, "declaration", None, signature)
+                add(name, file_index, opening + 1 + offset, "declaration", None, signature,
+                    ".rs" if language in RUST_LANGUAGES else "")
 
     names = []
     by_form = dict.fromkeys(FLOOR_FORMS, 0)

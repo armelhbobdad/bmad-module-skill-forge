@@ -1574,6 +1574,81 @@ def test_a_floor_partial_label_is_carried_at_its_origin(tmp_path):
         assert r["warnings"] == warnings, (entries, r["warnings"])
 
 
+LABEL_ADDED_VIOLATION = (PINNED.format("SKILL.md:5") + ', but an inventory entry of that name gives its form with '
+                         '`signature_form` "partial" there or with no `at`, a label the floor does not pin; copy it '
+                         'as given, without that label, with `at` "SKILL.md:5"')
+
+
+def test_a_partial_label_at_an_unlabelled_floor_pin_fails(tmp_path):
+    """#1029: the label at a place the floor pins is the floor's. Where the pin gives no label, an entry of the name
+    that gives its form with `signature_form` "partial" at that place fails with exit 2, one violation naming the
+    origin, the signature and the `at`, and leaves no inventory file: score-signatures.py would grade a left-out
+    optional parameter Info, not Critical, where the skill gives no label. So does a labelled copy of the form with
+    no `at` (none given, or a bad one dropped), alone or beside the unlabelled carrier at the row. The form with no
+    label, or "full", at the row is valid, and so is a labelled copy whose `at` is another line that writes the name
+    (the prose line), compared there."""
+    pkg = _package(tmp_path, FORM_TABLE + "\nAlso `fetchData(url: string)` in prose.\n")
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"][0]["origins"] == [_floor_origin("SKILL.md", 5, "table-row", FORM)]
+    for entries in ([{**FORM, **AT_ROW}], [{**FORM, "signature_form": "full", **AT_ROW}],
+                    [{**FORM, **AT_ROW}, {**PARTIAL, "at": "SKILL.md:7"}]):
+        r = mod.validate_inventory(_signed(*(("fetchData", "function", e) for e in entries)), pkg, read)
+        assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (
+            entries, r["violations"], r["warnings"])
+
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(("fetchData", "function", {**PARTIAL, **AT_ROW})).encode("utf-8"))
+    out.write_bytes(b"{}")
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [LABEL_ADDED_VIOLATION] and result["output"] is None
+    assert not out.exists()
+
+    for entries, warnings in (
+        ([PARTIAL], [f"exports[0] (`fetchData`) carries a form but no `at`, so {UNBOUND}"]),
+        ([{**FORM, **AT_ROW}, PARTIAL], [f"exports[1] (`fetchData`) carries a form but no `at`, so {UNBOUND}"]),
+        ([{**FORM, **AT_ROW}, {**PARTIAL, "at": "SKILL.md:1"}],
+         [f'exports[1] (`fetchData`): `at` "SKILL.md:1" is a line that does not write `fetchData`; it is dropped '
+          f"and {UNBOUND}"]),
+    ):
+        r = mod.validate_inventory(_signed(*(("fetchData", "function", e) for e in entries)), pkg, read)
+        assert r["valid"] is False and r["violations"] == [LABEL_ADDED_VIOLATION], (entries, r["violations"])
+        assert r["warnings"] == warnings, (entries, r["warnings"])
+
+
+ELLIPSIS_TABLE = ("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"
+                  "| `fetchData` | function | `(url: string, ...) => Promise<Data>` |\n")
+
+
+def test_an_ellipsis_pin_on_the_floor_is_carried_with_its_label(tmp_path):
+    """#1029: a plain Signature cell whose form holds an ellipsis item is pinned with `signature_form` "partial",
+    so the label rule of a header's label holds for it: the labelled copy at the row is valid, and the copy without
+    the label, which validated before, is one violation naming the origin and the labelled signature."""
+    pkg = _package(tmp_path, ELLIPSIS_TABLE)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    pinned = {"params": "url: string, ...", "return_type": "Promise<Data>", "signature_form": "partial"}
+    assert read["names"][0]["origins"] == [_floor_origin("SKILL.md", 5, "table-row", pinned)]
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**pinned, **AT_ROW})), pkg, read)
+    assert r["valid"] is True and r["violations"] == [] and r["warnings"] == [], (r["violations"], r["warnings"])
+    unlabelled = {key: value for key, value in pinned.items() if key != "signature_form"}
+    r = mod.validate_inventory(_signed(("fetchData", "function", {**unlabelled, **AT_ROW})), pkg, read)
+    assert r["valid"] is False and r["violations"] == [
+        f"floor: `fetchData` is documented at SKILL.md:5 (table-row) with the signature {json.dumps(pinned)}, but no "
+        "inventory entry of that name at that place carries it, or one gives its form without its `signature_form` "
+        'there or with no `at`; copy it as given, with `at` "SKILL.md:5"'], r["violations"]
+
+
 USAGE_SKILL = ("# Demo\n\n"
                "| Component | Props | Purpose |\n| --- | --- | --- |\n"
                "| `Title` | `TitleProps = { of?: Of }` | Renders the title. |\n\n"

@@ -1715,7 +1715,8 @@ def test_the_floor_runs_before_the_inventory_subagent():
     partial label a Signature or Props header pins with the form, and §1a refuses an inventory that changes one.
     #1030: the contract and the script say a header with a Signature part heads a Signature cell, and that a
     compound Props header and an Arguments, Args, Usage, Syntax or Example cell stay the reader's. #1028: a pinned
-    `params` may also spell the shared members out among its own, in the skill's order."""
+    `params` may also spell the shared members out among its own, in the skill's order. #1029: an ellipsis item
+    labels a pinned form partial too, and the label at a pinned place is the floor's, so the reader adds none."""
     text = _read(COVERAGE)
     section1 = _slice(text, "### 1. Extract Documented Exports", "#### 1a.")
     assert _command(COVERAGE, "uv run {coverageInputsScript} floor") == FLOOR_COMMAND
@@ -1758,9 +1759,13 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "gives); a "
             "blank one is the reader's, and a form the skill writes only in prose is an entry of its own; a "
             "`signature` read from a cell under a partial label (`Signature (simplified)`, `Props (simplified)`, "
-            "`(partial)`, `(key parameters)`) also gives `signature_form` `\"partial\"`, which that entry copies, "
-            "and the validator refuses an inventory with no entry there that does. Where the skill documents several "
-            "names and states members they share once") in contract
+            "`(partial)`, `(key parameters)`), or whose parameter group holds a `...` or `…` standing in for omitted "
+            "members, also gives `signature_form` `\"partial\"`, which that entry copies, "
+            "and the validator refuses an inventory with no entry there that does. The label at a place "
+            "`inventory-floor.json` gives a `signature` is the `signature`'s: an entry that gives its form there or "
+            "with no `at` gives `\"partial\"` only when the `signature` does, and the validator refuses one that adds "
+            "it (a skill labels such a form partial in its column header, not in words). Where the skill documents "
+            "several names and states members they share once") in contract
     rules = _flow(runpy_module(SCRIPTS_DIR / "load-coverage-inputs.py").__doc__)
     assert ("an origin whose place writes the name's signature in a fixed form that is surely complete also "
             "carries it as `signature`" in rules and "no signature read" not in rules)
@@ -1769,6 +1774,9 @@ def test_the_floor_runs_before_the_inventory_subagent():
             "several spans leave it the reader's)") in rules
     assert "A span that is no complete form is a usage form" in rules
     assert "`Signature (simplified)`" in rules and "a labelled one is not a Signature column" not in rules
+    assert ("holds an ellipsis item, a member that is `...` or `…` alone as score-signatures.py's _parameter reads "
+            "one (a rest `...args`, a `*args` and a default `x=...` are none), also carries `signature_form` "
+            "\"partial\" (#1029)") in rules
     assert ("a header split at `/` with a part that is one included (`Signature / Purpose`, `Props / Signature`; "
             "#1030)") in rules
     assert ("a compound header with no Signature part (`Props / Usage`, `Props / Type`) and an Arguments, Args, "

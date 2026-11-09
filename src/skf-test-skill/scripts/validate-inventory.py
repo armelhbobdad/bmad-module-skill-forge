@@ -79,7 +79,8 @@ the entry's other fields (its `usage_signature` beside a pinned `params`,
 its `params` beside a pinned `usage_signature`), are not read, but for one:
 a signature read from a column under a partial label (`Signature
 (simplified)`, `Props (simplified)`, load-coverage-inputs.py's
-FLOOR_PARTIAL_LABELS) also gives `signature_form` "partial", and an entry
+FLOOR_PARTIAL_LABELS), or one whose parameter group holds an ellipsis item
+(`...` or `…` alone, #1029), also gives `signature_form` "partial", and an entry
 carries it only with that `signature_form` too. Such an origin is carried
 only at its own place: by the entries of that name whose `at` is that
 origin and that give its form, at least one, each with the label, while
@@ -89,7 +90,11 @@ keep an unlabelled twin at the origin, or an unlabelled copy that shows
 no place, over the label. An unlabelled copy whose kept `at` is another
 place (with --skill-package, a line that writes the name) stays valid. A
 dropped label, such an unlabelled twin or copy, and a carrier elsewhere
-or with no `at`, is then a violation, never the warning below.
+or with no `at`, is then a violation, never the warning below. The label
+of an origin whose signature gives none is the floor's too (#1029): an
+entry of that name that gives its form with `signature_form` "partial",
+at that origin or with no `at`, is a violation, while such a copy whose
+kept `at` is another place stays valid.
 Each checked origin no entry carries is a violation naming the origin and
 its signature, for a name left out too, and the inventory is invalid: the
 form is never overwritten, so the re-dispatched subagent copies it as
@@ -256,7 +261,8 @@ Exit codes:
   0  inventory valid (every sampled name found, every checked floor name
      kept and every checked floor signature carried; a missing or bad `at`
      is only a warning, but a labelled floor signature is carried only at
-     its own place, and never unlabelled there or with no `at`)
+     its own place, and never unlabelled there or with no `at`, and an
+     unlabelled one never labelled there or with no `at`)
   1  no input provided, the --input file cannot be read, the
      --skill-package folder holds no readable SKILL.md, or the --floor file
      cannot be read or is not a floor, a malformed `signature` among them
@@ -265,7 +271,9 @@ Exit codes:
      contract does not define among them, a sampled name
      absent, a floor name left out or a floor signature no entry carries,
      or a labelled one no entry at its place carries with its label, or
-     that an entry there or with no `at` gives without it;
+     that an entry there or with no `at` gives without it, or an unlabelled
+     one an entry there or with no `at` gives with `signature_form`
+     "partial";
      result JSON emitted)
 """
 
@@ -354,7 +362,9 @@ FLOOR_SIGNATURE_FIELDS = ("params", "usage_signature", "return_type")
 
 # The label a floor origin's `signature` may also give (#888), its key and its
 # one value: the partial label of the Signature, Props, Params or Parameters
-# column it was read from, which the entry at that origin copies.
+# column it was read from, or of an ellipsis item in its parameter group
+# (#1029), which the entry at that origin copies; an origin with none gives
+# its entries none there.
 FLOOR_LABEL_FIELD, FLOOR_LABEL = "signature_form", "partial"
 
 # Characters that continue an identifier in the languages SKF documents
@@ -920,7 +930,11 @@ def floor_check(inventory, floor, skill_package_path=None):
     It is otherwise one violation, a carrier elsewhere or with no `at`, an
     unlabelled twin there and an unlabelled copy with no `at` included; an
     unlabelled copy whose `at` is another place (with the package, a line
-    that writes the name) stays valid.
+    that writes the name) stays valid. An origin whose signature gives no
+    label is refused the same way when an entry of that name that gives its
+    form there or with no `at` gives `signature_form` "partial" (#1029): one
+    violation, while a labelled copy whose `at` is another place stays
+    valid.
     """
     listed = inventory.get("references")
     files = {"SKILL.md"} | {_listed_path(ref, skill_package_path)
@@ -969,6 +983,16 @@ def floor_check(inventory, floor, skill_package_path=None):
                                   f"given, with `at` {at}")
             continue
         carriers = [(idx, e) for idx, e in entries if e.get("name") == name and _carries(e, signature)]
+        if any(e.get(FLOOR_LABEL_FIELD) == FLOOR_LABEL and (e.get("at") is None or parse_at(e["at"]) == place)
+               for _, e in carriers):
+            # An unlabelled pin's label is the floor's too (#1029): an entry that gives its form there or with no
+            # `at` (a bad one is dropped by now) and labels it partial would turn a left-out optional parameter's
+            # Critical into Info where the skill gives no label. A labelled copy whose `at` is another place is
+            # compared there.
+            violations.append(f"{pinned}, but an inventory entry of that name gives its form with `signature_form` "
+                              f"\"partial\" there or with no `at`, a label the floor does not pin; copy it as given, "
+                              f"without that label, with `at` {at}")
+            continue
         if any(parse_at(e.get("at")) == place for _, e in carriers):
             continue
         if not carriers:

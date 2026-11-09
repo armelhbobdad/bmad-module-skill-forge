@@ -870,6 +870,47 @@ def test_floor_pins_a_signature_header_s_partial_label(tmp_path, header, labelle
     assert json.loads(first.read_bytes()) == out
 
 
+def test_floor_pins_an_ellipsis_item_s_partial_label(tmp_path):
+    """#1029: a pinned form whose parameter group holds an ellipsis item, `...` or `…` alone, carries
+    `signature_form` "partial" whatever its origin (a Signature cell, the first-cell form, a usage form, a heading),
+    since the contract counts that `...` as the skill's partial label: the label is the script's, not the reader's.
+    A rest `...parts`, a `*args` and `**kwargs`, a default `x=...`, an ellipsis inside a nested type and a plain
+    form pin no label. The same skill gives the same bytes."""
+    body = ("| Export | Kind | Signature |\n"                                           # 1
+            "| --- | --- | --- |\n"                                                     # 2
+            "| `fetchData` | function | `(url: string, ...) => Promise<Data>` |\n"      # 3
+            "| `loadUser` | function | `(id: string) => Promise<User>` |\n"            # 4
+            "| `join` | function | `(...parts: string[]) => string` |\n"                # 5
+            "| `call` | function | `(*args, **kwargs) -> Any` |\n"                     # 6
+            "| `stub` | function | `(x=...) -> None` |\n"                              # 7
+            "| `on` | function | `(cb: (a, ...) => void) => void` |\n"                 # 8
+            "| `mergeProps(a, b, …)` | function | Merges props. |\n"                   # 9
+            "| `add` | function | `await cognee.add(data, …)` |\n"                     # 10
+            "\n"                                                                       # 11
+            "### `search(query_text, query_type=None, ...)`\n"                         # 12
+            "\n"                                                                       # 13
+            "### `route(path, …): Route`\n")                                          # 14
+    root = _skill(tmp_path, body)
+    out = mod.floor(str(root))
+    assert {n["name"]: [(o["line"], o.get("signature")) for o in n["origins"]] for n in out["names"]} == {
+        "add": [(10, _labelled(_usage("await cognee.add(data, …)")))],
+        "call": [(6, _signature("*args, **kwargs", "Any"))],
+        "fetchData": [(3, _labelled(_signature("url: string, ...", "Promise<Data>")))],
+        "join": [(5, _signature("...parts: string[]", "string"))],
+        "loadUser": [(4, _signature("id: string", "Promise<User>"))],
+        "mergeProps": [(9, _labelled(_signature("a, b, …")))],
+        "on": [(8, _signature("cb: (a, ...) => void", "void"))],
+        "route": [(14, _labelled(_signature("path, …", "Route")))],
+        "search": [(12, _labelled(_signature("query_text, query_type=None, ...")))],
+        "stub": [(7, _signature("x=...", "None"))]}
+    first, second = tmp_path / "floor-1.json", tmp_path / "floor-2.json"
+    for target in (first, second):
+        proc = _run("floor", "--skill-dir", str(root), "--output", str(target))
+        assert proc.returncode == 0, proc.stderr
+    assert first.read_bytes() == second.read_bytes()
+    assert json.loads(first.read_bytes()) == out
+
+
 @pytest.mark.parametrize("header, read, labelled", [
     ("Signature / Purpose", True, False), ("Props / Signature", True, False), ("**Signature / Value**", True, False),
     ("Signature / shape (at pin)", True, False), ("Signatures/Purpose", True, False),
