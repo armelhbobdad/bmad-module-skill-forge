@@ -1263,6 +1263,47 @@ def test_a_pinned_call_keeps_its_params_and_a_props_table_is_placed_at_its_headi
     assert "at" not in r["inventory"]["exports"][1]
 
 
+PARAMS_SKILL = ("# Demo\n\n## client.add\n\nAdds data.\n\n### Key parameters\n\n"
+                "| Param | Type | Default | Description |\n| --- | --- | --- | --- |\n"
+                "| `data` | `str \\| list[str]` | | The data. |\n"
+                "| `dataset_name` | `str` | `\"main\"` | The dataset. |\n")
+
+
+def test_a_parameter_table_is_placed_at_the_heading_that_names_it(tmp_path):
+    """#1002 (oms-cognee): a table of one function's parameters (`| Param | Type | Default | Description |`) is a
+    place of its own, as a props table is: its entry gives as `at` the nearest heading above it that writes the name
+    (`## client.add`, not `### Key parameters`, which labels it partial) and as `params` its rows in order, each
+    `\\|` read as `|`, with no default. The floor pins nothing there (a Param table and a heading with other words
+    give no origin), so such an entry passes --floor (exit 0) with no violation or warning and is written as given,
+    while one placed on the label heading or on a row, neither of which writes `add`, has its `at` dropped with a
+    warning, the inventory still valid. No script changed."""
+    pkg = _package(tmp_path, PARAMS_SKILL)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    read = mod.read_floor(floor)
+    assert read["names"] == [], "the parameter table and its headings pin nothing"
+    add = ("add", "function", {"params": "data: str | list[str], dataset_name: str", "description": "",
+                               "signature_form": "partial", "at": "SKILL.md:3"})
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(add).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert json.loads(out.read_bytes())["exports"] == [{"name": add[0], "kind": add[1], **add[2]}]
+    for line in (7, 11):
+        placed = (add[0], add[1], {**add[2], "at": f"SKILL.md:{line}"})
+        r = mod.validate_inventory(_signed(placed), pkg, read)
+        assert r["valid"] is True and r["violations"] == [], r["violations"]
+        assert r["warnings"] == [f'exports[0] (`add`): `at` "SKILL.md:{line}" is a line that does not write `add`; '
+                                 f"it is dropped and {mod.UNBOUND}"]
+        assert "at" not in r["inventory"]["exports"][0]
+
+
 FACTORY_SKILL = ("# Demo\n\n| Export | Kind | Signature |\n| --- | --- | --- |\n"
                  "| `badgeVariants` | const | `const badgeVariants = cva(…)` |\n\n"
                  "```ts\n// [SRC:src/button.ts:L5]\nexport const buttonVariants = cva(…)\n```\n\n"

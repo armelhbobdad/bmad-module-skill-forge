@@ -217,7 +217,9 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
     complete parameter list, so an optional parameter they leave out is no difference, while a typed form still
     claims its list is complete (#834's `(date: Date) => string` stays `omitted-optional`). #916: an entry's `params`
     written as such a list names parameters whatever its names are, and a call expression comes as a usage, read as a
-    call, so the judge reads each form by the field the inventory contract routes it to."""
+    call, so the judge reads each form by the field the inventory contract routes it to. #1002: a parameter table,
+    which the contract now makes a place of its own, is a typed form read in row order, so the split-body
+    cross-check, which reads the table itself, claims its list complete as the §2 judge does its `params`."""
     reading = _section("Reading a form")
     assert "Three kinds of form do not claim a complete parameter list:" in reading
     assert ("It is compared as a call: each argument it passes must exist, by position or by name, and every required "
@@ -236,6 +238,10 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
                          "expression comes as a usage (inventory-contract.md) and is read as a call (above)."), bare
     assert ("A form that writes a type or a default for a parameter (`(date: Date) => string`) claims its list is "
             "complete: an optional parameter it leaves out is an `omitted-optional` difference") in reading
+    # the typed-form rule it extends, on the same paragraph
+    assert ("an optional parameter it leaves out is an `omitted-optional` difference (Difference tags). A parameter "
+            "table (inventory-contract.md) is such a form, its rows read in order as one typed parameter "
+            "list.") in reading
     assert "one it adds where the source has none is no difference: calls that follow the form are valid." in reading
     props = _section("Components")
     assert ("An optional own prop a typed props list or a table leaves out is an `omitted-optional` difference; one a "

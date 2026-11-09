@@ -1609,7 +1609,11 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     arguments and no prefix in running text or a description cell, such as `add(componentName, options)`, matched
     no listed context, so one reader recorded it as a usage and another as bare-name `params`, whose names a Python
     declaration grades Critical; the sentence now takes such a call with or without a prefix, unless it writes a
-    parameter type, a return type or a `?`, which leaves it a signature."""
+    parameter type, a return type or a `?`, which leaves it a signature. #1002 (oms-cognee): the contract named only
+    props tables, so a `| Param | Type | Default | Description |` table of one function's parameters was compared
+    by one reader and recorded nothing for another; it is now a place of its own after the props table, its rows one
+    typed parameter list with no mark, and a partial label in its column header, its caption or the nearest heading
+    above it (`### Key parameters`) labels it partial."""
     s1 = ("A function's or a class's form the skill writes as a call expression of its own name (after `await`, "
           "`new` or an assignment, through a receiver or module path such as `coco.`, or as a statement in a "
           "fenced example; in running text or a description cell, only a call that passes an argument and writes "
@@ -1631,16 +1635,25 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
           "`{ prop: Type; ... }`, `prop` alone for an empty Type cell and each `\\|` read as `|`, with no default, `?` "
           "or Required mark, so it states no optionality (signature-comparison-rules.md compares it as a typed props "
           "list); a partial label in its column header still labels it partial.")
+    s4 = ("A table that documents one function's, method's or class constructor's parameters, a row per parameter "
+          "with its type (`| Param | Type | Default | Description |`, or one with a Required column), is a place of "
+          "its own too: its entry, whatever its kind, gives as `at` the nearest heading or caption above the table "
+          "that writes the name (a row writes a parameter, not the name) and as `params` one parameter list of the "
+          "rows in row order, `param: Type, ...`, `param` alone for an empty Type cell and each `\\|` read as `|`, "
+          "with no default, `?` or Required mark, so it states no optionality (signature-comparison-rules.md reads "
+          "it as a typed parameter list); a partial label in its column header, its caption or the nearest heading "
+          "above it (`### Key parameters`) labels it partial.")
     [paragraph] = [p for p in _read(INVENTORY_CONTRACT).split("\n\n")
                    if p.startswith("The contract `validate-inventory.py` checks")]
     contract = _flow(paragraph)
     # S1 after the rule that a heading's `name()` is a form, before the methods; S2 after the shared text it
-    # extends and the bare-name case beside it (#1034), before the partial label; S3 ends the paragraph.
+    # extends and the bare-name case beside it (#1034), before the partial label; S3 then S4, the parameter table
+    # it extends to functions (#1002), end the paragraph.
     assert f"is a form, recorded as written. {s1} {EXAMPLE_CALL} A `method`'s `name` is the bare method" in contract
     assert (f"the shared text applies only to names the place gives members of their own. {s2} An entry whose "
             "signature the skill labels partial") in contract
-    assert contract.endswith(f"copy the label, never judge the form. {s3}"), contract[-200:]
-    for sentence in (s1, s2, s3):
+    assert contract.endswith(f"copy the label, never judge the form. {s3} {s4}"), contract[-200:]
+    for sentence in (s1, s2, s3, s4):
         assert contract.count(sentence) == 1, sentence
     assert "whose `params` then stays after the shared text" not in contract, "#1028: a pinned `params` is in order"
     assert "\u2014" not in paragraph and "\u2013" not in paragraph, "no em or en dash"
