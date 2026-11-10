@@ -1,0 +1,3 @@
+type: docs
+summary: |
+  Verifying a Skill and `docs/_data/pinned.yaml` now quote oh-my-skills' latest strict SKF 10.0.0 test of oms-uitripled (20261110T153107Z-82714bca), still at 100%, which tests the gotchas section oh-my-skills added so that Skill Forge's export keeps the snippet's three pitfalls instead of marking them `[CARRIED]`. The page counts its 70 listed readings, none blocking, and says that three 10.0.0 readers listed 35, 10 and 70 readings on text that differed in two passages.

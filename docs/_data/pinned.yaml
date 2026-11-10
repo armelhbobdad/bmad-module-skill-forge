@@ -97,7 +97,7 @@ skills:
     source_ref: "HEAD"
     upstream_commit_date: "2026-03-22"
     # strict SKF 10.0.0 re-test of the version that ships, with Test Skill's
-    # subagents (20261110T033453Z-e23fc1f5)
+    # subagents (20261110T153107Z-82714bca)
     test_score: 100.0
     test_mode: "naive"
     confidence_tier: "Deep"
