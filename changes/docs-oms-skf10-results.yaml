@@ -1,0 +1,4 @@
+type: docs
+summary: |
+  Verifying a Skill and the README now quote strict SKF 10.0.0 tests of the version each of oh-my-skills' four reference skills ships, run as Test Skill is designed, with its subagents: oms-cocoindex, oms-storybook-react-vite and oms-uitripled pass at 100%, and oms-cognee at 99%. The page says that 10.0.0 settles four of the calls the 9.0.0 passes turned on (#999, #1045, #1050, #1003), that its first tests listed lines whose other reading would block in all four skills, one of them a real error, that oh-my-skills fixed it, rewrote the correct lines in three of the skills and re-tested each skill once, and which readings that would block the published reports still list. `docs/_data/pinned.yaml` records the 10.0.0 run ids.
+prs: [1090]
