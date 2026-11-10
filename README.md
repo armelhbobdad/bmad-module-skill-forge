@@ -130,7 +130,7 @@ For docs-only skills, the audit shape is the same: `provenance-map.json` still l
 
 If it doesn't, that's a bug. Open an issue and SKF will republish the skill with a fresh provenance map (a new commit SHA for source skills, a fresh fetch for docs-only). Falsifiability isn't a feature; it's the whole deal.
 
-**Reference output: [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills).** It holds four Deep-tier skills compiled by SKF (cocoindex, cognee, Storybook v10, uitripled), each shipping its full audit trail in-repo. On a strict Skill Forge 9.0.0 test of the version each one ships, run as Test Skill is designed, with its subagents, all four pass: cocoindex, Storybook and uitripled at 100%, cognee at 99%; every report is published, the earlier failing ones included. Every claim walks to an upstream line in under 60 seconds. Serves as both the worked example for this section and a public record of what the pipeline gets right and where its test still falls short.
+**Reference output: [oh-my-skills](https://github.com/armelhbobdad/oh-my-skills).** It holds four Deep-tier skills compiled by SKF (cocoindex, cognee, Storybook v10, uitripled), each shipping its full audit trail in-repo. On a strict Skill Forge 10.0.0 test of the version each one ships, run as Test Skill is designed, with its subagents, all four pass: cocoindex, Storybook and uitripled at 100%, cognee at 99%; every report is published, the earlier failing ones included. Every claim walks to an upstream line in under 60 seconds. Serves as both the worked example for this section and a public record of what the pipeline gets right and where its test still falls short.
 
 ## Help SKF Improve
 

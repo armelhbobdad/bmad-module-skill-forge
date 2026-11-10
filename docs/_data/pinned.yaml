@@ -51,8 +51,8 @@ skills:
     source_commit: "ba3631f2ed363a6ea50d649c34c56885af6b36fe"
     source_ref: "v1.6.2"
     upstream_commit_date: "2026-09-29"
-    # strict SKF 9.0.0 re-test of the version that ships, with Test Skill's
-    # subagents (20261108T144709Z-e7157ac9)
+    # strict SKF 10.0.0 re-test of the version that ships, with Test Skill's
+    # subagents (20261110T000723Z-492d3893)
     test_score: 99.0
     test_mode: "naive"
     confidence_tier: "Deep"
@@ -66,8 +66,8 @@ skills:
     source_commit: "5fe4f37a526e51516655832ec9814e7ca24ade9a"
     source_ref: "v1.0.0"
     upstream_commit_date: "2026-04-22"
-    # strict SKF 9.0.0 re-test of the version that ships, with Test Skill's
-    # subagents (20261108T135352Z-27b92a60)
+    # strict SKF 10.0.0 re-test of the version that ships, with Test Skill's
+    # subagents (20261109T215742Z-6af66467)
     test_score: 100.0
     test_mode: "naive"
     confidence_tier: "Deep"
@@ -81,8 +81,8 @@ skills:
     source_commit: "e486d3826bcd40c52db1c766966d1c8ec16df6cb"
     source_ref: "v10.3.5"
     upstream_commit_date: "2026-04-07"
-    # strict SKF 9.0.0 re-test of the version that ships, with Test Skill's
-    # subagents (20261108T143553Z-31d5d0c1)
+    # strict SKF 10.0.0 re-test of the version that ships, with Test Skill's
+    # subagents (20261109T231529Z-b6787f7b)
     test_score: 100.0
     test_mode: "naive"
     confidence_tier: "Deep"
@@ -96,8 +96,8 @@ skills:
     source_commit: "a5ffb45be05335d2c547436664cfbfb8c22d04df"
     source_ref: "HEAD"
     upstream_commit_date: "2026-03-22"
-    # strict SKF 9.0.0 re-test of the version that ships, with Test Skill's
-    # subagents (20261108T115013Z-3e4fdad8)
+    # strict SKF 10.0.0 re-test of the version that ships, with Test Skill's
+    # subagents (20261110T033453Z-e23fc1f5)
     test_score: 100.0
     test_mode: "naive"
     confidence_tier: "Deep"
