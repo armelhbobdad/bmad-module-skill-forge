@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's signature rules now say that a list that marks a member `?` and writes no type, such as storybook's `Story` documented as `{ of?, meta?, inline?, height?, autoplay? }`, claims its list is complete, as a list that writes a type or a default does; `score-signatures.py` already reads a parameter list that marks a member `?`, such as `(of?, meta?)`, this way. An optional parameter or optional own prop such a form leaves out is therefore an `omitted-optional` mismatch; before, the rules put that list in neither class, so judges split between that mismatch and no mismatch on the same form, which on a form not labelled partial is a Critical `signature-mismatch` gap against none. A full form of that kind that leaves out an optional own prop or parameter is now a Critical gap, so a skill some runs passed can now stop at the hard gate.
+migration: |
+  If a skill now stops at the hard gate on a `signature-mismatch` gap over a form that marks members `?`, write the members the gap says the form leaves out, as its `source_sig` gives them, or label the form partial when it shows only some of them on purpose (`Props (simplified)`), then run Test Skill again.
+issues: [1089]

@@ -298,16 +298,41 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
     assert bare.endswith("an optional member it leaves out is no difference, a required one is a mismatch. An "
                          "entry's `params` written as such a list is read this way, whatever the names; a call "
                          "expression comes as a usage (inventory-contract.md) and is read as a call (above)."), bare
-    assert ("A form that writes a type or a default for a parameter (`(date: Date) => string`) claims its list is "
-            "complete: an optional parameter it leaves out is an `omitted-optional` difference") in reading
+    assert ("A form that writes a type, a default or a `?` for a parameter (`(date: Date) => string`, "
+            "`{ of?, meta? }`) claims its list is complete: an optional parameter it leaves out is an "
+            "`omitted-optional` difference") in reading
     # the typed-form rule it extends, on the same paragraph
     assert ("an optional parameter it leaves out is an `omitted-optional` difference (Difference tags). A parameter "
             "table (inventory-contract.md) is such a form, its rows read in order as one typed parameter "
             "list.") in reading
     assert "one it adds where the source has none is no difference: calls that follow the form are valid." in reading
     props = _section("Components")
-    assert ("An optional own prop a typed props list or a table leaves out is an `omitted-optional` difference; one a "
-            "list of bare names or a usage leaves out, and an optional inherited prop, is no difference.") in props
+    assert ("An optional own prop a typed props list, a list that marks a prop `?`, or a table leaves out is an "
+            "`omitted-optional` difference; one a list of bare names or a usage leaves out, and an optional inherited "
+            "prop, is no difference.") in props
+
+
+def test_a_list_that_marks_a_member_with_a_question_mark_claims_to_be_complete():
+    """#1089: Reading a form called a list complete only when it wrote a type or a default, while its bare-names
+    bullet took only a list with no type, default or `?`, so storybook's `Story` documented as
+    `{ of?, meta?, inline?, height?, autoplay? }` was in neither class, and Components named only a typed props list
+    or a table as leaving out an optional own prop as `omitted-optional`. Both 10.0.0 judges logged that reading under
+    Borderline Calls, and the first 9.0.0 run found no mismatch. A `?` now claims the list complete, as a type or a
+    default does, which is how score-signatures.py already reads a parameter list: `(of?, meta?)` is compared as
+    complete, `(of, meta)` as bare names."""
+    reading = _section("Reading a form")
+    assert ("A form that writes a type, a default or a `?` for a parameter (`(date: Date) => string`, "
+            "`{ of?, meta? }`) claims its list is complete") in reading
+    props = _section("Components")
+    assert ("An optional own prop a typed props list, a list that marks a prop `?`, or a table leaves out is an "
+            "`omitted-optional` difference") in props
+    spec = importlib.util.spec_from_file_location("score_signatures", SCORE_SIGNATURES)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    source = "(of?: X, meta?: M, inline?: boolean) => R"
+    assert module._parameter_difference("(of?, meta?) => R", source, ".ts") \
+        == "the documented list writes 2 parameters, the source 3 parameters"
+    assert module._parameter_difference("(of, meta) => R", source, ".ts") is None
 
 
 def test_a_caller_following_a_narrower_form_makes_a_valid_call():
@@ -942,9 +967,9 @@ def test_a_component_s_own_props_are_written_in_its_package():
             "optional `children` of `PropsWithChildren<P>`. A prop the form writes must exist on `P`, own or "
             "inherited.") in components
     assert ("So is a required own prop it leaves out, and a required inherited one (a `Link`'s `href`) left out of a "
-            "full form. An optional own prop a typed props list or a table leaves out is an `omitted-optional` "
-            "difference; one a list of bare names or a usage leaves out, and an optional inherited prop, is no "
-            "difference.") in components
+            "full form. An optional own prop a typed props list, a list that marks a prop `?`, or a table leaves out "
+            "is an `omitted-optional` difference; one a list of bare names or a usage leaves out, and an optional "
+            "inherited prop, is no difference.") in components
     assert "`| null` and `| undefined` on an optional prop are no difference (`VariantProps` adds both)." in components
     assert ("A props type name the form writes that the source does not declare (`Button(props: ButtonProps)` against "
             "a source with no `ButtonProps`) is not compared by name, only the props the form lists.") in components
@@ -969,8 +994,8 @@ def test_a_rest_element_in_a_props_form_stands_for_the_props_it_does_not_name():
         < components.index("`| null` and `| undefined` on an optional prop"), "right after the props a form leaves out"
     assert not re.search(r"\brest (?:element|member|parameter)s?\b", _section("Reading a form"), re.I), \
         "not generalized to other destructured parameters"
-    assert ("An optional own prop a typed props list or a table leaves out is an `omitted-optional` "
-            "difference") in components
+    assert ("An optional own prop a typed props list, a list that marks a prop `?`, or a table leaves out is an "
+            "`omitted-optional` difference") in components
 
 
 def test_a_props_list_states_optionality_only_with_a_mark():
