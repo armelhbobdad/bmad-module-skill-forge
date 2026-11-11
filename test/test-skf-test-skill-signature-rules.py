@@ -52,7 +52,8 @@ and none of the `difference` tags. These tests keep:
 - a const annotated with a function type declaring that type's
   parameters, the arrow's destructuring that same parameter, so a form may
   write it either way, and a partial destructuring reading as no narrower
-  type (#928);
+  type (#928), an interface or object type literal with call signatures
+  counting as such a type, several of them one overload set (#1085);
 - a call to a class compared with its constructor, an instance's call with
   its `__call__`, an alias's with its class's, a source's leading receiver
   never compared and a callee's `*args` and `**kwargs` taking any extra
@@ -623,6 +624,34 @@ def test_a_const_annotated_with_a_function_type_declares_that_type_s_parameters(
     assert reading.index("The source's declaration decides") < reading.index(declares) < reading.index(narrower) \
         < reading.index("In the split-body cross-check"), "after the declaration decides, before the split-body check"
     assert "a destructured property is part of a type)" in _section("Difference tags")
+
+
+def test_a_const_annotated_with_call_signatures_declares_each_of_them():
+    """#1085: storybook declares `export const actions: ActionsFunction = (...args: any[]) => ...`, and
+    `interface ActionsFunction` writes twelve call signatures, where #928's sentence named only a function type, with
+    `ViteBuilder['build']`'s one signature as its example. A judge could compare form 0,
+    `(handlerMap: Record<T, string>, options?: ActionOptions) => ActionsMap<T>`, with the interface's call signatures
+    read as one overload set and pass it, or with the arrow's own `(...args: any[])` and raise a Critical mismatch
+    that blocks the hard gate; oms-storybook-react-vite's report passed it on the first reading and listed the other
+    under Borderline Calls. A const annotated with any type that has call signatures, an interface or object type
+    literal as much as a function type, declares each of them, several being one overload set whose implementation is
+    the const's value, read as Overload sets says, so a form that matches any of them is no mismatch."""
+    reading = _section("Reading a form")
+    declares = ("A const annotated with any type that has call signatures, an interface or object type literal that "
+                "writes them (`{ (a: A): R }`) as much as a function type, declares each call signature that type has, "
+                "and several of them are one overload set whose implementation is the const's value, read as Overload "
+                "sets says.")
+    example = ("`export const actions: ActionsFunction = (...args: any[]) => ...` declares each call signature "
+               "`interface ActionsFunction` writes, so a form that matches any of them, such as "
+               "`(handlerMap: Record<T, string>, options?: ActionOptions) => ActionsMap<T>`, is no mismatch, though "
+               "the arrow's own list holds only `...args: any[]`.")
+    assert declares in reading
+    assert example in reading
+    # sentences of their own in #928's paragraph: after the one whose "it" is the type's parameter, before #925's last
+    paragraph = _paragraph(_read(RULES), "A const annotated with a function type declares that type's parameters")
+    assert paragraph.index("A form may name it") < paragraph.index(declares) < paragraph.index(example) \
+        < paragraph.index("A declaration whose parameter list is written only in a package outside the source tree"), \
+        paragraph
 
 
 def test_a_declaration_typed_only_outside_the_source_tree_counts_as_matching():
