@@ -35,12 +35,18 @@ counts and the Gap Report is rendered from:
     name stays Critical, a malformed `excluded` is invalid input, the
     `defined_at` extensions are pinned to the verifier's, and the
     coverage-check §5b call records one; a homonym (no `defined_at`,
-    several `declared_in` files) is one when the skill's `[AST:]`/`[SRC:]`
+    several `declared_in` files) is one when its form's own citations at
+    its inventory `at` (#1077, read before a line that names it only as
+    another export's type argument, on the #969 path too), else the
+    skill's `[AST:]`/`[SRC:]`
     citations on a line naming it (a table row's in its own cells, never
-    in the next row, #1066) cite exactly one of those files, or
+    in the next row, #1066), cite exactly one of those files, or
     only a package's `__init__.py` and a module of its name in that
-    folder (#1012, at the package), and
-    stays Medium when they cite any other two or none, without --skill-dir, or with
+    folder (#1012, at the package), its issue naming the reading that
+    picked it, and
+    stays Medium when they cite any other two or none (a form that cites
+    none or two, or no usable `at`, leaves the skill's lines to decide),
+    without --skill-dir, or with
     a `declared_in` that is not a list of several `file:line` items
   - a name cited at another package's `export *` (#1005): a stale name
     with no `defined_at` whose skill citations cite a file the surface's
@@ -1264,13 +1270,13 @@ class TestCoverageAdapter:
     MODULE_AT = "pkg/api/visualize/start_server.py:1"
 
     def _collision(self, *rows: dict, defined_at: str | None = MODULE_AT, declared_in: list[str] | None = None,
-                   skill_dir: str | None = None) -> tuple[dict, dict]:
+                   skill_dir: str | None = None, inventory: dict | None = None) -> tuple[dict, dict]:
         surface = self.BRIEFED_SURFACE | {"excluded": {"outsideScope": list(rows), "nestedEntries": []}}
         stale = [{"name": "start_server", "fabricated": False, "source": None}
                  | ({"defined_at": defined_at} if defined_at else {})
                  | ({"declared_in": declared_in} if declared_in else {})]
         [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["start_server"]},
-                                     surface=surface, stale=stale, skill_dir=skill_dir)
+                                     surface=surface, stale=stale, skill_dir=skill_dir, inventory=inventory)
         return record, surface
 
     def test_a_member_named_like_its_namespace_scopes_out_no_module(self):
@@ -1321,6 +1327,36 @@ class TestCoverageAdapter:
         else:
             assert brief([record]) == [("Info", "observation", "Documented extra: start_server", self.MODULE_AT,
                                         "start_server")]
+            assert "scopes out" not in record["issue"] + record["remediation"]
+
+    @pytest.mark.parametrize("cited, other, scoped_out", [
+        ("pkg/shared/utils.py", "pkg/api/visualize/start_server.py", True),
+        ("pkg/api/visualize/start_server.py", "pkg/shared/utils.py", False),
+    ], ids=["the-form-cites-the-members-file", "the-form-cites-the-module"])
+    def test_a_homonym_s_form_decides_whether_a_namespace_member_scopes_it_out(
+            self, tmp_path: Path, cited: str, other: str, scoped_out: bool):
+        """#1077 on the #969 path: the file its form at its inventory `at` cites decides, not the file another
+        export's row that mentions the name cites (on HEAD each read the row's file, the reverse)."""
+        skill = tmp_path / "skill"
+        (skill / "references").mkdir(parents=True)
+        (skill / "SKILL.md").write_bytes(
+            f"# demo\n\n| `Runner` | class | Calls `start_server`. | `[AST:{other}:L1]` |\n".encode("utf-8"))
+        (skill / "references" / "api.md").write_bytes(
+            f"# API\n\n```python\ndef start_server():\n    ...\n```\n[AST:{cited}:L1]\n".encode("utf-8"))
+        inventory = {"exports": [{"name": "start_server", "kind": "function", "description": "",
+                                  "at": "references/api.md:4"}]}
+        record, _ = self._collision(self.COLLISION, defined_at=None, skill_dir=str(skill), inventory=inventory,
+                                    declared_in=[self.MODULE_AT, "pkg/shared/utils.py:1"])
+        if scoped_out:
+            assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: start_server",
+                                        "SKILL.md:3", "start_server")]
+            assert "scopes out `pkg/shared/utils.py:1`, where it is defined" in record["remediation"]
+        else:
+            assert brief([record]) == [("Info", "observation", "Documented extra: start_server", self.MODULE_AT,
+                                        "start_server")]
+            assert record["issue"].endswith(
+                "the source still declares; of the 2 files that declare it, its form at `references/api.md:4` "
+                "cites only `pkg/api/visualize/start_server.py`")
             assert "scopes out" not in record["issue"] + record["remediation"]
 
     @pytest.mark.parametrize("namespace", ["tools", None, "", 3, "absent"],
@@ -1837,7 +1873,7 @@ class TestCoverageAdapter:
                "declared_in": ["pkg/models/Task.py:9", "pkg/tasks/task.py:24"], "reason": "no-entry"}
 
     def _homonym(self, tmp_path: Path, skill_md: str, refs: str | None = None, item: dict | None = None,
-                 name: str = "Task", skill: bool = True) -> dict:
+                 name: str = "Task", skill: bool = True, inventory: dict | None = None) -> dict:
         skill_dir = tmp_path / "skill"
         (skill_dir / "references").mkdir(parents=True, exist_ok=True)
         (skill_dir / "SKILL.md").write_bytes(skill_md.encode("utf-8"))
@@ -1845,7 +1881,7 @@ class TestCoverageAdapter:
             (skill_dir / "references" / "api.md").write_bytes(refs.encode("utf-8"))
         [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]},
                                      surface=self.EXCLUDED_SURFACE, stale=[(item or self.HOMONYM) | {"name": name}],
-                                     skill_dir=str(skill_dir) if skill else None)
+                                     skill_dir=str(skill_dir) if skill else None, inventory=inventory)
         return record
 
     @pytest.mark.parametrize("skill_md, refs", [
@@ -1938,6 +1974,86 @@ class TestCoverageAdapter:
     def test_any_other_homonym_stays_medium(self, tmp_path: Path, skill_md: str, kwargs: dict):
         record = self._homonym(tmp_path, skill_md, **kwargs)
         assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
+
+    # #1077: oms-cocoindex documents `R = TypeVar("R")` in a fence its citation follows, and SKILL.md's export
+    # rows write `R` only as a type argument of other exports (type mentions, no entry), each row citing its own
+    # export's file. The inventory's `at` for `R` is that fence line.
+    R_ITEM = HOMONYM | {"name": "R", "declared_in": ["pkg/app.py:20", "pkg/query.py:39"]}
+    R_FORM = ('# API\n\n```python\nR = TypeVar("R", default=Any)\n\nclass QueryOutput(Generic[R]):\n'
+              '    results: list[R]\n```\n[AST:pkg/query.py:L43]\n')
+    R_ROW = "| `App[P, R]` | class | Runs a pipeline. `update() -> R`. | [AST:pkg/app.py:L208] |\n"
+    R_ROWS = R_ROW + "| `QueryOutput[R]` | dataclass | `(results: list[R])`. | [AST:pkg/query.py:L43] |\n"
+    R_AT = {"exports": [{"name": "R", "kind": "type", "description": "", "at": "references/api.md:4"}]}
+    ERRORS_ITEM = HOMONYM | {"declared_in": ["pkg/errors/__init__.py:1", "pkg/errors/errors.py:1",
+                                             "pkg/legacy/errors.py:3"]}
+
+    @pytest.mark.parametrize("name, skill_md, refs, item, inventory, source, picked", [
+        ("R", "# demo\n\n" + R_ROWS, R_FORM, R_ITEM, R_AT, "pkg/query.py:39",
+         "its form at `references/api.md:4` cites only `pkg/query.py`"),
+        ("R", "# demo\n\n" + R_ROW, R_FORM, R_ITEM, R_AT, "pkg/query.py:39",
+         "its form at `references/api.md:4` cites only `pkg/query.py`"),
+        ("errors", ("# demo\n\n`errors` `[AST:pkg/errors/errors.py:L10]` `[SRC:pkg/errors/__init__.py:L15]`\n\n"
+                    "Legacy `errors` stay importable. `[AST:pkg/legacy/errors.py:L3]`\n"), None, ERRORS_ITEM,
+         {"exports": [{"name": "errors", "kind": "module", "description": "", "at": "SKILL.md:3"}]},
+         "pkg/errors/__init__.py:1",
+         "its form at `SKILL.md:3` cites only the package `pkg/errors/__init__.py` and its same-named module "
+         "`pkg/errors/errors.py`, so the gap is at the package"),
+        ("R", "# demo\n\n" + R_ROW, R_FORM.replace("[AST:pkg/query.py:L43]", "[AST:pkg/query.py]"), R_ITEM, R_AT,
+         "pkg/query.py:39", "its form at `references/api.md:4` cites only `pkg/query.py`"),
+    ], ids=["type-arguments-cite-both-files", "a-type-argument-cites-another-file", "a-package-and-its-module",
+            "a-form-citation-with-no-line"])
+    def test_a_homonym_s_form_cites_its_declaring_file(self, tmp_path: Path, name: str, skill_md: str,
+                                                       refs: str | None, item: dict, inventory: dict, source: str,
+                                                       picked: str):
+        """Its form's own citations at its inventory `at` pick the declaring file, before the lines that name it
+        only as another export's type argument (or any other line), which cite those exports' files; a form's
+        citation with no `:L<n>` part counts, though the skill's lines ignore one: on HEAD the first and third
+        were Medium and the second and fourth Info at `pkg/app.py:20`."""
+        record = self._homonym(tmp_path, skill_md, refs, item=item, name=name, inventory=inventory)
+        among = len(item["declared_in"])
+        assert brief([record]) == [("Info", "observation", f"Documented extra: {name}", source, name)]
+        assert record["issue"].endswith(f"the source still declares; of the {among} files that declare it, {picked}")
+
+    @pytest.mark.parametrize("skill_md, refs, item, inventory, expected", [
+        ("# demo\n\n`R` stands for a result. `[AST:pkg/app.py:L20]`\n", R_FORM.replace("[AST:pkg/query.py:L43]", ""),
+         R_ITEM, R_AT, ("Info", "pkg/app.py:20")),
+        ("# demo\n\n" + R_ROW, R_FORM.replace("L43]", "L43] [AST:pkg/app.py:L20]"), R_ITEM, R_AT,
+         ("Info", "pkg/app.py:20")),
+        ("# demo\n\n" + R_ROWS, R_FORM.replace("L43]", "L43] [AST:pkg/app.py:L20]"), R_ITEM, R_AT, ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM, None, ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM, {"exports": [{"name": "R", "kind": "type", "description": ""}]},
+         ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM,
+         {"exports": [{"name": "R", "kind": "type", "description": "", "at": "references/api.md"}]}, ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM,
+         {"exports": [{"name": "R", "kind": "type", "description": "", "at": "references/gone.md:4"}]},
+         ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM,
+         {"exports": [{"name": "R", "kind": "type", "description": "", "at": "references/api.md:40"}]},
+         ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM,
+         {"exports": [{"name": "R", "kind": "method", "description": "", "at": "references/api.md:4"}]},
+         ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM | {"defined_at": "pkg/app.py:20"}, R_AT, ("Info", "pkg/app.py:20")),
+    ], ids=["the-form-cites-none", "the-form-cites-two-the-skill-one", "the-form-cites-two-the-skill-two",
+            "no-inventory", "no-at", "a-malformed-at", "an-at-in-no-skill-file", "an-at-past-the-file-end",
+            "a-method-s-at", "a-defined-at-wins"])
+    def test_a_homonym_s_form_that_cites_no_single_file_reads_the_skill_s_lines(
+            self, tmp_path: Path, skill_md: str, refs: str, item: dict, inventory: dict | None, expected: tuple):
+        """With no usable `at`, or a form whose own citations cite none of its declaring files or two, the
+        skill's citations on lines naming it decide, worded as before; a `defined_at` still wins first."""
+        record = self._homonym(tmp_path, skill_md, refs, item=item, name="R", inventory=inventory)
+        severity, source = expected
+        assert record["severity"] == severity, record
+        if severity == "Medium":
+            assert record["category"] == "stale-documentation"
+            return
+        assert brief([record]) == [("Info", "observation", "Documented extra: R", source, "R")]
+        assert "its form" not in record["issue"]
+        if item.get("defined_at"):
+            assert record["issue"].endswith("the source still declares")
+        else:
+            assert record["issue"].endswith("of the 2 files that declare it, the skill cites only `pkg/app.py`")
 
     # #1005: oms-storybook documents @vitest/spy's `Mock`, cited at spy.ts's `export type * from '@vitest/spy'`,
     # which no script resolves, so the enumerated surface never holds the names it passes on.
