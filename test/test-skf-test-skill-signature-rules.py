@@ -1136,6 +1136,31 @@ def test_two_spellings_of_one_type_are_no_mismatch():
             "the package exports, a mismatch's `source_sig` writes it as the type "
             "it names, by its exported name when it has one (`ThemesParameters['themes']`, not the local "
             "`ThemesParameters`), so the form the gap asks for matches the source.") in spellings
+    # #1082: one type name the skill and the package give two declarations (cognee's base `DataPoint` and the
+    # `ExtendableDataPoint` exported as `DataPoint`, an alias and its base class) is read, written bare, in the file of
+    # the declaration a form is compared with, as the source reads it there, a star import, its own package or a
+    # module it imports included, so one judge no longer passes the form while another raises a Critical
+    # `signature-mismatch`. A name written through a module path is the one that path names; when the file reaches
+    # none of them, the skill's documented one decides, else any of them, and a judge that cannot read the source
+    # matches any of them.
+    shared = ("When the skill and the package between them document or export more than one declaration under one "
+              "type name (cognee's base `DataPoint`, and `ExtendableDataPoint`, which `cognee.low_level` exports as "
+              "`DataPoint`), a form that writes that name bare means the one of them that the file of the declaration "
+              "the form is compared with reaches by that name, as the source's own use of it does: the one that file "
+              "imports (a star import included), declares or has in scope without an import (its own package or "
+              "namespace) under that name, or names through a module or namespace it imports (`engine.DataPoint`). "
+              "`snapshot.py`'s `from cognee.infrastructure.engine import DataPoint` "
+              "makes the `DataPoint` that `rehydrate_node`'s form returns the base class, the class its source "
+              "returns. A form that writes the name through a module or namespace path means the one that path names, "
+              "whatever that file reaches: `cognee.low_level.DataPoint` is `ExtendableDataPoint`. When that file "
+              "reaches none of them by that name, the bare name means the one the skill documents under it, and a "
+              "form that writes it matches any of them when the skill documents none or several. A judge that does "
+              "not read the source (coverage-check.md §1's reader) matches a form that writes that name bare with any "
+              "of them.")
+    assert shared in spellings
+    assert _flow(_read(RULES)).count(shared) == 1, "#1082: one copy"
+    [alias] = [line for line in _read(RULES).splitlines() if line.startswith("- A type alias the source declares")]
+    assert alias.endswith("so the form the gap asks for matches the source. " + shared), "#1082: ends the alias bullet"
     # #1003: a Markdown Type cell cannot hold a bare `|`, so Create Skill's tables write a union with `/`; it spells
     # the union, as score-signatures.py's _type_key reads it, while a `/` alone in a parameter list stays the
     # positional-only marker Reading a form names.
