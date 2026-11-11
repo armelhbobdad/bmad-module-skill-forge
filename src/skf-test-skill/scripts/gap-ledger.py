@@ -178,7 +178,15 @@ cites (never read; default `metadata.json`):
             (json, yaml...)); within a tier the first file, then its lowest
             line, wins. A bare word, a span that holds the name among other
             words (`uitripled add`), or a quoted string outside a fence or
-            holding other words too (`"add x"`) documents nothing. With no
+            holding other words too (`"add x"`) documents nothing, and so
+            does a sentence of a heading or a prose block that says the
+            skill does not cover a name (`out of scope for this skill` or
+            `not covered here`, any case, outside its code spans): none of
+            its spans or text keys tiers 2 to 4. A sentence ends at `.`,
+            `!` or `?` before whitespace, or at a table row's
+            unescaped `|`, never inside a code span, and runs across a
+            block's lines, so the line's other sentences and the row's other
+            cells still document a name (#1080). With no
             such line, or without --skill-dir, the line that documents it
             is the first `at` the --inventory result (validate-inventory.py,
             which keeps an `at` only on a line that writes the name) gives
@@ -535,6 +543,15 @@ _RECEIVER_RE = re.compile(r"([A-Za-z_$][\w$]*)\.(?:[A-Za-z_$][\w$]*\.)*$")
 _IMPORT_RE = re.compile(
     r"\s*(?:import\s+([A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?(?:\s*,\s*[A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?)*)"
     r"\s*;?\s*$|from\s+([A-Za-z_]\w*)[\w.]*\s+import\b|import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\b)")
+# A sentence's tokens (#1080): an inline code span, group 1 its backtick run, closed by an equal run on its line as
+# locate-export-segments.py's `_inline_code` reads one, so its dots and bars end nothing; `.`, `!` or `?` before
+# whitespace or the end, which ends a sentence; or an unescaped `|`, which ends one in a table row.
+_SENTENCE_TOKEN_RE = re.compile(r"(?<!`)(`++)(?!`)[^\n]*?(?<!`)\1(?!`)|[.!?](?=\s|\Z)|(?<!\\)\|")
+# What a sentence says, outside its code spans, when the skill does not cover the names it holds
+# (inventory-contract.md), in any case and with any whitespace between the words, as whole words that a letter or
+# digit, never an emphasis `_`, would join to another (#1080).
+_NOT_COVERED_RE = re.compile(r"(?<![^\W_])(?:out\s+of\s+scope\s+for\s+this\s+skill|not\s+covered\s+here)(?![^\W_])",
+                             re.IGNORECASE)
 
 
 class LedgerError(Exception):
@@ -1074,6 +1091,32 @@ def _module_roots(files: list[tuple[str, list[str]]], segments, coverage) -> fro
     return frozenset(roots)
 
 
+def _without_not_covered(text: str, row: bool = False) -> str:
+    """`text` with each sentence that says the skill does not cover a name (`_NOT_COVERED_RE`, read outside its code
+    spans) blanked, each of its characters a space but a newline, so lines keep their numbers and none of its spans
+    or text keys a name (#1080). A sentence ends at `.`, `!` or `?` before whitespace or the end, blanked with it,
+    or, in a table row (`row`), at an unescaped `|`, which stays so the row keeps its cells; never inside a code
+    span (`_SENTENCE_TOKEN_RE`), and it runs across the lines of `text`."""
+    kept, outside, start = list(text), list(text), 0
+
+    def blank(end: int) -> None:
+        if _NOT_COVERED_RE.search("".join(outside[start:end])):
+            kept[start:end] = [" " if char != "\n" else char for char in text[start:end]]
+
+    for token in _SENTENCE_TOKEN_RE.finditer(text):
+        if token.group(1):
+            # a code span: its words never say the phrase
+            outside[token.start():token.end()] = "`" * (token.end() - token.start())
+        elif token.group() != "|":
+            blank(token.end())
+            start = token.end()
+        elif row:
+            blank(token.start())
+            start = token.end()
+    blank(len(text))
+    return "".join(kept)
+
+
 def _documenting_lines(skill_dir: Path) -> dict[str, str]:
     """name -> the `file:line` that documents it as an export, the first tier
     that holds the name winning:
@@ -1111,7 +1154,13 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
     and a data block (json, yaml...). Within a tier the first file, then its
     lowest line, wins. A bare word, a span that holds the name among other
     words (`uitripled add`), or a quoted string outside a fence or holding
-    other words too (`"add x"`) documents nothing. A module path is a dotted
+    other words too (`"add x"`) documents nothing, and so does a sentence of a
+    heading or a prose block that says the skill does not cover a name (`out
+    of scope for this skill` or `not covered here`, any case, outside its code
+    spans): `_without_not_covered` blanks it before tiers 2 to 4 read the
+    text, a sentence ending at `.`, `!` or `?` before whitespace or at a table
+    row's unescaped `|`, never inside a code span, and running across a
+    block's lines (#1080). A module path is a dotted
     path of plain identifiers whose first segment is a module the skill's
     fenced code imports (`_module_roots`), so a receiver's or a type's path
     (`client.connect(url)`, `Client.connect`, `store.state`) documents
@@ -1154,13 +1203,17 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
                 for match in _QUOTED_RE.finditer(line):
                     tiers[5].setdefault(match.group(2), f"{rel}:{opening + offset + 2}")
         headings, prose = segments._prose(lines, start, code)
-        shaped = [(index, text) for index, _level, text, _above in headings]
+        # a sentence saying the skill does not cover a name keys nothing in tiers 2 to 4 (#1080): each heading and
+        # each prose block, its lines joined, is read with such sentences blanked
+        shaped = [(index, _without_not_covered(text)) for index, _level, text, _above in headings]
         written = list(shaped)
         for block in prose:
-            written += [(i, lines[i]) for i in range(block["start"], block["end"] + 1)]
-            if block["kind"] == "table-row" and block["header"] is not None:
+            row = block["kind"] == "table-row"
+            kept = _without_not_covered("\n".join(lines[block["start"]:block["end"] + 1]), row).split("\n")
+            written += list(enumerate(kept, block["start"]))
+            if row and block["header"] is not None:
                 if coverage._floor_table_header(coverage._cells(block["header"])[0]):
-                    shaped.append((block["start"], coverage._cells(lines[block["start"]])[0]))
+                    shaped.append((block["start"], coverage._cells(kept[0])[0]))
         for index, text in sorted(shaped):
             # its text, or a code span, that is a module path keys the path's last segment too (#1041)
             spans = [coverage._floor_name(span) or _module_path_name(span, roots)

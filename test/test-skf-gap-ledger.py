@@ -96,6 +96,14 @@ counts and the Gap Report is rendered from:
     as c`, `import * as ns from`), so a type's method row, a receiver's
     call or an attribute access (`Client.connect()`, `client.connect(url)`,
     `store.state`) never outranks the line that documents the name
+  - a not-covered sentence (#1080): a sentence of a heading or a prose
+    block that says the skill does not cover a name (`out of scope for
+    this skill`, `not covered here`, any case, outside its code spans)
+    keys nothing, so a later line that writes the name documents it, and
+    a name written only there is documented nowhere; a sentence ends at
+    `.`, `!` or `?` before whitespace or at a table row's unescaped `|`,
+    never inside a code span, so the line's other sentences and the row's
+    other cells still document theirs
   - a name no line documents (#1006): the first `at` the --inventory
     result gives an entry of the name that is no `method` (SKILL.md's,
     then by path, then the lowest line) is its Source, its Issue's line
@@ -1642,6 +1650,79 @@ class TestCoverageAdapter:
             expected, f"`{expected}` documents `{name}`, which the enumerated source API surface lacks")
         assert record["remediation"].endswith(f"documentation at {expected}: the enumerated source surface does not "
                                               "export it.")
+
+    # #1080: oms-cognee's `setup_logging`, cited at a list item saying it is out of scope for this skill before the
+    # `cognee.logger` row that writes `logger = setup_logging()`. A table whose header names no exports, so the floor
+    # reads none of its cells and a row's cells are what tiers 2 to 4 read.
+    NOTE_TABLE = "| Option | Note |\n| --- | --- |\n"
+
+    @pytest.mark.parametrize("skill_md, name, expected", [
+        ("# demo\n\n- `load_env` and `setup_logging` are among them but out of scope for this skill.\n\n"
+         "| Export | Kind | Description |\n| --- | --- | --- |\n"
+         "| `pkg.logger` | logger | Bound as `logger = setup_logging()`. |\n", "setup_logging", "SKILL.md:7"),
+        # the second phrase, capitalised, before a usage form's call
+        ("# demo\n\n- Not covered here: `get`.\n\nCall `await pkg.get(key)`.\n", "get", "SKILL.md:5"),
+        # an earlier sentence of the line keeps its span; the disclaimer's does not
+        ("# demo\n\nUse `pkg.add` first. `drop` is out of scope for this skill.\n\nThe `drop` step.\n", "add",
+         "SKILL.md:3"),
+        ("# demo\n\nUse `pkg.add` first. `drop` is out of scope for this skill.\n\nThe `drop` step.\n", "drop",
+         "SKILL.md:5"),
+        # a sentence wrapped over two lines of its paragraph, the phrase too; a later sentence keeps its own line
+        ("# demo\n\nThe names `drop` and `purge` are\nout of scope for this skill.\n\nCall `drop(x)`.\n", "drop",
+         "SKILL.md:6"),
+        ("# demo\n\nThe `drop` flag is out of scope\nfor this skill.\n", "drop", None),
+        ("# demo\n\nThe names `drop` and `purge` are\nout of scope for this skill. Use `add` first.\n", "add",
+         "SKILL.md:4"),
+        # `?` and `!` end a sentence; a dot inside a word does not; an emphasis `_` hides no phrase
+        ("# demo\n\nIs `pkg.add` the entry? `drop` is not covered here.\n", "add", "SKILL.md:3"),
+        ("# demo\n\nCall `pkg.add` now! `drop` is not covered here.\n", "add", "SKILL.md:3"),
+        ("# demo\n\nThe `drop` flag (v1.2) is not covered here.\n", "drop", None),
+        ("# demo\n\n`drop` is _not covered here_.\n", "drop", None),
+        # a name written only in a disclaimer: no line documents it
+        ("# demo\n\n`drop` is not covered here.\n", "drop", None),
+        # a module path (tier 4), and a heading (tier 2)
+        ("# demo\n\n`pkg.exceptions` is not covered here.\n\nSee `pkg.exceptions` below.\n", "exceptions",
+         "SKILL.md:5"),
+        ("# demo\n\n## `drop` (out of scope for this skill)\n\nCall `drop(x)`.\n", "drop", "SKILL.md:5"),
+        # a row's cells: a Note cell disclaims, the first cell stays; a description cell's disclaimer keys nothing
+        ("# demo\n\n" + NOTE_TABLE + "| `drop` | Not covered here. |\n", "drop", "SKILL.md:5"),
+        ("# demo\n\n" + NOTE_TABLE + "| `keep` | Unlike `drop`, which is not covered here. |\n\nThe `drop` step.\n",
+         "drop", "SKILL.md:7"),
+        # the phrase inside a span says nothing, and a dot inside a span ends no sentence
+        ("# demo\n\nThe `drop` flag (`not covered here`).\n", "drop", "SKILL.md:3"),
+        ("# demo\n\nIn `drop` and `a. b`, not covered here.\n", "drop", None),
+        # a bar ends a sentence only in a table row, and an escaped bar never does
+        ("# demo\n\nThe `drop` | `purge` pair is not covered here.\n", "drop", None),
+        ("# demo\n\n" + NOTE_TABLE + "| `keep` | `drop` \\| B, not covered here. |\n", "drop", None),
+    ], ids=["issue-case", "second-phrase-capitalised", "earlier-sentence-kept", "disclaimer-sentence-skipped",
+            "wrapped-sentence", "wrapped-phrase", "sentence-after-wrap", "question-ends", "exclamation-ends",
+            "dot-in-word", "underscore-emphasis", "only-a-disclaimer", "module-path", "heading", "first-cell-kept",
+            "description-cell", "phrase-in-span", "dot-in-span", "bar-in-prose", "escaped-bar-in-row"])
+    def test_a_not_covered_sentence_documents_nothing(self, tmp_path: Path, skill_md: str, name: str,
+                                                       expected: str | None):
+        """#1080: a sentence of a heading or a prose block that says the skill does not cover a name (`out of scope
+        for this skill`, `not covered here`, any case, outside its code spans) keys nothing in tiers 2 to 4, so a
+        later line that documents the name is its Source, its Issue's line and the line its remediation names; a
+        sentence ends at `.`, `!` or `?` before whitespace or at a table row's unescaped `|`, never inside a code
+        span, and runs across its block's lines. A name written only in a disclaimer is documented nowhere."""
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": skill_md + self.IMPORTS_PKG})
+        assert mod._documenting_line(skill, name) == expected
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]}, skill_dir=str(skill))
+        doc = expected or "SKILL.md"
+        assert (record["source"], record["issue"]) == (
+            doc, f"{f'`{expected}`' if expected else 'the skill'} documents `{name}`, which the enumerated source "
+                 "API surface lacks")
+        assert record["remediation"].endswith(f"documentation at {doc}: the enumerated source surface does not "
+                                              "export it.")
+
+    def test_a_not_covered_export_cell_documents_nothing(self, tmp_path: Path):
+        """#1080: in a nested reference, which the floor does not read, an export table's first cell that says the
+        skill does not cover its name is no heading-tier key, so a later line that writes the name documents it."""
+        skill = self._skill_package(tmp_path / "skill", {
+            "SKILL.md": "# demo\n" + self.IMPORTS_PKG,
+            "references/sub/api.md": ("# API\n\n| Function | Note |\n| --- | --- |\n"
+                                      "| `drop` (not covered here) | x |\n\nThe `drop` step.\n")})
+        assert mod._documenting_line(skill, "drop") == "references/sub/api.md:7"
 
     def test_a_usage_form_documents_only_the_name_it_calls(self, tmp_path: Path):
         """#1041: a comparison, an assignment or `await` with no call, a space or type arguments before the `(`, a
