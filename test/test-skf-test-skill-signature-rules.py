@@ -49,7 +49,12 @@ and none of the `difference` tags. These tests keep:
   passing an argument with no prefix, that name's signature, its
   arguments in `params`, never a usage, the call and bare-names sentences
   of the rules and the contract's call-expression and methods sentences
-  naming it as their exception (#1078);
+  naming it as their exception (#1078); any other call such a cell writes,
+  of another name, of a method or of a listed name called with a prefix
+  before the name or with empty parentheses, read as in any other
+  description cell, so one passing an argument is a usage kept whole, a
+  bare leading `.` kept as its receiver, and an empty one a mention, in
+  the same words in both files (#1073);
 - a usage form read as what it writes, in the call-example rule, and a
   name documented in several forms compared with each form by its own
   rules, a mismatch reported for each form that does not match, on §2's
@@ -576,7 +581,9 @@ def test_a_usage_form_is_read_as_what_it_writes():
     literally passed no required parameter, a Critical that blocks the hard gate. It now says what each unpacking
     passes, keeps the arguments written beside it compared, and the placeholder `*args` and `**kwargs` unpack the
     same way. #1078: the Key params sentence of the description-cell definition names `usage_signature` only as the
-    field a Key params cell's own call is never recorded in, once, so the usage rule keeps its one copy."""
+    field a Key params cell's own call is never recorded in, once, so the usage rule keeps its one copy. #1073: the
+    clause after it names `usage_signature` once more, as the field a Key params cell's other calls are recorded
+    whole in, so the usage rule still keeps its one copy."""
     reading = _section("Reading a form")
     assert ("A component usage `<X a={x} b=\"y\" />` reads as a list of bare names of the props it sets, and a call "
             "`f(a, b)` as its arguments in order, each the parameter at its position (or, written `name=value`, the one "
@@ -601,7 +608,10 @@ def test_a_usage_form_is_read_as_what_it_writes():
             "`Settings(**config)` against `__init__(self, host, port)` differs)") in _flow(_read(SCORE_SIGNATURES))
     key_params = "its arguments recorded in `params`, never in `usage_signature`"
     assert reading.count(key_params) == 1, "#1078: one copy of the Key params sentence"
-    assert reading.count("`usage_signature`") - reading.count(key_params) == 1, "one copy of the usage rule"
+    other_calls = "are calls recorded whole in `usage_signature`"
+    assert reading.count(other_calls) == 1, "#1073: one copy of the Key params cell's other calls"
+    assert reading.count("`usage_signature`") - reading.count(key_params) - reading.count(other_calls) == 1, (
+        "one copy of the usage rule")
     # the bullet it extends, and the bare-names rule it reads by
     call = _paragraph(_read(RULES), "- A call or usage example passes values")
     assert "A component usage `<X a={x} b=\"y\" />` reads as a list of bare names" in call
@@ -1662,7 +1672,15 @@ def test_an_empty_parenthesized_mention_is_no_form():
     description cell, a parameter list it writes for the row's name still that name's form, and a call there that
     passes an argument, of a name the row's first cell lists, with no prefix, that name's signature, its arguments
     in `params`, as the floor reads `Mem0Source(data, mode="re-derive")`, never in `usage_signature`; the rules'
-    prose call sentence right after it names that call as its exception, so no sentence sends it to a usage."""
+    prose call sentence right after it names that call as its exception, so no sentence sends it to a usage. #1073:
+    that left a Key params cell's other calls to a reader composing the mention, call and methods sentences, so on
+    oms-cognee 1.6.2 readers split on `link_relations()`, `records()`, `to_dict()`, `.prune_data()` and
+    `.prune_system(graph=True, ...)` (a usage or `params`, the leading `.` kept or dropped) and on
+    `get_cognee_version()` and `serve()` in a row's prose (a usage, `params ""` or no entry). Both files now go on,
+    in the same words, right after #1078's clause: any other call the cell writes, of another name, of a method (a
+    list of the row's class's methods included) or of a listed name called with a prefix before the name or with
+    empty parentheses, is read as in any other description cell, so one passing an argument is a call recorded whole
+    in `usage_signature`, a bare leading `.` kept as its receiver, and an empty one is a mention."""
     mention = ("A name written with empty parentheses, or with only `...` or `…` between them, in running text or a "
                "description cell is a mention, not a form")
     prefix = ", whatever comes before the name (`await`, `new`, an assignment, a receiver or a module path)"
@@ -1673,9 +1691,19 @@ def test_an_empty_parenthesized_mention_is_no_form():
                   "module path before the name (`ValidationReport(status, summary, issues)` in a row whose first cell "
                   "lists `cognee.ValidationReport`), is that name's signature, its arguments recorded in `params`, "
                   "never in `usage_signature`")
+    other_calls = ("any other call such a cell writes, of another name, of a method (a list of the row's class's "
+                   "methods there included) or of a name the row's first cell lists, called with a prefix before the "
+                   "name or with empty parentheses, is read as in any other description cell, so "
+                   "`nodes_of_type(node_type)` in a row whose first cell lists `GraphSnapshot`, "
+                   "`ZepSource(data, mode=\"hybrid\")` in one that lists `GraphitiSource` and "
+                   "`.prune_system(graph=True)` in one that lists `cognee.prune` are calls recorded whole in "
+                   "`usage_signature`, a bare leading `.` kept as its receiver, and `.prune_data()` in the one that "
+                   "lists `cognee.prune` and `get_cognee_version()` in one that lists `cognee.__version__` are "
+                   "mentions")
     cell = ("A description cell is any table cell but an export table's first cell and a cell whose column writes the "
             "call or signature, by its role (Signature, Props, Params, Parameters, Arguments, Usage, Syntax, Example "
-            f"and the like); {key_params}; a heading or an export table's first cell that writes `name()` is a form")
+            f"and the like); {key_params}; {other_calls}; a heading or an export table's first cell that writes "
+            "`name()` is a form")
     prose_call = ("A name written with arguments in running text or a description cell is a call (below), not a list "
                   "of bare names, whatever comes before the name, unless it is a Key params cell's call of a name its "
                   "row's first cell lists, with no prefix (above), or it writes a parameter type, a `?`, a bare `*` "
@@ -1700,6 +1728,7 @@ def test_an_empty_parenthesized_mention_is_no_form():
         "before the forms that claim no complete parameter list, not inside the call-example rule"
     for text in (contract_text, rules):
         assert text.count(key_params) == 1, "#1078: the Key params sentence once, the same in both files"
+        assert text.count(other_calls) == 1, "#1073: the Key params cell's other calls once, the same in both files"
         assert "\u2014" not in text and "\u2013" not in text, "no em or en dash"
 
 

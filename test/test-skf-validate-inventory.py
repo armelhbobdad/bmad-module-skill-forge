@@ -2472,6 +2472,69 @@ def test_a_key_params_own_call_is_left_to_the_reader_as_params(tmp_path):
         {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each form kept as given"
 
 
+KEY_PARAMS_OTHER_CALLS = ("# Demo\n\n| Export | Kind | Key params | Source |\n|---|---|---|---|\n"
+                          "| `prune` | class (ns) | `.prune_data()`, `.prune_system(graph=True)`: all async | |\n"
+                          "| `GraphSnapshot` | pydantic model | `nodes_of_type(node_type)`, `link_relations()`. | |\n"
+                          "| `GraphitiSource` | class | Subclass of `ZepSource`, with the same "
+                          "`ZepSource(data, mode=\"hybrid\")` constructor. | |\n"
+                          "| `__version__` | str | The package version, resolved via `get_cognee_version()`. | |\n")
+
+
+def test_a_key_params_other_call_is_left_to_the_reader_as_a_usage(tmp_path):
+    """#1073 (oms-cognee 1.6.2): #1078 named only the row's own unprefixed call as a Key params cell's exception, so
+    readers split on the cell's other calls. The contract now reads any other call there as in any other description
+    cell: one of a method or of another name that passes an argument is a call recorded whole in `usage_signature`, a
+    bare leading `.` kept as its receiver, and an empty one is a mention. The floor pins only a Key params cell that
+    opens with the row's own name and its parameter group, so it gives `prune`, `GraphSnapshot`, `GraphitiSource` and
+    `__version__` a table-row origin each, at their rows, none with a `signature`, and the reader's routing decides:
+    an inventory that records `.prune_system(graph=True)` and `nodes_of_type(node_type)` as usages of `method`
+    entries with their `owner`, `ZepSource(data, mode="hybrid")` as a usage at the `GraphitiSource` row, each
+    labelled partial by the Key params header, `GraphitiSource`'s own entry there with no form, `prune_data`,
+    `link_relations` and `get_cognee_version` with no form at the one place each is written, and the `prune` and
+    `GraphSnapshot` class entries with a `methods` item for each method their row's cell writes, as the methods
+    sentence gives it besides its `method` entry, each item starting with the method's name, passes --floor (exit 0)
+    with no violation or warning and is written as given. Each `method` entry gives its row as `at`, since #1088
+    compares a `method`'s form with its owner's member. No validator or floor script changed."""
+    pkg = _package(tmp_path, KEY_PARAMS_OTHER_CALLS)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert sorted((n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]) == [
+        ("GraphSnapshot", [_floor_origin("SKILL.md", 6, "table-row")]),
+        ("GraphitiSource", [_floor_origin("SKILL.md", 7, "table-row")]),
+        ("__version__", [_floor_origin("SKILL.md", 8, "table-row")]),
+        ("prune", [_floor_origin("SKILL.md", 5, "table-row")])], "no Key params call is pinned"
+    partial = {"signature_form": "partial"}
+    exports = [("prune", "class", {"description": "", "at": "SKILL.md:5",
+                                   "methods": ["prune_data()", "prune_system(graph=True)"]}),
+               ("prune_data", "method", {"owner": "prune", "description": "All async.", "at": "SKILL.md:5"}),
+               ("prune_system", "method", {"owner": "prune", "usage_signature": ".prune_system(graph=True)",
+                                           **partial, "description": "All async.", "at": "SKILL.md:5"}),
+               ("GraphSnapshot", "class", {"description": "", "at": "SKILL.md:6",
+                                           "methods": ["nodes_of_type(node_type)", "link_relations()"]}),
+               ("nodes_of_type", "method", {"owner": "GraphSnapshot", "usage_signature": "nodes_of_type(node_type)",
+                                            **partial, "description": "", "at": "SKILL.md:6"}),
+               ("link_relations", "method", {"owner": "GraphSnapshot", "description": "", "at": "SKILL.md:6"}),
+               ("GraphitiSource", "class", {"description": "Subclass of `ZepSource`.", "at": "SKILL.md:7"}),
+               ("ZepSource", "class", {"usage_signature": 'ZepSource(data, mode="hybrid")', **partial,
+                                       "description": "", "at": "SKILL.md:7"}),
+               ("__version__", "constant", {"description": "The package version.", "at": "SKILL.md:8"}),
+               ("get_cognee_version", "function", {"description": "", "at": "SKILL.md:8"})]
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*exports).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 4, "checked": 4, "absent": []}
+    written = json.loads(out.read_bytes())
+    assert written["exports"] == [
+        {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each form kept as given"
+
+
 USAGE_SKILL = ("# Demo\n\n"
                "| Component | Props | Purpose |\n| --- | --- | --- |\n"
                "| `Title` | `TitleProps = { of?: Of }` | Renders the title. |\n\n"
