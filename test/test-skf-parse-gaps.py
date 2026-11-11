@@ -26,7 +26,8 @@ helper:
     stale name, metadata drift, an inflated union's summary gap and an
     aliased name's unverified line among them, the stale name through
     gap-records and apply too, which then
-    write no entry and no export), a
+    write no entry and no export), a method's signature gap
+    (`{owner}.{member}`) unrouted, through gap-records and apply too, a
     `metadata` gap still routed to rule R4, a citation inside
     the skill package dropped, the answers it asks for (category, name,
     rescope, source file) with the gap's text to judge from and how it reads
@@ -895,7 +896,7 @@ def test_every_ledger_category_is_routed_or_has_a_reason():
     """gap-driven.md §1's Not routed paragraph in the helper: each category the table leaves gets a reason."""
     assert set(mod.NOT_ROUTED_REASONS) == _ledger_categories() - set(mod.CHANGE_CATEGORIES)
     # each reason stands alone in a warning and says who repairs the gap, or that no one needs to
-    for reason in [*mod.NOT_ROUTED_REASONS.values(), mod.NO_REPAIR, mod.NO_EXPORT]:
+    for reason in [*mod.NOT_ROUTED_REASONS.values(), mod.NO_REPAIR, mod.NO_EXPORT, mod.NO_METHOD]:
         assert any(who in reason for who in ("a person", "Create Skill", "no fix is needed")), reason
         assert "these counts" not in reason and "those stats" not in reason, reason
 
@@ -1389,3 +1390,88 @@ def test_a_stale_name_adds_no_provenance_entry_and_no_export(tmp_path: Path):
     assert [(e["export_name"], e["source_file"]) for e in json.loads(new_map.read_bytes())["entries"]] == [
         ("realFn", "src/index.ts")]
     assert json.loads(lists.read_bytes())["exports"] == ["realFn"]
+
+
+def _score_signatures():
+    """score-signatures.py, the script that writes a signature gap's ledger record."""
+    spec = importlib.util.spec_from_file_location(
+        "skf_score_signatures_translate", REPO / "src" / "skf-test-skill" / "scripts" / "score-signatures.py")
+    module = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(module)
+    return module
+
+
+@pytest.mark.parametrize("export, category, routed", [
+    ("Owner.run", "signature-mismatch", None),
+    ("search.run", "signature-mismatch", None),
+    ("search", "signature-mismatch", "MODIFIED_EXPORT"),
+    ("dup", "signature-mismatch", "MODIFIED_EXPORT"),
+    ("Owner.run", "split-body-mismatch", "STRUCTURAL_FIX"),
+    ("Owner.run", "fabricated-signature", "MODIFIED_EXPORT"),
+], ids=["a-method", "a-method-of-a-mapped-owner", "an-export", "a-mapped-export", "a-method-s-split-body-pair",
+        "another-category"])
+def test_translate_leaves_a_method_s_signature_gap_unrouted(export, category, routed):
+    """#1088: test-skill's signature check compares a method's form under `{owner}.{member}`, a name that is no
+    export, so the provenance map holds no entry of it. Routed as a MODIFIED_EXPORT, the spot-check matched the
+    member's line and apply wrote the method into the map and metadata `exports[]`. Such a `signature-mismatch` gap
+    is not routed: a person corrects the form. A name the map holds, and a split-body pair, route as before."""
+    manifest, summary = _translate(_gap("GAP-001", category, export=export, severity="Critical",
+                                        citation={"file": "pkg/api.py", "line": 2}))
+    assert [e["change_category"] for e in manifest["entries"]] == ([routed] if routed else [])
+    if routed is None:
+        assert summary["not_routed"] == [{"id": "GAP-001", "title": "a gap", "category": category,
+                                          "reason": mod.NO_METHOD}]
+        assert f"test-report: not routed: GAP-001 ({category}): {mod.NO_METHOD}" in summary["warnings"]
+    # a dotted name the map holds is an export like any other
+    held = [*MAP_ENTRIES, _entry("Owner.run", "pkg/api.py", 2)]
+    manifest, _ = _translate(_gap("GAP-001", "signature-mismatch", export="Owner.run"), entries=held)
+    assert [e["change_category"] for e in manifest["entries"]] == ["MODIFIED_EXPORT"]
+
+
+def test_a_method_s_signature_gap_adds_no_provenance_entry_and_no_export(tmp_path: Path):
+    """#1088: the ledger record score-signatures.py writes for a Critical mismatch of `Owner.run`, at the member's
+    line, chained through parse, translate, gap-records and apply as gap-driven.md and write.md run them: the map
+    holds `Owner` alone, and no entry and no exports[] name are added for the method, whose gap is left for a
+    person."""
+    root = tmp_path / "source"
+    (root / "pkg").mkdir(parents=True)
+    (root / "pkg" / "api.py").write_text("class Owner:\n    def run(self, x):\n        return x\n", encoding="utf-8")
+    prov = tmp_path / "provenance-map.json"
+    prov.write_bytes(json.dumps({"provenance_version": "2.0", "skill_name": "lib", "entries": [{
+        "export_name": "Owner", "export_type": "class", "source_library": "lib", "params": [], "return_type": None,
+        "source_file": "pkg/api.py", "source_line": 1, "confidence": "T1", "extraction_method": "ast-grep",
+        "ast_node_type": "class_definition", "signature_source": "T1"}]}).encode("utf-8"))
+    metadata = tmp_path / "metadata.json"
+    metadata.write_bytes(json.dumps({"name": "lib", "exports": ["Owner"]}).encode("utf-8"))
+    record = _score_signatures()._gap_record({
+        "name": "Owner.run", "file": "pkg/api.py", "line": 2, "documented_sig": "(y)", "source_sig": "run(self, x)",
+        "issue": "the parameter is `x`", "difference": None, "severity": "Critical"})
+    assert (record["category"], record["export"], record["source"]) == ("signature-mismatch", "Owner.run",
+                                                                        "pkg/api.py:2")
+    ledger = write_ledger(tmp_path / "findings.json", "coverage-check", [record])
+    proc = run(SCRIPT, "parse", "--ledger", str(ledger), "--source-root", str(root), "--provenance-map", str(prov))
+    assert proc.returncode == 0, proc.stdout
+    gaps = tmp_path / "gaps.json"
+    gaps.write_text(proc.stdout, encoding="utf-8")
+    manifest = tmp_path / "change-manifest.json"
+    proc = run(SCRIPT, "translate", "--gaps", str(gaps), "--provenance-map", str(prov), "-o", str(manifest))
+    assert proc.returncode == 0, proc.stdout
+    summary = json.loads(proc.stdout)
+    assert summary["not_routed"] == [{"id": "GAP-001", "title": "Signature mismatch: Owner.run",
+                                      "category": "signature-mismatch", "reason": mod.NO_METHOD}], summary
+    assert json.loads(manifest.read_bytes())["entries"] == []
+    records = tmp_path / "reextract-records.json"
+    proc = run(BUILD_SCRIPT, "gap-records", "--manifest", str(manifest), "--provenance-map", str(prov),
+               "--source-root", str(root), "-o", str(records))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(records.read_bytes())["verification"] == []
+    new_map, lists = tmp_path / "new-map.json", tmp_path / "metadata-lists.json"
+    proc = run(BUILD_SCRIPT, "apply", "--update-type", "gap-driven", "--provenance-map", str(prov),
+               "--reextract-records", str(records), "--skill-name", "lib", "--generation-date",
+               "2026-11-03T10:00:00Z", "--confidence-tier", "Forge", "--manual-sections-preserved", "0",
+               "--metadata-in", str(metadata), "--lists-out", str(lists), "-o", str(new_map))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["entries"]["added"] == []
+    assert [e["export_name"] for e in json.loads(new_map.read_bytes())["entries"]] == ["Owner"]
+    assert json.loads(lists.read_bytes())["exports"] == ["Owner"]

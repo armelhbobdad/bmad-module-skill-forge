@@ -14,10 +14,11 @@ signatures to compare, the schema check of each subagent result, the two
 ratios and the gap records of the wrong signatures.
 
   plan   the comparisons to make. For each documented export with a
-         signature (an inventory entry of any kind but `method` that carries
-         `params`, `return_type` or `usage_signature`; a function's `params`
-         counts when empty, its form for one that takes none; a `constant`
-         holding a component carries the form the skill writes as
+         signature (an inventory entry that carries `params`, `return_type`
+         or `usage_signature`, a `method` only with an `owner`, below; a
+         function's or a method's `params` counts when empty, its form for
+         one that takes none; a `constant` holding a component carries the
+         form the skill writes as
          `usage_signature`, references/inventory-contract.md says, and a data
          constant none) in the signature universe, grouped by source file,
          with the line that defines it in the source, the documented
@@ -96,16 +97,28 @@ ratios and the gap records of the wrong signatures.
          compared as before. An other declaration is never the planned
          record and never a candidate: it reaches the judge only as a bound
          form's declaration. With no form bound the plan is the one a
-         surface without `otherDeclarations` gives. Also the whole
-         documented-signature map, and each name's alternatives, for the
-         fallback scan that has no surface lines yet.
+         surface without `otherDeclarations` gives. A `method` entry that
+         gives an `owner` (a non-empty string) is a form of
+         `{owner}.{name}` (#1088), never merged with a function of its bare
+         name, and is checked under that name, with its bare name as
+         `member`, only when its owner has a surface record: the check is
+         planned as its owner's would be (its record, line and candidates),
+         and its forms are bound among the owner's declarations, by the
+         citations of their places that name the member, which the owner's
+         span holds. A `method` with no `owner` is never compared. Also the
+         whole documented-signature map, and each name's alternatives, for
+         the fallback scan that has no surface lines yet, which leave every
+         `{owner}.{name}` out: that scan's judges compare the names a file
+         exports.
   score  the categories. Reads every subagent result, checks its schema,
          and computes:
            Signature Accuracy = matching / compared * 100, where compared is
              the documented signatures of the signature universe (with a
-             fallback scan's exports_found) and matching those no result
-             names in a Critical mismatch: a wrong signature is wrong
-             whichever set the denominator counts
+             fallback scan's exports_found) and each method's
+             `{owner}.{name}` the plan holds a check of (with no --plan,
+             one whose owner has a surface record), and matching those no
+             result names in a Critical mismatch: a wrong signature is
+             wrong whichever set the denominator counts
            Type Coverage = documented types / total types * 100, where
              total types counts the names of the --surface-set set (the
              denominator set coverage-check section 2b picked) whose kind is
@@ -219,10 +232,16 @@ ratios and the gap records of the wrong signatures.
          the result's `file` stands, as it does when there is none. A
          mismatch of a form the plan bound (`bound`, #918) is taken at its
          bound declaration's file and line instead, whatever file the judge
-         names, and a judge that names another one (or none, from a group in
+         names (a method's at the judge's file and `line`, the member's,
+         since its bound declaration is its owner's), and a judge that names
+         another one (or none, from a group in
          another file) is listed in `warnings`; the declaration joins no
          name, set or count, and the gap's title and form index are the
-         form's as for any other mismatch. Results
+         form's as for any other mismatch. A method's mismatch whose `file`
+         holds no declaration of its owner, bound or offered, is the
+         member's own (a Go method of its receiver type in another file, a
+         base class, an object owner's class): it is taken at that file and
+         the judge's `line`, bound or not, with no warning. Results
          that report one declaration (name, file and line) more than once
          keep its most severe grade: Critical, then Low, then Info. Of the
          mismatches of one unbound form of a check that offered several
@@ -315,7 +334,9 @@ Usage:
 
 Output (stdout; --gaps-output writes the records; with --output, plan and
 score write their result to that file and print only its summary):
-  plan:  {"compared": N, "files": [{"file", "checks": [{"name", "line",
+  plan:  {"compared": N, "files": [{"file", "checks": [{"name", "member"
+          (a method's check alone: its bare name, `name` being
+          `{owner}.{member}`), "line",
           "signatureLine", "documented": {...}, "alternatives": [{...}]
           (only when the name has another form that lists members or
           states a return type),
@@ -791,14 +812,37 @@ def _strictness(fields: dict) -> tuple[bool, bool]:
     return _claims_none(fields), not _partial(fields)
 
 
+def _entry_key(entry: dict) -> str | None:
+    """The name an inventory entry's form is planned, counted and graded under: its `name`, a non-empty string;
+    for a `method`, `{owner}.{name}` when its `owner` is a non-empty string (#1088), so it never merges with a
+    function of its bare name, and None when it gives no owner (never compared)."""
+    name, owner = entry.get("name"), entry.get("owner")
+    if not (isinstance(name, str) and name):
+        return None
+    if entry.get("kind") != "method":
+        return name
+    return f"{owner}.{name}" if isinstance(owner, str) and owner else None
+
+
+def method_keys(inventory: list[dict]) -> dict[str, tuple[str, str]]:
+    """{`{owner}.{name}`: (its owner, its bare name)} for each `method`
+    entry with a signature (_has_signature) that gives an `owner` (#1088):
+    plan checks it at its owner's surface record, its bare name the member
+    the judge compares it with, and score counts it in Signature Accuracy
+    when the plan holds that check."""
+    return {key: (entry["owner"], entry["name"]) for entry in inventory
+            if entry.get("kind") == "method" and (key := _entry_key(entry)) is not None and _has_signature(entry)}
+
+
 def _forms_and_places(inventory: list[dict]) -> dict[str, list[tuple[dict, list[tuple[str, int]]]]]:
     """{name: [(each of documented_forms' forms, the places the entries
     that give it write it, from their `at`: (its path, its line))]}, in
-    documented_forms' order. An entry with no good `at` adds no place."""
+    documented_forms' order, a `method` that gives an `owner` under
+    `{owner}.{name}` (_entry_key). An entry with no good `at` adds no place."""
     entries: dict[str, list[tuple[dict, list[tuple[str, int]]]]] = {}
     for entry in inventory:
-        name = entry.get("name")
-        if entry.get("kind") == "method" or not (isinstance(name, str) and name) or not _has_signature(entry):
+        name = _entry_key(entry)
+        if name is None or not _has_signature(entry):
             continue
         forms, fields = entries.setdefault(name, []), _form(entry)
         place = _inventory().parse_at(entry.get("at"))
@@ -828,13 +872,13 @@ def _shared_places(inventory: list[dict]) -> dict[str, set[tuple[str, int]]]:
     contrast}. For a name declared more than once, the citations of such a
     place bind none of its forms (#918): they cannot say which form they are
     for (_bindings). Entries that say the same thing
-    at one place are one form, so their place is not shared; a `method`, and
-    an entry with no form, write no form of the name."""
+    at one place are one form, so their place is not shared; a `method`
+    writes a form of `{owner}.{name}` (_entry_key), never of its bare name,
+    and an entry with no form writes none."""
     keys: dict[tuple[str, tuple[str, int]], set[tuple]] = {}
     for entry in inventory:
-        name, place = entry.get("name"), _inventory().parse_at(entry.get("at"))
-        if (entry.get("kind") == "method" or not (isinstance(name, str) and name) or place is None
-                or not _has_signature(entry)):
+        name, place = _entry_key(entry), _inventory().parse_at(entry.get("at"))
+        if name is None or place is None or not _has_signature(entry):
             continue
         keys.setdefault((name, place), set()).add(_form_key(_form(entry)))
     shared: dict[str, set[tuple[str, int]]] = {}
@@ -848,18 +892,20 @@ def _places_by_name(inventory: list[dict]) -> dict[str, set[tuple[str, int]]]:
     """{name: every place the inventory gives it, (its path, its line) from
     an entry's good `at`}, a form plan drops (one that lists no member and
     states no return type, after another) and an entry with no form
-    included; a `method` is no place of its name."""
+    included; a `method` is a place of `{owner}.{name}` (_entry_key), never
+    of its bare name."""
     spots: dict[str, set[tuple[str, int]]] = {}
     for entry in inventory:
-        name, place = entry.get("name"), _inventory().parse_at(entry.get("at"))
-        if entry.get("kind") != "method" and isinstance(name, str) and name and place is not None:
+        name, place = _entry_key(entry), _inventory().parse_at(entry.get("at"))
+        if name is not None and place is not None:
             spots.setdefault(name, set()).add(place)
     return spots
 
 
 def documented_forms(inventory: list[dict]) -> dict[str, list[dict]]:
     """{name: [its documented signature, *its alternatives]} for each
-    documented export with a signature: its distinct forms (_form), ranked.
+    documented export with a signature, a `method` that gives an `owner`
+    under `{owner}.{name}` (_entry_key): its distinct forms (_form), ranked.
     Of several entries of one name, one that lists parameters or gives a
     usage form (_lists_members) is compared before one that does neither
     (empty or no `params` and no usage form: it never hides one that says
@@ -1048,10 +1094,17 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
     the next declaration `exports` or `others` records in a file ending the
     span of the one before it (_span_end). A
     name documented in several forms carries the others that list members
-    or state a return type as `alternatives` (documented_forms)."""
+    or state a return type as `alternatives` (documented_forms). A
+    `method` that gives an `owner` is checked as `{owner}.{name}`
+    (method_keys, #1088) when its owner has a surface record: where the
+    owner's own check would be, with the owner's candidates, its bare name
+    as `member`, each form bound to one of the owner's declarations by the
+    citations of its places that name the member; the fallback scan's maps
+    leave it out."""
     forms = _forms_and_places(inventory)
     spots = _places_by_name(inventory)
     shared = _shared_places(inventory)
+    methods = method_keys(inventory)
     files: dict[str, list[dict]] = {}
     compared = 0
     if names is not None:
@@ -1059,27 +1112,32 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
         others_by_name = _records_by_name(others or [])
         texts = _inventory().skill_markdown_by_path(Path(skill_dir)) if skill_dir is not None else None
         lines = list(texts.values()) if texts is not None else None
-        for name in sorted(signature_universe(names, exports) & set(forms)):
-            record, candidates = _check_at(name, by_name.get(name) or [], skill_dir, lines)
+        planned = ({name for name in signature_universe(names, exports) & set(forms) if name not in methods}
+                   | {key for key, (owner, _) in methods.items() if by_name.get(owner)})
+        for name in sorted(planned):
+            # A method's check is its owner's (#1088): the owner's records, declarations and candidates.
+            owner, member = methods.get(name, (name, name))
+            record, candidates = _check_at(owner, by_name.get(owner) or [], skill_dir, lines)
             compared += 1
-            check = {
-                "name": name,
+            check = {"name": name, **({"member": member} if name in methods else {})}
+            check.update({
                 "line": record.get("line"),
                 "signatureLine": record.get("signatureLine"),
                 "documented": forms[name][0][0],
-            }
+            })
             if len(forms[name]) > 1:
                 check["alternatives"] = [fields for fields, _ in forms[name][1:]]
             if candidates:
                 check["candidates"] = candidates
-            bound = (_bindings(name, by_name.get(name) or [], others_by_name.get(name) or [],
+            bound = (_bindings(member, by_name.get(owner) or [], others_by_name.get(owner) or [],
                                [at for _, at in forms[name]], spots.get(name, set()), texts,
                                shared.get(name, set()), exports + (others or []))
                      if texts is not None else [])
             if bound:
                 check["bound"] = bound
             files.setdefault(_record_file(record), []).append(check)
-    named_forms = {name: [fields for fields, _ in fs] for name, fs in forms.items()}
+    # The fallback scan's judges compare the names its files export: a method there would count as matching unjudged.
+    named_forms = {name: [fields for fields, _ in fs] for name, fs in forms.items() if name not in methods}
     return {
         "compared": compared,
         "files": [{"file": f, "checks": checks} for f, checks in sorted(files.items())],
@@ -1880,9 +1938,18 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     that form's mismatch is taken at its file and line, with a warning when
     the judge names another file, and its line bounds the next declaration
     in that file as a surface record's does. A bound declaration joins no
-    name, set or count."""
+    name, set or count. A method's `{owner}.{name}` (method_keys, #1088) is
+    compared when `offered` holds its check, else, with no plan, when its
+    owner has a surface record; its mismatch is offered its owner's files,
+    and a bound one is taken at the judge's file and `line`, the member's,
+    since its bound declaration is its owner's: with a warning when the
+    judge names another declaration's file, and with none when it names a
+    file no declaration of the owner is in, the member's own."""
     bound = bound or {}
     by_name = _records_by_name(exports)
+    methods = method_keys(inventory)
+    # The records a mismatch's files are offered from with no plan: a method's are its owner's.
+    offer_by = {**by_name, **{key: by_name.get(owner) or [] for key, (owner, _) in methods.items()}}
     # The declarations a line is located among: the surface's records, and each one a form is bound to (an other
     # declaration only through a binding).
     located = exports + [{"name": name, **at} for name, forms in bound.items() for at in forms.values()]
@@ -1891,7 +1958,9 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     surface = set(names) | {n for r in results for n in r.get("exports_found") or []}
     documented = documented_names(inventory)
     forms = documented_forms(inventory)
-    compared = (surface | signature_universe(names, exports)) & set(forms)
+    compared = ((surface | signature_universe(names, exports)) & (set(forms) - set(methods))
+                | {key for key, (owner, _) in methods.items()
+                   if (key in offered if offered is not None else bool(by_name.get(owner)))})
     warnings = []
     for name in sorted(set(forms) & set(planned or {})):
         if planned[name] != forms[name]:
@@ -1905,9 +1974,17 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     for result in results:
         for entry in result["signature_mismatches"]:
             name = entry["name"]
-            files = _offered_files(offered, by_name, name)
+            files = _offered_files(offered, offer_by, name)
             # A mismatch found at one of a check's candidates names that file; any other file is not taken.
             named = entry.get("file")
+            # A method's member may be declared in a file no declaration of its owner is in (a Go method of its
+            # receiver type, a base class, an object owner's class, a function the owner binds through an import): the
+            # file the judge names there is the member's, so its mismatch is taken at that file and the judge's line
+            # (#1088).
+            elsewhere = name in methods and named is not None and not _is_offered_file(
+                [*files, *(decl["file"] for decl in bound.get(name, {}).values())], named)
+            if elsewhere:
+                files = [*files, named]
             file = _path(named if named is not None and _is_offered_file(files, named) else result["file"])
             line = entry["line"]
             if name not in compared:
@@ -1920,15 +1997,21 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
             # The documented form the mismatch is reported for: 0 is `documented`, n the check's nth alternative.
             # A form's own label lowers a grade only for the form the mismatch quotes as `documented_sig`.
             index, quoted, notes = _form_index(name, entry, forms[name])
-            # A bound form is compared with its bound declaration alone: its mismatch is taken there (#918).
+            # A bound form is compared with its bound declaration alone: its mismatch is taken there (#918). A
+            # method's is its owner's, so the mismatch keeps the judge's file and line, the member's (#1088): the
+            # bound file with the judge's line would cite a line of another file.
             at = bound.get(name, {}).get(index)
-            if at is not None:
+            if at is not None and not elsewhere:
                 judged = _path(named if named is not None else result["file"])
-                file, line = _path(at["file"]), at["line"] if _is_line(at["line"]) else line
-                if judged != file:
+                if name in methods:
+                    file = judged
+                else:
+                    file, line = _path(at["file"]), at["line"] if _is_line(at["line"]) else line
+                if judged != _path(at["file"]):
+                    held = (f"the declaration at {file}:{line}: recorded there" if name not in methods
+                            else f"its owner's declaration in {_path(at['file'])}: recorded at {file}:{line}")
                     warnings.append(f"{result['file']}:{entry['line']}: a signature mismatch for `{name}` names "
-                                    f"`{judged}`, but its form {index} is bound to the declaration at "
-                                    f"{file}:{line}: recorded there")
+                                    f"`{judged}`, but its form {index} is bound to {held}")
             elif named is not None and not _is_offered_file(files, named):
                 warnings.append(f"{result['file']}:{entry['line']}: a signature mismatch for `{name}` names "
                                 f"`{named}`, no file the plan offered its check at: recorded at "
@@ -1978,7 +2061,7 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     for key, m in sorted(graded.items(), key=order):
         bucket = (m["name"], key[3], key[4])
         single = key[3] in bound.get(m["name"], {}) or len(
-            {_path(f) for f in _offered_files(offered, by_name, m["name"])}) < 2
+            {_path(f) for f in _offered_files(offered, offer_by, m["name"])}) < 2
         if single:
             kept.append((key, m))
         elif bucket not in closest or GRADES.index(m["severity"]) > GRADES.index(closest[bucket][1]["severity"]):

@@ -1604,17 +1604,17 @@ def test_an_entry_with_no_form_gives_one_place_as_its_at(tmp_path):
     UILibraryContextValue = {` in a fence, cited `references/setup.md:90` on one run and a bare `SKILL.md` on the
     next. Readers also split on whether a mention, a heading or prose that names a name with no form gives an entry
     beside the ones its other places give, and at which line. An entry with no compared form now gives its place as
-    `at`, a `method` and a return-only form aside; a place that writes a name with no form, members or fields gives
-    no entry when another place gives one, the floor's places aside; and of several such places of a name the skill
-    documents the first alone gives one. Coherence review: that last clause gives no entry to a name the skill writes
-    only at such places (an import and a prose code span, as oms-uitripled's `CardContent`), which the rehearsals
-    left for a maintainer decision, so it reaches only a name the skill documents. The example shows a class and a
-    type entry with an `at`, and the validator keeps a type entry's `at` on a line that writes the name with no
-    warning."""
+    `at`, a return-only form aside (and, until #1088, a `method`); a place that writes a name with no form, members
+    or fields gives no entry when another place gives one, the floor's places aside; and of several such places of a
+    name the skill documents the first alone gives one. Coherence review: that last clause gives no entry to a name
+    the skill writes only at such places (an import and a prose code span, as oms-uitripled's `CardContent`), which
+    the rehearsals left for a maintainer decision, so it reaches only a name the skill documents. The example shows a
+    class and a type entry with an `at`, and the validator keeps a type entry's `at` on a line that writes the name
+    with no warning."""
     contract = _flow(_read(INVENTORY_CONTRACT))
     formless_at = ("That line writes the entry's `name`, or, in a fenced block, the block does. An entry with no "
-                   "compared form gives its place as `at` too, a `method` and a form that writes only a `return_type` "
-                   "(below) aside, so a gap about its name, such as a stale name's, cites that line.")
+                   "compared form gives its place as `at` too, a form that writes only a `return_type` (below) aside, "
+                   "so a gap about its name, such as a stale name's, cites that line.")
     one_place = ("such as a stale name's, cites that line. A place that writes a name but no form of it, and no "
                  "`methods`, `properties` or `fields` its entry would carry (a mention, a bare code span, an "
                  "import, a heading or prose that names or describes it), gives it no entry when another place gives the name one, "
@@ -2302,8 +2302,8 @@ def test_the_floor_runs_before_the_inventory_subagent():
     section1a = _flow(_slice(text, "#### 1a. Parent-Side Schema Validation", "### 1b."))
     assert ("refuses it when it leaves out a floor name those files write, or an origin's `signature`.") in section1a
     # #918: a missing or bad place is a warning, its forms named in the Coverage Analysis section's notes: only the
-    # warnings that say the validator's UNBOUND text, one per form left unbound (a method's dropped `at` and a floor
-    # origin's own warning do not).
+    # warnings that say the validator's UNBOUND text, one per form left unbound (the dropped `at` of a method with no
+    # `owner` and a floor origin's own warning do not).
     unbound = runpy_module(SCRIPTS_DIR / "validate-inventory.py").UNBOUND
     assert ("- `valid` true (exit 0): every later command reads `{run_dir}/inventory.json`. Each of its `warnings` "
             f"that says \"{unbound}\" names a form whose place (`at`) is missing or bad, dropped so §2 binds it to no "
@@ -3443,9 +3443,17 @@ CARVED_TO_BRANCHES = {
         "declares, read from the `file` and `line` of the owner's `surface.json` record, or, for an owner that binds "
         "the name to a function declared elsewhere (a keyword of the `types.SimpleNamespace(...)` call that builds it, "
         "a class attribute assigned a function), the declaration that binding names, read in the owner's file or "
-        "through its import, and it decides when the owner's name has one declaration by the test above and the "
-        "owner declares or binds the member once, with no overload set. A record of the bare name never stands in for the member, so with no record of the owner or no such "
-        "member, or with no `owner` on a pair whose `export` the inventory lists only as a `method`, nothing decides. "
+        "through its import, or, for an owner that neither declares nor binds it and has no method of that name "
+        "declared for it outside its body (a Go method of its receiver type, one in a Rust `impl` block or a Kotlin "
+        "or Swift extension, a function assigned to its `prototype`), the member the first class in its method "
+        "resolution order to declare or bind it gives, each base read in its subclass's file or through that file's "
+        "import, and it decides when the owner's name has one declaration by the test above and the owner, or else "
+        "that class, declares or binds the member once, with no overload set, the overloads of that name the owner "
+        "and its bases declare counting as one set in Java, Kotlin, C# and Swift. A record of the bare name never "
+        "stands in for the member, nor a base's member for a method declared for the owner outside its body, so with "
+        "no record of the owner, with such a method, with no such member in the owner or a base in the source tree, "
+        "with the first class to declare or bind it outside that tree, or with no `owner` on a pair whose `export` "
+        "the inventory lists only as a `method`, nothing decides. "
         "Its remediation names the file to edit and the "
         "file and line whose form it takes, citing the declaration's `file:line`; when both forms agree with it, it "
         "says so and names what differs; when neither does, or nothing decides, it says no source settled it and "
@@ -3460,7 +3468,14 @@ CARVED_TO_BRANCHES = {
         "that declaration's citation, `[SRC:{file}:L{line}]`, or `[SRC:{file}]` for one with no `line`, which names "
         "every declaration in its file, on the form's line or, in a fenced block, on a comment line just above it, and to name the declaration's module or owner beside the form, so a later run's reader and "
         "§2's `bound` keep the two apart. Its Source stays `{reference_file}:{reference_line}` and its **Contradicted "
-        "Side** `not settled`; every other pair keeps the remediation above."
+        "Side** `not settled`. When a pair set against the name's declarations this way has one form that agrees "
+        "with one or more of them and the other form with none, and `otherDeclarations` is a list, not `null` (with "
+        "`null`, the form that agrees with none may agree with a declaration no extraction looked for), the source "
+        "settles the pair: its Source is the side whose form agrees with none, `{reference_file}:{reference_line}` or "
+        "the other side, `SKILL.md:{skill_md_line}` or `{other_file}:{other_line}`, its **Contradicted Side** that "
+        "side's path, and its remediation names that file to edit and the file and line whose form it takes, citing "
+        "each declaration the agreeing form agrees with at the `file` and line it was read at. Every other pair "
+        "keeps the remediation above."
     )],
 }
 

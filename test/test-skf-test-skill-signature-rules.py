@@ -78,7 +78,10 @@ and none of the `difference` tags. These tests keep:
 - a call written with placeholder names, which the inventory contract
   records as a usage, read as a call, a bracketed argument optional, and an
   entry's `params` written as a list of bare names read as parameter names,
-  whatever the names (#916).
+  whatever the names (#916);
+- a method's form compared with the member of its name its owner declares,
+  checked as `{owner}.{member}`, in the rules file and §2, its `at` asked
+  for as any compared form's is (#1088).
 
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
@@ -596,8 +599,9 @@ def test_a_bound_form_is_compared_with_its_own_declaration_alone():
             "in `warnings`; a bound declaration joins no name, set or count.") in section2b
     contract_text = _read(REFS / "inventory-contract.md")
     contract = _paragraph(contract_text, "The contract `validate-inventory.py` checks")
+    # #1088: a `method` that gives an `owner` is compared, so it gives its place as any compared form does.
     assert ("An entry whose `params` or `usage_signature` the signature check compares (a list, a non-blank "
-            "string, or a function's `params`, `\"\"` included), except a `method`, gives that place as `at`, "
+            "string, or a function's or a method's `params`, `\"\"` included) gives that place as `at`, "
             "`\"<path>:<line>\"`: its file as the package names it (`SKILL.md`, or a file `references` lists) and "
             "the line its form starts on, the table row, the heading, the prose line or, in a fenced block, the "
             "line the declaration or call starts on (a `def` or `class` line, not a decorator above it), never a "
@@ -802,6 +806,86 @@ def test_a_call_to_a_class_is_compared_with_its_constructor():
     # the rules and the script name one receiver set
     assert receivers in _paragraph(rules, opening)
     assert receivers in _flow(_read(SCORE_SIGNATURES)), "score-signatures.py's docstring names the same receivers"
+
+
+def test_a_method_form_is_compared_with_its_owner_s_member():
+    """#1088: plan skipped every `method` entry, so a strict oms-storybook-react-vite run scored Signature Accuracy
+    170/170 with 23 method forms (`ReactMeta.story`'s three overloads among them) never compared. A method that gives
+    an `owner` is now checked at its owner's surface record as `{owner}.{name}`, with its bare name as `member`. The
+    rules file says which declaration that is, right after the constructor it reads the same way: the member the owner
+    declares in its body or outside it (a Go receiver's method, a Rust `impl` block's), or binds, else the first
+    class's in its method resolution order to declare it, left uncompared outside the source tree, as such a
+    constructor's parameters are; an object owner read as its class; a base's overloads joining the owner's in Java,
+    Kotlin, C# and Swift.
+    coverage-check.md §2 tells the judge what the check's fields are and where to report, a bound form's mismatch at
+    the member's file and line too (a Go method may sit in another file than its receiver type), in one paragraph
+    after `bound`'s, and the contract says a method's form is compared when
+    the surface records its owner, so its `at` is asked for as any compared form's is."""
+    rules = _read(RULES)
+    opening = "A method's form (a check that gives `member`, coverage-check.md §2)"
+    method = _paragraph(rules, opening)
+    for sentence in (
+            "A method's form (a check that gives `member`, coverage-check.md §2) is compared with the member of that "
+            "name its owner declares: a method, or a field or property holding a function, in the owner's body, or a "
+            "method declared for it outside that body (a Go method of its receiver type, one in a Rust `impl` block or "
+            "a Kotlin or Swift extension, a function assigned to its `prototype`); for an owner that binds the name to "
+            "a function declared elsewhere (a class attribute assigned a function, a keyword of the "
+            "`types.SimpleNamespace(...)` call that builds it), that function, read in the owner's file or through its "
+            "import; else the member the first class in its method resolution order to declare or bind it gives, as "
+            "a constructor is read, left uncompared when that class is outside the source tree (`class "
+            "Session(requests.Session, RetryMixin)`, whose two bases both declare `request`, runs "
+            "`requests.Session.request`).",
+            # #1088 review: the member's file and line hold for a bound form and a candidate too, which Reading a
+            # form and Overload sets report at a declaration, for a method its owner's
+            "Several declarations of the member are read as Overload sets says, and its mismatch is reported under "
+            "the check's `name`, `{owner}.{member}`, at the member's file and line, a bound form's and a candidate's "
+            "too.",
+            "A member that neither the owner nor a base in the source tree declares or binds (one inherited from "
+            "another package's class, say) is left uncompared and counts as matching, as such a constructor's "
+            "parameters are."):
+        assert sentence in method, sentence
+    # #1088 review: an object owner (loguru's `logger = _Logger(...)`) declares no member, so it is read as its
+    # class, as a call to an instance is read with its class's `__call__`; in Java, Kotlin, C# and Swift a subclass
+    # keeps its bases' overloads, so `client.send(msg)` is no mismatch beside a subclass's two-parameter overload;
+    # the base walk follows method resolution order, so an in-tree mixin never stands in for another package's
+    # class that comes first (`requests.Session.request` runs, never `RetryMixin.request`)
+    for sentence in (
+            "An owner bound to an instance of a class, or a const annotated with a type, is read as that class or "
+            "type, as a call to an instance is compared with its class's `__call__`: after `logger = _Logger(...)`, "
+            "`logger.add(sink)` is compared with `_Logger.add`.",
+            "In Java, Kotlin, C# and Swift, where a subclass keeps its bases' overloads, the overloads of that name "
+            "the owner and its bases declare are one set, so `client.send(msg)` matches `send(String s)` in `Base` "
+            "beside `send(String s, int retries)` in `class Client extends Base`."):
+        assert sentence in method, sentence
+    assert "its nearest base in the source tree declares, in method resolution order" not in rules
+    assert "A call to an instance is compared with its class's `__call__`" in _paragraph(
+        rules, "A call to a class is compared"), "the instance reading it points at"
+    paragraphs = rules.split("\n\n")
+    [constructor] = [i for i, p in enumerate(paragraphs) if p.startswith("A call to a class is compared")]
+    assert paragraphs[constructor + 1].startswith(opening), "right after the constructor it reads like"
+    assert paragraphs[constructor + 2].startswith("The source's declaration decides")
+    assert rules.count(opening) == 1, "one copy"
+    coverage = _read(COVERAGE)
+    member = ("A check with `member` is a `method`'s, named `{owner}.{member}`: its `file`, `line`, `candidates` and "
+              "`bound` entries are its owner's declarations. Compare its forms with its owner's `member`, as "
+              "`{signatureRulesFile}` says, and report each mismatch under the check's `name`, at the member's "
+              "`file` and `line`, a bound form's and a candidate's too.")
+    assert _paragraph(coverage, "A check with `member`") == member
+    assert len(member) <= 350, "coverage-check.md's budget is shared"
+    section2 = coverage.split("\n\n")
+    [bound] = [i for i, p in enumerate(section2) if p.startswith("A check's `bound` lists each form")]
+    assert section2[bound + 1] == member, "right after `bound`'s paragraph"
+    contract = _paragraph(_read(REFS / "inventory-contract.md"), "The contract `validate-inventory.py` checks")
+    # #1088 review: the fallback per-file scan's plan holds no check, so the contract says, as Verifying a Skill and
+    # the fragment do, that a method is compared only when the recipe runner built the surface; an object's member
+    # is its class's
+    assert ("`owner` is not validated. The signature check compares a `method`'s form with the member of that name "
+            "its owner declares (for an object, its class; signature-comparison-rules.md), under `{owner}.{name}`, "
+            "when the source surface records its owner and the recipe runner built it; a `method` with no `owner` is "
+            "never compared.") in contract
+    assert "except a `method`" not in contract and "a `method` and a form that writes only" not in contract
+    doc = _flow(_read(SCORE_SIGNATURES))
+    assert '"member" (a method\'s check alone: its bare name, `name` being `{owner}.{member}`)' in doc
 
 
 def test_the_split_body_cross_check_compares_what_both_forms_write():
