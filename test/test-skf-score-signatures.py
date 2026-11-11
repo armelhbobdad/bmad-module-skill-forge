@@ -95,6 +95,7 @@ import json
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -4100,6 +4101,39 @@ def test_a_no_parameter_form_that_states_a_return_is_compared(tmp_path):
     assert mod._form_text({"return_type": "number"}) == "-> number"
 
 
+DELETE_DATASET_PARAMS = {"name": "delete_dataset", "kind": "function", "params": "dataset_id, user=None",
+                         "description": "The reference file's signature."}
+DELETE_DATASET_USAGE = {"name": "delete_dataset", "kind": "function",
+                        "usage_signature": ".delete_dataset(dataset_id, force=True)", "signature_form": "partial",
+                        "description": "A Key params cell's call, its bare leading `.` kept."}
+DELETE_DATASET_SURFACE = [{"name": "delete_dataset", "kind": "function", "file": "pkg/datasets.py", "line": 7,
+                           "signatureLine": "def delete_dataset(dataset_id, user=None, force=False):",
+                           "origin": "extraction"}]
+
+
+def test_a_usage_quoted_without_its_bare_leading_dot_quotes_its_form():
+    """#1073: the contract keeps a bare leading `.` before a Key params cell's call as its receiver
+    (`.delete_dataset(dataset_id, force=True)`), and a judge may write the call without it. _quotes read only a
+    dotted receiver, so that text quoted no form: a mismatch naming `form` 0 stayed on form 1 of 2, graded as a full
+    form (an `omitted-optional` Critical), with no note. The bare `.` is now read as the receiver, so the mismatch is
+    filed against the usage it quotes, form 2 of 2, its partial label giving Info, with the note that names it."""
+    forms = mod.documented_forms([DELETE_DATASET_PARAMS, DELETE_DATASET_USAGE])["delete_dataset"]
+    assert forms == [{"params": "dataset_id, user=None"},
+                     {"usage_signature": ".delete_dataset(dataset_id, force=True)", "signature_form": "partial"}]
+    mismatch = {"name": "delete_dataset", "line": 7, "form": 0, "source_sig": "(dataset_id, user=None, force=False)",
+                "documented_sig": "delete_dataset(dataset_id, force=True)", "difference": "omitted-optional",
+                "issue": "the call leaves out the optional `user`"}
+    out = mod.score([DELETE_DATASET_PARAMS, DELETE_DATASET_USAGE], ["delete_dataset"], DELETE_DATASET_SURFACE,
+                    [{"file": "pkg/datasets.py", "signature_mismatches": [mismatch]}])
+    [gap] = out["gapRecords"]
+    assert (gap["severity"], gap["title"]) == ("Info", "Partial signature: delete_dataset (form 2 of 2)")
+    assert gap["issue"].endswith(
+        "(documented form 2 of 2: `.delete_dataset(dataset_id, force=True)`)"), gap["issue"]
+    assert [w for w in out["warnings"] if "`form`" in w] == [
+        "pkg/datasets.py:7: a signature mismatch for `delete_dataset` names `form` 0, whose text its "
+        "`documented_sig` is not: graded against form 1, the one it quotes"], out["warnings"]
+
+
 DEFAULT_ENV_LINES = [f"# line {n}" for n in range(1, 20)]
 DEFAULT_ENV_LINES[11] = DEFAULT_ENV_SURFACE["exports"][0]["signatureLine"]
 DEFAULT_ENV_LINES[15] = "    return env"
@@ -4135,7 +4169,8 @@ def test_quotes_reads_a_name_before_the_group_and_an_empty_list():
     """#919: a judge writes the form it compared as the rules read a `documented_sig`, often with the name, or a
     dotted receiver and the name, before the parameters; and a form with blank or absent `params` reads as `()`.
     Each such text quotes its form, while `()` never quotes a form that gives only a usage, and a keyword, type
-    parameters or a path before the group are no name: such a text quotes nothing."""
+    parameters or a path before the group are no name: such a text quotes nothing. #1073: a usage also reads without
+    one bare leading `.`, never without a run of dots (`..f(a)`, a spread's `...rest(a)`)."""
     empty = {"params": "", "return_type": "Environment"}
     rows = [
         ("Client.run(tasks, data)", {"params": "tasks, data"}, True),
@@ -4153,6 +4188,11 @@ def test_quotes_reads_a_name_before_the_group_and_an_empty_list():
         ("coco.default_env()", {"usage_signature": "coco.default_env()"}, True),
         ("default_env()", {"usage_signature": "coco.default_env()"}, True),
         ("f(a)", {"usage_signature": "mod.f(a)"}, True),
+        ("f(a)", {"usage_signature": ".f(a)"}, True),
+        (".f(a)", {"usage_signature": ".f(a)"}, True),
+        ("g(a)", {"usage_signature": ".f(a)"}, False),
+        ("f(a)", {"usage_signature": "..f(a)"}, False),
+        ("rest(a)", {"usage_signature": "...rest(a)"}, False),
         ("()", {"usage_signature": "coco.default_env()"}, False),
         ("()", {"params": "", "usage_signature": "coco.default_env()"}, False),
         ("def f(a)", {"params": "a"}, False),
@@ -4161,6 +4201,11 @@ def test_quotes_reads_a_name_before_the_group_and_an_empty_list():
         ("run_pipeline(steps, data)", {"params": "steps, *, data=None, context=None"}, False),
     ]
     assert [(sig, mod._quotes(sig, form)) for sig, form, _ in rows] == [(sig, quotes) for sig, _, quotes in rows]
+    # #1073: only the one leading `.` stands without a name, so a usage of spaced dots never backtracks exponentially
+    spaced = ". " * 24 + "x"
+    start = time.perf_counter()
+    assert mod.CALL_RECEIVER_RE.sub("", spaced, count=1) == spaced
+    assert time.perf_counter() - start < 1, "CALL_RECEIVER_RE reads spaced dots in linear time"
 
 
 @pytest.mark.parametrize("first, label, severity", [

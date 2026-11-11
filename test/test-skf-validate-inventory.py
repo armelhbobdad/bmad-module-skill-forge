@@ -2427,6 +2427,162 @@ def test_a_key_params_pin_on_the_floor_is_carried_with_its_label(tmp_path):
         assert r["valid"] is False and r["violations"] == [violation], (fields, r["violations"])
 
 
+KEY_PARAMS_MODELS = ("# Demo\n\n| Export | Kind | Key params | Source |\n|---|---|---|---|\n"
+                     "| `cognee.ValidationReport` | pydantic model | `ValidationReport(status, summary, issues)`: the "
+                     "check's result. | |\n"
+                     "| `ValidationIssue` / `ValidationStatus` | pydantic model / str enum | "
+                     "`ValidationIssue(severity, type, detail)`: one finding; `ValidationStatus` is `pass`, `warn` or "
+                     "`fail`. | |\n")
+
+
+def test_a_key_params_own_call_is_left_to_the_reader_as_params(tmp_path):
+    """#1078 (oms-cognee 1.6.2): the contract reads a Key params cell as a description cell, except that a call that
+    passes an argument, of a name the row's first cell lists, with no prefix, is that name's signature, its arguments
+    in `params`, as the floor reads `Mem0Source(data, mode="re-derive")`. The floor reads no Key params cell on a
+    `pydantic model` row (the #997 Kind gate), gives a first cell's dotted name such as `cognee.ValidationReport` no
+    origin, and pins no form on a row whose first cell lists two names, so it gives only `ValidationIssue` and
+    `ValidationStatus` a table-row origin, with no `signature`, and the reader's routing decides at both rows: an
+    inventory that records each call's arguments as `params`, labelled partial by the Key params header, at its row
+    (`ValidationReport` at the line whose first cell writes `cognee.ValidationReport`), and `ValidationStatus` as an
+    `enum` there, passes --floor (exit 0) with no violation or warning and is written as given. No script changed."""
+    pkg = _package(tmp_path, KEY_PARAMS_MODELS)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("ValidationIssue", [_floor_origin("SKILL.md", 6, "table-row")]),
+        ("ValidationStatus", [_floor_origin("SKILL.md", 6, "table-row")])], "no Key params call is pinned"
+    exports = [("ValidationReport", "class", {"params": "status, summary, issues", "signature_form": "partial",
+                                              "description": "The check's result.", "at": "SKILL.md:5"}),
+               ("ValidationIssue", "class", {"params": "severity, type, detail", "signature_form": "partial",
+                                             "description": "One finding.", "at": "SKILL.md:6"}),
+               ("ValidationStatus", "enum", {"description": "`pass`, `warn` or `fail`.", "at": "SKILL.md:6"})]
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*exports).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 2, "checked": 2, "absent": []}
+    written = json.loads(out.read_bytes())
+    assert written["exports"] == [
+        {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each form kept as given"
+
+
+KEY_PARAMS_OTHER_CALLS = ("# Demo\n\n| Export | Kind | Key params | Source |\n|---|---|---|---|\n"
+                          "| `prune` | class (ns) | `.prune_data()`, `.prune_system(graph=True)`: all async | |\n"
+                          "| `GraphSnapshot` | pydantic model | `nodes_of_type(node_type)`, `link_relations()`. | |\n"
+                          "| `GraphitiSource` | class | Subclass of `ZepSource`, with the same "
+                          "`ZepSource(data, mode=\"hybrid\")` constructor. | |\n"
+                          "| `__version__` | str | The package version, resolved via `get_cognee_version()`. | |\n")
+
+
+def test_a_key_params_other_call_is_left_to_the_reader_as_a_usage(tmp_path):
+    """#1073 (oms-cognee 1.6.2): #1078 named only the row's own unprefixed call as a Key params cell's exception, so
+    readers split on the cell's other calls. The contract now reads any other call there as in any other description
+    cell: one of a method or of another name that passes an argument is a call recorded whole in `usage_signature`, a
+    bare leading `.` kept as its receiver, and an empty one is a mention. The floor pins only a Key params cell that
+    opens with the row's own name and its parameter group, so it gives `prune`, `GraphSnapshot`, `GraphitiSource` and
+    `__version__` a table-row origin each, at their rows, none with a `signature`, and the reader's routing decides:
+    an inventory that records `.prune_system(graph=True)` and `nodes_of_type(node_type)` as usages of `method`
+    entries with their `owner`, `ZepSource(data, mode="hybrid")` as a usage at the `GraphitiSource` row, each
+    labelled partial by the Key params header, `GraphitiSource`'s own entry there with no form, and the `prune` and
+    `GraphSnapshot` class entries with a `methods` item for each method their row's cell writes, as the methods
+    sentence gives it besides its `method` entry, each item starting with the method's name, passes --floor (exit 0)
+    with no violation or warning and is written as given. Each `method` entry gives its row as `at`, since #1088
+    compares a `method`'s form with its owner's member. #1071: `prune_data`, `link_relations` and
+    `get_cognee_version`, written only as empty calls in description cells, are mentions with no other place, so they
+    get no entry of their own. No validator or floor script changed."""
+    pkg = _package(tmp_path, KEY_PARAMS_OTHER_CALLS)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert sorted((n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]) == [
+        ("GraphSnapshot", [_floor_origin("SKILL.md", 6, "table-row")]),
+        ("GraphitiSource", [_floor_origin("SKILL.md", 7, "table-row")]),
+        ("__version__", [_floor_origin("SKILL.md", 8, "table-row")]),
+        ("prune", [_floor_origin("SKILL.md", 5, "table-row")])], "no Key params call is pinned"
+    partial = {"signature_form": "partial"}
+    exports = [("prune", "class", {"description": "", "at": "SKILL.md:5",
+                                   "methods": ["prune_data()", "prune_system(graph=True)"]}),
+               ("prune_system", "method", {"owner": "prune", "usage_signature": ".prune_system(graph=True)",
+                                           **partial, "description": "All async.", "at": "SKILL.md:5"}),
+               ("GraphSnapshot", "class", {"description": "", "at": "SKILL.md:6",
+                                           "methods": ["nodes_of_type(node_type)", "link_relations()"]}),
+               ("nodes_of_type", "method", {"owner": "GraphSnapshot", "usage_signature": "nodes_of_type(node_type)",
+                                            **partial, "description": "", "at": "SKILL.md:6"}),
+               ("GraphitiSource", "class", {"description": "Subclass of `ZepSource`.", "at": "SKILL.md:7"}),
+               ("ZepSource", "class", {"usage_signature": 'ZepSource(data, mode="hybrid")', **partial,
+                                       "description": "", "at": "SKILL.md:7"}),
+               ("__version__", "constant", {"description": "The package version.", "at": "SKILL.md:8"})]
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*exports).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 4, "checked": 4, "absent": []}
+    written = json.loads(out.read_bytes())
+    assert written["exports"] == [
+        {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each form kept as given"
+
+
+MENTION_ONLY = ("# Demo\n\n"
+                "Raises `QueryValidationError` when `top_k` is zero; `dry_run=True` returns a `DryRunEstimate`.\n\n"
+                "- `CogneeSystemError`: status 500\n"
+                "- `SkillRunEntry` is not exported from top-level `cognee`; import it from `cognee.memory`.\n\n"
+                "Exposed as the `DecoratorHelpers` namespace export; see `cognee.exceptions` and `visualize` below.\n\n"
+                "```python\n__all__ = [\"DirWalker\", \"walk_dir\"]\nfrom cognee.migration import Mem0Source\n```\n\n"
+                "### Data primitives: `cognee.low_level`\n\nThe data primitives.\n\n"
+                "| Export | Kind | Purpose |\n|---|---|---|\n"
+                "| `cognee.visualize` | async fn | Alias for `visualize_graph`. |\n"
+                "| `Mem0Source` | class | Reads a Mem0 export. |\n")
+MENTION_ONLY_API = "# API\n\n### `cognee.exceptions` error hierarchy\n\nThe exception classes.\n"
+
+
+def test_a_name_written_only_as_a_mention_is_left_out(tmp_path):
+    """#1071 (oms-cognee, oms-cocoindex, oms-storybook-react-vite, oms-uitripled): the contract now says a name the
+    skill writes only as a mention, bare in running text, a bullet list or a description cell, in an import, an
+    `__all__` list or after a heading's first word, gets no entry, however the prose presents it (a raised or returned
+    name, one only a submodule exports, a namespace object called an export), and a documented name's formless entry
+    sits at a heading that opens with it, an export table's first cell or a fenced declaration, the first of them. The
+    floor reads only a table row, a heading with no other words or a declaration, so it gives only `Mem0Source` a
+    place (its row, not its import), and none of the mentions, the heading with words before `cognee.low_level` or
+    the row whose first cell writes the dotted `cognee.visualize`. An inventory of `exceptions` at the reference
+    heading that opens with `cognee.exceptions`, `visualize` at its row (not the prose line above that names it
+    first) and `Mem0Source` at its floor row, all formless, and no entry for any mention, passes --floor (exit 0)
+    with no violation or warning and is written as given: the floor never forces a mention. No validator or floor
+    script changed."""
+    pkg = _package(tmp_path, MENTION_ONLY, {"api.md": MENTION_ONLY_API})
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("Mem0Source", [_floor_origin("SKILL.md", 22, "table-row")])], "the floor gives no mention a place"
+    exports = [("exceptions", "constant", {"description": "The exception classes.", "at": "references/api.md:3"}),
+               ("visualize", "function", {"description": "Alias for `visualize_graph`.", "at": "SKILL.md:21"}),
+               ("Mem0Source", "class", {"description": "Reads a Mem0 export.", "at": "SKILL.md:22"})]
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*exports, references=["references/api.md"]).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 1, "checked": 1, "absent": []}
+    written = json.loads(out.read_bytes())
+    assert written["exports"] == [
+        {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each entry kept as given"
+
+
 USAGE_SKILL = ("# Demo\n\n"
                "| Component | Props | Purpose |\n| --- | --- | --- |\n"
                "| `Title` | `TitleProps = { of?: Of }` | Renders the title. |\n\n"

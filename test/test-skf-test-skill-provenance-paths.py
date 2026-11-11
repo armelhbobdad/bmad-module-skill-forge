@@ -1610,7 +1610,12 @@ def test_an_entry_with_no_form_gives_one_place_as_its_at(tmp_path):
     the skill writes only at such places (an import and a prose code span, as oms-uitripled's `CardContent`), which
     the rehearsals left for a maintainer decision, so it reaches only a name the skill documents. The example shows a
     class and a type entry with an `at`, and the validator keeps a type entry's `at` on a line that writes the name
-    with no warning."""
+    with no warning.
+
+    #1071: the first of several formless places could be a prose line, so the latest oms-cognee run cited SKILL.md:28
+    and :29 for `visualize` and seven other names whose export table rows document them. A mention now gives no
+    entry, so only a heading that opens with the name, an export table's first cell or a fenced declaration of it
+    gives the entry, the first of them alone."""
     contract = _flow(_read(INVENTORY_CONTRACT))
     formless_at = ("That line writes the entry's `name`, or, in a fenced block, the block does. An entry with no "
                    "compared form gives its place as `at` too, a form that writes only a `return_type` (below) aside, "
@@ -1619,11 +1624,13 @@ def test_an_entry_with_no_form_gives_one_place_as_its_at(tmp_path):
                  "`methods`, `properties` or `fields` its entry would carry (a mention, a bare code span, an "
                  "import, a heading or prose that names or describes it), gives it no entry when another place gives the name one, "
                  "unless `inventory-floor.json` gives that place; of several such places of a name the skill "
-                 "documents and no other place gives an entry, the first alone gives one: in SKILL.md, else the file "
-                 "that sorts first by path, at its lowest line.")
+                 "documents and no other place gives an entry, only a heading that opens with the name, an export "
+                 "table's first cell or a fenced declaration of it gives one, the first of them alone: in SKILL.md, "
+                 "else the file that sorts first by path, at its lowest line.")
     for sentence in (formless_at, one_place):
         assert sentence in contract and contract.count(sentence) == 1, sentence
     assert "of several such places of a name no other place gives an entry" not in contract
+    assert "no other place gives an entry, the first alone gives one" not in contract
     assert "a form that writes only a `return_type` gives no `at`" in contract
     example = json.loads(re.search(r"```json\n(.*?)\n```", _read(INVENTORY_CONTRACT), re.S).group(1))["exports"]
     assert [e.get("at") for e in example if e["name"] in ("ClassName", "TypeName")] == ["SKILL.md:48", "SKILL.md:52"]
@@ -1639,6 +1646,54 @@ def test_an_entry_with_no_form_gives_one_place_as_its_at(tmp_path):
     result = validator.validate_inventory(json.dumps(inventory), str(package))
     assert result["valid"] is True and result["warnings"] == [], (result["violations"], result["warnings"])
     assert result["inventory"]["exports"][0]["at"] == "references/setup.md:4"
+
+
+def test_a_name_written_only_as_a_mention_gets_no_entry():
+    """#1071: the place rule gave an entry to "a name the skill documents" and never said which names those are,
+    while the type-mention and not-covered sentences counted a bare code span or a describing sentence as
+    documenting. So readers split on names the skill writes only bare in prose, a list or a description cell (54 on
+    oms-cognee, 150 on oms-storybook-react-vite), and 74 of the 75 Medium `stale-documentation` gaps of
+    oms-storybook-react-vite's latest strict run were such names, each asking Update Skill to remove accurate text. Two
+    sentences after the place rule settle it: a heading opens with a name only when its text starts with a code span
+    that writes it, so a span after a heading's first word is a mention, and a documented name is one a place writes
+    a form, members or fields of, or writes in a heading that opens with it, an export table's first cell or a fenced
+    declaration, or the floor gives a place. A name written only as a mention gets no entry, whatever the prose says
+    of it: a name given only as what a call returns or takes, one only a submodule exports and a namespace object
+    called an export included, so no reader decides by the prose's claims. The heading example says the module it
+    opens with is the name it documents, since one of the three oms-cognee readers of the lane's rehearsal left
+    `exceptions` out where its reference heading opens with `cognee.exceptions`."""
+    contract = _flow(_read(INVENTORY_CONTRACT))
+    place_rule = ("of several such places of a name the skill documents and no other place gives an entry, only a "
+                  "heading that opens with the name, an export table's first cell or a fenced declaration of it gives "
+                  "one, the first of them alone: in SKILL.md, else the file that sorts first by path, at its lowest "
+                  "line.")
+    heading_opens = ("A heading opens with a name when its text starts with a code span that writes the name, alone, "
+                     "as its form or after a module path, or with a list of such spans that holds it "
+                     "(``### `cognee.exceptions` error hierarchy`` opens with the module `exceptions`, which it "
+                     "documents, and ``### `MemoryEntry`, `ExportResult` types`` with both names); a code span after "
+                     "a heading's first word (`` ### Data primitives: `cognee.low_level` ``, "
+                     "`` ## Sample 3: Component testing with `mount` ``) is a mention.")
+    documented = ("A name the skill documents is one that a place writes a form, `methods`, `properties` or `fields` "
+                  "of, or writes in a heading that opens with it, an export table's first cell or a fenced declaration "
+                  "of it (an import, an `__all__` or other export list and a comment declare nothing), or that "
+                  "`inventory-floor.json` gives a place; a name the skill writes only as a mention, bare in running "
+                  "text, a bullet list or a description cell, in an import, an export list or a comment, or after a "
+                  "heading's first word, is not one and gets no entry, however the text presents it: a list of error "
+                  "classes or components, a name a sentence gives only as what a call returns, raises or takes "
+                  "(`DryRunEstimate`), one it says only a submodule exports (`SkillRunEntry`) and a namespace object "
+                  "it calls an export (`DecoratorHelpers`) included.")
+    for sentence in (heading_opens, documented):
+        assert contract.count(sentence) == 1, sentence
+    paragraphs = [_flow(block).strip() for block in re.split(r"\n[ \t]*\n", _read(INVENTORY_CONTRACT))]
+    [paragraph] = [p for p in paragraphs if documented in p]
+    assert paragraph.startswith("The contract `validate-inventory.py` checks"), paragraph[:80]
+    # right after the place rule, and before the comment sentence, which still follows them
+    assert f"{place_rule} {heading_opens} {documented} A comment in a fenced block is no place of its own" in paragraph
+    for phrase in ("however the text presents it", "an `__all__` or other export list",
+                   "a code span after a heading's first word", "opens with the module `exceptions`, which it documents",
+                   "`DryRunEstimate`", "`SkillRunEntry`", "`DecoratorHelpers`"):
+        assert phrase in heading_opens + " " + documented, phrase
+    assert "\u2014" not in paragraph and "\u2013" not in paragraph, "no em or en dash"
 
 
 def test_the_inventory_contract_gives_a_removed_or_earlier_version_form_no_entry():
@@ -1723,29 +1778,42 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
     #1016: a call with arguments and no types in prose or a description cell became a usage for a function, while the
     function-valued const sentence still sent "wherever the skill writes it, a description cell included" to `params`,
     so such a call of a const had two readings. The const sentence now leaves a call expression of its name to the
-    call sentence, which records it in `usage_signature` as it does a function's."""
+    call sentence, which records it in `usage_signature` as it does a function's. #1078: a Key params cell's call of
+    a name its row's first cell lists, with no prefix, is that name's `params`, so the const sentence records a call
+    "as a function's is" and no longer names `usage_signature` itself.
+
+    #1071: a name the skill writes only as a mention, bare in running text, a list or a description cell, is no
+    longer one it documents, so the type-mention sentence's escape and the not-covered sentence's other places give
+    the contract paragraph's list of documenting places (a form, `methods`, `properties` or `fields` of the name, a
+    heading that opens with it, an export table's first cell, a fenced declaration, a floor place), never a bare
+    code span or prose that calls or describes it, and the alias sentence's heading is one that opens with the name.
+    So `setup_logging`, which oms-cognee's `cognee.logger` row only describes (`logger = setup_logging()`), now gets
+    no entry, where #1013's sentence above kept it one; validate-inventory.py still finds every floor name."""
     type_only = (
         "A name the skill writes only in a type position (a parameter type, a return type or a type argument inside "
         "another entry's documented type or signature, or a parameter table's Type cell) is a type mention, not an "
         "export the skill documents, even when its code span is exactly the name, and gets no entry, unless the "
-        "skill also writes it as one outside a type position: a place `inventory-floor.json` gives it, a heading, an "
-        "export table's first cell, a code span that is the name or the name then `(`, or a fenced declaration.")
+        "skill also writes it as one outside a type position: a place `inventory-floor.json` gives it, a form, "
+        "`methods`, `properties` or `fields` of it, a heading that opens with it, an export table's first cell or a "
+        "fenced declaration of it, never a bare code span in running text or a description cell, which is a mention "
+        "(above).")
     alias_or_unexported = (
         "A name the skill presents only as a local import alias of another name, or says the source does not export, "
         "is not an export the skill documents either: it gets an entry only from a place `inventory-floor.json` "
-        "gives it, a heading, an export table's first cell or a fenced declaration of it (an import is not one), "
-        "never from a code span in prose or a description cell.")
+        "gives it, a heading that opens with it, an export table's first cell or a fenced declaration of it (an "
+        "import is not one), never from a code span in prose or a description cell.")
     not_covered = (
         "A sentence saying the skill does not cover a name (\"out of scope for this skill\", \"not covered here\") "
         "does not document it and gives it no entry, whatever form it writes the name in; any other place that "
-        "documents the name (a form, prose or a description cell that calls or describes it, or a place "
-        "`inventory-floor.json` gives it) still gives it one.")
+        "documents the name (a form, `methods`, `properties` or `fields` of it, a heading that opens with it, an "
+        "export table's first cell or a fenced declaration of it, or a place `inventory-floor.json` gives it) still "
+        "gives it one.")
     function_constant = (
         "A `const` whose value is a function (annotated with a function type, bound to an arrow, a `function` or a "
         "call that returns one, or written with a parameter list) carries the function form the skill writes for it "
         "as `params` (`[]`, never `\"\"`, when it takes none) and `return_type`, whatever its kind (`constant` for the "
         "skill's `const` label), wherever the skill writes it, a description cell included, except a call "
-        "expression of its name, which is recorded in `usage_signature` as a function's is (above); a bare `name()` "
+        "expression of its name, which is recorded as a function's is (above); a bare `name()` "
         "there is still a mention; only a constant holding neither a component nor a function is a data constant.")
     factory_constant = (
         "A `const` holding a function, not a component, that a place writes only as the call that builds it "
@@ -1774,10 +1842,9 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
                    "that call is the factory's form, not the const's."):
         assert phrase in factory_constant, phrase
     # #1013: the not-covered sentence names both phrasings, takes away every form the sentence writes, and keeps the
-    # entry any other place gives, prose that describes the name and a floor place included, so it narrows only that
-    # sentence and never drops a name validate-inventory.py requires
+    # entry any other place that documents the name gives, a floor place included, so it narrows only that sentence
+    # and never drops a name validate-inventory.py requires
     for phrase in ('"out of scope for this skill"', '"not covered here"', "whatever form",
-                   "prose or a description cell that calls or describes it",
                    "a place `inventory-floor.json` gives it"):
         assert phrase in not_covered, phrase
     # #1008: the alias sentence keeps the type mention's structural places and drops only its code spans, so a name
@@ -1785,7 +1852,14 @@ def test_the_inventory_contract_says_which_names_and_defs_are_entries_and_forms(
     for place in ("a place `inventory-floor.json` gives it", "a heading", "an export table's first cell",
                   "a fenced declaration"):
         assert place in type_only and place in alias_or_unexported, place
-    assert "a code span that is the name" in type_only and "a code span that is the name" not in alias_or_unexported
+    # #1071: each sentence that lists the places documenting a name gives the contract paragraph's list, a heading
+    # only when it opens with the name, and no bare code span or prose that calls or describes it; an alias still
+    # gets an entry only from a structural place, never from a form written in prose
+    for sentence in (type_only, alias_or_unexported, not_covered):
+        assert "a heading that opens with it" in sentence, sentence[:60]
+        assert "a code span that is the name" not in sentence and "calls or describes it" not in sentence
+    members = "a form, `methods`, `properties` or `fields` of it"
+    assert members in type_only and members in not_covered and members not in alias_or_unexported
     # #1010: the own-code triggers are the only ones, so the words before them never decide alone; a decorated,
     # passed or registered def is the reader's own code whatever else its block defines, the decorator being the
     # export itself (a quoted property setter stays a form), and a floor `signature` still keeps its place's form
@@ -1897,7 +1971,10 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
     declaration grades Critical; the sentence now takes such a call with or without a prefix, unless it writes a
     parameter type, a return type or a `?`, which leaves it a signature. Its tail keeps in `params` only a class's
     parameter list or signature that is not such a call, so `Note(content, title=None)`, which a description cell
-    would make a usage, is the example's form only because it sits in a Signature cell.
+    would make a usage, is the example's form only because it sits in a Signature cell. #1078 (oms-cognee 1.6.2): a
+    Key params cell is a description cell, and the call it writes of a name its row's first cell lists, passing an
+    argument with no prefix, is that name's `params`, so the sentence names that call as the one it does not take,
+    and no sentence of the paragraph records it in `usage_signature`.
     #1002 (oms-cognee): the contract named only props tables, so a `| Param | Type | Default | Description |` table
     of one function's parameters was compared by one reader and recorded nothing for another; it is now a place of its
     own after the props table, its rows one typed parameter list with no mark, and a partial label in its column
@@ -1910,7 +1987,9 @@ def test_the_inventory_contract_routes_each_written_form_to_a_field():
           "fenced example; in running text or a description cell, only a call that passes an argument and writes "
           "no parameter type, `?`, bare `*` or `/`, with or without such a prefix, and no return type unless such "
           "a prefix comes before the name, such as `add(componentName, options)` or `await coco.mount(fn) -> "
-          "Handle`), at a place `inventory-floor.json` gives no `signature` (below), is recorded whole in "
+          "Handle`, never a Key params cell's call of a name its row's first cell lists, with no prefix, which is "
+          "that name's `params`, as above), at a place `inventory-floor.json` gives no `signature` (below), is "
+          "recorded whole in "
           "`usage_signature`, as `inventory-floor.json` writes a usage (an assignment, `await`, `new`, a receiver "
           "or module path before the name kept, through the call's closing parenthesis or the element's end, never "
           "an `@`, a `with` or text after the call), never in `params`, whatever names its arguments use, and a "
@@ -2004,15 +2083,20 @@ def test_a_method_with_a_form_of_its_own_gets_an_entry_and_no_receiver(tmp_path)
     fell under the method sentence, an uncompared `__init__` method entry for a literal reader and the class's
     `params` for one who read by analogy. Every place's constructor is now its class's `params`, at the `class` line
     or else the nearest line of that place that writes the class's name, which the validator keeps with no warning
-    where the `__init__` line itself would be dropped."""
+    where the `__init__` line itself would be dropped. #1078: a Key params cell's call of a name its row's first cell
+    lists, with no prefix, is that name's `params`, so the method sentence names that call as the one it does not
+    record in `usage_signature`; a methods list is none of the call-expression sentence's places, so the sentence
+    keeps the field for a methods-list call such as `execute(args, kwargs, next_batch_size=None)`."""
     contract = _flow(_read(INVENTORY_CONTRACT))
     methods = ("Each `methods` item starts with the method's name, optionally after `async` (`async "
                "next_uuid(dep=None)`). A method a place writes with a form of its own (a class body, a methods list, "
                "a row's cell, running text) gets a `method` entry there with that form, a call recorded in "
                "`usage_signature` as a function's is (`execute(args, kwargs, next_batch_size=None)` in a methods "
-               "list), besides its class's `methods` item, and so does one the skill calls through an instance or the "
-               "class it documents with that member (`builder.provide(KEY, value)`, `canvas.getByRole('button')`), "
-               "the class as `owner` and the call in `usage_signature`, never a usage of a same-named function. A "
+               "list, never a Key params cell's call of a name its row's first cell lists, with no prefix, which is "
+               "that name's `params`, as above), besides its class's `methods` item, and so does one the skill calls "
+               "through an instance or the class it documents with that member (`builder.provide(KEY, value)`, "
+               "`canvas.getByRole('button')`), the class as `owner` and the call in `usage_signature`, never a usage "
+               "of a same-named function. A "
                "constructor a place writes (`def __init__(self, ...)`, `constructor(...)`, in a class body, a methods "
                "list, a row's cell or running text) is its class's form, never a `method` entry: the class's "
                "`params`, at the `class` line in a class body, else at the nearest line of that place that writes the "
@@ -3120,10 +3204,10 @@ def test_the_prose_numerator_and_stack_count_only_the_inventorys_names(tmp_path)
     assert (stack["branch"], stack["documented"], stack["denominator"], stack["missingCount"]) == ("stack", 2, 3, 1)
 
     assert ("A declared name is `verified` only when the validated inventory gives it an entry and the skill's text "
-            "writes it: one the skill writes only where the inventory contract gives it none (such as a type "
-            "position in another name's signature, a sentence saying the skill does not cover it, a local import "
-            "alias, a name it says the source does not export, a form marked removed or from an earlier version) "
-            "is `absent`.") in _flow(_read(COVERAGE))
+            "writes it: one the skill writes only where the inventory contract gives it none (such as a mention in "
+            "running text, a bullet list or a description cell, a type position in another name's signature, a "
+            "sentence saying the skill does not cover it, a local import alias, a name it says the source does not "
+            "export, a form marked removed or from an earlier version) is `absent`.") in _flow(_read(COVERAGE))
     assert ("A name a module path qualifies has the entry of its last segment (`cognee.add` that of `add`), and one "
             "the provenance map types `module` or `package`, which the inventory has no kind for, is `verified` when "
             "the text writes it.") in _flow(_read(COVERAGE))

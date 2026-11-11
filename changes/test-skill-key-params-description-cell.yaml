@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's inventory contract and signature comparison rules now say, in the same words, that a `Key params` or `Key parameters` cell is a description cell, where a call that passes an argument, of a name the row's first cell lists, with no `await`, `new`, assignment, receiver or module path before it, such as `ValidationReport(status, summary, issues)` on a `cognee.ValidationReport` row, is that name's signature, its arguments, without the name, recorded in `params`, as the inventory floor already reads `Mem0Source(data, mode="re-derive")` in that column. Before, neither file named the column, so on a row the floor does not read, such as a `pydantic model` row, one reader recorded such a call in `params` and another as a usage, and on oms-cognee 1.6.2 eight PASS verdicts rested on that choice. Such a call's arguments are now compared as the parameter list they write: a `name=value` argument marks its parameter optional, and each bare argument beside it required. So a skill that passed can now stop at the hard gate on a `signature-mismatch` when its arguments are not the names of the parameters the constructor or function takes, or when they mark a parameter optional or required where the source does not, such as `status="pass"` for a pydantic model's required field. A call with a prefix, such as `await run(a, b)`, is still a usage, and an empty `name()` there is still a mention.
+migration: |
+  If Test Skill now stops at the hard gate on a `signature-mismatch` for a call written in a `Key params` cell, write that call's arguments as the bare names of the parameters the constructor or function takes, then run Test Skill again.
+issues: [1078]
+prs: [1103]

@@ -21,8 +21,9 @@ and the skill's text writes it (#1068): validate-inventory.py's
 `listed_names` (an entry's `name`, a `method` entry's `{owner}.{name}` and
 `{owner}::{name}`, and a name a module path qualifies by its last segment, so
 `cognee.add` has the entry of `add`), then its `names_present`. A name the
-inventory contract gives no entry (such as one the skill writes only in a type
-position, only in a sentence saying it does not cover it, only as a local
+inventory contract gives no entry (such as one the skill writes only as a
+mention, bare in running text, a bullet list or a description cell, only in a
+type position, only in a sentence saying it does not cover it, only as a local
 import alias or a name it says the source does not export, or only in a form
 marked removed or from an earlier version) is absent however often the text
 writes it. A name `moduleNames` holds (the provenance map types it `module` or

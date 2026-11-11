@@ -287,7 +287,8 @@ documentation errors a Deep-tier judge returns.
          Issue. For such a name the form's own label lowers a grade only when
          the mismatch's `documented_sig` is that form's text (whitespace runs
          as one, outer parentheses off, a list joined, a name or a dotted
-         receiver before the parameters left off, and a blank or absent
+         receiver before the parameters left off, a usage's dotted receiver
+         or bare leading `.` left off its called name, and a blank or absent
          `params` read as `()` for a form with no usage form): otherwise the
          mismatch is graded against the form it quotes, which `warnings`
          names, or, when it quotes none, stays at the form its `form` names
@@ -504,9 +505,11 @@ RETURN_ARROW_RE = re.compile(r"->|=>|→")
 # A name, or a dotted receiver and name, before a signature's parameter group (`run_pipeline(`, `coco.default_env(`):
 # a mismatch's `documented_sig` may write it where the form writes only the parameters (_quotes).
 LEADING_NAME_RE = re.compile(r"^[A-Za-z_$][\w$]*(?:\s*\.\s*[A-Za-z_$][\w$]*)*\s*(?=\()")
-# The dotted receiver before a usage's called name (`coco.` in `coco.default_env()`): a mismatch's `documented_sig`
-# may write the call without it (_quotes).
-CALL_RECEIVER_RE = re.compile(r"^(?:[A-Za-z_$][\w$]*\s*\.\s*)+(?=[A-Za-z_$][\w$]*\s*\()")
+# The dotted receiver before a usage's called name (`coco.` in `coco.default_env()`), or one bare leading `.` (`.` in
+# `.prune_system(graph=True)`, kept as its receiver by inventory-contract.md, #1073), never a run of dots such as a
+# spread's `...`: a mismatch's `documented_sig` may write the call without it (_quotes). Only that leading `.` stands
+# without a name, so a usage of many spaced dots is read in linear time.
+CALL_RECEIVER_RE = re.compile(r"^(?:\.\s*)?(?:[A-Za-z_$][\w$]*\s*\.\s*)*(?=[A-Za-z_$][\w$]*\s*\()")
 # The prefixes a type is compared without, as signature-comparison-rules.md's Equivalent spellings reads a name
 # with or without one: `typing.List[int]` is `List[int]`, `React.ReactNode` is `ReactNode`. They are dropped
 # wherever they stand, in a type read as one text (a callable's arrow) too; any other module path is read only on
@@ -2260,8 +2263,9 @@ def _quotes(documented_sig: str, form: dict) -> bool:
     """Whether `documented_sig` is the text of `form`: its parameters (a list joined; blank or absent, `()`, for a
     form with no usage form, so `()` never quotes a usage-only form), or one of its usages, whole or before the
     return type it writes, with or without a name or a dotted receiver before its parameter group
-    (`run_pipeline(tasks, data)`, `coco.default_env()`: #919); a usage also reads without its dotted receiver, its
-    name kept (`default_env()` quotes `coco.default_env()`)."""
+    (`run_pipeline(tasks, data)`, `coco.default_env()`: #919); a usage also reads without its dotted receiver or a
+    bare leading `.`, its name kept (`default_env()` quotes `coco.default_env()`, and `prune_system(graph=True)`
+    quotes `.prune_system(graph=True)`: #1073)."""
     usage = form.get("usage_signature")
     usages = [" ".join(u.split()) for u in (usage if isinstance(usage, list) else [usage]) if isinstance(u, str)]
     texts = {_sig_text(t) for u in usages for t in (u, CALL_RECEIVER_RE.sub("", u, count=1))} - {""}
