@@ -54,9 +54,10 @@ It covers the four branches §2c enumerates:
     inventory gives it an entry (validate-inventory.py's `listed_names`, so
     `cognee.add` has the entry of `add`) and the text writes it, as
     verify-declared-numerator.py counts (#1068): a name the skill writes only
-    in a type position, only in a sentence saying it does not cover it, only
-    as a local import alias or a name it says the source does not export, or
-    only in a form marked removed or from an earlier version is missing. A
+    as a mention, bare in running text, a bullet list or a description cell,
+    only in a type position, only in a sentence saying it does not cover it,
+    only as a local import alias or a name it says the source does not export,
+    or only in a form marked removed or from an earlier version is missing. A
     name `moduleNames` holds (the provenance map types it `module` or
     `package`, which the inventory has no kind for) counts when the text
     writes it. On a `composition` basis the names are

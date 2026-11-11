@@ -20,7 +20,8 @@ compose-mode map before the commit, so a stack never commits a name its
 text does not write. The rule here is the scorer's text match:
 test/test-skf-stack-step-rules.py runs both on the same package.
 skf-test-skill also counts a cited name only when the validated inventory
-of its run gives it an entry (#1068), so a name the skill writes only in a
+of its run gives it an entry (#1068), so a name the skill writes only as a
+mention (bare in running text, a bullet list or a description cell), in a
 type position, in a sentence saying it does not cover it, as an import
 alias or a name it says the source does not export, or in a removed form
 still counts as missing there; this helper runs before any inventory

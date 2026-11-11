@@ -3204,10 +3204,10 @@ def test_the_prose_numerator_and_stack_count_only_the_inventorys_names(tmp_path)
     assert (stack["branch"], stack["documented"], stack["denominator"], stack["missingCount"]) == ("stack", 2, 3, 1)
 
     assert ("A declared name is `verified` only when the validated inventory gives it an entry and the skill's text "
-            "writes it: one the skill writes only where the inventory contract gives it none (such as a type "
-            "position in another name's signature, a sentence saying the skill does not cover it, a local import "
-            "alias, a name it says the source does not export, a form marked removed or from an earlier version) "
-            "is `absent`.") in _flow(_read(COVERAGE))
+            "writes it: one the skill writes only where the inventory contract gives it none (such as a mention in "
+            "running text, a bullet list or a description cell, a type position in another name's signature, a "
+            "sentence saying the skill does not cover it, a local import alias, a name it says the source does not "
+            "export, a form marked removed or from an earlier version) is `absent`.") in _flow(_read(COVERAGE))
     assert ("A name a module path qualifies has the entry of its last segment (`cognee.add` that of `add`), and one "
             "the provenance map types `module` or `package`, which the inventory has no kind for, is `verified` when "
             "the text writes it.") in _flow(_read(COVERAGE))

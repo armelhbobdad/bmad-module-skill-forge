@@ -505,9 +505,10 @@ def inventory_names(exports):
     """The names a validated inventory gives an entry (#1068): each entry's non-empty string `name`, and
     `{owner}.{name}` and `{owner}::{name}` for a `method` entry whose `owner` is a non-empty string, so a
     declared `Widget::render` still matches its method entry. A name the inventory contract gives no entry (such
-    as one the skill writes only in a type position, only in a sentence saying it does not cover it, only as a
-    local import alias or a name it says the source does not export, or only in a form marked removed or from an
-    earlier version) is none of them. listed_names matches a declared or cited name against these.
+    as one the skill writes only as a mention, bare in running text, a bullet list or a description cell, only in
+    a type position, only in a sentence saying it does not cover it, only as a local import alias or a name it says
+    the source does not export, or only in a form marked removed or from an earlier version) is none of them.
+    listed_names matches a declared or cited name against these.
 
     >>> sorted(inventory_names([{"name": "foo"}, {"name": "render", "kind": "method", "owner": "Widget"},
     ...                         {"name": "run", "kind": "method"}, {"name": ""}, "bar"]))
