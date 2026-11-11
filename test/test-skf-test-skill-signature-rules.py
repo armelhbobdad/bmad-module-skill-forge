@@ -1126,12 +1126,18 @@ def test_a_return_written_in_words_as_a_container_states_it_with_its_item_type()
     it sets apart, so no line is added and the #1042 bullet stays the next one. score-signatures.py's _states_return
     already reads such a return as a stated one, and the script never compares return types, so only prose changes."""
     annotations = _section("Annotations")
-    container = ("A return written in words as a container of a type (`list of X`, `X list`) states that container "
-                 "with X as its type argument, not a description followed by a type: a plural (`dicts`) names its "
-                 "type, a braced or bracketed list of key names inside the words (`{type, count}`, `type` among "
-                 "them) is description, and words for its items that name no type (`list of results`, `HTML list`) "
-                 "write no type argument, so `list of {type, count, samples, sample_size, relationships} dicts` "
-                 "states `list[dict]`, which matches `list[dict[str, Any]]` (below).")
+    container = ("A return written in words as a container of a type (`list of X`, `X list`) states the source "
+                 "language's type for that container with X as its type argument, not a description followed by a "
+                 "type: a list is Python's `list[X]` and TS/JS's `X[]` or `Array<X>`, and the like, so "
+                 "`list of Nodes` states `list[Node]` in Python and `Node[]` in TS/JS. A type name made plural "
+                 "(`dicts`, `strs`) names that type, while a generic noun for the items (`objects`, `instances`, "
+                 "`items`, `values`, `entries`, `records` and the like) is description, so a type name before it is "
+                 "the type argument: `list of DataPoint objects` states `list[DataPoint]`, not `list[object]`. A "
+                 "braced or bracketed list of key names inside the words (`{type, count}`, `type` among them) is "
+                 "description, and words for its items that name no type (`list of results`, `list of objects`, "
+                 "`HTML list`) write no type argument, so "
+                 "`list of {type, count, samples, sample_size, relationships} dicts` states `list[dict]`, which "
+                 "matches `list[dict[str, Any]]` (below).")
     assert container in annotations
     lines = _read(RULES).splitlines()
     values = "- A return written as names of values rather than types,"
@@ -1140,6 +1146,46 @@ def test_a_return_written_in_words_as_a_container_states_it_with_its_item_type()
     assert _flow(_read(RULES)).count("as a container of a type") == 1, "one copy"
     # the rule its "(below)" points at stays
     assert "`list[dict]` matches `list[dict[str, Any]]`" in annotations
+
+
+def test_a_container_in_words_states_the_source_language_s_container():
+    """#1083, review: `list of Nodes` in a TS/JS skill names a list, and no rule said which type that is there:
+    Equivalent spellings equates `Array<T>` and `T[]`, never a container written in words with either, so a judge
+    could read Python's `list[Node]` and raise a Critical mismatch against the source's `Node[]`. A container written
+    in words is the source language's type for it, a list Python's `list[X]` and TS/JS's `X[]` or `Array<X>`, in the
+    #1083 sentence that gives the container reading, so its one copy says both."""
+    annotations = _section("Annotations")
+    assert ("states the source language's type for that container with X as its type argument, not a description "
+            "followed by a type: a list is Python's `list[X]` and TS/JS's `X[]` or `Array<X>`, and the like, so "
+            "`list of Nodes` states `list[Node]` in Python and `Node[]` in TS/JS.") in annotations
+    assert "states that container with X as its type argument" not in annotations, "no language-free container"
+    # the spelling the TS/JS container takes is one type in either form
+    assert "`Array<T>` and `T[]`" in _section("Equivalent spellings")
+
+
+def test_a_generic_noun_after_a_type_name_in_a_container_in_words_is_description():
+    """#1083, review: `list of DataPoint objects` read two ways under "a plural (`dicts`) names its type": `objects`
+    as the type `object` (`list[object]`, a Critical mismatch against `list[DataPoint]`) or the words as a list of
+    `DataPoint`. A generic noun for the items (`objects`, `instances`, `items`, `values`, `entries`, `records` and
+    the like) is description, so the type name before it is the type argument, and alone it names no type, as
+    `list of results` does; a type name made plural (`dicts`, `strs`) still names that type, so #1083's `dicts`
+    reading stands."""
+    annotations = _section("Annotations")
+    assert ("A type name made plural (`dicts`, `strs`) names that type, while a generic noun for the items "
+            "(`objects`, `instances`, `items`, `values`, `entries`, `records` and the like) is description, so a type "
+            "name before it is the type argument: `list of DataPoint objects` states `list[DataPoint]`, not "
+            "`list[object]`.") in annotations
+    assert ("words for its items that name no type (`list of results`, `list of objects`, `HTML list`) write no type "
+            "argument") in annotations, "a generic noun alone names no type"
+    assert "a plural (`dicts`) names its type" not in annotations, "no plural reading that takes `objects` as a type"
+    # the fragment announces both readings and the one they replace, and leaves #1096's merged fragment as it was
+    changes = REPO_ROOT / "changes"
+    fragment = yaml.safe_load(_read(changes / "signature-return-container-words-noun-and-spelling.yaml"))
+    assert fragment["type"] == "fixed" and fragment["scope"] == "skf-test-skill" and fragment["issues"] == [1083]
+    summary = _flow(fragment["summary"])
+    for phrase in ("`list of DataPoint objects`", "`list[DataPoint]`", "`list of Nodes`", "`Node[]`", "Before,"):
+        assert phrase in summary, phrase
+    assert yaml.safe_load(_read(changes / "signature-return-container-in-words.yaml"))["prs"] == [1096]
 
 
 def test_a_return_that_names_alternative_types_after_its_type_states_their_union():
