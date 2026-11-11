@@ -100,7 +100,9 @@ cites (never read; default `metadata.json`):
             name the --stale result (classify-stale) marks `fabricated` is a
             Critical `fabricated-signature` gap `Fabricated signature:
             {name}` at its `source` (one with no `source` is INVALID_INPUT,
-            never a lesser gap). One whose `defined_at` (where the source
+            never a lesser gap), unless one of its `entries` cites the line
+            of an `unresolvedStars` star (below, #1070), which reads it as
+            not fabricated. One whose `defined_at` (where the source
             declares it) is a Python or TS/JS `file:line` is a documented
             extra when its name has no dot and the --surface result was
             built from an extraction that read the whole scope (an
@@ -140,7 +142,8 @@ cites (never read; default `metadata.json`):
             change (update-skill never routes it) and says whether signature
             scoring compared its documented signature (a name the
             --signatures result lists in `comparedNames`). `excluded` is
-            read once a stale name that is not fabricated needs it, and a
+            read once a stale name that is not fabricated (one a map
+            entry's star lifts included) needs it, and a
             malformed one is then INVALID_INPUT. Any other is a Medium `stale-documentation` gap
             `Stale documentation: {name}` at the line that documents the
             name (with --skill-dir), else `SKILL.md`. That line is the
@@ -214,15 +217,22 @@ cites (never read; default `metadata.json`):
             whose skill citations on a line naming it (as a homonym's
             fallback reads them) cite a file the --surface result's
             `unresolvedStars` lists
-            (an `export *` from another package no script resolves, #1005)
+            (an `export *` from another package no script resolves, #1005),
+            or, with or without --skill-dir, one of whose `entries` has a
+            `star` (the module classify-stale read in the `export *` at its
+            cited line) that a star of its file (as citations compare it)
+            names, matched by file and module and never by line (#1070),
             is an Info `observation` gap `Not checked by script: {name}
             (another package's export *)` (so that the Deep tier's
             `Not checked by script: {name}`, which score-signatures.py
             records from a signature judge's `doc_errors`, stays its own
             gap) at
             the line that documents the name, else `SKILL.md`: its issue and
-            remediation name each such statement and its file, and the
+            remediation name each such statement and its file (when no skill
+            citation gives one, each entry's, as `its provenance map cites
+            it at` the statement, at the entry's file and line), and the
             remediation asks no change unless that package lacks the name.
+            A skill citation alone never lifts a fabricated name.
             A missing or malformed `unresolvedStars` counts as empty. Every
             stale name's issue (fabricated, documented extra, not checked,
             stale documentation or scoped out) opens with the line that
@@ -957,7 +967,9 @@ def _sibling(filename: str):
     skill-citation scan the homonym pick reads), load-coverage-inputs.py
     (the documented inventory's floor, and its fence and table readers)
     and locate-export-segments.py (the skill's files and line model), the
-    last two for the line that documents a stale name."""
+    last two for the line that documents a stale name, and
+    load-coverage-inputs.py's `STAR_SPECIFIER_RE` for the module of an
+    `unresolvedStars` statement, with or without --skill-dir (#1070)."""
     module = _SIBLINGS.get(filename)
     if module is None:
         path = Path(__file__).resolve().parent / filename
@@ -1546,17 +1558,73 @@ def _star_files(surface: dict | None) -> dict[str, list[dict]]:
     return held
 
 
-def _unchecked_star_gap(name: str, stars: list[dict], doc: str | None) -> dict:
+def _star_entries(item: dict) -> list[dict]:
+    """The `entries` of a classified stale item that cite an `export *` line (#1070): each with a `star`, the
+    module classify-stale read in the `export *` or `export type *` at its cited line, and a `source_file`, both
+    non-empty strings. A missing or malformed `entries` or `star` gives none."""
+    entries = item.get("entries")
+    return [e for e in entries if isinstance(e, dict) and isinstance(e.get("star"), str) and e["star"]
+            and isinstance(e.get("source_file"), str) and e["source_file"].strip()
+            ] if isinstance(entries, list) else []
+
+
+def _entry_line(value: object) -> int | None:
+    """A map entry's `source_line` as classify-stale reads it (`_coerce_line`): a number, or a string `int()`
+    reads, above 0."""
+    if isinstance(value, str):
+        try:
+            value = int(value.strip())
+        except ValueError:
+            return None
+    line = _count(value)
+    return line if line is not None and line > 0 else None
+
+
+def _entry_stars(entries: list[dict], stars: dict[str, list[dict]]) -> list[dict]:
+    """The `unresolvedStars` statements whose own line one of `entries` (`_star_entries`) cites (#1070): a star of
+    the entry's file (as citations compare it, `_star_files`) whose statement names the entry's module, matched
+    by file and module and never by line, as load-coverage-inputs.py tells two stars apart (the runner's stars
+    carry no line). Each is given as {the statement, the entry's file and line}, the line classify-stale read,
+    once."""
+    if not entries or not stars:
+        return []
+    cited_path = _sibling("validate-inventory.py")._cited_path
+    specifier = _sibling("load-coverage-inputs.py").STAR_SPECIFIER_RE
+    found: list[dict] = []
+    for entry in entries:
+        for star in stars.get(cited_path(entry["source_file"]), []):
+            named = specifier.search(star["statement"])
+            if named and named.group(2) == entry["star"]:
+                at = {"file": entry["source_file"].strip(), "line": _entry_line(entry.get("source_line")),
+                      "statement": star["statement"]}
+                if at not in found:
+                    found.append(at)
+    return found
+
+
+def _unchecked_star_gap(name: str, stars: list[dict], doc: str | None, mapped: bool = False) -> dict:
     """The Info `observation` of a stale name with no `defined_at` that the skill cites at a file holding an
     `export *` from another package (#1005): no script reads that package, so the surface cannot hold the
     names it passes on, and the name may well be one of them. Its title is not the Deep tier's
     `Not checked by script: {name}` score-signatures.py records from a signature judge's `doc_errors`, which the
-    ledger would read as the same gap at the same line."""
+    ledger would read as the same gap at the same line. `mapped` when no skill citation gives a star and the
+    name's provenance map entries cite the star lines (#1070, `_entry_stars`): the issue and remediation then
+    say so, at each entry's file and line."""
     def at(star: dict) -> str:
         line = _count(star.get("line"))
         return f"`{star['statement']}` (`{star['file']}{f':{line}' if line else ''}`)"
 
     through = " and ".join(at(s) for s in stars)
+    if mapped:
+        passes = "passes" if len(stars) == 1 else "pass"
+        return _gap(
+            "Info", "observation", f"Not checked by script: {name} (another package's export *)", doc or "SKILL.md",
+            f"No change unless the other package does not export `{name}`: its provenance map cites it at "
+            f"{through}, which {passes} on that package's names, and no script reads them, so check by hand that "
+            f"the package exports `{name}`.",
+            issue=f"{_documents(doc, name)}, which the enumerated source API surface lacks; its provenance map "
+                  f"cites it at {through}, which {passes} on another package's names and which no script resolves",
+            export=name)
     return _gap(
         "Info", "observation", f"Not checked by script: {name} (another package's export *)", doc or "SKILL.md",
         f"No change unless the other package does not export `{name}`: a file the skill cites passes on that "
@@ -1596,8 +1664,9 @@ def _missing_gaps(cov: dict, surface: dict | None, types: set[str], meta: str) -
 def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str],
                 skill_dir: str | None, inventory: object = None) -> list[dict]:
     """One gap per `stale` name: fabricated, a documented extra, not checked by script (cited at a file whose
-    `export *` from another package no script resolves, #1005), or stale documentation (with its own wording
-    for a name defined in a file the brief scopes out, #796). A name no line documents (`_documenting_lines`)
+    `export *` from another package no script resolves, #1005, or whose provenance map entry cites such a star's
+    own line, `_entry_stars`, which a fabricated name then is not, #1070), or stale documentation (with its own
+    wording for a name defined in a file the brief scopes out, #796). A name no line documents (`_documenting_lines`)
     is documented at its inventory place (`_inventory_places`, #1006), else by the skill. That place is also the
     form whose own citations pick a homonym's declaring file first (`_documented_extra_at`, #1077)."""
     records: list[dict] = []
@@ -1621,7 +1690,12 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
         item = classified.get(name) or {}
         cited = item.get("source")
         doc = documenting.get(name) or placed.get(name)
-        if item.get("fabricated") is True:
+        # the stars whose own line a map entry of the name cites (#1070), read like those stars
+        starred = _star_entries(item)
+        if starred and stars is None:
+            stars = _star_files(surface)
+        mapped = _entry_stars(starred, stars or {})
+        if item.get("fabricated") is True and not mapped:
             if not isinstance(cited, str) or not cited:
                 # a Critical gap needs the line it cites: never downgrade it
                 raise AdapterError(f"--stale: {name!r} is fabricated with no source")
@@ -1666,16 +1740,20 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
             # an entry point exports it from a file the brief scopes out (#796)
             records.append(_scoped_out_gap(name, outside[name], doc, _brief_of(surface)))
             continue
-        if skill_dir and item.get("defined_at") is None:
-            # no file declares it, and the skill cites a file that passes on another package's names (#1005)
-            citations = _sibling("validate-inventory.py")
-            if stars is None:
-                stars = _star_files(surface)
-                texts = citations.skill_markdown_lines(Path(skill_dir)) if stars else []
-            cited = citations._skill_cited_files(Path(skill_dir), name, texts) if stars else set()
-            through = [s for f in sorted(cited) for s in stars.get(f, [])]
-            if through:
-                records.append(_unchecked_star_gap(name, through, doc))
+        if item.get("defined_at") is None:
+            # no file declares it, and the skill cites a file that passes on another package's names (#1005), or
+            # its provenance map cites such a star's own line (#1070)
+            through: list[dict] = []
+            if skill_dir:
+                citations = _sibling("validate-inventory.py")
+                if stars is None:
+                    stars = _star_files(surface)
+                if texts is None:
+                    texts = citations.skill_markdown_lines(Path(skill_dir)) if stars else []
+                cited = citations._skill_cited_files(Path(skill_dir), name, texts) if stars else set()
+                through = [s for f in sorted(cited) for s in stars.get(f, [])]
+            if through or mapped:
+                records.append(_unchecked_star_gap(name, through or mapped, doc, mapped=not through))
                 continue
         records.append(_gap(
             "Medium", "stale-documentation", f"Stale documentation: {name}", doc or "SKILL.md",
@@ -2476,8 +2554,9 @@ def _build_parser() -> argparse.ArgumentParser:
                                      "the names outside scope)")
     p.add_argument("--signatures", help="coverage: score-signatures.py score's result (missingTypes)")
     p.add_argument("--numerator", help="coverage: verify-declared-numerator.py's result (absent names)")
-    p.add_argument("--stale", help="coverage: classify-stale's result (fabricated signatures, documented extras); "
-                                   "provenance-line: the same (the names a rename declares)")
+    p.add_argument("--stale", help="coverage: classify-stale's result (fabricated signatures, documented extras, "
+                                   "map entries at an `export *` line); provenance-line: the same (the names a "
+                                   "rename declares)")
     p.add_argument("--provenance", help="coverage: the provenance map (an absent name's Source)")
     p.add_argument("--inventory", help="coverage: validate-inventory.py's inventory (the `at` of a stale name no "
                                        "line documents, and of a homonym's form, whose own citations pick its "

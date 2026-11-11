@@ -2596,13 +2596,15 @@ def test_the_deep_tier_asks_only_for_what_runs():
             "signature judge's `doc_errors`") in observation
     assert "by hand" not in observation
     # #1005: and written by gap-ledger.py under a title of its own for a name cited at another package's star,
-    # so that the record score-signatures.py writes of the name stays its own gap
+    # so that the record score-signatures.py writes of the name stays its own gap; #1070: or whose map entry
+    # cites the star's line
     assert ("recorded by score-signatures.py from a signature judge's `doc_errors` (coverage-check §2). Also "
             "a stale name with no `defined_at`, not scoped out by "
             "the brief (`excluded.outsideScope`), that the skill cites at a file holding another package's "
-            "`export *` (`surface.json` `unresolvedStars`): `Not checked by script: {name} (another package's "
-            "export *)`, at the documenting line, written by gap-ledger.py and asking no change unless that package "
-            "lacks the name (coverage-check §2c)") in observation
+            "`export *` (`surface.json` `unresolvedStars`), or whose provenance map entry cites such an `export *` "
+            "line itself: `Not checked by script: {name} (another package's export *)`, at the documenting line, "
+            "written by gap-ledger.py and asking no change unless that package lacks the name (coverage-check "
+            "§2c)") in observation
     # the drift guard is init.md §5b's helper call, which runs at every tier
     init = _read(REFS / "init.md")
     assert "It runs the workspace drift guard" in _flow(init)

@@ -3426,6 +3426,63 @@ class TestClassifyStale:
             {"export_name": "ghost", "source_file": "lib/gone.py", "source_line": "near the top"}])
         assert (out["fabricated"], out["source"]) == (True, "lib/gone.py")
 
+    # #1070: spy.ts passes on @vitest/spy's names at line 4, as oms-storybook's does; lines 5 to 10 and 12 to 16
+    # write other star forms
+    STAR_TS = ("import type { Mock } from '@vitest/spy';\n\nexport type MaybeMocked<T> = T;\n"
+               "export type * from '@vitest/spy'; // types\n"
+               "export * from \"x\"\n"
+               "/* c */ export * from 'x';\n"
+               "  export * from 'x';\n"
+               "export * as ns from 'x';\n"
+               "export * from\n  'x';\n"
+               "export const fn = () => 1;\n"
+               "export*from'x';\n"
+               "export type*from \"x\"\n"
+               "/*\nexport * from 'x';\n*/\n")
+
+    @pytest.mark.parametrize("rel, line, star", [
+        ("code/spy.ts", 4, "@vitest/spy"), ("code/spy.ts", 5, "x"), ("code/spy.ts", 6, "x"),
+        ("code/spy.ts", 7, None), ("code/spy.ts", 8, None), ("code/spy.ts", 9, None), ("code/spy.ts", 10, None),
+        ("code/spy.ts", 11, None), ("code/spy.ts", 12, "x"), ("code/spy.ts", 13, "x"), ("code/spy.ts", 15, None),
+        ("code/spy.ts", 40, None), ("code/star.py", 1, None), ("code/star.mjs", 1, "x"),
+    ], ids=["export-type-star", "double-quotes-no-semicolon", "a-comment-opens-it", "indented", "a-namespace",
+            "split-first-line", "split-second-line", "a-const", "no-spaces", "export-type-no-spaces",
+            "inside-a-block-comment", "past-the-end", "a-python-file", "a-mjs-file"])
+    def test_a_star_line_is_named_and_changes_no_verdict(self, tmp_path: Path, capsys, rel: str, line: int,
+                                                         star: str | None) -> None:
+        """A `checked` entry with no definition line at a column-0 `export *` or `export type *` line, the whole
+        statement on it once comments are removed, gains `star`, the module it names; the item stays fabricated,
+        every other key as it was."""
+        _write_text(tmp_path / "src", "code/spy.ts", self.STAR_TS)
+        _write_text(tmp_path / "src", "code/star.py", "export * from 'x'\n")
+        _write_text(tmp_path / "src", "code/star.mjs", "export * from 'x'\n")
+        _, [out] = self._run(tmp_path, capsys, ["Mock"], [
+            {"export_name": "Mock", "source_file": rel, "source_line": line, "export_type": "type"}])
+        assert {k: v for k, v in out.items() if k != "entries"} == {
+            "name": "Mock", "fabricated": True, "source": f"{rel}:{line}", "defined_at": None, "declared_in": None,
+            "reason": "not-defined"}
+        assert out["entries"] == [{"source_file": rel, "source_line": line, "line_check": "checked",
+                                   "definition_lines": [], **({"star": star} if star else {})}]
+
+    def test_a_star_line_with_no_rule_or_beside_a_file_less_entry(self, tmp_path: Path, capsys) -> None:
+        """A file no rule checks, and an entry no rule checks (a `module` one), get no `star`; an `unchecked` name
+        (another entry has no file) keeps it on the entry at the star line."""
+        _write_text(tmp_path / "src", "code/spy.ts", self.STAR_TS)
+        _write_text(tmp_path / "src", "code/star.vue", "export * from 'x'\n")
+        _, out = self._run(tmp_path, capsys, ["Mock", "Spy", "Spied"], [
+            {"export_name": "Mock"},
+            {"export_name": "Mock", "source_file": "code/spy.ts", "source_line": 4},
+            {"export_name": "Spy", "source_file": "code/star.vue", "source_line": 1},
+            {"export_name": "Spied", "source_file": "code/spy.ts", "source_line": 4, "export_type": "module"}])
+        assert [(o["fabricated"], o["reason"], o["source"]) for o in out] == [
+            (False, "unchecked", "code/spy.ts:4"), (False, "unchecked", "code/star.vue:1"),
+            (False, "unchecked", "code/spy.ts:4")]
+        assert [e.get("star") for e in out[0]["entries"]] == [None, "@vitest/spy"]
+        assert out[1]["entries"] == [{"source_file": "code/star.vue", "source_line": 1,
+                                      "line_check": "skipped-language", "definition_lines": None}]
+        assert out[2]["entries"] == [{"source_file": "code/spy.ts", "source_line": 4,
+                                      "line_check": "skipped-export-type", "definition_lines": None}]
+
     def test_the_names_are_raw_and_each_once(self, tmp_path: Path, capsys) -> None:
         # a bare array of names, a repeat and a dotted name whose last segment is defined
         src = tmp_path / "src"

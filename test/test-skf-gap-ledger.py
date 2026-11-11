@@ -56,7 +56,14 @@ counts and the Gap Report is rendered from:
     checked by script: {name}` score-signatures.py records (#1084);
     another cited file, a file only the next table row cites (#1066), no
     --skill-dir, a missing or malformed list, a `defined_at`, a rescope or
-    a fabricated name keeps its gap
+    a fabricated name keeps its gap; a map entry at the star's own line
+    (#1070, classify-stale's `star`, matched by file and module) makes
+    that observation, fabricated or not, with or without --skill-dir,
+    naming the entry's file and line, unless the skill's citations give
+    the star (#1005's record) or the brief scopes the name out (its
+    Medium); an entry at another line, a module or file no star lists, or
+    a missing or malformed `entries`, `star` or list keeps the name
+    Critical
   - an inflated `scope.include` union (#795): when the inflation guard
     fires on the set the barrel branch counts, its undocumented names are
     one Medium `denominator-inflation` gap at the brief listing at most 50
@@ -2234,7 +2241,8 @@ class TestCoverageAdapter:
 
     def test_a_scoped_out_or_fabricated_name_keeps_its_gap(self, tmp_path: Path):
         """A row that says the brief scopes the name's file out keeps the scoped-out Medium, and a fabricated
-        name stays Critical, whatever star the cited file holds."""
+        name with no map entry at a star's own line (an older classify-stale, #1070) stays Critical, whatever
+        star the file the skill cites holds."""
         rescoped = {"name": "Mock", "file": "code/core/src/old.ts", "line": 2, "entry": "code/core/src/index.ts",
                     "excludeGlob": "code/core/src/old.ts", "outsideInclude": False}
         surface = self.SURFACE | {"extraction": {"status": "ok"},
@@ -2247,13 +2255,147 @@ class TestCoverageAdapter:
         assert brief([record]) == [("Critical", "fabricated-signature", "Fabricated signature: Mock",
                                     "code/core/src/test/spy.ts:15", "Mock")]
 
+    # #1070: the map cites `Mock` at spy.ts:4, `export type * from '@vitest/spy';` itself, which classify-stale
+    # keeps fabricated (no definition there) and reads as the entry's `star`.
+    RUNNER = {"file": "code/core/src/test/spy.ts", "line": None, "statement": "export * from '@vitest/spy'"}
+    PER_FILE = {"file": "code/core/src/test/spy.ts", "line": 4, "statement": "export type * from '@vitest/spy';"}
+    AT_STAR = {"source_file": "code/core/src/test/spy.ts", "source_line": 4, "line_check": "checked",
+               "definition_lines": [], "star": "@vitest/spy"}
+    MAPPED = {"name": "Mock", "fabricated": True, "source": "code/core/src/test/spy.ts:4", "defined_at": None,
+              "declared_in": None, "reason": "not-defined", "entries": [AT_STAR]}
+    UNCITED_MD = "# demo\n\n`Mock` mocks a function.\n"
+
+    @staticmethod
+    def _mapped_wording(star: str, where: str | None) -> tuple[str, str]:
+        """The remediation and issue of a name whose map entry cites the star's own line."""
+        doc = f"`{where}`" if where else "the skill"
+        return (f"No change unless the other package does not export `Mock`: its provenance map cites it at {star}, "
+                "which passes on that package's names, and no script reads them, so check by hand that the package "
+                "exports `Mock`.",
+                f"{doc} documents `Mock`, which the enumerated source API surface lacks; its provenance map cites it "
+                f"at {star}, which passes on another package's names and which no script resolves")
+
+    @pytest.mark.parametrize("skill", [True, False], ids=["skill-dir", "no-skill-dir"])
+    @pytest.mark.parametrize("star, statement", [
+        (RUNNER, "export * from '@vitest/spy'"), (PER_FILE, "export type * from '@vitest/spy';")],
+        ids=["the-runner-s-star", "a-per-file-star"])
+    def test_a_map_entry_at_the_star_s_line_is_not_checked_by_script(self, tmp_path: Path, skill: bool,
+                                                                     star: dict, statement: str):
+        """A fabricated name whose map entry cites the line of a star the surface lists, matched by file and
+        module (the runner's star has no line), reads like that star: the Info observation at the documenting
+        line, else SKILL.md, naming the statement at the entry's file and line, never blocking."""
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, stars=(star,), item=self.MAPPED, skill=skill)
+        where = "SKILL.md:3" if skill else None
+        assert brief([record]) == [("Info", "observation", self.STARRED_TITLE, where or "SKILL.md", "Mock")]
+        remediation, issue = self._mapped_wording(f"`{statement}` (`code/core/src/test/spy.ts:4`)", where)
+        assert (record["remediation"], record["issue"]) == (remediation, issue)
+        assert record["severity"] not in mod.BLOCKING
+
+    @pytest.mark.parametrize("item", [
+        MAPPED | {"fabricated": False, "reason": "unchecked", "declared_in": [], "entries": [
+            {"source_file": None, "source_line": None, "line_check": "no-file", "definition_lines": None}, AT_STAR]},
+        MAPPED | {"entries": [{"source_file": "code/core/src/test/gone.ts", "source_line": 2,
+                               "line_check": "file-missing", "definition_lines": None}, AT_STAR, AT_STAR]},
+        MAPPED | {"entries": [AT_STAR | {"source_file": ".\\code\\core\\src\\test\\spy.ts", "source_line": "4"}]},
+        MAPPED | {"entries": [AT_STAR | {"source_line": "+4"}]},
+    ], ids=["not-fabricated", "one-entry-of-several-and-a-repeat", "a-path-and-line-as-recorded",
+            "a-line-int-reads"])
+    def test_any_entry_at_the_star_s_line_reads_like_it(self, tmp_path: Path, item: dict):
+        """An `unchecked` name (another entry has no file), a Medium before #1070, reads the same with no
+        --skill-dir; one matching entry of several lifts a fabricated name, a repeat named once; the entry's file
+        compares as citations do and is named as recorded."""
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, stars=(self.RUNNER,), item=item, skill=False)
+        assert brief([record]) == [("Info", "observation", self.STARRED_TITLE, "SKILL.md", "Mock")]
+        file = item["entries"][-1]["source_file"]
+        remediation, issue = self._mapped_wording(f"`export * from '@vitest/spy'` (`{file}:4`)", None)
+        assert (record["remediation"], record["issue"]) == (remediation, issue)
+
+    def test_two_stars_cited_by_the_map_are_both_named(self, tmp_path: Path):
+        other = {"source_file": "code/core/src/index.ts", "source_line": 2, "line_check": "checked",
+                 "definition_lines": [], "star": "tinyspy"}
+        stars = (self.RUNNER, {"file": "code/core/src/index.ts", "line": 2, "statement": "export * from 'tinyspy';"})
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, stars=stars, skill=False,
+                               item=self.MAPPED | {"entries": [self.AT_STAR, other]})
+        assert record["title"] == self.STARRED_TITLE
+        assert ("its provenance map cites it at `export * from '@vitest/spy'` (`code/core/src/test/spy.ts:4`) and "
+                "`export * from 'tinyspy';` (`code/core/src/index.ts:2`), which pass on that package's names"
+                ) in record["remediation"]
+
+    def test_a_skill_citation_of_the_star_s_file_keeps_1005_s_record(self, tmp_path: Path):
+        """When the skill's citations give the star too, the record is #1005's, byte for byte."""
+        cited = "# demo\n\n`Mock` mocks a function. `[AST:code/core/src/test/spy.ts:L4]`\n"
+        record = self._starred(tmp_path, skill_md=cited, stars=(self.RUNNER,), item=self.MAPPED)
+        assert record == self._starred(tmp_path, skill_md=cited, stars=(self.RUNNER,))
+        assert "a file the skill cites passes on that package's names through" in record["remediation"]
+
+    def test_a_map_entry_at_the_star_s_line_the_brief_scopes_out_keeps_its_medium(self, tmp_path: Path):
+        rescoped = {"name": "Mock", "file": "code/core/src/old.ts", "line": 2, "entry": "code/core/src/index.ts",
+                    "excludeGlob": "code/core/src/old.ts", "outsideInclude": False}
+        surface = self.SURFACE | {"extraction": {"status": "ok"},
+                                  "excluded": {"outsideScope": [rescoped], "nestedEntries": []}}
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, stars=(self.RUNNER,), item=self.MAPPED,
+                               surface=surface, skill=False)
+        assert (record["severity"], record["title"]) == ("Medium", "Stale documentation: Mock")
+        assert "scopes out `code/core/src/old.ts:2`, where it is defined" in record["remediation"]
+
+    @pytest.mark.parametrize("kwargs", [
+        {"item": MAPPED | {"source": "code/core/src/test/spy.ts:5",
+                           "entries": [AT_STAR | {"source_line": 5, "star": "./local"}]}},
+        {"item": MAPPED | {"source": "code/core/src/test/spy.ts:6",
+                           "entries": [{k: v for k, v in AT_STAR.items() if k != "star"} | {"source_line": 6}]}},
+        {"item": MAPPED | {"entries": [AT_STAR | {"star": "tinyspy"}]}},
+        {"stars": ({"file": "code/core/src/index.ts", "line": None, "statement": "export * from '@vitest/spy'"},)},
+        {"stars": None},
+        {"stars": "code/core/src/test/spy.ts"},
+        {"stars": ({"file": "code/core/src/test/spy.ts", "line": None},)},
+        {"item": MAPPED | {"entries": "code/core/src/test/spy.ts:4"}},
+        {"item": MAPPED | {"entries": [3, None]}},
+        {"item": MAPPED | {"entries": [AT_STAR | {"star": 3}]}},
+        {"item": MAPPED | {"entries": [AT_STAR | {"star": ""}]}},
+        {"item": MAPPED | {"entries": [AT_STAR | {"source_file": None}]}},
+        {"item": MAPPED | {"entries": [AT_STAR | {"source_file": " "}]}},
+    ], ids=["a-relative-star-line", "a-const-line", "a-module-no-star-lists", "a-star-of-another-file",
+            "no-unresolved-stars", "stars-not-a-list", "a-star-with-no-statement", "entries-not-a-list",
+            "entries-not-objects", "a-star-not-a-string", "an-empty-star", "no-source-file", "a-blank-source-file"])
+    @pytest.mark.parametrize("skill", [True, False], ids=["skill-dir", "no-skill-dir"])
+    def test_any_other_map_entry_keeps_the_name_fabricated(self, tmp_path: Path, kwargs: dict, skill: bool):
+        kwargs = {"stars": (self.RUNNER,), "item": self.MAPPED} | kwargs
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, skill=skill, **kwargs)
+        assert brief([record]) == [("Critical", "fabricated-signature", "Fabricated signature: Mock",
+                                    kwargs["item"]["source"], "Mock")], record
+
+    @pytest.mark.parametrize("skill", [True, False], ids=["skill-dir", "no-skill-dir"])
+    def test_a_declared_name_with_a_map_entry_at_the_star_s_line_stays_medium(self, tmp_path: Path, skill: bool):
+        """A name the source declares (`defined_at`) that the run cannot confirm as a documented extra (no
+        `extraction`) keeps its Medium, though another of its entries cites the star's own line."""
+        item = self.MAPPED | {"fabricated": False, "reason": "defined", "defined_at": "code/core/src/test/mock.ts:3",
+                              "entries": [self.AT_STAR, {"source_file": "code/core/src/test/mock.ts", "source_line": 3,
+                                                         "line_check": "checked", "definition_lines": [3]}]}
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, stars=(self.RUNNER,), item=item,
+                               surface=self.SURFACE | {"extraction": None}, skill=skill)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: Mock",
+                                    "SKILL.md:3" if skill else "SKILL.md", "Mock")], record
+
+    def test_a_name_with_no_map_entry_at_a_star_reads_no_star(self, monkeypatch):
+        """Without --skill-dir, a stale name none of whose entries has a `star` reads no `unresolvedStars`
+        (and loads no script beside this one for it), as before #1070."""
+        monkeypatch.setattr(mod, "_star_files", lambda surface: pytest.fail("read unresolvedStars"))
+        surface = self.EXCLUDED_SURFACE | {"unresolvedStars": [self.RUNNER]}
+        stale = [self.MAPPED | {"entries": [{k: v for k, v in self.AT_STAR.items() if k != "star"}]},
+                 {"name": "Spy", "fabricated": False, "source": None, "defined_at": None, "declared_in": [],
+                  "reason": "no-entry", "entries": []}]
+        records = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Mock", "Spy"]},
+                                    surface=surface, stale=stale)
+        assert [(r["severity"], r["title"]) for r in records] == [
+            ("Critical", "Fabricated signature: Mock"), ("Medium", "Stale documentation: Spy")]
+
     @pytest.mark.parametrize("excluded, message", [
         (["Rescoped"], "'excluded' must be an object"),
         ({"outsideScope": "Rescoped"}, "'excluded.outsideScope' must be a list"),
     ])
     def test_a_malformed_excluded_is_invalid_input(self, excluded, message):
-        """Read once a stale name that is not fabricated needs it: no stale name, or a fabricated one alone,
-        never reads it."""
+        """Read once a stale name that is not fabricated (one a map entry's star lifts included, #1070) needs it:
+        no stale name, or a fabricated one alone, never reads it."""
         ghost = {"name": "ghost", "fabricated": True, "source": "src/a.py:3"}
         for extraction in ({"status": "ok"}, None):
             surface = self.SURFACE | {"extraction": extraction, "excluded": excluded}
@@ -2265,6 +2407,9 @@ class TestCoverageAdapter:
             [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["ghost"]},
                                          surface=surface, stale=[ghost])
             assert record["category"] == "fabricated-signature"
+            with pytest.raises(mod.AdapterError, match=re.escape(message)):
+                mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Mock"]},
+                                  surface=surface | {"unresolvedStars": [self.RUNNER]}, stale=[self.MAPPED])
 
     def test_the_defined_at_extensions_are_the_verifiers(self):
         """`_DEFINED_AT_RE` takes the files classify-stale reads a `defined_at` in, and no other."""

@@ -1125,9 +1125,10 @@ class TestStaleNameLineCheck:
         records it so: the surface lists the star in `unresolvedStars`."""
         flow = _flow(section)
         # #1005 review: a name the brief scopes out keeps its scoped-out Medium, and the record's title is not
-        # the one score-signatures.py records at the Deep tier (#1084)
-        rule = ("With no `defined_at`, one cited at an `unresolvedStars` file and not scoped out is an Info "
-                "`observation` naming the star.")
+        # the one score-signatures.py records at the Deep tier (#1084); #1070: a map entry at the star's own line
+        # reads the same
+        rule = ("With no `defined_at`, one cited at an `unresolvedStars` file, or whose map entry cites a star's own "
+                "line, and not scoped out is an Info `observation` naming the star.")
         assert rule in flow
         assert flow.index(rule) < flow.index("Any other stale name (")
         medium = next(r for r in _read(SCORING_FILE).splitlines() if r.startswith("| Medium   | `stale-documentation`"))
@@ -1205,6 +1206,68 @@ class TestStaleNameLineCheck:
         for surface in (None, self._surface(extraction=False)):
             [record] = gap_ledger.from_coverage(cov, surface=surface, stale=[out], skill_dir=None)
             assert record["severity"] == ("Critical" if expected[0] == "Critical" else "Medium"), record
+
+    # #1070: spy.ts as oms-storybook's holds it, an `export type *` from another package at line 4
+    SPY = ("import type { Mock } from '@vitest/spy';\n\nexport type MaybeMocked<T> = T;\n"
+           "export type * from '@vitest/spy'; // types\nexport * from './local';\nexport const fn = () => 1;\n")
+
+    @pytest.mark.parametrize("line, star", [(4, "@vitest/spy"), (5, "./local"), (6, None)],
+                             ids=["the-star-line", "a-relative-star", "a-const"])
+    def test_a_map_entry_at_another_packages_star_line_is_not_checked_by_script(
+            self, section: str, tmp_path: pathlib.Path, line: int, star: str | None) -> None:
+        """#1070: the map cites `Mock` at spy.ts's `export type * from '@vitest/spy'` itself. The classify-stale
+        call keeps it fabricated and says what the line is (`star`), and §5b's coverage call reads the entry like
+        the star the surface lists in `unresolvedStars`: an Info observation, with or without the skill, and §4c's
+        Info line check of the entry stays, so nothing blocks the hard gate. An entry at a relative star or at
+        another line stays a Critical `fabricated-signature` gap."""
+        flow = _flow(section)
+        assert ("is a Critical `fabricated-signature` gap at its `source`, unless one of its entries cites an "
+                "`unresolvedStars` star's line (read below).") in flow
+        critical = next(r for r in _read(SCORING_FILE).splitlines()
+                        if r.startswith("| Critical | `fabricated-signature`"))
+        assert ("A provenance map entry's line that is an `export *` from another package no script resolves "
+                "(`surface.json` `unresolvedStars`) fabricates nothing: the Info `observation` row reads it"
+                ) in critical
+        files = {"code/core/src/test/spy.ts": self.SPY, "code/core/src/test/local.ts": "export const y = 1;\n"}
+        [out] = self._classify(tmp_path, files, ["Mock"], [
+            {"export_name": "Mock", "source_file": "code/core/src/test/spy.ts", "source_line": line,
+             "export_type": "type"}])
+        assert (out["fabricated"], out["reason"], out["source"]) == (
+            True, "not-defined", f"code/core/src/test/spy.ts:{line}"), out
+        assert out["entries"][0].get("star") == star, out
+        cov = json.loads((tmp_path / "run" / "coverage.json").read_bytes())
+        surface = self._surface() | {"unresolvedStars": [
+            {"file": "code/core/src/test/spy.ts", "line": None, "statement": "export * from '@vitest/spy'"}]}
+        skill = tmp_path / "skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(b"# demo\n\n`Mock` mocks a function.\n")
+        records: list[dict] = []
+        for skill_dir, where in ((str(skill), "SKILL.md:3"), (None, "SKILL.md")):
+            [record] = gap_ledger.from_coverage(cov, surface=surface, stale=[out], skill_dir=skill_dir)
+            records.append(record)
+            if star != "@vitest/spy":
+                assert (record["severity"], record["category"], record["source"]) == (
+                    "Critical", "fabricated-signature", f"code/core/src/test/spy.ts:{line}"), record
+                continue
+            assert (record["severity"], record["category"], record["title"], record["source"]) == (
+                "Info", "observation", "Not checked by script: Mock (another package's export *)", where), record
+            assert ("its provenance map cites it at `export * from '@vitest/spy'` (`code/core/src/test/spy.ts:4`), "
+                    "which passes on another package's names and which no script resolves") in record["issue"]
+        if star != "@vitest/spy":
+            return
+        # §4c's verify call over the same map, then the provenance-line append's records
+        metadata = _write_json(tmp_path / "metadata.json", {"exports": ["Mock"]})
+        verified = tmp_path / "run" / "provenance-verify.json"
+        proc = subprocess.run([sys.executable, str(VERIFY_PROVENANCE), "verify", "--metadata", str(metadata),
+                               "--provenance", str(tmp_path / "provenance-map.json"), "--source-root",
+                               tmp_path.as_posix(), "-o", str(verified)],
+                              capture_output=True, text=True, encoding="utf-8")
+        assert proc.returncode in (0, 1), proc.stderr  # exit 1 means findings
+        line_gaps = gap_ledger.without_fabricated(
+            {"records": records}, gap_ledger.from_provenance_line(json.loads(verified.read_bytes()), stale=[out]))
+        assert [(r["severity"], r["category"], r["source"]) for r in line_gaps] == [
+            ("Info", "provenance-unverified", "code/core/src/test/spy.ts:4")], line_gaps
+        assert not [r for r in records + line_gaps if r["severity"] in gap_ledger.BLOCKING]
 
     def test_an_alias_of_the_cited_declaration_is_a_documented_extra(self, tmp_path: pathlib.Path) -> None:
         """#886: oms-storybook documents `Entry`, cited at the `API_Entry` declaration a multi-line
