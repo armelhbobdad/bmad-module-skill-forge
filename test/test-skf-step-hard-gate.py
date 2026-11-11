@@ -1799,6 +1799,55 @@ class TestOutputFormats:
             "cross_check_mismatches[1]: `export` must name an inventory entry, by its `name` (a `method`'s bare "
             "`name`, or `{owner}.{name}` for one that gives an `owner`), not \"Widget\""]
 
+    def test_not_cross_checked_says_why_the_count_leaves_a_mismatch_out(self, text: str,
+                                                                         tmp_path: pathlib.Path) -> None:
+        """#1067: on #1033's package the section showed Exports Cross-Checked 0 beside Mismatches Found 1 and said
+        nothing about it, since the validator kept the mismatch with no word. A line under them now names each
+        mismatch the count leaves out, and why, from `crossChecked.uncounted`, which the validator writes into
+        `{run_dir}/inventory.json`, where coherence-check reads the section's figures."""
+        section = _slice(text, "Only rendered when `references/` directory exists", "## Coherence Analysis")
+        block = _fence(section, "**Not Cross-Checked:**")
+        assert re.findall(r"^\*\*Not Cross-Checked:\*\*.*$", block, flags=re.MULTILINE) == [
+            "**Not Cross-Checked:** {each crossChecked.uncounted item as `{export}` ({reference_file}): {why}, "
+            "joined by \"; \"; leave this line out when there is none or Mismatches Found is 0}"]
+        assert block.index("**Mismatches Found:**") < block.index("**Not Cross-Checked:**")
+        assert ("**Not Cross-Checked** gives each mismatch Exports Cross-Checked does not count, from "
+                "`crossChecked.uncounted`, which `scripts/validate-inventory.py` writes only when a mismatch's "
+                "`export` is not among `crossChecked.names` (one written `{owner}.{name}` counts by its `method` "
+                "entry's `name`): its `export`, its `reference_file` and why (its two "
+                "places are in one file, a file of its pair is not one the inventory reads, or a file of its pair "
+                "does not write it).") in _flow(section)
+        contract = _flow(_read(REFS / "inventory-contract.md"))
+        assert ("When a `cross_check_mismatches` entry's `export` is not among `names` (one written "
+                "`{owner}.{name}` counts by its `method` entry's `name`), `crossChecked` also gives `uncounted`, one "
+                "`{\"export\", \"reference_file\", \"why\"}` item per such entry, and the validator warns for each but "
+                "never refuses the inventory for it: its two places are in one file, a file of its pair is not one it "
+                "reads, or a file of its pair does not write it.") in contract
+        # The contract's example lists each file its pairs name, so it teaches no pair the count leaves out.
+        example = json.loads(re.search(r"```json\n(.*?)\n```", _read(REFS / "inventory-contract.md"), re.S).group(1))
+        named = {e[field] for e in example["cross_check_mismatches"] for field in ("other_file", "reference_file")
+                 if field in e}
+        assert named <= set(example["references"]), named
+        # The key and item fields the line names are the ones the validator writes, on #1033's package.
+        validator = _load("skf_validate_inventory_for_uncounted_test", TS_DIR / "scripts" / "validate-inventory.py")
+        pkg = tmp_path / "pkg"
+        (pkg / "references").mkdir(parents=True)
+        (pkg / "SKILL.md").write_text("# Demo\n\nIntro.\n\n`a(x)` runs it.\n", encoding="utf-8")
+        (pkg / "references" / "api.md").write_text("# API\n\n`b(y)` runs it.\n", encoding="utf-8")
+        result = validator.validate_inventory(json.dumps({
+            "exports": [{"name": "a", "kind": "function"}], "references": ["references/api.md"],
+            "cross_check_mismatches": [{"export": "a", "skill_md_line": 5, "reference_file": "references/api.md",
+                                        "reference_line": 3, "issue": "SKILL.md shows (x), references/api.md (y)"}]}),
+            str(pkg))
+        assert result["valid"] is True, result["violations"]
+        crossed = result["inventory"]["crossChecked"]
+        assert (crossed["count"], len(result["inventory"]["cross_check_mismatches"])) == (0, 1)
+        fields = re.findall(r"\{(\w+)\}", block.split("**Not Cross-Checked:**", 1)[1].splitlines()[0])
+        assert [sorted(item) for item in crossed["uncounted"]] == [sorted(fields)] == [
+            ["export", "reference_file", "why"]]
+        assert result["warnings"] == ["cross_check_mismatches[0] (`a`): Exports Cross-Checked does not count it, "
+                                      "since `references/api.md` does not write it"]
+
 
 # ---------------------------------------------------------------------------
 # SKILL.md and the invocation contract (#600: the headless sections live in

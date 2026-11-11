@@ -341,6 +341,8 @@ def _violation(**fields) -> str:
 
 EXPORT_RULE = ("`export` must name an inventory entry, by its `name` (a `method`'s bare `name`, or `{owner}.{name}` "
                "for one that gives an `owner`), not ")
+# The warning for a mismatch Exports Cross-Checked leaves out (#1067): its index, its export and why.
+UNCOUNTED = "cross_check_mismatches[{}] (`{}`): Exports Cross-Checked does not count it, since {}"
 
 
 @pytest.mark.parametrize("export", ["Widget", "", 3, None, ["run_tasks_parallel"], "run_tasks_parallel "],
@@ -378,7 +380,8 @@ def test_a_method_mismatch_names_its_bare_name_or_its_owner_and_name():
 def test_the_cli_refuses_a_mismatch_export_no_entry_has_on_a_package(tmp_path, export, code):
     """#1033's two-file package: SKILL.md writes `a(x)` at line 5, references/api.md writes `b(y)` at line 3, and the
     inventory lists `a`. A mismatch naming no entry exits 2 and leaves no inventory, as any schema violation does;
-    one naming `a` passes."""
+    one naming `a` passes, and #1067: since references/api.md does not write `a`, Exports Cross-Checked leaves it
+    out, so the written inventory says why in `crossChecked.uncounted` and stdout warns about it."""
     pkg = tmp_path / "pkg"
     (pkg / "references").mkdir(parents=True)
     (pkg / "SKILL.md").write_bytes(b"# Demo\n\nIntro.\n\n`a(x)` runs it.\n")
@@ -399,6 +402,10 @@ def test_the_cli_refuses_a_mismatch_export_no_entry_has_on_a_package(tmp_path, e
         assert not output.exists()
     else:
         assert result["valid"] is True and output.exists()
+        why = "`references/api.md` does not write it"
+        assert json.loads(output.read_text(encoding="utf-8"))["crossChecked"] == {
+            "count": 0, "names": [], "uncounted": [{"export": "a", "reference_file": "references/api.md", "why": why}]}
+        assert result["warnings"] == [UNCOUNTED.format(0, "a", why)]
 
 
 def test_cross_check_between_two_references_is_valid():
@@ -1023,6 +1030,160 @@ def test_a_name_a_file_cites_only_in_a_citation_path_is_not_counted(tmp_path):
                                           references=["references/a.md", "references/b.md"]), pkg)
     assert r["valid"] is True, r["violations"]
     assert r["inventory"]["crossChecked"] == {"count": 1, "names": ["fetch"]}
+
+
+# --- crossChecked.uncounted (#1067): the mismatches the count leaves out ------------
+#
+# A mismatch whose `export` is not among `crossChecked.names` was kept with no word, so Reference Consistency could
+# show Exports Cross-Checked 0 beside Mismatches Found 1. Each one is now warned about and named, with why, in
+# `crossChecked.uncounted`, never refused: the reason is the first that applies to its pair's files, the other side's
+# and then `reference_file`.
+
+ONE_FILE = "its two places are in one file, `references/b.md`, and the count takes only a name two or more files write"
+NOT_READ = ("`references/c.md` is not a file the inventory reads (`references` does not list it, or it cannot be read "
+            "or resolves outside the package)")
+
+
+def _mismatched(pkg, pair, listed):
+    """An inventory of `a` with one mismatch of `a` at `pair`, listing `listed`, validated against `pkg` and without
+    a package, and the mismatch."""
+    mismatch = {"export": "a", **pair, "issue": "one place shows (x), the other (y)"}
+    raw = json.dumps({"exports": [{"name": "a", "kind": "function"}], "references": listed,
+                      "cross_check_mismatches": [mismatch]})
+    return mod.validate_inventory(raw, pkg), mod.validate_inventory(raw), mismatch
+
+
+@pytest.mark.parametrize("skill_md, references, listed, pair, why", [
+    ("# Demo\n", {"b.md": "`a(x)`\n\n`a(x, y)`\n"}, ["references/b.md"],
+     {"other_file": "references/b.md", "other_line": 1, "reference_file": "references/b.md", "reference_line": 3},
+     ONE_FILE),
+    ("# Demo\n\n`a(x)`\n", {"b.md": "`a(x)`\n\n`a(x, y)`\n"}, [],
+     {"other_file": "references/b.md", "other_line": 1, "reference_file": "references/b.md", "reference_line": 3},
+     ONE_FILE),
+    ("# Demo\n\n`a(x)`\n", {"c.md": "`a(y)`\n"}, [],
+     {"skill_md_line": 3, "reference_file": "references/c.md", "reference_line": 1}, NOT_READ),
+    ("# Demo\n\n`a(x)`\n", {}, ["references/c.md"],
+     {"skill_md_line": 3, "reference_file": "references/c.md", "reference_line": 1}, NOT_READ),
+    ("# Demo\n\n`a(x)`\n", {"a.md": "`a(y)`\n"}, ["references/c.md"],
+     {"other_file": "references/a.md", "other_line": 1, "reference_file": "references/c.md", "reference_line": 1},
+     "`references/a.md` and `references/c.md` are not files the inventory reads (`references` does not list them, "
+     "or they cannot be read or resolve outside the package)"),
+    ("# Demo\n\nIntro.\n\n`a(x)` runs it.\n", {"api.md": "# API\n\n`b(y)` runs it.\n"}, ["references/api.md"],
+     {"skill_md_line": 5, "reference_file": "references/api.md", "reference_line": 3},
+     "`references/api.md` does not write it"),
+    ("# Demo\n\nIntro.\n\n`a(x)` runs it.\n", {"api.md": "# API\n\n`b(y)` runs it.\n"}, ["./references/api.md"],
+     {"skill_md_line": 5, "reference_file": "references/api.md", "reference_line": 3},
+     "`references/api.md` does not write it"),
+    ("# Demo\n\nIntro.\n\n`a(x)` runs it.\n", {"api.md": "# API\n\n`b(y)` runs it. [SRC:src/a.py:L3]\n"},
+     ["references/api.md"], {"skill_md_line": 5, "reference_file": "references/api.md", "reference_line": 3},
+     "`references/api.md` does not write it"),
+    ("# Demo\n\n`b(x)`\n", {"api.md": "`b(y)`\n", "x.md": "`a(z)`\n"}, ["references/api.md", "references/x.md"],
+     {"skill_md_line": 3, "reference_file": "references/api.md", "reference_line": 1},
+     "`SKILL.md` and `references/api.md` do not write it"),
+], ids=["one-file", "one-file-unlisted", "unlisted", "listed-missing", "two-unread", "unwritten-1033",
+        "unwritten-dot-spelling", "unwritten-citation-only", "two-unwritten"])
+def test_a_mismatch_the_count_leaves_out_is_named_with_why(tmp_path, skill_md, references, listed, pair, why):
+    """The mismatch is kept whole, the inventory stays valid, and the warning and `uncounted` give one reason: two
+    lines of one file (first, even for a file `references` does not list), a reference the inventory does not read
+    (unlisted, or listed but missing), or a file that does not write the name outside its citations
+    (`[SRC:src/a.py:L3]` writes no `a`). A file `references` lists as `./references/api.md` is the pair's
+    `references/api.md`, read. Two files are named in pair order: `references/a.md`, unlisted, and
+    `references/c.md`, listed but missing. Without --skill-package there is no count, so nothing is said about
+    it."""
+    r, without, mismatch = _mismatched(_package(tmp_path, skill_md, references), pair, listed)
+    assert r["valid"] is True, r["violations"]
+    assert r["warnings"] == [UNCOUNTED.format(0, "a", why)]
+    assert r["inventory"]["crossChecked"] == {
+        "count": 0, "names": [], "uncounted": [{"export": "a", "reference_file": pair["reference_file"], "why": why}]}
+    assert r["inventory"]["cross_check_mismatches"] == [mismatch]
+    assert without["valid"] is True and without["warnings"] == [], without["violations"]
+    assert "crossChecked" not in without["inventory"]
+    assert without["inventory"]["cross_check_mismatches"] == [mismatch]
+
+
+def test_a_listed_readable_reference_outside_the_package_is_named_as_not_read(tmp_path):
+    """references/api.md links to a readable file outside the package and `references` lists it: the inventory never
+    reads it (_package_texts), so the reason names that cause too, not only an unlisted or unreadable file."""
+    pkg = _package(tmp_path, "# Demo\n\n`a(x)`\n")
+    (tmp_path / "elsewhere.md").write_bytes(b"`a(y)`\n")
+    try:
+        (pkg / "references" / "api.md").symlink_to(tmp_path / "elsewhere.md")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported on this platform")
+    r, _, mismatch = _mismatched(pkg, {"skill_md_line": 3, "reference_file": "references/api.md",
+                                       "reference_line": 1}, ["references/api.md"])
+    assert r["valid"] is True, r["violations"]
+    assert r["spotCheck"]["unread"] == ["references/api.md"]
+    why = NOT_READ.replace("references/c.md", "references/api.md")
+    assert r["warnings"] == [UNCOUNTED.format(0, "a", why)]
+    assert r["inventory"]["crossChecked"]["uncounted"] == [
+        {"export": "a", "reference_file": "references/api.md", "why": why}]
+    assert r["inventory"]["cross_check_mismatches"] == [mismatch]
+
+
+def test_a_counted_mismatch_gives_no_uncounted_and_no_warning(tmp_path):
+    """A mismatch counts when `crossChecked.names` holds its `export`, or the `name` of the `method` entry it names
+    as `{owner}.{name}`: `a` and `Client.get`, each written in both files of its pair."""
+    pkg = _package(tmp_path, "# Demo\n\n`a(x)`\n\n`client.get(url)`\n",
+                   {"api.md": "`a(x, y)`\n\n`Client.get(url, timeout)`\n"})
+    mismatches = [{"export": "a", "skill_md_line": 3, "reference_file": "references/api.md", "reference_line": 1,
+                   "issue": "SKILL.md shows (x), references/api.md (x, y)"},
+                  {"export": "Client.get", "skill_md_line": 5, "reference_file": "references/api.md",
+                   "reference_line": 3, "issue": "SKILL.md shows (url), references/api.md (url, timeout)"}]
+    raw = json.dumps({"exports": [{"name": "a", "kind": "function"},
+                                  {"name": "get", "kind": "method", "owner": "Client"}],
+                      "references": ["references/api.md"], "cross_check_mismatches": mismatches})
+    r = mod.validate_inventory(raw, pkg)
+    assert r["valid"] is True, r["violations"]
+    assert r["warnings"] == []
+    assert r["inventory"]["crossChecked"] == {"count": 2, "names": ["a", "get"]}
+    assert r["inventory"]["cross_check_mismatches"] == mismatches
+
+
+def test_an_uncounted_owner_and_name_mismatch_names_the_file_that_does_not_write_its_name(tmp_path):
+    """A mismatch of `Client.get` is looked up by its `method` entry's `name`, `get`: SKILL.md writes it
+    (`client.get(url)`), references/api.md does not, so only references/api.md is named."""
+    pkg = _package(tmp_path, "# Demo\n\n`client.get(url)`\n", {"api.md": "`fetch(url, timeout)`\n"})
+    mismatch = {"export": "Client.get", "skill_md_line": 3, "reference_file": "references/api.md",
+                "reference_line": 1, "issue": "SKILL.md shows (url), references/api.md (url, timeout)"}
+    raw = json.dumps({"exports": [{"name": "get", "kind": "method", "owner": "Client"}],
+                      "references": ["references/api.md"], "cross_check_mismatches": [mismatch]})
+    r = mod.validate_inventory(raw, pkg)
+    assert r["valid"] is True, r["violations"]
+    why = "`references/api.md` does not write it"
+    assert r["warnings"] == [UNCOUNTED.format(0, "Client.get", why)]
+    assert r["inventory"]["crossChecked"] == {
+        "count": 0, "names": [], "uncounted": [{"export": "Client.get", "reference_file": "references/api.md",
+                                                "why": why}]}
+    assert r["inventory"]["cross_check_mismatches"] == [mismatch]
+
+
+def test_only_the_uncounted_mismatch_is_named_by_its_index(tmp_path):
+    """Beside a counted mismatch, the one the count leaves out is warned about at its own index, and `uncounted`
+    holds it alone."""
+    pkg = _package(tmp_path, "# Demo\n\n`shared()` and `a(x)`.\n", {"api.md": "`shared(n)` and `b(y)`.\n"})
+    mismatches = [{"export": export, "skill_md_line": 3, "reference_file": "references/api.md", "reference_line": 1,
+                   "issue": "SKILL.md shows (x), references/api.md (y)"} for export in ("shared", "a")]
+    raw = json.dumps({"exports": [{"name": "a", "kind": "function"}, {"name": "shared", "kind": "function"}],
+                      "references": ["references/api.md"], "cross_check_mismatches": mismatches})
+    r = mod.validate_inventory(raw, pkg)
+    assert r["valid"] is True, r["violations"]
+    why = "`references/api.md` does not write it"
+    assert r["warnings"] == [UNCOUNTED.format(1, "a", why)]
+    assert r["inventory"]["crossChecked"] == {
+        "count": 1, "names": ["shared"],
+        "uncounted": [{"export": "a", "reference_file": "references/api.md", "why": why}]}
+
+
+def test_a_mismatch_no_reason_fits_says_fewer_than_two_files_write_it(tmp_path):
+    """Not expected from cross_checked's own names, but a list that leaves out a name both read files write still
+    gets a reason."""
+    pkg = _package(tmp_path, "# Demo\n\n`a(x)`\n", {"api.md": "`a(y)`\n"})
+    read, _ = mod._package_texts({"references": ["references/api.md"]}, pkg)
+    cross = [{"export": "a", "skill_md_line": 3, "reference_file": "references/api.md", "reference_line": 1}]
+    assert mod.uncounted_mismatches(cross, [{"name": "a", "kind": "function"}], read, [], pkg) == [
+        (0, {"export": "a", "reference_file": "references/api.md",
+             "why": "fewer than two of the files the inventory reads write it"})]
 
 
 # --- Floor (#790) ---------------------------------------------------------------

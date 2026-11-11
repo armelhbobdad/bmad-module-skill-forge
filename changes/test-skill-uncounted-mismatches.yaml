@@ -1,0 +1,6 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's Reference Consistency section now names each split-body mismatch that Exports Cross-Checked does not count, and why, on a new `**Not Cross-Checked:**` line: its two places are in one file, a file of its pair is not one the inventory reads, or a file of its pair does not write it. `validate-inventory.py --skill-package` writes these mismatches into the inventory as `crossChecked.uncounted`, and its `warnings` name each one. Before, the section could show Exports Cross-Checked 0 beside Mismatches Found 1 and say nothing about it. The validator still never refuses an inventory for such a mismatch, and `crossChecked` gives no `uncounted` key when the count leaves none out.
+issues: [1067]
+prs: [1095]

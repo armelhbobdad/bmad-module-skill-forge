@@ -436,6 +436,44 @@ def test_exclusion_is_keyed_to_the_canonical_heading():
     assert migration_section_range(retitled) is None
 
 
+@pytest.mark.parametrize(
+    "heading, opens",
+    [
+        ("## Migration & Deprecation Warnings", True),
+        ("## Migration & Deprecation Warnings   ", True),
+        ("  ## Migration & Deprecation Warnings", True),
+        ("##\tMigration & Deprecation Warnings", True),
+        ("## migration & deprecation warnings", False),
+        ("## MIGRATION & DEPRECATION WARNINGS", False),
+        ("## Migration & Deprecation Warnings (pre-1.0)", False),
+        ("## Migration&Deprecation Warnings", False),
+        ("## Migration & Deprecation Warnings ##", False),
+        ("### Migration & Deprecation Warnings", False),
+    ],
+    ids=["exact", "trailing-spaces", "indented", "tab", "lower", "upper", "suffix", "no-spaces", "closing-hashes",
+         "level-3"],
+)
+def test_only_the_exact_heading_opens_the_window(heading, opens):
+    """#1069: the window opens under the exact level-2 heading create-skill emits, read as skf-shard-body.py and
+    Test Skill's Section 4b rule read it (any indent, any blank after `##`, trailing blanks), never under one at
+    another level, in another case, with other spacing around `&` or with more text after it."""
+    assert migration_section_range(f"{heading}\n- old renamed to new\n") == ((1, 3) if opens else None)
+
+
+def test_a_lower_case_heading_keeps_its_keyword_lines():
+    """#1069: a section under `## migration & deprecation warnings` is not the skill's own Section 4b, so its
+    keyword lines stay doc-rot candidates."""
+    text = (
+        "## migration & deprecation warnings\n"  # 1
+        "- bar deprecated since v3\n"  # 2
+        "- baz superseded by qux\n"  # 3
+    )
+    matches = scan_text(text, "SKILL.md")
+    kept, dropped = apply_migration_exclusion(matches, "SKILL.md", text)
+    assert dropped == 0
+    assert [m["line_number"] for m in kept] == [2, 3]
+
+
 # --------------------------------------------------------------------------
 # Frontmatter exclusion (self-authored description guard)
 # --------------------------------------------------------------------------
@@ -495,7 +533,7 @@ def test_migration_search_starts_after_frontmatter():
     text = (
         "---\n"  # 1
         "description: >\n"  # 2
-        "  ## Migration & Deprecation Warnings are covered inline.\n"  # 3 — decoy
+        "  ## Migration & Deprecation Warnings\n"  # 3: decoy, the exact heading indented
         "---\n"  # 4
         "\n"
         "## Migration & Deprecation Warnings\n"  # 6 — the real section
