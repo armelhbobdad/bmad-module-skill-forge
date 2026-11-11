@@ -231,9 +231,9 @@ ratios and the gap records of the wrong signatures.
          records for the name. Any other `file` is listed in `warnings`, and
          the result's `file` stands, as it does when there is none. A
          mismatch of a form the plan bound (`bound`, #918) is taken at its
-         bound declaration's file and line instead (a method's at that file
-         and the judge's `line`, the member's, since its declaration is its
-         owner's), whatever file the judge names, and a judge that names
+         bound declaration's file and line instead, whatever file the judge
+         names (a method's at the judge's file and `line`, the member's,
+         since its bound declaration is its owner's), and a judge that names
          another one (or none, from a group in
          another file) is listed in `warnings`; the declaration joins no
          name, set or count, and the gap's title and form index are the
@@ -1941,9 +1941,10 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     name, set or count. A method's `{owner}.{name}` (method_keys, #1088) is
     compared when `offered` holds its check, else, with no plan, when its
     owner has a surface record; its mismatch is offered its owner's files,
-    and a bound one is taken at its bound declaration's file and the
-    judge's `line`, the member's, unless the judge names a file no
-    declaration of the owner is in: the member's own, where it is taken."""
+    and a bound one is taken at the judge's file and `line`, the member's,
+    since its bound declaration is its owner's: with a warning when the
+    judge names another declaration's file, and with none when it names a
+    file no declaration of the owner is in, the member's own."""
     bound = bound or {}
     by_name = _records_by_name(exports)
     methods = method_keys(inventory)
@@ -1997,17 +1998,18 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
             # A form's own label lowers a grade only for the form the mismatch quotes as `documented_sig`.
             index, quoted, notes = _form_index(name, entry, forms[name])
             # A bound form is compared with its bound declaration alone: its mismatch is taken there (#918). A
-            # method's is its owner's, so the mismatch keeps the judge's line, the member's (#1088), and one read
-            # elsewhere keeps the judge's file too.
+            # method's is its owner's, so the mismatch keeps the judge's file and line, the member's (#1088): the
+            # bound file with the judge's line would cite a line of another file.
             at = bound.get(name, {}).get(index)
             if at is not None and not elsewhere:
                 judged = _path(named if named is not None else result["file"])
-                file = _path(at["file"])
-                if _is_line(at["line"]) and name not in methods:
-                    line = at["line"]
-                if judged != file:
+                if name in methods:
+                    file = judged
+                else:
+                    file, line = _path(at["file"]), at["line"] if _is_line(at["line"]) else line
+                if judged != _path(at["file"]):
                     held = (f"the declaration at {file}:{line}: recorded there" if name not in methods
-                            else f"its owner's declaration in {file}: recorded at {file}:{line}")
+                            else f"its owner's declaration in {_path(at['file'])}: recorded at {file}:{line}")
                     warnings.append(f"{result['file']}:{entry['line']}: a signature mismatch for `{name}` names "
                                     f"`{judged}`, but its form {index} is bound to {held}")
             elif named is not None and not _is_offered_file(files, named):

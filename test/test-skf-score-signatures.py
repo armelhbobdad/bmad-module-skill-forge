@@ -4014,7 +4014,9 @@ def test_a_bound_method_form_is_taken_at_the_member_s_line(tmp_path, named):
     """#1088: a method's form is bound among its owner's declarations, by the citations of its place that name the
     member: SKILL.md cites line 42, in the span of PREVIEW's `ReactMeta`, so the form is bound to that declaration.
     The judge reports it at the member's line, 42, and score takes it at the bound file and that line, never the
-    owner's line 10. A judge that names another file is listed in `warnings`, as any bound form's is."""
+    owner's line 10. A judge that names another file is listed in `warnings`, as any bound form's is, and (#1088
+    review) its mismatch is taken at that file and line, the member's as the judge read it, never at the bound file
+    with a line of another file."""
     inventory = [{**STORY_METHODS[0], "at": "SKILL.md:3"}]
     plan = _plan_in(tmp_path / "plan", {"SKILL.md": MEMBER_SKILL}, inventory, [REACT_META, VUE_META],
                     names=["ReactMeta"])
@@ -4025,14 +4027,45 @@ def test_a_bound_method_form_is_taken_at_the_member_s_line(tmp_path, named):
     out = _method_run(tmp_path, inventory, [REACT_META, VUE_META],
                       [{"file": PREVIEW, "signature_mismatches": [{**STORY_MISMATCH, "file": named}]}],
                       tree={"SKILL.md": MEMBER_SKILL})
-    assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(PREVIEW, 42)]
-    assert [g["source"] for g in out["gaps"]] == [f"{PREVIEW}:42"]
+    assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(named, 42)]
+    assert [g["source"] for g in out["gaps"]] == [f"{named}:42"]
     held = [w for w in out["warnings"] if "ReactMeta.story" in w]
     if named == PREVIEW:
         assert held == []
     else:
         assert held == [f"{PREVIEW}:42: a signature mismatch for `ReactMeta.story` names `src/vue.tsx`, but its form 0 "
-                        f"is bound to its owner's declaration in {PREVIEW}: recorded at {PREVIEW}:42"]
+                        f"is bound to its owner's declaration in {PREVIEW}: recorded at src/vue.tsx:42"]
+
+
+# `Client` declared in pkg/client.py and pkg/aio.py, each over `BaseClient`, which pkg/client.py declares first, its
+# member `send` at line 2.
+BASE_CLIENT = {"name": "BaseClient", "kind": "class", "file": "pkg/client.py", "line": 1,
+               "signatureLine": "class BaseClient:", "origin": "extraction"}
+SYNC_CLIENT = {"name": "Client", "kind": "class", "file": "pkg/client.py", "line": 10,
+               "signatureLine": "class Client(BaseClient):", "origin": "extraction"}
+AIO_CLIENT = {**SYNC_CLIENT, "file": "pkg/aio.py", "line": 5}
+SEND = {"name": "send", "kind": "method", "owner": "Client", "params": "msg: str", "description": "Sends.",
+        "at": "SKILL.md:3"}
+
+
+def test_a_bound_method_mismatch_read_at_another_owner_declaration_s_file_keeps_that_file(tmp_path):
+    """#1088 review: SKILL.md binds `client.send` to pkg/aio.py's `Client`, and the judge reads the member its base
+    declares at pkg/client.py:2, a file that holds the owner's other declaration. score took the bound file with the
+    judge's line, `pkg/aio.py:2`, a line of another file, though the gap's Source is to be the member's file and
+    line. It is taken at the judge's file and line, `pkg/client.py:2`, with the warning that the form is bound to
+    the owner's declaration in pkg/aio.py."""
+    skill = "# Demo\n\n`client.send(msg: str)` [SRC:pkg/aio.py:L5]\n"
+    mismatch = {"name": "Client.send", "file": "pkg/client.py", "line": 2, "documented_sig": "send(msg: str)",
+                "source_sig": "def send(self, msg: bytes) -> None", "issue": "msg is bytes in the source"}
+    out = _method_run(tmp_path, [SEND], [BASE_CLIENT, SYNC_CLIENT, AIO_CLIENT],
+                      [{"file": "pkg/aio.py", "signature_mismatches": [mismatch]}], tree={"SKILL.md": skill})
+    assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [("pkg/client.py", 2, "Critical")]
+    [gap] = out["gaps"]
+    assert (gap["title"], gap["source"]) == ("Signature mismatch: Client.send", "pkg/client.py:2")
+    assert "the signature the source defines at `pkg/client.py:2`" in gap["remediation"]
+    assert [w for w in out["warnings"] if "Client.send" in w] == [
+        "pkg/aio.py:2: a signature mismatch for `Client.send` names `pkg/client.py`, but its form 0 is bound to its "
+        "owner's declaration in pkg/aio.py: recorded at pkg/client.py:2"]
 
 
 def test_a_method_mentioned_with_no_form_is_never_compared(tmp_path):
@@ -4185,7 +4218,7 @@ def test_an_object_owner_s_method_is_checked_at_the_object_and_taken_at_its_clas
 def test_a_bound_method_form_read_in_another_file_is_taken_there(tmp_path):
     """#1088 review: a bound method form's mismatch the judge reads in a file no declaration of its owner is in (the
     member a base class declares, say) is taken at that file and the judge's line, not at the bound declaration's
-    file; one that names the owner's other declaration still stands at the bound file, with the warning (above)."""
+    file; one that names the owner's other declaration is taken at that file too, with the warning (above)."""
     inventory = [{**STORY_METHODS[0], "at": "SKILL.md:3"}]
     out = _method_run(tmp_path, inventory, [REACT_META, VUE_META],
                       [{"file": PREVIEW, "signature_mismatches": [{**STORY_MISMATCH, "file": "src/base.tsx",
