@@ -29,7 +29,9 @@ Before it returns, the script drops matches that land inside the compiled
 SKILL.md's own YAML frontmatter or its own `## Migration & Deprecation
 Warnings` section (both are self-authored: compile §2 wrote the frontmatter
 `description` and compile §4b wrote the migration bullets, so re-emitting
-either would be circular), and then bounds what survives.
+either would be circular), and then bounds what survives. The section is
+found by that exact level-2 heading only: one in another case, or with more
+text after it, opens no excluded window.
 
 Bounding matters because the temporal feeder is a verbatim upstream dump
 (changelog, release notes, issue and pull request bodies), so an unbounded
@@ -57,9 +59,10 @@ CLI usage:
 
   --skill-md         the compiled/staged SKILL.md feeder (feeder #4); matches
                      inside its YAML frontmatter or its `## Migration &
-                     Deprecation Warnings` section are excluded, and its other
-                     candidates come last when the pool is capped. It is also
-                     scanned like any other feeder.
+                     Deprecation Warnings` section (that exact heading only)
+                     are excluded, and its other candidates come last when
+                     the pool is capped. It is also scanned like any other
+                     feeder.
   FEEDER             any other feeder artifact (evidence-report.md,
                      provenance-map.json, temporal-context files). Repeatable
                      positionally or via --feeder.
@@ -130,7 +133,11 @@ PATTERN_TABLE: list[tuple[str, str]] = [
     ("signature changed", "Signature change"),
 ]
 
-_MIGRATION_HEADING = re.compile(r"^\s*##\s+Migration\s*&\s*Deprecation Warnings", re.IGNORECASE)
+# The compiled SKILL.md's own Section 4b heading: the one compile-assembly-rules.md
+# has create-skill emit verbatim, read as skf-shard-body.py and Test Skill's
+# Section 4b rule read it (level 2, exact text and case, nothing after it), so a
+# section under any other heading is not excluded.
+_MIGRATION_HEADING = re.compile(r"^\s*##\s+Migration & Deprecation Warnings\s*$")
 
 # The temporal feeder files that carry the project's own announcements: a line
 # of one that names a known export is a candidate (issues.md and
@@ -502,8 +509,8 @@ def _build_parser() -> argparse.ArgumentParser:
         dest="skill_md",
         default=None,
         help="Compiled/staged SKILL.md feeder; its frontmatter and its Migration & "
-        "Deprecation Warnings section are excluded from matches, and its other "
-        "candidates come last when the pool is capped.",
+        "Deprecation Warnings section (that exact heading only) are excluded from "
+        "matches, and its other candidates come last when the pool is capped.",
     )
     parser.add_argument(
         "--provenance",

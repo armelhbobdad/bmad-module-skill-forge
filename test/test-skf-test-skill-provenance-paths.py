@@ -371,15 +371,13 @@ def test_awk_detection_contract_reads_the_bound_report():
 def test_section_4b_is_the_exact_heading():
     """#1000: the Case Rules detect Section 4b by the exact heading create-skill emits and the other gates match,
     so a migration section under another heading is not Section 4b and two runs cannot read it two ways: with
-    T2-future = 0 it raises no Case, and with T2-future > 0 and no such heading it is Case 1. It names only the
-    matcher that agrees: scan-doc-rot.py's ignores case and trailing text."""
+    T2-future = 0 it raises no Case, and with T2-future > 0 and no such heading it is Case 1. It names both
+    matchers, skf-shard-body.py and scan-doc-rot.py, and both read the heading the same way (#1069)."""
     heading = "Migration & Deprecation Warnings"
     rules = _flow(_slice(_read(MIGRATION), "## Case Rules", "**Detection contract.**"))
     assert ("Section 4b is present only when SKILL.md's body has a level-2 heading whose text is exactly "
             f"`{heading}`: the heading `skf-create-skill/assets/compile-assembly-rules.md` has create-skill emit "
-            "verbatim, and the one `skf-shard-body.py` matches.") in rules
-    # scan-doc-rot.py's matcher ignores case and trailing text, so the rule claims no parity with it
-    assert "scan-doc-rot.py" not in rules
+            "verbatim, and the one `skf-shard-body.py` and `scan-doc-rot.py` match.") in rules
     assert ("A section under any other heading, such as `## Migration from v1`, is not Section 4b, whatever it "
             "holds: with T2-future = 0 it raises no Case, and with T2-future > 0 and no such heading it is "
             "Case 1.") in rules
@@ -392,6 +390,21 @@ def test_section_4b_is_the_exact_heading():
     assert heading in shard.TIER1_HEADINGS
     assert shard.present_tier1([f"## {heading}", "## Migration from v1"]) == {heading}
     assert shard.present_tier1([f"## {heading.lower()} (pre-1.0)"]) == set()
+    # #1069: scan-doc-rot.py excludes a section from the doc-rot candidates under exactly the headings that
+    # skf-shard-body.py counts, so the rule's sentence names both.
+    scan = runpy_module(SRC / "skf-create-skill" / "scripts" / "scan-doc-rot.py")
+    variants = [
+        f"## {heading}", f"## {heading}   ", f"  ## {heading}", f"##\t{heading}", f"##   {heading}",
+        # a 4-space indent and a no-break space after `##` open too, which a CommonMark reader would not take
+        f"    ## {heading}", f"## {heading}",
+        f"## {heading.lower()}", f"## {heading.upper()}", f"## {heading} (pre-1.0)",
+        "## Migration&Deprecation Warnings", "## Migration  &  Deprecation Warnings", f"## {heading} ##",
+        f"# {heading}", f"### {heading}", "## Migration from v1",
+    ]
+    for h in variants:
+        opens = scan.migration_section_range(f"{h}\n- old renamed to new\n") is not None
+        assert opens == (heading in shard.present_tier1([h])), repr(h)
+    assert sum(heading in shard.present_tier1([h]) for h in variants) == 7
 
 
 def test_case_4_is_an_evidence_report_without_the_pinned_count():
