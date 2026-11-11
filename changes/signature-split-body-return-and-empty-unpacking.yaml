@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `split-body-mismatch` gap, follow the gap's remediation: edit the file it names so it writes the return type or call of the form it says to take, whether or not a source settled it. If it stops on a `signature-mismatch` gap for a call whose `*items` or `**mapping` the declaration cannot take, drop that unpacking from the call. Then run Test Skill again.
 issues: [1065]
+prs: [1096]

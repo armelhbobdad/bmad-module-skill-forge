@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `signature-mismatch` gap whose documented return or type is written in words as a container, write the container and item type the source declares, then run Test Skill again.
 issues: [1083]
+prs: [1096]
