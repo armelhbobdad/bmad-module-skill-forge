@@ -39,7 +39,8 @@ commands it documents:
   neither file promises more.
 - #1092: a prior pitfall stays derived, without `[CARRIED]`, while a T2-future
   annotation states it or the current SKILL.md still states its main claim
-  anywhere, its frontmatter description and whole body included. New gotchas
+  anywhere, its frontmatter description and whole body included, and no place
+  in it contradicts that claim with another version or name. New gotchas
   still come only from a T2-future annotation and source 2's SKILL.md places,
   and one left without a slot is named in a warning that says how to free a
   slot. A prior pitfall that joins several stays stated while one T2-future
@@ -1160,8 +1161,9 @@ NO_SLOT_REMEDY = ("to give a left-off gotcha a slot, remove from the `|gotchas:`
                   "prose, then re-run export. A pitfall a T2-future annotation or one of those SKILL.md places "
                   "states comes back as a new gotcha, in source order, so removing it frees a slot only for a "
                   "left-off gotcha stated before it.\"")
-CARRY_PROMISE = ("They will be DROPPED on the next export unless a T2-future annotation in the evidence report or "
-                 "the current SKILL.md states them, except one that joins several pitfalls, such as a whole older "
+CARRY_PROMISE = ("They will be DROPPED on the next export unless a T2-future annotation in the evidence report "
+                 "states them, or the current SKILL.md states them and no place in it contradicts them with another "
+                 "version or name, except one that joins several pitfalls, such as a whole older "
                  "line, which is dropped unless one T2-future annotation, one bullet of a section whose heading "
                  "names gotchas, deprecations, migration, breaking changes or import corrections, one "
                  "`## Key API Summary` row whose purpose says deprecated or removed, or one Quick Start `await` "
@@ -1169,7 +1171,8 @@ CARRY_PROMISE = ("They will be DROPPED on the next export unless a T2-future ann
 DROP_REASONS = ("\"**Stale gotchas dropped:** {each pitfall, with why it was dropped: it was already carried "
                 "forward once, or the line's 3 slots went to current gotchas, and, for one that joins several "
                 "pitfalls, that no single place states it whole}. The pitfalls that do not join several no longer "
-                "appear in the current SKILL.md or evidence report.")
+                "appear in the current SKILL.md or evidence report, or a place in SKILL.md now contradicts them "
+                "with another version or name.")
 DROP_COMES_BACK = ("A dropped pitfall comes back only as a new gotcha: if one is still relevant, re-forge the skill "
                    "with update-skill so its SKILL.md states it in a bullet of a section whose heading names "
                    "gotchas, deprecations, migration, breaking changes or import corrections, in a "
@@ -1183,7 +1186,8 @@ FORMAT_PRIOR_STATED_CLAUSE = ("and a prior pitfall, already carried or not, that
                               "that the current SKILL.md still says anywhere (its frontmatter description and its "
                               "whole body), kept in its prior wording without the `[CARRIED]` marker.")
 FORMAT_MAIN_CLAIM_CLAUSE = ("SKILL.md says a pitfall when it states the pitfall's main claim (what to do or avoid, "
-                            "with any version or name the pitfall gives) in SKILL.md's own words.")
+                            "with any version or name the pitfall gives) in SKILL.md's own words and no place in it "
+                            "contradicts that claim with another version or name.")
 FORMAT_NEW_GOTCHAS_CLAUSE = ("New gotchas come only from the evidence report's T2-future annotations and those "
                              "SKILL.md places: a gotchas-type section's bullets, a deprecated or removed "
                              "`## Key API Summary` row and an async requirement the Quick Start shows.")
@@ -1280,6 +1284,10 @@ def test_a_prior_pitfall_the_current_skill_md_still_says_anywhere_is_derived():
     drop = _line(shared, "- **If an unbacked prior pitfall is already carried")
     assert _in_order(drop, DROP_REASONS, DROP_COMES_BACK, DROP_JOINED_ADVICE)
     assert "re-forge the skill with update-skill so its SKILL.md states it, or" not in drop
+    # The user docs no longer say the current export needs a gotchas-type section to keep a prior pitfall.
+    page = (REPO / "docs" / "verifying-a-skill.md").read_text(encoding="utf-8")
+    assert "which Skill Forge 10.0.0's export needed to keep the snippet's pitfalls" in page
+    assert "export needs to keep the snippet's pitfalls" not in page
 
 
 @pytest.mark.parametrize("prior_value, skill_md, report, is_first_export, several, expected", [
