@@ -152,8 +152,11 @@ documentation unchecked could delete a name the surface missed or one the
 source still declares. Nor is a `metadata-drift` gap: write.md §2's
 `metadata` call recounts the counts a patch would set (except under the
 drift override and for a docs-only skill, where it passes the counts
-metadata.json records), so no metadata patch holds. Each entry, in this
-key order:
+metadata.json records), so no metadata patch holds. Nor is a
+`signature-mismatch` gap of a method's form, `{owner}.{member}` (a dotted
+export the map holds no entry of, method_form): it names no export, and
+routing it would write the method into the map and metadata `exports[]`.
+Each entry, in this key order:
 
   name                      the gap's `export`, else the answered `name`
   gap_id, category          the gap's `id`, its `category` (else the
@@ -225,8 +228,9 @@ every need answered it writes the manifest and prints {"status":
 says why update-skill does not repair it and who does: NOT_ROUTED_REASONS
 gives one for each ledger category the table does not route (gap-driven.md
 §1's Not routed list), NO_REPAIR is the reason of a gap with no
-category or one no table holds, and NO_EXPORT that of a gap whose export
-is answered null. `warnings` holds parse's warnings as `test-report:
+category or one no table holds, NO_EXPORT that of a gap whose export
+is answered null, and NO_METHOD that of a method's `signature-mismatch`
+gap. `warnings` holds parse's warnings as `test-report:
 <warning>`, `test-report: not routed: <id> (<category>): <reason>` for
 each gap not routed, and, with --read-only, `proposed-amendment: excluded
 <path> (scope-expansion); not written: --<mode>` for each rescope.
@@ -914,6 +918,20 @@ def map_match(entries: list, name: str, citation: dict | None) -> dict:
             "candidates": [view(e) for e in named]}
 
 
+def method_form(entries: list, name: str) -> bool:
+    """Whether a `signature-mismatch` gap's export is a method's form, `{owner}.{member}` (test-skill checks a
+    documented method under that name, #1088): a dotted name with text on each side of its last `.` that no map
+    entry has as its `export_name` or `reexported_as`. A dotted name the map holds is an export like any other.
+
+    >>> [method_form([{"export_name": "Owner"}], n) for n in ("Owner.run", "run", ".run", "Owner.")]
+    [True, False, False, False]
+    >>> method_form([{"export_name": "App.update"}], "App.update")
+    False
+    """
+    owner, _, member = name.strip().rpartition(".")
+    return bool(owner and member) and not map_match(entries, name, None)["candidates"]
+
+
 def parse_gaps(
     report: Path | None,
     ledger: Path | None,
@@ -1004,8 +1022,8 @@ CHANGE_CATEGORIES = {
     "metadata": "metadata update",
 }
 # gap-driven.md §1's Not routed list, word for word: why update-skill repairs no gap of each other ledger category,
-# and who does. A gap takes NO_REPAIR when it has no category or one no table holds, and NO_EXPORT when its export
-# is answered null.
+# and who does. A gap takes NO_REPAIR when it has no category or one no table holds, NO_EXPORT when its export
+# is answered null, and NO_METHOD when it is a `signature-mismatch` gap of a method's form (method_form).
 NOT_ROUTED_REASONS = {
     "stale-documentation": (
         "the source has no line to repair the name from, so a person removes its documentation when the name is "
@@ -1051,6 +1069,9 @@ NOT_ROUTED_REASONS = {
 }
 NO_REPAIR = "update-skill has no repair for this category, so a person follows the gap's remediation"
 NO_EXPORT = "it names no export for update-skill to repair, so a person follows the gap's remediation"
+NO_METHOD = ("it names a method's form, `{owner}.{member}`, not an export the provenance map holds, so a person "
+             "corrects the method form the gap quotes to the signature its Source cites, then re-runs Test Skill")
+METHOD_CATEGORY = "signature-mismatch"  # the one category test-skill gives a method's form (score-signatures.py)
 EXPORT_CATEGORIES = ("NEW_EXPORT", "MODIFIED_EXPORT", "MOVED_EXPORT", "DELETED_EXPORT")
 RESCOPE_CATEGORIES = ("missing-export", "missing-type")  # rule R1
 COMPLETENESS = "provenance-completeness"  # rule R3
@@ -1187,6 +1208,9 @@ def translate_gaps(parsed: dict, map_entries: list, judgments: dict, *, read_onl
             skip(gap, category)
             continue
         name = export or _answer_text(answers.get("name"))
+        if category == METHOD_CATEGORY and name is not None and method_form(map_entries, name):
+            skip(gap, category, NO_METHOD)  # a method is no export: a route would write it into the map
+            continue
         if change in EXPORT_CATEGORIES and name is None:
             if "name" in answers:  # answered null: no export to repair
                 skip(gap, category, NO_EXPORT)

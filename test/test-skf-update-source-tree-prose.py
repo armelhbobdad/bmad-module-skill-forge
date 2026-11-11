@@ -3792,8 +3792,11 @@ def test_the_not_routed_list_gives_the_helpers_reasons():
     assert set(items) == set(helper.NOT_ROUTED_REASONS), set(items) ^ set(helper.NOT_ROUTED_REASONS)
     for slug, reason in items.items():
         assert reason == helper.NOT_ROUTED_REASONS[slug], slug
-    for reason in (helper.NO_REPAIR, helper.NO_EXPORT):
+    for reason in (helper.NO_REPAIR, helper.NO_EXPORT, helper.NO_METHOD):
         assert f'"{reason}"' in section, reason
+    # a method's signature gap (#1088) names the category and the name shape the helper keys on
+    assert ("a signature mismatch whose export is a method's form, `{owner}.{member}` (a dotted name no map "
+            "entry has as its `export_name` or `reexported_as`)") in section
     # an older report's gap may be answered with a Not routed slug, which keeps that category's reason
     needs = _slice(_zero(), "     - `category` (a report older than the ledger):", "\n")
     assert "else the Not routed slug that names it" in needs and "so the gap takes that category's reason" in needs
