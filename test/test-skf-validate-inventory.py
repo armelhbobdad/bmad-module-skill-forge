@@ -2427,6 +2427,51 @@ def test_a_key_params_pin_on_the_floor_is_carried_with_its_label(tmp_path):
         assert r["valid"] is False and r["violations"] == [violation], (fields, r["violations"])
 
 
+KEY_PARAMS_MODELS = ("# Demo\n\n| Export | Kind | Key params | Source |\n|---|---|---|---|\n"
+                     "| `cognee.ValidationReport` | pydantic model | `ValidationReport(status, summary, issues)`: the "
+                     "check's result. | |\n"
+                     "| `ValidationIssue` / `ValidationStatus` | pydantic model / str enum | "
+                     "`ValidationIssue(severity, type, detail)`: one finding; `ValidationStatus` is `pass`, `warn` or "
+                     "`fail`. | |\n")
+
+
+def test_a_key_params_own_call_is_left_to_the_reader_as_params(tmp_path):
+    """#1078 (oms-cognee 1.6.2): the contract reads a Key params cell as a description cell, except that a call that
+    passes an argument, of a name the row's first cell lists, with no prefix, is that name's signature, its arguments
+    in `params`, as the floor reads `Mem0Source(data, mode="re-derive")`. The floor reads no Key params cell on a
+    `pydantic model` row (the #997 Kind gate), gives a first cell's dotted name such as `cognee.ValidationReport` no
+    origin, and pins no form on a row whose first cell lists two names, so it gives only `ValidationIssue` and
+    `ValidationStatus` a table-row origin, with no `signature`, and the reader's routing decides at both rows: an
+    inventory that records each call's arguments as `params`, labelled partial by the Key params header, at its row
+    (`ValidationReport` at the line whose first cell writes `cognee.ValidationReport`), and `ValidationStatus` as an
+    `enum` there, passes --floor (exit 0) with no violation or warning and is written as given. No script changed."""
+    pkg = _package(tmp_path, KEY_PARAMS_MODELS)
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("ValidationIssue", [_floor_origin("SKILL.md", 6, "table-row")]),
+        ("ValidationStatus", [_floor_origin("SKILL.md", 6, "table-row")])], "no Key params call is pinned"
+    exports = [("ValidationReport", "class", {"params": "status, summary, issues", "signature_form": "partial",
+                                              "description": "The check's result.", "at": "SKILL.md:5"}),
+               ("ValidationIssue", "class", {"params": "severity, type, detail", "signature_form": "partial",
+                                             "description": "One finding.", "at": "SKILL.md:6"}),
+               ("ValidationStatus", "enum", {"description": "`pass`, `warn` or `fail`.", "at": "SKILL.md:6"})]
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*exports).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 2, "checked": 2, "absent": []}
+    written = json.loads(out.read_bytes())
+    assert written["exports"] == [
+        {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each form kept as given"
+
+
 USAGE_SKILL = ("# Demo\n\n"
                "| Component | Props | Purpose |\n| --- | --- | --- |\n"
                "| `Title` | `TitleProps = { of?: Of }` | Renders the title. |\n\n"

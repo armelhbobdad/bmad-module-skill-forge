@@ -43,7 +43,13 @@ and none of the `difference` tags. These tests keep:
 - a name written with empty parentheses in running text or a description
   cell (any cell but an export table's first cell and a call or signature
   column, by role) read as a mention, no form, in the contract and the
-  rules alike, a heading or first cell `name()` staying a form (#887);
+  rules alike, a heading or first cell `name()` staying a form (#887); a
+  Key params cell a description cell, its parameter list for the row's
+  name still a form and a call there of a name the row's first cell lists,
+  passing an argument with no prefix, that name's signature, its
+  arguments in `params`, never a usage, the call and bare-names sentences
+  of the rules and the contract's call-expression and methods sentences
+  naming it as their exception (#1078);
 - a usage form read as what it writes, in the call-example rule, and a
   name documented in several forms compared with each form by its own
   rules, a mismatch reported for each form that does not match, on §2's
@@ -400,7 +406,9 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
     written as such a list names parameters whatever its names are, and a call expression comes as a usage, read as a
     call, so the judge reads each form by the field the inventory contract routes it to. #1002: a parameter table,
     which the contract now makes a place of its own, is a typed form read in row order, so the split-body
-    cross-check, which reads the table itself, claims its list complete as the §2 judge does its `params`."""
+    cross-check, which reads the table itself, claims its list complete as the §2 judge does its `params`. #1078: a
+    Key params cell's call of a name its row's first cell lists, with no prefix, is that name's `params`, so the
+    bare-names bullet names it as the one call expression that does not come as a usage."""
     reading = _section("Reading a form")
     assert "Three kinds of form do not claim a complete parameter list:" in reading
     assert ("It is compared as a call: each argument it passes must exist, by position or by name, and every required "
@@ -416,7 +424,9 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
     [bare] = [line for line in _read(RULES).splitlines() if line.startswith("- A list of bare names")]
     assert bare.endswith("an optional member it leaves out is no difference, a required one is a mismatch. An "
                          "entry's `params` written as such a list is read this way, whatever the names; a call "
-                         "expression comes as a usage (inventory-contract.md) and is read as a call (above)."), bare
+                         "expression comes as a usage (inventory-contract.md) and is read as a call (above), "
+                         "unless it is a Key params cell's call of a name its row's first cell lists, with no "
+                         "prefix, which comes as that name's `params`."), bare
     assert ("A form that writes a type, a default or a `?` for a parameter (`(date: Date) => string`, "
             "`{ of?, meta? }`) claims its list is complete: an optional parameter it leaves out is an "
             "`omitted-optional` difference") in reading
@@ -565,7 +575,8 @@ def test_a_usage_form_is_read_as_what_it_writes():
     spread or a TS/JS `...args` passes but not Python's `*items` or `**mapping`, so `Settings(**config)` read
     literally passed no required parameter, a Critical that blocks the hard gate. It now says what each unpacking
     passes, keeps the arguments written beside it compared, and the placeholder `*args` and `**kwargs` unpack the
-    same way."""
+    same way. #1078: the Key params sentence of the description-cell definition names `usage_signature` only as the
+    field a Key params cell's own call is never recorded in, once, so the usage rule keeps its one copy."""
     reading = _section("Reading a form")
     assert ("A component usage `<X a={x} b=\"y\" />` reads as a list of bare names of the props it sets, and a call "
             "`f(a, b)` as its arguments in order, each the parameter at its position (or, written `name=value`, the one "
@@ -588,7 +599,9 @@ def test_a_usage_form_is_read_as_what_it_writes():
     # score-signatures.py's parameter fact still refuses an unpacking, on the strict side, and its docstring says so
     assert ("a call's `*items` or `**mapping` argument (read as a `*args` or `**kwargs` the source must declare, so "
             "`Settings(**config)` against `__init__(self, host, port)` differs)") in _flow(_read(SCORE_SIGNATURES))
-    assert reading.count("`usage_signature`") == 1, "one copy of the usage rule"
+    key_params = "its arguments recorded in `params`, never in `usage_signature`"
+    assert reading.count(key_params) == 1, "#1078: one copy of the Key params sentence"
+    assert reading.count("`usage_signature`") - reading.count(key_params) == 1, "one copy of the usage rule"
     # the bullet it extends, and the bare-names rule it reads by
     call = _paragraph(_read(RULES), "- A call or usage example passes values")
     assert "A component usage `<X a={x} b=\"y\" />` reads as a list of bare names" in call
@@ -1642,15 +1655,30 @@ def test_an_empty_parenthesized_mention_is_no_form():
     bare `*` or `/`, which no call writes, so it stays a parameter list; and on a prefixed call followed by its
     return type, such as cocoindex's `await coco.mount([subpath,] processor_fn, *args, **kwargs) ->
     ComponentMountHandle`, which read as bare names made `[subpath,]` a parameter the source lacks: after such a
-    prefix it stays a call."""
+    prefix it stays a call. #1078: neither file named Key params, so on oms-cognee 1.6.2 readers split on
+    `ValidationReport(status, summary, issues)` in a `pydantic model` row's Key params cell, which the floor never
+    reads: `params`, or a usage whose positional arguments are a Critical mismatch against a keyword-only
+    constructor. Both files now say, in the same words, that a cell under a Key params or Key parameters header is a
+    description cell, a parameter list it writes for the row's name still that name's form, and a call there that
+    passes an argument, of a name the row's first cell lists, with no prefix, that name's signature, its arguments
+    in `params`, as the floor reads `Mem0Source(data, mode="re-derive")`, never in `usage_signature`; the rules'
+    prose call sentence right after it names that call as its exception, so no sentence sends it to a usage."""
     mention = ("A name written with empty parentheses, or with only `...` or `…` between them, in running text or a "
                "description cell is a mention, not a form")
     prefix = ", whatever comes before the name (`await`, `new`, an assignment, a receiver or a module path)"
+    key_params = ("a cell under a Key params or Key parameters header (the whole header, whatever its letter case, as "
+                  "inventory-floor.json reads one) is a description cell, where a parameter list written for the "
+                  "row's name (`clear_saved: bool = False`) is still that name's form and a call that passes an "
+                  "argument, of a name the row's first cell lists, with no `await`, `new`, assignment, receiver or "
+                  "module path before the name (`ValidationReport(status, summary, issues)` in a row whose first cell "
+                  "lists `cognee.ValidationReport`), is that name's signature, its arguments recorded in `params`, "
+                  "never in `usage_signature`")
     cell = ("A description cell is any table cell but an export table's first cell and a cell whose column writes the "
             "call or signature, by its role (Signature, Props, Params, Parameters, Arguments, Usage, Syntax, Example "
-            "and the like); a heading or an export table's first cell that writes `name()` is a form")
+            f"and the like); {key_params}; a heading or an export table's first cell that writes `name()` is a form")
     prose_call = ("A name written with arguments in running text or a description cell is a call (below), not a list "
-                  "of bare names, whatever comes before the name, unless it writes a parameter type, a `?`, a bare `*` "
+                  "of bare names, whatever comes before the name, unless it is a Key params cell's call of a name its "
+                  "row's first cell lists, with no prefix (above), or it writes a parameter type, a `?`, a bare `*` "
                   "or `/` (no call writes one), or a return type with no `await`, `new`, assignment, receiver or "
                   "module path before the name (`await coco.mount(fn) -> Handle` is a call).")
     returned = ("unless a return type follows its empty parentheses (`run_migrations() -> list[str]`)")
@@ -1671,6 +1699,7 @@ def test_an_empty_parenthesized_mention_is_no_form():
     assert reading.index(paragraph) < reading.index("Three kinds of form do not claim a complete parameter list:"), \
         "before the forms that claim no complete parameter list, not inside the call-example rule"
     for text in (contract_text, rules):
+        assert text.count(key_params) == 1, "#1078: the Key params sentence once, the same in both files"
         assert "\u2014" not in text and "\u2013" not in text, "no em or en dash"
 
 
