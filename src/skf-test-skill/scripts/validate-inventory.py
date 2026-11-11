@@ -188,7 +188,15 @@ prompt consumes it directly instead of re-parsing the raw response.
 inventory name, once, that two or more of the spot-check's files write
 (cross_checked), the Exports Cross-Checked count coherence-check reports.
 Only the validator writes it: one the response carries is replaced with
---skill-package and dropped without it.
+--skill-package and dropped without it. When a `cross_check_mismatches`
+entry's `export` is not among `names` (one written `{owner}.{name}` counts
+by its `method` entry's `name`), `crossChecked` also gives `uncounted`, one
+`{"export", "reference_file", "why"}` item per such entry, and a warning
+names each (#1067), never a violation: its two places are in one file, a
+file of its pair is not one the inventory reads, or a file of its pair does
+not write it (uncounted_mismatches). The Reference Consistency section
+names each one beside the count, so a mismatch is never shown beside a
+count that leaves it out with no word why.
 
 It also reports each documented item's completeness, the docs-only Export
 Coverage rule: an item (one name and kind) is complete when it has a
@@ -271,12 +279,16 @@ it leaves out `inventory` and `completeness` and gives `output` instead):
   {
     "valid": <bool>,             # true only when parse + every schema check pass
     "violations": [<str>, ...],  # human-readable failures; empty when valid
-    "warnings": [<str>, ...],    # each missing or bad `at` (dropped), never a failure
+    "warnings": [<str>, ...],    # each missing or bad `at` (dropped), malformed `undecided`
+                                 # item (dropped), floor origin no entry gives as its `at`,
+                                 # or mismatch crossChecked leaves out, never a failure
     "rejectedCount": <int>,      # exports[] entries with no valid name or kind
     "exportsCount": <int>,       # len(exports) when parsed; 0 otherwise
     "inventory": {...} | null,   # fence-stripped parsed inventory when valid; null otherwise;
                                  # with --skill-package it carries
-                                 # "crossChecked": {"count": <int>, "names": [<name>, ...]}
+                                 # "crossChecked": {"count": <int>, "names": [<name>, ...]},
+                                 # plus "uncounted": [{"export", "reference_file", "why"}]
+                                 # when a mismatch's `export` is not among `names`
     "completeness": {            # present when valid
       "total": <int>,            # documented items, one per name and kind
       "complete": <int>,
@@ -789,14 +801,15 @@ def _package_texts(inventory, skill_package_path):
     return read, unread
 
 
-def spot_check(inventory, skill_package_path):
+def spot_check(inventory, skill_package_path, texts=None):
     """Look the sampled export names up in SKILL.md and the inventory's references.
 
-    The files are _package_texts's: `files` names each one read as the
-    inventory spells it, `unread` each listed one that is missing,
-    unreadable or resolves outside the package.
+    The files are _package_texts's (`texts`, its result, when the caller
+    read them already): `files` names each one read as the inventory spells
+    it, `unread` each listed one that is missing, unreadable or resolves
+    outside the package.
     """
-    read, unread = _package_texts(inventory, skill_package_path)
+    read, unread = texts if texts is not None else _package_texts(inventory, skill_package_path)
     doc_text = "\n".join(text for _, _, text in read)
     sampled = sample_names(inventory.get("exports"))
     found = set(names_present(sampled, doc_text))
@@ -822,12 +835,74 @@ def cross_checked(exports, texts):
     """
     names = {entry["name"] for entry in exports
              if isinstance(entry, dict) and isinstance(entry.get("name"), str) and entry["name"]}
+    found = _names_written(names, texts).values()
+    crossed = sorted(name for name in names if sum(name in written for written in found) >= 2)
+    return {"count": len(crossed), "names": crossed}
+
+
+def _names_written(names, texts):
+    """The `names` each file of `texts` (_package_texts's `read`) writes outside its citations (names_present), the
+    match cross_checked counts by: a dict of each file once, by its resolved path (os.path.normcase), to a set."""
     by_path = {}
     for _, path, text in texts:
         by_path.setdefault(os.path.normcase(path), text)
-    found = [set(names_present(names, _ANY_CITATION_RE.sub(" ", text))) for text in by_path.values()]
-    crossed = sorted(name for name in names if sum(name in written for written in found) >= 2)
-    return {"count": len(crossed), "names": crossed}
+    return {path: set(names_present(names, _ANY_CITATION_RE.sub(" ", text))) for path, text in by_path.items()}
+
+
+def _joined(paths):
+    """`paths` in backticks, two joined with `and`."""
+    return " and ".join(f"`{path}`" for path in paths)
+
+
+def uncounted_mismatches(cross, exports, texts, names, skill_package_path):
+    """The cross_check_mismatches entries the Exports Cross-Checked count leaves out (#1067), with why.
+
+    `cross` is the inventory's mismatch list, each entry checked
+    (mismatch_violations, so its files are the package's paths), `texts`
+    _package_texts's `read` and `names` cross_checked's `names`. An entry is
+    counted when `names` holds its `export`, or the `name` of the `method`
+    entry it names as `{owner}.{name}` (_spellings). For one that is not,
+    the reason is the first that applies to its pair's two files, the other
+    side's (`SKILL.md` for `skill_md_line`, else `other_file`) and then
+    `reference_file`: both resolve to one path (cross_checked counts a file
+    once); a file is not one `texts` holds (`references` does not list it,
+    or it cannot be read); or a file does not write it, by cross_checked's
+    match (_names_written). A pair of two lines of one file, or one naming
+    a reference the inventory does not read, passes the schema, so this is
+    never a violation. Returns `(index, item)` pairs in list order, each
+    item `{"export", "reference_file", "why"}`.
+    """
+    root = Path(skill_package_path)
+    written = _names_written({e["name"] for e in exports if _spellings(e)}, texts)
+    uncounted = []
+    for idx, entry in enumerate(cross):
+        export = entry["export"]
+        stands_for = {e["name"] for e in exports if export in _spellings(e)}
+        if not stands_for.isdisjoint(names):
+            continue
+        files = ["SKILL.md" if entry.get("skill_md_line") is not None else entry["other_file"],
+                 entry["reference_file"]]
+        paths = [os.path.normcase(os.path.realpath(root / file)) for file in files]
+        unread = [file for file, path in zip(files, paths) if path not in written]
+        if paths[0] == paths[1]:
+            why = (f"its two places are in one file, `{entry['reference_file']}`, and the count takes only a name "
+                   "two or more files write")
+        elif len(unread) == 1:
+            why = (f"{_joined(unread)} is not a file the inventory reads (`references` does not list it, or it "
+                   "cannot be read)")
+        elif unread:
+            why = (f"{_joined(unread)} are not files the inventory reads (`references` does not list them, or they "
+                   "cannot be read)")
+        else:
+            silent = [file for file, path in zip(files, paths) if stands_for.isdisjoint(written[path])]
+            if len(silent) == 1:
+                why = f"{_joined(silent)} does not write it"
+            elif silent:
+                why = f"{_joined(silent)} do not write it"
+            else:
+                why = "fewer than two of the files the inventory reads write it"
+        uncounted.append((idx, {"export": export, "reference_file": entry["reference_file"], "why": why}))
+    return uncounted
 
 
 # --- Signature forms ----------------------------------------------------------
@@ -1261,17 +1336,22 @@ def _is_line(value):
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
+def _spellings(entry):
+    """The spellings a mismatch's `export` may name one entry by (mismatch_names): its non-empty string `name`,
+    and `{owner}.{name}` for a `method` entry whose `owner` is a non-empty string; none for an entry with no
+    such `name`."""
+    if not (isinstance(entry, dict) and isinstance(entry.get("name"), str) and entry["name"]):
+        return ()
+    if entry.get("kind") == "method" and isinstance(entry.get("owner"), str) and entry["owner"]:
+        return entry["name"], f"{entry['owner']}.{entry['name']}"
+    return (entry["name"],)
+
+
 def mismatch_names(exports):
     """The spellings a mismatch's `export` may take (#1033): each entry's non-empty string `name`, and
     `{owner}.{name}` for a `method` entry whose `owner` is a non-empty string. The contract asks for the bare
     `name`, the one `crossChecked` lists; the qualified one is accepted so a reader that writes it is not refused."""
-    names = set()
-    for entry in exports:
-        if isinstance(entry, dict) and isinstance(entry.get("name"), str) and entry["name"]:
-            names.add(entry["name"])
-            if entry.get("kind") == "method" and isinstance(entry.get("owner"), str) and entry["owner"]:
-                names.add(f"{entry['owner']}.{entry['name']}")
-    return names
+    return {spelling for entry in exports for spelling in _spellings(entry)}
 
 
 def mismatch_violations(idx, entry, skill_package_path=None, names=None):
@@ -1501,8 +1581,10 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
     `raw` is the raw response text. Returns the result dict documented in the
     module docstring. With `skill_package_path`, an inventory that passed the
     schema is spot-checked against the package (spot_check), given its
-    `crossChecked` count (cross_checked) and each `at` is looked up there
-    (place_warnings); a `crossChecked` the response carries never survives.
+    `crossChecked` count (cross_checked), with `uncounted` and a warning for
+    each mismatch the count leaves out (uncounted_mismatches, #1067), and
+    each `at` is looked up there (place_warnings); a `crossChecked` the
+    response carries never survives.
     With `floor` (read_floor's object),
     it is checked against the floor (floor_check). A missing or bad `at` is
     a warning, the bad one dropped, never a violation (#918).
@@ -1619,14 +1701,22 @@ def validate_inventory(raw, skill_package_path=None, floor=None):
     schema_valid = not violations
     checked = None
     if schema_valid and skill_package_path is not None:
-        checked = spot_check(data, skill_package_path)
+        texts = _package_texts(data, skill_package_path)
+        checked = spot_check(data, skill_package_path, texts)
         for name in checked["absent"]:
             violations.append(
                 f"spot-check: `{name}` is listed as an export, but SKILL.md and the "
                 f"listed reference files never write it"
             )
         # In the inventory object, so the --output file carries it.
-        data["crossChecked"] = cross_checked(exports, _package_texts(data, skill_package_path)[0])
+        data["crossChecked"] = cross_checked(exports, texts[0])
+        # A mismatch the count leaves out (#1067) is named with why, in the inventory, so the Reference
+        # Consistency section can say so beside the count, and warned about, never refused.
+        uncounted = uncounted_mismatches(cross, exports, texts[0], data["crossChecked"]["names"], skill_package_path)
+        if uncounted:
+            data["crossChecked"]["uncounted"] = [item for _, item in uncounted]
+            warnings.extend(f"cross_check_mismatches[{idx}] (`{item['export']}`): Exports Cross-Checked does not "
+                            f"count it, since {item['why']}" for idx, item in uncounted)
         warnings.extend(place_warnings(data, skill_package_path))
     floor_result = None
     if schema_valid and floor is not None:
@@ -1700,7 +1790,8 @@ def _build_parser():
         "--skill-package",
         metavar="DIR",
         help="Spot-check sampled names against this package's SKILL.md and listed references, "
-        "and add their crossChecked count to the inventory.",
+        "and add their crossChecked count to the inventory, with each cross_check_mismatches entry "
+        "the count leaves out and why (crossChecked.uncounted, also a warning).",
     )
     parser.add_argument(
         "--floor",

@@ -20,7 +20,7 @@
 
 ## Coherence Analysis — Naive Mode: Reference Consistency (split-body)
 
-Only rendered when `references/` directory exists alongside SKILL.md. Each row is a split-body gap coverage-check recorded. **Other Side** is the other file of its pair, at its line: `SKILL.md:{skill_md_line}`, or `{other_file}:{other_line}` for two references. Its Source is at **Other Side** when the pinned source contradicts that side and agrees with **Reference File**, else at `{Reference File}:{Reference Line}`. **Contradicted Side** is the path of the one file the source contradicts (`SKILL.md` or a `references/` file's path), `none` when both forms agree with it, or `not settled` when it contradicts both or no source settled it. **Exports Cross-Checked** is `crossChecked.count` from `{run_dir}/inventory.json`, which `scripts/validate-inventory.py` writes: the inventory's names that two or more of the files it reads write, never counted by hand. **Mismatches Found** is the number of `cross_check_mismatches` entries in `{run_dir}/inventory.json`, one for each pair of places whose forms disagree, so an export can count more than once, and 0 when that inventory's `references` is empty, since coverage-check records no split-body gap then.
+Only rendered when `references/` directory exists alongside SKILL.md. Each row is a split-body gap coverage-check recorded. **Other Side** is the other file of its pair, at its line: `SKILL.md:{skill_md_line}`, or `{other_file}:{other_line}` for two references. Its Source is at **Other Side** when the pinned source contradicts that side and agrees with **Reference File**, else at `{Reference File}:{Reference Line}`. **Contradicted Side** is the path of the one file the source contradicts (`SKILL.md` or a `references/` file's path), `none` when both forms agree with it, or `not settled` when it contradicts both or no source settled it. **Exports Cross-Checked** is `crossChecked.count` from `{run_dir}/inventory.json`, which `scripts/validate-inventory.py` writes: the inventory's names that two or more of the files it reads write, never counted by hand. **Mismatches Found** is the number of `cross_check_mismatches` entries in `{run_dir}/inventory.json`, one for each pair of places whose forms disagree, so an export can count more than once, and 0 when that inventory's `references` is empty, since coverage-check records no split-body gap then. **Not Cross-Checked** gives each mismatch Exports Cross-Checked does not count, from `crossChecked.uncounted`, which `scripts/validate-inventory.py` writes only when a mismatch's `export` is not among `crossChecked.names`: its `export`, its `reference_file` and why (its two places are in one file, a file of its pair is not one the inventory reads, or a file of its pair does not write it).
 
 ```markdown
 ### Reference Consistency (split-body)
@@ -31,6 +31,7 @@ Only rendered when `references/` directory exists alongside SKILL.md. Each row i
 
 **Exports Cross-Checked:** {crossChecked.count}
 **Mismatches Found:** {the number of cross_check_mismatches entries}
+**Not Cross-Checked:** {each crossChecked.uncounted item as `{export}` ({reference_file}): {why}, joined by "; "; leave this line out when there is none or Mismatches Found is 0}
 ```
 
 ## Coherence Analysis — Contextual Mode
