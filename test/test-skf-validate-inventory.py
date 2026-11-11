@@ -2489,12 +2489,13 @@ def test_a_key_params_other_call_is_left_to_the_reader_as_a_usage(tmp_path):
     `__version__` a table-row origin each, at their rows, none with a `signature`, and the reader's routing decides:
     an inventory that records `.prune_system(graph=True)` and `nodes_of_type(node_type)` as usages of `method`
     entries with their `owner`, `ZepSource(data, mode="hybrid")` as a usage at the `GraphitiSource` row, each
-    labelled partial by the Key params header, `GraphitiSource`'s own entry there with no form, `prune_data`,
-    `link_relations` and `get_cognee_version` with no form at the one place each is written, and the `prune` and
+    labelled partial by the Key params header, `GraphitiSource`'s own entry there with no form, and the `prune` and
     `GraphSnapshot` class entries with a `methods` item for each method their row's cell writes, as the methods
     sentence gives it besides its `method` entry, each item starting with the method's name, passes --floor (exit 0)
     with no violation or warning and is written as given. Each `method` entry gives its row as `at`, since #1088
-    compares a `method`'s form with its owner's member. No validator or floor script changed."""
+    compares a `method`'s form with its owner's member. #1071: `prune_data`, `link_relations` and
+    `get_cognee_version`, written only as empty calls in description cells, are mentions with no other place, so they
+    get no entry of their own. No validator or floor script changed."""
     pkg = _package(tmp_path, KEY_PARAMS_OTHER_CALLS)
     floor = tmp_path / "inventory-floor.json"
     proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
@@ -2508,19 +2509,16 @@ def test_a_key_params_other_call_is_left_to_the_reader_as_a_usage(tmp_path):
     partial = {"signature_form": "partial"}
     exports = [("prune", "class", {"description": "", "at": "SKILL.md:5",
                                    "methods": ["prune_data()", "prune_system(graph=True)"]}),
-               ("prune_data", "method", {"owner": "prune", "description": "All async.", "at": "SKILL.md:5"}),
                ("prune_system", "method", {"owner": "prune", "usage_signature": ".prune_system(graph=True)",
                                            **partial, "description": "All async.", "at": "SKILL.md:5"}),
                ("GraphSnapshot", "class", {"description": "", "at": "SKILL.md:6",
                                            "methods": ["nodes_of_type(node_type)", "link_relations()"]}),
                ("nodes_of_type", "method", {"owner": "GraphSnapshot", "usage_signature": "nodes_of_type(node_type)",
                                             **partial, "description": "", "at": "SKILL.md:6"}),
-               ("link_relations", "method", {"owner": "GraphSnapshot", "description": "", "at": "SKILL.md:6"}),
                ("GraphitiSource", "class", {"description": "Subclass of `ZepSource`.", "at": "SKILL.md:7"}),
                ("ZepSource", "class", {"usage_signature": 'ZepSource(data, mode="hybrid")', **partial,
                                        "description": "", "at": "SKILL.md:7"}),
-               ("__version__", "constant", {"description": "The package version.", "at": "SKILL.md:8"}),
-               ("get_cognee_version", "function", {"description": "", "at": "SKILL.md:8"})]
+               ("__version__", "constant", {"description": "The package version.", "at": "SKILL.md:8"})]
     response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
     response.write_bytes(_signed(*exports).encode("utf-8"))
     proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
@@ -2533,6 +2531,56 @@ def test_a_key_params_other_call_is_left_to_the_reader_as_a_usage(tmp_path):
     written = json.loads(out.read_bytes())
     assert written["exports"] == [
         {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each form kept as given"
+
+
+MENTION_ONLY = ("# Demo\n\n"
+                "Raises `QueryValidationError` when `top_k` is zero; `dry_run=True` returns a `DryRunEstimate`.\n\n"
+                "- `CogneeSystemError`: status 500\n"
+                "- `SkillRunEntry` is not exported from top-level `cognee`; import it from `cognee.memory`.\n\n"
+                "Exposed as the `DecoratorHelpers` namespace export; see `cognee.exceptions` and `visualize` below.\n\n"
+                "```python\n__all__ = [\"DirWalker\", \"walk_dir\"]\nfrom cognee.migration import Mem0Source\n```\n\n"
+                "### Data primitives: `cognee.low_level`\n\nThe data primitives.\n\n"
+                "| Export | Kind | Purpose |\n|---|---|---|\n"
+                "| `cognee.visualize` | async fn | Alias for `visualize_graph`. |\n"
+                "| `Mem0Source` | class | Reads a Mem0 export. |\n")
+MENTION_ONLY_API = "# API\n\n### `cognee.exceptions` error hierarchy\n\nThe exception classes.\n"
+
+
+def test_a_name_written_only_as_a_mention_is_left_out(tmp_path):
+    """#1071 (oms-cognee, oms-cocoindex, oms-storybook-react-vite, oms-uitripled): the contract now says a name the
+    skill writes only as a mention, bare in running text, a bullet list or a description cell, in an import, an
+    `__all__` list or after a heading's first word, gets no entry, however the prose presents it (a raised or returned
+    name, one only a submodule exports, a namespace object called an export), and a documented name's formless entry
+    sits at a heading that opens with it, an export table's first cell or a fenced declaration, the first of them. The
+    floor reads only a table row, a heading with no other words or a declaration, so it gives only `Mem0Source` a
+    place (its row, not its import), and none of the mentions, the heading with words before `cognee.low_level` or
+    the row whose first cell writes the dotted `cognee.visualize`. An inventory of `exceptions` at the reference
+    heading that opens with `cognee.exceptions`, `visualize` at its row (not the prose line above that names it
+    first) and `Mem0Source` at its floor row, all formless, and no entry for any mention, passes --floor (exit 0)
+    with no violation or warning and is written as given: the floor never forces a mention. No validator or floor
+    script changed."""
+    pkg = _package(tmp_path, MENTION_ONLY, {"api.md": MENTION_ONLY_API})
+    floor = tmp_path / "inventory-floor.json"
+    proc = subprocess.run([sys.executable, str(FLOOR_SCRIPT), "floor", "--skill-dir", str(pkg), "--output",
+                           str(floor)], capture_output=True, text=True, encoding="utf-8")
+    assert proc.returncode == 0, proc.stderr
+    assert [(n["name"], n["origins"]) for n in mod.read_floor(floor)["names"]] == [
+        ("Mem0Source", [_floor_origin("SKILL.md", 22, "table-row")])], "the floor gives no mention a place"
+    exports = [("exceptions", "constant", {"description": "The exception classes.", "at": "references/api.md:3"}),
+               ("visualize", "function", {"description": "Alias for `visualize_graph`.", "at": "SKILL.md:21"}),
+               ("Mem0Source", "class", {"description": "Reads a Mem0 export.", "at": "SKILL.md:22"})]
+    response, out = tmp_path / "inventory-response.txt", tmp_path / "inventory.json"
+    response.write_bytes(_signed(*exports, references=["references/api.md"]).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--input", str(response), "--skill-package", str(pkg),
+                           "--output", str(out), "--floor", str(floor)], capture_output=True, text=True,
+                          encoding="utf-8")
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    result = json.loads(proc.stdout)
+    assert result["violations"] == [] and result["warnings"] == [], (result["violations"], result["warnings"])
+    assert result["floor"] == {"names": 1, "checked": 1, "absent": []}
+    written = json.loads(out.read_bytes())
+    assert written["exports"] == [
+        {"name": name, "kind": kind, **fields} for name, kind, fields in exports], "each entry kept as given"
 
 
 USAGE_SKILL = ("# Demo\n\n"
