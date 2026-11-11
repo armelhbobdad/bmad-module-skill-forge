@@ -52,7 +52,10 @@ and none of the `difference` tags. These tests keep:
 - a const annotated with a function type declaring that type's
   parameters, the arrow's destructuring that same parameter, so a form may
   write it either way, and a partial destructuring reading as no narrower
-  type (#928);
+  type (#928), an interface or object type literal with call signatures
+  counting as such a type, several of them one overload set (#1085),
+  unless the source declares the const as a component, compared by its
+  props (`React.FC<P>` writes a call signature too);
 - a call to a class compared with its constructor, an instance's call with
   its `__call__`, an alias's with its class's, a source's leading receiver
   never compared and a callee's `*args` and `**kwargs` taking any extra
@@ -297,16 +300,42 @@ def test_a_call_an_ellipsis_and_bare_names_claim_no_complete_list():
     assert bare.endswith("an optional member it leaves out is no difference, a required one is a mismatch. An "
                          "entry's `params` written as such a list is read this way, whatever the names; a call "
                          "expression comes as a usage (inventory-contract.md) and is read as a call (above)."), bare
-    assert ("A form that writes a type or a default for a parameter (`(date: Date) => string`) claims its list is "
-            "complete: an optional parameter it leaves out is an `omitted-optional` difference") in reading
+    assert ("A form that writes a type, a default or a `?` for a parameter (`(date: Date) => string`, "
+            "`{ of?, meta? }`) claims its list is complete: an optional parameter it leaves out is an "
+            "`omitted-optional` difference") in reading
     # the typed-form rule it extends, on the same paragraph
     assert ("an optional parameter it leaves out is an `omitted-optional` difference (Difference tags). A parameter "
             "table (inventory-contract.md) is such a form, its rows read in order as one typed parameter "
             "list.") in reading
     assert "one it adds where the source has none is no difference: calls that follow the form are valid." in reading
     props = _section("Components")
-    assert ("An optional own prop a typed props list or a table leaves out is an `omitted-optional` difference; one a "
-            "list of bare names or a usage leaves out, and an optional inherited prop, is no difference.") in props
+    assert ("An optional own prop a typed props list, a list that marks a prop `?` or gives it a default, or a table "
+            "leaves out is an `omitted-optional` difference; one a list of bare names or a usage leaves out, and an "
+            "optional inherited prop, is no difference.") in props
+
+
+def test_a_list_that_marks_a_member_with_a_question_mark_claims_to_be_complete():
+    """#1089: Reading a form called a list complete only when it wrote a type or a default, while its bare-names
+    bullet took only a list with no type, default or `?`, so storybook's `Story` documented as
+    `{ of?, meta?, inline?, height?, autoplay? }` was in neither class, and Components named only a typed props list
+    or a table as leaving out an optional own prop as `omitted-optional`. Both 10.0.0 judges logged that reading under
+    Borderline Calls, and the first 9.0.0 run found no mismatch. A `?` now claims the list complete, as a type or a
+    default does, which is how score-signatures.py already reads a parameter list: `(of?, meta?)` is compared as
+    complete, `(of, meta)` as bare names. Components names a props list that gives a prop a default too, such as its
+    own `({ of, meta = {} })`, which was in neither of its classes either."""
+    reading = _section("Reading a form")
+    assert ("A form that writes a type, a default or a `?` for a parameter (`(date: Date) => string`, "
+            "`{ of?, meta? }`) claims its list is complete") in reading
+    props = _section("Components")
+    assert ("An optional own prop a typed props list, a list that marks a prop `?` or gives it a default, or a table "
+            "leaves out is an `omitted-optional` difference") in props
+    spec = importlib.util.spec_from_file_location("score_signatures", SCORE_SIGNATURES)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    source = "(of?: X, meta?: M, inline?: boolean) => R"
+    assert module._parameter_difference("(of?, meta?) => R", source, ".ts") \
+        == "the documented list writes 2 parameters, the source 3 parameters"
+    assert module._parameter_difference("(of, meta) => R", source, ".ts") is None
 
 
 def test_a_caller_following_a_narrower_form_makes_a_valid_call():
@@ -625,6 +654,54 @@ def test_a_const_annotated_with_a_function_type_declares_that_type_s_parameters(
     assert "a destructured property is part of a type)" in _section("Difference tags")
 
 
+def test_a_const_annotated_with_call_signatures_declares_each_of_them():
+    """#1085: storybook declares `export const actions: ActionsFunction = (...args: any[]) => ...`, and
+    `interface ActionsFunction` writes twelve call signatures, where #928's sentence named only a function type, with
+    `ViteBuilder['build']`'s one signature as its example. A judge could compare form 0,
+    `(handlerMap: Record<T, string>, options?: ActionOptions) => ActionsMap<T>`, with the interface's call signatures
+    read as one overload set and pass it, or with the arrow's own `(...args: any[])` and raise a Critical mismatch
+    that blocks the hard gate; oms-storybook-react-vite's report passed it on the first reading and listed the other
+    under Borderline Calls. A const annotated with any type that has call signatures, an interface or object type
+    literal as much as a function type, declares each of them, several being one overload set whose implementation is
+    the const's value, read as Overload sets says, so a form that matches any of them is no mismatch.
+
+    `React.FC<P>` and `FunctionComponent<P>` are interfaces that write a call signature too (@types/react 18's
+    `(props: P, deprecatedLegacyContext?: any): ReactNode`), so, read alone, the sentence compared
+    `export const Badge: React.FC<BadgeProps> = ({ tone }) => ...` with that signature: against
+    `(props: BadgeProps) => JSX.Element` an omitted optional parameter and a return type, or, its list written outside
+    the source tree, nothing at all, where Components compares a value declared as a component type by its props
+    alone. A const the source declares as a component keeps Components' reading."""
+    reading = _section("Reading a form")
+    declares = ("A const annotated with any type that has call signatures, an interface or object type literal that "
+                "writes them (`{ (a: A): R }`) as much as a function type, declares each call signature that type has, "
+                "unless the source declares the const as a component (`export const Badge: React.FC<BadgeProps> = "
+                "...`), which is compared by its props (Components), and several of those call signatures are one "
+                "overload set whose implementation is the const's value, read as Overload sets says.")
+    example = ("`export const actions: ActionsFunction = (...args: any[]) => ...` declares each call signature "
+               "`interface ActionsFunction` writes, so a form that matches any of them, such as "
+               "`(handlerMap: Record<T, string>, options?: ActionOptions) => ActionsMap<T>`, is no mismatch, though "
+               "the arrow's own list holds only `...args: any[]`.")
+    assert declares in reading
+    assert example in reading
+    # the component exception, right after the clause it limits, and the Components rules it hands the const to
+    assert ("declares each call signature that type has, unless the source declares the const as a component "
+            "(`export const Badge: React.FC<BadgeProps> = ...`), which is compared by its props (Components),"
+            ) in reading
+    components = _section("Components")
+    assert "or a value the source declares as a component type" in components
+    assert "`React.FC<P>`, `FunctionComponent<P>`" in components
+    assert "a component's return type and its wrapper are never compared" in components
+    fragment = _flow(yaml.safe_load(_read(REPO_ROOT / "changes" / "signature-const-call-signatures.yaml"))["summary"])
+    assert ("A const the source declares as a component, such as `export const Badge: React.FC<BadgeProps> = ...`, "
+            "whose `React.FC` type writes a call signature too, is still compared by its props alone, its return "
+            "type and wrapper never.") in fragment, "the fragment announces the exception"
+    # sentences of their own in #928's paragraph: after the one whose "it" is the type's parameter, before #925's last
+    paragraph = _paragraph(_read(RULES), "A const annotated with a function type declares that type's parameters")
+    assert paragraph.index("A form may name it") < paragraph.index(declares) < paragraph.index(example) \
+        < paragraph.index("A declaration whose parameter list is written only in a package outside the source tree"), \
+        paragraph
+
+
 def test_a_declaration_typed_only_outside_the_source_tree_counts_as_matching():
     """#925: 67 of storybook's 181 signature checks were declarations whose parameter list is written only in another
     package's types: storybook/test's `fireEvent` and its siblings, destructured from a value cast to
@@ -913,9 +990,9 @@ def test_a_component_s_own_props_are_written_in_its_package():
             "optional `children` of `PropsWithChildren<P>`. A prop the form writes must exist on `P`, own or "
             "inherited.") in components
     assert ("So is a required own prop it leaves out, and a required inherited one (a `Link`'s `href`) left out of a "
-            "full form. An optional own prop a typed props list or a table leaves out is an `omitted-optional` "
-            "difference; one a list of bare names or a usage leaves out, and an optional inherited prop, is no "
-            "difference.") in components
+            "full form. An optional own prop a typed props list, a list that marks a prop `?` or gives it a default, "
+            "or a table leaves out is an `omitted-optional` difference; one a list of bare names or a usage leaves "
+            "out, and an optional inherited prop, is no difference.") in components
     assert "`| null` and `| undefined` on an optional prop are no difference (`VariantProps` adds both)." in components
     assert ("A props type name the form writes that the source does not declare (`Button(props: ButtonProps)` against "
             "a source with no `ButtonProps`) is not compared by name, only the props the form lists.") in components
@@ -940,8 +1017,8 @@ def test_a_rest_element_in_a_props_form_stands_for_the_props_it_does_not_name():
         < components.index("`| null` and `| undefined` on an optional prop"), "right after the props a form leaves out"
     assert not re.search(r"\brest (?:element|member|parameter)s?\b", _section("Reading a form"), re.I), \
         "not generalized to other destructured parameters"
-    assert ("An optional own prop a typed props list or a table leaves out is an `omitted-optional` "
-            "difference") in components
+    assert ("An optional own prop a typed props list, a list that marks a prop `?` or gives it a default, or a table "
+            "leaves out is an `omitted-optional` difference") in components
 
 
 def test_a_props_list_states_optionality_only_with_a_mark():
@@ -1049,12 +1126,18 @@ def test_a_return_written_in_words_as_a_container_states_it_with_its_item_type()
     it sets apart, so no line is added and the #1042 bullet stays the next one. score-signatures.py's _states_return
     already reads such a return as a stated one, and the script never compares return types, so only prose changes."""
     annotations = _section("Annotations")
-    container = ("A return written in words as a container of a type (`list of X`, `X list`) states that container "
-                 "with X as its type argument, not a description followed by a type: a plural (`dicts`) names its "
-                 "type, a braced or bracketed list of key names inside the words (`{type, count}`, `type` among "
-                 "them) is description, and words for its items that name no type (`list of results`, `HTML list`) "
-                 "write no type argument, so `list of {type, count, samples, sample_size, relationships} dicts` "
-                 "states `list[dict]`, which matches `list[dict[str, Any]]` (below).")
+    container = ("A return written in words as a container of a type (`list of X`, `X list`) states the source "
+                 "language's type for that container with X as its type argument, not a description followed by a "
+                 "type: a list is Python's `list[X]` and TS/JS's `X[]` or `Array<X>`, and the like, so "
+                 "`list of Nodes` states `list[Node]` in Python and `Node[]` in TS/JS. A type name made plural "
+                 "(`dicts`, `strs`) names that type, while a generic noun for the items (`objects`, `instances`, "
+                 "`items`, `values`, `entries`, `records` and the like) is description, so a type name before it is "
+                 "the type argument: `list of DataPoint objects` states `list[DataPoint]`, not `list[object]`. A "
+                 "braced or bracketed list of key names inside the words (`{type, count}`, `type` among them) is "
+                 "description, and words for its items that name no type (`list of results`, `list of objects`, "
+                 "`HTML list`) write no type argument, so "
+                 "`list of {type, count, samples, sample_size, relationships} dicts` states `list[dict]`, which "
+                 "matches `list[dict[str, Any]]` (below).")
     assert container in annotations
     lines = _read(RULES).splitlines()
     values = "- A return written as names of values rather than types,"
@@ -1063,6 +1146,46 @@ def test_a_return_written_in_words_as_a_container_states_it_with_its_item_type()
     assert _flow(_read(RULES)).count("as a container of a type") == 1, "one copy"
     # the rule its "(below)" points at stays
     assert "`list[dict]` matches `list[dict[str, Any]]`" in annotations
+
+
+def test_a_container_in_words_states_the_source_language_s_container():
+    """#1083, review: `list of Nodes` in a TS/JS skill names a list, and no rule said which type that is there:
+    Equivalent spellings equates `Array<T>` and `T[]`, never a container written in words with either, so a judge
+    could read Python's `list[Node]` and raise a Critical mismatch against the source's `Node[]`. A container written
+    in words is the source language's type for it, a list Python's `list[X]` and TS/JS's `X[]` or `Array<X>`, in the
+    #1083 sentence that gives the container reading, so its one copy says both."""
+    annotations = _section("Annotations")
+    assert ("states the source language's type for that container with X as its type argument, not a description "
+            "followed by a type: a list is Python's `list[X]` and TS/JS's `X[]` or `Array<X>`, and the like, so "
+            "`list of Nodes` states `list[Node]` in Python and `Node[]` in TS/JS.") in annotations
+    assert "states that container with X as its type argument" not in annotations, "no language-free container"
+    # the spelling the TS/JS container takes is one type in either form
+    assert "`Array<T>` and `T[]`" in _section("Equivalent spellings")
+
+
+def test_a_generic_noun_after_a_type_name_in_a_container_in_words_is_description():
+    """#1083, review: `list of DataPoint objects` read two ways under "a plural (`dicts`) names its type": `objects`
+    as the type `object` (`list[object]`, a Critical mismatch against `list[DataPoint]`) or the words as a list of
+    `DataPoint`. A generic noun for the items (`objects`, `instances`, `items`, `values`, `entries`, `records` and
+    the like) is description, so the type name before it is the type argument, and alone it names no type, as
+    `list of results` does; a type name made plural (`dicts`, `strs`) still names that type, so #1083's `dicts`
+    reading stands."""
+    annotations = _section("Annotations")
+    assert ("A type name made plural (`dicts`, `strs`) names that type, while a generic noun for the items "
+            "(`objects`, `instances`, `items`, `values`, `entries`, `records` and the like) is description, so a type "
+            "name before it is the type argument: `list of DataPoint objects` states `list[DataPoint]`, not "
+            "`list[object]`.") in annotations
+    assert ("words for its items that name no type (`list of results`, `list of objects`, `HTML list`) write no type "
+            "argument") in annotations, "a generic noun alone names no type"
+    assert "a plural (`dicts`) names its type" not in annotations, "no plural reading that takes `objects` as a type"
+    # the fragment announces both readings and the one they replace, and leaves #1096's merged fragment as it was
+    changes = REPO_ROOT / "changes"
+    fragment = yaml.safe_load(_read(changes / "signature-return-container-words-noun-and-spelling.yaml"))
+    assert fragment["type"] == "fixed" and fragment["scope"] == "skf-test-skill" and fragment["issues"] == [1083]
+    summary = _flow(fragment["summary"])
+    for phrase in ("`list of DataPoint objects`", "`list[DataPoint]`", "`list of Nodes`", "`Node[]`", "Before,"):
+        assert phrase in summary, phrase
+    assert yaml.safe_load(_read(changes / "signature-return-container-in-words.yaml"))["prs"] == [1096]
 
 
 def test_a_return_that_names_alternative_types_after_its_type_states_their_union():
@@ -1136,6 +1259,48 @@ def test_two_spellings_of_one_type_are_no_mismatch():
             "the package exports, a mismatch's `source_sig` writes it as the type "
             "it names, by its exported name when it has one (`ThemesParameters['themes']`, not the local "
             "`ThemesParameters`), so the form the gap asks for matches the source.") in spellings
+    # #1082: one type name the skill and the package give two declarations (cognee's base `DataPoint` and the
+    # `ExtendableDataPoint` exported as `DataPoint`, an alias and its base class) is read, written bare, in the source
+    # file that writes the signature a form is compared with, as the source reads it there, a star import, its own
+    # package or a module it imports included, so one judge no longer passes the form while another raises a Critical
+    # `signature-mismatch`. A name written through a module path is the one that path names; when the file reaches
+    # none of them, the file's own non-alias type of that name decides, as #1050's opening sentence reads it, else the
+    # skill's documented one, else any of them, and a judge that cannot read the source matches any of them. That file
+    # is the one that writes the signature, not always the declaration's: a const typed by an interface declared
+    # elsewhere takes that interface's call signatures (Reading a form), and a class with no constructor of its own its
+    # nearest base's, so "the file of the declaration" and "the source's own use" of the name could name two files.
+    shared = ("When the skill and the package between them document or export more than one declaration under one "
+              "type name (cognee's base `DataPoint`, and `ExtendableDataPoint`, which `cognee.low_level` exports as "
+              "`DataPoint`), a form that writes that name bare means the one of them that the source file that writes "
+              "the signature the form is compared with (the declaration's own file, or the file of the type or base "
+              "class whose signature it takes) reaches by that name, as the source's own use of it does: the one that "
+              "file imports (a star import included), declares or has in scope without an import (its own package or "
+              "namespace) under that name, or names through a module or namespace it imports (`engine.DataPoint`). "
+              "`snapshot.py`'s `from cognee.infrastructure.engine import DataPoint` "
+              "makes the `DataPoint` that `rehydrate_node`'s form returns the base class, the class its source "
+              "returns. A form that writes the name through a module or namespace path means the one that path names, "
+              "whatever that file reaches: `cognee.low_level.DataPoint` is `ExtendableDataPoint`. When that file "
+              "reaches none of them by that name, the bare name means the type that file declares under it other than "
+              "as an alias, as above (a local `interface Options`); when it declares none, the bare name means the one "
+              "the skill documents under it, and a form that writes it matches any of them when the skill documents "
+              "none or several. A judge that does "
+              "not read the source (coverage-check.md §1's reader) matches a form that writes that name bare with any "
+              "of them.")
+    assert shared in spellings
+    assert _flow(_read(RULES)).count(shared) == 1, "#1082: one copy"
+    [alias] = [line for line in _read(RULES).splitlines() if line.startswith("- A type alias the source declares")]
+    assert alias.endswith("so the form the gap asks for matches the source. " + shared), "#1082: ends the alias bullet"
+    assert "the file of the declaration the form is compared with" not in _flow(_read(RULES)), "one anchor, the file"
+    # the two cases the parenthetical names, where the signature is written in another file than the declaration's
+    reading = _section("Reading a form")
+    assert "else its nearest base's in method resolution order" in reading
+    assert "a TS/JS class with its `constructor(...)`, else its nearest base's" in reading
+    assert "declares each call signature that type has" in reading
+    anchor = ("the one of them that the source file that writes the signature the form is compared with (the "
+              "declaration's own file, or the file of the type or base class whose signature it takes) reaches by "
+              "that name")
+    fragment = yaml.safe_load(_read(REPO_ROOT / "changes" / "signature-type-name-two-declarations.yaml"))
+    assert anchor in _flow(fragment["summary"]), "the fragment restates the rule's anchor"
     # #1003: a Markdown Type cell cannot hold a bare `|`, so Create Skill's tables write a union with `/`; it spells
     # the union, as score-signatures.py's _type_key reads it, while a `/` alone in a parameter list stays the
     # positional-only marker Reading a form names.
