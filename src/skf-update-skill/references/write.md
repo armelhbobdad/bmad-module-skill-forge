@@ -390,7 +390,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **If no trigger fired:** skip regeneration: do not touch `context-snippet.md` on disk. The snippet remains valid against the prior run's surface. Continue to §6.
 
-**If at least one trigger fired:** regenerate the snippet. Its content comes from `skf-export-skill/references/generate-snippet.md` §3a and §3b, as the paragraph below says; `skf-create-skill/assets/skill-sections.md` gives only its line format (pipe-delimited indexed format).
+**If at least one trigger fired:** regenerate the snippet. Its content comes from `skf-export-skill/references/generate-snippet.md` §3a and §3b, as the paragraph below says; `skf-create-skill/assets/skill-sections.md` gives only its line format (pipe-delimited indexed format), not the `()` its `|api:` placeholder gives functions: §3b item 2 sets each api name's `()`.
 
 Use the **flat draft form** for the `root:` path in the draft snippet: `root: skills/{skill-name}/`. The per-IDE skill root (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/` — see `skf-export-skill/assets/managed-section-format.md`) is applied later by `export-skill` step 3 when the skill is exported. Do not choose an IDE-specific prefix in update-skill — that is an export-time decision that depends on config.yaml.
 

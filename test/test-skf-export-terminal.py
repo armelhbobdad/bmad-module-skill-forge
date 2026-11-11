@@ -56,7 +56,8 @@ commands it documents:
   points to step 3 for `()`, its single-skill template's `|api:` placeholder
   and Line 4 bullet send the marks to that rule instead of giving functions
   `()`, and update-skill's headline-exports trigger no longer counts a listed
-  name's kind change.
+  name's kind change; its regeneration takes no `()` rule from create-skill's
+  skill-sections.md placeholder, which still gives functions `()`.
 """
 
 from __future__ import annotations
@@ -958,7 +959,9 @@ def test_the_api_line_has_one_ranking():
     assert "top exports" not in five and "top-K" not in five
     assert "Rank the api names and verify the section anchors as " \
            "`skf-export-skill/references/generate-snippet.md` §3b states" in five
-    assert "`skf-create-skill/assets/skill-sections.md` gives only its line format" in five
+    assert "`skf-create-skill/assets/skill-sections.md` gives only its line format (pipe-delimited indexed format), " \
+           "not the `()` its `|api:` placeholder gives functions: §3b item 2 sets each api name's `()`." in five, \
+        "#1093: Update Skill takes no `()` rule from create-skill's first-snippet placeholder"
     exports = _line(five, "- **Headline exports changed**")
     assert "In gap-driven mode it fires only when a name of the prior line left `exports` or SKILL.md now marks it " \
            "deprecated or removed: a line that differs by the ranking alone" in exports
