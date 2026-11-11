@@ -34,7 +34,9 @@ commands it documents:
   still gives more than 3 pieces as one pitfall, which §3a counts as
   unbacked; §3a and the snippet format write a `; ` inside a pitfall, a prior
   one included, as `, ` outside a code span, so a written line reads back as
-  the pitfalls it was written with.
+  the pitfalls it was written with unless a pitfall leaves a `(` open or holds
+  an odd number of backticks, which then runs on into the pitfalls after it;
+  neither file promises more.
 - #1092: a prior pitfall stays derived, without `[CARRIED]`, while a T2-future
   annotation states it or the current SKILL.md still states its main claim
   anywhere, its frontmatter description and whole body included. New gotchas
@@ -1001,8 +1003,7 @@ WHOLE_VALUE_UNBACKED_CLAUSE = ("§3a counts such a value as unbacked, even when 
                                "its still-true pitfalls back as new gotchas, and one that only other SKILL.md prose "
                                "states is dropped with the value, which gets at most one `[CARRIED]` cycle.")
 WRITE_CLAUSE = ("A pitfall never holds the separator: in every pitfall the line writes, a prior one kept or carried "
-                "included, write a `; ` outside a code span as `, ` (a code span keeps its `; `), so §2.5 reads the "
-                "line back as the same pitfalls.")
+                "included, write a `; ` outside a code span as `, ` (a code span keeps its `; `).")
 FORMAT_WRITE_CLAUSE = ("A pitfall never holds the separator: in every pitfall the line writes, a prior one kept or "
                        "carried included, a `; ` outside a code span is written as `, ` (a code span keeps its `; `).")
 
@@ -1074,6 +1075,8 @@ def test_a_pitfall_never_holds_the_gotchas_separator():
     shared = _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
     assert _in_order(shared, "The line holds at most 3 pitfalls, joined by the separator {snippetFormatData} gives",
                      WRITE_CLAUSE, "A prior pitfall no current source states is **unbacked**.")
+    assert "reads the line back as the same pitfalls" not in shared, \
+        "an unclosed `(` or an odd backtick count still joins a pitfall with the ones after it"
     rule = _line(_read(SNIPPET_FORMAT), "- **gotchas line**")
     assert _in_order(rule, "At most 3 pitfalls, separated by `; ` (the separator step 3 splits a prior line on).",
                      FORMAT_WRITE_CLAUSE, "Derived from the current sources")
