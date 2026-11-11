@@ -29,6 +29,12 @@ commands it documents:
   ranking (the prior `|api:` names, then `## Key API Summary`, then
   metadata.json `exports`); an anchor SKILL.md holds stays on SKILL.md. The
   snippet format and update-skill's regeneration say the same.
+- #1091: `; ` is reserved for the gotchas separator. §2.5 splits a prior line
+  only on a `; ` outside parentheses and code spans, and reads a line that
+  still gives more than 3 pieces as one pitfall, which §3a counts as
+  unbacked; §3a and the snippet format write a `; ` inside a pitfall, a prior
+  one included, as `, ` outside a code span, so a written line reads back as
+  the pitfalls it was written with.
 """
 
 from __future__ import annotations
@@ -940,3 +946,132 @@ def test_an_anchor_skill_md_holds_stays_on_skill_md():
     trigger = _line(_regeneration(), "- **Anchors changed**")
     assert "differs from the one `generate-snippet.md` §3b item 4 gives for the merged SKILL.md" in trigger
     assert "Record it as `anchors` in `Triggers fired`." in trigger
+
+
+# --------------------------------------------------------------------------
+# #1091: `; ` is reserved for the gotchas separator
+# --------------------------------------------------------------------------
+
+# The clauses §2.5 step 3, §3a and the snippet format add. `_read_gotchas` and
+# `_write_gotchas` follow them clause by clause, so the issue's lines can be run
+# through the rule as written.
+SEPARATOR_CLAUSE = ("A `; ` is a separator only when an even number of backticks precede it (it is outside a code "
+                    "span) and every `(` before it outside a code span is closed before it (a `)` outside a code "
+                    "span closes the last `(` still open, and one with no `(` open closes nothing); any other `; ` "
+                    "stays inside its pitfall.")
+WHOLE_VALUE_CLAUSE = ("A split that gives more than 3 pieces comes from a line §3a never writes, such as an older or "
+                      "hand-written one: the whole value is then one pitfall, already carried when it starts with "
+                      "`[CARRIED]`.")
+WHOLE_VALUE_UNBACKED_CLAUSE = ("§3a counts such a value as unbacked, since no current source states it whole: the "
+                               "current sources give its still-true pitfalls back as derived gotchas.")
+WRITE_CLAUSE = ("A pitfall never holds the separator: in every pitfall the line writes, a prior one kept or carried "
+                "included, write a `; ` outside a code span as `, ` (a code span keeps its `; `), so §2.5 reads the "
+                "line back as the same pitfalls.")
+FORMAT_WRITE_CLAUSE = ("A pitfall never holds the separator: in every pitfall the line writes, a prior one kept or "
+                       "carried included, a `; ` outside a code span is written as `, ` (a code span keeps its `; `).")
+
+# oh-my-skills a02403f, skills/oms-uitripled/0.1.0/oms-uitripled/context-snippet.md
+# line 6, its em dash written as a colon: the line that split into four pieces.
+UITRIPLED_A02403F = (
+    'Copy-paste distribution: NEVER barrel-import from @uitripled/react-shadcn (src/index.ts empty by design); '
+    'render entries from client components (170 of the 171 files start with `"use client"`; every entry declares '
+    'framer-motion); React 19 / Next.js 16 peer deps are required.'
+)
+# oh-my-skills HEAD, skills/oms-cocoindex/1.0.0/oms-cocoindex/context-snippet.md
+# line 6, its em dashes written as colons: three `; ` outside any parenthesis.
+COCOINDEX_HEAD = (
+    "v0.3.37 → v1.0.0 is a wholesale rewrite, NOT a rename: FlowBuilder/DataScope/DataSlice/@flow_def are gone "
+    "(107 exports deleted); rewrite as coco.App + @coco.fn. Settings moved from Postgres (DatabaseConnectionSpec) "
+    "to local LMDB (db_path): plan a re-index, not an in-place upgrade. LlmSpec/LlmApiType/VectorSimilarityMetric "
+    "removed: use cocoindex.ops.litellm and per-connector vector specs; the `cocoindex server` subcommand is gone. "
+    "cocoindex stays pre-1.x-stable in spirit despite the 1.0 tag: pin precisely. All mount*/App.update/coco.map "
+    "are async; use the *_blocking variants from sync code."
+)
+
+
+def _read_gotchas(value: str) -> list[tuple[str, bool]]:
+    """(pitfall, already carried) for each pitfall §2.5 step 3 reads from a prior `|gotchas:` value."""
+    pieces, start, ticks, depth = [], 0, 0, 0
+    for i, char in enumerate(value):
+        if char == "`":
+            ticks += 1
+        elif ticks % 2 == 0 and char == "(":
+            depth += 1
+        elif ticks % 2 == 0 and char == ")":
+            depth = max(depth - 1, 0)
+        elif value.startswith("; ", i) and ticks % 2 == 0 and depth == 0:
+            pieces.append(value[start:i])
+            start = i + 2
+    pieces.append(value[start:])
+    if len(pieces) > 3:
+        pieces = [value]
+    read = []
+    for piece in (piece.strip() for piece in pieces):
+        carried = piece.startswith("[CARRIED]")
+        read.append((piece.removeprefix("[CARRIED]").strip(), carried))
+    return read
+
+
+def _write_gotchas(pitfalls: list[tuple[str, bool]]) -> str:
+    """The `|gotchas:` value §3a writes: each `; ` outside a code span as `, `, the pitfalls joined on `; `."""
+    def written(text: str) -> str:
+        spans = text.split("`")
+        return "`".join(span.replace("; ", ", ") if k % 2 == 0 else span for k, span in enumerate(spans))
+    return "; ".join(("[CARRIED] " if carried else "") + written(text) for text, carried in pitfalls)
+
+
+def test_a_pitfall_never_holds_the_gotchas_separator():
+    """#1091: §2.5 splits a prior line only on a `; ` outside parentheses and code spans and reads one of more
+    than 3 pieces as one pitfall; §3a and the snippet format write a `; ` in a pitfall as `, `."""
+    prior = _line(_section(_read(SNIPPET), "### 2.5. Check Existing Snippet", "### 2.7. "), "3. ")
+    assert _in_order(prior, "split `prior_gotchas_content` on the pitfall separator {snippetFormatData} gives (`; `)",
+                     SEPARATOR_CLAUSE, WHOLE_VALUE_CLAUSE, WHOLE_VALUE_UNBACKED_CLAUSE,
+                     "A pitfall that starts with the token `[CARRIED]` (whitespace-insensitive) is **already carried**",
+                     "A line an older export marked once at its start (`[CARRIED] a, b`) reads as one pitfall, "
+                     "already carried.")
+    shared = _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
+    assert _in_order(shared, "The line holds at most 3 pitfalls, joined by the separator {snippetFormatData} gives",
+                     WRITE_CLAUSE, "A prior pitfall no current source states is **unbacked**.")
+    rule = _line(_read(SNIPPET_FORMAT), "- **gotchas line**")
+    assert _in_order(rule, "At most 3 pitfalls, separated by `; ` (the separator step 3 splits a prior line on).",
+                     FORMAT_WRITE_CLAUSE, "Derived from the current sources")
+
+
+@pytest.mark.parametrize("value, expected", [
+    pytest.param(UITRIPLED_A02403F, [
+        ("Copy-paste distribution: NEVER barrel-import from @uitripled/react-shadcn (src/index.ts empty by design)",
+         False),
+        ('render entries from client components (170 of the 171 files start with `"use client"`; every entry '
+         'declares framer-motion)', False),
+        ("React 19 / Next.js 16 peer deps are required.", False),
+    ], id="issue-1091-line"),
+    pytest.param("x (a; b); y; `f(); g()`", [("x (a; b)", False), ("y", False), ("`f(); g()`", False)],
+                 id="code-span"),
+    pytest.param(COCOINDEX_HEAD, [(COCOINDEX_HEAD, False)], id="over-3-pieces"),
+    pytest.param("[CARRIED] a; b; c; d", [("a; b; c; d", True)], id="older-marked-line"),
+    pytest.param("1) a; 2) b", [("1) a", False), ("2) b", False)], id="stray-close"),
+    pytest.param("see (x; y", [("see (x; y", False)], id="unclosed-open"),
+    pytest.param("(see `f)`; x); y", [("(see `f)`; x)", False), ("y", False)], id="close-in-code-span"),
+])
+def test_a_prior_gotchas_line_reads_back_as_its_pitfalls(value, expected):
+    """#1091: the I/O matrix's prior lines, through §2.5 step 3 as written."""
+    assert SEPARATOR_CLAUSE in _read(SNIPPET) and WHOLE_VALUE_CLAUSE in _read(SNIPPET)
+    assert _read_gotchas(value) == expected
+
+
+def test_a_written_gotchas_line_reads_back_as_the_pitfalls_it_holds():
+    """#1091: a kept or carried prior pitfall loses its `; ` outside code spans, and the next read gives the
+    same pitfalls, in order, with the same `[CARRIED]` state; an unclosed `(` merges pitfalls, never cuts one."""
+    assert WRITE_CLAUSE in _read(SNIPPET) and FORMAT_WRITE_CLAUSE in _read(SNIPPET_FORMAT)
+    [first, second, third] = _read_gotchas(UITRIPLED_A02403F)
+    line = _write_gotchas([first, (second[0], True), third])
+    assert "start with `\"use client\"`, every entry declares framer-motion); React 19" in line
+    assert "[CARRIED] render entries from client components (170 of" in line
+    assert _write_gotchas([("call `f(); g()` once (x; y)", False)]) == "call `f(); g()` once (x, y)"
+    for pitfalls in ([first, (second[0], True), third], [("a; b; c; d", True)], _read_gotchas(COCOINDEX_HEAD),
+                     [("x (a; b)", False), ("`f(); g()`", True), ("y", False)]):
+        line = _write_gotchas(pitfalls)
+        assert _read_gotchas(line) == [(_write_gotchas([(text, False)]), carried) for text, carried in pitfalls]
+        assert _write_gotchas(_read_gotchas(line)) == line
+    assert _read_gotchas(_write_gotchas([("see (x", False), ("y", False), ("z", True)])) == \
+        [("see (x; y; [CARRIED] z", False)]

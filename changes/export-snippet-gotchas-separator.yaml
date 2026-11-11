@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-export-skill, skf-update-skill
+summary: |
+  Export Skill now reads a prior `|gotchas:` line back as the pitfalls it was written with. Before, it split the line on every `; `, so a pitfall that held one became two pieces: a `[CARRIED]` marker could land inside that pitfall, and a real pitfall could be dropped under a warning whose reason was untrue. A `; ` now separates two pitfalls only outside parentheses and code spans, and a line that still splits into more than 3 pieces, such as one an older export wrote, is read as one pitfall that no current source states whole, and its still-true pitfalls are derived again from the current SKILL.md and evidence report. When Export Skill writes the line, and when Update Skill regenerates a snippet, a `; ` inside a pitfall, a kept or carried prior one included, is now written as `, `, while a code span keeps its `; `. A line that holds such a pitfall is rewritten once, on its next export or snippet regeneration.
+issues: [1091]
