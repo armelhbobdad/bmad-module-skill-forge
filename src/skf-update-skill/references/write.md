@@ -381,7 +381,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **Staleness triggers:**
 
-- **Headline exports changed**: the api names `skf-export-skill/references/generate-snippet.md` §3b ranks for this run differ from the prior snippet's `|api:` line (a listed name left `exports` or is now deprecated, a `NEW_EXPORT` took a free slot, or a `MODIFIED_EXPORT` changed the kind of a listed name). In gap-driven mode it fires only when a name of the prior line left `exports` or SKILL.md now marks it deprecated or removed: a line that differs by the ranking alone (its order, a free slot or the tier's limit) waits for the next export.
+- **Headline exports changed**: the api names `skf-export-skill/references/generate-snippet.md` §3b ranks for this run differ from the prior snippet's `|api:` line (a listed name left `exports` or is now deprecated, or a `NEW_EXPORT` took a free slot). In gap-driven mode it fires only when a name of the prior line left `exports` or SKILL.md now marks it deprecated or removed: a line that differs by the ranking alone (its order, a free slot or the tier's limit) waits for the next export.
 - **Version changed** — §2 bumped `version` (normal mode with detected source drift; never fires in gap-driven mode per §2's carve-out).
 - **Gotchas changed**: the gotchas line `skf-export-skill/references/generate-snippet.md` §3a resolves from the merged SKILL.md and this run's evidence report (at most 3 pitfalls, in its order) differs from the prior snippet's `|gotchas:` line, `[CARRIED]` markers aside.
 - **Anchors changed**: the prior snippet's `|quick-start:` or `|key-types:` anchor differs from the one `generate-snippet.md` §3b item 4 gives for the merged SKILL.md (an anchor points into `references/` although SKILL.md has the heading, or a heading moved). Record it as `anchors` in `Triggers fired`.
@@ -390,7 +390,7 @@ Append update operation section to `{forge_version}/evidence-report.md` (create 
 
 **If no trigger fired:** skip regeneration: do not touch `context-snippet.md` on disk. The snippet remains valid against the prior run's surface. Continue to §6.
 
-**If at least one trigger fired:** regenerate the snippet. Its content comes from `skf-export-skill/references/generate-snippet.md` §3a and §3b, as the paragraph below says; `skf-create-skill/assets/skill-sections.md` gives only its line format (pipe-delimited indexed format).
+**If at least one trigger fired:** regenerate the snippet. Its content comes from `skf-export-skill/references/generate-snippet.md` §3a and §3b, as the paragraph below says; `skf-create-skill/assets/skill-sections.md` gives only its line format (pipe-delimited indexed format), not the `()` its `|api:` placeholder gives functions: §3b item 2 sets each api name's `()`.
 
 Use the **flat draft form** for the `root:` path in the draft snippet: `root: skills/{skill-name}/`. The per-IDE skill root (e.g., `.claude/skills/`, `.windsurf/skills/`, `.github/skills/` — see `skf-export-skill/assets/managed-section-format.md`) is applied later by `export-skill` step 3 when the skill is exported. Do not choose an IDE-specific prefix in update-skill — that is an export-time decision that depends on config.yaml.
 
