@@ -53,7 +53,9 @@ and none of the `difference` tags. These tests keep:
   parameters, the arrow's destructuring that same parameter, so a form may
   write it either way, and a partial destructuring reading as no narrower
   type (#928), an interface or object type literal with call signatures
-  counting as such a type, several of them one overload set (#1085);
+  counting as such a type, several of them one overload set (#1085),
+  unless the source declares the const as a component, compared by its
+  props (`React.FC<P>` writes a call signature too);
 - a call to a class compared with its constructor, an instance's call with
   its `__call__`, an alias's with its class's, a source's leading receiver
   never compared and a callee's `*args` and `**kwargs` taking any extra
@@ -661,18 +663,38 @@ def test_a_const_annotated_with_call_signatures_declares_each_of_them():
     that blocks the hard gate; oms-storybook-react-vite's report passed it on the first reading and listed the other
     under Borderline Calls. A const annotated with any type that has call signatures, an interface or object type
     literal as much as a function type, declares each of them, several being one overload set whose implementation is
-    the const's value, read as Overload sets says, so a form that matches any of them is no mismatch."""
+    the const's value, read as Overload sets says, so a form that matches any of them is no mismatch.
+
+    `React.FC<P>` and `FunctionComponent<P>` are interfaces that write a call signature too (@types/react 18's
+    `(props: P, deprecatedLegacyContext?: any): ReactNode`), so, read alone, the sentence compared
+    `export const Badge: React.FC<BadgeProps> = ({ tone }) => ...` with that signature: against
+    `(props: BadgeProps) => JSX.Element` an omitted optional parameter and a return type, or, its list written outside
+    the source tree, nothing at all, where Components compares a value declared as a component type by its props
+    alone. A const the source declares as a component keeps Components' reading."""
     reading = _section("Reading a form")
     declares = ("A const annotated with any type that has call signatures, an interface or object type literal that "
                 "writes them (`{ (a: A): R }`) as much as a function type, declares each call signature that type has, "
-                "and several of them are one overload set whose implementation is the const's value, read as Overload "
-                "sets says.")
+                "unless the source declares the const as a component (`export const Badge: React.FC<BadgeProps> = "
+                "...`), which is compared by its props (Components), and several of those call signatures are one "
+                "overload set whose implementation is the const's value, read as Overload sets says.")
     example = ("`export const actions: ActionsFunction = (...args: any[]) => ...` declares each call signature "
                "`interface ActionsFunction` writes, so a form that matches any of them, such as "
                "`(handlerMap: Record<T, string>, options?: ActionOptions) => ActionsMap<T>`, is no mismatch, though "
                "the arrow's own list holds only `...args: any[]`.")
     assert declares in reading
     assert example in reading
+    # the component exception, right after the clause it limits, and the Components rules it hands the const to
+    assert ("declares each call signature that type has, unless the source declares the const as a component "
+            "(`export const Badge: React.FC<BadgeProps> = ...`), which is compared by its props (Components),"
+            ) in reading
+    components = _section("Components")
+    assert "or a value the source declares as a component type" in components
+    assert "`React.FC<P>`, `FunctionComponent<P>`" in components
+    assert "a component's return type and its wrapper are never compared" in components
+    fragment = _flow(yaml.safe_load(_read(REPO_ROOT / "changes" / "signature-const-call-signatures.yaml"))["summary"])
+    assert ("A const the source declares as a component, such as `export const Badge: React.FC<BadgeProps> = ...`, "
+            "whose `React.FC` type writes a call signature too, is still compared by its props alone, its return "
+            "type and wrapper never.") in fragment, "the fragment announces the exception"
     # sentences of their own in #928's paragraph: after the one whose "it" is the type's parameter, before #925's last
     paragraph = _paragraph(_read(RULES), "A const annotated with a function type declares that type's parameters")
     assert paragraph.index("A form may name it") < paragraph.index(declares) < paragraph.index(example) \
@@ -1192,17 +1214,21 @@ def test_two_spellings_of_one_type_are_no_mismatch():
             "it names, by its exported name when it has one (`ThemesParameters['themes']`, not the local "
             "`ThemesParameters`), so the form the gap asks for matches the source.") in spellings
     # #1082: one type name the skill and the package give two declarations (cognee's base `DataPoint` and the
-    # `ExtendableDataPoint` exported as `DataPoint`, an alias and its base class) is read, written bare, in the file of
-    # the declaration a form is compared with, as the source reads it there, a star import, its own package or a
-    # module it imports included, so one judge no longer passes the form while another raises a Critical
+    # `ExtendableDataPoint` exported as `DataPoint`, an alias and its base class) is read, written bare, in the source
+    # file that writes the signature a form is compared with, as the source reads it there, a star import, its own
+    # package or a module it imports included, so one judge no longer passes the form while another raises a Critical
     # `signature-mismatch`. A name written through a module path is the one that path names; when the file reaches
     # none of them, the file's own non-alias type of that name decides, as #1050's opening sentence reads it, else the
-    # skill's documented one, else any of them, and a judge that cannot read the source matches any of them.
+    # skill's documented one, else any of them, and a judge that cannot read the source matches any of them. That file
+    # is the one that writes the signature, not always the declaration's: a const typed by an interface declared
+    # elsewhere takes that interface's call signatures (Reading a form), and a class with no constructor of its own its
+    # nearest base's, so "the file of the declaration" and "the source's own use" of the name could name two files.
     shared = ("When the skill and the package between them document or export more than one declaration under one "
               "type name (cognee's base `DataPoint`, and `ExtendableDataPoint`, which `cognee.low_level` exports as "
-              "`DataPoint`), a form that writes that name bare means the one of them that the file of the declaration "
-              "the form is compared with reaches by that name, as the source's own use of it does: the one that file "
-              "imports (a star import included), declares or has in scope without an import (its own package or "
+              "`DataPoint`), a form that writes that name bare means the one of them that the source file that writes "
+              "the signature the form is compared with (the declaration's own file, or the file of the type or base "
+              "class whose signature it takes) reaches by that name, as the source's own use of it does: the one that "
+              "file imports (a star import included), declares or has in scope without an import (its own package or "
               "namespace) under that name, or names through a module or namespace it imports (`engine.DataPoint`). "
               "`snapshot.py`'s `from cognee.infrastructure.engine import DataPoint` "
               "makes the `DataPoint` that `rehydrate_node`'s form returns the base class, the class its source "
@@ -1218,6 +1244,17 @@ def test_two_spellings_of_one_type_are_no_mismatch():
     assert _flow(_read(RULES)).count(shared) == 1, "#1082: one copy"
     [alias] = [line for line in _read(RULES).splitlines() if line.startswith("- A type alias the source declares")]
     assert alias.endswith("so the form the gap asks for matches the source. " + shared), "#1082: ends the alias bullet"
+    assert "the file of the declaration the form is compared with" not in _flow(_read(RULES)), "one anchor, the file"
+    # the two cases the parenthetical names, where the signature is written in another file than the declaration's
+    reading = _section("Reading a form")
+    assert "else its nearest base's in method resolution order" in reading
+    assert "a TS/JS class with its `constructor(...)`, else its nearest base's" in reading
+    assert "declares each call signature that type has" in reading
+    anchor = ("the one of them that the source file that writes the signature the form is compared with (the "
+              "declaration's own file, or the file of the type or base class whose signature it takes) reaches by "
+              "that name")
+    fragment = yaml.safe_load(_read(REPO_ROOT / "changes" / "signature-type-name-two-declarations.yaml"))
+    assert anchor in _flow(fragment["summary"]), "the fragment restates the rule's anchor"
     # #1003: a Markdown Type cell cannot hold a bare `|`, so Create Skill's tables write a union with `/`; it spells
     # the union, as score-signatures.py's _type_key reads it, while a `/` alone in a parameter list stays the
     # positional-only marker Reading a form names.
