@@ -2326,10 +2326,12 @@ def test_a_by_eye_record_alone_plans_no_line_and_is_scored_at_the_judge_s(tmp_pa
     assert ("`line` and `signatureLine` are null on a check, a candidate or a `bound` entry whose surface record has "
             "no line: a name read by eye alone in its file, whose per-file result lists names only, or a record "
             "with no file.") in doc
-    # A check whose record has no file names no file to read, so the docstring never says a judge finds it there.
+    # A check whose record has no file names no file to read, so the docstring never says a judge finds it there,
+    # and its judge names a bound file as its result's `file`, since score refuses a blank one (#1061).
     assert ("The judge finds a declaration that has a file in that `file` and gives its mismatch the line it found "
             "there (#1022). A check whose record has no file has a bound form and sits under the `files[]` entry \"\", "
-            "which names no file to read: a judge reads only its `bound` forms, each at its bound declaration. A name "
+            "which names no file to read: a judge reads only its `bound` forms, each at its bound declaration, and "
+            "gives its result the first check's first `bound` file as `file`, which score refuses blank. A name "
             "that no surface record locates in a file and none of whose forms is bound gets no check (#1061): "
             "`notCompared` lists it, and score with --plan leaves it out of Signature Accuracy and names it in "
             "`warnings`.") in doc
@@ -2807,7 +2809,8 @@ def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tm
     """#918: the check of a name whose only record has no file stays at that record, in the "" group, and binds its
     form to the other declaration its citation names at its line, never the copy the skill cites elsewhere. A
     mismatch the judge finds there is recorded there, and that line bounds the evidence of an
-    annotation-contradicted one. Without --skill-dir no form is bound, so no judge has a file to read: the name gets
+    annotation-contradicted one. The judge's result names the bound file as its `file`, as coverage-check.md section
+    2 says, since one that echoes the "" entry breaks the schema and score exits 2 (#1061). Without --skill-dir no form is bound, so no judge has a file to read: the name gets
     no check and `notCompared` lists it (#1061)."""
     _write(tmp_path / "skill" / "SKILL.md",
            f"# Demo\n\n`createTest(story, annotations?)` builds a test [AST:{PORTABLE}:L319].\n\n"
@@ -2830,9 +2833,13 @@ def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tm
                 "evidence_line": 322, "source_sig": "(story: Story, annotations?: Annotations): void",
                 "documented_sig": "(story: Story, annotations?: Annotations): Test",
                 "issue": "the annotation says `void`; the body returns the test"}
+    echoed = _write(tmp_path / "echoed.txt", json.dumps({"file": "", "signature_mismatches": [mismatch]}))
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan), "--results", echoed)
+    assert proc.returncode == 2 and "`file` must be a non-empty string" in proc.stdout, proc.stdout + proc.stderr
     results = _write(tmp_path / "s.txt", json.dumps({"file": PORTABLE, "signature_mismatches": [mismatch]}))
-    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan),
-                          "--results", results).stdout)
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan), "--results", results)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
     # the declaration line is the bound one, 319, so the evidence at 322 is in its body
     assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, 319, "Info")]
     # No warning says the judge named another file; the extraction record has no kind, so Type Coverage names it

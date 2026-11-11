@@ -2549,6 +2549,10 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     assert ("reads the full declaration at `{file}:{line}` (all of it, not only `signatureLine`'s one physical line; "
             "with `line` null, find it in `{file}` and give its mismatch that line)") in forge
     assert "read in full at its `file` and `line` as above" in forge
+    # #1061: a check whose record has no file sits under the files[] entry "" for its bound forms alone; a result
+    # that echoes "" as its `file` breaks the schema, so the judge names a bound declaration's file instead.
+    assert ("The `files[]` entry `\"\"` names no file: its judge compares only bound forms and gives its result the "
+            "first check's first `bound` `file` as `file`.") in forge
     # #781: a check the citations do not settle names each candidate
     assert ("A check with `candidates` reads each as above and reports a mismatch only when the documented signature "
             "matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the "

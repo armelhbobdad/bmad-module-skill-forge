@@ -420,7 +420,9 @@ score write their result to that file and print only its summary):
          in that `file` and gives its mismatch the line it found there
          (#1022). A check whose record has no file has a bound form and
          sits under the `files[]` entry "", which names no file to read: a
-         judge reads only its `bound` forms, each at its bound declaration.
+         judge reads only its `bound` forms, each at its bound declaration,
+         and gives its result the first check's first `bound` file as
+         `file`, which score refuses blank.
          A name that no surface record locates in a file and none of whose
          forms is bound gets no check (#1061): `notCompared` lists it, and
          score with --plan leaves it out of Signature Accuracy and names it
