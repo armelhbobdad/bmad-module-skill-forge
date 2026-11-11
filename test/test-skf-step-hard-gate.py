@@ -1109,7 +1109,7 @@ class TestStaleNameLineCheck:
             "a helper that does not resolve or exits non-zero",
             "A name with a `defined_at` (the source still declares it there, an import never counting, a module "
             "so named counting unless the name's inventory kind rules it out), or whose `declared_in` lists several "
-            "files of which its forms' own `[AST:]`/`[SRC:]` citations (at their inventory `at`), else, when they "
+            "files of which its forms' own `[AST:]`/`[SRC:]` citations (at their `at`), else, when they "
             "cite none, the skill's on lines naming it, cite exactly one (or a package and its same-named module), "
             "is a documented extra: an Info `observation` gap at "
             "that declaration, when `surface.json` has an `extraction` and its `excluded.outsideScope` does not "
@@ -1232,8 +1232,8 @@ class TestStaleNameLineCheck:
         Info line check of the entry stays, so nothing blocks the hard gate. An entry at a relative star or at
         another line stays a Critical `fabricated-signature` gap."""
         flow = _flow(section)
-        assert ("is a Critical `fabricated-signature` gap at its `source`, unless one of its entries cites an "
-                "`unresolvedStars` star's line (read below).") in flow
+        assert ("is a Critical `fabricated-signature` gap at its `source`, unless an entry cites an "
+                "`unresolvedStars` star's line (below).") in flow
         critical = next(r for r in _read(SCORING_FILE).splitlines()
                         if r.startswith("| Critical | `fabricated-signature`"))
         assert ("A provenance map entry's line that is an `export *` from another package no script resolves "
