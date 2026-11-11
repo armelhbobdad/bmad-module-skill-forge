@@ -392,5 +392,50 @@ def test_json_exports_that_is_no_list_is_invalid(tmp_path):
     assert res.returncode == 2 and json.loads(res.stdout)["code"] == "INVALID_INPUT"
 
 
+# Review of #1068: a declared name a module path qualifies, as metadata.json's exports[] can write it
+# (oms-cocoindex declares `ops.text.RecursiveSplitter`), has the entry the inventory gives it bare; a module or
+# package, which the inventory has no kind for, is looked up in the text alone. Each doc text writes both names.
+QUALIFIED_CASES = {
+    "module-function": ("cognee.add", "`await cognee.add(data)` stores it.", [], True),
+    "module-class": ("ops.text.RecursiveSplitter", "`ops.text.RecursiveSplitter(chunk_size=200)` splits it.", [],
+                     True),
+    "module-method": ("pkg.Widget.render", "`pkg.Widget.render()` draws it.", [], True),
+    "package": ("connectors.localfs", "`connectors.localfs` reads files.", ["connectors.localfs"], True),
+    "package-not-in-the-map": ("connectors.localfs", "`connectors.localfs` reads files.", [], False),
+    "unlisted-segment": ("cognee.gone", "`cognee.gone` is not covered here.", [], False),
+}
+
+
+@pytest.mark.parametrize("name, doc, modules, counted", list(QUALIFIED_CASES.values()), ids=list(QUALIFIED_CASES))
+def test_a_qualified_declared_name_has_its_bare_entry(name, doc, modules, counted):
+    exports = [{"name": "Client", "kind": "class"}, {"name": "add", "kind": "function"},
+               {"name": "RecursiveSplitter", "kind": "class"}, {"name": "render", "kind": "method", "owner": "Widget"}]
+    out = verify({"declaredNames": ["Client", name], "skillPackagePath": "x", "exports": exports,
+                  "moduleNames": modules}, doc_text=f"`Client` wraps it. {doc}\n")
+    assert (out["verified"], out["absent"], out["inflated"]) == ((2, [], False) if counted else (1, [name], True))
+
+
+def test_inputs_pass_the_loaders_module_names(tmp_path):
+    """--inputs reads load-coverage-inputs.py's `moduleNames`, so a declared package the text writes counts."""
+    path = tmp_path / "coverage-inputs.json"
+    path.write_bytes(json.dumps({"inflationSignature": True, "declaredNames": ["Client", "connectors.localfs"],
+                                 "moduleNames": ["connectors.localfs"]}).encode("utf-8"))
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(b"`Client` wraps it. `connectors.localfs` reads files.\n")
+    inventory = tmp_path / "inventory.json"
+    inventory.write_bytes(json.dumps({"exports": [{"name": "Client", "kind": "class"}]}).encode("utf-8"))
+    res = _run_cli(["--inputs", str(path), "--skill-dir", str(skill), "--inventory", str(inventory)])
+    assert res.returncode == 0, res.stderr
+    out = json.loads(res.stdout)
+    assert (out["verified"], out["absent"], out["inflated"]) == (2, [], False)
+
+
+def test_json_module_names_that_is_no_list_is_invalid():
+    out = verify({"declaredNames": ["foo"], "skillPackagePath": "x", "exports": [], "moduleNames": "foo"},
+                 doc_text="foo")
+    assert out["code"] == "INVALID_INPUT" and "moduleNames" in out["error"]
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-v"]))

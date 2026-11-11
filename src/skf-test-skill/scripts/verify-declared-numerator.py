@@ -18,14 +18,17 @@ coverage.
 
 A declared name counts only when the validated §1 inventory gives it an entry
 and the skill's text writes it (#1068): validate-inventory.py's
-`inventory_names` (an entry's `name`, and a `method` entry's `{owner}.{name}`
-and `{owner}::{name}`), then its `names_present`. A name the inventory contract
-gives no entry (such as one the skill writes only in a type position, only in
-a sentence saying it does not cover it, only as a local import alias or a name
-it says the source does not export, or only in a form marked removed or from
-an earlier version) is absent however often the text writes it. Without an
-inventory (no --inventory and no `exports`) the text alone decides, as it did
-before.
+`listed_names` (an entry's `name`, a `method` entry's `{owner}.{name}` and
+`{owner}::{name}`, and a name a module path qualifies by its last segment, so
+`cognee.add` has the entry of `add`), then its `names_present`. A name the
+inventory contract gives no entry (such as one the skill writes only in a type
+position, only in a sentence saying it does not cover it, only as a local
+import alias or a name it says the source does not export, or only in a form
+marked removed or from an earlier version) is absent however often the text
+writes it. A name `moduleNames` holds (the provenance map types it `module` or
+`package`, which the inventory has no kind for) counts when the text writes
+it. Without an inventory (no --inventory and no `exports`) the text alone
+decides, as it did before.
 
 Distinct from reconcile-coverage.py (whose stack branch, and scalar branch
 when it counts no set, return only a residual missing *count*): this script
@@ -44,17 +47,18 @@ Input schema (one JSON object):
   {
     "declaredNames": ["foo", "Bar::baz", ...],  # metadata.exports[] / provenance declared set
     "skillPackagePath": "/path/to/skill",       # SKILL.md ∪ references/*.md
-    "exports": [{"name": "foo", ...}, ...]      # optional: the validated inventory's entries
+    "exports": [{"name": "foo", ...}, ...],     # optional: the validated inventory's entries
+    "moduleNames": ["connectors.localfs", ...]  # optional: names the provenance map types module or package
   }
 
 or the files: --inputs <coverage-inputs.json> --skill-dir <skill package>.
 --inventory <inventory.json>, with any input, sets `exports` from the
 validated inventory validate-inventory.py wrote with --output (or its whole
 result, `inventory.exports`) and wins over the JSON field.
---inputs reads load-coverage-inputs.py metadata's output: its `declaredNames`
-and `inflationSignature`. Without the signature there is nothing to verify,
-so the result is `skipped` and `inflated` is false; a caller can run the
-command on every skill.
+--inputs reads load-coverage-inputs.py metadata's output: its `declaredNames`,
+`moduleNames` and `inflationSignature`. Without the signature there is
+nothing to verify, so the result is `skipped` and `inflated` is false; a
+caller can run the command on every skill.
 
 Output (stdout, one object):
   {
@@ -131,6 +135,8 @@ def _validate(inp):
         return "skillPackagePath is required to grep SKILL.md ∪ references"
     if inp.get("exports") is not None and not isinstance(inp["exports"], list):
         return "exports must be a list (the validated inventory's entries) when present"
+    if inp.get("moduleNames") is not None and not isinstance(inp["moduleNames"], list):
+        return "moduleNames must be a list (the names the provenance map types module or package) when present"
     return None
 
 
@@ -147,8 +153,7 @@ def verify(inp, doc_text=None):
     candidates = declared_set
     if isinstance(inp.get("exports"), list):
         # #1068: a name the inventory gives no entry is not documented, whatever the text writes.
-        documented = _inventory().inventory_names(inp["exports"])
-        candidates = [n for n in declared_set if n in documented]
+        candidates = _inventory().listed_names(declared_set, inp["exports"], inp.get("moduleNames"))
     present = _inventory().names_present(candidates, doc_text)
     absent = sorted(set(declared_set) - set(present))
 
@@ -201,7 +206,7 @@ def _build_parser():
     src.add_argument(
         "--inputs",
         metavar="PATH",
-        help="load-coverage-inputs.py metadata output: declaredNames and inflationSignature.",
+        help="load-coverage-inputs.py metadata output: declaredNames, moduleNames and inflationSignature.",
     )
     parser.add_argument("--skill-dir", metavar="DIR",
                         help="the skill package (with --inputs): SKILL.md and references/")
@@ -222,7 +227,7 @@ def verify_from_inputs(inputs, skill_dir, doc_text=None, exports=None):
         declared = len({n for n in names if isinstance(n, str) and n}) if isinstance(names, list) else 0
         return {"skipped": True, "declared": declared, "verified": None, "present": [], "absent": [],
                 "inflated": False}
-    inp = {"declaredNames": names, "skillPackagePath": skill_dir}
+    inp = {"declaredNames": names, "skillPackagePath": skill_dir, "moduleNames": inputs.get("moduleNames")}
     if exports is not None:
         inp["exports"] = exports
     result = verify(inp, doc_text=doc_text)

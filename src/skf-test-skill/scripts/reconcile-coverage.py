@@ -51,12 +51,15 @@ It covers the four branches §2c enumerates:
     Export Coverage = min(100, Documented / stack_denominator * 100).
     On a `provenance` basis (`compositionBasis`, the loader's `stack.basis`)
     with the inventory's `exports` given, a cited name counts only when the
-    inventory gives it an entry (validate-inventory.py's `inventory_names`)
-    and the text writes it, as verify-declared-numerator.py counts (#1068):
-    a name the skill writes only in a type position, only in a sentence
-    saying it does not cover it, only as a local import alias or a name it
-    says the source does not export, or only in a form marked removed or from
-    an earlier version is missing. On a `composition` basis the names are
+    inventory gives it an entry (validate-inventory.py's `listed_names`, so
+    `cognee.add` has the entry of `add`) and the text writes it, as
+    verify-declared-numerator.py counts (#1068): a name the skill writes only
+    in a type position, only in a sentence saying it does not cover it, only
+    as a local import alias or a name it says the source does not export, or
+    only in a form marked removed or from an earlier version is missing. A
+    name `moduleNames` holds (the provenance map types it `module` or
+    `package`, which the inventory has no kind for) counts when the text
+    writes it. On a `composition` basis the names are
     libraries and `a + b` integration pairs, which name no export, so no
     inventory entry lists them: they are looked up in the text alone.
 
@@ -112,7 +115,8 @@ each sets the input field it names and wins over the same field in the JSON:
                         `effectiveDenominator` (stats.effective_denominator);
                         for the stack branch, compositionNames,
                         compositionBasis (its `basis`) and
-                        denominatorValue from its `stack` object
+                        denominatorValue from its `stack` object, and
+                        moduleNames from its own `moduleNames`
   --verified PATH       scalar: verify-declared-numerator.py's result; when it
                         found the declared count inflated, its `verified`
                         count is the numerator (not on a counted set)
@@ -133,6 +137,7 @@ Input schema (one object):
     "denominatorValue": <int>,                             # scalar/stack: resolved denominator
     "compositionNames": ["connect", ...],                  # stack: names to look up
     "compositionBasis": "provenance" | "composition",      # stack: stack.basis (null: no basis given)
+    "moduleNames": ["connectors.localfs", ...],            # stack: names the map types module or package
     "skillPackagePath": "/path/to/skill",                  # scalar/stack: SKILL.md ∪ references
     "verifiedNumerator": <int>,                            # scalar: overrides the lookup count
     "undecided": [ {"export", "at", "rule", "reading", "other_gap"} ]  # any branch: the inventory's open readings
@@ -352,9 +357,11 @@ def _validate(inp):
             return "stack branch requires `compositionNames` (composition-surface names to look up)"
         if source == "stack" and inp.get("compositionBasis") not in STACK_BASES + (None,):
             return f"stack branch: `compositionBasis` must be one of {', '.join(STACK_BASES)} or null"
-        if source == "stack" and inp.get("compositionBasis") == "provenance" and inp.get("exports") is not None \
-                and not isinstance(inp["exports"], list):
-            return "stack branch: `exports` must be a list (the validated inventory's entries) when present"
+        if source == "stack" and inp.get("compositionBasis") == "provenance":
+            if inp.get("exports") is not None and not isinstance(inp["exports"], list):
+                return "stack branch: `exports` must be a list (the validated inventory's entries) when present"
+            if inp.get("moduleNames") is not None and not isinstance(inp["moduleNames"], list):
+                return "stack branch: `moduleNames` must be a list (names the map types module or package) when present"
         verified = inp.get("verifiedNumerator")
         if verified is not None and (not isinstance(verified, int) or isinstance(verified, bool) or verified < 0):
             return "verifiedNumerator must be an integer >= 0"
@@ -533,8 +540,7 @@ def _reconcile(inp, doc_text=None):
                 # #1068: a cited export name counts only when the inventory gives it an entry, as §2b's
                 # numerator check counts. Library and pair names (`composition`) name no export, so the
                 # inventory never lists them and the text alone decides.
-                documented_names = _inventory().inventory_names(inp["exports"])
-                candidates = [n for n in candidates if n in documented_names]
+                candidates = _inventory().listed_names(candidates, inp["exports"], inp.get("moduleNames"))
         documented = len(names_present(candidates, doc_text))
 
     # The numerator and the resolved denominator can measure different sets,
@@ -943,6 +949,7 @@ def apply_file_inputs(inp, args):
                 raise InputFileError(f"--coverage-inputs {args.coverage_inputs} has no `stack` object")
             inp["compositionNames"] = stack.get("compositionNames")
             inp["compositionBasis"] = stack.get("basis")
+            inp["moduleNames"] = data.get("moduleNames")
             if args.denominator_value is None:
                 inp["denominatorValue"] = stack.get("denominator")
     if args.verified is not None:

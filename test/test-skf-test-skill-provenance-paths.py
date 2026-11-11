@@ -2879,6 +2879,9 @@ def test_the_prose_numerator_and_stack_count_only_the_inventorys_names(tmp_path)
             "position in another name's signature, a sentence saying the skill does not cover it, a local import "
             "alias, a name it says the source does not export, a form marked removed or from an earlier version) "
             "is `absent`.") in _flow(_read(COVERAGE))
+    assert ("A name a module path qualifies has the entry of its last segment (`cognee.add` that of `add`), and one "
+            "the provenance map types `module` or `package`, which the inventory has no kind for, is `verified` when "
+            "the text writes it.") in _flow(_read(COVERAGE))
     assert ("With `coverage-inputs.json` `stack.basis` `provenance`, it counts each cited export name that the "
             "validated inventory gives an entry and the skill's text writes, as §2b's numerator check does. With "
             "`composition`, it looks each library and integration pair name up in the text alone: those name no "

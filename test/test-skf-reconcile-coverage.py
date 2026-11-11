@@ -641,6 +641,18 @@ def test_stack_provenance_matches_an_owned_method_by_its_qualified_name():
     assert (out["documented"], out["missingCount"]) == (2, 1)
 
 
+def test_stack_provenance_matches_a_qualified_name_and_keeps_a_package():
+    """Review of #1068: a stack cites the literal identifier it writes, so a cited `cognee.add` has the entry the
+    inventory gives `add`, and a package `moduleNames` holds, which the inventory has no kind for, is looked up in
+    the text alone; a qualified name whose last segment no entry names is still missing."""
+    names = ["Client", "cognee.add", "connectors.localfs", "cognee.gone"]
+    out = reconcile(_stack(names, exports=[{"name": "add", "kind": "function"}, {"name": "Client", "kind": "class"}],
+                           moduleNames=["connectors.localfs"]),
+                    doc_text="`await cognee.add(data)` stores it in a `Client`; `connectors.localfs` reads files; "
+                             "`cognee.gone` is not covered here.")
+    assert (out["documented"], out["missingCount"]) == (3, 1)
+
+
 @pytest.mark.parametrize("basis", ["composition", None], ids=["composition", "no-basis"])
 def test_stack_composition_names_are_looked_up_in_the_text_alone(basis):
     """Library and integration pair names name no export, so the inventory never lists them: on a composition
@@ -656,7 +668,8 @@ def test_stack_composition_names_are_looked_up_in_the_text_alone(basis):
     ({"compositionBasis": "imports"}, "`compositionBasis` must be one of provenance, composition or null"),
     ({"compositionBasis": 3}, "`compositionBasis` must be one of"),
     ({"exports": {"name": "connect"}}, "`exports` must be a list"),
-], ids=["unknown-basis", "basis-not-a-string", "exports-not-a-list"])
+    ({"moduleNames": "connectors.localfs"}, "`moduleNames` must be a list"),
+], ids=["unknown-basis", "basis-not-a-string", "exports-not-a-list", "module-names-not-a-list"])
 def test_stack_refuses_a_bad_basis_or_inventory(extra, message):
     out = reconcile({**_stack(["connect"], exports=[]), **extra}, doc_text="connect")
     assert out["code"] == "INVALID_INPUT" and message in out["error"], out
@@ -1017,6 +1030,24 @@ def test_cli_stack_reads_the_basis_and_the_inventory(tmp_path, basis, documented
     assert proc.returncode == 0, proc.stdout + proc.stderr
     out = json.loads(proc.stdout)
     assert (out["documented"], out["missingCount"]) == (documented, 3 - documented)
+
+
+def test_cli_stack_reads_the_module_names(tmp_path):
+    """--coverage-inputs carries the loader's `moduleNames`, so a cited package the text writes counts on a
+    provenance basis, and a cited `cognee.add` counts through the entry of `add`."""
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(b"`await cognee.add(data)` stores it. `connectors.localfs` reads files.\n")
+    inputs = _write(tmp_path / "coverage-inputs.json",
+                    {"moduleNames": ["connectors.localfs"],
+                     "stack": {"basis": "provenance", "denominator": 2,
+                               "compositionNames": ["cognee.add", "connectors.localfs"]}})
+    inventory = _write(tmp_path / "inventory.json", {"exports": [{"name": "add", "kind": "function"}]})
+    proc = _run_cli(["--denominator-source", "stack", "--coverage-inputs", inputs, "--inventory", inventory,
+                     "--skill-dir", str(skill)])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["documented"], out["missingCount"]) == (2, 0)
 
 
 def test_cli_stack_refuses_an_unknown_basis(tmp_path):

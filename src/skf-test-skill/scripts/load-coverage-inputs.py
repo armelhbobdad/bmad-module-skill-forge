@@ -236,7 +236,10 @@ reading files and writing one JSON object:
             entry names do: the stored count counts each name once, the map
             holds a name passed on from two files twice)
             with the declared names verify-declared-numerator.py looks up
-            (the `exports[]` names, else the provenance named exports); and,
+            (the `exports[]` names, else the provenance named exports); the
+            entry names the map types `module` or `package` (`moduleNames`),
+            which the inventory has no kind for, so that helper and the
+            stack branch look them up in the skill's text alone; and,
             for a stack, its composition surface: the distinct provenance
             named exports when the map has entries, else each library and
             each integration pair (`{a} + {b}`, as the stack's Library Pair
@@ -1330,6 +1333,11 @@ def _library_name(lib) -> str | None:
     return None
 
 
+# The export_types a provenance map gives a module or a package, read case-insensitively: the inventory has no kind
+# for either (#1068), as skf-verify-provenance-completeness.py's NO_DEFINITION_EXPORT_TYPES finds no definition.
+MODULE_EXPORT_TYPES = ("module", "package")
+
+
 def metadata_inputs(meta: dict, provenance: dict | None) -> dict:
     stats = meta.get("stats") if isinstance(meta.get("stats"), dict) else {}
     exports = meta.get("exports")
@@ -1375,6 +1383,9 @@ def metadata_inputs(meta: dict, provenance: dict | None) -> dict:
             documented == effective or (bool(entry_names) and not any(METHOD_SEPARATOR in n for n in entry_names)
                                         and len(set(entry_names)) == effective)),
         "declaredNames": sorted(set(names)) if names else named,
+        "moduleNames": sorted({e["export_name"] for e in _entries(provenance)
+                               if isinstance(e.get("export_name"), str) and e["export_name"]
+                               and str(e.get("export_type")).strip().lower() in MODULE_EXPORT_TYPES}),
         "stack": stack,
     }
 
