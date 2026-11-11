@@ -22,8 +22,9 @@ test/test-skf-stack-step-rules.py runs both on the same package.
 skf-test-skill also counts a cited name only when the validated inventory
 of its run gives it an entry (#1068), so a name the skill writes only in a
 type position, in a sentence saying it does not cover it, as an import
-alias, or in a removed form still counts as missing there; this helper
-runs before any inventory exists and cannot check that.
+alias or a name it says the source does not export, or in a removed form
+still counts as missing there; this helper runs before any inventory
+exists and cannot check that.
 
 Usage:
   uv run skf-names-present.py --provenance <provenance-map.json> \\

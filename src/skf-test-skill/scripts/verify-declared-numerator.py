@@ -12,9 +12,9 @@ only on the inflation signature
 provenance map with no `::` entry, its distinct entry names number
 `effective_denominator`): the numerator equals the denominator, the tell of a
 documented count padded to force 100% coverage. On that signature the declared
-count is not trusted: every declared export name is looked up in the skill's
-documentation surface and only the names that actually appear count toward
-coverage.
+count is not trusted: every declared export name is checked against the
+validated inventory and the skill's documentation surface, and only the names
+that pass both (below) count toward coverage.
 
 A declared name counts only when the validated §1 inventory gives it an entry
 and the skill's text writes it (#1068): validate-inventory.py's
