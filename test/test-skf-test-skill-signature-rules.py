@@ -373,6 +373,42 @@ def test_a_documented_overload_set_is_read_as_one_set():
             "says.") in split_body, "the split-body paragraph points at the sentence it reads"
 
 
+def test_a_form_bound_to_an_overload_set_is_compared_with_the_whole_set():
+    """#1081 (oms-cognee 1.6.2): the extraction records an overloaded name at its first stub, so a form whose own
+    citations name the name is bound to that stub, and Reading a form compares a bound form with "its bound
+    declaration alone". No sentence said whether "alone" leaves out the set's own overloads, so cognee's `export`
+    form, returning `GraphSnapshot | ExportResult`, bound to the first `@overload` stub (`-> GraphSnapshot`) and
+    matching the implementation (`-> ExportResult | GraphSnapshot`), was an untagged Critical against the stub alone
+    and no mismatch through the implementation, and the judge listed it as undecided. A bound declaration that opens
+    an overload set is the whole set, its mismatch still reported at the bound file and line; "its bound declaration
+    alone" leaves out the other declarations the check offers (its location and candidates) only; and a bound
+    declaration the other languages' paragraph makes one set with other declarations in its file stands for that
+    set's declarations there."""
+    overloads = _section("Overload sets")
+    whole = ("A bound declaration (Reading a form) that opens an overload set is the whole set, its stubs and its "
+             "implementation, so a form bound to it is compared as this section says, never with its first stub "
+             "alone, and its mismatch is reported at the bound declaration's file and line: a form of cognee's "
+             "`export` returning `GraphSnapshot | ExportResult`, bound to its first stub (`-> GraphSnapshot`), "
+             "matches its implementation (`-> ExportResult | GraphSnapshot`) and is no mismatch.")
+    alone = ("In Reading a form and in coverage-check.md §2, \"its bound declaration alone\" leaves out the other "
+             "declarations the check offers (its location and candidates), not the set's own overloads.")
+    declarations = ("A bound declaration that the paragraph below makes one set with other declarations in its file "
+                    "likewise stands for that set's declarations there, so a form bound to it that matches any of "
+                    "them is no mismatch.")
+    for sentence in (whole, alone, declarations):
+        assert sentence in overloads, sentence
+    assert overloads.index(whole) < overloads.index(alone) < overloads.index(declarations)
+    paragraphs = [_flow(p) for p in _slice(_read(RULES), "## Overload sets\n", "## Difference tags").split("\n\n")]
+    source = paragraphs.index(next(p for p in paragraphs if p.startswith("A declaration opening an overload set")))
+    assert paragraphs[source + 1].startswith("A bound declaration (Reading a form) that opens an overload set"), \
+        "right after the stub rule it reads a bound declaration by"
+    assert paragraphs[source + 2].startswith("A name declared several times"), "the paragraph below is the other set"
+    assert _flow(_read(RULES)).count("that opens an overload set is the whole set") == 1, "one copy"
+    # The phrase the paragraph defines is still the one Reading a form and §2 write.
+    assert "is compared with its bound declaration alone" in _section("Reading a form")
+    assert "Compare a bound form with its bound declaration alone" in _flow(_read(COVERAGE))
+
+
 def test_a_usage_form_is_read_as_what_it_writes():
     """#826, deferred from #862: an entry whose only form is its `usage_signature` had no rule saying how it is read.
     The call-example rule, its one copy, reads a component usage as a list of bare names of the props it sets and a
