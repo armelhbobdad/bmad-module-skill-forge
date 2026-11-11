@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Test Skill now stops at the hard gate on a `signature-mismatch` for a call written in a `Key params` cell, pass each argument as the callable takes it, a keyword-only parameter as `name=value`, or write the parameters with their types, as in `fetch(url: str)`, which reads as a signature, then run Test Skill again.
 issues: [1073]
+prs: [1103]
