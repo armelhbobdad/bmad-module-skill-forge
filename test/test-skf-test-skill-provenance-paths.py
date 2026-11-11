@@ -2550,9 +2550,12 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
             "with `line` null, find it in `{file}` and give its mismatch that line)") in forge
     assert "read in full at its `file` and `line` as above" in forge
     # #1061: a check whose record has no file sits under the files[] entry "" for its bound forms alone; a result
-    # that echoes "" as its `file` breaks the schema, so the judge names a bound declaration's file instead.
-    assert ("The `files[]` entry `\"\"` names no file: its judge compares only bound forms and gives its result the "
-            "first check's first `bound` `file` as `file`.") in forge
+    # that echoes "" as its `file` breaks the schema, so the judge names a bound declaration's file instead. Review
+    # of #1087 and #1084: such a check also carries its `imports` and `members`, which signature-comparison-rules.md
+    # compares too, so the sentence names them beside the bound forms.
+    assert ("The `files[]` entry `\"\"` names no file: its judge compares only bound forms, `imports` and `members`, "
+            "and gives its result the first check's first `bound` `file` as `file`.") in forge
+    assert "its judge compares only bound forms and gives" not in forge
     # #781: a check the citations do not settle names each candidate
     assert ("A check with `candidates` reads each as above and reports a mismatch only when the documented signature "
             "matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the "
@@ -2629,14 +2632,20 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
             "and counts no name") in held
     # #1087: a documented extra's declarations reach plan and score as its records, never a set, Export Coverage or
-    # Type Coverage
+    # Type Coverage; review of #1087 (probe f): only those classify-stale finds, so a name declared only at a test
+    # helper stays stale documentation and is never compared there
     assert ("`internalDeclarations` lists, for each name the extraction finds no entry point exports (its `internal` "
             "names) and that no surface record names, each declaration of it the extraction records in a file the "
-            "brief does not exclude, in the fields `otherDeclarations` uses; it is `null` exactly when "
-            "`otherDeclarations` is. They add no name to a set either, and neither Export Coverage nor Type Coverage "
-            "reads them: `plan`, `score` and coverage-check-branches.md's Split-Body Sources read them as the records "
-            "of such a name, so a documented extra's signature is planned, judged and counted in Signature Accuracy "
-            "at its declaration, and the two forms of a split-body mismatch of it are set against that declaration."
+            "brief does not exclude, in the fields `otherDeclarations` uses, less each one coverage-check.md §2c's "
+            "`classify-stale` never finds, since such a name stays stale documentation: one in a test file, in a "
+            "file of a language other than Python and TS/JS or, unless a provenance entry of the name cites that "
+            "file, in a test, fixture, vendored, hidden or `e2e` folder, or an examples, scripts or docs folder right "
+            "below the source root or a package root (a `prune_data` cognee declares only in `cognee/tests/utils.py` "
+            "has none); it is `null` exactly when `otherDeclarations` is. They add no name to a set either, and "
+            "neither Export Coverage nor Type Coverage reads them: `plan`, `score` and coverage-check-branches.md's "
+            "Split-Body Sources read them as the records of such a name, so a documented extra's signature is "
+            "planned, judged and counted in Signature Accuracy at its declaration, and the two forms of a split-body "
+            "mismatch of it are set against that declaration."
             ) in held
     internal = _flow(_slice(_read(SOURCE_ACCESS), "Internal module symbols are", "This matches the extraction"))
     assert ("the extraction's `internal` names reach it only as `internalDeclarations` (What the Surface Holds, "

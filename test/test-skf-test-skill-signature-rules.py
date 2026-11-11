@@ -238,9 +238,8 @@ def test_a_deep_tier_judge_compares_the_skill_s_imports_and_members_with_the_sou
             "module the tree does not hold is left uncompared.") in paragraph
     assert ("Each `fields` or `properties` item names a member the declaration (or a base in the source tree) "
             "declares, with the type it writes, read as Annotations reads a parameter's type and by Equivalent "
-            "spellings, when it writes one; each `methods` item "
-            "names a member it declares or binds, its parameters left to a method's own check. A list may leave "
-            "members out. With `candidates`, an item differs only when it differs from each.") in paragraph
+            "spellings, when it writes one; each `methods` item names a member the declaration has") in paragraph
+    assert ("its parameters left to a method's own check. A list may leave members out.") in paragraph
     # review of #1084: a member's type is read as a parameter's is, under Annotations, before Equivalent spellings,
     # so a field `meta: dict` matches `meta: dict[str, Any]` as the same text written as a parameter's type does
     assert "with the type it writes, by Equivalent spellings" not in paragraph
@@ -257,6 +256,41 @@ def test_a_deep_tier_judge_compares_the_skill_s_imports_and_members_with_the_sou
     assert sorted(judge) == ["file", "signature_mismatches", "undecided"]
     deep = _flow(_slice(_read(COVERAGE), "**Deep Tier", "**States 2 to 4"))
     assert "by `{signatureRulesFile}` and adds each that differs to the JSON above as `doc_errors`" in deep
+
+
+def test_a_methods_item_is_found_as_a_method_s_form_finds_its_member():
+    """Review of #1084 with #1088 (probe g): loguru's `logger = _Logger()` documented with `methods: ["add(sink)"]`
+    and a method entry `logger.add`. The method rule reads an owner bound to an instance as its class, so
+    `logger.add` is compared with `_Logger.add`, while the doc-check rule asked only for a member the declaration
+    declares or binds, and the `logger` const declares no `add`: a false doc error beside a matching method. A
+    `methods` item is now found as a method's form finds its owner's member, the rule that paragraph gives."""
+    paragraph = _paragraph(_read(RULES), "A check that carries `imports` or `members`")
+    assert ("each `methods` item names a member the declaration has, found as a method's form finds its owner's "
+            "member (below: through an instance's class or an annotated const's type, along the method resolution "
+            "order, or declared outside the owner's body), its parameters left to a method's own check.") in paragraph
+    assert "each `methods` item names a member it declares or binds" not in paragraph
+    method = _paragraph(_read(RULES), "A method's form (a check that gives `member`, coverage-check.md §2)")
+    for held in ("An owner bound to an instance of a class, or a const annotated with a type, is read as that class "
+                 "or type", "else the member the first class in its method resolution order to declare or bind it "
+                 "gives", "or a method declared for it outside that body"):
+        assert held in method, held
+
+
+def test_a_members_item_at_a_bound_form_s_place_is_compared_with_that_declaration():
+    """Review of #1084 with #918 (probe e): `Config` is exported at pkg/client.py:3 and declared again at
+    pkg/loader.py:5, and the skill's citations bind the form at SKILL.md:5 to loader.py:5, while the check sits at
+    client.py:3. Its `members` item at SKILL.md:5 (`path: str`) was compared with "the declaration", the check's,
+    a false doc error. plan now gives such an item its bound declaration's `file` and `line`, and the rules compare
+    it there alone. A check under the `files[]` entry `""` keeps only such items, so coverage-check.md §2 says its
+    judge compares its `imports` and `members` beside its bound forms, as these rules do."""
+    paragraph = _paragraph(_read(RULES), "A check that carries `imports` or `members`")
+    assert ("A list may leave members out. An item that gives a `file` and `line` (its `at` is a place of a form the "
+            "check binds) is compared with that declaration alone; with `candidates`, any other item differs only "
+            "when it differs from each.") in paragraph
+    bound = _paragraph(_read(COVERAGE), "A check's `bound` lists each form")
+    assert ("The `files[]` entry `\"\"` names no file: its judge compares only bound forms, `imports` and `members`, "
+            "and gives its result the first check's first `bound` `file` as `file`.") in bound
+    assert "compares only bound forms and gives" not in bound
 
 
 def test_a_documented_extra_s_internal_declarations_are_its_declarations_for_the_split_body_source():

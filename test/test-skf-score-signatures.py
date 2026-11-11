@@ -2330,8 +2330,10 @@ def test_a_by_eye_record_alone_plans_no_line_and_is_scored_at_the_judge_s(tmp_pa
     # and its judge names a bound file as its result's `file`, since score refuses a blank one (#1061).
     assert ("The judge finds a declaration that has a file in that `file` and gives its mismatch the line it found "
             "there (#1022). A check whose record has no file has a bound form and sits under the `files[]` entry \"\", "
-            "which names no file to read: a judge reads only its `bound` forms, each at its bound declaration, and "
-            "gives its result the first check's first `bound` file as `file`, which score refuses blank. A name "
+            "which names no file to read: a judge compares only its `bound` forms, each at its bound declaration, and "
+            "its `imports` and `members`, each `members` item at the bound declaration it gives (plan leaves out one "
+            "with none), and gives its result the first check's first `bound` file as `file`, which score refuses "
+            "blank. A name "
             "that no surface record locates in a file and none of whose forms is bound gets no check (#1061): "
             "`notCompared` lists it, and score with --plan leaves it out of Signature Accuracy and names it in "
             "`warnings`.") in doc
@@ -3571,6 +3573,79 @@ def test_a_method_s_owner_gets_its_doc_check_beside_the_method_s_check(tmp_path)
                               "--results", results).stdout)
         assert out["gapRecords"] == []
         assert any("doc_errors[0]" in w and "SearchType.get" in w for w in out["warnings"]), out["warnings"]
+
+
+# Review of #1084 with #918 (probe e): Config is exported at pkg/client.py:3 and declared again at pkg/loader.py:5;
+# the skill documents each with its own citation and fields, so the form at SKILL.md:5 is bound to loader.py:5 while
+# the check sits at client.py:3.
+CLIENT_PY, LOADER_PY = "pkg/client.py", "pkg/loader.py"
+CONFIG_HOMONYM_SKILL = (
+    f"# Demo\n\n`Config(host: str)` is the client config. [SRC:{CLIENT_PY}:L3] Fields: `host: str`.\n\n"
+    f"`Config(path: str)` is the loader config. [SRC:{LOADER_PY}:L5] Fields: `path: str`.\n\n"
+    "`Config` also holds `debug: bool`.\n")
+CONFIG_HOMONYM_ENTRIES = [
+    {"name": "Config", "kind": "class", "params": "host: str", "fields": ["host: str"], "description": "",
+     "at": "SKILL.md:3"},
+    {"name": "Config", "kind": "class", "params": "path: str", "fields": ["path: str"], "description": "",
+     "at": "SKILL.md:5"},
+    {"name": "Config", "kind": "class", "fields": ["debug: bool"], "description": "", "at": "SKILL.md:7"}]
+CONFIG_HOMONYM_SURFACE = {
+    "exports": [{"name": "Config", "kind": "class", "file": CLIENT_PY, "line": 3, "signatureLine": "class Config:",
+                 "origin": "extraction"}],
+    "otherDeclarations": [{"name": "Config", "kind": "class", "file": LOADER_PY, "line": 5,
+                           "signatureLine": "class Config:"}],
+    "internalDeclarations": [], "sets": {"all": ["Config"]}}
+
+
+def test_a_members_item_at_a_bound_form_s_place_names_that_declaration(tmp_path):
+    """Review of #1084 with #918 (probe e): the check's `members` item at SKILL.md:5, the place of the form bound to
+    the loader's Config, carried no link to that declaration, so a judge compared `path: str` with the client's
+    Config, the check's, and returned a false `Not checked by script: Config`. Each item at a place of a bound form
+    now gives that form's bound `file` and `line`, which the rules compare it with, and an item at no bound form's
+    place (SKILL.md:7) gives none, so it is compared with the check's declaration as before."""
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=CONFIG_HOMONYM_SKILL, entries=CONFIG_HOMONYM_ENTRIES,
+                                 surface=CONFIG_HOMONYM_SURFACE)
+    assert proc.returncode == 0, proc.stderr
+    [group] = json.loads(path.read_text(encoding="utf-8"))["files"]
+    [check] = group["checks"]
+    assert (group["file"], [(b["form"], b["file"], b["line"]) for b in check["bound"]]) == (
+        CLIENT_PY, [(0, CLIENT_PY, 3), (1, LOADER_PY, 5)])
+    assert check["members"] == [
+        {"at": "SKILL.md:3", "fields": ["host: str"], "file": CLIENT_PY, "line": 3},
+        {"at": "SKILL.md:5", "fields": ["path: str"], "file": LOADER_PY, "line": 5},
+        {"at": "SKILL.md:7", "fields": ["debug: bool"]}]
+    doc = " ".join(mod.__doc__.split())
+    assert ('"members": [{"at", "fields", "properties", "methods", "file", "line" (only when `at` is a place of a '
+            "bound form: its bound declaration)}]") in doc
+
+
+def test_a_check_with_no_file_keeps_only_the_members_items_it_can_compare(tmp_path):
+    """Review of #1061 with #1084: createTest's only record has no file, so its check sits under the `files[]` entry
+    "" for the form bound to the declaration its citation names. With --doc-errors it carries its `imports` and
+    `members` too, which coverage-check.md §2 now says its judge compares beside the bound forms: a `members` item at
+    the bound form's place gives that declaration, and one at no bound form's place, which that judge has no
+    declaration to compare with, is left out. An import needs no declaration, so it stays."""
+    skill = (f"# Demo\n\n`createTest(story, annotations?)` builds a test [AST:{PORTABLE}:L319].\n\n"
+             f"The template's createTest is a copy [SRC:{PORTABLE_COPY}:L40].\n\n"
+             "```ts\nimport { createTest } from \"@storybook/test\";\n```\n")
+    entries = [CREATE_TEST,
+               {"name": "createTest", "kind": "function", "fields": ["story: Story"], "description": "",
+                "at": "SKILL.md:3"},
+               {"name": "createTest", "kind": "function", "fields": ["template: Story"], "description": "",
+                "at": "SKILL.md:5"}]
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=skill, entries=entries, surface=FILELESS)
+    assert proc.returncode == 0, proc.stderr
+    [group] = json.loads(path.read_text(encoding="utf-8"))["files"]
+    [check] = group["checks"]
+    assert (group["file"], check["bound"][0]["file"]) == ("", PORTABLE)
+    assert check["imports"] == [{"at": "SKILL.md:8", "statement": 'import { createTest } from "@storybook/test";'}]
+    assert check["members"] == [{"at": "SKILL.md:3", "fields": ["story: Story"], "file": PORTABLE, "line": 319}]
+    # with only the unbound item, the check carries no `members` at all
+    proc, path, _, _ = _doc_plan(tmp_path / "unbound", "--doc-errors", skill=skill, entries=[CREATE_TEST, entries[2]],
+                                 surface=FILELESS)
+    assert proc.returncode == 0, proc.stderr
+    [group] = json.loads(path.read_text(encoding="utf-8"))["files"]
+    assert "members" not in group["checks"][0] and group["checks"][0]["imports"]
 
 
 # Each import statement an import reader takes, by the fence it sits in; the skill documents SearchType (fields at

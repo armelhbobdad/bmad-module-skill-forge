@@ -127,7 +127,10 @@ documentation errors a Deep-tier judge returns.
          `as` alias read by the name it imports, a default or namespace
          import importing none), at its first line, and, as `members`, the
          `fields`, `properties` and `methods` each entry of the name with
-         a good `at` gives; a documented name of the universe with no
+         a good `at` gives, an item at a place of a form the check binds
+         with that form's bound `file` and `line`, which the judge compares
+         it with (in a check with no file, an item with none is left out);
+         a documented name of the universe with no
          compared form but with either gets a check of its own with no
          `documented`, at the record _check_at picks (none when that
          record has no file), which `compared` never counts. A judge
@@ -407,7 +410,9 @@ score write their result to that file and print only its summary):
           "file", "line", "signatureLine"}] (only when a form's own
           citations name one declaration of the name), "imports": [{"at",
           "statement"}], "members": [{"at", "fields", "properties",
-          "methods"}] (with --doc-errors, only when the name has one)}]}],
+          "methods", "file", "line" (only when `at` is a place of a bound
+          form: its bound declaration)}] (with --doc-errors, only when the
+          name has one)}]}],
           "notCompared": [the names with a documented signature given no
           check, sorted],
           "documentedSignatures": {...}, "documentedAlternatives": {name:
@@ -423,7 +428,9 @@ score write their result to that file and print only its summary):
          in that `file` and gives its mismatch the line it found there
          (#1022). A check whose record has no file has a bound form and
          sits under the `files[]` entry "", which names no file to read: a
-         judge reads only its `bound` forms, each at its bound declaration,
+         judge compares only its `bound` forms, each at its bound
+         declaration, and its `imports` and `members`, each `members` item
+         at the bound declaration it gives (plan leaves out one with none),
          and gives its result the first check's first `bound` file as
          `file`, which score refuses blank.
          A name that no surface record locates in a file and none of whose
@@ -1464,6 +1471,28 @@ def _documented_members(inventory: list[dict], names: set[str]) -> dict[str, lis
     return members
 
 
+def _bound_members(members: list[dict], bound: list[dict], places: list[list[tuple[str, int]]],
+                   fileless: bool) -> list[dict]:
+    """A check's `members` items, each whose `at` is a place of a form the
+    check binds (`bound`, form n's places `places[n]`), all those forms bound
+    to one declaration, given that declaration's `file` and `line`, so its
+    judge compares the item with that declaration, not the check's (a
+    homonym's other declaration, say). In a check with no file (`fileless`,
+    under the `files[]` entry ""), whose judge has no other declaration to
+    read, an item given none is left out."""
+    out = []
+    for item in members:
+        place = _inventory().parse_at(item["at"])
+        named = {(b["file"], b["line"]) for b in bound
+                 if isinstance(b.get("form"), int) and 0 <= b["form"] < len(places) and place in places[b["form"]]}
+        if len(named) == 1:
+            [(file, line)] = named
+            out.append({**item, "file": file, "line": line})
+        elif not fileless:
+            out.append(item)
+    return out
+
+
 def _add_doc_checks(inventory: list[dict], universe: set[str], forms: dict, by_name: dict[str, list[dict]],
                     files: dict[str, list[dict]], skill_dir: str | None, texts: dict[str, list[str]] | None,
                     lines: list[list[str]] | None) -> None:
@@ -1476,21 +1505,27 @@ def _add_doc_checks(inventory: list[dict], universe: set[str], forms: dict, by_n
     own, {"name", "line", "signatureLine"} at the record _check_at picks,
     its `candidates` too, with no `documented`, `alternatives` or `bound`,
     in its file's group in name order, and none when that record has no
-    file. A name with a form plan gave no check (`notCompared`) gets none."""
+    file. A name with a form plan gave no check (`notCompared`) gets none.
+    A check that binds a form gives each `members` item at that form's
+    places its bound declaration (_bound_members)."""
     documented = documented_names(inventory) & universe
     imports = _skill_imports(texts or {}, documented)
     members = _documented_members(inventory, documented)
-    checks: dict[str, list[dict]] = {}
-    for group in files.values():
+    checks: dict[str, list[tuple[str, dict]]] = {}
+    for file, group in files.items():
         for check in group:
-            checks.setdefault(check["name"], []).append(check)
+            checks.setdefault(check["name"], []).append((file, check))
     for name in sorted(documented):
         extra = {key: items for key, items in (("imports", imports.get(name)), ("members", members.get(name)))
                  if items}
         if not extra or (name in forms and name not in checks):
             continue
-        for check in checks.get(name, []):
-            check.update(extra)
+        for file, check in checks.get(name, []):
+            own = dict(extra)
+            if "members" in own and check.get("bound"):
+                own["members"] = _bound_members(own["members"], check["bound"],
+                                                [at for _, at in forms.get(name) or []], not file)
+            check.update({key: items for key, items in own.items() if items})
         if name in forms:
             continue
         record, candidates = _check_at(name, by_name.get(name) or [], skill_dir, lines)
