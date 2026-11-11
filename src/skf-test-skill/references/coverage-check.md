@@ -134,10 +134,10 @@ The surface holds what `{sourceAccessProtocol}` **What the Surface Holds** says 
 - In the Coverage Analysis section, list each `readByEye` file as read by eye, each `extraction.unread` file as unread.
 - `extractionGaps[]` names exports no recipe found: on the surface, judged below when documented and located; read none by eye.
 
-**Compare the signatures.** A script plans; subagents judge:
+**Compare the signatures.** A script plans (pass `--doc-errors` at the Deep tier, below); subagents judge:
 
 ```bash
-uv run {scoreSignaturesScript} plan --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --skill-dir "{resolved_skill_package}" --output "{run_dir}/signature-plan.json"
+uv run {scoreSignaturesScript} plan --inventory "{run_dir}/inventory.json" --surface "{run_dir}/surface.json" --skill-dir "{resolved_skill_package}" [--doc-errors] --output "{run_dir}/signature-plan.json"
 ```
 
 For each `files[]` entry, delegate one subagent with its checks and the absolute path of `{signatureRulesFile}` (under `{skill-root}`). For each check it reads the full declaration at `{file}:{line}` (all of it, not only `signatureLine`'s one physical line; with `line` null, find it in `{file}` and give its mismatch that line), compares it with the check's `documented` signature by the rules of that file, and returns only this JSON, with no prose and no markdown fences:
@@ -158,7 +158,7 @@ A check with `member` is a `method`'s, named `{owner}.{member}`: its `file`, `li
 
 Save each response to `{run_dir}/signatures-<n>.txt` with the Write tool. Without subagents, load `{signatureRulesFile}`, compare in the main thread by its rules and save the same JSON.
 
-**Deep Tier (ast-grep + gh + QMD):** the Forge tier checks, and no coverage check of its own: init.md §5b's drift guard checks the local tree against the pinned commit, at any tier, when both exist; the recipe runner traces each re-export to the file that defines it when it runs (the fallback per-file scan does not); and the Forge tier's signature check compares each documented signature with its declaration. A documentation error you see that no script records (an import path whose module does not export the name, a type member that differs from its declaration) goes in coverage-check §5b's hand-written records as an Info `observation` titled `Not checked by script: {name}`, with `export` `{name}`, its Source at the documenting line and the remediation "Correct the documentation to match the source; no script checks this."
+**Deep Tier (ast-grep + gh + QMD):** the Forge tier checks: init.md §5b's drift guard checks the local tree against the pinned commit, at any tier, when both exist; the recipe runner traces each re-export to the file that defines it when it runs (the fallback per-file scan does not); and the Forge tier's signature check compares each documented signature with its declaration. Run its plan with `--doc-errors`: each check also carries the skill's import lines of its name (`imports`) and its documented members (`members`), and a documented name with no form but with either gets a check with no `documented`. Its judge compares them with the source by `{signatureRulesFile}` and adds each that differs to the JSON above as `doc_errors`, which `score` records as an Info `Not checked by script: {name}` observation at the documenting line.
 
 **States 2 to 4 (no local source):** the surface is what the skill recorded, so there is no signature to score: load `{coverageBranchesFile}` and follow its **States 2 to 4** section.
 
@@ -301,7 +301,7 @@ uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check -
 
 **A split-body mismatch's Source** is a line inside the skill package: when §1b found one, load `{coverageBranchesFile}` and follow its **Split-Body Sources** section.
 
-Then write the records no script wrote, §1b's split-body mismatches, in the Ledger Record Format of `{outputFormatsFile}` (at the Deep tier, §2's `Not checked by script: {name}` observations too), each naming its export in `export` and in its title: the ledger tells two gaps apart by their title, Source and `export`, and update-skill takes the export's name from `export`. Write them as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`): the hard gate refuses to decide until every stage before it has recorded, with gaps or without.
+Then write the records no script wrote, §1b's split-body mismatches, in the Ledger Record Format of `{outputFormatsFile}`, each naming its export in `export` and in its title: the ledger tells two gaps apart by their title, Source and `export`, and update-skill takes the export's name from `export`. Write them as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`): the hard gate refuses to decide until every stage before it has recorded, with gaps or without.
 
 ```bash
 uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage coverage-check <<'SKF_GAPS'

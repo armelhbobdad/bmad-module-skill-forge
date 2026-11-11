@@ -218,6 +218,39 @@ def test_the_reader_and_each_coverage_judge_record_the_readings_the_rules_leave_
     assert '"unresolved_stars": [...], "undecided": [...]}`' in _read(COVERAGE_TIERS)
 
 
+def test_a_deep_tier_judge_compares_the_skill_s_imports_and_members_with_the_source():
+    """#1084: a Deep-tier plan hands a judge the skill's import lines of each name and its documented members, the
+    errors coverage-check.md §2's Deep Tier paragraph asks for, which no one could see before. The rules say what
+    each claims, that a check with no `documented` adds no mismatch while its result still gives the list score
+    requires, the shape of each `doc_errors` item, and what score-signatures.py drops, never refusing the result for
+    it. §2's judge example is the Forge tier's, unchanged, and the Deep Tier paragraph adds `doc_errors` to it."""
+    text = _read(RULES)
+    opening = _flow(_slice(text, "# Signature Comparison Rules", "## Reading a form"))
+    paragraph = _paragraph(text, "A check that carries `imports` or `members`")
+    assert paragraph in opening and opening.index("an `undecided` list") < opening.index(paragraph)
+    assert ("A check that carries `imports` or `members` (a Deep-tier plan's) is also compared with the source; a "
+            "check with no `documented` has only these and adds no item to `signature_mismatches`, a list each result "
+            "still gives.") in paragraph
+    assert ("An import's module must export the name (Python: bind it at module level, by a definition or an import; "
+            "TS/JS: export it, by a declaration, an export list or a re-export), resolved in the source tree; a "
+            "module the tree does not hold is left uncompared.") in paragraph
+    assert ("Each `fields` or `properties` item names a member the declaration (or a base in the source tree) "
+            "declares, with the type it writes, by Equivalent spellings, when it writes one; each `methods` item "
+            "names a member it declares or binds, its parameters left to a method's own check. A list may leave "
+            "members out. With `candidates`, an item differs only when it differs from each.") in paragraph
+    assert ('Each that differs is a `doc_errors` item `{"name", "at", "source", "issue"}`: the check\'s name, the '
+            "`at` it came with, the `file:line` of the declaration compared (for an import, of the module), and what "
+            "differs; an empty list or no key says none.") in paragraph
+    assert ("`score-signatures.py` drops, with a warning, an item that is no object, leaves `name`, `at`, `source` or "
+            "`issue` blank, or gives an `at` that no `imports` or `members` item of that name's check gives, never "
+            "refusing the result for it, and records each other one as an Info `Not checked by script: {name}` "
+            "observation at its `at`.") in paragraph
+    judge = json.loads(re.search(r'```json\n(\{"file": "src/utils\.ts".*?)\n```', _read(COVERAGE), re.S).group(1))
+    assert sorted(judge) == ["file", "signature_mismatches", "undecided"]
+    deep = _flow(_slice(_read(COVERAGE), "**Deep Tier", "**States 2 to 4"))
+    assert "by `{signatureRulesFile}` and adds each that differs to the JSON above as `doc_errors`" in deep
+
+
 def test_a_form_claims_only_what_it_writes():
     """#835: optionality is stated only by a default, a `?` or an optional marker, never by a type: a list that states
     it for no member has its optionality uncompared, and once one member states it the unmarked ones claim to be

@@ -2476,28 +2476,44 @@ def test_the_source_access_is_written_when_it_is_resolved():
 
 def test_the_deep_tier_asks_only_for_what_runs():
     """#828: the Deep tier asks for no check that has no command, run file or ledger record: it names what
-    already covers the version and the re-exports, and records an error no script checks as an Info
-    observation, which never blocks."""
+    already covers the version and the re-exports. #1084: an import or member error no script checks is no
+    hand-written record any more, since the parent never loads the skill: the plan hands each judge the skill's
+    import lines and documented members, the judge adds each that differs to its JSON as `doc_errors`, and score
+    records it as an Info observation, which never blocks. The plan command's lead says when to pass the flag."""
     deep = _flow(_slice(_read(COVERAGE), "**Deep Tier", "**States 2 to 4"))
-    for gone in ("gh CLI", "check type definitions", "trace re-exports"):
+    for gone in ("gh CLI", "check type definitions", "trace re-exports", "no coverage check of its own"):
         assert gone not in deep, gone
     assert ("init.md §5b's drift guard checks the local tree against the pinned commit, at any tier, when both "
             "exist") in deep
     assert ("the recipe runner traces each re-export to the file that defines it when it runs (the fallback "
             "per-file scan does not)") in deep
-    assert ("goes in coverage-check §5b's hand-written records as an Info `observation` titled `Not checked by "
-            "script: {name}`, with `export` `{name}`, its Source at the documenting line and the remediation "
-            "\"Correct the documentation to match the source; no script checks this.\"") in deep
-    # §5b writes them, the tier branch file sends a Deep run back to the paragraph, the severity table names them
+    assert ("Run its plan with `--doc-errors`: each check also carries the skill's import lines of its name "
+            "(`imports`) and its documented members (`members`), and a documented name with no form but with either "
+            "gets a check with no `documented`.") in deep
+    assert ("Its judge compares them with the source by `{signatureRulesFile}` and adds each that differs to the JSON "
+            "above as `doc_errors`, which `score` records as an Info `Not checked by script: {name}` observation at "
+            "the documenting line.") in deep
+    assert "hand-written" not in deep and "§5b" not in deep.replace("init.md §5b", "")
+    assert '[--doc-errors]' in _command(COVERAGE, "uv run {scoreSignaturesScript} plan")
+    assert ("**Compare the signatures.** A script plans (pass `--doc-errors` at the Deep tier, below); subagents "
+            "judge:") in _flow(_read(COVERAGE))
+    # §5b writes no such record by hand, the tier branch file sends a Deep run back to the paragraph, which adds
+    # nothing to the fallback scan, and the severity table names the script that records them
     records = _flow(_slice(_read(COVERAGE), "Then write the records no script wrote", "```"))
-    assert "(at the Deep tier, §2's `Not checked by script: {name}` observations too)" in records
+    assert "Not checked by script" not in records
+    assert ("Then write the records no script wrote, §1b's split-body mismatches, in the Ledger Record Format of "
+            "`{outputFormatsFile}`, each naming its export in `export` and in its title") in records
     assert "its extra checks" not in _read(COVERAGE_TIERS)
-    assert "at Deep tier, its **Deep Tier** paragraph, which runs no check of its own" in _read(COVERAGE_TIERS)
+    assert ("at Deep tier, its **Deep Tier** paragraph, whose `--doc-errors` adds nothing to this scan's plan, which "
+            "has no checks, so leave it out;") in _read(COVERAGE_TIERS)
     observation = next(row for row in _read(SCORING).splitlines() if row.startswith("| Info     | `observation`"))
-    assert "`Not checked by script: {name}`, at the documenting line, written by hand" in observation
+    assert ("`Not checked by script: {name}`, at the documenting line, recorded by score-signatures.py from a "
+            "signature judge's `doc_errors`") in observation
+    assert "by hand" not in observation
     # #1005: and written by gap-ledger.py under a title of its own for a name cited at another package's star,
-    # so that a hand-written record of the name stays its own gap
-    assert ("written by hand (coverage-check §2 and §5b). Also a stale name with no `defined_at`, not scoped out by "
+    # so that the record score-signatures.py writes of the name stays its own gap
+    assert ("recorded by score-signatures.py from a signature judge's `doc_errors` (coverage-check §2 and §2b). Also "
+            "a stale name with no `defined_at`, not scoped out by "
             "the brief (`excluded.outsideScope`), that the skill cites at a file holding another package's "
             "`export *` (`surface.json` `unresolvedStars`): `Not checked by script: {name} (another package's "
             "export *)`, at the documenting line, written by gap-ledger.py and asking no change unless that package "
@@ -2861,7 +2877,7 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     assert validated["valid"] is True and (run / "inventory.json").is_file()
     surface = _exec(_choose(_command(COVERAGE, "surface --extraction")), values, tmp_path)
     assert surface["sets"]["all"] == ["Options", "fetchData", "helper"]
-    command = _command(COVERAGE, "uv run {scoreSignaturesScript} plan")
+    command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} plan"))
     assert '--skill-dir "{resolved_skill_package}"' in command, "#781: the skill's citations pick a declaration"
     plan = _exec(command, values, tmp_path)
     assert [f["file"] for f in plan["files"]] == ["src/helper.ts", "src/index.ts"]
@@ -2912,6 +2928,63 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     # naive weights 45/25/20/10: 45 + 12.5 + 20 + 8
     assert (score["totalScore"], score["result"]) == (85.5, "PASS")
     assert "effectiveResult" not in score
+
+
+def test_a_deep_tier_judge_s_doc_error_reaches_the_ledger(tmp_path):
+    """#1084, as the step runs it: the skill imports SearchType and run from pkg.search in a Python fence and
+    documents run's form and SearchType only by its fields. §2's plan command with `--doc-errors` gives SearchType a
+    check with that import line and its members, the score command records the `doc_errors` item a judge returns for
+    it at the import line, and §5b's `signature-gaps.json` append writes it to the ledger as an Info observation.
+    Signature Accuracy and the compared count are those of the same run without the item."""
+    skill = _write_tree(tmp_path / "skill", {
+        "SKILL.md": "---\nname: demo\ndescription: Demo. Use when testing.\n---\n# Demo\n\n"
+                    "```python\nfrom pkg.search import SearchType, run\n```\n\n"
+                    "`run(query: str) -> list` searches; `SearchType` holds `GRAPH_COMPLETION`.\n",
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "inventory.json").write_bytes(json.dumps({"exports": [
+        {"name": "run", "kind": "function", "params": "query: str", "return_type": "list", "description": "Searches.",
+         "at": "SKILL.md:11"},
+        {"name": "SearchType", "kind": "type", "fields": ["GRAPH_COMPLETION"], "description": "The search kinds.",
+         "at": "SKILL.md:11"},
+    ], "references": [], "cross_check_mismatches": []}).encode("utf-8"))
+    (run / "surface.json").write_bytes(json.dumps({"exports": [
+        {"name": "SearchType", "kind": "class", "file": "pkg/types.py", "line": 3,
+         "signatureLine": "class SearchType(Enum):", "origin": "extraction"},
+        {"name": "run", "kind": "function", "file": "pkg/search.py", "line": 10,
+         "signatureLine": "def run(query: str) -> list:", "origin": "extraction"},
+    ], "sets": {"all": ["SearchType", "run"]}}).encode("utf-8"))
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(),
+              "{ledgerFile}": (tmp_path / "test-findings-20261111T000000Z-abcdef12.json").as_posix()}
+
+    plan = _exec(_choose(_command(COVERAGE, "uv run {scoreSignaturesScript} plan"), keep=("--doc-errors",)), values,
+                 tmp_path)
+    assert plan["compared"] == 1
+    [doc_check] = [c for g in plan["files"] if g["file"] == "pkg/types.py" for c in g["checks"]]
+    assert doc_check == {"name": "SearchType", "line": 3, "signatureLine": "class SearchType(Enum):",
+                         "imports": [{"at": "SKILL.md:8", "statement": "from pkg.search import SearchType, run"}],
+                         "members": [{"at": "SKILL.md:11", "fields": ["GRAPH_COMPLETION"]}]}
+    command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score")).replace(
+        '--results "{run_dir}/signatures-<n>.txt"',
+        '--results "{run_dir}/signatures-1.txt" --results "{run_dir}/signatures-2.txt"').replace("<set>", "all")
+    (run / "signatures-1.txt").write_bytes(json.dumps(
+        {"file": "pkg/search.py", "signature_mismatches": [], "undecided": []}).encode("utf-8"))
+    judged = {"file": "pkg/types.py", "signature_mismatches": [], "undecided": []}
+    (run / "signatures-2.txt").write_bytes(json.dumps(judged).encode("utf-8"))
+    without = _exec(command, values, tmp_path)
+    error = {"name": "SearchType", "at": "SKILL.md:8", "source": "pkg/search.py:1",
+             "issue": "pkg/search.py does not bind `SearchType`; pkg/types.py declares it"}
+    (run / "signatures-2.txt").write_bytes(json.dumps({**judged, "doc_errors": [error]}).encode("utf-8"))
+    signatures = _exec(command, values, tmp_path)
+    assert (signatures["signatureAccuracy"], signatures["totalDocumented"]) == (
+        without["signatureAccuracy"], without["totalDocumented"]) == (100.0, 1)
+    appended = _exec(_command(COVERAGE, '--input "{run_dir}/signature-gaps.json"'), values, tmp_path)
+    assert appended["appended"] == ["GAP-001"]
+    [record] = json.loads(Path(values["{ledgerFile}"]).read_bytes())["records"]
+    assert (record["severity"], record["category"], record["title"], record["source"], record["export"]) == (
+        "Info", "observation", "Not checked by script: SearchType", "SKILL.md:8", "SearchType")
+    assert record["remediation"] == "Correct the documentation to match the source; no script checks this."
 
 
 # A stratified skill on the scalar branch (#791, #792): the entry point declares five tier A names and re-exports

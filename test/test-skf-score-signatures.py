@@ -77,6 +77,12 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     `internalDeclarations` stand in for the records it lacks, so plan
     files its check at its declaration and score counts it in Signature
     Accuracy, never in Type Coverage
+  - hands a Deep-tier judge the skill's import lines of each name and its
+    documented members (#1084, plan --doc-errors), a name documented only
+    by them in a check `compared` never counts, and records each
+    `doc_errors` item the judge returns as an Info `Not checked by script:
+    {name}` observation at the documenting line, a malformed one dropped
+    with a warning; no score reads them
 The surface fixture is load-coverage-inputs.py surface output built from a
 --mode full extraction, so a recipe's internal match is compared only as a
 documented extra.
@@ -3356,6 +3362,363 @@ def test_a_documented_extra_is_compared_end_to_end(tmp_path):
     assert (out["signatureAccuracy"], out["totalTypes"]) == (66.67, 0)
     assert [(g["severity"], g["source"]) for g in json.loads(gaps.read_text(encoding="utf-8"))] == [
         ("Critical", f"{TEXT_PY}:4")]
+
+
+# #1084: oms-cognee 1.6.2's member-only names. The skill imports SearchType and run from pkg.search in a Python fence
+# (SKILL.md:4) and documents run's form and SearchType's fields at SKILL.md:7. A Deep-tier plan gave a judge only each
+# check's forms, so no one held an import line or a member beside the source, and SearchType, documented only by its
+# fields, got no check at all.
+SEARCH_PY = "pkg/search.py"
+TYPES_PY = "pkg/types.py"
+DOC_RUN = {"name": "run", "kind": "function", "file": SEARCH_PY, "line": 10,
+           "signatureLine": "def run(query: str) -> list:", "origin": "extraction"}
+DOC_SEARCH_TYPE = {"name": "SearchType", "kind": "class", "file": TYPES_PY, "line": 3,
+                   "signatureLine": "class SearchType(Enum):", "origin": "extraction"}
+DOC_SURFACE = {"exports": [DOC_RUN, DOC_SEARCH_TYPE], "sets": {"all": ["SearchType", "run"]}}
+DOC_RUN_ENTRY = {"name": "run", "kind": "function", "params": "query: str", "return_type": "list",
+                 "description": "Runs a search.", "at": "SKILL.md:7"}
+DOC_TYPE_ENTRY = {"name": "SearchType", "kind": "type", "fields": ["GRAPH_COMPLETION", "CHUNKS"],
+                  "description": "The search kinds.", "at": "SKILL.md:7"}
+DOC_SKILL = ("# Demo\n\n```python\nfrom pkg.search import SearchType, run\n```\n\n"
+             "`run(query: str) -> list` searches; `SearchType` holds `GRAPH_COMPLETION` and `CHUNKS`.\n")
+DOC_IMPORT = {"at": "SKILL.md:4", "statement": "from pkg.search import SearchType, run"}
+DOC_MEMBERS = {"at": "SKILL.md:7", "fields": ["GRAPH_COMPLETION", "CHUNKS"]}
+DOC_ERROR = {"name": "SearchType", "at": "SKILL.md:4", "source": "pkg/search.py:1",
+             "issue": "pkg/search.py does not bind `SearchType`; pkg/types.py declares it"}
+DOC_ERROR_REMEDIATION = "Correct the documentation to match the source; no script checks this."
+
+
+def _doc_plan(tmp_path: Path, *flags: str, skill: str = DOC_SKILL, entries: list[dict] | None = None,
+              surface: dict | None = None) -> tuple[subprocess.CompletedProcess, Path, str, str]:
+    """plan over a skill that writes `skill`, an inventory of `entries` (run's form and SearchType's fields by
+    default) and `surface` (DOC_SURFACE), with `flags`: (the process, the plan file, the inventory, the surface)."""
+    _write(tmp_path / "skill" / "SKILL.md", skill)
+    inventory = _write(tmp_path / "inventory.json", {"exports": entries if entries is not None
+                                                     else [DOC_RUN_ENTRY, DOC_TYPE_ENTRY],
+                                                     "cross_check_mismatches": []})
+    surface_path = _write(tmp_path / "surface.json", surface if surface is not None else DOC_SURFACE)
+    path = tmp_path / "signature-plan.json"
+    proc = _run("plan", "--inventory", inventory, "--surface", surface_path, "--skill-dir", str(tmp_path / "skill"),
+                *flags, "--output", str(path))
+    return proc, path, inventory, surface_path
+
+
+@pytest.mark.parametrize("surface", [
+    DOC_SURFACE,
+    {"exports": [DOC_RUN], "internalDeclarations": [DOC_SEARCH_TYPE], "sets": {"all": ["run"]}},
+    {**DOC_SURFACE, "sets": {"all": ["run"]}},
+], ids=["in-all", "documented-extra", "record-outside-all"])
+def test_a_deep_tier_plan_checks_a_name_documented_only_by_members(tmp_path, surface):
+    """#1084 (oms-cognee SearchType): with --doc-errors a documented name with no compared form but with members
+    gets a check of its own at its record, with `members` and the skill's import lines of it and no `documented`,
+    and run's check carries its import line too. `compared` still counts run alone, while the summary's `checks`
+    counts both. The name is of the signature universe whether `all` holds it, only `internalDeclarations` declares
+    it (a documented extra) or only an export record outside `all` names it (a nested Python top's name)."""
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", surface=surface)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == {"compared": 1, "files": 2, "checks": 2, "documented": 1, "output": str(path)}
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    assert plan["files"] == [
+        {"file": SEARCH_PY, "checks": [{"name": "run", "line": 10, "signatureLine": "def run(query: str) -> list:",
+                                        "documented": {"params": "query: str", "return_type": "list"},
+                                        "imports": [DOC_IMPORT]}]},
+        {"file": TYPES_PY, "checks": [{"name": "SearchType", "line": 3, "signatureLine": "class SearchType(Enum):",
+                                       "imports": [DOC_IMPORT], "members": [DOC_MEMBERS]}]},
+    ]
+    assert (plan["compared"], plan["notCompared"]) == (1, [])
+    assert list(plan["documentedSignatures"]) == ["run"]
+
+
+def test_a_doc_check_joins_its_file_s_group_in_name_order_with_its_candidates(tmp_path):
+    """#1084: a doc check sits in its file's group between the checks whose names sort around it, and keeps the
+    `candidates` _check_at gives a name the surface records in two files the skill cites neither of. `members` lists
+    each entry's filled `fields`, `properties` and `methods` as given, once per distinct item, in inventory order: a
+    blank string, an empty list and an entry with a bad `at` add none, and a `method` entry is no member of the
+    name."""
+    records = [
+        {**DOC_SEARCH_TYPE, "name": "alpha", "kind": "function", "line": 1, "signatureLine": "def alpha():"},
+        {**DOC_SEARCH_TYPE, "name": "omega", "kind": "function", "line": 20, "signatureLine": "def omega():"},
+        {**DOC_SEARCH_TYPE, "name": "kinds", "line": 8, "signatureLine": "class kinds:"},
+        {**DOC_SEARCH_TYPE, "name": "kinds", "file": "pkg/types_v1.py", "line": 2, "signatureLine": "class kinds:"},
+    ]
+    entries = [
+        {"name": "alpha", "kind": "function", "params": "", "description": "", "at": "SKILL.md:7"},
+        {"name": "omega", "kind": "function", "params": "", "description": "", "at": "SKILL.md:7"},
+        {"name": "kinds", "kind": "class", "methods": ["get(key)"], "properties": "  ", "description": "",
+         "at": "SKILL.md:7"},
+        {"name": "kinds", "kind": "class", "methods": ["get(key)"], "description": "", "at": "SKILL.md:7"},
+        {"name": "kinds", "kind": "class", "fields": [], "properties": "size: int", "description": "",
+         "at": "references/api.md:3"},
+        {"name": "kinds", "kind": "class", "fields": ["lost"], "description": "", "at": "SKILL.md"},
+        {"name": "kinds", "kind": "method", "fields": ["method"], "description": "", "at": "SKILL.md:7"},
+    ]
+    surface = {"exports": records, "sets": {"all": ["alpha", "kinds", "omega"]}}
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", entries=entries, surface=surface)
+    assert proc.returncode == 0, proc.stderr
+    [group] = [g for g in json.loads(path.read_text(encoding="utf-8"))["files"] if g["file"] == TYPES_PY]
+    assert [c["name"] for c in group["checks"]] == ["alpha", "kinds", "omega"]
+    kinds = group["checks"][1]
+    assert kinds == {"name": "kinds", "line": 8, "signatureLine": "class kinds:",
+                     "candidates": [{"file": TYPES_PY, "line": 8, "signatureLine": "class kinds:"},
+                                    {"file": "pkg/types_v1.py", "line": 2, "signatureLine": "class kinds:"}],
+                     "members": [{"at": "SKILL.md:7", "methods": ["get(key)"]},
+                                 {"at": "references/api.md:3", "properties": "size: int"}]}
+    assert "imports" not in group["checks"][0] and "members" not in group["checks"][0]
+
+
+# Each import statement an import reader takes, by the fence it sits in; the skill documents SearchType (fields at
+# SKILL.md:7 in DOC_SKILL's layout), run, Mode, Options and Opts, Opts imported only as an alias.
+IMPORTS_SKILL = ("# Demo\n\n```python\nfrom pkg.search import SearchType, run\nfrom pkg import (\n"
+                 "    SearchType as ST,  # the kinds\n    # run,\n)\n```\n\n```ts\nimport {\n"
+                 "  type Mode, Options as Opts,\n} from \"pkg\";\n```\n")
+IMPORTS_TYPED = {"at": "SKILL.md:12", "statement": "import { type Mode, Options as Opts, } from \"pkg\";"}
+
+
+def test_each_check_lists_the_import_statements_that_import_its_name(tmp_path):
+    """#1084: a one-line Python import, a parenthesized one over several lines (a comment in it read past, so the
+    commented-out `run` is none of its names, and an `as` alias read by the name it imports) and a TS import over
+    three lines (`type` before a name read past, `Options as Opts` importing Options) each give every check of a name
+    they import their statement once, at their first line, on one line with whitespace runs as one. Opts, which only
+    an alias spells, gets no import and, with no form or member, no check."""
+    record = {**DOC_SEARCH_TYPE, "kind": "type"}
+    surface = {"exports": [DOC_RUN, DOC_SEARCH_TYPE, *({**record, "name": n, "line": i} for n, i in
+                                                       (("Mode", 9), ("Options", 12), ("Opts", 15)))],
+               "sets": {"all": ["Mode", "Options", "Opts", "SearchType", "run"]}}
+    entries = [DOC_RUN_ENTRY, DOC_TYPE_ENTRY,
+               *({"name": n, "kind": "type", "description": ""} for n in ("Mode", "Options", "Opts"))]
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=IMPORTS_SKILL, entries=entries, surface=surface)
+    assert proc.returncode == 0, proc.stderr
+    checks = {c["name"]: c for g in json.loads(path.read_text(encoding="utf-8"))["files"] for c in g["checks"]}
+    assert set(checks) == {"Mode", "Options", "SearchType", "run"}
+    assert checks["run"]["imports"] == [DOC_IMPORT]
+    assert checks["SearchType"]["imports"] == [
+        DOC_IMPORT, {"at": "SKILL.md:5", "statement": "from pkg import ( SearchType as ST, )"}]
+    assert checks["Mode"]["imports"] == checks["Options"]["imports"] == [IMPORTS_TYPED]
+    assert "members" not in checks["Mode"] and "documented" not in checks["Mode"]
+
+
+@pytest.mark.parametrize("fence, imported", [
+    ("```\nfrom pkg import run\n```", True),
+    ("```python\nfrom pkg import run, run  # twice\n```", True),
+    ("```js\nimport Default, { run } from 'pkg'\n```", True),
+    ("```python\nfrom .x import run\n```", False),
+    ("```python\nimport pkg\n```", False),
+    ("```python\n# from pkg import run\n```", False),
+    ("```ts\nimport * as p from \"pkg\";\n```", False),
+    ("```ts\nimport run from \"pkg\";\n```", False),
+    ("```ts\nimport { run } from \"./run\";\n```", False),
+    ("```ts\nimport { run } from \"/abs/run\";\n```", False),
+    ("```ts\n// import { run } from \"pkg\";\n```", False),
+    ("```ts\nfrom pkg import run\n```", False),
+    ("```python\nimport { run } from \"pkg\";\n```", False),
+    ("```json\nfrom pkg import run\n```", False),
+    ("```bash\nfrom pkg import run\n```", False),
+    ("from pkg import run", False),
+    ("```ts\nimport type { run } from \"pkg\";\n```", True),
+    ("```ts\nimport { /* x */ run } from \"pkg\";\n```", True),
+    ("```python\nfrom pkg import run; run('q')\n```", True),
+], ids=["untagged", "named-twice", "default-beside-named", "relative-python", "import-module", "python-comment",
+        "namespace", "default", "relative-ts", "absolute-ts", "ts-comment", "python-in-ts", "ts-in-python", "json",
+        "bash", "prose", "type-only", "inline-block-comment", "python-semicolon"])
+def test_only_a_fenced_import_of_the_name_by_its_own_name_is_listed(tmp_path, fence, imported):
+    """#1084: an import line names a check's name only in a fenced Python, TS/JS or untagged block, past the
+    frontmatter, by the name itself, from a module that is not relative; a relative module, an `import M`, a default
+    or namespace import, a commented-out line, another language's grammar, a data or shell fence and running text give
+    none. A statement that names the name twice is listed once, and a TS `import type`, an inline `/* */` comment and a
+    Python statement a `;` ends are read as imports."""
+    skill = f"---\nname: demo\n---\n\n{fence}\n\n`run(query: str) -> list` searches.\n"
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=skill, entries=[DOC_RUN_ENTRY])
+    assert proc.returncode == 0, proc.stderr
+    [check] = [c for g in json.loads(path.read_text(encoding="utf-8"))["files"] for c in g["checks"]]
+    assert ("imports" in check) is imported
+    if imported:
+        [item] = check["imports"]
+        assert item["at"] == "SKILL.md:6"
+
+
+def _without_doc_lists(plan: dict) -> dict:
+    """`plan` less each check's `imports` and `members`, and less each check with no `documented` and each group that
+    holds no other."""
+    files = []
+    for group in plan["files"]:
+        checks = [{k: v for k, v in c.items() if k not in ("imports", "members")} for c in group["checks"]
+                  if "documented" in c]
+        if checks:
+            files.append({**group, "checks": checks})
+    return {**plan, "files": files}
+
+
+def test_without_doc_errors_the_plan_is_the_one_before(tmp_path):
+    """#1084: only a Deep-tier plan carries `imports` and `members`: without --doc-errors no check holds either and
+    no check lacks `documented`, and a Deep-tier plan less them is that plan, so the Forge tier's checks, judge work
+    and records are unchanged: the plan without the flag is the one the script wrote before --doc-errors existed."""
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=IMPORTS_SKILL)
+    assert proc.returncode == 0, proc.stderr
+    deep = json.loads(path.read_text(encoding="utf-8"))
+    proc, path, _, _ = _doc_plan(tmp_path, skill=IMPORTS_SKILL)
+    assert proc.returncode == 0, proc.stderr
+    forge = json.loads(path.read_text(encoding="utf-8"))
+    assert _without_doc_lists(deep) == forge != deep
+    assert "imports" not in path.read_text(encoding="utf-8") and "members" not in path.read_text(encoding="utf-8")
+    documented = {"params": "query: str", "return_type": "list"}
+    assert forge == {"compared": 1, "files": [{"file": SEARCH_PY, "checks": [
+        {"name": "run", "line": 10, "signatureLine": "def run(query: str) -> list:", "documented": documented}]}],
+        "notCompared": [], "documentedSignatures": {"run": documented}, "documentedAlternatives": {}}
+    assert json.loads(proc.stdout)["checks"] == 1
+
+
+def test_doc_errors_without_a_skill_dir_exits_1(tmp_path):
+    """#1084: --doc-errors reads the skill's import lines, so without --skill-dir plan exits 1, naming both flags."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DOC_RUN_ENTRY, DOC_TYPE_ENTRY]})
+    surface = _write(tmp_path / "surface.json", DOC_SURFACE)
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--doc-errors")
+    assert proc.returncode == 1 and proc.stdout == ""
+    assert "--doc-errors" in proc.stderr and "--skill-dir" in proc.stderr
+
+
+@pytest.mark.parametrize("skill, entries, surface", [
+    ("# Demo\n\n`run(query: str) -> list` searches.\n", [DOC_RUN_ENTRY, {**DOC_TYPE_ENTRY, "fields": []}],
+     DOC_SURFACE),
+    (DOC_SKILL, [DOC_RUN_ENTRY, DOC_TYPE_ENTRY],
+     {**DOC_SURFACE, "exports": [DOC_RUN, {**DOC_SEARCH_TYPE, "file": None}]}),
+    (DOC_SKILL, [DOC_RUN_ENTRY, DOC_TYPE_ENTRY],
+     {**DOC_SURFACE, "exports": [DOC_RUN, {**DOC_SEARCH_TYPE, "file": " "}]}),
+    (DOC_SKILL, [DOC_RUN_ENTRY, DOC_TYPE_ENTRY], {"exports": [DOC_RUN], "sets": {"all": ["run"]}}),
+    (DOC_SKILL, [DOC_RUN_ENTRY], DOC_SURFACE),
+], ids=["no-members-and-no-import", "fileless-record", "blank-file", "off-universe", "undocumented"])
+def test_a_name_with_no_file_or_nothing_to_compare_gets_no_doc_check(tmp_path, skill, entries, surface):
+    """#1084: a documented name with no compared form gets no check when it has no member and the skill imports it
+    nowhere, when its record has no file (and it is not in `notCompared`, which lists only names with a form), when
+    it is off the signature universe, or when the skill imports a name it does not document."""
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=skill, entries=entries, surface=surface)
+    assert proc.returncode == 0, proc.stderr
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    assert [c["name"] for g in plan["files"] for c in g["checks"]] == ["run"]
+    assert (plan["compared"], plan["notCompared"]) == (1, [])
+    assert json.loads(proc.stdout)["checks"] == 1
+
+
+def test_a_fallback_plan_with_doc_errors_is_the_signature_map(tmp_path):
+    """#1084: the fallback per-file scan's plan has no surface, hence no checks: --doc-errors (with --skill-dir)
+    adds none and leaves its maps as they are."""
+    _write(tmp_path / "skill" / "SKILL.md", DOC_SKILL)
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DOC_RUN_ENTRY, DOC_TYPE_ENTRY]})
+    flagged = _run("plan", "--inventory", inventory, "--skill-dir", str(tmp_path / "skill"), "--doc-errors")
+    assert flagged.returncode == 0, flagged.stderr
+    plan = json.loads(flagged.stdout)
+    assert (plan["files"], plan["compared"], plan["notCompared"]) == ([], 0, [])
+    assert plan == json.loads(_run("plan", "--inventory", inventory).stdout)
+
+
+def _doc_score(tmp_path: Path, *results: dict, plan: bool = True, flags: tuple[str, ...] = ("--doc-errors",)) -> dict:
+    """score over the plan of DOC_SKILL made with `flags` (a Deep-tier plan by default), with `results` (each a judge
+    result) and, unless `plan` is false, --plan."""
+    proc, path, inventory, surface = _doc_plan(tmp_path, *flags)
+    assert proc.returncode == 0, proc.stderr
+    files = [_write(tmp_path / f"signatures-{n}.txt", json.dumps(result)) for n, result in enumerate(results, 1)]
+    proc = _run("score", "--inventory", inventory, "--surface", surface, *(["--plan", str(path)] if plan else []),
+                *(arg for file in files for arg in ("--results", file)))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return json.loads(proc.stdout)
+
+
+def _doc_record(issue: str, at: str = "SKILL.md:4", name: str = "SearchType") -> dict:
+    return {"severity": "Info", "category": "observation", "title": f"Not checked by script: {name}", "source": at,
+            "export": name, "issue": f"the skill documents `{name}` at `{at}` otherwise than the source: {issue}",
+            "remediation": DOC_ERROR_REMEDIATION}
+
+
+def test_a_judge_s_doc_error_is_an_info_observation_that_changes_no_count(tmp_path):
+    """#1084: a `doc_errors` item at a place an `imports` or `members` item of its name's check gives is an Info
+    `Not checked by script: {name}` observation at that line, after the mismatch records, asking for the
+    documentation to match the source. Signature Accuracy, `totalDocumented`, `comparedNames`, `mismatches` and the
+    warnings are those of the same results without it."""
+    mismatch = {"name": "run", "line": 10, "source_sig": "(query: str, *, top_k: int) -> list",
+                "documented_sig": "(query: str) -> list", "issue": "missing keyword parameter 'top_k'"}
+    clean = [{"file": SEARCH_PY, "signature_mismatches": [mismatch]}, {"file": TYPES_PY, "signature_mismatches": []}]
+    flagged = [clean[0], {**clean[1], "doc_errors": [DOC_ERROR], "undecided": []}]
+    without, out = _doc_score(tmp_path / "a", *clean), _doc_score(tmp_path / "b", *flagged)
+    assert [g["title"] for g in out["gapRecords"]] == ["Signature mismatch: run", "Not checked by script: SearchType"]
+    assert out["gapRecords"][1] == _doc_record(f"{DOC_ERROR['issue']} (`pkg/search.py:1`)")
+    assert out["gapRecords"][0] == without["gapRecords"][0]
+    assert {k: v for k, v in out.items() if k != "gapRecords"} == {k: v for k, v in without.items()
+                                                                   if k != "gapRecords"}
+    assert (out["signatureAccuracy"], out["totalDocumented"], out["comparedNames"]) == (0.0, 1, ["run"])
+
+
+def test_doc_errors_at_one_place_are_one_record(tmp_path):
+    """#1084: the items of one name at one place, however its path is written and from whichever result, are one
+    record, in result order, their issues joined with `; ` and an item repeated word for word once; a member error at
+    the members' place is another record of the name."""
+    other = {**DOC_ERROR, "at": "./SKILL.md:4", "source": "pkg/types.py:3", "issue": "SearchType lives in pkg.types"}
+    member = {**DOC_ERROR, "at": "SKILL.md:7", "source": "pkg/types.py:3", "issue": "SearchType has no CHUNKS member"}
+    out = _doc_score(tmp_path, {"file": SEARCH_PY, "signature_mismatches": [], "doc_errors": [DOC_ERROR, other]},
+                     {"file": TYPES_PY, "signature_mismatches": [], "doc_errors": [member, DOC_ERROR]})
+    assert out["gapRecords"] == [
+        _doc_record(f"{DOC_ERROR['issue']} (`pkg/search.py:1`); SearchType lives in pkg.types (`pkg/types.py:3`)"),
+        _doc_record("SearchType has no CHUNKS member (`pkg/types.py:3`)", at="SKILL.md:7")]
+    assert out["warnings"] == []
+
+
+@pytest.mark.parametrize("value, problem", [
+    ("none", "`doc_errors` must be a list when present (may be empty), not \"none\"; the list is dropped"),
+    ({"name": "SearchType"}, "`doc_errors` must be a list when present"),
+    ([3], "doc_errors[0] is not an object; the item is dropped"),
+    ([{**DOC_ERROR, "issue": " "}], "doc_errors[0] must give `issue` as a non-empty string; the item is dropped"),
+    ([{k: v for k, v in DOC_ERROR.items() if k != "source"}], "doc_errors[0] must give `source` as a non-empty"),
+    ([{**DOC_ERROR, "name": 7, "at": None}], "doc_errors[0] must give `name`, `at` as a non-empty string"),
+    ([{**DOC_ERROR, "at": "SKILL.md"}], "doc_errors[0] gives `at` \"SKILL.md\", no `<path>:<line>` place"),
+    ([{**DOC_ERROR, "at": "SKILL.md:5"}], "doc_errors[0] puts `SearchType` at `SKILL.md:5`, which no `imports` or "
+                                          "`members` item of the plan's check of the name gives"),
+    ([{**DOC_ERROR, "name": "run", "at": "SKILL.md:7"}], "doc_errors[0] puts `run` at `SKILL.md:7`"),
+], ids=["a-string", "an-object", "no-object", "blank-issue", "no-source", "two-blank", "bad-at", "unplanned-at",
+        "another-name-s-place"])
+def test_a_malformed_doc_error_is_dropped_with_a_warning(tmp_path, value, problem):
+    """#1084: `doc_errors` grades nothing, so a value that is no list, an item that is no object, leaves `name`, `at`,
+    `source` or `issue` blank, gives an `at` that is no place or one no `imports` or `members` item of that name's
+    check gives (run's check carries no `members`) is dropped with one warning naming the result's file, never a
+    schema breach: score exits 0 and records none of it."""
+    out = _doc_score(tmp_path, {"file": TYPES_PY, "signature_mismatches": [], "doc_errors": value})
+    assert out["gapRecords"] == []
+    [warning] = out["warnings"]
+    assert warning.startswith(f"the result for `{TYPES_PY}`: ") and problem in warning, warning
+
+
+@pytest.mark.parametrize("name, file", [("run", SEARCH_PY), ("SearchType", TYPES_PY)])
+def test_a_plan_without_doc_errors_drops_every_doc_error(tmp_path, name, file):
+    """#1084: a Forge-tier plan (no --doc-errors) gives no check an `imports` or `members` item, so with it a
+    `doc_errors` item a judge returns stray, for a documented name with a check or for one with none, is dropped
+    with a warning and recorded nowhere: --plan is not the same as no plan."""
+    item = {**DOC_ERROR, "name": name}
+    out = _doc_score(tmp_path, {"file": file, "signature_mismatches": [], "doc_errors": [item]}, flags=())
+    assert out["gapRecords"] == []
+    assert [w for w in out["warnings"] if "doc_errors" in w] == [
+        f"the result for `{file}`: doc_errors[0] puts `{name}` at `SKILL.md:4`, which no `imports` or `members` item "
+        "of the plan's check of the name gives; the item is dropped"]
+
+
+def test_without_the_plan_a_doc_error_of_a_documented_name_stands(tmp_path):
+    """#1084: without --plan any place that parses will do, but the name must be one the skill documents: an
+    undocumented name's item is dropped with a warning, a documented one's recorded; an absent or null list is
+    none."""
+    stranger = {**DOC_ERROR, "name": "Stranger"}
+    out = _doc_score(tmp_path, {"file": TYPES_PY, "signature_mismatches": [], "doc_errors": [stranger, DOC_ERROR]},
+                     {"file": SEARCH_PY, "signature_mismatches": [], "doc_errors": None}, plan=False)
+    assert out["gapRecords"] == [_doc_record(f"{DOC_ERROR['issue']} (`pkg/search.py:1`)")]
+    assert out["warnings"] == [f"the result for `{TYPES_PY}`: doc_errors[0] names `Stranger`, which the skill does "
+                               "not document; the item is dropped"]
+
+
+def test_the_plan_s_doc_places_are_read_from_its_imports_and_members(tmp_path):
+    """#1084: load_plan_doc_places reads each check's `imports` and `members` places as parse_at reads them, and a
+    plan without --doc-errors gives none, so with it every `doc_errors` item is dropped."""
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors")
+    assert proc.returncode == 0, proc.stderr
+    assert mod.load_plan_doc_places(str(path)) == {"run": {("SKILL.md", 4)},
+                                                   "SearchType": {("SKILL.md", 4), ("SKILL.md", 7)}}
+    proc, path, _, _ = _doc_plan(tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert mod.load_plan_doc_places(str(path)) == {}
 
 
 def test_empty_params_on_a_kind_that_takes_none_is_no_signature():
