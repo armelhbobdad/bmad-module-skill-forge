@@ -232,9 +232,10 @@ cites (never read; default `metadata.json`):
             records from a signature judge's `doc_errors`, stays its own
             gap) at
             the line that documents the name, else `SKILL.md`: its issue and
-            remediation name each such statement and its file (when no skill
-            citation gives one, each entry's, as `its provenance map cites
-            it at` the statement, at the entry's file and line), and the
+            remediation name each such statement and its file, and each
+            star an entry cites that no skill citation gives, as `its
+            provenance map cites it at` the statement, at the entry's file
+            and line, and the
             remediation asks no change unless that package lacks the name.
             A skill citation alone never lifts a fabricated name.
             A missing or malformed `unresolvedStars` counts as empty. Every
@@ -325,6 +326,12 @@ cites (never read; default `metadata.json`):
             the export), else to cite the alias, moving the citations either
             way; when `renames` is `default`, which the map keys on
             `export_name` and so holds once, it asks only to cite the alias.
+            Else, when an entry of `{export_name}` in the --stale result has
+            a `star` (the module of the `export *` at its cited line, #1070)
+            that is no relative or absolute path and its file and line are
+            the item's, that Info gap's issue and remediation say the line
+            passes on that package's names, so no line of the file defines
+            it, and ask no change unless that package lacks the name.
             A --stale result that is not a list is INVALID_INPUT.
             `file-missing` is a Low `provenance-line`
             gap `Provenance file is missing for {export_name}`;
@@ -1620,36 +1627,39 @@ def _entry_stars(entries: list[dict], stars: dict[str, list[dict]]) -> list[dict
     return found
 
 
-def _unchecked_star_gap(name: str, stars: list[dict], doc: str | None, mapped: bool = False) -> dict:
+def _unchecked_star_gap(name: str, stars: list[dict], doc: str | None, mapped: list[dict] | None = None) -> dict:
     """The Info `observation` of a stale name with no `defined_at` that the skill cites at a file holding an
-    `export *` from another package (#1005): no script reads that package, so the surface cannot hold the
-    names it passes on, and the name may well be one of them. Its title is not the Deep tier's
+    `export *` from another package (#1005, `stars`): no script reads that package, so the surface cannot hold
+    the names it passes on, and the name may well be one of them. Its title is not the Deep tier's
     `Not checked by script: {name}` score-signatures.py records from a signature judge's `doc_errors`, which the
-    ledger would read as the same gap at the same line. `mapped` when no skill citation gives a star and the
-    name's provenance map entries cite the star lines (#1070, `_entry_stars`): the issue and remediation then
-    say so, at each entry's file and line."""
-    def at(star: dict) -> str:
-        line = _count(star.get("line"))
-        return f"`{star['statement']}` (`{star['file']}{f':{line}' if line else ''}`)"
+    ledger would read as the same gap at the same line. `mapped` are the stars the name's provenance map
+    entries cite at their own lines (#1070, `_entry_stars`) that `stars` does not hold: the issue and
+    remediation name them too, at each entry's file and line, since an entry's star, never a skill citation,
+    is what reads a fabricated name as not fabricated."""
+    def at(group: list[dict]) -> str:
+        placed = [(s, _count(s.get("line"))) for s in group]
+        return " and ".join(f"`{s['statement']}` (`{s['file']}{f':{line}' if line else ''}`)" for s, line in placed)
 
-    through = " and ".join(at(s) for s in stars)
-    if mapped:
-        passes = "passes" if len(stars) == 1 else "pass"
+    passes = "passes" if len(mapped or []) == 1 else "pass"
+    if not stars:
         return _gap(
             "Info", "observation", f"Not checked by script: {name} (another package's export *)", doc or "SKILL.md",
             f"No change unless the other package does not export `{name}`: its provenance map cites it at "
-            f"{through}, which {passes} on that package's names, and no script reads them, so check by hand that "
+            f"{at(mapped)}, which {passes} on that package's names, and no script reads them, so check by hand that "
             f"the package exports `{name}`.",
             issue=f"{_documents(doc, name)}, which the enumerated source API surface lacks; its provenance map "
-                  f"cites it at {through}, which {passes} on another package's names and which no script resolves",
+                  f"cites it at {at(mapped)}, which {passes} on another package's names and which no script resolves",
             export=name)
+    entries = f" its provenance map cites it at {at(mapped)}, which {passes} on that package's names," if mapped else ""
+    issue_entries = (f", and its provenance map cites it at {at(mapped)}, which {passes} on another package's names "
+                     "and which no script resolves" if mapped else "")
     return _gap(
         "Info", "observation", f"Not checked by script: {name} (another package's export *)", doc or "SKILL.md",
         f"No change unless the other package does not export `{name}`: a file the skill cites passes on that "
-        f"package's names through {through}, and no script reads them, so check by hand that the package exports "
-        f"`{name}`.",
+        f"package's names through {at(stars)},{entries} and no script reads them, so check by hand that the package "
+        f"exports `{name}`.",
         issue=f"{_documents(doc, name)}, which the enumerated source API surface lacks; a file the skill cites "
-              f"passes on another package's names through {through}, which no script resolves",
+              f"passes on another package's names through {at(stars)}, which no script resolves{issue_entries}",
         export=name)
 
 
@@ -1775,7 +1785,12 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
                 cited = citations._skill_cited_files(Path(skill_dir), name, texts) if stars else set()
                 through = [s for f in sorted(cited) for s in stars.get(f, [])]
             if through or mapped:
-                records.append(_unchecked_star_gap(name, through or mapped, doc, mapped=not through))
+                # the stars a map entry cites that no skill citation gives are named too: they, not a citation,
+                # are what lifts a fabricated name (#1070)
+                cited_path = _sibling("validate-inventory.py")._cited_path
+                given = {(cited_path(s["file"]), s["statement"]) for s in through}
+                records.append(_unchecked_star_gap(
+                    name, through, doc, [s for s in mapped if (cited_path(s["file"]), s["statement"]) not in given]))
                 continue
         records.append(_gap(
             "Medium", "stale-documentation", f"Stale documentation: {name}", doc or "SKILL.md",
@@ -2091,6 +2106,23 @@ def _aliased_items(stale: object) -> dict[str, dict]:
             and i["defined_at"].rpartition(":")[2].isdigit()}
 
 
+def _star_lines(stale: object) -> dict[tuple[str, str, int | None], str]:
+    """(name, an entry's file as citations compare it, its line, `_entry_line`) -> the module of the `export *`
+    or `export type *` at that line, for each entry of a classify-stale item (`--stale`) with a `star`
+    (`_star_entries`, #1070) that names another package: a module that is no relative or absolute path. A
+    missing or malformed result gives none (`_aliased_items` refuses one that is no list)."""
+    found: dict[tuple[str, str, int | None], str] = {}
+    for item in stale if isinstance(stale, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            continue
+        for entry in _star_entries(item):
+            if not entry["star"].startswith((".", "/")):
+                cited_path = _sibling("validate-inventory.py")._cited_path
+                key = (item["name"], cited_path(entry["source_file"]), _entry_line(entry.get("source_line")))
+                found.setdefault(key, entry["star"])
+    return found
+
+
 def _alias_fix(name: str, file: str, item: dict) -> str:
     """The remediation of an unverified provenance line of a name classify-stale found `aliased` (`item`): record
     the rename if no other entry already has its `export_name`, else cite the alias. The map keys on
@@ -2118,9 +2150,12 @@ def from_provenance_line(result: object, stale: object = None) -> list[dict]:
     """verify's `stale[]` items: provenance line gaps, one per citation that does not resolve or is not the
     definition line. `stale` (classify-stale's result, `--stale`, or None) gives the names a rename declares: an
     unverified line of one names the alias and, unless the name it renames is `default`, how to record the rename
-    (#911)."""
+    (#911). It also gives the entries at another package's `export *` line (`_star_lines`): an unverified line
+    of one says the line passes on that package's names and asks no change unless it lacks the name, as the
+    coverage call's observation of it does (#1070)."""
     result = _object(result, "--input (skf-verify-provenance-completeness.py verify)", "stale")
     aliased = _aliased_items(stale)
+    starred = _star_lines(stale)
     records: list[dict] = []
     for item in _list(result, "stale", "--input"):
         if not isinstance(item, dict):
@@ -2176,11 +2211,19 @@ def from_provenance_line(result: object, stale: object = None) -> list[dict]:
                 export=name))
         else:
             alias = aliased[name] if isinstance(name, str) and name in aliased else None
+            # an entry at another package's `export *` line: no line of its file can define the name (#1070)
+            star = None if alias or not starred or not isinstance(file, str) else starred.get(
+                (name, _sibling("validate-inventory.py")._cited_path(file), _entry_line(line)))
             fix = _alias_fix(name, file, alias) if alias else (
+                f"No change unless `{star}` does not export `{name}`: line {line} of `{file}` is an `export *` "
+                f"from that package, which passes on its names, so no line of `{file}` defines `{name}`, and no "
+                f"script reads them; check by hand that `{star}` exports `{name}`." if star else
                 f"Open `{file}` and confirm that line {line} defines `{base or name}`; if another line does, set "
                 "the provenance `source_line` to it.")
             issue = (f"no line of `{file}` defines `{name}`: the source declares it only as the alias at "
                      f"`{alias['defined_at']}`" if alias else
+                     f"line {line} of `{file}` is an `export *` from `{star}`, another package whose names no "
+                     f"script reads, so no line of `{file}` defines `{name}`; check by hand" if star else
                      f"the line-check rules found no definition line for `{name}` in `{file}`; check by hand")
             records.append(_gap(
                 "Info", "provenance-unverified", f"Provenance line not verified for {name}", where, fix,
@@ -2578,7 +2621,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--numerator", help="coverage: verify-declared-numerator.py's result (absent names)")
     p.add_argument("--stale", help="coverage: classify-stale's result (fabricated signatures, documented extras, "
                                    "map entries at an `export *` line); provenance-line: the same (the names a "
-                                   "rename declares)")
+                                   "rename declares, the entries at another package's `export *` line)")
     p.add_argument("--provenance", help="coverage: the provenance map (an absent name's Source)")
     p.add_argument("--inventory", help="coverage: validate-inventory.py's inventory (the `at` of a stale name no "
                                        "line documents, and of each of a homonym's forms, whose own citations pick "

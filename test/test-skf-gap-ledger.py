@@ -61,10 +61,10 @@ counts and the Gap Report is rendered from:
     (#1070, classify-stale's `star`, matched by file and module) makes
     that observation, fabricated or not, with or without --skill-dir,
     naming the entry's file and line, unless the skill's citations give
-    the star (#1005's record) or the brief scopes the name out (its
-    Medium); an entry at another line, a module or file no star lists, or
-    a missing or malformed `entries`, `star` or list keeps the name
-    Critical
+    the star (#1005's record, naming beside it a star the entry cites
+    that they do not give) or the brief scopes the name out (its Medium);
+    an entry at another line, a module or file no star lists, or a
+    missing or malformed `entries`, `star` or list keeps the name Critical
   - an inflated `scope.include` union (#795): when the inflation guard
     fires on the set the barrel branch counts, its undocumented names are
     one Medium `denominator-inflation` gap at the brief listing at most 50
@@ -122,7 +122,9 @@ counts and the Gap Report is rendered from:
     line of a name classify-stale marks `aliased` names the alias and asks
     to record the rename if no other entry already has its `export_name`,
     the renamed name else a phrase standing for it, else to cite the
-    alias; an alias of `default` only cites the alias line; any other
+    alias; an alias of `default` only cites the alias line; an entry at
+    another package's `export *` line (#1070) asks no change unless that
+    package lacks the name; any other
     record keeps its text, and a --stale that is not a list is refused
 """
 
@@ -2370,6 +2372,27 @@ class TestCoverageAdapter:
         assert record == self._starred(tmp_path, skill_md=cited, stars=(self.RUNNER,))
         assert "a file the skill cites passes on that package's names through" in record["remediation"]
 
+    @pytest.mark.parametrize("item", [MAPPED, MAPPED | {"fabricated": False, "reason": "unchecked"}],
+                             ids=["fabricated", "not-fabricated"])
+    def test_a_map_entry_s_star_the_skill_cites_no_file_of_is_named_too(self, tmp_path: Path, item: dict):
+        """#1070 review: the skill cites `Mock` at other.ts, whose star passes on tinyspy, but the map entry at
+        spy.ts's star is what lifts a fabricated name, so the record names that star too, at the entry's file
+        and line (on the first fix it named only other.ts's)."""
+        cited = "# demo\n\n`Mock` mocks a function. `[AST:code/other.ts:L2]`\n"
+        other = {"file": "code/other.ts", "line": 2, "statement": "export * from 'tinyspy';"}
+        record = self._starred(tmp_path, skill_md=cited, stars=(self.PER_FILE, other), item=item)
+        assert brief([record]) == [("Info", "observation", self.STARRED_TITLE, "SKILL.md:3", "Mock")]
+        theirs = "`export * from 'tinyspy';` (`code/other.ts:2`)"
+        entry = "`export type * from '@vitest/spy';` (`code/core/src/test/spy.ts:4`)"
+        assert record["remediation"] == (
+            f"No change unless the other package does not export `Mock`: a file the skill cites passes on that "
+            f"package's names through {theirs}, its provenance map cites it at {entry}, which passes on that "
+            "package's names, and no script reads them, so check by hand that the package exports `Mock`.")
+        assert record["issue"] == (
+            f"`SKILL.md:3` documents `Mock`, which the enumerated source API surface lacks; a file the skill cites "
+            f"passes on another package's names through {theirs}, which no script resolves, and its provenance map "
+            f"cites it at {entry}, which passes on another package's names and which no script resolves")
+
     def test_a_map_entry_at_the_star_s_line_the_brief_scopes_out_keeps_its_medium(self, tmp_path: Path):
         rescoped = {"name": "Mock", "file": "code/core/src/old.ts", "line": 2, "entry": "code/core/src/index.ts",
                     "excludeGlob": "code/core/src/old.ts", "outsideInclude": False}
@@ -3176,6 +3199,55 @@ class TestProvenanceAndCoherenceAdapters:
     def test_a_stale_result_that_is_not_a_list_is_refused(self):
         with pytest.raises(mod.AdapterError, match=r"^--stale is not classify-stale JSON \(a list\)$"):
             mod.from_provenance_line(self.ALIAS_VERIFY, {})
+
+    # #1070 review: the map cites `Mock` at spy.ts:4, `export type * from '@vitest/spy';`, which classify-stale
+    # reads as the entry's `star`; the coverage call records it as not checked by script.
+    STAR_VERIFY = {"stale": [{"export_name": "Mock", "source_file": "code/core/src/test/spy.ts", "source_line": 4,
+                              "reason": "line-not-definition", "definition_lines": []}]}
+    AT_STAR = {"source_file": "code/core/src/test/spy.ts", "source_line": 4, "line_check": "checked",
+               "definition_lines": [], "star": "@vitest/spy"}
+    STARRED = {"name": "Mock", "fabricated": True, "source": "code/core/src/test/spy.ts:4", "defined_at": None,
+               "declared_in": None, "reason": "not-defined", "entries": [AT_STAR]}
+
+    @pytest.mark.parametrize("entry", [AT_STAR, AT_STAR | {"source_file": "./code/core/src/test/spy.ts",
+                                                           "source_line": "4"}],
+                             ids=["as-verify-records-it", "a-path-and-line-as-recorded"])
+    def test_an_unverified_line_at_another_package_s_star_asks_no_change(self, entry: dict):
+        """No line of spy.ts can define `Mock`, so the gap kept beside the coverage call's observation says the
+        line passes on that package's names and asks no change unless it lacks the name, as the observation does,
+        never to confirm that the line defines it."""
+        [record] = mod.from_provenance_line(self.STAR_VERIFY, [self.STARRED | {"entries": [entry]}])
+        assert brief([record]) == [("Info", "provenance-unverified", "Provenance line not verified for Mock",
+                                    "code/core/src/test/spy.ts:4", "Mock")]
+        assert record["remediation"] == (
+            "No change unless `@vitest/spy` does not export `Mock`: line 4 of `code/core/src/test/spy.ts` is an "
+            "`export *` from that package, which passes on its names, so no line of `code/core/src/test/spy.ts` "
+            "defines `Mock`, and no script reads them; check by hand that `@vitest/spy` exports `Mock`.")
+        assert record["issue"] == (
+            "line 4 of `code/core/src/test/spy.ts` is an `export *` from `@vitest/spy`, another package whose names "
+            "no script reads, so no line of `code/core/src/test/spy.ts` defines `Mock`; check by hand")
+
+    @pytest.mark.parametrize("stale", [
+        [STARRED | {"entries": [AT_STAR | {"star": "./local"}]}],
+        [STARRED | {"entries": [AT_STAR | {"star": "/abs/spy"}]}],
+        [STARRED | {"entries": [AT_STAR | {"source_line": 5}]}],
+        [STARRED | {"entries": [AT_STAR | {"source_file": "code/other.ts"}]}],
+        [STARRED | {"name": "Spy"}],
+        [STARRED | {"entries": [{k: v for k, v in AT_STAR.items() if k != "star"}]}],
+        [STARRED | {"entries": "code/core/src/test/spy.ts:4"}],
+        [],
+    ], ids=["a-relative-star", "an-absolute-star", "another-line", "another-file", "another-name", "no-star",
+            "entries-not-a-list", "empty"])
+    def test_any_other_unverified_line_keeps_todays_text(self, stale: list):
+        assert mod.from_provenance_line(self.STAR_VERIFY, stale) == mod.from_provenance_line(self.STAR_VERIFY)
+
+    def test_an_alias_wins_over_a_star(self):
+        """An `aliased` name names its alias first, though an entry of it sits at a star line."""
+        aliased = {"name": "Mock", "fabricated": False, "source": "code/core/src/test/spy.ts:4",
+                   "defined_at": "code/core/src/test/index.ts:2", "declared_in": ["code/core/src/test/index.ts:2"],
+                   "reason": "aliased", "entries": [self.AT_STAR], "renames": "MockInstance"}
+        [record] = mod.from_provenance_line(self.STAR_VERIFY, [aliased])
+        assert record["remediation"].startswith("`Mock` is an alias of `MockInstance`")
 
     def test_the_append_reads_stale(self, ledger: Path, tmp_path: Path):
         """`--from provenance-line --stale` records the alias's remediation; a --stale file that is not

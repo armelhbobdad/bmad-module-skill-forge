@@ -1132,8 +1132,9 @@ class TestStaleNameLineCheck:
         assert rule in flow
         assert flow.index(rule) < flow.index("Any other stale name (")
         medium = next(r for r in _read(SCORING_FILE).splitlines() if r.startswith("| Medium   | `stale-documentation`"))
-        assert ("not, with no `defined_at` and not scoped out by the brief, cited at a file holding another "
-                "package's `export *` (an Info `observation`)") in medium
+        assert ("not, with no `defined_at` and not scoped out by the brief, one the skill cites at a file holding "
+                "another package's `export *` or whose provenance map entry cites such an `export *` line itself (an "
+                "Info `observation`)") in medium
         skill = tmp_path / "skill"
         skill.mkdir()
         (skill / "SKILL.md").write_bytes(b"# demo\n\n`Mock` mocks. `[AST:src/test/spy.ts:L1]`\n")
