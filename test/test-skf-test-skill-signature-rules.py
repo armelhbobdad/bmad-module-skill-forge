@@ -72,7 +72,9 @@ and none of the `difference` tags. These tests keep:
 - a form the check binds, whose own citations name one declaration of its
   name, compared with that declaration alone and reported there, in the
   rules file and §2, and the place, `at`, the contract has each form give
-  (#918);
+  (#918); a documented extra's `internalDeclarations` entries read as its
+  declarations by §5b's split-body Source and as its surface records for
+  §2's `bound` (#1087);
 - Create Skill naming a component's Props interface as its contract, not
   `(props: XProps) => JSX.Element`;
 - a call written with placeholder names, which the inventory contract
@@ -216,6 +218,118 @@ def test_the_reader_and_each_coverage_judge_record_the_readings_the_rules_leave_
     judge = re.search(r'```json\n(\{"file": "src/utils\.ts".*?)\n```', _read(COVERAGE), re.S).group(1)
     assert json.loads(judge)["undecided"] == []
     assert '"unresolved_stars": [...], "undecided": [...]}`' in _read(COVERAGE_TIERS)
+
+
+def test_a_deep_tier_judge_compares_the_skill_s_imports_and_members_with_the_source():
+    """#1084: a Deep-tier plan hands a judge the skill's import lines of each name and its documented members, the
+    errors coverage-check.md §2's Deep Tier paragraph asks for, which no one could see before. The rules say what
+    each claims, that a check with no `documented` adds no mismatch while its result still gives the list score
+    requires, the shape of each `doc_errors` item, and what score-signatures.py drops, never refusing the result for
+    it. §2's judge example is the Forge tier's, unchanged, and the Deep Tier paragraph adds `doc_errors` to it."""
+    text = _read(RULES)
+    opening = _flow(_slice(text, "# Signature Comparison Rules", "## Reading a form"))
+    paragraph = _paragraph(text, "A check that carries `imports` or `members`")
+    assert paragraph in opening and opening.index("an `undecided` list") < opening.index(paragraph)
+    assert ("A check that carries `imports` or `members` (a Deep-tier plan's) is also compared with the source; a "
+            "check with no `documented` has only these and adds no item to `signature_mismatches`, a list each result "
+            "still gives.") in paragraph
+    assert ("An import's module must export the name (Python: bind it at module level, by a definition or an import; "
+            "TS/JS: export it, by a declaration, an export list or a re-export), resolved in the source tree; a "
+            "module the tree does not hold is left uncompared.") in paragraph
+    assert ("Each `fields` or `properties` item names a member the declaration (or a base in the source tree) "
+            "declares, with the type it writes, read as Annotations reads a parameter's type and by Equivalent "
+            "spellings, when it writes one; each `methods` item names a member the declaration has") in paragraph
+    assert ("its parameters left to a method's own check. A list may leave members out.") in paragraph
+    # review of #1084: a member's type is read as a parameter's is, under Annotations, before Equivalent spellings,
+    # so a field `meta: dict` matches `meta: dict[str, Any]` as the same text written as a parameter's type does
+    assert "with the type it writes, by Equivalent spellings" not in paragraph
+    assert ("Type arguments the form leaves out are not compared: `dict` matches `dict[str, Any]`"
+            ) in _section("Annotations")
+    assert ('Each that differs is a `doc_errors` item `{"name", "at", "source", "issue"}`: the check\'s name, the '
+            "`at` it came with, the `file:line` of the declaration compared (for an import, of the module), and what "
+            "differs; an empty list or no key says none.") in paragraph
+    assert ("`score-signatures.py` drops, with a warning, an item that is no object, leaves `name`, `at`, `source` or "
+            "`issue` blank, or gives an `at` that no `imports` or `members` item of that name's check gives, never "
+            "refusing the result for it, and records each other one as an Info `Not checked by script: {name}` "
+            "observation at its `at`.") in paragraph
+    judge = json.loads(re.search(r'```json\n(\{"file": "src/utils\.ts".*?)\n```', _read(COVERAGE), re.S).group(1))
+    assert sorted(judge) == ["file", "signature_mismatches", "undecided"]
+    deep = _flow(_slice(_read(COVERAGE), "**Deep Tier", "**States 2 to 4"))
+    assert "by `{signatureRulesFile}` and adds each that differs to the JSON above as `doc_errors`" in deep
+
+
+def test_a_methods_item_is_found_as_a_method_s_form_finds_its_member():
+    """Review of #1084 with #1088 (probe g): loguru's `logger = _Logger()` documented with `methods: ["add(sink)"]`
+    and a method entry `logger.add`. The method rule reads an owner bound to an instance as its class, so
+    `logger.add` is compared with `_Logger.add`, while the doc-check rule asked only for a member the declaration
+    declares or binds, and the `logger` const declares no `add`: a false doc error beside a matching method. A
+    `methods` item is now found as a method's form finds its owner's member, the rule that paragraph gives."""
+    paragraph = _paragraph(_read(RULES), "A check that carries `imports` or `members`")
+    assert ("each `methods` item names a member the declaration has, found as a method's form finds its owner's "
+            "member (below: through an instance's class or an annotated const's type, along the method resolution "
+            "order, or declared outside the owner's body), its parameters left to a method's own check.") in paragraph
+    assert "each `methods` item names a member it declares or binds" not in paragraph
+    method = _paragraph(_read(RULES), "A method's form (a check that gives `member`, coverage-check.md §2)")
+    for held in ("An owner bound to an instance of a class, or a const annotated with a type, is read as that class "
+                 "or type", "else the member the first class in its method resolution order to declare or bind it "
+                 "gives", "or a method declared for it outside that body"):
+        assert held in method, held
+
+
+def test_a_members_item_at_a_bound_form_s_place_is_compared_with_that_declaration():
+    """Review of #1084 with #918 (probe e): `Config` is exported at pkg/client.py:3 and declared again at
+    pkg/loader.py:5, and the skill's citations bind the form at SKILL.md:5 to loader.py:5, while the check sits at
+    client.py:3. Its `members` item at SKILL.md:5 (`path: str`) was compared with "the declaration", the check's,
+    a false doc error. plan now gives such an item its bound declaration's `file` and `line`, and the rules compare
+    it there alone. A check under the `files[]` entry `""` keeps only such items, so coverage-check.md §2 says its
+    judge compares its `imports` and `members` beside its bound forms, as these rules do."""
+    paragraph = _paragraph(_read(RULES), "A check that carries `imports` or `members`")
+    assert ("A list may leave members out. An item that gives a `file` and `line` (its `at` is a place of a form the "
+            "check binds) is compared with that declaration alone; with `candidates`, any other item differs only "
+            "when it differs from each.") in paragraph
+    bound = _paragraph(_read(COVERAGE), "A check's `bound` lists each form")
+    assert ("The `files[]` entry `\"\"` names no file: its judge compares only bound forms, `imports` and `members`, "
+            "and gives its result the first check's first `bound` `file` as `file`.") in bound
+    assert "compares only bound forms and gives" not in bound
+
+
+def test_a_documented_extra_s_internal_declarations_are_its_declarations_for_the_split_body_source():
+    """Review of #1087: plan and score read a documented extra's `internalDeclarations` entries as its records, so
+    its form is judged and graded at its declaration, but the split-body Source read a name's declarations as its
+    `exports` records and `otherDeclarations` entries alone. For `detect_code_language`, declared only at
+    `pkg/text.py:4` as `(*, filename: str)`, with SKILL.md writing `(filename: str, content: str) -> str` and
+    references/api.md the source's form, score wrote a Critical at the declaration while the Source found no
+    declaration, said no source settled the pair and asked to edit references/api.md, the side that agrees, to take
+    SKILL.md's form. Its one-declaration test and its reading of a name declared more than once now take such a
+    name's internal declarations as its declarations; the rules say so for the forms §2's `bound` binds, whose
+    paragraph in coverage-check.md names them by that term; and source-access-protocol.md names the Source among
+    the key's readers. With #1088's method rule beside it, the section says once, before its first rule, what a
+    name's records are, an owner's among them, so a method pair whose owner is a documented extra is read at that
+    declaration, as plan and score check the method there, and the one-declaration test, the method rule and the
+    reading of a name declared more than once read that term with no wording of their own for it."""
+    split_body = _flow(_read(REFS / "coverage-check-branches.md").split("\n## Split-Body Sources\n", 1)[1])
+    records = ("Here a name's `surface.json` records, a method's owner's among them, are its `exports` records or, for "
+               "a name with none, such as a documented extra, its `internalDeclarations` entries.")
+    one = ("against the export's declaration at the `file` and `line` `surface.json` gives, by its rules, when that "
+           "one declaration decides")
+    owner = "read from the `file` and `line` of the owner's `surface.json` record"
+    each = ("set each form against each declaration of the name, its `surface.json` records and its "
+            "`otherDeclarations` entries, read at their `file` and `line`")
+    for sentence in (records, one, owner, each):
+        assert split_body.count(sentence) == 1, sentence
+    assert split_body.index(records) < split_body.index(one) < split_body.index(owner) < split_body.index(each)
+    assert "(for a name with no `exports` record, such as a documented extra" not in split_body
+    assert "(for a name with none, its `internalDeclarations` entries)" not in split_body
+    homonyms = _paragraph(_read(RULES), "In the split-body cross-check both forms are documented")
+    assert ("or coverage-check.md §2's `bound` binds them to two, a declaration being one of the name's surface "
+            "records (for a name with no `exports` record, its `internalDeclarations` entries) or one `surface.json` "
+            "lists in `otherDeclarations`") in homonyms
+    bound = _paragraph(_read(COVERAGE), "A check's `bound` lists each form")
+    assert "whose own citations name one declaration of the name: one of its surface records" in bound
+    held = _flow(_read(REFS / "source-access-protocol.md"))
+    assert ("`plan`, `score` and coverage-check-branches.md's Split-Body Sources read them as the records of such a "
+            "name") in held
+    assert "reads them: `plan` and `score` read them" not in held
 
 
 def test_a_form_claims_only_what_it_writes():
@@ -881,8 +995,8 @@ def test_a_method_form_is_compared_with_its_owner_s_member():
     # is its class's
     assert ("`owner` is not validated. The signature check compares a `method`'s form with the member of that name "
             "its owner declares (for an object, its class; signature-comparison-rules.md), under `{owner}.{name}`, "
-            "when the source surface records its owner and the recipe runner built it; a `method` with no `owner` is "
-            "never compared.") in contract
+            "when the source surface records its owner (for an owner no entry point exports, its declaration in a "
+            "scoped-in file) and the recipe runner built it; a `method` with no `owner` is never compared.") in contract
     assert "except a `method`" not in contract and "a `method` and a form that writes only" not in contract
     doc = _flow(_read(SCORE_SIGNATURES))
     assert '"member" (a method\'s check alone: its bare name, `name` being `{owner}.{member}`)' in doc
@@ -935,8 +1049,9 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
     homonyms = ("Forms of one name attributed to different declarations of it are two exports, never compared with "
                 "each other in the split-body cross-check: their own citations, read at each form's inventory `at` as "
                 "inventory-contract.md says, name two declarations, or coverage-check.md §2's `bound` binds them to "
-                "two, a declaration being one of the name's surface records or one `surface.json` lists in "
-                "`otherDeclarations` (each judge reads the signals it has).")
+                "two, a declaration being one of the name's surface records (for a name with no `exports` record, "
+                "its `internalDeclarations` entries) or one `surface.json` lists in `otherDeclarations` (each judge "
+                "reads the signals it has).")
     each = ("Each is compared only with the forms attributed to its own declaration, a form attributed to neither is "
             "a mismatch only when it contradicts the forms of both, and §2 holds a bound form to its bound "
             "declaration alone and an unbound one to the check's candidates (below).")

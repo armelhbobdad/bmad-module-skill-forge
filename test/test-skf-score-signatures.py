@@ -72,8 +72,20 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     owner's declarations, counts it only where the plan checks it, and
     takes a bound one's mismatch at the member's line, and one the judge
     reads in a file no declaration of its owner is in at that file
+  - compares a documented extra (#1087), a name no entry point exports
+    that the extraction declares in a scoped-in file: the surface's
+    `internalDeclarations` stand in for the records it lacks, so plan
+    files its check at its declaration and score counts it in Signature
+    Accuracy, never in Type Coverage, and so does a method it owns
+  - hands a Deep-tier judge the skill's import lines of each name and its
+    documented members (#1084, plan --doc-errors), a name documented only
+    by them in a check `compared` never counts, and records each
+    `doc_errors` item the judge returns as an Info `Not checked by script:
+    {name}` observation at the documenting line, a malformed one dropped
+    with a warning; no score reads them
 The surface fixture is load-coverage-inputs.py surface output built from a
---mode full extraction, so a recipe's internal match is never compared.
+--mode full extraction, so a recipe's internal match is compared only as a
+documented extra.
 """
 
 from __future__ import annotations
@@ -112,7 +124,9 @@ INVENTORY = {"exports": [
 ], "cross_check_mismatches": []}
 
 # load-coverage-inputs.py surface output for an extraction: internalThing was
-# a recipe match no entry point exports, so the surface never lists it.
+# a recipe match no entry point exports, so no export record lists it, and the
+# inventory does not document it, so its `internalDeclarations` entry is left
+# out here.
 SURFACE = {
     "exports": [
         {"name": "Extra", "kind": "class", "file": "src/extra.ts", "line": 1, "signatureLine": "export class Extra {",
@@ -182,7 +196,7 @@ def test_the_plan_compares_each_documented_signature_on_the_surface(tmp_path):
 def test_the_plan_without_a_surface_is_the_signature_map(tmp_path):
     inventory, _ = _files(tmp_path)
     plan = json.loads(_run("plan", "--inventory", inventory).stdout)
-    assert plan["files"] == [] and plan["compared"] == 0
+    assert plan["files"] == [] and plan["compared"] == 0 and plan["notCompared"] == []
     assert plan["documentedSignatures"]["useThing"] == {"usage_signature": "useThing(): Thing"}
 
 
@@ -2312,10 +2326,17 @@ def test_a_by_eye_record_alone_plans_no_line_and_is_scored_at_the_judge_s(tmp_pa
     assert ("`line` and `signatureLine` are null on a check, a candidate or a `bound` entry whose surface record has "
             "no line: a name read by eye alone in its file, whose per-file result lists names only, or a record "
             "with no file.") in doc
-    # A check whose record has no file names no file to read, so the docstring never says a judge finds it there.
+    # A check whose record has no file names no file to read, so the docstring never says a judge finds it there,
+    # and its judge names a bound file as its result's `file`, since score refuses a blank one (#1061).
     assert ("The judge finds a declaration that has a file in that `file` and gives its mismatch the line it found "
-            "there (#1022). A check whose record has no file sits under the `files[]` entry \"\", which names no file "
-            "to read: a judge reads only its `bound` forms, each at its bound declaration.") in doc
+            "there (#1022). A check whose record has no file has a bound form and sits under the `files[]` entry \"\", "
+            "which names no file to read: a judge compares only its `bound` forms, each at its bound declaration, and "
+            "its `imports` and `members`, each `members` item at the bound declaration it gives (plan leaves out one "
+            "with none), and gives its result the first check's first `bound` file as `file`, which score refuses "
+            "blank. A name "
+            "that no surface record locates in a file and none of whose forms is bound gets no check (#1061): "
+            "`notCompared` lists it, and score with --plan leaves it out of Signature Accuracy and names it in "
+            "`warnings`.") in doc
     _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n`configure(path, *, strict=False)` reads [AST:{CONFIG}].\n")
     inventory = _write(tmp_path / "inventory.json", {"exports": [CONFIGURE_FORMS[0]], "cross_check_mismatches": []})
     surface = _write(tmp_path / "surface.json", {"exports": [CONFIGURE_BY_EYE], "sets": {"all": ["configure"]}})
@@ -2790,7 +2811,9 @@ def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tm
     """#918: the check of a name whose only record has no file stays at that record, in the "" group, and binds its
     form to the other declaration its citation names at its line, never the copy the skill cites elsewhere. A
     mismatch the judge finds there is recorded there, and that line bounds the evidence of an
-    annotation-contradicted one. Without --skill-dir the check binds nothing, as before."""
+    annotation-contradicted one. The judge's result names the bound file as its `file`, as coverage-check.md section
+    2 says, since one that echoes the "" entry breaks the schema and score exits 2 (#1061). Without --skill-dir no form is bound, so no judge has a file to read: the name gets
+    no check and `notCompared` lists it (#1061)."""
     _write(tmp_path / "skill" / "SKILL.md",
            f"# Demo\n\n`createTest(story, annotations?)` builds a test [AST:{PORTABLE}:L319].\n\n"
            f"The template's createTest is a copy [SRC:{PORTABLE_COPY}:L40].\n")
@@ -2801,19 +2824,24 @@ def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tm
                 "--output", str(plan))
     assert proc.returncode == 0, proc.stderr
     documented = {"params": "story: Story, annotations?: Annotations", "return_type": "Test"}
-    assert json.loads(plan.read_text(encoding="utf-8"))["files"] == [{"file": "", "checks": [{
+    planned = json.loads(plan.read_text(encoding="utf-8"))
+    assert planned["files"] == [{"file": "", "checks": [{
         "name": "createTest", "line": None, "signatureLine": None, "documented": documented,
         "bound": [{"form": 0, "file": PORTABLE, "line": 319, "signatureLine": "export function createTest("}]}]}]
+    assert planned["notCompared"] == []
     without = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
-    assert without["files"] == [{"file": "", "checks": [{
-        "name": "createTest", "line": None, "signatureLine": None, "documented": documented}]}]
+    assert (without["files"], without["compared"], without["notCompared"]) == ([], 0, ["createTest"])
     mismatch = {"name": "createTest", "line": 325, "file": PORTABLE, "difference": "annotation-contradicted",
                 "evidence_line": 322, "source_sig": "(story: Story, annotations?: Annotations): void",
                 "documented_sig": "(story: Story, annotations?: Annotations): Test",
                 "issue": "the annotation says `void`; the body returns the test"}
+    echoed = _write(tmp_path / "echoed.txt", json.dumps({"file": "", "signature_mismatches": [mismatch]}))
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan), "--results", echoed)
+    assert proc.returncode == 2 and "`file` must be a non-empty string" in proc.stdout, proc.stdout + proc.stderr
     results = _write(tmp_path / "s.txt", json.dumps({"file": PORTABLE, "signature_mismatches": [mismatch]}))
-    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan),
-                          "--results", results).stdout)
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(plan), "--results", results)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
     # the declaration line is the bound one, 319, so the evidence at 322 is in its body
     assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(PORTABLE, 319, "Info")]
     # No warning says the judge named another file; the extraction record has no kind, so Type Coverage names it
@@ -2841,6 +2869,416 @@ def test_a_form_bound_to_an_other_declaration_is_graded_at_its_file():
     assert (out["matchingSignatures"], out["totalDocumented"]) == (1, 1)
     out = mod.score([CREATE_TEST], ["createTest"], FILELESS["exports"], results, offered={"createTest": [""]})
     assert [m["severity"] for m in out["mismatches"]] == ["Critical"]
+
+
+# #1061: a documented name no surface record locates in a file and none of whose forms is bound, such as
+# oms-cocoindex's `LanceAsyncConnection`, an extraction gap the runner did not locate. Its check used to sit under the
+# files[] entry "", which names no file: a judge result for "" breaks the schema, so score exits 2, and with no result
+# score counted the name compared and matching.
+LANCE = "LanceAsyncConnection"
+LANCE_ENTRY = {"name": LANCE, "kind": "class", "params": "uri: str, *, read_consistency_interval=None",
+               "at": "SKILL.md:3"}
+LANCE_GAP = {"name": LANCE, "kind": None, "file": None, "line": None, "signatureLine": None, "origin": "extraction"}
+NOT_COMPARED = ("Signature Accuracy leaves out each documented name the plan gave no check, since no surface record "
+                "of it, or of a method's owner, names a file and no form of it is bound to a declaration (such as an "
+                "extraction gap the runner did not locate): ")
+
+
+def _lance(tmp_path: Path, records: list[dict]) -> tuple[str, str]:
+    """An inventory documenting LanceAsyncConnection and helper, and a surface with `records` of the first and
+    helper's at src/helper.ts:1."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [LANCE_ENTRY, INVENTORY["exports"][1]],
+                                                     "cross_check_mismatches": []})
+    helper = next(r for r in SURFACE["exports"] if r["name"] == "helper")
+    surface = _write(tmp_path / "surface.json", {"exports": [*records, helper], "sets": {"all": [LANCE, "helper"]}})
+    return inventory, surface
+
+
+@pytest.mark.parametrize("records, skill", [
+    ([LANCE_GAP], False),
+    ([LANCE_GAP], True),
+    ([{**LANCE_GAP, "file": "  "}], False),
+    ([], False),
+], ids=["not-located-gap", "not-located-gap-with-skill-dir", "blank-file", "no-record"])
+def test_a_name_no_record_locates_and_no_form_binds_gets_no_check(tmp_path, records, skill):
+    """#1061: a documented name none of whose surface records names a file (an extraction gap the runner did not
+    locate, a record whose file is blank, or a name of the `all` set with no record) and none of whose forms is bound
+    gets no check, since no judge has a file to read: the plan files nothing under the files[] entry "", lists the
+    name in `notCompared` and leaves it out of `compared`. With --skill-dir a citation that names no declaration of the
+    name binds nothing. Its forms stay in the fallback scan's map, and the --output summary keeps its five keys."""
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n`{LANCE}(uri)` connects [AST:src/lance.py:L10].\n")
+    inventory, surface = _lance(tmp_path, records)
+    path = tmp_path / "signature-plan.json"
+    skill_dir = ["--skill-dir", str(tmp_path / "skill")] if skill else []
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, *skill_dir, "--output", str(path))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == {"compared": 1, "files": 1, "checks": 1, "documented": 2, "output": str(path)}
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    assert [(group["file"], [c["name"] for c in group["checks"]]) for group in plan["files"]] == [
+        ("src/helper.ts", ["helper"])]
+    assert (plan["compared"], plan["notCompared"]) == (1, [LANCE])
+    assert plan["documentedSignatures"][LANCE] == {"params": LANCE_ENTRY["params"]}
+
+
+def test_a_name_with_a_filed_record_beside_a_fileless_one_keeps_its_check(tmp_path):
+    """#1061: a name one of whose records names a file keeps its check at that record, as before, whichever record the
+    surface lists first: it is compared, and `notCompared` is empty."""
+    filed = {"name": LANCE, "kind": "class", "file": "src/lance.py", "line": 10,
+             "signatureLine": "class LanceAsyncConnection:", "origin": "extraction"}
+    inventory, surface = _lance(tmp_path, [LANCE_GAP, filed])
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    assert [(group["file"], [(c["name"], c["line"]) for c in group["checks"]]) for group in plan["files"]] == [
+        ("src/helper.ts", [("helper", 1)]), ("src/lance.py", [(LANCE, 10)])]
+    assert (plan["compared"], plan["notCompared"]) == (2, [])
+
+
+def test_a_name_given_no_check_is_left_out_of_signature_accuracy_and_named(tmp_path):
+    """#1061, end to end: plan gives the not-located LanceAsyncConnection no check, so no judge is sent to a files[]
+    entry "" and score, reading src/helper.ts's result alone, exits 0. With --plan it leaves the name out of Signature
+    Accuracy and names it in one warning. Without --plan score is unchanged: the name counts as compared and
+    matching."""
+    inventory, surface = _lance(tmp_path, [LANCE_GAP])
+    path = tmp_path / "signature-plan.json"
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(path))
+    assert proc.returncode == 0, proc.stderr
+    assert [group["file"] for group in json.loads(path.read_text(encoding="utf-8"))["files"]] == ["src/helper.ts"]
+    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": "src/helper.ts", "signature_mismatches": []}))
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(path), "--results", results)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["comparedNames"], out["totalDocumented"], out["matchingSignatures"], out["signatureAccuracy"]) == (
+        ["helper"], 1, 1, 100.0)
+    # The extraction record has no kind, so Type Coverage names it too (#1020).
+    assert out["warnings"] == [NOT_COMPARED + f"`{LANCE}`", KINDLESS + f"`{LANCE}`"]
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
+    assert (out["comparedNames"], out["totalDocumented"], out["matchingSignatures"]) == ([LANCE, "helper"], 2, 2)
+    assert out["warnings"] == [KINDLESS + f"`{LANCE}`"]
+
+
+def test_signature_accuracy_with_every_name_left_out_has_nothing_to_compare():
+    """#1061: when the plan gave no check to every name score would compare, Signature Accuracy scores 100. The
+    warning that names them comes right after the plan-differs warnings and before the one that says the category has
+    nothing to compare; a `notCompared` name score would not compare anyway is named in none."""
+    planned = {LANCE: [{"params": "uri: str"}]}
+    out = mod.score([LANCE_ENTRY], [LANCE], [LANCE_GAP], [], planned=planned, not_compared={LANCE, "Unknown"})
+    assert (out["comparedNames"], out["totalDocumented"], out["matchingSignatures"], out["signatureAccuracy"]) == (
+        [], 0, 0, 100.0)
+    assert out["warnings"] == [
+        f"`{LANCE}`: the plan offered different forms than the inventory gives: graded against the plan's",
+        NOT_COMPARED + f"`{LANCE}`",
+        "no documented signature is on the source surface: Signature Accuracy has nothing to compare and scores 100",
+        KINDLESS + f"`{LANCE}`"]
+
+
+def test_a_mismatch_for_a_name_given_no_check_grades_nothing():
+    """#1061: a mismatch a result still reports for a name the plan gave no check grades nothing: no mismatch, no gap,
+    and the name stays out of the compared and matching counts, whatever order score drops it in."""
+    helper = next(r for r in SURFACE["exports"] if r["name"] == "helper")
+    mismatch = {"name": LANCE, "line": 10, "source_sig": "(uri: str)", "documented_sig": LANCE_ENTRY["params"],
+                "issue": "missing keyword parameter 'read_consistency_interval'"}
+    out = mod.score([LANCE_ENTRY, INVENTORY["exports"][1]], [LANCE, "helper"], [LANCE_GAP, helper],
+                    [{"file": "src/lance.py", "signature_mismatches": [mismatch]}], not_compared={LANCE})
+    assert (out["mismatches"], out["gapRecords"]) == ([], [])
+    assert (out["comparedNames"], out["totalDocumented"], out["matchingSignatures"], out["signatureAccuracy"]) == (
+        ["helper"], 1, 1, 100.0)
+    assert out["warnings"][0] == NOT_COMPARED + f"`{LANCE}`"
+    assert out["warnings"][1].startswith(f"src/lance.py:10: a signature mismatch for `{LANCE}`")
+    assert out["warnings"][1].endswith(": not scored, no gap")
+
+
+def test_a_method_of_a_name_no_record_locates_is_left_out_and_named(tmp_path):
+    """#1061 with #1088: a method is checked at its owner's record, so a method of LanceAsyncConnection, whose only
+    record is a not-located extraction gap, gets no check either, and `notCompared` lists
+    `LanceAsyncConnection.connect` beside its owner. score --plan leaves both out of Signature Accuracy and names
+    both in its one warning, where it dropped the method unnamed, since a method counts only where the plan checks
+    it. Without --plan both count, as any name the plan gave no check does."""
+    connect = {"name": "connect", "kind": "method", "owner": LANCE, "params": "uri: str", "description": "Connects.",
+               "at": "SKILL.md:5"}
+    _, surface = _lance(tmp_path, [LANCE_GAP])
+    inventory = _write(tmp_path / "inventory.json", {"exports": [LANCE_ENTRY, connect, INVENTORY["exports"][1]],
+                                                     "cross_check_mismatches": []})
+    path = tmp_path / "signature-plan.json"
+    assert _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(path)).returncode == 0
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    assert [group["file"] for group in plan["files"]] == ["src/helper.ts"]
+    assert (plan["compared"], plan["notCompared"]) == (1, [LANCE, f"{LANCE}.connect"])
+    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": "src/helper.ts", "signature_mismatches": []}))
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--plan", str(path),
+                          "--results", results).stdout)
+    assert (out["comparedNames"], out["totalDocumented"], out["matchingSignatures"]) == (["helper"], 1, 1)
+    assert out["warnings"] == [NOT_COMPARED + f"`{LANCE}`, `{LANCE}.connect`", KINDLESS + f"`{LANCE}`"]
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
+    assert out["comparedNames"] == [LANCE, f"{LANCE}.connect", "helper"]
+
+
+@pytest.mark.parametrize("value, names", [
+    (None, set()),
+    (LANCE, set()),
+    ({LANCE: True}, set()),
+    ([1, None, True, [LANCE], LANCE], {LANCE}),
+], ids=["absent", "a-string", "an-object", "items-that-are-no-string"])
+def test_the_plan_s_not_compared_names_are_read_as_strings(tmp_path, value, names):
+    """#1061: load_plan_not_compared reads the plan's `notCompared`: an older plan without it, a value that is no list
+    and an item that is no string leave nothing out, and score with such a plan exits 0, counting LanceAsyncConnection
+    compared unless a string item names it."""
+    inventory, surface = _lance(tmp_path, [LANCE_GAP])
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    plan.pop("notCompared", None)
+    if value is not None:
+        plan["notCompared"] = value
+    path = _write(tmp_path / "plan.json", plan)
+    assert mod.load_plan_not_compared(path) == names
+    results = _write(tmp_path / "s.txt", json.dumps({"file": "src/helper.ts", "signature_mismatches": []}))
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", path, "--results", results)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["comparedNames"] == sorted({LANCE, "helper"} - names)
+
+
+# #1087: oms-cocoindex's documented extras. pkg/__init__.py exports `run` alone, from pkg/core.py; pkg/text.py declares
+# detect_code_language at line 4 and RecursiveSplitter at line 8, which no entry point exports. The surface records
+# neither and lists both in `internalDeclarations`; the skill documents all three. Without that key the plan checked
+# `run` alone and score answered a judge's mismatch for detect_code_language with "not scored, no gap".
+TEXT_PY = "pkg/text.py"
+CORE_PY = "pkg/core.py"
+RUN_RECORD = {"name": "run", "kind": "function", "file": CORE_PY, "line": 1, "signatureLine": "def run(flow):",
+              "origin": "extraction"}
+DETECT_SIG = "def detect_code_language(*, filename: str) -> str | None:"
+DETECT = {"name": "detect_code_language", "kind": "function", "file": TEXT_PY, "line": 4, "signatureLine": DETECT_SIG}
+SPLITTER = {"name": "RecursiveSplitter", "kind": "class", "file": TEXT_PY, "line": 8,
+            "signatureLine": "class RecursiveSplitter:"}
+EXTRAS = {"exports": [RUN_RECORD], "otherDeclarations": [], "internalDeclarations": [SPLITTER, DETECT],
+          "sets": {"all": ["run"], "root": ["run"]}}
+RUN_ENTRY = {"name": "run", "kind": "function", "params": "flow", "description": "Runs a flow."}
+DETECT_ENTRY = {"name": "detect_code_language", "kind": "function", "params": "filename: str, content: str",
+                "return_type": "str", "description": "Guesses a file's language."}
+SPLITTER_ENTRY = {"name": "RecursiveSplitter", "kind": "class", "params": "chunk_size: int",
+                  "description": "Splits text."}
+EXTRA_INVENTORY = [RUN_ENTRY, DETECT_ENTRY, SPLITTER_ENTRY]
+DETECT_MISMATCH = {"name": "detect_code_language", "line": 4, "source_sig": "(*, filename: str) -> str | None",
+                   "documented_sig": "(filename: str, content: str) -> str",
+                   "issue": "the source takes `filename` by keyword alone and no `content`"}
+
+
+def _check_rows(plan: dict) -> list[tuple]:
+    """(file, name, line, signatureLine) of each check of a plan, by group."""
+    return [(group["file"], c["name"], c["line"], c["signatureLine"]) for group in plan["files"]
+            for c in group["checks"]]
+
+
+def test_a_documented_extra_is_planned_at_its_declaration(tmp_path):
+    """#1087 (oms-cocoindex): a documented name no entry point exports, which the extraction declares in a scoped-in
+    file, is checked at that declaration, with its line and signature line, and counted in `compared`, never in
+    `notCompared`. An internal declaration whose name the skill does not document (RecursiveSplitter here) gets
+    no check, and a surface without the key plans `run` alone, as before."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [RUN_ENTRY, DETECT_ENTRY],
+                                                     "cross_check_mismatches": []})
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface",
+                           _write(tmp_path / "surface.json", EXTRAS)).stdout)
+    assert _check_rows(plan) == [(CORE_PY, "run", 1, "def run(flow):"),
+                                 (TEXT_PY, "detect_code_language", 4, DETECT_SIG)]
+    [extra] = plan["files"][1]["checks"]
+    assert extra == {"name": "detect_code_language", "line": 4, "signatureLine": DETECT_SIG,
+                     "documented": {"params": "filename: str, content: str", "return_type": "str"}}
+    assert (plan["compared"], plan["notCompared"]) == (2, [])
+    bare = {k: v for k, v in EXTRAS.items() if k != "internalDeclarations"}
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface",
+                           _write(tmp_path / "bare.json", bare)).stdout)
+    assert _check_rows(plan) == [(CORE_PY, "run", 1, "def run(flow):")]
+    assert (plan["compared"], plan["notCompared"]) == (1, [])
+
+
+OLD_TEXT_PY = "pkg/text_v1.py"
+
+
+@pytest.mark.parametrize("cited, planned, candidates", [
+    (OLD_TEXT_PY, OLD_TEXT_PY, None),
+    (TEXT_PY, TEXT_PY, None),
+    (None, TEXT_PY, [TEXT_PY, OLD_TEXT_PY]),
+], ids=["cites-the-second", "cites-the-first", "cites-neither"])
+def test_a_documented_extra_declared_in_two_files_is_planned_where_the_skill_cites_it(tmp_path, cited, planned,
+                                                                                     candidates):
+    """#1087: a documented extra the extraction declares in two scoped-in files is checked, as a name the surface
+    records in two files is (#781): at the one the skill cites on a line that names it, else at the first, with
+    both as `candidates`."""
+    twice = {**EXTRAS, "internalDeclarations": [SPLITTER, DETECT, {**DETECT, "file": OLD_TEXT_PY, "line": 2}]}
+    citation = f" [AST:{cited}:L1]" if cited else ""
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n`detect_code_language(filename, content)` guesses{citation}.\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DETECT_ENTRY], "cross_check_mismatches": []})
+    proc = _run("plan", "--inventory", inventory, "--surface", _write(tmp_path / "surface.json", twice),
+                "--skill-dir", str(tmp_path / "skill"))
+    assert proc.returncode == 0, proc.stderr
+    [group] = json.loads(proc.stdout)["files"]
+    [check] = group["checks"]
+    assert (group["file"], check["line"]) == (planned, 2 if planned == OLD_TEXT_PY else 4)
+    assert [c["file"] for c in check.get("candidates", [])] == (candidates or [])
+
+
+@pytest.mark.parametrize("with_plan", [True, False], ids=["with-the-plan", "without-the-plan"])
+def test_a_documented_extra_s_critical_mismatch_counts_against_signature_accuracy(tmp_path, with_plan):
+    """#1087 (oms-cocoindex Signature Accuracy 100 over 42 of 67 documented signatures): a Critical mismatch a judge
+    reports for a documented extra at its declaration is scored, with --plan or without it: the extra is compared,
+    counted wrong, and its gap is at that declaration, so the hard gate can fail on it. Type Coverage reads the export
+    records alone: RecursiveSplitter, a class, counts no type."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": EXTRA_INVENTORY, "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", EXTRAS)
+    args = []
+    if with_plan:
+        plan = tmp_path / "signature-plan.json"
+        assert _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(plan)).returncode == 0
+        args = ["--plan", str(plan)]
+    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": TEXT_PY, "signature_mismatches": [
+        {**DETECT_MISMATCH, "file": TEXT_PY}]}))
+    gaps = tmp_path / "gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", surface, *args, "--results", results,
+                "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["comparedNames"] == ["RecursiveSplitter", "detect_code_language", "run"]
+    assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (2, 3, 66.67)
+    assert [(m["name"], m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [
+        ("detect_code_language", TEXT_PY, 4, "Critical")]
+    [gap] = json.loads(gaps.read_text(encoding="utf-8"))
+    assert (gap["severity"], gap["category"], gap["source"], gap["export"]) == (
+        "Critical", "signature-mismatch", f"{TEXT_PY}:4", "detect_code_language")
+    assert (out["totalTypes"], out["typeCoverage"]) == (0, 100.0)
+    assert not any("not scored" in w or "no file the plan offered" in w for w in out["warnings"]), out["warnings"]
+
+
+# A method of RecursiveSplitter, a documented extra declared at pkg/text.py:8, whose member the judge reads at line 12.
+SPLIT_ENTRY = {"name": "split", "kind": "method", "owner": "RecursiveSplitter", "params": "text: str",
+               "return_type": "list[str]", "description": "Splits a text.", "at": "SKILL.md:3"}
+SPLIT_MISMATCH = {"name": "RecursiveSplitter.split", "line": 12, "file": TEXT_PY,
+                  "source_sig": "(self, text: str, *, overlap: int) -> list[str]",
+                  "documented_sig": "(text: str) -> list[str]", "issue": "the source requires the keyword `overlap`"}
+
+
+@pytest.mark.parametrize("with_plan", [True, False], ids=["with-the-plan", "without-the-plan"])
+def test_a_method_of_a_documented_extra_is_checked_at_its_declaration(tmp_path, with_plan):
+    """#1087 with #1088: a method checked at its owner's record, of an owner that is a documented extra (no entry
+    point exports RecursiveSplitter; `internalDeclarations` declares it at pkg/text.py:8), is checked at that
+    declaration as `RecursiveSplitter.split`, as plan reads an extra's declarations as its records. score counts
+    it, with --plan or without it, and takes its Critical mismatch at the member's line in that file: without a plan
+    it offers the method its owner's records as plan reads them, where it read the export records alone, so the
+    method was never compared and its mismatch scored nothing. Without the key the owner has no record and the
+    method is neither checked nor counted."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [RUN_ENTRY, SPLIT_ENTRY],
+                                                     "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", EXTRAS)
+    path = tmp_path / "signature-plan.json"
+    assert _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(path)).returncode == 0
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    assert _check_rows(plan) == [(CORE_PY, "run", 1, "def run(flow):"),
+                                 (TEXT_PY, "RecursiveSplitter.split", 8, "class RecursiveSplitter:")]
+    assert plan["files"][1]["checks"][0]["member"] == "split"
+    assert (plan["compared"], plan["notCompared"]) == (2, [])
+    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": TEXT_PY,
+                                                                "signature_mismatches": [SPLIT_MISMATCH]}))
+    gaps = tmp_path / "gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", surface, *(["--plan", str(path)] if with_plan else []),
+                "--results", results, "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["comparedNames"] == ["RecursiveSplitter.split", "run"]
+    assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (1, 2, 50.0)
+    assert [(m["name"], m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [
+        ("RecursiveSplitter.split", TEXT_PY, 12, "Critical")]
+    [gap] = json.loads(gaps.read_text(encoding="utf-8"))
+    assert (gap["severity"], gap["source"], gap["export"]) == ("Critical", f"{TEXT_PY}:12", "RecursiveSplitter.split")
+    assert not any("not scored" in w or "no file the plan offered" in w for w in out["warnings"]), out["warnings"]
+    bare = {k: v for k, v in EXTRAS.items() if k != "internalDeclarations"}
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface",
+                           _write(tmp_path / "bare.json", bare)).stdout)
+    assert _check_rows(plan) == [(CORE_PY, "run", 1, "def run(flow):")]
+
+
+MERGE = {"name": "merge_flows", "kind": "function", "file": CORE_PY, "line": 10,
+         "signatureLine": "def merge_flows(a, b):"}
+
+
+@pytest.mark.parametrize("internal, bound", [
+    ([], [(0, CORE_PY, 1)]),
+    ([MERGE], []),
+], ids=["no-declaration-follows-it", "an-internal-declaration-follows-it"])
+def test_an_internal_declaration_ends_the_span_of_the_one_before_it(tmp_path, internal, bound):
+    """#1087: an internal declaration is one the extraction records in its file, so it ends the span of the
+    declaration before it as a surface record does: a citation of pkg/core.py:L12 names `run`, declared at L1, only
+    while no declaration follows it there."""
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n`run(flow)` runs it [SRC:{CORE_PY}:L12].\n")
+    inventory = [{**RUN_ENTRY, "at": "SKILL.md:3"}]
+    plan = mod.plan(inventory, ["run"], [RUN_RECORD], str(tmp_path / "skill"), [], internal)
+    assert _bound(plan, "run") == bound
+
+
+RUN_CONTRADICTED = {"name": "run", "line": 1, "source_sig": "(flow) -> None", "documented_sig": "(flow) -> Result",
+                    "issue": "the annotation says None; the body returns the result",
+                    "difference": "annotation-contradicted", "evidence_line": 12}
+DETECT_CONTRADICTED = {"name": "detect_code_language", "line": 6, "source_sig": "(*, filename: str) -> None",
+                       "documented_sig": "(*, filename: str) -> str", "issue": "the annotation says None",
+                       "difference": "annotation-contradicted", "evidence_line": 5}
+
+
+@pytest.mark.parametrize("entry, mismatch, internal, severity, fact", [
+    ({**RUN_ENTRY, "return_type": "Result"}, RUN_CONTRADICTED, [], "Info", None),
+    ({**RUN_ENTRY, "return_type": "Result"}, RUN_CONTRADICTED, [MERGE], "Critical",
+     "evidence_line 12 is not before the next declaration in the file, at line 10"),
+    # the extra's own declaration line is its internal declaration's, 4, whatever line the judge gives
+    ({**DETECT_ENTRY, "params": "*, filename: str"}, DETECT_CONTRADICTED, [DETECT, SPLITTER], "Info", None),
+    ({**DETECT_ENTRY, "params": "*, filename: str"}, {**DETECT_CONTRADICTED, "evidence_line": 9},
+     [DETECT, SPLITTER], "Critical", "evidence_line 9 is not before the next declaration in the file, at line 8"),
+], ids=["a-record-with-nothing-after-it", "a-record-an-internal-declaration-follows",
+        "an-extra-s-body-line", "past-the-next-internal-declaration"])
+def test_an_internal_declaration_locates_the_lines_a_record_would(entry, mismatch, internal, severity, fact):
+    """#1087: score reads an internal declaration as a surface record when it locates an annotation-contradicted
+    mismatch's lines (no --source-root: the line order alone): it ends the body of the declaration before it in its
+    file, and it is a documented extra's declaration line."""
+    result = {"file": CORE_PY if mismatch["name"] == "run" else TEXT_PY, "signature_mismatches": [mismatch]}
+    out = mod.score([entry], ["run"], [RUN_RECORD], [result], internal=internal)
+    assert [(m["name"], m["severity"]) for m in out["mismatches"]] == [(mismatch["name"], severity)]
+    found = [w for w in out["warnings"] if "tagged annotation-contradicted" in w]
+    assert (len(found) == 1 and fact in found[0]) if fact else found == [], found
+
+
+def test_a_documented_extra_declared_in_two_files_keeps_its_closest_mismatch_without_the_plan():
+    """#1087: without --plan, score offers a documented extra's check at each file its internal declarations name,
+    as at each file a surface name's records name, so a judge's mismatch at each of its two declaring files is one
+    mismatch per form, the least severe (the closest candidate): an Info one at pkg/text_v1.py:2, never a Critical
+    one at pkg/text.py:4 beside it, and the extra still counts as matching."""
+    entry = {**DETECT_ENTRY, "params": "*, filename: str"}
+    critical = {**DETECT_CONTRADICTED, "line": 4, "issue": "the source returns None"}
+    del critical["difference"], critical["evidence_line"]
+    results = [{"file": TEXT_PY, "signature_mismatches": [critical]},
+               {"file": OLD_TEXT_PY, "signature_mismatches": [{**DETECT_CONTRADICTED, "line": 2, "evidence_line": 3}]}]
+    out = mod.score([entry], ["run"], [RUN_RECORD], results, internal=[DETECT, {**DETECT, "file": OLD_TEXT_PY,
+                                                                                  "line": 2}])
+    assert [(m["name"], m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [
+        ("detect_code_language", OLD_TEXT_PY, 2, "Info")]
+    assert [g["severity"] for g in out["gapRecords"]] == ["Info"]
+    assert (out["comparedNames"], out["signatureAccuracy"]) == (["detect_code_language"], 100.0)
+
+
+@pytest.mark.parametrize("value", [
+    "absent", None, "pkg/text.py", {"name": "detect_code_language", "file": TEXT_PY},
+    [1, None, "x", {"file": TEXT_PY, "line": 4}, {"name": "", "file": TEXT_PY}, {"name": 7, "file": TEXT_PY},
+     {"name": "detect_code_language"}, {"name": "detect_code_language", "file": "  ", "line": 4}],
+], ids=["absent", "null", "a-string", "an-object", "items-with-no-name-or-file"])
+def test_an_odd_internal_declarations_value_is_ignored(tmp_path, value):
+    """#1087: load_internal_declarations keeps the items with a non-empty string name and a file: an older surface
+    without the key, a null (no runner extraction looked), a value that is no list and items with no name or file
+    give none, and plan and score with such a surface exit 0 as with no key at all."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": EXTRA_INVENTORY, "cross_check_mismatches": []})
+    bare = {k: v for k, v in EXTRAS.items() if k != "internalDeclarations"}
+    odd = bare if value == "absent" else {**bare, "internalDeclarations": value}
+    surface, plain = _write(tmp_path / "odd.json", odd), _write(tmp_path / "bare.json", bare)
+    assert mod.load_internal_declarations(surface) == []
+    results = _write(tmp_path / "s.txt", json.dumps({"file": TEXT_PY, "signature_mismatches": [DETECT_MISMATCH]}))
+    for command in (["plan"], ["score", "--results", results]):
+        procs = [_run(command[0], "--inventory", inventory, "--surface", path, *command[1:])
+                 for path in (surface, plain)]
+        assert [p.returncode for p in procs] == [0, 0], [p.stderr for p in procs]
+        assert procs[0].stdout == procs[1].stdout
+    out = json.loads(procs[0].stdout)
+    assert out["comparedNames"] == ["run"]
+    assert any("for `detect_code_language`, which is no documented signature" in w for w in out["warnings"])
 
 
 # #918 end to end: the cognee shape, a namespace member and a lazy `__getattr__` re-export of a same-named function,
@@ -2951,6 +3389,518 @@ def test_a_function_only_a_lazy_re_export_reaches_is_compared_where_its_form_cit
                           "--results", results).stdout)
     assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, 37)]
     assert [g["title"] for g in out["gapRecords"]] == ["Signature mismatch: run_pipeline (form 4 of 6)"]
+
+
+# #1087 end to end: the oms-cocoindex shape, an entry point that exports one name and a module of documented extras.
+EXTRAS_TREE = {
+    "pkg/__init__.py": "from .core import run\n",
+    CORE_PY: "def run(flow):\n    return flow\n",
+    TEXT_PY: (f"import re\n\n\n{DETECT_SIG}\n    return None\n\n\nclass RecursiveSplitter:\n"
+              "    def __init__(self, chunk_size: int) -> None:\n        self.chunk_size = chunk_size\n"),
+}
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+def test_a_documented_extra_is_compared_end_to_end(tmp_path):
+    """#1087 (oms-cocoindex detect_code_language) end to end: the runner lists the two names pkg/text.py declares as
+    `internal`, the surface lists their declarations, the plan files both under pkg/text.py at their lines, and a
+    Critical mismatch a judge reports for detect_code_language is scored: three names compared, two matching, the
+    gap at pkg/text.py:4, and no type counted."""
+    source = tmp_path / "src"
+    for rel, text in EXTRAS_TREE.items():
+        _write(source / rel, text)
+    extraction, surface = tmp_path / "extract-full.json", tmp_path / "surface.json"
+    proc = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source),
+                           "--scope-type", "public-api", "--tier", "Forge", "--head-cap", "0", "--output",
+                           str(extraction)], capture_output=True, text=True, timeout=600)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    proc = subprocess.run([sys.executable, str(LOADER), "surface", "--extraction", str(extraction), "--output",
+                           str(surface)], capture_output=True, text=True, timeout=600)
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(surface.read_text(encoding="utf-8"))
+    assert [(r["name"], r["file"], r["line"]) for r in data["exports"]] == [("run", CORE_PY, 1)]
+    assert data["internalDeclarations"] == [SPLITTER, DETECT]
+    inventory = _write(tmp_path / "inventory.json", {"exports": EXTRA_INVENTORY, "cross_check_mismatches": []})
+    plan = tmp_path / "signature-plan.json"
+    proc = _run("plan", "--inventory", inventory, "--surface", str(surface), "--output", str(plan))
+    assert proc.returncode == 0, proc.stderr
+    planned = json.loads(plan.read_text(encoding="utf-8"))
+    assert _check_rows(planned) == [(CORE_PY, "run", 1, "def run(flow):"),
+                                    (TEXT_PY, "RecursiveSplitter", 8, "class RecursiveSplitter:"),
+                                    (TEXT_PY, "detect_code_language", 4, DETECT_SIG)]
+    assert (planned["compared"], planned["notCompared"]) == (3, [])
+    results = [_write(tmp_path / f"signatures-{n}.txt", json.dumps(result)) for n, result in enumerate([
+        {"file": CORE_PY, "signature_mismatches": []},
+        {"file": TEXT_PY, "signature_mismatches": [DETECT_MISMATCH]}], 1)]
+    gaps = tmp_path / "signature-gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", str(surface), "--plan", str(plan),
+                *(arg for path in results for arg in ("--results", path)), "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["comparedNames"] == ["RecursiveSplitter", "detect_code_language", "run"]
+    assert (out["signatureAccuracy"], out["totalTypes"]) == (66.67, 0)
+    assert [(g["severity"], g["source"]) for g in json.loads(gaps.read_text(encoding="utf-8"))] == [
+        ("Critical", f"{TEXT_PY}:4")]
+
+
+# #1084: oms-cognee 1.6.2's member-only names. The skill imports SearchType and run from pkg.search in a Python fence
+# (SKILL.md:4) and documents run's form and SearchType's fields at SKILL.md:7. A Deep-tier plan gave a judge only each
+# check's forms, so no one held an import line or a member beside the source, and SearchType, documented only by its
+# fields, got no check at all.
+SEARCH_PY = "pkg/search.py"
+TYPES_PY = "pkg/types.py"
+DOC_RUN = {"name": "run", "kind": "function", "file": SEARCH_PY, "line": 10,
+           "signatureLine": "def run(query: str) -> list:", "origin": "extraction"}
+DOC_SEARCH_TYPE = {"name": "SearchType", "kind": "class", "file": TYPES_PY, "line": 3,
+                   "signatureLine": "class SearchType(Enum):", "origin": "extraction"}
+DOC_SURFACE = {"exports": [DOC_RUN, DOC_SEARCH_TYPE], "sets": {"all": ["SearchType", "run"]}}
+DOC_RUN_ENTRY = {"name": "run", "kind": "function", "params": "query: str", "return_type": "list",
+                 "description": "Runs a search.", "at": "SKILL.md:7"}
+DOC_TYPE_ENTRY = {"name": "SearchType", "kind": "type", "fields": ["GRAPH_COMPLETION", "CHUNKS"],
+                  "description": "The search kinds.", "at": "SKILL.md:7"}
+DOC_SKILL = ("# Demo\n\n```python\nfrom pkg.search import SearchType, run\n```\n\n"
+             "`run(query: str) -> list` searches; `SearchType` holds `GRAPH_COMPLETION` and `CHUNKS`.\n")
+DOC_IMPORT = {"at": "SKILL.md:4", "statement": "from pkg.search import SearchType, run"}
+DOC_MEMBERS = {"at": "SKILL.md:7", "fields": ["GRAPH_COMPLETION", "CHUNKS"]}
+DOC_ERROR = {"name": "SearchType", "at": "SKILL.md:4", "source": "pkg/search.py:1",
+             "issue": "pkg/search.py does not bind `SearchType`; pkg/types.py declares it"}
+DOC_ERROR_REMEDIATION = "Correct the documentation to match the source; no script checks this."
+
+
+def _doc_plan(tmp_path: Path, *flags: str, skill: str = DOC_SKILL, entries: list[dict] | None = None,
+              surface: dict | None = None) -> tuple[subprocess.CompletedProcess, Path, str, str]:
+    """plan over a skill that writes `skill`, an inventory of `entries` (run's form and SearchType's fields by
+    default) and `surface` (DOC_SURFACE), with `flags`: (the process, the plan file, the inventory, the surface)."""
+    _write(tmp_path / "skill" / "SKILL.md", skill)
+    inventory = _write(tmp_path / "inventory.json", {"exports": entries if entries is not None
+                                                     else [DOC_RUN_ENTRY, DOC_TYPE_ENTRY],
+                                                     "cross_check_mismatches": []})
+    surface_path = _write(tmp_path / "surface.json", surface if surface is not None else DOC_SURFACE)
+    path = tmp_path / "signature-plan.json"
+    proc = _run("plan", "--inventory", inventory, "--surface", surface_path, "--skill-dir", str(tmp_path / "skill"),
+                *flags, "--output", str(path))
+    return proc, path, inventory, surface_path
+
+
+@pytest.mark.parametrize("surface", [
+    DOC_SURFACE,
+    {"exports": [DOC_RUN], "internalDeclarations": [DOC_SEARCH_TYPE], "sets": {"all": ["run"]}},
+    {**DOC_SURFACE, "sets": {"all": ["run"]}},
+], ids=["in-all", "documented-extra", "record-outside-all"])
+def test_a_deep_tier_plan_checks_a_name_documented_only_by_members(tmp_path, surface):
+    """#1084 (oms-cognee SearchType): with --doc-errors a documented name with no compared form but with members
+    gets a check of its own at its record, with `members` and the skill's import lines of it and no `documented`,
+    and run's check carries its import line too. `compared` still counts run alone, while the summary's `checks`
+    counts both. The name is of the signature universe whether `all` holds it, only `internalDeclarations` declares
+    it (a documented extra) or only an export record outside `all` names it (a nested Python top's name)."""
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", surface=surface)
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == {"compared": 1, "files": 2, "checks": 2, "documented": 1, "output": str(path)}
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    assert plan["files"] == [
+        {"file": SEARCH_PY, "checks": [{"name": "run", "line": 10, "signatureLine": "def run(query: str) -> list:",
+                                        "documented": {"params": "query: str", "return_type": "list"},
+                                        "imports": [DOC_IMPORT]}]},
+        {"file": TYPES_PY, "checks": [{"name": "SearchType", "line": 3, "signatureLine": "class SearchType(Enum):",
+                                       "imports": [DOC_IMPORT], "members": [DOC_MEMBERS]}]},
+    ]
+    assert (plan["compared"], plan["notCompared"]) == (1, [])
+    assert list(plan["documentedSignatures"]) == ["run"]
+
+
+def test_a_doc_check_joins_its_file_s_group_in_name_order_with_its_candidates(tmp_path):
+    """#1084: a doc check sits in its file's group between the checks whose names sort around it, and keeps the
+    `candidates` _check_at gives a name the surface records in two files the skill cites neither of. `members` lists
+    each entry's filled `fields`, `properties` and `methods` as given, once per distinct item, in inventory order: a
+    blank string, an empty list and an entry with a bad `at` add none, and a `method` entry is no member of the
+    name."""
+    records = [
+        {**DOC_SEARCH_TYPE, "name": "alpha", "kind": "function", "line": 1, "signatureLine": "def alpha():"},
+        {**DOC_SEARCH_TYPE, "name": "omega", "kind": "function", "line": 20, "signatureLine": "def omega():"},
+        {**DOC_SEARCH_TYPE, "name": "kinds", "line": 8, "signatureLine": "class kinds:"},
+        {**DOC_SEARCH_TYPE, "name": "kinds", "file": "pkg/types_v1.py", "line": 2, "signatureLine": "class kinds:"},
+    ]
+    entries = [
+        {"name": "alpha", "kind": "function", "params": "", "description": "", "at": "SKILL.md:7"},
+        {"name": "omega", "kind": "function", "params": "", "description": "", "at": "SKILL.md:7"},
+        {"name": "kinds", "kind": "class", "methods": ["get(key)"], "properties": "  ", "description": "",
+         "at": "SKILL.md:7"},
+        {"name": "kinds", "kind": "class", "methods": ["get(key)"], "description": "", "at": "SKILL.md:7"},
+        {"name": "kinds", "kind": "class", "fields": [], "properties": "size: int", "description": "",
+         "at": "references/api.md:3"},
+        {"name": "kinds", "kind": "class", "fields": ["lost"], "description": "", "at": "SKILL.md"},
+        {"name": "kinds", "kind": "method", "fields": ["method"], "description": "", "at": "SKILL.md:7"},
+    ]
+    surface = {"exports": records, "sets": {"all": ["alpha", "kinds", "omega"]}}
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", entries=entries, surface=surface)
+    assert proc.returncode == 0, proc.stderr
+    [group] = [g for g in json.loads(path.read_text(encoding="utf-8"))["files"] if g["file"] == TYPES_PY]
+    assert [c["name"] for c in group["checks"]] == ["alpha", "kinds", "omega"]
+    kinds = group["checks"][1]
+    assert kinds == {"name": "kinds", "line": 8, "signatureLine": "class kinds:",
+                     "candidates": [{"file": TYPES_PY, "line": 8, "signatureLine": "class kinds:"},
+                                    {"file": "pkg/types_v1.py", "line": 2, "signatureLine": "class kinds:"}],
+                     "members": [{"at": "SKILL.md:7", "methods": ["get(key)"]},
+                                 {"at": "references/api.md:3", "properties": "size: int"}]}
+    assert "imports" not in group["checks"][0] and "members" not in group["checks"][0]
+
+
+def test_a_method_s_owner_gets_its_doc_check_beside_the_method_s_check(tmp_path):
+    """#1084 with #1088: a method's check is keyed `{owner}.{name}`, a key no documented name has (a `method` entry
+    documents no name), so with --doc-errors SearchType, documented by its fields and import line alone, still gets
+    a doc check of its own at its record, before `SearchType.get` in its file's group, and the method's check carries
+    neither `imports` nor `members`: a method is never imported by its own name, and its entry is no member of its
+    owner. score drops a `doc_errors` item a judge gives under the method's key, with --plan or without it."""
+    get = {"name": "get", "kind": "method", "owner": "SearchType", "params": "key: str", "description": "",
+           "at": "SKILL.md:7"}
+    proc, path, inventory, surface = _doc_plan(tmp_path, "--doc-errors", entries=[DOC_RUN_ENTRY, DOC_TYPE_ENTRY, get])
+    assert proc.returncode == 0, proc.stderr
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    [group] = [g for g in plan["files"] if g["file"] == TYPES_PY]
+    assert group["checks"] == [
+        {"name": "SearchType", "line": 3, "signatureLine": "class SearchType(Enum):", "imports": [DOC_IMPORT],
+         "members": [DOC_MEMBERS]},
+        {"name": "SearchType.get", "member": "get", "line": 3, "signatureLine": "class SearchType(Enum):",
+         "documented": {"params": "key: str"}}]
+    assert plan["compared"] == 2
+    item = {**DOC_ERROR, "name": "SearchType.get", "at": "SKILL.md:7"}
+    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": TYPES_PY, "signature_mismatches": [],
+                                                                "doc_errors": [item]}))
+    for plan_args in (["--plan", str(path)], []):
+        out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, *plan_args,
+                              "--results", results).stdout)
+        assert out["gapRecords"] == []
+        assert any("doc_errors[0]" in w and "SearchType.get" in w for w in out["warnings"]), out["warnings"]
+
+
+# Review of #1084 with #918 (probe e): Config is exported at pkg/client.py:3 and declared again at pkg/loader.py:5;
+# the skill documents each with its own citation and fields, so the form at SKILL.md:5 is bound to loader.py:5 while
+# the check sits at client.py:3.
+CLIENT_PY, LOADER_PY = "pkg/client.py", "pkg/loader.py"
+CONFIG_HOMONYM_SKILL = (
+    f"# Demo\n\n`Config(host: str)` is the client config. [SRC:{CLIENT_PY}:L3] Fields: `host: str`.\n\n"
+    f"`Config(path: str)` is the loader config. [SRC:{LOADER_PY}:L5] Fields: `path: str`.\n\n"
+    "`Config` also holds `debug: bool`.\n")
+CONFIG_HOMONYM_ENTRIES = [
+    {"name": "Config", "kind": "class", "params": "host: str", "fields": ["host: str"], "description": "",
+     "at": "SKILL.md:3"},
+    {"name": "Config", "kind": "class", "params": "path: str", "fields": ["path: str"], "description": "",
+     "at": "SKILL.md:5"},
+    {"name": "Config", "kind": "class", "fields": ["debug: bool"], "description": "", "at": "SKILL.md:7"}]
+CONFIG_HOMONYM_SURFACE = {
+    "exports": [{"name": "Config", "kind": "class", "file": CLIENT_PY, "line": 3, "signatureLine": "class Config:",
+                 "origin": "extraction"}],
+    "otherDeclarations": [{"name": "Config", "kind": "class", "file": LOADER_PY, "line": 5,
+                           "signatureLine": "class Config:"}],
+    "internalDeclarations": [], "sets": {"all": ["Config"]}}
+
+
+def test_a_members_item_at_a_bound_form_s_place_names_that_declaration(tmp_path):
+    """Review of #1084 with #918 (probe e): the check's `members` item at SKILL.md:5, the place of the form bound to
+    the loader's Config, carried no link to that declaration, so a judge compared `path: str` with the client's
+    Config, the check's, and returned a false `Not checked by script: Config`. Each item at a place of a bound form
+    now gives that form's bound `file` and `line`, which the rules compare it with, and an item at no bound form's
+    place (SKILL.md:7) gives none, so it is compared with the check's declaration as before."""
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=CONFIG_HOMONYM_SKILL, entries=CONFIG_HOMONYM_ENTRIES,
+                                 surface=CONFIG_HOMONYM_SURFACE)
+    assert proc.returncode == 0, proc.stderr
+    [group] = json.loads(path.read_text(encoding="utf-8"))["files"]
+    [check] = group["checks"]
+    assert (group["file"], [(b["form"], b["file"], b["line"]) for b in check["bound"]]) == (
+        CLIENT_PY, [(0, CLIENT_PY, 3), (1, LOADER_PY, 5)])
+    assert check["members"] == [
+        {"at": "SKILL.md:3", "fields": ["host: str"], "file": CLIENT_PY, "line": 3},
+        {"at": "SKILL.md:5", "fields": ["path: str"], "file": LOADER_PY, "line": 5},
+        {"at": "SKILL.md:7", "fields": ["debug: bool"]}]
+    doc = " ".join(mod.__doc__.split())
+    assert ('"members": [{"at", "fields", "properties", "methods", "file", "line" (only when `at` is a place of a '
+            "bound form: its bound declaration)}]") in doc
+
+
+def test_a_check_with_no_file_keeps_only_the_members_items_it_can_compare(tmp_path):
+    """Review of #1061 with #1084: createTest's only record has no file, so its check sits under the `files[]` entry
+    "" for the form bound to the declaration its citation names. With --doc-errors it carries its `imports` and
+    `members` too, which coverage-check.md §2 now says its judge compares beside the bound forms: a `members` item at
+    the bound form's place gives that declaration, and one at no bound form's place, which that judge has no
+    declaration to compare with, is left out. An import needs no declaration, so it stays."""
+    skill = (f"# Demo\n\n`createTest(story, annotations?)` builds a test [AST:{PORTABLE}:L319].\n\n"
+             f"The template's createTest is a copy [SRC:{PORTABLE_COPY}:L40].\n\n"
+             "```ts\nimport { createTest } from \"@storybook/test\";\n```\n")
+    entries = [CREATE_TEST,
+               {"name": "createTest", "kind": "function", "fields": ["story: Story"], "description": "",
+                "at": "SKILL.md:3"},
+               {"name": "createTest", "kind": "function", "fields": ["template: Story"], "description": "",
+                "at": "SKILL.md:5"}]
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=skill, entries=entries, surface=FILELESS)
+    assert proc.returncode == 0, proc.stderr
+    [group] = json.loads(path.read_text(encoding="utf-8"))["files"]
+    [check] = group["checks"]
+    assert (group["file"], check["bound"][0]["file"]) == ("", PORTABLE)
+    assert check["imports"] == [{"at": "SKILL.md:8", "statement": 'import { createTest } from "@storybook/test";'}]
+    assert check["members"] == [{"at": "SKILL.md:3", "fields": ["story: Story"], "file": PORTABLE, "line": 319}]
+    # with only the unbound item, the check carries no `members` at all
+    proc, path, _, _ = _doc_plan(tmp_path / "unbound", "--doc-errors", skill=skill, entries=[CREATE_TEST, entries[2]],
+                                 surface=FILELESS)
+    assert proc.returncode == 0, proc.stderr
+    [group] = json.loads(path.read_text(encoding="utf-8"))["files"]
+    assert "members" not in group["checks"][0] and group["checks"][0]["imports"]
+
+
+# Each import statement an import reader takes, by the fence it sits in; the skill documents SearchType (fields at
+# SKILL.md:7 in DOC_SKILL's layout), run, Mode, Options and Opts, Opts imported only as an alias.
+IMPORTS_SKILL = ("# Demo\n\n```python\nfrom pkg.search import SearchType, run\nfrom pkg import (\n"
+                 "    SearchType as ST,  # the kinds\n    # run,\n)\n```\n\n```ts\nimport {\n"
+                 "  type Mode, Options as Opts,\n} from \"pkg\";\n```\n")
+IMPORTS_TYPED = {"at": "SKILL.md:12", "statement": "import { type Mode, Options as Opts, } from \"pkg\";"}
+
+
+def test_each_check_lists_the_import_statements_that_import_its_name(tmp_path):
+    """#1084: a one-line Python import, a parenthesized one over several lines (a comment in it read past, so the
+    commented-out `run` is none of its names, and an `as` alias read by the name it imports) and a TS import over
+    three lines (`type` before a name read past, `Options as Opts` importing Options) each give every check of a name
+    they import their statement once, at their first line, on one line with whitespace runs as one. Opts, which only
+    an alias spells, gets no import and, with no form or member, no check."""
+    record = {**DOC_SEARCH_TYPE, "kind": "type"}
+    surface = {"exports": [DOC_RUN, DOC_SEARCH_TYPE, *({**record, "name": n, "line": i} for n, i in
+                                                       (("Mode", 9), ("Options", 12), ("Opts", 15)))],
+               "sets": {"all": ["Mode", "Options", "Opts", "SearchType", "run"]}}
+    entries = [DOC_RUN_ENTRY, DOC_TYPE_ENTRY,
+               *({"name": n, "kind": "type", "description": ""} for n in ("Mode", "Options", "Opts"))]
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=IMPORTS_SKILL, entries=entries, surface=surface)
+    assert proc.returncode == 0, proc.stderr
+    checks = {c["name"]: c for g in json.loads(path.read_text(encoding="utf-8"))["files"] for c in g["checks"]}
+    assert set(checks) == {"Mode", "Options", "SearchType", "run"}
+    assert checks["run"]["imports"] == [DOC_IMPORT]
+    assert checks["SearchType"]["imports"] == [
+        DOC_IMPORT, {"at": "SKILL.md:5", "statement": "from pkg import ( SearchType as ST, )"}]
+    assert checks["Mode"]["imports"] == checks["Options"]["imports"] == [IMPORTS_TYPED]
+    assert "members" not in checks["Mode"] and "documented" not in checks["Mode"]
+
+
+@pytest.mark.parametrize("fence, imported", [
+    ("```\nfrom pkg import run\n```", True),
+    ("```python\nfrom pkg import run, run  # twice\n```", True),
+    ("```js\nimport Default, { run } from 'pkg'\n```", True),
+    ("```python\nfrom .x import run\n```", False),
+    ("```python\nimport pkg\n```", False),
+    ("```python\n# from pkg import run\n```", False),
+    ("```ts\nimport * as p from \"pkg\";\n```", False),
+    ("```ts\nimport run from \"pkg\";\n```", False),
+    ("```ts\nimport { run } from \"./run\";\n```", False),
+    ("```ts\nimport { run } from \"/abs/run\";\n```", False),
+    ("```ts\n// import { run } from \"pkg\";\n```", False),
+    ("```ts\nfrom pkg import run\n```", False),
+    ("```python\nimport { run } from \"pkg\";\n```", False),
+    ("```json\nfrom pkg import run\n```", False),
+    ("```bash\nfrom pkg import run\n```", False),
+    ("from pkg import run", False),
+    ("```ts\nimport type { run } from \"pkg\";\n```", True),
+    ("```ts\nimport { /* x */ run } from \"pkg\";\n```", True),
+    ("```python\nfrom pkg import run; run('q')\n```", True),
+], ids=["untagged", "named-twice", "default-beside-named", "relative-python", "import-module", "python-comment",
+        "namespace", "default", "relative-ts", "absolute-ts", "ts-comment", "python-in-ts", "ts-in-python", "json",
+        "bash", "prose", "type-only", "inline-block-comment", "python-semicolon"])
+def test_only_a_fenced_import_of_the_name_by_its_own_name_is_listed(tmp_path, fence, imported):
+    """#1084: an import line names a check's name only in a fenced Python, TS/JS or untagged block, past the
+    frontmatter, by the name itself, from a module that is not relative; a relative module, an `import M`, a default
+    or namespace import, a commented-out line, another language's grammar, a data or shell fence and running text give
+    none. A statement that names the name twice is listed once, and a TS `import type`, an inline `/* */` comment and a
+    Python statement a `;` ends are read as imports."""
+    skill = f"---\nname: demo\n---\n\n{fence}\n\n`run(query: str) -> list` searches.\n"
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=skill, entries=[DOC_RUN_ENTRY])
+    assert proc.returncode == 0, proc.stderr
+    [check] = [c for g in json.loads(path.read_text(encoding="utf-8"))["files"] for c in g["checks"]]
+    assert ("imports" in check) is imported
+    if imported:
+        [item] = check["imports"]
+        assert item["at"] == "SKILL.md:6"
+
+
+def _without_doc_lists(plan: dict) -> dict:
+    """`plan` less each check's `imports` and `members`, and less each check with no `documented` and each group that
+    holds no other."""
+    files = []
+    for group in plan["files"]:
+        checks = [{k: v for k, v in c.items() if k not in ("imports", "members")} for c in group["checks"]
+                  if "documented" in c]
+        if checks:
+            files.append({**group, "checks": checks})
+    return {**plan, "files": files}
+
+
+def test_without_doc_errors_the_plan_is_the_one_before(tmp_path):
+    """#1084: only a Deep-tier plan carries `imports` and `members`: without --doc-errors no check holds either and
+    no check lacks `documented`, and a Deep-tier plan less them is that plan, so the Forge tier's checks, judge work
+    and records are unchanged: the plan without the flag is the one the script wrote before --doc-errors existed."""
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=IMPORTS_SKILL)
+    assert proc.returncode == 0, proc.stderr
+    deep = json.loads(path.read_text(encoding="utf-8"))
+    proc, path, _, _ = _doc_plan(tmp_path, skill=IMPORTS_SKILL)
+    assert proc.returncode == 0, proc.stderr
+    forge = json.loads(path.read_text(encoding="utf-8"))
+    assert _without_doc_lists(deep) == forge != deep
+    assert "imports" not in path.read_text(encoding="utf-8") and "members" not in path.read_text(encoding="utf-8")
+    documented = {"params": "query: str", "return_type": "list"}
+    assert forge == {"compared": 1, "files": [{"file": SEARCH_PY, "checks": [
+        {"name": "run", "line": 10, "signatureLine": "def run(query: str) -> list:", "documented": documented}]}],
+        "notCompared": [], "documentedSignatures": {"run": documented}, "documentedAlternatives": {}}
+    assert json.loads(proc.stdout)["checks"] == 1
+
+
+def test_doc_errors_without_a_skill_dir_exits_1(tmp_path):
+    """#1084: --doc-errors reads the skill's import lines, so without --skill-dir plan exits 1, naming both flags."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DOC_RUN_ENTRY, DOC_TYPE_ENTRY]})
+    surface = _write(tmp_path / "surface.json", DOC_SURFACE)
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--doc-errors")
+    assert proc.returncode == 1 and proc.stdout == ""
+    assert "--doc-errors" in proc.stderr and "--skill-dir" in proc.stderr
+
+
+@pytest.mark.parametrize("skill, entries, surface", [
+    ("# Demo\n\n`run(query: str) -> list` searches.\n", [DOC_RUN_ENTRY, {**DOC_TYPE_ENTRY, "fields": []}],
+     DOC_SURFACE),
+    (DOC_SKILL, [DOC_RUN_ENTRY, DOC_TYPE_ENTRY],
+     {**DOC_SURFACE, "exports": [DOC_RUN, {**DOC_SEARCH_TYPE, "file": None}]}),
+    (DOC_SKILL, [DOC_RUN_ENTRY, DOC_TYPE_ENTRY],
+     {**DOC_SURFACE, "exports": [DOC_RUN, {**DOC_SEARCH_TYPE, "file": " "}]}),
+    (DOC_SKILL, [DOC_RUN_ENTRY, DOC_TYPE_ENTRY], {"exports": [DOC_RUN], "sets": {"all": ["run"]}}),
+    (DOC_SKILL, [DOC_RUN_ENTRY], DOC_SURFACE),
+], ids=["no-members-and-no-import", "fileless-record", "blank-file", "off-universe", "undocumented"])
+def test_a_name_with_no_file_or_nothing_to_compare_gets_no_doc_check(tmp_path, skill, entries, surface):
+    """#1084: a documented name with no compared form gets no check when it has no member and the skill imports it
+    nowhere, when its record has no file (and it is not in `notCompared`, which lists only names with a form), when
+    it is off the signature universe, or when the skill imports a name it does not document."""
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors", skill=skill, entries=entries, surface=surface)
+    assert proc.returncode == 0, proc.stderr
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    assert [c["name"] for g in plan["files"] for c in g["checks"]] == ["run"]
+    assert (plan["compared"], plan["notCompared"]) == (1, [])
+    assert json.loads(proc.stdout)["checks"] == 1
+
+
+def test_a_fallback_plan_with_doc_errors_is_the_signature_map(tmp_path):
+    """#1084: the fallback per-file scan's plan has no surface, hence no checks: --doc-errors (with --skill-dir)
+    adds none and leaves its maps as they are."""
+    _write(tmp_path / "skill" / "SKILL.md", DOC_SKILL)
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DOC_RUN_ENTRY, DOC_TYPE_ENTRY]})
+    flagged = _run("plan", "--inventory", inventory, "--skill-dir", str(tmp_path / "skill"), "--doc-errors")
+    assert flagged.returncode == 0, flagged.stderr
+    plan = json.loads(flagged.stdout)
+    assert (plan["files"], plan["compared"], plan["notCompared"]) == ([], 0, [])
+    assert plan == json.loads(_run("plan", "--inventory", inventory).stdout)
+
+
+def _doc_score(tmp_path: Path, *results: dict, plan: bool = True, flags: tuple[str, ...] = ("--doc-errors",)) -> dict:
+    """score over the plan of DOC_SKILL made with `flags` (a Deep-tier plan by default), with `results` (each a judge
+    result) and, unless `plan` is false, --plan."""
+    proc, path, inventory, surface = _doc_plan(tmp_path, *flags)
+    assert proc.returncode == 0, proc.stderr
+    files = [_write(tmp_path / f"signatures-{n}.txt", json.dumps(result)) for n, result in enumerate(results, 1)]
+    proc = _run("score", "--inventory", inventory, "--surface", surface, *(["--plan", str(path)] if plan else []),
+                *(arg for file in files for arg in ("--results", file)))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return json.loads(proc.stdout)
+
+
+def _doc_record(issue: str, at: str = "SKILL.md:4", name: str = "SearchType") -> dict:
+    return {"severity": "Info", "category": "observation", "title": f"Not checked by script: {name}", "source": at,
+            "export": name, "issue": f"the skill documents `{name}` at `{at}` otherwise than the source: {issue}",
+            "remediation": DOC_ERROR_REMEDIATION}
+
+
+def test_a_judge_s_doc_error_is_an_info_observation_that_changes_no_count(tmp_path):
+    """#1084: a `doc_errors` item at a place an `imports` or `members` item of its name's check gives is an Info
+    `Not checked by script: {name}` observation at that line, after the mismatch records, asking for the
+    documentation to match the source. Signature Accuracy, `totalDocumented`, `comparedNames`, `mismatches` and the
+    warnings are those of the same results without it."""
+    mismatch = {"name": "run", "line": 10, "source_sig": "(query: str, *, top_k: int) -> list",
+                "documented_sig": "(query: str) -> list", "issue": "missing keyword parameter 'top_k'"}
+    clean = [{"file": SEARCH_PY, "signature_mismatches": [mismatch]}, {"file": TYPES_PY, "signature_mismatches": []}]
+    flagged = [clean[0], {**clean[1], "doc_errors": [DOC_ERROR], "undecided": []}]
+    without, out = _doc_score(tmp_path / "a", *clean), _doc_score(tmp_path / "b", *flagged)
+    assert [g["title"] for g in out["gapRecords"]] == ["Signature mismatch: run", "Not checked by script: SearchType"]
+    assert out["gapRecords"][1] == _doc_record(f"{DOC_ERROR['issue']} (`pkg/search.py:1`)")
+    assert out["gapRecords"][0] == without["gapRecords"][0]
+    assert {k: v for k, v in out.items() if k != "gapRecords"} == {k: v for k, v in without.items()
+                                                                   if k != "gapRecords"}
+    assert (out["signatureAccuracy"], out["totalDocumented"], out["comparedNames"]) == (0.0, 1, ["run"])
+
+
+def test_doc_errors_at_one_place_are_one_record(tmp_path):
+    """#1084: the items of one name at one place, however its path is written and from whichever result, are one
+    record, in result order, their issues joined with `; ` and an item repeated word for word once; a member error at
+    the members' place is another record of the name."""
+    other = {**DOC_ERROR, "at": "./SKILL.md:4", "source": "pkg/types.py:3", "issue": "SearchType lives in pkg.types"}
+    member = {**DOC_ERROR, "at": "SKILL.md:7", "source": "pkg/types.py:3", "issue": "SearchType has no CHUNKS member"}
+    out = _doc_score(tmp_path, {"file": SEARCH_PY, "signature_mismatches": [], "doc_errors": [DOC_ERROR, other]},
+                     {"file": TYPES_PY, "signature_mismatches": [], "doc_errors": [member, DOC_ERROR]})
+    assert out["gapRecords"] == [
+        _doc_record(f"{DOC_ERROR['issue']} (`pkg/search.py:1`); SearchType lives in pkg.types (`pkg/types.py:3`)"),
+        _doc_record("SearchType has no CHUNKS member (`pkg/types.py:3`)", at="SKILL.md:7")]
+    assert out["warnings"] == []
+
+
+@pytest.mark.parametrize("value, problem", [
+    ("none", "`doc_errors` must be a list when present (may be empty), not \"none\"; the list is dropped"),
+    ({"name": "SearchType"}, "`doc_errors` must be a list when present"),
+    ([3], "doc_errors[0] is not an object; the item is dropped"),
+    ([{**DOC_ERROR, "issue": " "}], "doc_errors[0] must give `issue` as a non-empty string; the item is dropped"),
+    ([{k: v for k, v in DOC_ERROR.items() if k != "source"}], "doc_errors[0] must give `source` as a non-empty"),
+    ([{**DOC_ERROR, "name": 7, "at": None}], "doc_errors[0] must give `name`, `at` as a non-empty string"),
+    ([{**DOC_ERROR, "at": "SKILL.md"}], "doc_errors[0] gives `at` \"SKILL.md\", no `<path>:<line>` place"),
+    ([{**DOC_ERROR, "at": "SKILL.md:5"}], "doc_errors[0] puts `SearchType` at `SKILL.md:5`, which no `imports` or "
+                                          "`members` item of the plan's check of the name gives"),
+    ([{**DOC_ERROR, "name": "run", "at": "SKILL.md:7"}], "doc_errors[0] puts `run` at `SKILL.md:7`"),
+], ids=["a-string", "an-object", "no-object", "blank-issue", "no-source", "two-blank", "bad-at", "unplanned-at",
+        "another-name-s-place"])
+def test_a_malformed_doc_error_is_dropped_with_a_warning(tmp_path, value, problem):
+    """#1084: `doc_errors` grades nothing, so a value that is no list, an item that is no object, leaves `name`, `at`,
+    `source` or `issue` blank, gives an `at` that is no place or one no `imports` or `members` item of that name's
+    check gives (run's check carries no `members`) is dropped with one warning naming the result's file, never a
+    schema breach: score exits 0 and records none of it."""
+    out = _doc_score(tmp_path, {"file": TYPES_PY, "signature_mismatches": [], "doc_errors": value})
+    assert out["gapRecords"] == []
+    [warning] = out["warnings"]
+    assert warning.startswith(f"the result for `{TYPES_PY}`: ") and problem in warning, warning
+
+
+@pytest.mark.parametrize("name, file", [("run", SEARCH_PY), ("SearchType", TYPES_PY)])
+def test_a_plan_without_doc_errors_drops_every_doc_error(tmp_path, name, file):
+    """#1084: a Forge-tier plan (no --doc-errors) gives no check an `imports` or `members` item, so with it a
+    `doc_errors` item a judge returns stray, for a documented name with a check or for one with none, is dropped
+    with a warning and recorded nowhere: --plan is not the same as no plan."""
+    item = {**DOC_ERROR, "name": name}
+    out = _doc_score(tmp_path, {"file": file, "signature_mismatches": [], "doc_errors": [item]}, flags=())
+    assert out["gapRecords"] == []
+    assert [w for w in out["warnings"] if "doc_errors" in w] == [
+        f"the result for `{file}`: doc_errors[0] puts `{name}` at `SKILL.md:4`, which no `imports` or `members` item "
+        "of the plan's check of the name gives; the item is dropped"]
+
+
+def test_without_the_plan_a_doc_error_of_a_documented_name_stands(tmp_path):
+    """#1084: without --plan any place that parses will do, but the name must be one the skill documents: an
+    undocumented name's item is dropped with a warning, a documented one's recorded; an absent or null list is
+    none."""
+    stranger = {**DOC_ERROR, "name": "Stranger"}
+    out = _doc_score(tmp_path, {"file": TYPES_PY, "signature_mismatches": [], "doc_errors": [stranger, DOC_ERROR]},
+                     {"file": SEARCH_PY, "signature_mismatches": [], "doc_errors": None}, plan=False)
+    assert out["gapRecords"] == [_doc_record(f"{DOC_ERROR['issue']} (`pkg/search.py:1`)")]
+    assert out["warnings"] == [f"the result for `{TYPES_PY}`: doc_errors[0] names `Stranger`, which the skill does "
+                               "not document; the item is dropped"]
+
+
+def test_the_plan_s_doc_places_are_read_from_its_imports_and_members(tmp_path):
+    """#1084: load_plan_doc_places reads each check's `imports` and `members` places as parse_at reads them, and a
+    plan without --doc-errors gives none, so with it every `doc_errors` item is dropped."""
+    proc, path, _, _ = _doc_plan(tmp_path, "--doc-errors")
+    assert proc.returncode == 0, proc.stderr
+    assert mod.load_plan_doc_places(str(path)) == {"run": {("SKILL.md", 4)},
+                                                   "SearchType": {("SKILL.md", 4), ("SKILL.md", 7)}}
+    proc, path, _, _ = _doc_plan(tmp_path)
+    assert proc.returncode == 0, proc.stderr
+    assert mod.load_plan_doc_places(str(path)) == {}
 
 
 def test_empty_params_on_a_kind_that_takes_none_is_no_signature():

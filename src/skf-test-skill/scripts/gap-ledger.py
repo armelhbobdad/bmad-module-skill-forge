@@ -192,8 +192,10 @@ cites (never read; default `metadata.json`):
             read) cite a file the --surface result's `unresolvedStars` lists
             (an `export *` from another package no script resolves, #1005)
             is an Info `observation` gap `Not checked by script: {name}
-            (another package's export *)` (so that a Deep-tier hand-written
-            `Not checked by script: {name}` stays its own gap) at
+            (another package's export *)` (so that the Deep tier's
+            `Not checked by script: {name}`, which score-signatures.py
+            records from a signature judge's `doc_errors`, stays its own
+            gap) at
             the line that documents the name, else `SKILL.md`: its issue and
             remediation name each such statement and its file, and the
             remediation asks no change unless that package lacks the name.
@@ -1448,8 +1450,9 @@ def _star_files(surface: dict | None) -> dict[str, list[dict]]:
 def _unchecked_star_gap(name: str, stars: list[dict], doc: str | None) -> dict:
     """The Info `observation` of a stale name with no `defined_at` that the skill cites at a file holding an
     `export *` from another package (#1005): no script reads that package, so the surface cannot hold the
-    names it passes on, and the name may well be one of them. Its title is not the Deep tier's hand-written
-    `Not checked by script: {name}`, which the ledger would read as the same gap at the same line."""
+    names it passes on, and the name may well be one of them. Its title is not the Deep tier's
+    `Not checked by script: {name}` score-signatures.py records from a signature judge's `doc_errors`, which the
+    ledger would read as the same gap at the same line."""
     def at(star: dict) -> str:
         line = _count(star.get("line"))
         return f"`{star['statement']}` (`{star['file']}{f':{line}' if line else ''}`)"
@@ -1545,8 +1548,9 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
                           f"`{declared.rsplit(':', 1)[0]}` and its same-named module {same_named}, so the gap is at "
                           "the package")
             # never routed: update-skill leaves an `observation` alone. Signature scoring compares a
-            # documented signature of a name on the surface's records (a nested sub-package's) alone.
-            checked = ("Signature scoring compares its documented signature with the surface's record of it."
+            # documented signature of a name on the surface's records (a nested sub-package's) or on its
+            # internal declarations (a documented extra's) alone.
+            checked = ("Signature scoring compares its documented signature with its declaration in the source."
                        if name in scored else
                        "Its documented signature was not checked against that declaration.")
             records.append(_gap(

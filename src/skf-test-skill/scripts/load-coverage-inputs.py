@@ -386,6 +386,25 @@ declaration of the name, and so does test-skill's Split-Body Sources
 (coverage-check-branches.md), which lets one declaration settle a
 split-body pair only on a list.
 
+Internal declarations (surface `internalDeclarations`): for each name the
+extraction's entry_point_diff.internal lists that no record names (a
+nested Python top's included), each declaration of it the extraction's
+exports[] holds (a re-export row declares nothing) in a file no
+scope.exclude glob matches and test-skill's classify-stale lookup reads
+(the --provenance entries and the extraction's package roots tell which:
+none in a test file or, unless the map cites that file for the name, a
+test or fixture folder, or a scripts or examples one right below a package
+root), as {name, kind, file, line, signatureLine}, built as an other
+declaration is; [] with none, and null exactly when `otherDeclarations`
+is. No entry point exports such a name, so one the skill documents is a
+documented extra, and a name declared only where the lookup never looks
+stays stale documentation, its signature never compared. They join no set,
+no count, no guard and no summary key: score-signatures.py plan and score,
+and test-skill's Split-Body Sources (coverage-check-branches.md), read
+them as the records of a name the surface holds no record of, so a
+documented extra's signature is compared at its declaration and the two
+forms of a split-body pair of it are set against that declaration.
+
 Unresolved stars (surface `unresolvedStars`, #1005): each `export *` or
 `export type *` from another package (a specifier with no leading `.` or
 `/`) that a read of the source met and no script resolves, as {file, line,
@@ -715,7 +734,9 @@ def _sibling(filename: str, folder: Path | None = None):
     (the line model floor reads the skill with) and score-signatures.py (the
     per-file result schema); or, with
     `folder`, one in that folder: SHARED_SCRIPTS'
-    skf-resolve-authoritative-files.py (a skill brief's YAML)."""
+    skf-resolve-authoritative-files.py (a skill brief's YAML) and
+    skf-verify-provenance-completeness.py (the declarations classify-stale
+    finds)."""
     module = _SIBLINGS.get(filename)
     if module is None:
         path = (folder or Path(__file__).resolve().parent) / filename
@@ -1630,6 +1651,35 @@ def other_declarations(records: list[dict], declarations: list[dict], aliases: d
     return [dict(zip(OTHER_DECLARATION_KEYS, t)) for t in ordered]
 
 
+def internal_declarations(records: list[dict], declarations: list[dict], internal: list[str],
+                          excludes: list[str], roots: list[str] | None = None,
+                          entries: list[dict] | None = None) -> list[dict]:
+    """The declarations of the names no entry point exports: for each of
+    `internal` (the extraction's entry_point_diff.internal names) that no
+    record names, each of `declarations` (a re-export left out) recorded under
+    the name in a file no exclude glob matches, as other_declarations gives an
+    item (a stand-in record with no file keeps none out), less each one
+    classify-stale's lookup never finds, so such a name stays stale
+    documentation (SHARED_SCRIPTS' skf-verify-provenance-completeness.py
+    lookup_skips_declaration, over the provenance `entries` and the package
+    `roots`): one in a file of a language it does not read (Python and TS/JS,
+    those the entries cite), a test file or a minified bundle, or, unless an
+    entry of the name cites its file, in a test, fixture, vendored or hidden
+    folder, an `e2e` or `__fixtures__` one, or a scripts, examples or docs one
+    right below the source root or a package root. They are no records:
+    score-signatures.py plan and score, and test-skill's Split-Body Sources,
+    read them as the records of a documented extra, so its documented
+    signature is compared there."""
+    named = {record["name"] for record in records}
+    stand_ins = [{"name": name, "file": None} for name in internal if name not in named]
+    found = other_declarations(stand_ins, declarations, {}, excludes)
+    if not found:
+        return found
+    lookup = _sibling("skf-verify-provenance-completeness.py", SHARED_SCRIPTS)
+    return [d for d in found
+            if not lookup.lookup_skips_declaration(d["name"], d["file"], list(entries or []), list(roots or []))]
+
+
 # The runner's file issues for a file it could not open at all: no one can read it by eye either.
 UNREADABLE_ISSUES = frozenset({"missing", "unreadable"})
 
@@ -1724,8 +1774,9 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
     unmatched_tier_a = _globs(recorded.get("unmatched_tier_a_include"))
     extraction = _extraction_summary(data, language)
     if extraction["fallback"]["needed"]:
-        return {"records": [], "nestedRecords": [], "declarations": [], "aliases": {}, "sets": {}, "outside": [],
-                "nested": [],
+        return {"records": [], "nestedRecords": [], "declarations": [], "aliases": {}, "internal": [],
+                "packageRoots": [], "sets": {},
+                "outside": [], "nested": [],
                 "staleScope": {"unmatchedInclude": unmatched, "unmatchedTierAInclude": unmatched_tier_a,
                                "restored": []},
                 "gaps": [], "scope": scope, "scopeType": recorded.get("type"), "umbrella": dict(NO_UMBRELLA),
@@ -1809,6 +1860,15 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
             line, signature_line = _declared_at(e)
             declarations.append({"exportName": name, "kind": e.get("export_type"), "file": file, "line": line,
                                  "signatureLine": signature_line})
+    # The names no entry point exports that the extraction records (`internal`): a documented one's declarations
+    # are the records its signature check reads.
+    internal = sorted({i["name"] for i in diff.get("internal") or []
+                       if isinstance(i, dict) and isinstance(i.get("name"), str) and i["name"]})
+    # The package roots classify-stale's lookup reads below (a Python top's folder, a package.json's, "." the
+    # source root): a scripts or examples folder right below one holds no declaration it finds.
+    package_roots = sorted({e["package"] for e in entry_files if isinstance(e.get("package"), str)
+                            and (e.get("language") in PYTHON_LANGUAGES
+                                 or posixpath.splitext(str(e.get("file")))[1].lower() in JS_FAMILY_EXTENSIONS)})
 
     # The umbrella ratio reads the public rows alone: an other definition is no root barrel name there.
     root_names = [p for p in _members_in_place(rows["public"]) if p.get("entry") in root_files]
@@ -1825,6 +1885,8 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
         "nestedRecords": nested_records,
         "declarations": declarations,
         "aliases": aliases,
+        "internal": internal,
+        "packageRoots": package_roots,
         "sets": sets,
         "outside": [_outside_row(o, scope) for o in outside],
         "nested": [{"entry": top, "within": nested[top], "names": nested_names[top]} for top in sorted(nested)],
@@ -2139,6 +2201,12 @@ def surface(args: argparse.Namespace) -> dict:
     # null (never looked for), not [] (none found), and the split-body Source settles no pair on it (#1026).
     others = (other_declarations(records, extracted["declarations"], extracted["aliases"], scope["exclude"])
               if extracted is not None and not extracted["extraction"]["fallback"]["needed"] else None)
+    # Each declaration of a name no entry point exports and no record names, such as a documented extra, in a file
+    # classify-stale's lookup reads: the records the signature plan and score read for it, and no record, set or
+    # count. Looked for exactly when the other declarations are, so null too when they are.
+    internal = (internal_declarations(records, extracted["declarations"], extracted["internal"], scope["exclude"],
+                                      extracted["packageRoots"], _entries(provenance))
+                if others is not None else None)
     # A tier A glob the runner lists as matching no file counts no name, and
     # so does one whose folder or file differs from every scope.include
     # glob's before any `*` or `?` (`gen/**` beside `src/**`) or one a
@@ -2283,6 +2351,7 @@ def surface(args: argparse.Namespace) -> dict:
         },
         "exports": records,
         "otherDeclarations": others,
+        "internalDeclarations": internal,
         "unresolvedStars": _unique_stars(stars),
         "sets": sets,
         **out,

@@ -2476,28 +2476,45 @@ def test_the_source_access_is_written_when_it_is_resolved():
 
 def test_the_deep_tier_asks_only_for_what_runs():
     """#828: the Deep tier asks for no check that has no command, run file or ledger record: it names what
-    already covers the version and the re-exports, and records an error no script checks as an Info
-    observation, which never blocks."""
+    already covers the version and the re-exports. #1084: an import or member error no script checks is no
+    hand-written record any more, since the parent never loads the skill: the plan hands each judge the skill's
+    import lines and documented members, the judge adds each that differs to its JSON as `doc_errors`, and score
+    records it as an Info observation, which never blocks. The plan command's lead says when to pass the flag."""
     deep = _flow(_slice(_read(COVERAGE), "**Deep Tier", "**States 2 to 4"))
-    for gone in ("gh CLI", "check type definitions", "trace re-exports"):
+    for gone in ("gh CLI", "check type definitions", "trace re-exports", "no coverage check of its own"):
         assert gone not in deep, gone
     assert ("init.md §5b's drift guard checks the local tree against the pinned commit, at any tier, when both "
             "exist") in deep
     assert ("the recipe runner traces each re-export to the file that defines it when it runs (the fallback "
             "per-file scan does not)") in deep
-    assert ("goes in coverage-check §5b's hand-written records as an Info `observation` titled `Not checked by "
-            "script: {name}`, with `export` `{name}`, its Source at the documenting line and the remediation "
-            "\"Correct the documentation to match the source; no script checks this.\"") in deep
-    # §5b writes them, the tier branch file sends a Deep run back to the paragraph, the severity table names them
+    # A name no surface record locates in a file gets no check, since its judge would have no file to read.
+    assert ("Run its plan with `--doc-errors`: each check also carries the skill's import lines of its name "
+            "(`imports`) and its documented members (`members`), and a located documented name with no form but with "
+            "either gets a check with no `documented`.") in deep
+    assert ("Its judge compares them with the source by `{signatureRulesFile}` and adds each that differs to the JSON "
+            "above as `doc_errors`, which `score` records as an Info `Not checked by script: {name}` observation at "
+            "the documenting line.") in deep
+    assert "hand-written" not in deep and "§5b" not in deep.replace("init.md §5b", "")
+    assert '[--doc-errors]' in _command(COVERAGE, "uv run {scoreSignaturesScript} plan")
+    assert ("**Compare the signatures.** A script plans (pass `--doc-errors` at the Deep tier, below); subagents "
+            "judge:") in _flow(_read(COVERAGE))
+    # §5b writes no such record by hand, the tier branch file sends a Deep run back to the paragraph, which adds
+    # nothing to the fallback scan, and the severity table names the script that records them
     records = _flow(_slice(_read(COVERAGE), "Then write the records no script wrote", "```"))
-    assert "(at the Deep tier, §2's `Not checked by script: {name}` observations too)" in records
+    assert "Not checked by script" not in records
+    assert ("Then write the records no script wrote, §1b's split-body mismatches, in the Ledger Record Format of "
+            "`{outputFormatsFile}`, each naming its export in `export` and in its title") in records
     assert "its extra checks" not in _read(COVERAGE_TIERS)
-    assert "at Deep tier, its **Deep Tier** paragraph, which runs no check of its own" in _read(COVERAGE_TIERS)
+    assert ("at Deep tier, its **Deep Tier** paragraph, whose `--doc-errors` adds nothing to this scan's plan, which "
+            "has no checks, so leave it out;") in _read(COVERAGE_TIERS)
     observation = next(row for row in _read(SCORING).splitlines() if row.startswith("| Info     | `observation`"))
-    assert "`Not checked by script: {name}`, at the documenting line, written by hand" in observation
+    assert ("`Not checked by script: {name}`, at the documenting line, recorded by score-signatures.py from a "
+            "signature judge's `doc_errors`") in observation
+    assert "by hand" not in observation
     # #1005: and written by gap-ledger.py under a title of its own for a name cited at another package's star,
-    # so that a hand-written record of the name stays its own gap
-    assert ("written by hand (coverage-check §2 and §5b). Also a stale name with no `defined_at`, not scoped out by "
+    # so that the record score-signatures.py writes of the name stays its own gap
+    assert ("recorded by score-signatures.py from a signature judge's `doc_errors` (coverage-check §2). Also "
+            "a stale name with no `defined_at`, not scoped out by "
             "the brief (`excluded.outsideScope`), that the skill cites at a file holding another package's "
             "`export *` (`surface.json` `unresolvedStars`): `Not checked by script: {name} (another package's "
             "export *)`, at the documenting line, written by gap-ledger.py and asking no change unless that package "
@@ -2532,6 +2549,13 @@ def test_the_forge_tier_extraction_runs_once_without_a_head_cap():
     assert ("reads the full declaration at `{file}:{line}` (all of it, not only `signatureLine`'s one physical line; "
             "with `line` null, find it in `{file}` and give its mismatch that line)") in forge
     assert "read in full at its `file` and `line` as above" in forge
+    # #1061: a check whose record has no file sits under the files[] entry "" for its bound forms alone; a result
+    # that echoes "" as its `file` breaks the schema, so the judge names a bound declaration's file instead. Review
+    # of #1087 and #1084: such a check also carries its `imports` and `members`, which signature-comparison-rules.md
+    # compares too, so the sentence names them beside the bound forms.
+    assert ("The `files[]` entry `\"\"` names no file: its judge compares only bound forms, `imports` and `members`, "
+            "and gives its result the first check's first `bound` `file` as `file`.") in forge
+    assert "its judge compares only bound forms and gives" not in forge
     # #781: a check the citations do not settle names each candidate
     assert ("A check with `candidates` reads each as above and reports a mismatch only when the documented signature "
             "matches none: one, at the closest candidate, its `file` and `line` on the mismatch object (the "
@@ -2563,8 +2587,9 @@ def test_the_forge_tier_reads_by_eye_every_file_the_surface_names():
     # Whatever the branch, each file read by eye and each file no one could open is listed, never dropped silently.
     assert bullets[2] == ("- In the Coverage Analysis section, list each `readByEye` file as read by eye, each "
                           "`extraction.unread` file as unread.")
-    # #1048: no gap is read by eye; the signature plan judges a documented one that has a file (one with none is
-    # planned under the files[] entry "", which names no file to read) and §5's render lists them all.
+    # #1048: no gap is read by eye; the signature plan judges a documented one that has a file (one with none and no
+    # bound form gets no check, and score names it as left out of Signature Accuracy, #1061) and §5's render lists
+    # them all.
     assert bullets[3] == ("- `extractionGaps[]` names exports no recipe found: on the surface, judged below when "
                           "documented and located; read none by eye.")
     assert "read their signature by eye" not in section
@@ -2606,6 +2631,26 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     # #695: a stale tier A glob fires the guard too and counts no name
     assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
             "and counts no name") in held
+    # #1087: a documented extra's declarations reach plan and score as its records, never a set, Export Coverage or
+    # Type Coverage; review of #1087 (probe f): only those classify-stale finds, so a name declared only at a test
+    # helper stays stale documentation and is never compared there
+    assert ("`internalDeclarations` lists, for each name the extraction finds no entry point exports (its `internal` "
+            "names) and that no surface record names, each declaration of it the extraction records in a file the "
+            "brief does not exclude, in the fields `otherDeclarations` uses, less each one coverage-check.md §2c's "
+            "`classify-stale` never finds, since such a name stays stale documentation: one in a test file, in a "
+            "file of a language other than Python and TS/JS or, unless a provenance entry of the name cites that "
+            "file, in a test, fixture, vendored, hidden or `e2e` folder, or an examples, scripts or docs folder right "
+            "below the source root or a package root (a `prune_data` cognee declares only in `cognee/tests/utils.py` "
+            "has none); it is `null` exactly when `otherDeclarations` is. They add no name to a set either, and "
+            "neither Export Coverage nor Type Coverage reads them: `plan`, `score` and coverage-check-branches.md's "
+            "Split-Body Sources read them as the records of such a name, so a documented extra's signature is "
+            "planned, judged and counted in Signature Accuracy at its declaration, and the two forms of a split-body "
+            "mismatch of it are set against that declaration."
+            ) in held
+    internal = _flow(_slice(_read(SOURCE_ACCESS), "Internal module symbols are", "This matches the extraction"))
+    assert ("the extraction's `internal` names reach it only as `internalDeclarations` (What the Surface Holds, "
+            "below), which add no name to its sets or to the coverage denominator.") in internal
+    assert "never reach it" not in internal
     # the report lists every name the surface leaves out of the barrel or puts back in it, and the extraction gaps
     # (#1048), through §5's render
     assert ("§5's render lists `excluded.outsideScope`, `excluded.nestedEntries`, the restored names and "
@@ -2848,7 +2893,7 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     assert validated["valid"] is True and (run / "inventory.json").is_file()
     surface = _exec(_choose(_command(COVERAGE, "surface --extraction")), values, tmp_path)
     assert surface["sets"]["all"] == ["Options", "fetchData", "helper"]
-    command = _command(COVERAGE, "uv run {scoreSignaturesScript} plan")
+    command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} plan"))
     assert '--skill-dir "{resolved_skill_package}"' in command, "#781: the skill's citations pick a declaration"
     plan = _exec(command, values, tmp_path)
     assert [f["file"] for f in plan["files"]] == ["src/helper.ts", "src/index.ts"]
@@ -2899,6 +2944,63 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     # naive weights 45/25/20/10: 45 + 12.5 + 20 + 8
     assert (score["totalScore"], score["result"]) == (85.5, "PASS")
     assert "effectiveResult" not in score
+
+
+def test_a_deep_tier_judge_s_doc_error_reaches_the_ledger(tmp_path):
+    """#1084, as the step runs it: the skill imports SearchType and run from pkg.search in a Python fence and
+    documents run's form and SearchType only by its fields. §2's plan command with `--doc-errors` gives SearchType a
+    check with that import line and its members, the score command records the `doc_errors` item a judge returns for
+    it at the import line, and §5b's `signature-gaps.json` append writes it to the ledger as an Info observation.
+    Signature Accuracy and the compared count are those of the same run without the item."""
+    skill = _write_tree(tmp_path / "skill", {
+        "SKILL.md": "---\nname: demo\ndescription: Demo. Use when testing.\n---\n# Demo\n\n"
+                    "```python\nfrom pkg.search import SearchType, run\n```\n\n"
+                    "`run(query: str) -> list` searches; `SearchType` holds `GRAPH_COMPLETION`.\n",
+    })
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "inventory.json").write_bytes(json.dumps({"exports": [
+        {"name": "run", "kind": "function", "params": "query: str", "return_type": "list", "description": "Searches.",
+         "at": "SKILL.md:11"},
+        {"name": "SearchType", "kind": "type", "fields": ["GRAPH_COMPLETION"], "description": "The search kinds.",
+         "at": "SKILL.md:11"},
+    ], "references": [], "cross_check_mismatches": []}).encode("utf-8"))
+    (run / "surface.json").write_bytes(json.dumps({"exports": [
+        {"name": "SearchType", "kind": "class", "file": "pkg/types.py", "line": 3,
+         "signatureLine": "class SearchType(Enum):", "origin": "extraction"},
+        {"name": "run", "kind": "function", "file": "pkg/search.py", "line": 10,
+         "signatureLine": "def run(query: str) -> list:", "origin": "extraction"},
+    ], "sets": {"all": ["SearchType", "run"]}}).encode("utf-8"))
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(),
+              "{ledgerFile}": (tmp_path / "test-findings-20261111T000000Z-abcdef12.json").as_posix()}
+
+    plan = _exec(_choose(_command(COVERAGE, "uv run {scoreSignaturesScript} plan"), keep=("--doc-errors",)), values,
+                 tmp_path)
+    assert plan["compared"] == 1
+    [doc_check] = [c for g in plan["files"] if g["file"] == "pkg/types.py" for c in g["checks"]]
+    assert doc_check == {"name": "SearchType", "line": 3, "signatureLine": "class SearchType(Enum):",
+                         "imports": [{"at": "SKILL.md:8", "statement": "from pkg.search import SearchType, run"}],
+                         "members": [{"at": "SKILL.md:11", "fields": ["GRAPH_COMPLETION"]}]}
+    command = _choose(_command(COVERAGE, "uv run {scoreSignaturesScript} score")).replace(
+        '--results "{run_dir}/signatures-<n>.txt"',
+        '--results "{run_dir}/signatures-1.txt" --results "{run_dir}/signatures-2.txt"').replace("<set>", "all")
+    (run / "signatures-1.txt").write_bytes(json.dumps(
+        {"file": "pkg/search.py", "signature_mismatches": [], "undecided": []}).encode("utf-8"))
+    judged = {"file": "pkg/types.py", "signature_mismatches": [], "undecided": []}
+    (run / "signatures-2.txt").write_bytes(json.dumps(judged).encode("utf-8"))
+    without = _exec(command, values, tmp_path)
+    error = {"name": "SearchType", "at": "SKILL.md:8", "source": "pkg/search.py:1",
+             "issue": "pkg/search.py does not bind `SearchType`; pkg/types.py declares it"}
+    (run / "signatures-2.txt").write_bytes(json.dumps({**judged, "doc_errors": [error]}).encode("utf-8"))
+    signatures = _exec(command, values, tmp_path)
+    assert (signatures["signatureAccuracy"], signatures["totalDocumented"]) == (
+        without["signatureAccuracy"], without["totalDocumented"]) == (100.0, 1)
+    appended = _exec(_command(COVERAGE, '--input "{run_dir}/signature-gaps.json"'), values, tmp_path)
+    assert appended["appended"] == ["GAP-001"]
+    [record] = json.loads(Path(values["{ledgerFile}"]).read_bytes())["records"]
+    assert (record["severity"], record["category"], record["title"], record["source"], record["export"]) == (
+        "Info", "observation", "Not checked by script: SearchType", "SKILL.md:8", "SearchType")
+    assert record["remediation"] == "Correct the documentation to match the source; no script checks this."
 
 
 # A stratified skill on the scalar branch (#791, #792): the entry point declares five tier A names and re-exports
@@ -3432,7 +3534,9 @@ CARVED_TO_BRANCHES = {
     )],
     "Split-Body Sources": [(
         "The Source is `{reference_file}:{reference_line}`, of two references the one that sorts last, unless the "
-        "pinned source settles it for the other side. At State 1 and the Forge tier or above, with `workspaceDrift` "
+        "pinned source settles it for the other side. Here a name's `surface.json` records, a method's owner's among "
+        "them, are its `exports` records or, for a name with none, such as a documented extra, its "
+        "`internalDeclarations` entries. At State 1 and the Forge tier or above, with `workspaceDrift` "
         "not `overridden`, load `{signatureRulesFile}` and set the two forms its `issue` gives against the export's "
         "declaration at the `file` and `line` `surface.json` gives, by its rules, when that one declaration decides "
         "(no overload set, no second declaring file, and an `otherDeclarations` list, not `null`, with no entry of the "

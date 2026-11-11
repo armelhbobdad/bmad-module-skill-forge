@@ -2680,6 +2680,19 @@ def _lookup_skips_file(filename: str) -> bool:
     )
 
 
+def _walk_skips_folder(segment: str, top: bool) -> bool:
+    """True when the `defined_at` walk never goes into this folder: one
+    `_lookup_skips_folder` names, a `LOOKUP_WALK_FOLDERS` one and, when
+    `top` (right below the walk root or a package root, holding no cited
+    file), a `LOOKUP_TOP_FOLDERS` one."""
+    lower = segment.lower()
+    return (
+        _lookup_skips_folder(segment)
+        or lower in LOOKUP_WALK_FOLDERS
+        or (top and lower in LOOKUP_TOP_FOLDERS)
+    )
+
+
 def _symlinked(root: Path, parts: tuple[str, ...]) -> bool:
     """True when a path below `root` goes through a symlink, itself
     included."""
@@ -2705,6 +2718,60 @@ def _cited_parts(source_file: str) -> tuple[str, ...] | None:
         return None
     parts = tuple(path.split("/"))
     return None if parts[0] == ".." or ":" in parts[0] else parts
+
+
+def _lookup_families(recorded: list[str]) -> set[str]:
+    """The rule families the lookup reads: those of the files the entries
+    cite (`recorded`), both when they cite none."""
+    families = {_rule_family(f) for f in recorded}
+    return families - {None} if recorded else {"python", "tsjs"}
+
+
+def _cited_folders(recorded: list[str]) -> set[tuple[str, ...]]:
+    """The folders below the source root that hold a cited file, each as
+    its segments: the walk goes into a `LOOKUP_TOP_FOLDERS` one."""
+    return {
+        parts[:i]
+        for parts in filter(None, map(_cited_parts, recorded))
+        for i in range(1, len(parts))
+    }
+
+
+def lookup_skips_declaration(
+    name: str, path: str, entries: list[dict], roots: list[str]
+) -> bool:
+    """True when classify-stale's lookup (`_DeclarationLookup`) over the
+    provenance `entries` never finds `name` declared in the file at `path`
+    below the source root, judged from the path alone: a file of a rule
+    family it does not read (`_lookup_families`) or one `_lookup_skips_file`
+    names; else, unless an entry of the name cites it (a cited file is read
+    in any folder), a file in a folder the walk never goes into
+    (`_walk_skips_folder`), a folder right below the source root or one of
+    `roots` (package roots, as `_package_root` finds them) being `top` when
+    no cited file lies in it. It reads no file, so it judges no symlink and
+    no walk root. load-coverage-inputs.py leaves such a declaration out of
+    `internalDeclarations`."""
+    parts = _cited_parts(path)
+    if parts is None:
+        return True
+    recorded = [f for f in map(_entry_file, entries) if f is not None]
+    if _rule_family(parts[-1]) not in _lookup_families(recorded):
+        return True
+    if _lookup_skips_file(parts[-1]):
+        return True
+    own = {
+        _cited_parts(f)
+        for f in map(_entry_file, (e for e in entries if e.get("export_name") == name))
+        if f is not None
+    }
+    if parts in own:
+        return False
+    cited = _cited_folders(recorded)
+    tops = {()} | set(filter(None, map(_cited_parts, roots)))
+    return any(
+        _walk_skips_folder(parts[i], parts[:i] in tops and parts[: i + 1] not in cited)
+        for i in range(len(parts) - 1)
+    )
 
 
 # The file whose folder is a package, by rule family.
@@ -3493,15 +3560,10 @@ class _DeclarationLookup:
         self.scope = scope
         recorded = [f for f in map(_entry_file, entries) if f is not None]
         # a map that cites no file names no language: both families
-        families = {_rule_family(f) for f in recorded}
-        self.families = families - {None} if recorded else {"python", "tsjs"}
+        self.families = _lookup_families(recorded)
         self.folder = self._walk_root(recorded)
         # the folders that hold a cited file: a LOOKUP_TOP_FOLDERS one is walked
-        self._cited_folders = {
-            parts[:i]
-            for parts in filter(None, map(_cited_parts, recorded))
-            for i in range(1, len(parts))
-        }
+        self._cited_folders = _cited_folders(recorded)
         # the cited files read, kept for the walk: a few files at most
         self._cited: dict[tuple[str, ...], list[str] | None] = {}
         self._cited_cache = _SourceCache()
@@ -3692,11 +3754,8 @@ class _DeclarationLookup:
             root = not inner or self._is_package_root(below, filenames)
             dirnames[:] = [
                 d for d in dirnames
-                if not _lookup_skips_folder(d)
-                and d.lower() not in LOOKUP_WALK_FOLDERS
-                and not (
-                    root and d.lower() in LOOKUP_TOP_FOLDERS
-                    and (*below, d) not in self._cited_folders
+                if not _walk_skips_folder(
+                    d, root and (*below, d) not in self._cited_folders
                 )
                 and not (here / d).is_symlink()
             ]

@@ -27,6 +27,9 @@ State 2's (the States 2 to 4 section it loads from coverage-check-branches.md):
   - surface, #918: each declaration of a surface name exports[] holds in a
     file none of its records names is listed in `otherDeclarations`, and
     changes no record, set or guard
+  - surface, #1087: each declaration of a name no entry point exports and
+    no record names (the runner's `internal`) is listed in
+    `internalDeclarations`, and changes no record, set or guard
   - surface, #913: a restored name takes the kind the provenance map gives
     it at its file, and score-signatures.py counts it in Type Coverage when
     that is a type kind, else names it in a warning when it has none
@@ -2006,6 +2009,192 @@ def test_a_fallback_scan_surface_leaves_other_declarations_unknown(tmp_path, run
     assert [(e["name"], e["file"]) for e in out["exports"]] == [
         ("run_pipeline", ORCHESTRATOR), ("run_pipeline", LIGHTWEIGHT), ("run_tasks", RUN_TASKS)]
     assert out["otherDeclarations"] is None
+
+
+def _internal(names: list[str], rows: list[dict] | None = None) -> dict:
+    """PIPELINES with `names` as the runner's internal names (each at its first exports[] row, as the runner gives
+    it) and `rows` added to exports[]."""
+    data = json.loads(json.dumps(PIPELINES))
+    data["exports"] += rows or []
+    first = {}
+    for row in data["exports"]:
+        first.setdefault(row["export_name"], row)
+    data["entry_point_diff"]["internal"] = [
+        {"name": n, "language": "python", "source_file": first[n]["source_file"],
+         "source_line": first[n]["source_line"]} for n in names]
+    return data
+
+
+RUN_STEPS_DECLARATION = {"name": "run_steps", "kind": "function", "file": LIGHTWEIGHT, "line": 90,
+                         "signatureLine": "def run_steps(steps):"}
+
+
+def test_a_name_no_entry_point_exports_lists_its_declarations(tmp_path):
+    """#1087 (oms-cocoindex detect_code_language): the runner lists run_steps, declared in run_pipeline.py and
+    exported by no entry point, as `internal`, and the surface lists its declaration in `internalDeclarations`, as
+    an other declaration is listed, for the signature plan to read when the skill documents it. Records, sets,
+    candidates, guards and the other declarations stay those of the same extraction with `internal: []`, which
+    lists none."""
+    out = _surface(tmp_path / "extra", "--extraction", _write(tmp_path / "extra" / "e.json", _internal(["run_steps"])))
+    before = _surface(tmp_path / "bare", "--extraction", _write(tmp_path / "bare" / "e.json", PIPELINES))
+    assert out["internalDeclarations"] == [RUN_STEPS_DECLARATION]
+    assert before["internalDeclarations"] == []
+    drop = ("inputs", "internalDeclarations")
+    assert {k: v for k, v in out.items() if k not in drop} == {k: v for k, v in before.items() if k not in drop}
+    assert "run_steps" not in out["sets"]["all"] and [e["name"] for e in out["exports"]] == ["run_pipeline",
+                                                                                             "run_tasks"]
+    # written right after the other declarations
+    keys = list(out)
+    assert keys[keys.index("otherDeclarations") + 1] == "internalDeclarations"
+
+
+def test_a_name_declared_in_two_files_lists_both_declarations_once(tmp_path):
+    """#1087: a name no entry point exports, declared in two files, lists both, sorted by file, each once however
+    its path is written (`./cognee/b.py` and `cognee/b.py` are one), its file without the `./`, and a local
+    `export { ... }` list's item at the declaration it names (#836)."""
+    rows = [{"export_name": "run_steps", "export_type": "function", "source_file": "./cognee/b.py", "source_line": 3,
+             "signature_line": "def run_steps():"},
+            {"export_name": "run_steps", "export_type": "function", "source_file": "cognee/b.py", "source_line": 3,
+             "signature_line": "def run_steps():"},
+            {"export_name": "run_steps", "export_type": "function", "source_file": "cognee/a.ts", "source_line": 20,
+             "signature_line": "export { run_steps };", "declaration_line": 8,
+             "declaration_signature_line": "function run_steps(steps) {"}]
+    out = _surface(tmp_path, "--extraction", _write(tmp_path / "e.json", _internal(["run_steps"], rows)))
+    assert out["internalDeclarations"] == [
+        {"name": "run_steps", "kind": "function", "file": "cognee/a.ts", "line": 8,
+         "signatureLine": "function run_steps(steps) {"},
+        {"name": "run_steps", "kind": "function", "file": "cognee/b.py", "line": 3, "signatureLine": "def run_steps():"},
+        RUN_STEPS_DECLARATION]
+    assert mod.internal_declarations(
+        [], [{"exportName": "f", "kind": "function", "file": f, "line": 1, "signatureLine": "def f():"}
+             for f in ("./b.py", "a.py", "b.py")], ["f"], []) == [
+        {"name": "f", "kind": "function", "file": f, "line": 1, "signatureLine": "def f():"} for f in ("a.py", "b.py")]
+
+
+def test_an_excluded_a_re_exported_or_a_recorded_name_lists_no_internal_declaration(tmp_path):
+    """#1087: a declaration in a file scope.exclude matches (cognee/tests/), a name whose only row is a re-export
+    (it declares nothing) and a name the surface records (run_pipeline, whose other declaration stays in
+    `otherDeclarations`) give no internal declaration."""
+    rows = [{"export_name": "fake_steps", "export_type": "function", "source_file": "cognee/tests/fake.py",
+             "source_line": 9, "signature_line": "def fake_steps():"},
+            {"export_name": "passed_on", "export_type": "re-export", "source_file": "cognee/pipelines/__init__.py",
+             "source_line": 2, "signature_line": "from .steps import passed_on"}]
+    out = _surface(tmp_path, "--extraction",
+                   _write(tmp_path / "e.json", _internal(["fake_steps", "passed_on", "run_pipeline"], rows)))
+    assert out["internalDeclarations"] == []
+    assert [(d["name"], d["file"]) for d in out["otherDeclarations"]] == [("run_pipeline", LIGHTWEIGHT)]
+
+
+# Review of #1087 (probe f): the skill documents `prune_data(dataset: str, *, force: bool = False)` under scope
+# `cognee/**`, and the extractor, which reads every in-scope file, records it only at the test helper
+# cognee/tests/utils.py:5 as `def prune_data():`. classify-stale's lookup never reads that folder, so the name stays a
+# Medium stale gap, yet plan checked it there and score wrote a Critical signature mismatch at the test helper too.
+PRUNE_AT = "cognee/tests/utils.py"
+PRUNE_ROW = {"export_name": "prune_data", "export_type": "function", "source_file": PRUNE_AT, "source_line": 5,
+             "signature_line": "def prune_data():"}
+PRUNE_DECLARATION = {"name": "prune_data", "kind": "function", "file": PRUNE_AT, "line": 5,
+                     "signatureLine": "def prune_data():"}
+VERIFY = REPO_ROOT / "src" / "shared" / "scripts" / "skf-verify-provenance-completeness.py"
+
+
+def _prune(rows: list[dict] | None = None) -> dict:
+    """PIPELINES under scope `cognee/**` with nothing excluded and prune_data, at PRUNE_ROW and `rows`, internal."""
+    data = _internal(["prune_data"], [PRUNE_ROW, *(rows or [])])
+    data["scope"] = {**data["scope"], "exclude": []}
+    return data
+
+
+def test_a_declaration_classify_stale_never_finds_lists_no_internal_declaration(tmp_path):
+    """Review of #1087 (probe f): a declaration in a test folder classify-stale's lookup skips is no internal
+    declaration, so plan gives the name no check and score no mismatch at the test helper, while the name stays
+    the stale documentation gap-ledger.py writes for it. A provenance entry of the name that cites the file is read in
+    any folder, so the lookup finds it declared there and the surface keeps it; one of another name, or one citing
+    another file, does not."""
+    out = _surface(tmp_path / "bare", "--extraction", _write(tmp_path / "bare" / "e.json", _prune()))
+    assert out["internalDeclarations"] == []
+    cited = {"entries": [{"export_name": "prune_data", "export_type": "function", "source_file": PRUNE_AT,
+                          "source_line": 5}]}
+    out = _surface(tmp_path / "cited", "--extraction", _write(tmp_path / "cited" / "e.json", _prune()),
+                   "--provenance", _write(tmp_path / "cited" / "map.json", cited))
+    assert out["internalDeclarations"] == [PRUNE_DECLARATION]
+    for key, entry in (("other-name", {"export_name": "run_steps", "source_file": PRUNE_AT}),
+                       ("other-file", {"export_name": "prune_data", "source_file": "cognee/lib/prune.py"})):
+        out = _surface(tmp_path / key, "--extraction", _write(tmp_path / key / "e.json", _prune()),
+                       "--provenance", _write(tmp_path / key / "map.json", {"entries": [entry]}))
+        assert out["internalDeclarations"] == [], key
+    # the walk's own folder and file rules decide, shared from skf-verify-provenance-completeness.py, not copied
+    source = (SCRIPTS / "load-coverage-inputs.py").read_text(encoding="utf-8")
+    assert "lookup.lookup_skips_declaration(" in source and "LOOKUP_TOP_FOLDERS" not in source
+
+
+@pytest.mark.parametrize("path, text, found", [
+    (PRUNE_AT, "def prune_data():\n", False),
+    ("cognee/conftest.py", "def prune_data():\n", False),
+    ("cognee/test_prune.py", "def prune_data():\n", False),
+    ("cognee/fixtures/prune.py", "def prune_data():\n", False),
+    ("cognee/__mocks__/prune.ts", "export function prune_data() {}\n", False),
+    ("cognee/web/e2e/prune.ts", "export function prune_data() {}\n", False),
+    ("cognee/examples/prune.py", "def prune_data():\n", False),
+    ("scripts/prune.py", "def prune_data():\n", False),
+    ("cognee/native/prune.rs", "pub fn prune_data() {}\n", False),
+    ("cognee/modules/examples/prune.py", "def prune_data():\n", True),
+    ("cognee/lib/prune.py", "def prune_data():\n", True),
+    ("cognee/web/prune.ts", "export function prune_data() {}\n", True),
+], ids=["tests", "conftest", "test-file", "fixtures", "mocks", "e2e", "examples-below-the-package-root",
+        "scripts-below-the-source-root", "rust", "examples-deeper", "package-code", "ts-package-code"])
+@pytest.mark.parametrize("cite", [False, True], ids=["no-map", "cited"])
+def test_an_internal_declaration_is_one_classify_stale_finds(tmp_path, path, text, found, cite):
+    """Review of #1087: a documented extra's internal declaration is exactly one classify-stale finds declared in a
+    tree that holds it, so a documented signature is compared only where the name is a documented extra and never
+    where it stays stale documentation: a test file or folder, a fixture or mock folder, an `e2e` one anywhere, an
+    examples or scripts folder right below the package root or the source root, and a language the lookup does not
+    read give none, while the same examples folder deeper in the package and package code give one. A provenance
+    entry of the name that cites the file makes the lookup read it in any folder, a test file's name and a language
+    it does not read excepted."""
+    verify = _load(VERIFY, "skf_verify_provenance_for_coverage_inputs")
+    _write(tmp_path / "cognee" / "__init__.py", "")
+    _write(tmp_path / "cognee" / "modules" / "__init__.py", "")
+    _write(tmp_path / path, "\n" * 4 + text)
+    entries = [{"export_name": "prune_data", "export_type": "function", "source_file": path, "source_line": 5}]
+    declaration = {"exportName": "prune_data", "kind": "function", "file": path, "line": 5,
+                   "signatureLine": text.strip()}
+    internal = mod.internal_declarations([], [declaration], ["prune_data"], [], ["cognee"],
+                                         entries if cite else [])
+    [stale] = verify.classify_stale(["prune_data"], {"entries": entries if cite else []}, tmp_path)
+    readable = not (path.endswith((".rs", "conftest.py")) or "/test_" in path)
+    assert bool(internal) is (found or (cite and readable)), internal
+    assert bool(internal) is (stale["defined_at"] is not None), stale
+
+
+def test_internal_declarations_are_unknown_when_other_declarations_are(tmp_path):
+    """#1087: only a runner extraction looks for internal declarations, so a fallback extraction, a surface read by
+    eye, a Quick-tier one and a fallback per-file scan's write null, as for `otherDeclarations`."""
+    fallback = {**_internal(["run_steps"]), "status": "no-ast-grep"}
+    out = _surface(tmp_path / "fallback", "--extraction", _write(tmp_path / "fallback" / "e.json", fallback))
+    assert out["extraction"]["fallback"]["needed"] and out["internalDeclarations"] is None
+    assert _surface(tmp_path / "eye", "--name", "run_steps")["internalDeclarations"] is None
+    quick = _write(tmp_path / "quick" / "quick-1.json", {"exports": [
+        {"name": "run_steps", "type": "function", "source_file": LIGHTWEIGHT, "defined_in": LIGHTWEIGHT}]})
+    assert _surface(tmp_path / "quick", "--quick", quick)["internalDeclarations"] is None
+    per_file = _write(tmp_path / "scan" / "per-file-1.txt", {"file": LIGHTWEIGHT, "exports_found": ["run_steps"],
+                                                             "signature_mismatches": []})
+    assert _surface(tmp_path / "scan", "--per-file", per_file, "--fallback-scan")["internalDeclarations"] is None
+    assert "and null exactly when `otherDeclarations` is." in " ".join(mod.__doc__.split())
+
+
+def test_the_internal_declarations_docstrings_name_the_split_body_source_among_their_readers():
+    """Review of #1087: test-skill's Split-Body Sources sets the two forms of a documented extra's split-body pair
+    against its internal declarations, as plan and score read them as its records, and both docstrings name it
+    beside them, no longer plan and score alone."""
+    doc = " ".join(mod.__doc__.split())
+    assert ("score-signatures.py plan and score, and test-skill's Split-Body Sources (coverage-check-branches.md), "
+            "read them as the records of a name the surface holds no record of, so a documented extra's signature "
+            "is compared at its declaration and the two forms of a split-body pair of it are set against that "
+            "declaration.") in doc
+    helper = " ".join(mod.internal_declarations.__doc__.split())
+    assert ("They are no records: score-signatures.py plan and score, and test-skill's Split-Body Sources, read them "
+            "as the records of a documented extra, so its documented signature is compared there.") in helper
+    assert "plan and score read them as the records" not in doc + helper
 
 
 @pytest.mark.parametrize("patch, reason", [

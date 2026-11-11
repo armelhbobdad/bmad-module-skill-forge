@@ -11,7 +11,8 @@ Accuracy and Type Coverage, 22% and 14% of a contextual score. Which
 signature differs is a judgment, made by a subagent that reads the source;
 everything after it has one answer per input and runs here: the list of
 signatures to compare, the schema check of each subagent result, the two
-ratios and the gap records of the wrong signatures.
+ratios and the gap records of the wrong signatures and of the
+documentation errors a Deep-tier judge returns.
 
   plan   the comparisons to make. For each documented export with a
          signature (an inventory entry that carries `params`, `return_type`
@@ -42,7 +43,13 @@ ratios and the gap records of the wrong signatures.
          the full one). The signature universe is the
          surface's `all` set plus every name on its export records, so the
          names of a Python sub-package load-coverage-inputs.py keeps out of
-         `all` (excluded.nestedEntries) keep their checks. A check sits at the
+         `all` (excluded.nestedEntries) keep their checks, plus every name
+         on its `internalDeclarations`: a name no entry point exports and no
+         record names that the extraction declares in a scoped-in file, so
+         a documented extra has its signature compared at its declaration.
+         For a name the surface holds no record of, its surface records are
+         its `internalDeclarations` entries, here and in score, though Type
+         Coverage reads the export records alone. A check sits at the
          name's first surface record (one with a file before one with none
          or a blank one and, in one file, one with a line before one with
          none). A line-less record of a file another of the name's records
@@ -78,12 +85,12 @@ ratios and the gap records of the wrong signatures.
          declaration when it cites its file with no line, or at a line or in
          an `L` range that holds a line of its span (cites_declaration):
          from its line to the line before the next declaration the surface
-         records in its file, of any name, an other declaration included, or
-         to the end of the file when none follows (_span_end). So a citation
-         of a function's body names it, and a range over two declarations
-         names both. The extraction records no declaration's last line, so a
-         span runs past its body, over any helper the surface does not
-         record, to the next declaration it does.
+         records in its file, of any name, an other or internal declaration
+         included, or to the end of the file when none follows (_span_end).
+         So a citation of a function's body names it, and a range over two
+         declarations names both. The extraction records no declaration's
+         last line, so a span runs past its body, over any helper the
+         surface does not record, to the next declaration it does.
          The declarations are the name's surface records with a file, a
          skipped line-less one aside, and its `otherDeclarations` (one the
          extraction records in a file no record of the name names, such as a
@@ -101,11 +108,34 @@ ratios and the gap records of the wrong signatures.
          gives an `owner` (a non-empty string) is a form of
          `{owner}.{name}` (#1088), never merged with a function of its bare
          name, and is checked under that name, with its bare name as
-         `member`, only when its owner has a surface record: the check is
+         `member`, only when its owner has a surface record (a documented
+         extra's `internalDeclarations` entry included): the check is
          planned as its owner's would be (its record, line and candidates),
          and its forms are bound among the owner's declarations, by the
          citations of their places that name the member, which the owner's
-         span holds. A `method` with no `owner` is never compared. Also the
+         span holds. A `method` with no `owner` is never compared. A name
+         none of whose surface records names a file (a not-located
+         extraction gap, a record whose file is blank, or no record at all)
+         and none of whose forms is bound gets no check, since no judge has
+         a file to read: `notCompared` lists it (#1061), a method's
+         `{owner}.{name}` when none of its owner's records names one. With
+         --doc-errors (a Deep-tier plan, #1084) each check also carries, as
+         `imports`, each import statement a fenced Python, TS/JS or untagged
+         block of the skill writes that imports the name by its own name
+         from a module that is not relative (`from M import ...`, on one line or
+         as a parenthesized list, and `import ... { ... } from "M"`, an
+         `as` alias read by the name it imports, a default or namespace
+         import importing none), at its first line, and, as `members`, the
+         `fields`, `properties` and `methods` each entry of the name with
+         a good `at` gives, an item at a place of a form the check binds
+         with that form's bound `file` and `line`, which the judge compares
+         it with (in a check with no file, an item with none is left out);
+         a documented name of the universe with no
+         compared form but with either gets a check of its own with no
+         `documented`, at the record _check_at picks (none when that
+         record has no file), which `compared` never counts. A judge
+         compares them with the source and returns each that differs in
+         `doc_errors`. Also the
          whole documented-signature map, and each name's alternatives, for
          the fallback scan that has no surface lines yet, which leave every
          `{owner}.{name}` out: that scan's judges compare the names a file
@@ -116,9 +146,12 @@ ratios and the gap records of the wrong signatures.
              the documented signatures of the signature universe (with a
              fallback scan's exports_found) and each method's
              `{owner}.{name}` the plan holds a check of (with no --plan,
-             one whose owner has a surface record), and matching those no
-             result names in a Critical mismatch: a wrong signature is
-             wrong whichever set the denominator counts
+             one whose owner has a surface record, a documented extra's
+             included), with --plan less each name the plan's `notCompared`
+             lists, a method's included (named in `warnings`, #1061), and
+             matching those no result names in a Critical
+             mismatch: a wrong signature is wrong whichever set the
+             denominator counts
            Type Coverage = documented types / total types * 100, where
              total types counts the names of the --surface-set set (the
              denominator set coverage-check section 2b picked) whose kind is
@@ -270,13 +303,29 @@ ratios and the gap records of the wrong signatures.
          for reconcile-coverage.py render's Borderline Calls; they grade
          nothing, so a malformed one is dropped and listed in `warnings`,
          never a schema breach.
+         Each result's `doc_errors` items (#1084: an import path or a type
+         member the skill documents otherwise than the source, which a
+         Deep-tier judge finds from a check's `imports` and `members`)
+         become Info `observation` records titled `Not checked by script:
+         {name}`, after the mismatch records, one per name and `at` (the
+         documenting line, its Source), in result order, each item's
+         `issue` and `source` in its Issue, joined with `; `. An item that
+         is no object, leaves `name`, `at`, `source` or `issue` blank, or
+         gives an `at` that is no `<path>:<line>` or, with --plan, one no
+         `imports` or `members` item of that name's check gives (without
+         --plan, of a name the skill does not document) grades nothing,
+         so it is dropped and listed in `warnings`, never a schema breach.
+         Signature Accuracy and Type Coverage never read them.
 
 Inputs, all files in the run folder:
   --inventory  the validated inventory validate-inventory.py wrote (--output)
   --surface    load-coverage-inputs.py surface output: `exports[]` (name,
                kind, file, line, signatureLine), the name `sets` and
                `otherDeclarations` (the same fields; a declaration plan may
-               bind a form to, never a name it compares or counts);
+               bind a form to, never a name it compares or counts) and
+               `internalDeclarations` (the same fields; the records plan
+               and score read for a name with no export record, such as a
+               documented extra, never a name Type Coverage counts);
                --surface-set picks the set (default "all") score's Type
                Coverage counts, while plan and Signature Accuracy compare
                the signature universe whichever set it picks
@@ -290,7 +339,8 @@ Inputs, all files in the run folder:
                     {"name", "line", "source_sig", "documented_sig", "issue",
                      "difference", "file", "evidence_line", "form"}],
                   "undecided": [{"export", "at", "rule", "reading",
-                                 "other_gap"}]}
+                                 "other_gap"}],
+                  "doc_errors": [{"name", "at", "source", "issue"}]}
                                       (difference optional: one of
                                        DIFFERENCES, absent or null for none;
                                        file optional: the candidate the
@@ -314,13 +364,27 @@ Inputs, all files in the run folder:
                                        inventory's, a malformed item
                                        dropped with a warning: absent or
                                        null for none)
+                                      (doc_errors optional, #1084: each
+                                       import or member a check's `imports`
+                                       or `members` gives that differs from
+                                       the source, at that item's `at`, a
+                                       malformed item dropped with a
+                                       warning: absent or null for none)
   --skill-dir  plan only: the skill package under test (the folder that
                holds SKILL.md), whose citations pick the declaration of a
                name the surface records in several files, and bind each form
                whose own citations name one declaration of its name to it
+  --doc-errors  plan only, with --skill-dir (a Deep-tier plan, #1084): each
+               check also carries the skill's import lines of its name and
+               its entries' documented members, and a documented name with
+               no compared form but with either gets a check of its own when
+               a surface record of it names a file, which `compared` never
+               counts
   --plan       score only: the plan's output, whose checks name the files a
-               mismatch of each name may be recorded at, and the declaration
-               each bound form's mismatch is taken at
+               mismatch of each name may be recorded at and the declaration
+               each bound form's mismatch is taken at, and whose
+               `notCompared` lists the names with a documented signature it
+               gave no check, which Signature Accuracy leaves out
   --source-root  score only: the local source tree the judges read (a
                drifted workspace included), where an annotation-contradicted
                mismatch's `evidence_line` is checked in its file
@@ -328,7 +392,8 @@ Inputs, all files in the run folder:
 Rounding is compute-score.py's (JS-compatible half-up, two decimals).
 
 Usage:
-  uv run score-signatures.py plan --inventory <file> [--surface <file>] [--skill-dir <dir>] [--output <file>]
+  uv run score-signatures.py plan --inventory <file> [--surface <file>] [--skill-dir <dir> [--doc-errors]] \\
+      [--output <file>]
   uv run score-signatures.py score --inventory <file> --surface <file> [--surface-set <set>] [--plan <file>] \\
       [--source-root <dir>] --results <file> [--results <file> ...] [--output <file>] [--gaps-output <file>]
 
@@ -343,7 +408,13 @@ score write their result to that file and print only its summary):
           "candidates": [{"file", "line", "signatureLine"}] (only when the
           citation does not settle the declaration), "bound": [{"form",
           "file", "line", "signatureLine"}] (only when a form's own
-          citations name one declaration of the name)}]}],
+          citations name one declaration of the name), "imports": [{"at",
+          "statement"}], "members": [{"at", "fields", "properties",
+          "methods", "file", "line" (only when `at` is a place of a bound
+          form: its bound declaration)}] (with --doc-errors, only when the
+          name has one)}]}],
+          "notCompared": [the names with a documented signature given no
+          check, sorted],
           "documentedSignatures": {...}, "documentedAlternatives": {name:
           [{...}], for each name with alternatives}}
          or, with --output, the summary {"compared": N, "files": the
@@ -355,9 +426,21 @@ score write their result to that file and print only its summary):
          alone in its file, whose per-file result lists names only, or a
          record with no file. The judge finds a declaration that has a file
          in that `file` and gives its mismatch the line it found there
-         (#1022). A check whose record has no file sits under the `files[]`
-         entry "", which names no file to read: a judge reads only its
-         `bound` forms, each at its bound declaration.
+         (#1022). A check whose record has no file has a bound form and
+         sits under the `files[]` entry "", which names no file to read: a
+         judge compares only its `bound` forms, each at its bound
+         declaration, and its `imports` and `members`, each `members` item
+         at the bound declaration it gives (plan leaves out one with none),
+         and gives its result the first check's first `bound` file as
+         `file`, which score refuses blank.
+         A name that no surface record locates in a file and none of whose
+         forms is bound gets no check (#1061): `notCompared` lists it, and
+         score with --plan leaves it out of Signature Accuracy and names it
+         in `warnings`. With --doc-errors a documented name with no
+         compared form but with `imports` or `members` and a surface record
+         that names a file has a check of its own, holding only those
+         beside its `name`, `line`, `signatureLine` and any `candidates`:
+         the summary's `checks` counts it, and `compared` never does.
   score: {"valid": true, "signatureAccuracy", "matchingSignatures",
           "totalDocumented", "comparedNames": [the names compared],
           "typeCoverage", "documentedTypes", "totalTypes",
@@ -377,7 +460,8 @@ Exit codes:
   0  the result was printed
   1  an input file cannot be read or is not the JSON it should be, the
      surface has no --surface-set set, the --skill-dir folder holds no
-     readable SKILL.md, or the --source-root folder does not exist
+     readable SKILL.md, --doc-errors is given without --skill-dir, or the
+     --source-root folder does not exist
   2  a subagent result breaks the schema (violations[] names each breach;
      nothing is written to --output or --gaps-output)
 """
@@ -504,6 +588,20 @@ VALUE_NAME_RE = re.compile(r"[a-z][\w$]*", re.ASCII)
 # The grades of a mismatch, most severe first: one declaration reported
 # twice keeps the most severe.
 GRADES = ("Critical", "Low", "Info")
+# A Deep-tier plan's checks (#1084, plan --doc-errors): the keys of an inventory entry that document a name's members,
+# which a check's `members` carries, and the start of each import statement a fenced block of the skill writes, which
+# its `imports` carries: Python's `from M import ...` (the module, the rest) and TS/JS's `import`, whose named list
+# `import ... { ... } from "M"` gives the names it imports (the list, the specifier) and whose specifier ends it.
+MEMBER_KEYS = ("fields", "properties", "methods")
+PY_FROM_IMPORT_RE = re.compile(r"[ \t]*from[ \t]+([\w.]+)[ \t]+import(?![\w$])(.*)")
+JS_IMPORT_START_RE = re.compile(r"[ \t]*import(?=[\s{]|$)")
+JS_NAMED_IMPORT_RE = re.compile(
+    r"[ \t]*import\s+(?:type\s+)?(?:[A-Za-z_$][\w$]*\s*,\s*)?\{([^{}]*)\}\s*from\s*(['\"])([^'\"\n]*)\2\s*;?")
+JS_SPECIFIER_RE = re.compile(r"(?<![\w$])from\s*(['\"])[^'\"\n]*\1")
+IMPORTED_NAME_RE = re.compile(r"[A-Za-z_$][\w$]*")
+# A judge's `doc_errors` item (#1084): an import path or a type member the skill documents otherwise than the source.
+DOC_ERROR_FIELDS = ("name", "at", "source", "issue")
+DOC_ERROR_REMEDIATION = "Correct the documentation to match the source; no script checks this."
 
 _INVENTORY_MODULE = None
 
@@ -587,6 +685,19 @@ def load_other_declarations(path: str) -> list[dict]:
             if isinstance(d, dict) and isinstance(d.get("name"), str) and d["name"] and _record_file(d)]
 
 
+def load_internal_declarations(path: str) -> list[dict]:
+    """The surface's `internalDeclarations`: each declaration the extraction
+    records, in a scoped-in file, of a name no entry point exports and no
+    surface record names, which plan and score read as the records of a
+    documented extra. Each one with a name and a file; [] when the surface
+    has none (an older surface included), writes null (no runner extraction
+    looked for them) or writes no list."""
+    data = _read_json(path, "--surface")
+    items = data.get("internalDeclarations") if isinstance(data, dict) else None
+    return [d for d in (items if isinstance(items, list) else [])
+            if isinstance(d, dict) and isinstance(d.get("name"), str) and d["name"] and _record_file(d)]
+
+
 def load_plan(path: str) -> dict[str, list[str]]:
     """{name: the files plan offered its check at, the planned one first,
     then its candidates'} from plan's output."""
@@ -646,6 +757,38 @@ def load_plan_bound(path: str) -> dict[str, dict[int, dict]]:
                 if isinstance(form, int) and not isinstance(form, bool) and form >= 0 and _record_file(item):
                     bound.setdefault(check["name"], {})[form] = {"file": _record_file(item), "line": item.get("line")}
     return bound
+
+
+def load_plan_not_compared(path: str) -> set[str]:
+    """The names plan gave no check (#1061), from its `notCompared`: none
+    when the key is absent or no list, and an item that is no string is
+    left out."""
+    data = _read_json(path, "--plan")
+    names = data.get("notCompared") if isinstance(data, dict) else None
+    return {name for name in names if isinstance(name, str)} if isinstance(names, list) else set()
+
+
+def load_plan_doc_places(path: str) -> dict[str, set[tuple[str, int]]]:
+    """{name: each place (parse_at's (path, line)) an `imports` or `members`
+    item of its check gives} from a Deep-tier plan's checks (#1084): the
+    places a judge's `doc_errors` item of the name may be at. A plan
+    without --doc-errors gives none, and an item whose `at` does not parse
+    is left out."""
+    data = _read_json(path, "--plan")
+    groups = data.get("files") if isinstance(data, dict) else None
+    places: dict[str, set[tuple[str, int]]] = {}
+    for group in groups if isinstance(groups, list) else []:
+        checks = group.get("checks") if isinstance(group, dict) else None
+        for check in checks if isinstance(checks, list) else []:
+            if not (isinstance(check, dict) and isinstance(check.get("name"), str)):
+                continue
+            for key in ("imports", "members"):
+                items = check.get(key)
+                for item in items if isinstance(items, list) else []:
+                    place = _inventory().parse_at(item.get("at")) if isinstance(item, dict) else None
+                    if place is not None:
+                        places.setdefault(check["name"], set()).add(place)
+    return places
 
 
 def check_result(item: object, where: str) -> list[str]:
@@ -974,12 +1117,22 @@ def _lined_records(records: list[dict]) -> list[dict]:
             if not _record_file(r) or _is_line(r.get("line")) or _path(_record_file(r)) not in lined]
 
 
-def signature_universe(names: list[str], exports: list[dict]) -> set[str]:
+def signature_universe(names: list[str], exports: list[dict], internal: list[dict] | None = None) -> set[str]:
     """The names whose documented signature is compared: the `all` set
-    (`names`) plus every name on the surface's export records. A nested
-    Python top's names leave `all` but keep their records, so a documented
-    one still has its signature checked."""
-    return set(names) | set(_records_by_name(exports))
+    (`names`) plus every name on the surface's export records and on its
+    `internalDeclarations` (`internal`). A nested Python top's names leave
+    `all` but keep their records, so a documented one still has its
+    signature checked, and so does a documented extra, a name no entry
+    point exports that the extraction declares in a scoped-in file."""
+    return set(names) | set(_records_by_name(exports)) | set(_records_by_name(internal or []))
+
+
+def _records_or_internal(exports: list[dict], internal: list[dict] | None) -> dict[str, list[dict]]:
+    """{name: its surface records, else its `internalDeclarations` entries
+    (`internal`)}, each in _records_by_name's order. A name with a record
+    keeps its records alone: its other declarations are its
+    `otherDeclarations`."""
+    return {**_records_by_name(internal or []), **_records_by_name(exports)}
 
 
 def _path(file: str) -> str:
@@ -1018,9 +1171,10 @@ def _check_at(name: str, records: list[dict], skill_dir: str | None,
 def _span_end(located: list[dict], file: str, line: object) -> int | None:
     """The last line of the declaration at `file` and `line`, for a citation
     of its body: the line before the next declaration `located` (the
-    surface's records and its `otherDeclarations`, of every name) records in
-    that file, or sys.maxsize when none follows it (it runs to the end of the
-    file). The extraction records no declaration's last line, so the next
+    surface's records, its `otherDeclarations` and its
+    `internalDeclarations`, of every name) records in that file, or
+    sys.maxsize when none follows it (it runs to the end of the file). The
+    extraction records no declaration's last line, so the next
     declaration it records bounds it, as it bounds an annotation-contradicted
     `evidence_line` in score. None for a declaration with no line."""
     if not _is_line(line):
@@ -1082,43 +1236,56 @@ def _bindings(name: str, records: list[dict], others: list[dict], places: list[l
 
 
 def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], skill_dir: str | None = None,
-         others: list[dict] | None = None) -> dict:
+         others: list[dict] | None = None, internal: list[dict] | None = None, doc_errors: bool = False) -> dict:
     """The comparisons over the signature universe of `names` (the `all`
-    set) and `exports`; none without a surface (`names` None). `skill_dir`,
+    set), `exports` and `internal` (the surface's `internalDeclarations`);
+    none without a surface (`names` None). A name's records are its
+    surface records, else its `internal` entries, so a documented extra's
+    check is planned at its declaration. `skill_dir`,
     the skill package, settles which declaration a name the surface records
     in several files is compared with (_check_at), and binds each form whose
     own citations name one declaration of the name, a surface record or one
     of `others` (the surface's `otherDeclarations`), to it (_bindings), a
     place that writes two of its forms that differ giving none of them a
     citation (_shared_places) when the name is declared more than once, and
-    the next declaration `exports` or `others` records in a file ending the
-    span of the one before it (_span_end). A
+    the next declaration `exports`, `others` or `internal` records in a
+    file ending the span of the one before it (_span_end). A
     name documented in several forms carries the others that list members
     or state a return type as `alternatives` (documented_forms). A
     `method` that gives an `owner` is checked as `{owner}.{name}`
-    (method_keys, #1088) when its owner has a surface record: where the
-    owner's own check would be, with the owner's candidates, its bare name
-    as `member`, each form bound to one of the owner's declarations by the
-    citations of its places that name the member; the fallback scan's maps
-    leave it out."""
+    (method_keys, #1088) when its owner has a record, its `internal` entries
+    for a documented extra: where the owner's own check would be, with the
+    owner's candidates, its bare name as `member`, each form bound to one of
+    the owner's declarations by the citations of its places that name the
+    member; the fallback scan's maps leave it out. A name none of whose
+    records names a file (a not-located extraction gap, a record whose file
+    is blank, or no record at all), a method's when none of its owner's
+    does, and none of whose forms is bound gets no check, since no judge has
+    a file to read: `notCompared` lists it, sorted (#1061). With
+    `doc_errors` (a Deep-tier plan, #1084) each check also carries the
+    skill's import lines of its name and its entries' documented members,
+    and a documented name with no compared form but with either gets a
+    check of its own, which `compared` never counts (_add_doc_checks)."""
     forms = _forms_and_places(inventory)
     spots = _places_by_name(inventory)
     shared = _shared_places(inventory)
     methods = method_keys(inventory)
     files: dict[str, list[dict]] = {}
+    not_compared: list[str] = []
     compared = 0
     if names is not None:
-        by_name = _records_by_name(exports)
+        # A documented extra has no surface record: its declarations stand in for them.
+        by_name = _records_or_internal(exports, internal)
         others_by_name = _records_by_name(others or [])
         texts = _inventory().skill_markdown_by_path(Path(skill_dir)) if skill_dir is not None else None
         lines = list(texts.values()) if texts is not None else None
-        planned = ({name for name in signature_universe(names, exports) & set(forms) if name not in methods}
+        planned = ({name for name in signature_universe(names, exports, internal) & set(forms)
+                    if name not in methods}
                    | {key for key, (owner, _) in methods.items() if by_name.get(owner)})
         for name in sorted(planned):
             # A method's check is its owner's (#1088): the owner's records, declarations and candidates.
             owner, member = methods.get(name, (name, name))
             record, candidates = _check_at(owner, by_name.get(owner) or [], skill_dir, lines)
-            compared += 1
             check = {"name": name, **({"member": member} if name in methods else {})}
             check.update({
                 "line": record.get("line"),
@@ -1131,20 +1298,245 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
                 check["candidates"] = candidates
             bound = (_bindings(member, by_name.get(owner) or [], others_by_name.get(owner) or [],
                                [at for _, at in forms[name]], spots.get(name, set()), texts,
-                               shared.get(name, set()), exports + (others or []))
+                               shared.get(name, set()), exports + (others or []) + (internal or []))
                      if texts is not None else [])
             if bound:
                 check["bound"] = bound
+            # No surface record of the name names a file and no form of it is bound: no judge has a file to read, so
+            # it gets no check, and score leaves it out of Signature Accuracy and names it (#1061).
+            if not (_record_file(record) or bound):
+                not_compared.append(name)
+                continue
+            compared += 1
             files.setdefault(_record_file(record), []).append(check)
+        if doc_errors:
+            # A Deep-tier judge compares the skill's import lines and documented members with the source (#1084).
+            _add_doc_checks(inventory, signature_universe(names, exports, internal), forms, by_name, files,
+                            skill_dir, texts, lines)
     # The fallback scan's judges compare the names its files export: a method there would count as matching unjudged.
     named_forms = {name: [fields for fields, _ in fs] for name, fs in forms.items() if name not in methods}
     return {
         "compared": compared,
         "files": [{"file": f, "checks": checks} for f, checks in sorted(files.items())],
+        "notCompared": not_compared,
         "documentedSignatures": {name: fs[0] for name, fs in named_forms.items()},
         # The fallback scan's alternatives: a name's form n is its nth entry here, as in a check's `alternatives`.
         "documentedAlternatives": {name: fs[1:] for name, fs in named_forms.items() if len(fs) > 1},
     }
+
+
+def _code_part(line: str, comment: str) -> str:
+    """`line` without its comments outside a string: from `comment` (`#`
+    or `//`) to its end and, where `comment` is `//`, each `/* ... */` it
+    closes (an unclosed one runs to the end)."""
+    out, quote, i = [], None, 0
+    while i < len(line):
+        char = line[i]
+        if quote is not None:
+            if char == "\\":
+                out.append(line[i:i + 2])
+                i += 2
+                continue
+            if char == quote:
+                quote = None
+        elif char in "'\"`":
+            quote = char
+        elif line.startswith(comment, i):
+            break
+        elif comment == "//" and line.startswith("/*", i):
+            close = line.find("*/", i + 2)
+            if close < 0:
+                break
+            out.append(" ")
+            i = close + 2
+            continue
+        out.append(char)
+        i += 1
+    return "".join(out)
+
+
+def _python_import(lines: list[str], index: int, end: int) -> tuple[int, str, list[str]] | None:
+    """(its last line's index, the statement on one line, the names it
+    imports by their own names) of a Python `from M import ...` at line
+    `index` of `lines`, on that line or as a parenthesized list over the
+    lines before `end`; an `as` alias is read by the name it imports, `*`
+    names nothing, and a relative module (`.` first) imports no name. None
+    for any other line, a comment and an unclosed list included."""
+    text, last = _code_part(lines[index], "#"), index
+    m = PY_FROM_IMPORT_RE.fullmatch(text)
+    if m is None:
+        return None
+    if m.group(2).lstrip().startswith("("):
+        while ")" not in text[m.start(2):]:
+            if last + 1 >= end:
+                return None
+            last += 1
+            text += " " + _code_part(lines[last], "#")
+        text = text[:text.index(")", m.start(2)) + 1]
+        listed = text[text.index("(", m.start(2)) + 1:-1]
+    else:
+        text = text.split(";", 1)[0]
+        listed = m.group(2).split(";", 1)[0]
+    statement = " ".join(text.split())
+    if m.group(1).startswith("."):
+        return last, statement, []
+    imported = [words[0] for words in (item.split() for item in listed.split(","))
+                if words and IMPORTED_NAME_RE.fullmatch(words[0])]
+    return last, statement, imported
+
+
+def _js_import(lines: list[str], index: int, end: int) -> tuple[int, str, list[str]] | None:
+    """(its last line's index, the statement on one line, the names it
+    imports by their own names) of a TS/JS `import ... { ... } from "M"` at
+    line `index` of `lines`, over the lines before `end` until its
+    specifier, a `;` or the next `import`; `type` before a name or the
+    braces is read past, an `as` alias by the name it imports, and a
+    relative specifier (`.` or `/` first) imports no name. None for any
+    other line: a default or namespace import alone, an `import M` and a
+    comment."""
+    text, last = _code_part(lines[index], "//"), index
+    if not JS_IMPORT_START_RE.match(text):
+        return None
+    while not (JS_SPECIFIER_RE.search(text) or ";" in text):
+        if last + 1 >= end or JS_IMPORT_START_RE.match(lines[last + 1]):
+            break
+        last += 1
+        text += "\n" + _code_part(lines[last], "//")
+    m = JS_NAMED_IMPORT_RE.match(text)
+    if m is None:
+        return None
+    statement = " ".join(m.group(0).split())
+    if m.group(3).startswith((".", "/")):
+        return last, statement, []
+    imported = []
+    for item in m.group(1).split(","):
+        words = item.split()
+        if len(words) > 1 and words[0] == "type" and words[1] != "as":
+            words = words[1:]
+        if words and IMPORTED_NAME_RE.fullmatch(words[0]):
+            imported.append(words[0])
+    return last, statement, imported
+
+
+def _skill_imports(texts: dict[str, list[str]], names: set[str]) -> dict[str, list[dict]]:
+    """{name: [{"at": "<path>:<line>", "statement"}]} for each of `names`
+    an import statement of the skill's Markdown `texts` (by path, in their
+    order) imports by its own name (_python_import, _js_import): in a fenced
+    block past the frontmatter (locate-export-segments.py's fence model, as
+    the floor reads a skill) whose language is Python, a TS/JS one or none,
+    at the statement's first line, each statement once per name."""
+    segments = _inventory()._segments()
+    found: dict[str, list[dict]] = {}
+    for path, lines in texts.items():
+        blocks, _ = segments._fenced_blocks(lines, segments._frontmatter_end(lines))
+        for opening, closing, info in blocks:
+            language = segments._language(info)
+            readers = [reader for family, reader in ((segments.PYTHON, _python_import),
+                                                     (segments.JS_FAMILY, _js_import))
+                       if not language or language in family]
+            index = opening + 1
+            while index < closing:
+                read = next((r for r in (reader(lines, index, closing) for reader in readers) if r is not None), None)
+                if read is None:
+                    index += 1
+                    continue
+                last, statement, imported = read
+                for name in dict.fromkeys(imported):
+                    if name in names:
+                        found.setdefault(name, []).append({"at": f"{path}:{index + 1}", "statement": statement})
+                index = last + 1
+    return found
+
+
+def _filled_members(value: object) -> bool:
+    """A non-empty list or a non-blank string."""
+    return (isinstance(value, list) and bool(value)) or (isinstance(value, str) and bool(value.strip()))
+
+
+def _documented_members(inventory: list[dict], names: set[str]) -> dict[str, list[dict]]:
+    """{name: [{"at", "fields", "properties", "methods"}]} for each of
+    `names`: of each inventory entry of the name (no `method`) with a good
+    `at` (parse_at), its `at` and the MEMBER_KEYS it fills (_filled_members),
+    as given, once per distinct item, in inventory order."""
+    members: dict[str, list[dict]] = {}
+    for entry in inventory:
+        name = entry.get("name")
+        if (entry.get("kind") == "method" or not isinstance(name, str) or name not in names
+                or _inventory().parse_at(entry.get("at")) is None):
+            continue
+        filled = {key: entry[key] for key in MEMBER_KEYS if _filled_members(entry.get(key))}
+        item = {"at": entry["at"], **filled}
+        if filled and item not in members.setdefault(name, []):
+            members[name].append(item)
+    return members
+
+
+def _bound_members(members: list[dict], bound: list[dict], places: list[list[tuple[str, int]]],
+                   fileless: bool) -> list[dict]:
+    """A check's `members` items, each whose `at` is a place of a form the
+    check binds (`bound`, form n's places `places[n]`), all those forms bound
+    to one declaration, given that declaration's `file` and `line`, so its
+    judge compares the item with that declaration, not the check's (a
+    homonym's other declaration, say). In a check with no file (`fileless`,
+    under the `files[]` entry ""), whose judge has no other declaration to
+    read, an item given none is left out."""
+    out = []
+    for item in members:
+        place = _inventory().parse_at(item["at"])
+        named = {(b["file"], b["line"]) for b in bound
+                 if isinstance(b.get("form"), int) and 0 <= b["form"] < len(places) and place in places[b["form"]]}
+        if len(named) == 1:
+            [(file, line)] = named
+            out.append({**item, "file": file, "line": line})
+        elif not fileless:
+            out.append(item)
+    return out
+
+
+def _add_doc_checks(inventory: list[dict], universe: set[str], forms: dict, by_name: dict[str, list[dict]],
+                    files: dict[str, list[dict]], skill_dir: str | None, texts: dict[str, list[str]] | None,
+                    lines: list[list[str]] | None) -> None:
+    """A Deep-tier plan's checks (#1084), in `files` (plan's groups): each
+    documented name of the signature `universe` gets the import statements
+    of the skill's Markdown `texts` that import it (_skill_imports) as
+    `imports` and its entries' documented members (_documented_members) as
+    `members`, each only when it has one. A check of the name takes them;
+    a name with no compared form (absent from `forms`) gets a check of its
+    own, {"name", "line", "signatureLine"} at the record _check_at picks,
+    its `candidates` too, with no `documented`, `alternatives` or `bound`,
+    in its file's group in name order, and none when that record has no
+    file. A name with a form plan gave no check (`notCompared`) gets none.
+    A check that binds a form gives each `members` item at that form's
+    places its bound declaration (_bound_members)."""
+    documented = documented_names(inventory) & universe
+    imports = _skill_imports(texts or {}, documented)
+    members = _documented_members(inventory, documented)
+    checks: dict[str, list[tuple[str, dict]]] = {}
+    for file, group in files.items():
+        for check in group:
+            checks.setdefault(check["name"], []).append((file, check))
+    for name in sorted(documented):
+        extra = {key: items for key, items in (("imports", imports.get(name)), ("members", members.get(name)))
+                 if items}
+        if not extra or (name in forms and name not in checks):
+            continue
+        for file, check in checks.get(name, []):
+            own = dict(extra)
+            if "members" in own and check.get("bound"):
+                own["members"] = _bound_members(own["members"], check["bound"],
+                                                [at for _, at in forms.get(name) or []], not file)
+            check.update({key: items for key, items in own.items() if items})
+        if name in forms:
+            continue
+        record, candidates = _check_at(name, by_name.get(name) or [], skill_dir, lines)
+        if not _record_file(record):
+            continue
+        check = {"name": name, "line": record.get("line"), "signatureLine": record.get("signatureLine")}
+        if candidates:
+            check["candidates"] = candidates
+        check.update(extra)
+        group = files.setdefault(_record_file(record), [])
+        group.insert(next((i for i, other in enumerate(group) if other["name"] > name), len(group)), check)
 
 
 def _extension(file: str) -> str:
@@ -1193,8 +1585,8 @@ def _declaration_line(by_name: dict[str, list[dict]], name: str, file: str, line
 
 
 def _next_declaration(exports: list[dict], file: str, line: int) -> int | None:
-    """The line of the first surface record in `file` after `line` (a bound declaration included), None when there
-    is none."""
+    """The line of the first surface record in `file` after `line` (an other, an internal or a bound declaration
+    included), None when there is none."""
     return min((at for at in _lines_in(exports, file) if at > line), default=None)
 
 
@@ -1920,13 +2312,83 @@ def _form_index(name: str, entry: dict, forms: list[dict]) -> tuple[int, bool, l
     return index, True, notes
 
 
+def _doc_error_problem(item: object, places: dict[str, set[tuple[str, int]]] | None,
+                       documented: set[str]) -> str | None:
+    """Why a `doc_errors` item (#1084) is dropped, or None for one that
+    stands: an object whose DOC_ERROR_FIELDS are non-empty strings, whose
+    `at` parses (parse_at) and is, with `places` (read from --plan), a place
+    an `imports` or `members` item of its name's check gives, else (no
+    --plan) whose name is in `documented`."""
+    if not isinstance(item, dict):
+        return "is not an object"
+    blank = [f"`{field}`" for field in DOC_ERROR_FIELDS
+             if not (isinstance(item.get(field), str) and item[field].strip())]
+    if blank:
+        return f"must give {', '.join(blank)} as a non-empty string"
+    name, place = item["name"], _inventory().parse_at(item["at"])
+    if place is None:
+        return f"gives `at` {json.dumps(item['at'])}, no `<path>:<line>` place"
+    if places is not None and place not in places.get(name, set()):
+        return (f"puts `{name}` at `{item['at']}`, which no `imports` or `members` item of the plan's check of "
+                "the name gives")
+    if places is None and name not in documented:
+        return f"names `{name}`, which the skill does not document"
+    return None
+
+
+def _doc_error_records(results: list[dict], places: dict[str, set[tuple[str, int]]] | None,
+                       documented: set[str]) -> tuple[list[dict], list[str]]:
+    """(the gap records, the warnings) of each result's `doc_errors` (#1084):
+    the import paths and type members a Deep-tier judge found the skill
+    documents otherwise than the source. One Info `observation` titled
+    `Not checked by script: {name}` per name and place (its `at` as
+    parse_at reads it, its Source), in result order, its Issue joining each
+    item's `issue` and `source` with `; `. A list that is absent or null is
+    none; a value that is no list, and each item _doc_error_problem refuses,
+    is dropped with a warning that names the result's file: it grades
+    nothing, so it is never a schema breach."""
+    grouped: dict[tuple[str, tuple[str, int]], list[str]] = {}
+    warnings = []
+    for result in results:
+        value, where = result.get("doc_errors"), f"the result for `{result.get('file')}`"
+        if value is None:
+            continue
+        if not isinstance(value, list):
+            warnings.append(f"{where}: `doc_errors` must be a list when present (may be empty), not "
+                            f"{json.dumps(value)}; the list is dropped")
+            continue
+        for index, item in enumerate(value):
+            problem = _doc_error_problem(item, places, documented)
+            if problem is not None:
+                warnings.append(f"{where}: doc_errors[{index}] {problem}; the item is dropped")
+                continue
+            part = f"{item['issue'].strip()} (`{item['source'].strip()}`)"
+            parts = grouped.setdefault((item["name"], _inventory().parse_at(item["at"])), [])
+            if part not in parts:
+                parts.append(part)
+    records = [{
+        "severity": "Info",
+        "category": "observation",
+        "title": f"Not checked by script: {name}",
+        "source": f"{path}:{line}",
+        "export": name,
+        "issue": f"the skill documents `{name}` at `{path}:{line}` otherwise than the source: " + "; ".join(parts),
+        "remediation": DOC_ERROR_REMEDIATION,
+    } for (name, (path, line)), parts in grouped.items()]
+    return records, warnings
+
+
 def score(inventory: list[dict], names: list[str], exports: list[dict], results: list[dict],
           type_names: list[str] | None = None, offered: dict[str, list[str]] | None = None,
           source_root: str | None = None, planned: dict[str, list[dict]] | None = None,
-          bound: dict[str, dict[int, dict]] | None = None) -> dict:
+          bound: dict[str, dict[int, dict]] | None = None, not_compared: set[str] | None = None,
+          internal: list[dict] | None = None, doc_places: dict[str, set[tuple[str, int]]] | None = None) -> dict:
     """The two categories: Signature Accuracy over the signature universe of
-    `names` (the `all` set) and `exports`, Type Coverage over `type_names`
-    when given, else over `names`. A fallback scan's exports_found join the
+    `names` (the `all` set), `exports` and `internal` (the surface's
+    `internalDeclarations`, a name's records when `exports` holds none, as
+    in plan, so the files offered and a declaration's line read them), Type
+    Coverage over `type_names` when given, else over `names`, by the kinds
+    `exports` gives. A fallback scan's exports_found join the
     universe, and `names` when no `type_names` is given. `offered` (read
     from --plan) names the files the plan offered each check at;
     `source_root` (--source-root) is the local tree an
@@ -1940,27 +2402,42 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     in that file as a surface record's does. A bound declaration joins no
     name, set or count. A method's `{owner}.{name}` (method_keys, #1088) is
     compared when `offered` holds its check, else, with no plan, when its
-    owner has a surface record; its mismatch is offered its owner's files,
+    owner has a record, its `internal` entries for a documented extra (as
+    in plan); its mismatch is offered its owner's files,
     and a bound one is taken at the judge's file and `line`, the member's,
     since its bound declaration is its owner's: with a warning when the
     judge names another declaration's file, and with none when it names a
-    file no declaration of the owner is in, the member's own."""
+    file no declaration of the owner is in, the member's own. A name in
+    `not_compared` (read from --plan: the names it gave no check, #1061), a
+    method's `{owner}.{name}` included, is left out of the compared names
+    and named in one warning. Each result's
+    `doc_errors` items become Info observations after the mismatch records
+    (_doc_error_records), each at a place `doc_places` (read from --plan,
+    #1084) gives its name, else of a documented name; they change no
+    count."""
     bound = bound or {}
     by_name = _records_by_name(exports)
     methods = method_keys(inventory)
-    # The records a mismatch's files are offered from with no plan: a method's are its owner's.
-    offer_by = {**by_name, **{key: by_name.get(owner) or [] for key, (owner, _) in methods.items()}}
-    # The declarations a line is located among: the surface's records, and each one a form is bound to (an other
-    # declaration only through a binding).
-    located = exports + [{"name": name, **at} for name, forms in bound.items() for at in forms.values()]
+    # A name's records, a documented extra's declarations standing in for the surface records it lacks.
+    records = _records_or_internal(exports, internal)
+    # The records a mismatch's files are offered from with no plan: a method's are its owner's, a documented extra's
+    # declarations for an owner the surface holds no record of, as plan reads them (#1087).
+    offer_by = {**records, **{key: records.get(owner) or [] for key, (owner, _) in methods.items()}}
+    # The declarations a line is located among: the surface's records, its internal declarations, and each one a form
+    # is bound to (an other declaration only through a binding).
+    located = exports + (internal or []) + [{"name": name, **at} for name, forms in bound.items()
+                                            for at in forms.values()]
     # A fallback scan reports its own names and types.
     fallback_types = {n for r in results for n in r.get("types_found") or []}
     surface = set(names) | {n for r in results for n in r.get("exports_found") or []}
     documented = documented_names(inventory)
     forms = documented_forms(inventory)
-    compared = ((surface | signature_universe(names, exports)) & (set(forms) - set(methods))
+    # A method is compared where the plan holds its check, else where its owner has a record, as plan reads one. One
+    # the plan lists in `notCompared` joins too, so it is left out below and named with the other names (#1061).
+    held = None if offered is None else set(offered) | (not_compared or set())
+    compared = ((surface | signature_universe(names, exports, internal)) & (set(forms) - set(methods))
                 | {key for key, (owner, _) in methods.items()
-                   if (key in offered if offered is not None else bool(by_name.get(owner)))})
+                   if (key in held if held is not None else bool(records.get(owner)))})
     warnings = []
     for name in sorted(set(forms) & set(planned or {})):
         if planned[name] != forms[name]:
@@ -1968,6 +2445,14 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
                       if len(planned[name]) != len(forms[name]) else "different forms than the inventory gives")
             warnings.append(f"`{name}`: the plan offered {differ}: graded against the plan's")
             forms[name] = planned[name]
+    # No judge read a name the plan gave no check (#1061): counted, it would match.
+    left_out = sorted(compared & (not_compared or set()))
+    if left_out:
+        compared -= set(left_out)
+        warnings.append("Signature Accuracy leaves out each documented name the plan gave no check, since no surface "
+                        "record of it, or of a method's owner, names a file and no form of it is bound to a "
+                        "declaration (such as an extraction gap the runner did not locate): "
+                        + ", ".join(f"`{n}`" for n in left_out))
 
     graded: dict[tuple, dict] = {}
     seen = set()
@@ -2035,7 +2520,7 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
             # The facts of an annotation-contradicted mismatch, checked once and handed to grade().
             fact = None
             if difference == CONTRADICTED:
-                at_line = line if at is not None else _declaration_line(by_name, name, file, line)
+                at_line = line if at is not None else _declaration_line(records, name, file, line)
                 fact = contradiction_fact(entry, form, file, at_line,
                                           _next_declaration(located, file, at_line), source_root)
                 warning = (f"{file}:{at_line}: the mismatch for `{name}` is tagged {CONTRADICTED}, but {fact}: "
@@ -2114,6 +2599,9 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
         for item in result.get("undecided") or []:
             if item not in undecided:
                 undecided.append(item)
+    # A Deep-tier judge's import and member errors (#1084): Info observations that grade nothing.
+    doc_records, doc_notes = _doc_error_records(results, doc_places, documented)
+    warnings.extend(doc_notes)
 
     return {
         "valid": True,
@@ -2126,7 +2614,7 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
         "totalTypes": len(types),
         "missingTypes": sorted(types - documented),
         "mismatches": mismatches,
-        "gapRecords": [_form_gap_record(m, key[3], forms[m["name"]]) for key, m in kept],
+        "gapRecords": [_form_gap_record(m, key[3], forms[m["name"]]) for key, m in kept] + doc_records,
         "warnings": warnings,
         "undecided": undecided,
     }
@@ -2145,15 +2633,18 @@ def _write_json(path: str, payload) -> None:
 
 def _cmd_plan(args: argparse.Namespace) -> tuple[dict, int]:
     inventory = load_inventory(args.inventory)
-    names, exports, others = (None, [], [])
+    names, exports, others, internal = (None, [], [], [])
     if args.surface is not None:
         _, exports, names = load_surface(args.surface, args.surface_set)
         others = load_other_declarations(args.surface)
+        internal = load_internal_declarations(args.surface)
     if args.skill_dir is not None:
         if not args.skill_dir.strip():
             raise InputError("--skill-dir is empty: pass the skill package (the folder that holds SKILL.md)")
         _read_text(str(Path(args.skill_dir) / "SKILL.md"), "--skill-dir")
-    out = plan(inventory, names, exports, args.skill_dir, others)
+    elif args.doc_errors:
+        raise InputError("--doc-errors needs --skill-dir: pass the skill package whose import lines the checks carry")
+    out = plan(inventory, names, exports, args.skill_dir, others, internal, args.doc_errors)
     if args.output:
         _write_json(args.output, out)
         # The step reads the plan from the file, so stdout gives only its counts and the path (#1018).
@@ -2177,8 +2668,10 @@ def _cmd_score(args: argparse.Namespace) -> tuple[dict, int]:
     offered = load_plan(args.plan) if args.plan is not None else None
     planned = load_plan_forms(args.plan) if args.plan is not None else None
     bound = load_plan_bound(args.plan) if args.plan is not None else None
+    not_compared = load_plan_not_compared(args.plan) if args.plan is not None else None
+    doc_places = load_plan_doc_places(args.plan) if args.plan is not None else None
     out = score(inventory, names, exports, results, None if args.surface_set == "all" else chosen, offered,
-                args.source_root, planned, bound)
+                args.source_root, planned, bound, not_compared, load_internal_declarations(args.surface), doc_places)
     if args.output:
         _write_json(args.output, out)
     if args.gaps_output:
@@ -2206,6 +2699,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--skill-dir", help="the skill package under test: its citations pick the declaration of a name "
                                        "the surface records in several files, and bind each form whose own "
                                        "citations name one declaration of its name to it")
+    p.add_argument("--doc-errors", action="store_true",
+                   help="a Deep-tier plan, with --skill-dir: give each check the skill's import lines of its name and "
+                        "its entries' documented members, and a documented name with no compared form but with "
+                        "either and a record with a file a check that `compared` does not count")
     p.add_argument("--output", help="write the plan to this file and print only its summary")
     p.set_defaults(func=_cmd_plan)
 
@@ -2214,8 +2711,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--surface", required=True, help="load-coverage-inputs.py surface output")
     p.add_argument("--surface-set", default="all",
                    help="the surface name set Type Coverage counts (default: all)")
-    p.add_argument("--plan", help="the plan's output: the files each check offered a mismatch at, and the "
-                                  "declaration each bound form's mismatch is taken at")
+    p.add_argument("--plan", help="the plan's output: the files each check offered a mismatch at, the "
+                                  "declaration each bound form's mismatch is taken at, and the names it gave no "
+                                  "check, which Signature Accuracy leaves out")
     p.add_argument("--source-root", help="the local source tree the judges read: an annotation-contradicted "
                                          "mismatch's evidence_line must start with `return` there, or be the "
                                          "declaration line with its expression body")

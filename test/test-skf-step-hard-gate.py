@@ -1125,7 +1125,7 @@ class TestStaleNameLineCheck:
         records it so: the surface lists the star in `unresolvedStars`."""
         flow = _flow(section)
         # #1005 review: a name the brief scopes out keeps its scoped-out Medium, and the record's title is not
-        # the hand-written one's
+        # the one score-signatures.py records at the Deep tier (#1084)
         rule = ("With no `defined_at`, one cited at an `unresolvedStars` file and not scoped out is an Info "
                 "`observation` naming the star.")
         assert rule in flow

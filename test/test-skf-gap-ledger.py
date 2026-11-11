@@ -45,8 +45,9 @@ counts and the Gap Report is rendered from:
     with no `defined_at` whose skill citations cite a file the surface's
     `unresolvedStars` lists is an Info `observation` `Not checked by
     script: {name} (another package's export *)` at the documenting line,
-    naming each star and asking no change, beside a hand-written `Not
-    checked by script: {name}`; another cited file, no --skill-dir, a
+    naming each star and asking no change, beside the Deep tier's `Not
+    checked by script: {name}` score-signatures.py records (#1084);
+    another cited file, no --skill-dir, a
     missing or malformed list, a `defined_at`, a rescope or a fabricated
     name keeps its gap
   - an inflated `scope.include` union (#795): when the inflation guard
@@ -1121,7 +1122,7 @@ class TestCoverageAdapter:
 
     @pytest.mark.parametrize("signatures, said", [
         ({"missingTypes": [], "comparedNames": ["fetchData"]},
-         "Signature scoring compares its documented signature with the surface's record of it."),
+         "Signature scoring compares its documented signature with its declaration in the source."),
         # on the surface's records, but the skill documents no signature for it: nothing was compared
         ({"missingTypes": [], "comparedNames": ["Options"]},
          "Its documented signature was not checked against that declaration."),
@@ -1129,7 +1130,8 @@ class TestCoverageAdapter:
         (None, "Its documented signature was not checked against that declaration."),
     ], ids=["compared", "not-compared", "an-older-result", "no-signatures"])
     def test_the_remediation_says_whether_signature_scoring_compared_it(self, signatures, said):
-        # a nested sub-package's name: out of `all`, on the records
+        # a nested sub-package's name (out of `all`, on the records) or a documented extra (on the surface's
+        # internalDeclarations): score compares its signature with its declaration and lists it in comparedNames
         stale = [{"name": "fetchData", "fabricated": False, "source": None, "defined_at": "src/fetch.ts:12"}]
         [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["fetchData"]},
                                      surface=self.EXCLUDED_SURFACE, signatures=signatures, stale=stale)
@@ -1992,18 +1994,19 @@ class TestCoverageAdapter:
                 "'tinyspy'` (`./code/core/src/test/spy.ts`), and no script") in record["remediation"]
         assert "zod" not in record["remediation"] + record["issue"]
 
-    def test_a_hand_written_record_of_the_name_stays_its_own_gap(self, tmp_path: Path, ledger: Path):
-        """#1005 review: §5b appends the coverage call's records, then the Deep tier's hand-written `Not checked
-        by script: {name}` at the same documenting line. The script's record has a title of its own, so the
-        ledger keeps both, never the hand-written one as a duplicate of it."""
+    def test_the_deep_tier_s_record_of_the_name_stays_its_own_gap(self, tmp_path: Path, ledger: Path):
+        """#1005 review, #1084: §5b appends `signature-gaps.json`, which holds the Deep tier's `Not checked by
+        script: {name}` that score-signatures.py records from a judge's `doc_errors`, then the coverage call's
+        records, at the same documenting line. The script's record has a title of its own, so the ledger keeps
+        both, neither one a duplicate of the other."""
         starred = self._starred(tmp_path)
-        hand = {"severity": "Info", "category": "observation", "title": "Not checked by script: Mock",
-                "source": "SKILL.md:3", "export": "Mock",
-                "remediation": "Correct the documentation to match the source; no script checks this."}
-        assert json.loads(append(ledger, "coverage-check", [starred]).stdout)["appended"] == ["GAP-001"]
-        out = json.loads(append(ledger, "coverage-check", [starred, hand]).stdout)
+        doc = {"severity": "Info", "category": "observation", "title": "Not checked by script: Mock",
+               "source": "SKILL.md:3", "export": "Mock",
+               "remediation": "Correct the documentation to match the source; no script checks this."}
+        assert json.loads(append(ledger, "coverage-check", [doc]).stdout)["appended"] == ["GAP-001"]
+        out = json.loads(append(ledger, "coverage-check", [starred, doc]).stdout)
         assert (out["appended"], out["duplicates"]) == (["GAP-002"], ["GAP-001"])
-        assert [r["title"] for r in ledger_records(ledger)] == [self.STARRED_TITLE, "Not checked by script: Mock"]
+        assert [r["title"] for r in ledger_records(ledger)] == ["Not checked by script: Mock", self.STARRED_TITLE]
 
     @pytest.mark.parametrize("kwargs", [
         {"skill_md": "# demo\n\n`Mock` mocks. `[AST:code/core/src/test/other.ts:L15]`\n"},
