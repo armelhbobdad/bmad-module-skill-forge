@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a check placed at the declaration a table row cites, correct the form, or the row's citation when it points at the wrong declaration, then run Test Skill again. A row that relied on a citation written on the line after it, or after its table, takes that citation into one of its cells. Where a new Medium `stale-documentation` gap points at a table row whose name the source still declares, or passes on from another package, cite that file in one of the row's cells, then run Test Skill again.
 issues: [1066]
+prs: [1104]
