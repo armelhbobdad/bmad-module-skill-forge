@@ -690,6 +690,51 @@ def test_each_subagent_dispatch_renews_the_lock(tmp_path):
     assert second.returncode == 3 and json.loads(second.stdout)["held_by"] == owner
 
 
+def test_each_stage_and_each_by_eye_read_renews_the_lock():
+    """#1064: between two subagent returns the main thread can work a long time on
+    its own: at Quick tier it reads every entry point by eye, then runs coherence,
+    the external validators, the gate and the score before report.md §4b.2. So the
+    run also renews as each stage after init.md starts and after each message of
+    by-eye source reads (the Forge tier's `readByEye` files, State 4, a split body),
+    with the same command and HALTs as the other renewal points."""
+    skill = _read(SKILL_MD)
+    rules = _slice(skill, "## Workflow Rules", "## Stages")
+    rule = _flow(next((line for line in rules.splitlines() if RENEW in line), ""))
+    by_eye = "each time the main thread finishes reading a source file by eye (once for files read in one message)"
+    stage = "as each stage after init.md starts, before its first numbered section"
+    for needle in (by_eye, stage, "Exit 3 (another run took the lock over) HALTs `another-run-active`",
+                   "exit 1 or 2, or no JSON, HALTs `helper-failed`", "phase `<step>:run-lock`"):
+        assert needle in rule, needle
+    # Both points join the list of renewals, before the discovery subagents' renewal and the command.
+    assert rule.index(by_eye) < rule.index("before report.md §4b.2 spawns its discovery subagents") \
+        < rule.index(RENEW)
+    assert rule.index(stage) < rule.index("before report.md §4b.2 spawns its discovery subagents")
+    # The stage clause reaches every stage that runs under the lock: init.md takes it in §6a,
+    # report.md §7 releases it before health-check.md loads.
+    table = _slice(skill, "## Stages", "## Invocation Contract")
+    files = [Path(rel).name for rel in re.findall(r"^\|[^|\n]+\|[^|\n]+\| (references/[\w.-]+\.md) \|", table, re.M)]
+    assert files[0] == "init.md" and files[-1] == "health-check.md", files
+    assert files[1:-1] == AFTER_THE_LOCK
+    # The contract, the user docs and the init comment name both points, the stage
+    # starts ending at report.md: no renewal retakes the lock once §7 released it.
+    row = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Concurrency** |"))
+    for needle in ("each time the main thread finishes reading source files by eye",
+                   "as each stage from detect-mode.md to report.md starts"):
+        assert needle in row, needle
+    docs = _flow(_slice(_read(REPO_ROOT / "docs" / "troubleshooting.md"),
+                        "### Test Skill stops with `another-run-active`", "\n### "))
+    for needle in ("because one subagent or command ran 60 minutes past its last renewal",
+                   "the run renews its lock as each step before the health check starts, after it reads source "
+                   "files by eye,",
+                   # A renewal that fails as a step starts halts under that step's phase.
+                   "`<step>:run-lock` as a step starts or while it runs"):
+        assert needle in docs, needle
+    init_comments = _flow(_read(INIT).replace("\n#", ""))
+    for needle in ("renew the lock through it as each stage from detect-mode.md to report.md starts",
+                   "and after each by-eye read of source files"):
+        assert needle in init_comments, needle
+
+
 @pytest.mark.parametrize("name", AFTER_THE_LOCK)
 def test_every_halt_after_the_lock_releases_it(name):
     text = _read(REFS / name)
