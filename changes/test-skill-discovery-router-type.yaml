@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill's discovery check now says how each subagent that picks a skill for a test prompt is started without file or shell tools: on Claude Code, with an agent type that has none of them (`web-fetch` where it is listed), never the default `general-purpose` type, which has every tool, and on a host whose spawn call or agent definition sets a subagent's tools, with none of them. Before, a run could start these subagents with every tool, and one that read the run lock `.test-skill.lock` or the in-progress report, which both name the skill under test, could pass the discovery check for a description whose triggers misroute, so the report lacked the Medium or High `discovery` gap it should have shown. Where no such subagent can be started, the check is skipped with `subagents unavailable, routing test requires isolated context` and an Info `discovery` gap whose remediation names, on Claude Code, an agent type defined in `.claude/agents/` with `name`, `description` and `tools: WebFetch`. A discovery gap still blocks nothing and changes no score or verdict.
+issues: [1079]

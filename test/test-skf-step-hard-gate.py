@@ -1557,11 +1557,55 @@ class TestDiscoveryGaps:
     def test_the_routers_read_no_file(self, discovery: str) -> None:
         """#1039: the run lock and the in-progress report name the skill under test, so a router reads nothing."""
         assert ("spawn an isolated subagent with NO prior context about which skill is under test"
-                " and no file or shell tools (where the platform lets a subagent be spawned without tools, do so),"
-                " since the run lock and the in-progress report in `{forge_version}` both name that skill") in discovery
+                " and no file or shell tools, since the run lock and the in-progress report in `{forge_version}`"
+                " both name that skill") in discovery
         instruction = _slice(discovery, "You are an agent selecting the best skill", "**4b.3")
         assert instruction.count("Return only JSON.") == 1
         assert "Answer from this catalog alone: read no file and use no tool. Return only JSON.\"" in instruction
+
+    def test_a_router_takes_a_type_without_file_or_shell_tools(self, discovery: str) -> None:
+        """#1079: a Claude Code Agent call takes no tool list and one without `subagent_type` gets every tool."""
+        spawn = _slice(discovery, "**4b.2 Spawn a discovery subagent:**", "**4b.3")
+        for needle in ("**Router rule:** a router gets no tool that reads or lists files, runs a command"
+                       " or starts another agent",
+                       "(Read, Grep, Glob, Bash, PowerShell, Write, Edit, Agent or an MCP tool that reads files, say)",
+                       "a tool that only reaches the web, such as WebFetch or WebSearch, is fine",
+                       "On Claude Code, where an Agent call takes no tool list, pass a `subagent_type`"
+                       " listed for the Agent tool with none of these tools",
+                       "(`web-fetch` where it is listed)",
+                       "never leave `subagent_type` out: an Agent call without one gets `general-purpose`,"
+                       " which carries every tool",
+                       "On other hosts, where the spawn call or the agent definition sets a subagent's tools,"
+                       " give the router none of these",
+                       "The run never writes or edits an agent definition, so a host that offers neither"
+                       " falls under the guard above"):
+            assert needle in spawn, needle
+        assert "(where the platform lets a subagent be spawned without tools, do so)" not in discovery
+        guard = _slice(spawn, "**Subagents-unavailable guard (precedes the spawn).**",
+                       "For each of the 3 prompts, spawn an isolated subagent")
+        assert "or none can be spawned without file or shell tools (the router rule below)" in guard
+        assert "do not fall back to answering the routing in the main thread or in a subagent that has those tools" in guard
+        assert "such a subagent can read the run lock and the in-progress report, which name that skill" in guard
+        assert "with the reason `subagents unavailable, routing test requires isolated context`" in guard
+        assert "If subagents cannot be spawned in this environment (e.g. a headless/CI pipeline" in guard
+        assert "(do not count it PASS or FAIL), and skip to §4b.5." in guard
+        assert spawn.index("**Subagents-unavailable guard") < spawn.index("For each of the 3 prompts, spawn")
+        assert spawn.index("For each of the 3 prompts, spawn") < spawn.index("**Router rule:**")
+        skip = _slice(discovery, "**Recording a skip.**", "**4b.0")
+        assert ("or an environment that can spawn a subagent without file or shell tools (on Claude Code,"
+                " an agent type defined in `.claude/agents/` with `name`, `description` and `tools: WebFetch`"
+                " in its frontmatter, say)") in skip
+        assert "an environment that can spawn subagents." not in skip
+        [row] = [r for r in _read(SCORING_FILE).splitlines() if r.startswith("| Info     | `discovery`")]
+        assert "Discovery testing not performed" in row
+        assert "or no subagent without file or shell tools to route the prompts" in row
+        assert "or no subagents to route the prompts" not in row
+        [docs] = [line for line in _read(REPO_ROOT / "docs" / "workflows.md").splitlines()
+                  if line.startswith("- `--no-discovery` ")]
+        for needle in ("the run asks three subagents with no file or shell tools",
+                       "or one you define in `.claude/agents/` with `name`, `description` and `tools: WebFetch`",
+                       "Where no such subagent can be started, the run skips the test and records an Info gap"):
+            assert needle in docs, needle
 
     def test_no_prompt_names_an_export(self, discovery: str) -> None:
         """#1049: the catalog lists the exports, so a prompt that names one routes on the name."""
