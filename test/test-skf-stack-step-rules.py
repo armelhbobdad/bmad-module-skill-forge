@@ -41,8 +41,9 @@ compose branch of the sections they govern.
   each of its entries carries that tier, and every pair takes the weaker
   tier, T2 and T3 included (#534).
 - Step 7's pre-commit gate runs skf-names-present.py on the compose-mode
-  map before the commit, and that helper applies the rule skf-test-skill
-  scores names by (#538).
+  map before the commit, and that helper applies the text match
+  skf-test-skill scores names by (#538); skf-test-skill also needs the
+  name's inventory entry, which the gate runs too early to check (#1068).
 - One tier rule: step 5 §3 takes each pair's tier from
   skf-render-stack-metadata.py (and halts with its envelope when the helper
   is missing), compose-mode-rules and integration-patterns point at it, and

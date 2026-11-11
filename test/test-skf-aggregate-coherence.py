@@ -149,7 +149,11 @@ def test_cli_output_writes_the_score_file(tmp_path):
         capture_output=True, text=True,
     )
     assert proc.returncode == 0
-    assert json.loads(out_path.read_text(encoding="utf-8")) == json.loads(proc.stdout)
+    # #1063: the file holds the result, and stdout is its summary, which names the file
+    written = json.loads(out_path.read_text(encoding="utf-8"))
+    assert {**written, "output": str(out_path)} == json.loads(proc.stdout)  # the counts carry no list
+    assert written == json.loads(_run_agg_cli(json.dumps({"valid_references": 6, "total_references": 7,
+                                                          "patterns_documented": 5, "patterns_complete": 4})).stdout)
 
 
 def test_cli_refused_input_removes_a_stale_score_file(tmp_path):
@@ -207,6 +211,29 @@ def test_count_references_from_both_kinds(tmp_path):
     assert [(r["source"], r["target"], r["status"]) for r in out["invalidReferences"]] == [
         ("scan", "scripts/run.py", "missing"), ("scan", "../../etc/passwd", "escapes"),
         ("judged", "./types", "inaccurate"), ("judged", "ghost-skill", "missing")]
+
+
+def test_output_prints_only_a_summary(tmp_path):
+    """#1063: with --output the result goes to the file alone and stdout gives each field, the invalid references
+    as their number, and the path: coherence-check §5c reads the three percentages there, its template's counts come
+    from `input`, and §6 records each invalid reference from the file. The file is the stdout of the same run
+    without --output; a refused file prints its envelope as before and leaves no score file."""
+    paths = _files(tmp_path)
+    out_file = tmp_path / "run" / "coherence.json"
+    proc = _cli_files(paths, "--output", str(out_file))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout) == {
+        "input": {"valid_references": 2, "total_references": 6, "patterns_documented": 5, "patterns_complete": 4},
+        "referenceValidity": 33.33, "integrationCompleteness": 80.0, "combinedCoherence": 52.0,
+        "patternsScored": True, "invalidReferences": 4, "output": str(out_file)}
+    whole = json.loads(_cli_files(paths).stdout)
+    assert json.loads(out_file.read_text(encoding="utf-8")) == whole and len(whole["invalidReferences"]) == 4
+
+    (tmp_path / "refused").mkdir()
+    refused = _cli_files(_files(tmp_path / "refused", scan={"refs": []}, judged=None), "--output", str(out_file))
+    assert refused.returncode == 2 and not out_file.exists()
+    envelope = json.loads(refused.stdout)
+    assert set(envelope) == {"error", "code"} and envelope["code"] == "INVALID_INPUT"
 
 
 def test_each_invalid_reference_carries_what_its_gap_needs(tmp_path):

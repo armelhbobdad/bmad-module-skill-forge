@@ -1301,6 +1301,19 @@ def test_metadata_declared_names_fall_back_to_the_provenance_map():
     assert "fetchData" in out["declaredNames"] and "Extra::run" not in out["declaredNames"]
 
 
+def test_metadata_module_names_are_the_maps_modules_and_packages():
+    """Review of #1068: the entry names the map types `module` or `package` (in any case), which the inventory has
+    no kind for, so verify-declared-numerator.py and the stack branch look them up in the text alone."""
+    prov = {"entries": [{"export_name": "connectors.localfs", "export_type": "package"},
+                        {"export_name": "cocoindex", "export_type": " Module "},
+                        {"export_name": "ops.text.RecursiveSplitter", "export_type": "class"},
+                        {"export_name": "fn", "export_type": "decorator_namespace"},
+                        {"export_name": "", "export_type": "package"},
+                        {"export_type": "module"}, "stray"]}
+    assert mod.metadata_inputs({"stats": {}}, prov)["moduleNames"] == ["cocoindex", "connectors.localfs"]
+    assert mod.metadata_inputs(METADATA, None)["moduleNames"] == []
+
+
 def test_a_stack_denominator_comes_from_its_cited_contracts():
     meta = {"skill_type": "stack", "libraries": ["liba", "libb"], "integration_pairs": [["liba", "libb"]]}
     prov = {"entries": [{"export_name": "connect"}, {"export_name": "connect"}, {"export_name": "Client"},

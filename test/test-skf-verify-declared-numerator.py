@@ -225,9 +225,39 @@ def test_inputs_with_the_signature_are_verified_and_written(tmp_path):
     out_path = tmp_path / "numerator.json"
     res = _run_cli(["--inputs", inputs, "--skill-dir", skill, "--output", str(out_path)])
     assert res.returncode == 0, res.stderr
-    out = json.loads(res.stdout)
-    assert json.loads(out_path.read_text(encoding="utf-8")) == out
+    out = json.loads(out_path.read_text(encoding="utf-8"))
+    assert json.loads(res.stdout)["output"] == str(out_path)  # #1063: stdout is the summary, the file the result
     assert (out["skipped"], out["verified"], out["absent"], out["inflated"]) == (False, 1, ["bar"], True)
+
+
+def test_output_prints_only_a_summary(tmp_path):
+    """#1063: with --output the result goes to the file alone and stdout gives each field, a list as its length,
+    and the path, since coverage-check reads the counts and the absent names from the file. The file is the stdout
+    of the same run without --output; a refused input prints its error object as before and leaves no file."""
+    inputs, skill = _inputs(tmp_path, False, ["foo", "bar"])
+    out_path = tmp_path / "run" / "numerator.json"
+    res = _run_cli(["--inputs", inputs, "--skill-dir", skill, "--output", str(out_path)])
+    assert res.returncode == 0, res.stderr
+    assert json.loads(res.stdout) == {"skipped": True, "declared": 2, "verified": None, "present": 0, "absent": 0,
+                                      "inflated": False, "output": str(out_path)}
+    plain = _run_cli(["--inputs", inputs, "--skill-dir", skill])
+    assert json.loads(out_path.read_text(encoding="utf-8")) == json.loads(plain.stdout)
+
+    (tmp_path / "signed").mkdir()
+    signed, _ = _inputs(tmp_path / "signed", True, ["foo", "bar"])
+    res = _run_cli(["--inputs", signed, "--skill-dir", skill, "--output", str(out_path)])
+    assert json.loads(res.stdout) == {"skipped": False, "declared": 2, "verified": 1, "present": 1, "absent": 1,
+                                      "inflated": True, "output": str(out_path)}
+    assert json.loads(out_path.read_text(encoding="utf-8")) == json.loads(
+        _run_cli(["--inputs", signed, "--skill-dir", skill]).stdout)
+
+    out_path.write_bytes(b'{"verified": 9}')
+    payload = json.dumps({"declaredNames": "foo", "skillPackagePath": skill})
+    refused = _run_cli(["--stdin", "--output", str(out_path)], stdin=payload)
+    assert refused.returncode == 2 and not out_path.exists()
+    envelope = json.loads(refused.stdout)
+    assert envelope == json.loads(_run_cli(["--stdin"], stdin=payload).stdout)
+    assert set(envelope) == {"error", "code"} and envelope["code"] == "INVALID_INPUT"
 
 
 def test_inputs_need_a_skill_dir(tmp_path):
@@ -238,6 +268,173 @@ def test_inputs_need_a_skill_dir(tmp_path):
 def test_unreadable_inputs_exit_1(tmp_path):
     res = _run_cli(["--inputs", str(tmp_path / "absent.json"), "--skill-dir", str(tmp_path)])
     assert res.returncode == 1 and "cannot read --inputs" in res.stderr
+
+
+# --------------------------------------------------------------------------
+# #1068: a declared name counts only when the inventory gives it an entry
+# --------------------------------------------------------------------------
+
+# The inventory-contract rules that give a name the text writes no entry, #1013 (not covered), #1008 (an alias, or a
+# name the skill says the source does not export), #1038 (a removed form) and a type mention: each case's doc text
+# writes both declared names, and the inventory gives only the first one an entry.
+NO_ENTRY_CASES = {
+    "not-covered": (["foo", "bar"], "`foo()` fetches the page. `bar` is not covered here.\n"),
+    "alias": (["Grid", "GridCellType"],
+              "`Grid` renders the cells. `import { CellType as GridCellType } from 'grid'` imports it as "
+              "`GridCellType`.\n"),
+    "unexported": (["Grid", "RowState"], "`Grid` renders each row. `RowState` is internal: the source does not "
+                                         "export it.\n"),
+    "removed-form": (["newCall", "oldCall"],
+                     "| v0.3 (gone) | v0.4 |\n| --- | --- |\n| `oldCall(a)` | `newCall(a, b)` |\n"),
+    "type-mention": (["connect", "Options"], "`connect(opts: Options)` opens a session.\n"),
+}
+
+
+@pytest.mark.parametrize("declared, doc", list(NO_ENTRY_CASES.values()), ids=list(NO_ENTRY_CASES))
+def test_a_name_the_inventory_gives_no_entry_is_absent(declared, doc):
+    """#1068: the text writes both declared names, but the inventory contract gives the second no entry (a
+    not-covered sentence, a local import alias, a name the source does not export, a form marked removed, a type
+    mention), so it is absent and the count inflated."""
+    kept, dropped = declared
+    out = verify({"declaredNames": declared, "skillPackagePath": "x",
+                  "exports": [{"name": kept, "kind": "function"}]}, doc_text=doc)
+    assert (out["declared"], out["verified"], out["present"], out["absent"], out["inflated"]) == \
+        (2, 1, [kept], [dropped], True)
+
+
+def test_a_declared_owned_method_matches_its_method_entry():
+    """A declared Rust `Widget::render` counts through its `method` entry (`render`, owner `Widget`); a declared
+    method the text writes but the inventory gives no entry does not."""
+    out = verify({"declaredNames": ["Widget::render", "Widget::hidden"], "skillPackagePath": "x",
+                  "exports": [{"name": "Widget", "kind": "struct"},
+                              {"name": "render", "kind": "method", "owner": "Widget"}]},
+                 doc_text="`Widget::render` draws it. `Widget::hidden` is out of scope for this skill.")
+    assert (out["verified"], out["present"], out["absent"]) == (1, ["Widget::render"], ["Widget::hidden"])
+
+
+def test_an_entry_the_text_does_not_write_is_still_absent():
+    """A name counts only when the inventory gives it an entry and the text writes it, so an entry for a declared
+    name the text never writes does not make it verified."""
+    out = verify({"declaredNames": ["foo", "ghost"], "skillPackagePath": "x",
+                  "exports": [{"name": "foo", "kind": "function"}, {"name": "ghost", "kind": "function"}]},
+                 doc_text="`foo()` fetches the page.\n")
+    assert (out["verified"], out["present"], out["absent"], out["inflated"]) == (1, ["foo"], ["ghost"], True)
+
+
+@pytest.mark.parametrize("extra", [{}, {"exports": None}], ids=["no-key", "null"])
+def test_without_an_inventory_the_text_alone_decides(extra):
+    """No `exports`: every declared name the text writes counts, as before #1068."""
+    declared, doc = NO_ENTRY_CASES["not-covered"]
+    out = verify({"declaredNames": declared, "skillPackagePath": "x", **extra}, doc_text=doc)
+    assert (out["verified"], out["absent"], out["inflated"]) == (2, [], False)
+
+
+def _no_entry_run(tmp_path):
+    """coverage-inputs.json with the inflation signature, and a skill that writes `bar` only in a not-covered
+    sentence."""
+    inputs, skill = _inputs(tmp_path, True, ["foo", "bar"])
+    Path(skill, "SKILL.md").write_bytes(NO_ENTRY_CASES["not-covered"][1].encode("utf-8"))
+    return inputs, skill
+
+
+@pytest.mark.parametrize("wrap", [lambda inv: inv, lambda inv: {"valid": True, "inventory": inv}],
+                         ids=["inventory-file", "whole-result"])
+def test_cli_inventory_with_inputs(tmp_path, wrap):
+    """The command coverage-check.md runs: --inventory reads validate-inventory.py's --output file, or its whole
+    result, and the declared `bar` the inventory gives no entry is absent."""
+    inputs, skill = _no_entry_run(tmp_path)
+    inventory = tmp_path / "inventory.json"
+    inventory.write_bytes(json.dumps(wrap({"exports": [{"name": "foo", "kind": "function"}]})).encode("utf-8"))
+    out_path = tmp_path / "numerator.json"
+    res = _run_cli(["--inputs", inputs, "--skill-dir", skill, "--inventory", str(inventory),
+                    "--output", str(out_path)])
+    assert res.returncode == 0, res.stderr
+    out = json.loads(out_path.read_text(encoding="utf-8"))
+    assert json.loads(res.stdout)["output"] == str(out_path)  # #1063: stdout is the summary, the file the result
+    assert (out["skipped"], out["verified"], out["absent"], out["inflated"]) == (False, 1, ["bar"], True)
+    # Without --inventory the text alone decides, as before.
+    plain = json.loads(_run_cli(["--inputs", inputs, "--skill-dir", skill]).stdout)
+    assert (plain["verified"], plain["absent"], plain["inflated"]) == (2, [], False)
+
+
+def test_cli_inventory_wins_over_the_json_exports(tmp_path):
+    _, skill = _no_entry_run(tmp_path)
+    inventory = tmp_path / "inventory.json"
+    inventory.write_bytes(json.dumps({"exports": [{"name": "foo", "kind": "function"}]}).encode("utf-8"))
+    payload = json.dumps({"declaredNames": ["foo", "bar"], "skillPackagePath": skill, "exports": []})
+    res = _run_cli(["--stdin", "--inventory", str(inventory)], stdin=payload)
+    assert res.returncode == 0, res.stderr
+    assert json.loads(res.stdout)["present"] == ["foo"]
+
+
+@pytest.mark.parametrize("content, message", [
+    (None, "cannot read --inventory"),
+    (b"{not json", "is not JSON"),
+    (b'{"exports": "foo"}', "holds no `exports` list"),
+    (b'{"valid": false, "inventory": null, "violations": ["x"]}', "holds no `exports` list"),
+], ids=["missing", "not-json", "exports-not-a-list", "refused-result"])
+def test_cli_bad_inventory_exits_1_and_writes_nothing(tmp_path, content, message):
+    inputs, skill = _no_entry_run(tmp_path)
+    inventory = tmp_path / "inventory.json"
+    if content is not None:
+        inventory.write_bytes(content)
+    out_path = tmp_path / "numerator.json"
+    res = _run_cli(["--inputs", inputs, "--skill-dir", skill, "--inventory", str(inventory),
+                    "--output", str(out_path)])
+    assert res.returncode == 1 and res.stdout == "" and not out_path.exists()
+    assert len(res.stderr.splitlines()) == 1 and message in res.stderr, res.stderr
+
+
+def test_json_exports_that_is_no_list_is_invalid(tmp_path):
+    payload = {"declaredNames": ["foo"], "skillPackagePath": str(tmp_path), "exports": {"name": "foo"}}
+    assert verify(payload, doc_text="foo")["code"] == "INVALID_INPUT"
+    res = _run_cli(["--stdin"], stdin=json.dumps(payload))
+    assert res.returncode == 2 and json.loads(res.stdout)["code"] == "INVALID_INPUT"
+
+
+# Review of #1068: a declared name a module path qualifies, as metadata.json's exports[] can write it
+# (oms-cocoindex declares `ops.text.RecursiveSplitter`), has the entry the inventory gives it bare; a module or
+# package, which the inventory has no kind for, is looked up in the text alone. Each doc text writes both names.
+QUALIFIED_CASES = {
+    "module-function": ("cognee.add", "`await cognee.add(data)` stores it.", [], True),
+    "module-class": ("ops.text.RecursiveSplitter", "`ops.text.RecursiveSplitter(chunk_size=200)` splits it.", [],
+                     True),
+    "module-method": ("pkg.Widget.render", "`pkg.Widget.render()` draws it.", [], True),
+    "package": ("connectors.localfs", "`connectors.localfs` reads files.", ["connectors.localfs"], True),
+    "package-not-in-the-map": ("connectors.localfs", "`connectors.localfs` reads files.", [], False),
+    "unlisted-segment": ("cognee.gone", "`cognee.gone` is not covered here.", [], False),
+}
+
+
+@pytest.mark.parametrize("name, doc, modules, counted", list(QUALIFIED_CASES.values()), ids=list(QUALIFIED_CASES))
+def test_a_qualified_declared_name_has_its_bare_entry(name, doc, modules, counted):
+    exports = [{"name": "Client", "kind": "class"}, {"name": "add", "kind": "function"},
+               {"name": "RecursiveSplitter", "kind": "class"}, {"name": "render", "kind": "method", "owner": "Widget"}]
+    out = verify({"declaredNames": ["Client", name], "skillPackagePath": "x", "exports": exports,
+                  "moduleNames": modules}, doc_text=f"`Client` wraps it. {doc}\n")
+    assert (out["verified"], out["absent"], out["inflated"]) == ((2, [], False) if counted else (1, [name], True))
+
+
+def test_inputs_pass_the_loaders_module_names(tmp_path):
+    """--inputs reads load-coverage-inputs.py's `moduleNames`, so a declared package the text writes counts."""
+    path = tmp_path / "coverage-inputs.json"
+    path.write_bytes(json.dumps({"inflationSignature": True, "declaredNames": ["Client", "connectors.localfs"],
+                                 "moduleNames": ["connectors.localfs"]}).encode("utf-8"))
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(b"`Client` wraps it. `connectors.localfs` reads files.\n")
+    inventory = tmp_path / "inventory.json"
+    inventory.write_bytes(json.dumps({"exports": [{"name": "Client", "kind": "class"}]}).encode("utf-8"))
+    res = _run_cli(["--inputs", str(path), "--skill-dir", str(skill), "--inventory", str(inventory)])
+    assert res.returncode == 0, res.stderr
+    out = json.loads(res.stdout)
+    assert (out["verified"], out["absent"], out["inflated"]) == (2, [], False)
+
+
+def test_json_module_names_that_is_no_list_is_invalid():
+    out = verify({"declaredNames": ["foo"], "skillPackagePath": "x", "exports": [], "moduleNames": "foo"},
+                 doc_text="foo")
+    assert out["code"] == "INVALID_INPUT" and "moduleNames" in out["error"]
 
 
 if __name__ == "__main__":

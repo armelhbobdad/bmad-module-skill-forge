@@ -2622,14 +2622,17 @@ EXTRACTION = {
 }
 
 
-# The (script, subcommand) pairs that, given --output, print only a summary of the file they write.
-SUMMARIZED_COMMANDS = frozenset({("{scoreSignaturesScript}", "plan")} | {
+# The (script, subcommand) pairs, and the scripts that take no subcommand, that given --output print only a summary
+# of the file they write.
+SUMMARIZED_COMMANDS = frozenset({("{scoreSignaturesScript}", cmd) for cmd in ("plan", "score")} | {
     ("{coverageInputsScript}", cmd) for cmd in ("census", "floor", "metadata", "surface")})
+SUMMARIZED_SCRIPTS = frozenset({"{reconcileScript}", "{numeratorVerifyScript}", "{coherenceAggregationScript}",
+                                "{externalScoreScript}"})
 
 
 def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
     """Run one prose command (an `echo '<json>' | uv run ...` pipe included) and return its JSON: for a
-    SUMMARIZED_COMMANDS command, the JSON of the file its --output names."""
+    SUMMARIZED_COMMANDS or SUMMARIZED_SCRIPTS command, the JSON of the file its --output names."""
     stdin = b""
     if command.startswith("echo '"):
         payload, command = command[len("echo '"):].split("' | ", 1)
@@ -2655,8 +2658,9 @@ def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
     assert proc.returncode == 0, (command, proc.stdout.decode("utf-8"), proc.stderr.decode("utf-8"))
     if redirect is not None:
         target.write_bytes(proc.stdout)
-    if words and (m.group(1), words[0]) in SUMMARIZED_COMMANDS and "--output" in words:
-        # #1018, #1040: such a command prints a summary that names its --output file, and the step reads the file
+    summarized = words and ((m.group(1), words[0]) in SUMMARIZED_COMMANDS or m.group(1) in SUMMARIZED_SCRIPTS)
+    if summarized and "--output" in words:
+        # #1018, #1040, #1063: the command prints a summary that names its --output file; the step reads the file
         written = words[words.index("--output") + 1]
         assert json.loads(proc.stdout)["output"] == written, (command, proc.stdout.decode("utf-8"))
         return json.loads(Path(written).read_bytes())
@@ -2829,6 +2833,59 @@ def test_the_prose_scalar_branch_counts_the_named_set(tmp_path):
     flow = _flow(_read(COVERAGE))
     assert "- **Stale names** (`stale` when `staleApplicable` is true):" in flow
     assert "- **Missing names** (`missing`, barrel or scalar):" in flow
+
+
+def test_the_prose_numerator_and_stack_count_only_the_inventorys_names(tmp_path):
+    """#1068 through the coverage step's own commands: a stack skill whose provenance map cites `connect`, `Client`
+    and `legacy`, and whose SKILL.md writes `legacy` only in a sentence saying it does not cover it, so its
+    inventory gives `legacy` no entry (inventory-contract.md). §2b's numerator check and the branches file's stack
+    command both read the inventory: `legacy` is absent from the verified count and missing from the stack's."""
+    skill = _write_tree(tmp_path / "skill", {
+        "SKILL.md": "---\nname: demo-stack\ndescription: Demo. Use when testing.\n---\n# Demo stack\n\n"
+                    "`connect(url)` opens a session. `Client` wraps it.\n\n`legacy` is not covered here.\n",
+        "metadata.json": json.dumps({"skill_type": "stack",
+                                     "stats": {"exports_documented": 3, "effective_denominator": 3}}),
+    })
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(json.dumps({"skill_type": "stack", "entries": [
+        {"export_name": n, "source_library": lib} for n, lib in (("connect", "liba"), ("Client", "liba"),
+                                                                 ("legacy", "libb"))]}).encode("utf-8"))
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "inventory-response.txt").write_bytes(json.dumps({"exports": [
+        {"name": "connect", "kind": "function", "params": "url", "description": "Opens a session.",
+         "at": "SKILL.md:7"},
+        {"name": "Client", "kind": "class", "description": "Wraps it.", "at": "SKILL.md:7"},
+    ], "cross_check_mismatches": []}).encode("utf-8"))
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(),
+              "{forge_provenance_map}": provenance.as_posix()}
+
+    _exec(_command(COVERAGE, "uv run {coverageInputsScript} floor"), values, tmp_path)
+    assert _exec(_command(COVERAGE, "uv run {validateInventoryScript}"), values, tmp_path)["valid"] is True
+    inputs = _exec(_choose(_command(COVERAGE, "uv run {coverageInputsScript} metadata"), keep=("--provenance",)),
+                   values, tmp_path)
+    assert inputs["inflationSignature"] is True
+    assert inputs["stack"] == {"basis": "provenance", "denominator": 3,
+                               "compositionNames": ["Client", "connect", "legacy"]}
+    numerator = _exec(_command(COVERAGE, "uv run {numeratorVerifyScript}"), values, tmp_path)
+    assert (numerator["declared"], numerator["verified"], numerator["absent"], numerator["inflated"]) == \
+        (3, 2, ["legacy"], True)
+    assert json.loads((run / "numerator.json").read_bytes()) == numerator
+    stack = _exec(_command(COVERAGE_BRANCHES, "--denominator-source stack"), values, tmp_path)
+    assert (stack["branch"], stack["documented"], stack["denominator"], stack["missingCount"]) == ("stack", 2, 3, 1)
+
+    assert ("A declared name is `verified` only when the validated inventory gives it an entry and the skill's text "
+            "writes it: one the skill writes only where the inventory contract gives it none (such as a type "
+            "position in another name's signature, a sentence saying the skill does not cover it, a local import "
+            "alias, a name it says the source does not export, a form marked removed or from an earlier version) "
+            "is `absent`.") in _flow(_read(COVERAGE))
+    assert ("A name a module path qualifies has the entry of its last segment (`cognee.add` that of `add`), and one "
+            "the provenance map types `module` or `package`, which the inventory has no kind for, is `verified` when "
+            "the text writes it.") in _flow(_read(COVERAGE))
+    assert ("With `coverage-inputs.json` `stack.basis` `provenance`, it counts each cited export name that the "
+            "validated inventory gives an entry and the skill's text writes, as §2b's numerator check does. With "
+            "`composition`, it looks each library and integration pair name up in the text alone: those name no "
+            "export, so the inventory never lists them.") in _flow(_read(COVERAGE_BRANCHES))
 
 
 def test_the_prose_fallback_scan_runs(tmp_path):
@@ -3456,6 +3513,11 @@ def test_the_coherence_commands_run_against_the_scanner(tmp_path):
     assert (coherence["input"]["valid_references"], coherence["input"]["total_references"]) == (1, 3)
     assert [r["status"] for r in coherence["invalidReferences"]] == ["missing", "escapes"]
     assert (run / "coherence.json").is_file()
+    # #1063: stdout gives the number of invalid references, so §6 records each one from the file
+    doc = _flow(_read(COHERENCE))
+    assert ("`{run_dir}/coherence.json` lists each invalid reference with its `status` in `invalidReferences[]`, "
+            "which §6 records from that file; stdout gives only their number.") in doc
+    assert "Its `invalidReferences[]` lists" not in doc
 
 
 def test_reference_check_extracts_exactly_the_forms_section_3_names(tmp_path):

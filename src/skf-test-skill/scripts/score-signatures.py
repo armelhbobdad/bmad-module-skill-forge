@@ -313,8 +313,8 @@ Usage:
   uv run score-signatures.py score --inventory <file> --surface <file> [--surface-set <set>] [--plan <file>] \\
       [--source-root <dir>] --results <file> [--results <file> ...] [--output <file>] [--gaps-output <file>]
 
-Output (stdout; --output also writes it, --gaps-output writes the records;
-plan with --output writes the plan and prints only its summary):
+Output (stdout; --gaps-output writes the records; with --output, plan and
+score write their result to that file and print only its summary):
   plan:  {"compared": N, "files": [{"file", "checks": [{"name", "line",
           "signatureLine", "documented": {...}, "alternatives": [{...}]
           (only when the name has another form that lists members or
@@ -346,7 +346,11 @@ plan with --output writes the plan and prints only its summary):
           "severity" (Critical, Low or Info)}], "gapRecords": [...],
           "warnings": [...], "undecided": [each result's items, once each,
           in result order]}
-         or {"valid": false, "violations": [...]} when a result breaks the schema
+         or, with --output, the summary: each of those fields as the file
+         gives it, a list as its length, and "output": the --output path
+         (#1063); --gaps-output alone still prints the whole result
+         or {"valid": false, "violations": [...]} when a result breaks the
+         schema, with --output or without it
 
 Exit codes:
   0  the result was printed
@@ -2096,7 +2100,11 @@ def _cmd_score(args: argparse.Namespace) -> tuple[dict, int]:
         _write_json(args.output, out)
     if args.gaps_output:
         _write_json(args.gaps_output, out["gapRecords"])
-    return out, 0
+    if not args.output:
+        return out, 0
+    # The step reads the scores from the file, so stdout gives each field, a list as its length, and the path (#1063).
+    return {**{key: len(value) if isinstance(value, list) else value for key, value in out.items()},
+            "output": args.output}, 0
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -2129,7 +2137,7 @@ def _build_parser() -> argparse.ArgumentParser:
                                          "mismatch's evidence_line must start with `return` there, or be the "
                                          "declaration line with its expression body")
     p.add_argument("--results", action="append", help="a subagent result file (repeatable)")
-    p.add_argument("--output", help="also write the scores to this file")
+    p.add_argument("--output", help="write the scores to this file and print only their summary")
     p.add_argument("--gaps-output", help="write the gap ledger records to this file")
     p.set_defaults(func=_cmd_score)
     return parser

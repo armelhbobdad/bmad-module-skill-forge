@@ -98,9 +98,11 @@ CLI usage (mirrors compute-score.py):
   uv run aggregate-coherence.py --json-input '<JSON>'     # counts, explicit flag form
   cat input.json | uv run aggregate-coherence.py --stdin  # counts, piped input
 
---output <file> also writes the result to a file (UTF-8 JSON), the one
-compute-score.py --coherence reads; a refused input removes a file left
-there earlier.
+--output <file> writes the result to a file (UTF-8 JSON), the one
+compute-score.py --coherence reads, and prints only its summary: each field
+as the file gives it, a list as its length (`invalidReferences` as their
+number), and "output": the --output path (#1063). A refused input prints its
+envelope either way and removes a file left there earlier.
 
 Exit codes (same convention as compute-score.py / reconcile-coverage.py):
   0  a result object was emitted
@@ -401,7 +403,7 @@ def _build_parser() -> argparse.ArgumentParser:
                         help="the subagent results for the skill, type-import and integration references")
     parser.add_argument("--integration", metavar="PATH",
                         help="the integration JSON (patterns_documented, patterns_complete)")
-    parser.add_argument("--output", metavar="PATH", help="also write the result to this file")
+    parser.add_argument("--output", metavar="PATH", help="write the result to this file and print only its summary")
     return parser
 
 
@@ -412,6 +414,13 @@ def _write_output(path, result):
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes((json.dumps(result, indent=2) + "\n").encode("utf-8"))
+
+
+def _summary(result: dict, output: str) -> dict:
+    """What main prints when --output holds the result: each field as the file gives it, a list as its length, and
+    the file's path as `output`. coherence-check §6 records the invalid references from the file (#1063)."""
+    return {**{key: len(value) if isinstance(value, list) else value for key, value in result.items()},
+            "output": output}
 
 
 def _resolve_input(args: argparse.Namespace) -> str:
@@ -458,16 +467,15 @@ def main(argv: list[str] | None = None) -> int:
             return 1
 
         result = aggregate_coherence(data)
+    refused = isinstance(result, dict) and result.get("code") == "INVALID_INPUT"
     if args.output:
         _write_output(args.output, result)
-    print(json.dumps(result, indent=2))
+    print(json.dumps(result if refused or not args.output else _summary(result, args.output), indent=2))
     # Same convention as compute-score.py / reconcile-coverage.py. This script
     # produces the coherence percentage that score.md §3a feeds to
     # compute-score.py, so a silently-rejected run here would hand a bogus or
     # absent number to the gate one layer downstream.
-    if isinstance(result, dict) and result.get("code") == "INVALID_INPUT":
-        return 2
-    return 0
+    return 2 if refused else 0
 
 
 if __name__ == "__main__":

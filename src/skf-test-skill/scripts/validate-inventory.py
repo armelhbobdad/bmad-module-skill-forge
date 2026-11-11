@@ -500,6 +500,64 @@ def names_present(names, doc_text):
     return sorted(present)
 
 
+def inventory_names(exports):
+    """The names a validated inventory gives an entry (#1068): each entry's non-empty string `name`, and
+    `{owner}.{name}` and `{owner}::{name}` for a `method` entry whose `owner` is a non-empty string, so a
+    declared `Widget::render` still matches its method entry. A name the inventory contract gives no entry (such
+    as one the skill writes only in a type position, only in a sentence saying it does not cover it, only as a
+    local import alias or a name it says the source does not export, or only in a form marked removed or from an
+    earlier version) is none of them. listed_names matches a declared or cited name against these.
+
+    >>> sorted(inventory_names([{"name": "foo"}, {"name": "render", "kind": "method", "owner": "Widget"},
+    ...                         {"name": "run", "kind": "method"}, {"name": ""}, "bar"]))
+    ['Widget.render', 'Widget::render', 'foo', 'render', 'run']
+    """
+    names = set()
+    for entry in exports or []:
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str) and entry["name"]:
+            names.add(entry["name"])
+            if entry.get("kind") == "method" and isinstance(entry.get("owner"), str) and entry["owner"]:
+                names.add(f"{entry['owner']}.{entry['name']}")
+                names.add(f"{entry['owner']}::{entry['name']}")
+    return names
+
+
+# A qualified name's last two segments (`Widget.render` in `pkg.Widget.render`, `Widget::render` in
+# `a::Widget::render`): group 2 is the last segment.
+_QUALIFIED_TAIL_RE = re.compile(r"([^.:]+)(?:\.|::)([^.:]+)$")
+
+
+def listed_names(names, exports, module_names=None):
+    """The `names` the validated inventory gives an entry, or cannot list, in order (#1068).
+
+    A name is listed when inventory_names(exports) holds it. The inventory names a function or class the skill
+    documents in a module bare, and a method by its bare name and `owner` (inventory-contract.md), so a name a
+    module or Rust path qualifies (`cognee.add`, `ops.text.RecursiveSplitter`, `pkg.Widget.render`) is listed
+    too when its last segment is the `name` of an entry that is no `method`, or its last two segments are a
+    `method` entry's `{owner}.{name}` or `{owner}::{name}`. A name `module_names` holds (one the provenance map
+    types `module` or `package`) is kept whatever the inventory holds: the inventory has no kind for either, so
+    the text alone decides it. verify-declared-numerator.py and reconcile-coverage.py's stack branch count a name
+    only when it is one of these and names_present finds it in the text.
+
+    >>> exports = [{"name": "add", "kind": "function"}, {"name": "render", "kind": "method", "owner": "Widget"}]
+    >>> listed_names(["add", "cognee.add", "pkg.Widget.render", "Other.render", "cognee.gone",
+    ...               "connectors.localfs"], exports, ["connectors.localfs"])
+    ['add', 'cognee.add', 'pkg.Widget.render', 'connectors.localfs']
+    """
+    listed = inventory_names(exports)
+    bare = {entry["name"] for entry in exports or [] if isinstance(entry, dict) and entry.get("kind") != "method"
+            and isinstance(entry.get("name"), str) and entry["name"]}
+    modules = {name for name in module_names or [] if isinstance(name, str)}
+
+    def has_entry(name):
+        if name in listed or name in modules:
+            return True
+        tail = _QUALIFIED_TAIL_RE.search(name)
+        return tail is not None and (tail.group(2) in bare or tail.group(0) in listed)
+
+    return [name for name in names if isinstance(name, str) and has_entry(name)]
+
+
 # --- Skill citations ----------------------------------------------------------
 
 # A source citation the skill writes, `[AST:path:L12]`, `[SRC:path:L12-34]` or `[SRC:path:L12-L34]` (one with no

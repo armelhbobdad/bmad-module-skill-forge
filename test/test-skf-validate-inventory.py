@@ -809,6 +809,57 @@ def test_a_name_that_ends_in_punctuation_still_matches_inside():
     assert mod.names_present(["$state"], "my$state") == []
 
 
+def test_inventory_names_are_the_entries_names_and_an_owned_methods_qualified_names():
+    """#1068: the names verify-declared-numerator.py and the stack branch count are the inventory's: each entry's
+    `name`, and a `method` with an `owner` also as `{owner}.{name}` and `{owner}::{name}`, so a declared Rust
+    `Widget::render` matches its method entry. An ownerless method gives its bare name alone; an item that is no
+    object, or whose `name` is blank or no string, gives none."""
+    exports = [
+        {"name": "connect", "kind": "function"},
+        {"name": "render", "kind": "method", "owner": "Widget"},
+        {"name": "run", "kind": "method"},
+        {"name": "close", "kind": "method", "owner": ""},
+        {"name": "Client", "kind": "class", "owner": "ignored"},
+        {"name": "", "kind": "function"},
+        {"name": 3, "kind": "function"},
+        {"kind": "type"},
+        "stray",
+        None,
+    ]
+    assert mod.inventory_names(exports) == {"connect", "render", "Widget.render", "Widget::render", "run", "close",
+                                            "Client"}
+    assert mod.inventory_names([]) == set() and mod.inventory_names(None) == set()
+
+
+@pytest.mark.parametrize("name, listed", [
+    ("add", True),                          # an entry's name
+    ("cognee.add", True),                   # a module-qualified function: its entry is named bare
+    ("ops.text.RecursiveSplitter", True),   # a module-qualified class
+    ("cognee::add", True),                  # a Rust path
+    ("Widget.render", True),                # an owned method, as inventory_names gives it
+    ("pkg.Widget.render", True),            # an owned method a module path qualifies
+    ("Other.render", False),                # a method's bare name does not list another owner's method
+    ("cognee.gone", False),                 # a last segment no entry names
+    ("Options", False),                     # a bare name no entry names
+    ("connectors.localfs", True),           # a package `module_names` holds: no entry needed
+    ("cocoindex", True),                    # a bare module `module_names` holds
+], ids=lambda value: value if isinstance(value, str) else None)
+def test_listed_names_match_a_qualified_name_and_keep_a_module(name, listed):
+    """Review of #1068: the inventory names a function or class the skill documents in a module bare and a method
+    by its bare name and owner, so a declared or cited name a module path qualifies is listed through its last
+    segment, or its last two segments for a method; a module or package, which the inventory has no kind for, is
+    kept when `module_names` holds it."""
+    exports = [{"name": "add", "kind": "function"}, {"name": "RecursiveSplitter", "kind": "class"},
+               {"name": "render", "kind": "method", "owner": "Widget"}]
+    assert mod.listed_names([name], exports, ["connectors.localfs", "cocoindex"]) == ([name] if listed else [])
+
+
+def test_listed_names_keep_their_order_and_skip_what_is_no_name():
+    exports = [{"name": "b", "kind": "function"}, {"name": "a", "kind": "function"}]
+    assert mod.listed_names(["b", "x", "m.a", None, 3, "a"], exports) == ["b", "m.a", "a"]
+    assert mod.listed_names(["a", "pkg"], [], None) == [] and mod.listed_names(["pkg"], None, ["pkg"]) == ["pkg"]
+
+
 def test_load_doc_text_reads_skill_md_then_sorted_references(tmp_path):
     (tmp_path / "references" / "sub").mkdir(parents=True)
     (tmp_path / "SKILL.md").write_bytes(b"one")

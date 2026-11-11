@@ -590,6 +590,91 @@ def test_stack_surplus_is_bounded_too():
     assert out["coverageCapped"] is True
 
 
+# #1068: the inventory-contract rules that give a cited name the text writes no entry, #1013 (not covered), #1008 (an
+# alias, or a name the skill says the source does not export), #1038 (a removed form) and a type mention. Each case's
+# doc text writes all three names, and the inventory gives only the first two an entry.
+STACK_NO_ENTRY_CASES = {
+    "not-covered": (["connect", "Client", "legacy"],
+                    "`connect()` opens it and `Client` wraps it. `legacy` is out of scope for this skill."),
+    "alias": (["Grid", "Cell", "GridCellType"],
+              "`Grid` holds each `Cell`. `import { CellType as GridCellType } from 'grid'` imports it as "
+              "`GridCellType`."),
+    "unexported": (["Grid", "Row", "RowState"],
+                   "`Grid` holds each `Row`. `RowState` is internal: the source does not export it."),
+    "removed-form": (["newCall", "Session", "oldCall"],
+                     "`Session` runs it.\n\n| v0.3 (gone) | v0.4 |\n| --- | --- |\n| `oldCall(a)` | `newCall(a, b)` |"),
+    "type-mention": (["connect", "Client", "Options"], "`connect(opts: Options)` opens it and `Client` wraps it."),
+}
+
+
+def _stack(names, basis="provenance", **extra):
+    return {"denominatorSource": "stack", "compositionBasis": basis, "compositionNames": names,
+            "denominatorValue": len(names), "skillPackagePath": "/unused", **extra}
+
+
+@pytest.mark.parametrize("names, doc", list(STACK_NO_ENTRY_CASES.values()), ids=list(STACK_NO_ENTRY_CASES))
+def test_stack_provenance_counts_only_the_inventorys_names(names, doc):
+    """#1068: on a provenance basis a cited export name counts only when the inventory gives it an entry, as §2b's
+    numerator check counts, so the third name, which the text writes only where the contract gives no entry, is
+    missing."""
+    exports = [{"name": n, "kind": "function"} for n in names[:2]]
+    out = reconcile(_stack(names, exports=exports), doc_text=doc)
+    assert (out["documented"], out["missingCount"], out["exportCoverage"]) == (2, 1, mod.round2(2 / 3 * 100))
+    # With no inventory the text alone decides, as before.
+    assert reconcile(_stack(names), doc_text=doc)["documented"] == 3
+
+
+def test_stack_provenance_needs_the_text_to_write_the_name_too():
+    """An inventory entry for a cited name the text never writes does not count it: the name must be both."""
+    out = reconcile(_stack(["connect", "ghost"], exports=[{"name": "connect", "kind": "function"},
+                                                          {"name": "ghost", "kind": "function"}]),
+                    doc_text="`connect()` opens it.")
+    assert (out["documented"], out["missingCount"]) == (1, 1)
+
+
+def test_stack_provenance_matches_an_owned_method_by_its_qualified_name():
+    """A cited `Widget.render` counts through its `method` entry (`render`, owner `Widget`); a cited method the
+    text writes but the inventory gives no entry does not."""
+    out = reconcile(_stack(["Widget", "Widget.render", "Widget.hidden"], exports=[
+        {"name": "Widget", "kind": "class"}, {"name": "render", "kind": "method", "owner": "Widget"}]),
+        doc_text="`Widget` and `Widget.render`; `Widget.hidden` is not covered here")
+    assert (out["documented"], out["missingCount"]) == (2, 1)
+
+
+def test_stack_provenance_matches_a_qualified_name_and_keeps_a_package():
+    """Review of #1068: a stack cites the literal identifier it writes, so a cited `cognee.add` has the entry the
+    inventory gives `add`, and a package `moduleNames` holds, which the inventory has no kind for, is looked up in
+    the text alone; a qualified name whose last segment no entry names is still missing."""
+    names = ["Client", "cognee.add", "connectors.localfs", "cognee.gone"]
+    out = reconcile(_stack(names, exports=[{"name": "add", "kind": "function"}, {"name": "Client", "kind": "class"}],
+                           moduleNames=["connectors.localfs"]),
+                    doc_text="`await cognee.add(data)` stores it in a `Client`; `connectors.localfs` reads files; "
+                             "`cognee.gone` is not covered here.")
+    assert (out["documented"], out["missingCount"]) == (3, 1)
+
+
+@pytest.mark.parametrize("basis", ["composition", None], ids=["composition", "no-basis"])
+def test_stack_composition_names_are_looked_up_in_the_text_alone(basis):
+    """Library and integration pair names name no export, so the inventory never lists them: on a composition
+    basis (or none) the text alone decides, whatever `exports` holds."""
+    names = ["react-query", "zod", "react-query + zod"]
+    doc = "composes react-query and zod; react-query + zod validates each response"
+    out = reconcile(_stack(names, basis, exports=[{"name": "useQuery", "kind": "hook"}]), doc_text=doc)
+    assert (out["documented"], out["missingCount"]) == (3, 0)
+    assert out == reconcile(_stack(names, basis), doc_text=doc)
+
+
+@pytest.mark.parametrize("extra, message", [
+    ({"compositionBasis": "imports"}, "`compositionBasis` must be one of provenance, composition or null"),
+    ({"compositionBasis": 3}, "`compositionBasis` must be one of"),
+    ({"exports": {"name": "connect"}}, "`exports` must be a list"),
+    ({"moduleNames": "connectors.localfs"}, "`moduleNames` must be a list"),
+], ids=["unknown-basis", "basis-not-a-string", "exports-not-a-list", "module-names-not-a-list"])
+def test_stack_refuses_a_bad_basis_or_inventory(extra, message):
+    out = reconcile({**_stack(["connect"], exports=[]), **extra}, doc_text="connect")
+    assert out["code"] == "INVALID_INPUT" and message in out["error"], out
+
+
 @pytest.mark.parametrize(
     "payload,doc_text",
     [
@@ -853,10 +938,53 @@ def test_cli_barrel_from_the_run_files(tmp_path):
     proc = _run_cli(["--denominator-source", "barrel", "--inventory", _write(tmp_path / "inventory.json", INVENTORY),
                      "--surface", _write(tmp_path / "surface.json", SURFACE), "--output", str(out_path)])
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    out = json.loads(proc.stdout)
-    assert json.loads(out_path.read_text(encoding="utf-8")) == out
+    out = json.loads(out_path.read_text(encoding="utf-8"))
+    assert json.loads(proc.stdout)["output"] == str(out_path)  # #1063: stdout is the summary, the file the result
     assert (out["documented"], out["missing"], out["stale"]) == (2, ["parse"], ["stale"])
     assert "internalThing" not in out["missing"] and "legacy" not in out["missing"]
+
+
+def test_cli_output_prints_only_a_summary(tmp_path):
+    """#1063: with --output the result goes to the file alone and stdout gives each field, a list as its length,
+    and the path, since coverage-check reads every count and name list from the file. The file is the stdout of the
+    same run without --output; a refused input prints its error object as before and leaves no file."""
+    args = ["--denominator-source", "barrel", "--inventory", _write(tmp_path / "inventory.json", INVENTORY),
+            "--surface", _write(tmp_path / "surface.json", SURFACE)]
+    out_path = tmp_path / "run" / "coverage.json"
+    proc = _run_cli([*args, "--output", str(out_path)])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout) == {
+        "branch": "enumerated", "denominatorSource": "barrel", "denominator": 3, "documented": 2,
+        "documentedNames": 2, "missing": 1, "missingCount": 1, "stale": 1, "staleCount": 1, "staleApplicable": True,
+        "exportCoverage": 66.67, "output": str(out_path)}
+    plain = _run_cli(args)
+    assert plain.returncode == 0, plain.stdout + plain.stderr
+    assert json.loads(out_path.read_text(encoding="utf-8")) == json.loads(plain.stdout)
+
+    # docsOnly: the incomplete items are a count on stdout and a list in the file
+    exports = [{"name": "run", "kind": "function", "params": "x", "return_type": "int", "description": "Runs."},
+               {"name": "stop", "kind": "function", "params": "x", "description": "Stops."}]
+    docs_args = ["--denominator-source", "docsOnly",
+                 "--inventory", _write(tmp_path / "docs.json", {"exports": exports})]
+    docs_path = tmp_path / "run" / "docs-coverage.json"
+    docs = _run_cli([*docs_args, "--output", str(docs_path)])
+    assert docs.returncode == 0, docs.stdout + docs.stderr
+    whole = json.loads(_run_cli(docs_args).stdout)
+    assert json.loads(docs_path.read_text(encoding="utf-8")) == whole
+    assert whole["incomplete"] == [{"name": "stop", "kind": "function", "missing": ["return_type"]}]
+    assert json.loads(docs.stdout) == {
+        "branch": "docsOnly", "denominatorSource": "docsOnly", "denominator": 2, "documented": 1, "missing": 0,
+        "missingCount": 1, "stale": 0, "staleCount": 0, "staleApplicable": False, "exportCoverage": 50.0,
+        "incomplete": 1, "output": str(docs_path)}
+
+    # refused: no inventory
+    refused_path = tmp_path / "run" / "refused.json"
+    refused_path.write_bytes(b'{"exportCoverage": 100}')
+    refused = _run_cli(["--denominator-source", "barrel", "--output", str(refused_path)])
+    assert refused.returncode == 2 and not refused_path.exists()
+    envelope = json.loads(refused.stdout)
+    assert envelope == json.loads(_run_cli(["--denominator-source", "barrel"]).stdout)
+    assert set(envelope) == {"error", "code"} and envelope["code"] == "INVALID_INPUT"
 
 
 def test_cli_surface_set_picks_the_name_set(tmp_path):
@@ -883,6 +1011,53 @@ def test_cli_stack_from_coverage_inputs(tmp_path):
     proc = _run_cli(["--denominator-source", "stack", "--coverage-inputs", inputs, "--skill-dir", str(skill)])
     out = json.loads(proc.stdout)
     assert (out["documented"], out["denominator"], out["missingCount"]) == (2, 3, 1)
+
+
+@pytest.mark.parametrize("basis, documented", [("provenance", 2), ("composition", 3)])
+def test_cli_stack_reads_the_basis_and_the_inventory(tmp_path, basis, documented):
+    """#1068 through the branches file's flags: `stack.basis` reaches the branch, and on a provenance basis the
+    cited `legacy`, which SKILL.md writes only in a not-covered sentence and the inventory gives no entry, is
+    missing; a composition basis looks every name up in the text."""
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(STACK_NO_ENTRY_CASES["not-covered"][1].encode("utf-8"))
+    inputs = _write(tmp_path / "coverage-inputs.json",
+                    {"stack": {"basis": basis, "denominator": 3, "compositionNames": ["Client", "connect", "legacy"]}})
+    inventory = _write(tmp_path / "inventory.json", {"exports": [{"name": "connect", "kind": "function"},
+                                                                 {"name": "Client", "kind": "class"}]})
+    proc = _run_cli(["--denominator-source", "stack", "--coverage-inputs", inputs, "--inventory", inventory,
+                     "--skill-dir", str(skill)])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["documented"], out["missingCount"]) == (documented, 3 - documented)
+
+
+def test_cli_stack_reads_the_module_names(tmp_path):
+    """--coverage-inputs carries the loader's `moduleNames`, so a cited package the text writes counts on a
+    provenance basis, and a cited `cognee.add` counts through the entry of `add`."""
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(b"`await cognee.add(data)` stores it. `connectors.localfs` reads files.\n")
+    inputs = _write(tmp_path / "coverage-inputs.json",
+                    {"moduleNames": ["connectors.localfs"],
+                     "stack": {"basis": "provenance", "denominator": 2,
+                               "compositionNames": ["cognee.add", "connectors.localfs"]}})
+    inventory = _write(tmp_path / "inventory.json", {"exports": [{"name": "add", "kind": "function"}]})
+    proc = _run_cli(["--denominator-source", "stack", "--coverage-inputs", inputs, "--inventory", inventory,
+                     "--skill-dir", str(skill)])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["documented"], out["missingCount"]) == (2, 0)
+
+
+def test_cli_stack_refuses_an_unknown_basis(tmp_path):
+    skill = tmp_path / "skill"
+    skill.mkdir()
+    (skill / "SKILL.md").write_bytes(b"`connect()`\n")
+    inputs = _write(tmp_path / "coverage-inputs.json",
+                    {"stack": {"basis": "imports", "denominator": 1, "compositionNames": ["connect"]}})
+    proc = _run_cli(["--denominator-source", "stack", "--coverage-inputs", inputs, "--skill-dir", str(skill)])
+    assert proc.returncode == 2 and json.loads(proc.stdout)["code"] == "INVALID_INPUT"
 
 
 @pytest.mark.parametrize("verified, documented", [
