@@ -72,7 +72,9 @@ and none of the `difference` tags. These tests keep:
 - a form the check binds, whose own citations name one declaration of its
   name, compared with that declaration alone and reported there, in the
   rules file and §2, and the place, `at`, the contract has each form give
-  (#918);
+  (#918); a documented extra's `internalDeclarations` entries read as its
+  declarations by §5b's split-body Source and as its surface records for
+  §2's `bound` (#1087);
 - Create Skill naming a component's Props interface as its contract, not
   `(props: XProps) => JSX.Element`;
 - a call written with placeholder names, which the inventory contract
@@ -235,9 +237,15 @@ def test_a_deep_tier_judge_compares_the_skill_s_imports_and_members_with_the_sou
             "TS/JS: export it, by a declaration, an export list or a re-export), resolved in the source tree; a "
             "module the tree does not hold is left uncompared.") in paragraph
     assert ("Each `fields` or `properties` item names a member the declaration (or a base in the source tree) "
-            "declares, with the type it writes, by Equivalent spellings, when it writes one; each `methods` item "
+            "declares, with the type it writes, read as Annotations reads a parameter's type and by Equivalent "
+            "spellings, when it writes one; each `methods` item "
             "names a member it declares or binds, its parameters left to a method's own check. A list may leave "
             "members out. With `candidates`, an item differs only when it differs from each.") in paragraph
+    # review of #1084: a member's type is read as a parameter's is, under Annotations, before Equivalent spellings,
+    # so a field `meta: dict` matches `meta: dict[str, Any]` as the same text written as a parameter's type does
+    assert "with the type it writes, by Equivalent spellings" not in paragraph
+    assert ("Type arguments the form leaves out are not compared: `dict` matches `dict[str, Any]`"
+            ) in _section("Annotations")
     assert ('Each that differs is a `doc_errors` item `{"name", "at", "source", "issue"}`: the check\'s name, the '
             "`at` it came with, the `file:line` of the declaration compared (for an import, of the module), and what "
             "differs; an empty list or no key says none.") in paragraph
@@ -249,6 +257,38 @@ def test_a_deep_tier_judge_compares_the_skill_s_imports_and_members_with_the_sou
     assert sorted(judge) == ["file", "signature_mismatches", "undecided"]
     deep = _flow(_slice(_read(COVERAGE), "**Deep Tier", "**States 2 to 4"))
     assert "by `{signatureRulesFile}` and adds each that differs to the JSON above as `doc_errors`" in deep
+
+
+def test_a_documented_extra_s_internal_declarations_are_its_declarations_for_the_split_body_source():
+    """Review of #1087: plan and score read a documented extra's `internalDeclarations` entries as its records, so
+    its form is judged and graded at its declaration, but the split-body Source read a name's declarations as its
+    `exports` records and `otherDeclarations` entries alone. For `detect_code_language`, declared only at
+    `pkg/text.py:4` as `(*, filename: str)`, with SKILL.md writing `(filename: str, content: str) -> str` and
+    references/api.md the source's form, score wrote a Critical at the declaration while the Source found no
+    declaration, said no source settled the pair and asked to edit references/api.md, the side that agrees, to take
+    SKILL.md's form. Its one-declaration test and its reading of a name declared more than once now take such a
+    name's internal declarations as its declarations; the rules say so for the forms §2's `bound` binds, whose
+    paragraph in coverage-check.md names them by that term; and source-access-protocol.md names the Source among
+    the key's readers."""
+    split_body = _flow(_read(REFS / "coverage-check-branches.md").split("\n## Split-Body Sources\n", 1)[1])
+    one = ("against the export's declaration at the `file` and `line` `surface.json` gives (for a name with no "
+           "`exports` record, such as a documented extra, its `internalDeclarations` entry), by its rules, when that "
+           "one declaration decides")
+    each = ("set each form against each declaration of the name, its `surface.json` records (for a name with none, "
+            "its `internalDeclarations` entries) and its `otherDeclarations` entries, read at their `file` and `line`")
+    for sentence in (one, each):
+        assert split_body.count(sentence) == 1, sentence
+    assert split_body.index(one) < split_body.index(each)
+    homonyms = _paragraph(_read(RULES), "In the split-body cross-check both forms are documented")
+    assert ("or coverage-check.md §2's `bound` binds them to two, a declaration being one of the name's surface "
+            "records (for a name with no `exports` record, its `internalDeclarations` entries) or one `surface.json` "
+            "lists in `otherDeclarations`") in homonyms
+    bound = _paragraph(_read(COVERAGE), "A check's `bound` lists each form")
+    assert "whose own citations name one declaration of the name: one of its surface records" in bound
+    held = _flow(_read(REFS / "source-access-protocol.md"))
+    assert ("`plan`, `score` and coverage-check-branches.md's Split-Body Sources read them as the records of such a "
+            "name") in held
+    assert "reads them: `plan` and `score` read them" not in held
 
 
 def test_a_form_claims_only_what_it_writes():
@@ -968,8 +1008,9 @@ def test_the_split_body_cross_check_compares_what_both_forms_write():
     homonyms = ("Forms of one name attributed to different declarations of it are two exports, never compared with "
                 "each other in the split-body cross-check: their own citations, read at each form's inventory `at` as "
                 "inventory-contract.md says, name two declarations, or coverage-check.md §2's `bound` binds them to "
-                "two, a declaration being one of the name's surface records or one `surface.json` lists in "
-                "`otherDeclarations` (each judge reads the signals it has).")
+                "two, a declaration being one of the name's surface records (for a name with no `exports` record, "
+                "its `internalDeclarations` entries) or one `surface.json` lists in `otherDeclarations` (each judge "
+                "reads the signals it has).")
     each = ("Each is compared only with the forms attributed to its own declaration, a form attributed to neither is "
             "a mismatch only when it contradicts the forms of both, and §2 holds a bound form to its bound "
             "declaration alone and an unbound one to the check's candidates (below).")
@@ -1527,7 +1568,8 @@ def test_every_coverage_check_judge_names_the_rules_file():
     assert "follow its **Split-Body Sources** section" in _paragraph(text, "**A split-body mismatch's Source**")
     split_body = _flow(_read(REFS / "coverage-check-branches.md").split("\n## Split-Body Sources\n", 1)[1])
     assert ("load `{signatureRulesFile}` and set the two forms its `issue` gives against the export's declaration at "
-            "the `file` and `line` `surface.json` gives, by its rules, when that one declaration decides") in split_body
+            "the `file` and `line` `surface.json` gives (for a name with no `exports` record, such as a documented "
+            "extra, its `internalDeclarations` entry), by its rules, when that one declaration decides") in split_body
     assert OVERLOAD_RULE not in text
     candidates = _paragraph(text, "A check with `candidates` reads each")
     assert candidates.endswith("and its `difference` tagged against it."), candidates

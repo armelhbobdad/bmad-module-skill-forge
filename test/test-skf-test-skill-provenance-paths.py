@@ -2634,8 +2634,10 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
             "names) and that no surface record names, each declaration of it the extraction records in a file the "
             "brief does not exclude, in the fields `otherDeclarations` uses; it is `null` exactly when "
             "`otherDeclarations` is. They add no name to a set either, and neither Export Coverage nor Type Coverage "
-            "reads them: `plan` and `score` read them as the records of such a name, so a documented extra's "
-            "signature is planned, judged and counted in Signature Accuracy at its declaration.") in held
+            "reads them: `plan`, `score` and coverage-check-branches.md's Split-Body Sources read them as the records "
+            "of such a name, so a documented extra's signature is planned, judged and counted in Signature Accuracy "
+            "at its declaration, and the two forms of a split-body mismatch of it are set against that declaration."
+            ) in held
     internal = _flow(_slice(_read(SOURCE_ACCESS), "Internal module symbols are", "This matches the extraction"))
     assert ("the extraction's `internal` names reach it only as `internalDeclarations` (What the Surface Holds, "
             "below), which add no name to its sets or to the coverage denominator.") in internal
@@ -3525,7 +3527,8 @@ CARVED_TO_BRANCHES = {
         "The Source is `{reference_file}:{reference_line}`, of two references the one that sorts last, unless the "
         "pinned source settles it for the other side. At State 1 and the Forge tier or above, with `workspaceDrift` "
         "not `overridden`, load `{signatureRulesFile}` and set the two forms its `issue` gives against the export's "
-        "declaration at the `file` and `line` `surface.json` gives, by its rules, when that one declaration decides "
+        "declaration at the `file` and `line` `surface.json` gives (for a name with no `exports` record, such as a "
+        "documented extra, its `internalDeclarations` entry), by its rules, when that one declaration decides "
         "(no overload set, no second declaring file, and an `otherDeclarations` list, not `null`, with no entry of the "
         "export's name; `null` means no runner extraction looked for one, as after the fallback per-file scan): when "
         "`{reference_file}`'s form agrees and the other side's does not, the Source is the other side, "
@@ -3552,7 +3555,8 @@ CARVED_TO_BRANCHES = {
         "Under the State, tier and `workspaceDrift` conditions above, when nothing decides because the export's name "
         "has more than one declaration (a second declaring file, or an `otherDeclarations` entry of its name), on a "
         "pair that gives no `owner` and whose `export` the inventory does not list only as a `method`, set each form "
-        "against each declaration of the name, its `surface.json` records and its `otherDeclarations` entries, read "
+        "against each declaration of the name, its `surface.json` records (for a name with none, its "
+        "`internalDeclarations` entries) and its `otherDeclarations` entries, read "
         "at their `file` and `line`, or found by its name in its `file` when its `line` is `null` (a per-file "
         "record): when each form agrees with a different one, the remediation names no form to take. For each side "
         "it gives the form's file and line and the declaration that form agrees with, and asks update-skill to add "

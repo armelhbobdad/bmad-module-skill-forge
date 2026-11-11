@@ -890,7 +890,8 @@ class TestStagesRecordTheirGaps:
                     "export's name has more than one declaration (a second declaring file, or an `otherDeclarations` "
                     "entry of its name), on a pair that gives no `owner` and whose `export` the inventory does not "
                     "list only as a `method`, set each form against each declaration of the name, its `surface.json` "
-                    "records and its `otherDeclarations` entries, read at their `file` and `line`, or found by its "
+                    "records (for a name with none, its `internalDeclarations` entries) and its `otherDeclarations` "
+                    "entries, read at their `file` and `line`, or found by its "
                     "name in its `file` when its `line` is `null` (a per-file record): when each form agrees with a "
                     "different one, the remediation names no form to take.")
         # it asks for the citation each form's own citations are read from, and a module or owner the reader reads;

@@ -394,9 +394,11 @@ scope.exclude glob matches, as {name, kind, file, line, signatureLine},
 built as an other declaration is; [] with none, and null exactly when
 `otherDeclarations` is. No entry point exports such a name, so one the
 skill documents is a documented extra. They join no set, no count, no
-guard and no summary key: score-signatures.py plan and score read them as
+guard and no summary key: score-signatures.py plan and score, and
+test-skill's Split-Body Sources (coverage-check-branches.md), read them as
 the records of a name the surface holds no record of, so a documented
-extra's signature is compared at its declaration.
+extra's signature is compared at its declaration and the two forms of a
+split-body pair of it are set against that declaration.
 
 Unresolved stars (surface `unresolvedStars`, #1005): each `export *` or
 `export type *` from another package (a specifier with no leading `.` or
@@ -1649,8 +1651,9 @@ def internal_declarations(records: list[dict], declarations: list[dict], interna
     record names, each of `declarations` (a re-export left out) recorded
     under the name in a file no exclude glob matches, as other_declarations
     gives an item (a stand-in record with no file keeps none out). They are
-    no records: score-signatures.py plan and score read them as the records
-    of a documented extra, so its documented signature is compared there."""
+    no records: score-signatures.py plan and score, and test-skill's
+    Split-Body Sources, read them as the records of a documented extra, so
+    its documented signature is compared there."""
     named = {record["name"] for record in records}
     stand_ins = [{"name": name, "file": None} for name in internal if name not in named]
     return other_declarations(stand_ins, declarations, {}, excludes)

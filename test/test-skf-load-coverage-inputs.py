@@ -2101,6 +2101,21 @@ def test_internal_declarations_are_unknown_when_other_declarations_are(tmp_path)
     assert "and null exactly when `otherDeclarations` is." in " ".join(mod.__doc__.split())
 
 
+def test_the_internal_declarations_docstrings_name_the_split_body_source_among_their_readers():
+    """Review of #1087: test-skill's Split-Body Sources sets the two forms of a documented extra's split-body pair
+    against its internal declarations, as plan and score read them as its records, and both docstrings name it
+    beside them, no longer plan and score alone."""
+    doc = " ".join(mod.__doc__.split())
+    assert ("score-signatures.py plan and score, and test-skill's Split-Body Sources (coverage-check-branches.md), "
+            "read them as the records of a name the surface holds no record of, so a documented extra's signature "
+            "is compared at its declaration and the two forms of a split-body pair of it are set against that "
+            "declaration.") in doc
+    helper = " ".join(mod.internal_declarations.__doc__.split())
+    assert ("They are no records: score-signatures.py plan and score, and test-skill's Split-Body Sources, read them "
+            "as the records of a documented extra, so its documented signature is compared there.") in helper
+    assert "plan and score read them as the records" not in doc + helper
+
+
 @pytest.mark.parametrize("patch, reason", [
     ({"status": "no-ast-grep", "exports": []}, "no ast-grep the runner can run"),
     ({"files_in_scope": 0}, "no file in scope"),
