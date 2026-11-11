@@ -1109,7 +1109,7 @@ class TestStaleNameLineCheck:
             "a helper that does not resolve or exits non-zero",
             "A name with a `defined_at` (the source still declares it there, an import never counting, a module "
             "so named counting unless the name's inventory kind rules it out), or whose `declared_in` lists several "
-            "files of which its form's own `[AST:]`/`[SRC:]` citations (at its inventory `at`), else the skill's "
+            "files of which its forms' own `[AST:]`/`[SRC:]` citations (at their inventory `at`), else the skill's "
             "on lines naming it, cite exactly one (or a package and its same-named module), is a "
             "documented extra: an Info `observation` gap at "
             "that declaration, when `surface.json` has an `extraction` and its `excluded.outsideScope` does not "

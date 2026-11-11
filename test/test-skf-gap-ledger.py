@@ -35,9 +35,10 @@ counts and the Gap Report is rendered from:
     name stays Critical, a malformed `excluded` is invalid input, the
     `defined_at` extensions are pinned to the verifier's, and the
     coverage-check §5b call records one; a homonym (no `defined_at`,
-    several `declared_in` files) is one when its form's own citations at
-    its inventory `at` (#1077, read before a line that names it only as
-    another export's type argument, on the #969 path too), else the
+    several `declared_in` files) is one when its forms' own citations at
+    their inventory `at` (#1077, every form counted and each reading the
+    name's other places in its file, read before a line that names it only
+    as another export's type argument, on the #969 path too), else the
     skill's `[AST:]`/`[SRC:]`
     citations on a line naming it (a table row's in its own cells, never
     in the next row, #1066), cite exactly one of those files, or
@@ -2142,6 +2143,47 @@ class TestCoverageAdapter:
             assert record["issue"].endswith("the source still declares")
         else:
             assert record["issue"].endswith("of the 2 files that declare it, the skill cites only `pkg/app.py`")
+
+    # #1077 review: the inventory gives `Task` one entry per form, a row in SKILL.md and a fenced class in
+    # references/api.md, each read with its own citations.
+    TASK_ROW = "# demo\n\n| `Task` | class | `[AST:pkg/tasks/task.py:L24]` |\n"
+    TWO_FORMS = {"exports": [{"name": "Task", "kind": "class", "description": "", "at": "SKILL.md:3"},
+                             {"name": "Task", "kind": "class", "description": "", "params": "fn, size",
+                              "at": "references/api.md:4"}]}
+
+    @pytest.mark.parametrize("refs, expected", [
+        ("# API\n\n```python\nclass Task(fn, size): ...  # [AST:pkg/models/Task.py:L9]\n```\n", None),
+        ("# API\n\n```python\nclass Task(fn, size): ...  # [AST:pkg/tasks/task.py:L24]\n```\n",
+         "its forms at `SKILL.md:3` and `references/api.md:4` cite only `pkg/tasks/task.py`"),
+        ("# API\n\n```python\nclass Task(fn, size): ...\n```\n",
+         "its form at `SKILL.md:3` cites only `pkg/tasks/task.py`"),
+    ], ids=["each-form-cites-another-file", "both-forms-cite-one-file", "one-form-cites-none"])
+    def test_every_form_of_a_homonym_counts(self, tmp_path: Path, refs: str, expected: str | None):
+        """Forms that cite two declaring files between them leave the skill's lines to decide, which cite both
+        here: a Medium, as before #1077 (on its first fix, SKILL.md's form alone made it an Info at
+        `pkg/tasks/task.py`). Forms that cite one name each form that cites it."""
+        record = self._homonym(tmp_path, self.TASK_ROW, refs, inventory=self.TWO_FORMS)
+        if expected is None:
+            assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
+            return
+        assert brief([record]) == [("Info", "observation", "Documented extra: Task", "pkg/tasks/task.py:24", "Task")]
+        assert record["issue"].endswith(f"of the 2 files that declare it, {expected}")
+
+    def test_a_fenced_block_holding_two_forms_shares_no_block_citation(self, tmp_path: Path):
+        """#1077 review: as score-signatures.py's plan reads them, each form reads the name's other places in its
+        file, so a fenced block that holds two gives neither the citation after its closing fence. Neither cites a
+        declaring file, and the skill's lines, which cite none, leave a Medium (on the first fix the first form
+        took the block's citation and made it an Info at `pkg/tasks/task.py`)."""
+        refs = "# API\n\n```python\nclass Task(fn)\n\nclass Task(fn, size)\n```\n[AST:pkg/tasks/task.py:L24]\n"
+        inventory = {"exports": [
+            {"name": "Task", "kind": "class", "description": "", "params": "fn", "at": "references/api.md:4"},
+            {"name": "Task", "kind": "class", "description": "", "params": "fn, size", "at": "references/api.md:6"}]}
+        record = self._homonym(tmp_path, "# demo\n\nSee references.\n", refs, inventory=inventory)
+        assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
+        # one place in the block keeps the block's citation
+        record = self._homonym(tmp_path, "# demo\n\nSee references.\n", refs,
+                               inventory={"exports": inventory["exports"][:1]})
+        assert brief([record]) == [("Info", "observation", "Documented extra: Task", "pkg/tasks/task.py:24", "Task")]
 
     # #1005: oms-storybook documents @vitest/spy's `Mock`, cited at spy.ts's `export type * from '@vitest/spy'`,
     # which no script resolves, so the enumerated surface never holds the names it passes on.

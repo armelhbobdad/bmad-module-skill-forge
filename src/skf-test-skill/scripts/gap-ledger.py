@@ -116,17 +116,20 @@ cites (never read; default `metadata.json`):
             `Documented extra: {name}` at `defined_at`. With no
             `defined_at`, a homonym (its `declared_in`
             lists several declaring files) is one too, with --skill-dir,
-            when its form's own citations (at its inventory `at`), else the
+            when its forms' own citations (at their inventory `at`), else the
             skill's on lines naming it, cite exactly one of those files: the
-            gap is at that file's `declared_in` item. Its form's own are the
+            gap is at that file's `declared_in` item. Its forms' own are the
             `[AST:]` and `[SRC:]` citations validate-inventory.py's
-            form_citations gives the form at the --inventory `at` named
-            below (one with no `:L<n>` part included), read first since a
+            form_citations gives the form at each --inventory `at` of an
+            entry of the name that is no `method` (one with no `:L<n>` part
+            included), with the name's other places in that file, as
+            score-signatures.py's plan reads them, read first since a
             line that writes the name only as a type argument of another
             export cites that export's file (#1077); the issue then names
-            that place ("its form at ... cites only"). The skill's, read
-            when those cite no single file or there is no such `at` (the
-            issue then says "the skill cites only"), are its
+            the forms that cite it ("its form at ... cites only", "its
+            forms at ... and ... cite only"). The skill's, read
+            when those cite no single file between them or there is no such
+            `at` (the issue then says "the skill cites only"), are its
             `[AST:path:L<n>]` and `[SRC:path:L<n>]`
             citations on the lines of SKILL.md and references/**/*.md that
             name it (outside the citations), or on the next non-blank line
@@ -195,8 +198,9 @@ cites (never read; default `metadata.json`):
             which keeps an `at` only on a line that writes the name) gives
             an entry of the name that is no `method`: SKILL.md's, then the
             first file in path order, then its lowest line (#1006). With
-            none, the Source is `SKILL.md`. That `at` is also a homonym's
-            form, whose own citations pick its declaring file first (#1077).
+            none, the Source is `SKILL.md`. Each such `at` of the name is
+            also one of a homonym's forms, whose own citations pick its
+            declaring file first (#1077).
             An --inventory that is no object
             with an `exports` list is INVALID_INPUT.
             Floor's InputError (no SKILL.md, or a top-level file it cannot
@@ -1263,26 +1267,31 @@ def _documenting_line(skill_dir: Path, name: str) -> str | None:
     return _documenting_lines(skill_dir).get(name)
 
 
-def _inventory_places(inventory: object) -> dict[str, str]:
-    """name -> the first `at` the --inventory result (validate-inventory.py's, which with --skill-package keeps
-    only an `at` whose line writes the name) gives an entry of that name that is no `method`: SKILL.md's, then
-    the first file in path order, then its lowest line, as `_documenting_lines` orders its tiers (#1006). An
+def _inventory_forms(inventory: object) -> dict[str, list[tuple[str, int]]]:
+    """name -> every (path, line) `at` the --inventory result (validate-inventory.py's, which with --skill-package
+    keeps only an `at` whose line writes the name) gives an entry of that name that is no `method`, each once:
+    SKILL.md's first, then the files in path order, then their lines, as `_documenting_lines` orders its tiers
+    (#1006). They are the places of its forms, whose own citations pick a homonym's declaring file (#1077). An
     entry with no `at`, or one that is no "<path>:<line>", gives none. An inventory that is no object with an
     `exports` list raises AdapterError."""
     if inventory is None:
         return {}
     exports = _list(_object(inventory, "--inventory (validate-inventory.py)", "exports"), "exports", "--inventory")
     parse_at = _sibling("validate-inventory.py").parse_at
-    first: dict[str, tuple[bool, str, int]] = {}
+    places: dict[str, set[tuple[str, int]]] = {}
     for entry in exports:
         if not isinstance(entry, dict) or entry.get("kind") == "method" or not isinstance(entry.get("name"), str):
             continue
         at = parse_at(entry.get("at"))
         if at is not None:
-            key = (at[0] != "SKILL.md", *at)
-            if entry["name"] not in first or key < first[entry["name"]]:
-                first[entry["name"]] = key
-    return {name: f"{path}:{line}" for name, (_, path, line) in first.items()}
+            places.setdefault(entry["name"], set()).add(at)
+    return {name: sorted(spots, key=lambda at: (at[0] != "SKILL.md", *at)) for name, spots in places.items()}
+
+
+def _inventory_places(forms: dict[str, list[tuple[str, int]]]) -> dict[str, str]:
+    """name -> the first `at` of its `_inventory_forms`: SKILL.md's, then the first file in path order, then its
+    lowest line (#1006)."""
+    return {name: f"{path}:{line}" for name, [(path, line), *_] in forms.items()}
 
 
 def _documents(doc: str | None, name: str) -> str:
@@ -1300,8 +1309,8 @@ def _scoped_out_by(row: dict) -> bool:
                  or row.get("outsideInclude") is True))
 
 
-def _outside_scope(surface: dict | None, stale: dict[str, dict] | None = None,
-                   skill_dir: str | None = None, placed: dict[str, str] | None = None) -> dict[str, dict] | None:
+def _outside_scope(surface: dict | None, stale: dict[str, dict] | None = None, skill_dir: str | None = None,
+                   forms: dict[str, list[tuple[str, int]]] | None = None) -> dict[str, dict] | None:
     """The names a surface result's `excluded.outsideScope` lists (defined in
     a file out of scope), each with its row: the first the brief explains
     (`_scoped_out_by`), else the first with a file, else its first. None
@@ -1315,8 +1324,8 @@ def _outside_scope(surface: dict | None, stale: dict[str, dict] | None = None,
     is the submodule, which no brief scoped out, while another row of the
     name still lists it. It stays when its `file` is the one the classified
     stale item of its name (`stale`) says the source declares it in, where
-    `_documented_extra_at` would put the gap, given the name's inventory
-    `at` (`placed`, `_inventory_places`): that name is the member."""
+    `_documented_extra_at` would put the gap, given the places of the
+    name's forms (`forms`, `_inventory_forms`): that name is the member."""
     excluded = (surface or {}).get("excluded")
     if excluded is None:
         return None
@@ -1342,7 +1351,7 @@ def _outside_scope(surface: dict | None, stale: dict[str, dict] | None = None,
         if isinstance(row, dict) and isinstance(row.get("name"), str):
             if (isinstance(row.get("namespace"), str) and row["namespace"] and row["namespace"] == row["name"]
                     and not _declared_in_file(row, (stale or {}).get(row["name"]) or {}, skill_dir,
-                                              (placed or {}).get(row["name"]))):
+                                              (forms or {}).get(row["name"]))):
                 continue  # the member, not the module the skill documents by that name
             known = outside.get(row["name"])
             if known is None or rank(row) > rank(known):
@@ -1350,13 +1359,14 @@ def _outside_scope(surface: dict | None, stale: dict[str, dict] | None = None,
     return outside
 
 
-def _declared_in_file(row: dict, item: dict, skill_dir: str | None, at: str | None = None) -> bool:
+def _declared_in_file(row: dict, item: dict, skill_dir: str | None,
+                      forms: list[tuple[str, int]] | None = None) -> bool:
     """Whether a stale item says the source declares its name in an
     `excluded.outsideScope` row's file: its `defined_at`, or its one cited
-    `declared_in` item (its form's own citations at its inventory `at`
+    `declared_in` item (its forms' own citations at their inventory `at`
     first, #1077), the place `_documented_extra_at` reads whatever the
     brief scopes out (an empty `outside`)."""
-    extra = _documented_extra_at(row["name"], item, {}, skill_dir, at)
+    extra = _documented_extra_at(row["name"], item, {}, skill_dir, forms)
     if not extra or not isinstance(row.get("file"), str) or not row["file"]:
         return False
     cited_path = _sibling("validate-inventory.py")._cited_path
@@ -1372,27 +1382,31 @@ _DEFINED_AT_RE = re.compile(
 
 
 def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None, skill_dir: str | None = None,
-                         at: str | None = None) -> tuple[str, int, list[str], str | None] | None:
+                         forms: list[tuple[str, int]] | None = None) -> tuple[str, int, list[str], list[str]] | None:
     """Where the source declares a stale name that is a documented extra, given
     a surface built from an extraction whose `excluded.outsideScope` does not
-    list the name: (the item's `defined_at`, 0, [], None), or, with no
+    list the name: (the item's `defined_at`, 0, [], []), or, with no
     `defined_at`, when `declared_in` lists several files, the one
-    `declared_in` item whose file its form's own citations (at its inventory
-    `at`), else the skill's on lines naming it, cite. Its form's own are
-    every `[AST:]` and `[SRC:]` citation validate-inventory.py's
-    form_citations gives the form at `at` ("<path>:<line>", a SKILL.md or
-    references/**/*.md file), one with no `:L<n>` part included: a line
-    that writes the name only as a type argument of another export cites
-    that export's file (#1077). The skill's are the ones
+    `declared_in` item whose file its forms' own citations (at their
+    inventory `at`), else the skill's on lines naming it, cite. Its forms'
+    own are every `[AST:]` and `[SRC:]` citation validate-inventory.py's
+    form_citations gives the form at each of `forms` (_inventory_forms: a
+    (path, line) in a SKILL.md or references/**/*.md file), with the name's
+    other places in that file, as score-signatures.py's _bindings reads
+    them, one with no `:L<n>` part included: a line that writes the name
+    only as a type argument of another export cites that export's file
+    (#1077), and every form counts, so one form never hides another's
+    citation of a second declaring file. The skill's are the ones
     validate-inventory.py's _skill_cited_files reads on a line that names it,
-    read when its form's own cite no single file: no `at`, one in no skill
-    file, or a form citing none of those files or two. That pick is (the
-    item, the number of files `declared_in` lists, [], its form's
-    "<path>:<line>", or None for the skill's). Cited items that are only a
+    read when its forms' own cite no single file between them: no `forms`,
+    none in a skill file, or forms citing none of those files or two. That
+    pick is (the item, the number of files `declared_in` lists, [], each
+    form's "<path>:<line>" that cites the picked file, or [] for the
+    skill's). Cited items that are only a
     package `<dir>/NAME/__init__.py` and modules named NAME directly in its
     folder (`<dir>/NAME/NAME.py` or `.pyi`) count, in either reading, as
     that one file, the package the import path `<dir>.NAME` resolves to
-    (#1012): (its item, the count, those modules' items, the form or None).
+    (#1012): (its item, the count, those modules' items, the forms or []).
     None for anything else, which stays a Medium gap: no `defined_at` and no
     single cited declaring file (two or more cited that are not such a
     package and its modules, or none, in both readings, or no --skill-dir),
@@ -1407,7 +1421,7 @@ def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
     if defined_at is not None:
         if not isinstance(defined_at, str) or not _DEFINED_AT_RE.match(defined_at):
             return None
-        return defined_at, 0, [], None
+        return defined_at, 0, [], []
     declared_in = item.get("declared_in")
     if not skill_dir or not isinstance(declared_in, list) or not all(
             isinstance(d, str) and _DEFINED_AT_RE.match(d) for d in declared_in):
@@ -1418,15 +1432,19 @@ def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
     if len(by_file) < 2:
         return None
     texts = citations.skill_markdown_by_path(Path(skill_dir))
-    place = citations.parse_at(at)
-    if place is not None:
-        # its form's own citations first: a line naming it as another export's type argument cites that export (#1077)
-        own = {cited for cited, _, _ in citations.form_citations(texts.get(place[0]) or [], place[1], name)}
-        picked = _one_cited_file(name, by_file, own)
-        if picked:
-            return (*picked, f"{place[0]}:{place[1]}")
+    # its forms' own citations first: a line naming it as another export's type argument cites that export (#1077);
+    # each form reads the name's other places in its file, as score-signatures.py's _bindings does
+    own: dict[str, set[str]] = {}
+    for path, line in forms or []:
+        others = {other for where, other in forms if where == path and other != line}
+        own[f"{path}:{line}"] = {cited for cited, _, _ in citations.form_citations(
+            texts.get(path) or [], line, name, others)}
+    picked = _one_cited_file(name, by_file, set().union(*own.values()))
+    if picked:
+        files = {citations._cited_path(d.rsplit(":", 1)[0]) for d in (picked[0], *picked[2])}
+        return (*picked, [at for at, cited in own.items() if cited & files])
     picked = _one_cited_file(name, by_file, citations._skill_cited_files(Path(skill_dir), name, list(texts.values())))
-    return (*picked, None) if picked else None
+    return (*picked, []) if picked else None
 
 
 def _one_cited_file(name: str, by_file: dict[str, str], cited: set[str]) -> tuple[str, int, list[str]] | None:
@@ -1667,8 +1685,9 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
     `export *` from another package no script resolves, #1005, or whose provenance map entry cites such a star's
     own line, `_entry_stars`, which a fabricated name then is not, #1070), or stale documentation (with its own
     wording for a name defined in a file the brief scopes out, #796). A name no line documents (`_documenting_lines`)
-    is documented at its inventory place (`_inventory_places`, #1006), else by the skill. That place is also the
-    form whose own citations pick a homonym's declaring file first (`_documented_extra_at`, #1077)."""
+    is documented at its first inventory place (`_inventory_places`, #1006), else by the skill. Each of its
+    inventory places is a form whose own citations pick a homonym's declaring file first (`_documented_extra_at`,
+    #1077)."""
     records: list[dict] = []
     # `excluded` is read once a stale name may be a documented extra
     outside: dict[str, dict] | None = None
@@ -1684,8 +1703,10 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
     names = _names(cov, "stale", "--input")
     # the lines that document each name, read once for every stale name
     documenting = _documenting_lines(Path(skill_dir)) if skill_dir and names else {}
-    # the validated inventory's place of a name no line documents as an export (#1006)
-    placed = _inventory_places(inventory)
+    # the validated inventory's places of each name's forms (#1077), the first that of a name no line documents
+    # as an export (#1006)
+    forms = _inventory_forms(inventory)
+    placed = _inventory_places(forms)
     for name in names:
         item = classified.get(name) or {}
         cited = item.get("source")
@@ -1708,18 +1729,19 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
                 export=name))
             continue
         if not outside_read:
-            outside, outside_read = _outside_scope(surface, classified, skill_dir, placed), True
-        extra = _documented_extra_at(name, item, outside, skill_dir, placed.get(name))
+            outside, outside_read = _outside_scope(surface, classified, skill_dir, forms), True
+        extra = _documented_extra_at(name, item, outside, skill_dir, forms.get(name))
         if extra:
-            declared, among, modules, form = extra
-            # a homonym: the one declaring file its form's own citations name (#1077), else the skill's
-            who = f"its form at `{form}`" if form else "the skill"
-            picked = (f"; of the {among} files that declare it, {who} cites only "
+            declared, among, modules, named = extra
+            # a homonym: the one declaring file its forms' own citations name (#1077), else the skill's
+            who = ("the skill cites" if not named else f"its form at `{named[0]}` cites" if len(named) == 1 else
+                   f"its forms at {' and '.join(f'`{at}`' for at in named)} cite")
+            picked = (f"; of the {among} files that declare it, {who} only "
                       f"`{declared.rsplit(':', 1)[0]}`") if among else ""
             if modules:
                 # a package cited with its same-named module, #1012
                 same_named = " and ".join(f"`{m.rsplit(':', 1)[0]}`" for m in modules)
-                picked = (f"; of the {among} files that declare it, {who} cites only the package "
+                picked = (f"; of the {among} files that declare it, {who} only the package "
                           f"`{declared.rsplit(':', 1)[0]}` and its same-named module {same_named}, so the gap is at "
                           "the package")
             # never routed: update-skill leaves an `observation` alone. Signature scoring compares a
@@ -2559,8 +2581,8 @@ def _build_parser() -> argparse.ArgumentParser:
                                    "rename declares)")
     p.add_argument("--provenance", help="coverage: the provenance map (an absent name's Source)")
     p.add_argument("--inventory", help="coverage: validate-inventory.py's inventory (the `at` of a stale name no "
-                                       "line documents, and of a homonym's form, whose own citations pick its "
-                                       "declaring file)")
+                                       "line documents, and of each of a homonym's forms, whose own citations pick "
+                                       "its declaring file)")
     p.add_argument("--skill-dir", help="coverage: the skill package (a stale name's documenting line)")
     p.add_argument("--metadata", help="the metadata.json path a record cites as its Source (not read)")
     p.add_argument("--served", action="append", choices=FAMILIES,
