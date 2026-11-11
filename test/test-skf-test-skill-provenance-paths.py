@@ -738,7 +738,7 @@ def test_each_stage_and_each_by_eye_read_renews_the_lock():
         assert needle in row, needle
     docs = _flow(_slice(_read(REPO_ROOT / "docs" / "troubleshooting.md"),
                         "### Test Skill stops with `another-run-active`", "\n### "))
-    for needle in ("because one subagent ran 180 minutes, or one command 60 minutes, past its last renewal",
+    for needle in ("because one subagent ran 180 minutes, or the main thread's own work 60 minutes, past its last renewal",
                    "the run renews its lock as each step before the health check starts, after it reads source "
                    "files by eye,",
                    # A renewal that fails as a step starts halts under that step's phase.
@@ -826,7 +826,7 @@ def test_each_dispatch_renews_the_lock_for_180_minutes(tmp_path):
                    "subagent's work,",
                    "a renewal before a subagent or that work lasts 180 minutes, since nothing renews the lock "
                    "while one runs)",
-                   "because one subagent ran 180 minutes, or one command 60 minutes, past its last renewal"):
+                   "because one subagent ran 180 minutes, or the main thread's own work 60 minutes, past its last renewal"):
         assert needle in docs, needle
     init_comments = _flow(_read(INIT).replace("\n#", ""))
     assert ("right before each subagent dispatch for 180 minutes (or, without subagents, before the main "

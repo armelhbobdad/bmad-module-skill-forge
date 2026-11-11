@@ -388,6 +388,15 @@ class TestStoredWindow:
         acquire_doc = " ".join(doc[doc.index("\nacquire\n"):doc.index("\nrelease\n")].split())
         assert "or than the window the holder stored in the lock when that one is longer" in acquire_doc
 
+    def test_the_cli_help_names_the_stored_window(self):
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "acquire", "--help"],
+                              capture_output=True, text=True, timeout=60)
+        assert proc.returncode == 0, proc.stderr
+        # The option's own entry, after the usage line that also names it.
+        flag = " ".join(proc.stdout[proc.stdout.rindex("--stale-after STALE_AFTER"):].split())
+        assert "another run's lock is stale, unless that lock stores a longer window" in flag
+        assert "the lock this call takes or renews stores this one (default 60, at most 525600)" in flag
+
 
 # ─── release ────────────────────────────────────────────────────────────────
 

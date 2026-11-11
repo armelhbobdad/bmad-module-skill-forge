@@ -583,8 +583,10 @@ def _build_parser() -> argparse.ArgumentParser:
     p_acquire.add_argument("--owner", required=True,
                            help="<workflow>:<skill>:<run_id>; a new run id is added when missing")
     p_acquire.add_argument("--stale-after", type=float, default=DEFAULT_STALE_AFTER_MIN,
-                           help="minutes after which another run's lock is stale "
-                                "(default 60, at most 525600)")
+                           help="minutes after which another run's lock is stale, unless "
+                                "that lock stores a longer window; the lock this call "
+                                "takes or renews stores this one (default 60, at most "
+                                "525600)")
 
     p_release = sub.add_parser("release", help="delete the lock when this owner holds it")
     p_release.add_argument("--lock", required=True, help="full path of the lock file")
