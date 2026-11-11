@@ -866,11 +866,12 @@ def uncounted_mismatches(cross, exports, texts, names, skill_package_path):
     side's (`SKILL.md` for `skill_md_line`, else `other_file`) and then
     `reference_file`: both resolve to one path (cross_checked counts a file
     once); a file is not one `texts` holds (`references` does not list it,
-    or it cannot be read); or a file does not write it, by cross_checked's
-    match (_names_written). A pair of two lines of one file, or one naming
-    a reference the inventory does not read, passes the schema, so this is
-    never a violation. Returns `(index, item)` pairs in list order, each
-    item `{"export", "reference_file", "why"}`.
+    or it cannot be read or resolves outside the package); or a file does
+    not write it, by cross_checked's match (_names_written). A pair of two
+    lines of one file, or one naming a reference the inventory does not
+    read, passes the schema, so this is never a violation. Returns
+    `(index, item)` pairs in list order, each item `{"export",
+    "reference_file", "why"}`.
     """
     root = Path(skill_package_path)
     written = _names_written({e["name"] for e in exports if _spellings(e)}, texts)
@@ -889,10 +890,10 @@ def uncounted_mismatches(cross, exports, texts, names, skill_package_path):
                    "two or more files write")
         elif len(unread) == 1:
             why = (f"{_joined(unread)} is not a file the inventory reads (`references` does not list it, or it "
-                   "cannot be read)")
+                   "cannot be read or resolves outside the package)")
         elif unread:
             why = (f"{_joined(unread)} are not files the inventory reads (`references` does not list them, or they "
-                   "cannot be read)")
+                   "cannot be read or resolve outside the package)")
         else:
             silent = [file for file, path in zip(files, paths) if stands_for.isdisjoint(written[path])]
             if len(silent) == 1:

@@ -1040,7 +1040,8 @@ def test_a_name_a_file_cites_only_in_a_citation_path_is_not_counted(tmp_path):
 # and then `reference_file`.
 
 ONE_FILE = "its two places are in one file, `references/b.md`, and the count takes only a name two or more files write"
-NOT_READ = "`references/c.md` is not a file the inventory reads (`references` does not list it, or it cannot be read)"
+NOT_READ = ("`references/c.md` is not a file the inventory reads (`references` does not list it, or it cannot be read "
+            "or resolves outside the package)")
 
 
 def _mismatched(pkg, pair, listed):
@@ -1066,7 +1067,7 @@ def _mismatched(pkg, pair, listed):
     ("# Demo\n\n`a(x)`\n", {"a.md": "`a(y)`\n"}, ["references/c.md"],
      {"other_file": "references/a.md", "other_line": 1, "reference_file": "references/c.md", "reference_line": 1},
      "`references/a.md` and `references/c.md` are not files the inventory reads (`references` does not list them, "
-     "or they cannot be read)"),
+     "or they cannot be read or resolve outside the package)"),
     ("# Demo\n\nIntro.\n\n`a(x)` runs it.\n", {"api.md": "# API\n\n`b(y)` runs it.\n"}, ["references/api.md"],
      {"skill_md_line": 5, "reference_file": "references/api.md", "reference_line": 3},
      "`references/api.md` does not write it"),
@@ -1098,6 +1099,26 @@ def test_a_mismatch_the_count_leaves_out_is_named_with_why(tmp_path, skill_md, r
     assert without["valid"] is True and without["warnings"] == [], without["violations"]
     assert "crossChecked" not in without["inventory"]
     assert without["inventory"]["cross_check_mismatches"] == [mismatch]
+
+
+def test_a_listed_readable_reference_outside_the_package_is_named_as_not_read(tmp_path):
+    """references/api.md links to a readable file outside the package and `references` lists it: the inventory never
+    reads it (_package_texts), so the reason names that cause too, not only an unlisted or unreadable file."""
+    pkg = _package(tmp_path, "# Demo\n\n`a(x)`\n")
+    (tmp_path / "elsewhere.md").write_bytes(b"`a(y)`\n")
+    try:
+        (pkg / "references" / "api.md").symlink_to(tmp_path / "elsewhere.md")
+    except (OSError, NotImplementedError):
+        pytest.skip("symlinks not supported on this platform")
+    r, _, mismatch = _mismatched(pkg, {"skill_md_line": 3, "reference_file": "references/api.md",
+                                       "reference_line": 1}, ["references/api.md"])
+    assert r["valid"] is True, r["violations"]
+    assert r["spotCheck"]["unread"] == ["references/api.md"]
+    why = NOT_READ.replace("references/c.md", "references/api.md")
+    assert r["warnings"] == [UNCOUNTED.format(0, "a", why)]
+    assert r["inventory"]["crossChecked"]["uncounted"] == [
+        {"export": "a", "reference_file": "references/api.md", "why": why}]
+    assert r["inventory"]["cross_check_mismatches"] == [mismatch]
 
 
 def test_a_counted_mismatch_gives_no_uncounted_and_no_warning(tmp_path):
