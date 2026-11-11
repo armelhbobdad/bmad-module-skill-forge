@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `signature-mismatch` gap over a const annotated with an interface or object type literal that writes call signatures, write the form as one of those call signatures takes it, as the gap's `source_sig` gives it, then run Test Skill again. Create Skill writes the arrow's own list there each time it generates the skill, so make that edit again after it does.
 issues: [1085]
+prs: [1098]

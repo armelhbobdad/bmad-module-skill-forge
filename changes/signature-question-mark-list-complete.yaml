@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `signature-mismatch` gap over a form that marks members `?`, or a props list that gives a prop a default, write the members the gap says the form leaves out, as its `source_sig` gives them, or label the form partial when it shows only some of them on purpose (`Props (simplified)`), then run Test Skill again.
 issues: [1089]
+prs: [1098]

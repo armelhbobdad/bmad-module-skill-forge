@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `signature-mismatch` gap over a type name under which the skill and the package between them document or export more than one declaration, write the type the source writes there, as the gap's `source_sig` gives it (for example `ExtendableDataPoint`), or name the declaration meant through its module path (`cognee.low_level.DataPoint`), then run Test Skill again.
 issues: [1082]
+prs: [1098]
