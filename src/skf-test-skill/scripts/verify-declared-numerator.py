@@ -69,7 +69,10 @@ Output (stdout, one object):
 
 `verified` is the numerator §2c's reconcile-coverage.py call uses (it
 overrides the declared count when `inflated` is true): reconcile-coverage.py
---verified reads this result. --output also writes it to a file.
+--verified reads this result. --output writes it to a file and prints only
+its summary: each field as the file gives it, a list as its length, and
+"output": the --output path (#1063). A refused input prints its error object
+either way and removes a file left there earlier.
 
 CLI usage (mirrors reconcile-coverage.py):
   uv run verify-declared-numerator.py --inputs <file> --skill-dir <dir> [--inventory <file>] [--output <file>]
@@ -205,7 +208,7 @@ def _build_parser():
     parser.add_argument("--inventory", metavar="PATH",
                         help="the validated inventory file (its `exports`): a declared name counts only when it "
                              "gives the name an entry; wins over the JSON `exports`")
-    parser.add_argument("--output", metavar="PATH", help="also write the result to this file")
+    parser.add_argument("--output", metavar="PATH", help="write the result to this file and print only its summary")
     return parser
 
 
@@ -266,6 +269,13 @@ def _write_output(path, result):
     target.write_bytes((json.dumps(result, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
 
 
+def _summary(result, output):
+    """What main prints when --output holds the result: each field as the file gives it, a list as its length, and
+    the file's path as `output`. coverage-check reads the counts and the absent names from the file (#1063)."""
+    return {**{key: len(value) if isinstance(value, list) else value for key, value in result.items()},
+            "output": output}
+
+
 def main(argv=None):
     parser = _build_parser()
     args = parser.parse_args(argv)
@@ -304,12 +314,11 @@ def main(argv=None):
         if exports is not None and isinstance(data, dict):
             data["exports"] = exports
         result = verify(data)
+    refused = isinstance(result, dict) and result.get("code") == "INVALID_INPUT"
     if args.output:
         _write_output(args.output, result)
-    print(json.dumps(result, indent=2))
-    if isinstance(result, dict) and result.get("code") == "INVALID_INPUT":
-        return 2
-    return 0
+    print(json.dumps(result if refused or not args.output else _summary(result, args.output), indent=2))
+    return 2 if refused else 0
 
 
 def _force_utf8(*streams) -> None:

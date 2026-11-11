@@ -151,7 +151,31 @@ def test_cli_output_writes_the_score_file(tmp_path):
     res = _run_cli(["--stdin", "--output", str(out_path)], stdin=json.dumps({}))
     assert res.returncode == 0
     written = json.loads(out_path.read_text(encoding="utf-8"))
-    assert written == json.loads(res.stdout) and written["externalScore"] is None
+    assert written == json.loads(_run_cli(["--stdin"], stdin=json.dumps({})).stdout)
+    assert written["externalScore"] is None and json.loads(res.stdout)["output"] == str(out_path)  # #1063
+
+
+def test_cli_output_prints_only_a_summary(tmp_path):
+    """#1063: with --output stdout gives the two fields external-validators §4 binds, `toolsUsed` still a list, and
+    the path; the file keeps `available` and equals the stdout of the same run without --output. A refused input
+    prints its error object as before."""
+    out_path = tmp_path / "run" / "external.json"
+    res = _run_cli(["--stdin", "--output", str(out_path)], stdin=json.dumps({}))
+    assert res.returncode == 0, res.stderr
+    assert json.loads(res.stdout) == {"externalScore": None, "toolsUsed": [], "output": str(out_path)}
+    assert json.loads(out_path.read_text(encoding="utf-8")) == {"externalScore": None, "toolsUsed": [],
+                                                                 "available": False}
+    both = json.dumps({"skillCheckScore": 80, "tesslReviewScore": 73})
+    res = _run_cli(["--stdin", "--output", str(out_path)], stdin=both)
+    assert json.loads(res.stdout) == {"externalScore": 76.5, "toolsUsed": ["skill-check", "tessl"],
+                                      "output": str(out_path)}
+    assert json.loads(out_path.read_text(encoding="utf-8")) == json.loads(_run_cli(["--stdin"], stdin=both).stdout)
+
+    bad = json.dumps({"skillCheckScore": 200})
+    refused = _run_cli(["--stdin", "--output", str(out_path)], stdin=bad)
+    assert refused.returncode == 2 and not out_path.exists()
+    assert json.loads(refused.stdout) == json.loads(_run_cli(["--stdin"], stdin=bad).stdout)
+    assert json.loads(refused.stdout)["code"] == "INVALID_INPUT"
 
 
 def test_cli_refused_input_removes_a_stale_score_file(tmp_path):

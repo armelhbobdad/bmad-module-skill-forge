@@ -220,7 +220,7 @@ Exit 2 (`INVALID_INPUT`): a file does not hold the shape §3 to §5 describe; co
 - `integrationCompleteness`: integration-completeness percentage (`null` when no patterns are documented)
 - `combinedCoherence`: the combined coherence percentage, the `coherence` score step 5 reads from `{run_dir}/coherence.json`
 
-The script handles both edge cases the formula requires: `patterns_documented == 0` → `combinedCoherence` equals `referenceValidity` (no divide-by-zero); `total_references == 0` → `referenceValidity` is 100.0 (no references means no broken references). These values fill the `{percentage}%` placeholders in the output template loaded in Section 6. Its `invalidReferences[]` lists each invalid reference with its `status`, which §6 records.
+The script handles both edge cases the formula requires: `patterns_documented == 0` → `combinedCoherence` equals `referenceValidity` (no divide-by-zero); `total_references == 0` → `referenceValidity` is 100.0 (no references means no broken references). These values fill the `{percentage}%` placeholders in the output template loaded in Section 6. `{run_dir}/coherence.json` lists each invalid reference with its `status` in `invalidReferences[]`, which §6 records from that file; stdout gives only their number.
 
 ### 6. Write the Coherence Analysis Section
 

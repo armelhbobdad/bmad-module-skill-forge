@@ -2622,14 +2622,17 @@ EXTRACTION = {
 }
 
 
-# The (script, subcommand) pairs that, given --output, print only a summary of the file they write.
-SUMMARIZED_COMMANDS = frozenset({("{scoreSignaturesScript}", "plan")} | {
+# The (script, subcommand) pairs, and the scripts that take no subcommand, that given --output print only a summary
+# of the file they write.
+SUMMARIZED_COMMANDS = frozenset({("{scoreSignaturesScript}", cmd) for cmd in ("plan", "score")} | {
     ("{coverageInputsScript}", cmd) for cmd in ("census", "floor", "metadata", "surface")})
+SUMMARIZED_SCRIPTS = frozenset({"{reconcileScript}", "{numeratorVerifyScript}", "{coherenceAggregationScript}",
+                                "{externalScoreScript}"})
 
 
 def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
     """Run one prose command (an `echo '<json>' | uv run ...` pipe included) and return its JSON: for a
-    SUMMARIZED_COMMANDS command, the JSON of the file its --output names."""
+    SUMMARIZED_COMMANDS or SUMMARIZED_SCRIPTS command, the JSON of the file its --output names."""
     stdin = b""
     if command.startswith("echo '"):
         payload, command = command[len("echo '"):].split("' | ", 1)
@@ -2655,8 +2658,9 @@ def _exec(command: str, values: dict[str, str], cwd: Path) -> dict:
     assert proc.returncode == 0, (command, proc.stdout.decode("utf-8"), proc.stderr.decode("utf-8"))
     if redirect is not None:
         target.write_bytes(proc.stdout)
-    if words and (m.group(1), words[0]) in SUMMARIZED_COMMANDS and "--output" in words:
-        # #1018, #1040: such a command prints a summary that names its --output file, and the step reads the file
+    summarized = words and ((m.group(1), words[0]) in SUMMARIZED_COMMANDS or m.group(1) in SUMMARIZED_SCRIPTS)
+    if summarized and "--output" in words:
+        # #1018, #1040, #1063: the command prints a summary that names its --output file; the step reads the file
         written = words[words.index("--output") + 1]
         assert json.loads(proc.stdout)["output"] == written, (command, proc.stdout.decode("utf-8"))
         return json.loads(Path(written).read_bytes())
@@ -3506,6 +3510,11 @@ def test_the_coherence_commands_run_against_the_scanner(tmp_path):
     assert (coherence["input"]["valid_references"], coherence["input"]["total_references"]) == (1, 3)
     assert [r["status"] for r in coherence["invalidReferences"]] == ["missing", "escapes"]
     assert (run / "coherence.json").is_file()
+    # #1063: stdout gives the number of invalid references, so §6 records each one from the file
+    doc = _flow(_read(COHERENCE))
+    assert ("`{run_dir}/coherence.json` lists each invalid reference with its `status` in `invalidReferences[]`, "
+            "which §6 records from that file; stdout gives only their number.") in doc
+    assert "Its `invalidReferences[]` lists" not in doc
 
 
 def test_reference_check_extracts_exactly_the_forms_section_3_names(tmp_path):

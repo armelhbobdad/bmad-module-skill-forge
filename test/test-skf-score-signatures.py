@@ -210,8 +210,8 @@ def test_scores_and_gap_records(tmp_path):
     proc = _run("score", "--inventory", inventory, "--surface", surface, "--results", results, "--results", clean,
                 "--output", str(out_path), "--gaps-output", str(gaps_path))
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    out = json.loads(proc.stdout)
-    assert json.loads(out_path.read_text(encoding="utf-8")) == out
+    out = json.loads(out_path.read_text(encoding="utf-8"))
+    assert json.loads(proc.stdout)["output"] == str(out_path)  # #1063: stdout is the summary, the file the scores
     assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (1, 2, 50.0)
     # the names compared, which the gap ledger reads (#678)
     assert out["comparedNames"] == ["fetchData", "helper"]
@@ -226,6 +226,31 @@ def test_scores_and_gap_records(tmp_path):
     assert (gap["severity"], gap["category"], gap["title"], gap["source"], gap["export"]) == (
         "Critical", "signature-mismatch", "Signature mismatch: helper", "src/helper.ts:1", "helper")
     assert "(x: number) => number" in gap["remediation"] and "src/helper.ts:1" in gap["remediation"]
+
+
+def test_score_with_output_prints_only_a_summary(tmp_path):
+    """#1063: with --output the scores go to the file alone and stdout gives each field, a list as its length, and
+    the path, since coverage-check reads every count, name list and score from the file. The file and the
+    --gaps-output records are those of the same run without --output, whose stdout is the whole result; with
+    --gaps-output alone stdout is still the whole result."""
+    inventory, surface = _files(tmp_path)
+    results = [_write(tmp_path / "signatures-1.txt", {"file": "src/helper.ts", "signature_mismatches": [MISMATCH]}),
+               _write(tmp_path / "signatures-2.txt", {"file": "src/index.ts", "signature_mismatches": []})]
+    args = ["score", "--inventory", inventory, "--surface", surface, "--results", results[0], "--results", results[1]]
+    out_path, gaps_path = tmp_path / "run" / "signatures.json", tmp_path / "run" / "signature-gaps.json"
+    proc = _run(*args, "--output", str(out_path), "--gaps-output", str(gaps_path))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout) == {
+        "valid": True, "signatureAccuracy": 50.0, "matchingSignatures": 1, "totalDocumented": 2, "comparedNames": 2,
+        "typeCoverage": 50.0, "documentedTypes": 2, "totalTypes": 4, "missingTypes": 2, "mismatches": 1,
+        "gapRecords": 1, "warnings": 0, "undecided": 0, "output": str(out_path)}
+    plain = _run(*args)
+    assert plain.returncode == 0, plain.stdout + plain.stderr
+    whole = json.loads(plain.stdout)
+    assert json.loads(out_path.read_text(encoding="utf-8")) == whole
+    assert json.loads(gaps_path.read_text(encoding="utf-8")) == whole["gapRecords"]
+    gaps_only = _run(*args, "--gaps-output", str(tmp_path / "gaps-only.json"))
+    assert json.loads(gaps_only.stdout) == whole
 
 
 def test_the_gap_records_append_to_the_ledger(tmp_path):

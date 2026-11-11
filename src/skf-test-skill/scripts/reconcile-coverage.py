@@ -116,8 +116,9 @@ each sets the input field it names and wins over the same field in the JSON:
   --verified PATH       scalar: verify-declared-numerator.py's result; when it
                         found the declared count inflated, its `verified`
                         count is the numerator (not on a counted set)
-  --output PATH         also write the result to this file (UTF-8 JSON); a
-                        refused input removes a file left there earlier
+  --output PATH         write the result to this file (UTF-8 JSON) and print
+                        only its summary; a refused input removes a file
+                        left there earlier
 
 Input schema (one object):
   {
@@ -160,6 +161,9 @@ Output (stdout, one object):
     "incomplete": [{"name", "kind", "missing"}],  # docsOnly only: the incomplete items
     "undecided": [{...}]         # any branch, when the input gives a non-empty one: copied unchanged (#1021)
   }
+  With --output the file holds that object and stdout is its summary: each
+  field as the file gives it, a list as its length, and "output": the
+  --output path (#1063). A refused input prints its error object either way.
 
 Exit codes:
   0  reconciliation emitted successfully
@@ -1003,7 +1007,7 @@ def _build_parser():
                        help="load-coverage-inputs.py metadata output (scalar and stack branches)")
     files.add_argument("--verified", metavar="PATH",
                        help="verify-declared-numerator.py output (scalar branch)")
-    parser.add_argument("--output", metavar="PATH", help="also write the result to this file")
+    parser.add_argument("--output", metavar="PATH", help="write the result to this file and print only its summary")
     return parser
 
 
@@ -1028,6 +1032,13 @@ def _write_output(path, result):
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_bytes((json.dumps(result, indent=2, ensure_ascii=False) + "\n").encode("utf-8"))
+
+
+def _summary(result, output):
+    """What main prints when --output holds the result: each field as the file gives it, a list as its length, and
+    the file's path as `output`. coverage-check reads every name list from the file (#1063)."""
+    return {**{key: len(value) if isinstance(value, list) else value for key, value in result.items()},
+            "output": output}
 
 
 def main(argv=None):
@@ -1062,12 +1073,11 @@ def main(argv=None):
             return 1
 
     result = reconcile(data)
+    refused = isinstance(result, dict) and result.get("code") == "INVALID_INPUT"
     if args.output:
         _write_output(args.output, result)
-    print(json.dumps(result, indent=2))
-    if isinstance(result, dict) and result.get("code") == "INVALID_INPUT":
-        return 2
-    return 0
+    print(json.dumps(result if refused or not args.output else _summary(result, args.output), indent=2))
+    return 2 if refused else 0
 
 
 def _force_utf8(*streams) -> None:

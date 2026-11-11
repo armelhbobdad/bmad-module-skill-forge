@@ -925,10 +925,53 @@ def test_cli_barrel_from_the_run_files(tmp_path):
     proc = _run_cli(["--denominator-source", "barrel", "--inventory", _write(tmp_path / "inventory.json", INVENTORY),
                      "--surface", _write(tmp_path / "surface.json", SURFACE), "--output", str(out_path)])
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    out = json.loads(proc.stdout)
-    assert json.loads(out_path.read_text(encoding="utf-8")) == out
+    out = json.loads(out_path.read_text(encoding="utf-8"))
+    assert json.loads(proc.stdout)["output"] == str(out_path)  # #1063: stdout is the summary, the file the result
     assert (out["documented"], out["missing"], out["stale"]) == (2, ["parse"], ["stale"])
     assert "internalThing" not in out["missing"] and "legacy" not in out["missing"]
+
+
+def test_cli_output_prints_only_a_summary(tmp_path):
+    """#1063: with --output the result goes to the file alone and stdout gives each field, a list as its length,
+    and the path, since coverage-check reads every count and name list from the file. The file is the stdout of the
+    same run without --output; a refused input prints its error object as before and leaves no file."""
+    args = ["--denominator-source", "barrel", "--inventory", _write(tmp_path / "inventory.json", INVENTORY),
+            "--surface", _write(tmp_path / "surface.json", SURFACE)]
+    out_path = tmp_path / "run" / "coverage.json"
+    proc = _run_cli([*args, "--output", str(out_path)])
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout) == {
+        "branch": "enumerated", "denominatorSource": "barrel", "denominator": 3, "documented": 2,
+        "documentedNames": 2, "missing": 1, "missingCount": 1, "stale": 1, "staleCount": 1, "staleApplicable": True,
+        "exportCoverage": 66.67, "output": str(out_path)}
+    plain = _run_cli(args)
+    assert plain.returncode == 0, plain.stdout + plain.stderr
+    assert json.loads(out_path.read_text(encoding="utf-8")) == json.loads(plain.stdout)
+
+    # docsOnly: the incomplete items are a count on stdout and a list in the file
+    exports = [{"name": "run", "kind": "function", "params": "x", "return_type": "int", "description": "Runs."},
+               {"name": "stop", "kind": "function", "params": "x", "description": "Stops."}]
+    docs_args = ["--denominator-source", "docsOnly",
+                 "--inventory", _write(tmp_path / "docs.json", {"exports": exports})]
+    docs_path = tmp_path / "run" / "docs-coverage.json"
+    docs = _run_cli([*docs_args, "--output", str(docs_path)])
+    assert docs.returncode == 0, docs.stdout + docs.stderr
+    whole = json.loads(_run_cli(docs_args).stdout)
+    assert json.loads(docs_path.read_text(encoding="utf-8")) == whole
+    assert whole["incomplete"] == [{"name": "stop", "kind": "function", "missing": ["return_type"]}]
+    assert json.loads(docs.stdout) == {
+        "branch": "docsOnly", "denominatorSource": "docsOnly", "denominator": 2, "documented": 1, "missing": 0,
+        "missingCount": 1, "stale": 0, "staleCount": 0, "staleApplicable": False, "exportCoverage": 50.0,
+        "incomplete": 1, "output": str(docs_path)}
+
+    # refused: no inventory
+    refused_path = tmp_path / "run" / "refused.json"
+    refused_path.write_bytes(b'{"exportCoverage": 100}')
+    refused = _run_cli(["--denominator-source", "barrel", "--output", str(refused_path)])
+    assert refused.returncode == 2 and not refused_path.exists()
+    envelope = json.loads(refused.stdout)
+    assert envelope == json.loads(_run_cli(["--denominator-source", "barrel"]).stdout)
+    assert set(envelope) == {"error", "code"} and envelope["code"] == "INVALID_INPUT"
 
 
 def test_cli_surface_set_picks_the_name_set(tmp_path):

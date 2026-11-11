@@ -225,9 +225,39 @@ def test_inputs_with_the_signature_are_verified_and_written(tmp_path):
     out_path = tmp_path / "numerator.json"
     res = _run_cli(["--inputs", inputs, "--skill-dir", skill, "--output", str(out_path)])
     assert res.returncode == 0, res.stderr
-    out = json.loads(res.stdout)
-    assert json.loads(out_path.read_text(encoding="utf-8")) == out
+    out = json.loads(out_path.read_text(encoding="utf-8"))
+    assert json.loads(res.stdout)["output"] == str(out_path)  # #1063: stdout is the summary, the file the result
     assert (out["skipped"], out["verified"], out["absent"], out["inflated"]) == (False, 1, ["bar"], True)
+
+
+def test_output_prints_only_a_summary(tmp_path):
+    """#1063: with --output the result goes to the file alone and stdout gives each field, a list as its length,
+    and the path, since coverage-check reads the counts and the absent names from the file. The file is the stdout
+    of the same run without --output; a refused input prints its error object as before and leaves no file."""
+    inputs, skill = _inputs(tmp_path, False, ["foo", "bar"])
+    out_path = tmp_path / "run" / "numerator.json"
+    res = _run_cli(["--inputs", inputs, "--skill-dir", skill, "--output", str(out_path)])
+    assert res.returncode == 0, res.stderr
+    assert json.loads(res.stdout) == {"skipped": True, "declared": 2, "verified": None, "present": 0, "absent": 0,
+                                      "inflated": False, "output": str(out_path)}
+    plain = _run_cli(["--inputs", inputs, "--skill-dir", skill])
+    assert json.loads(out_path.read_text(encoding="utf-8")) == json.loads(plain.stdout)
+
+    (tmp_path / "signed").mkdir()
+    signed, _ = _inputs(tmp_path / "signed", True, ["foo", "bar"])
+    res = _run_cli(["--inputs", signed, "--skill-dir", skill, "--output", str(out_path)])
+    assert json.loads(res.stdout) == {"skipped": False, "declared": 2, "verified": 1, "present": 1, "absent": 1,
+                                      "inflated": True, "output": str(out_path)}
+    assert json.loads(out_path.read_text(encoding="utf-8")) == json.loads(
+        _run_cli(["--inputs", signed, "--skill-dir", skill]).stdout)
+
+    out_path.write_bytes(b'{"verified": 9}')
+    payload = json.dumps({"declaredNames": "foo", "skillPackagePath": skill})
+    refused = _run_cli(["--stdin", "--output", str(out_path)], stdin=payload)
+    assert refused.returncode == 2 and not out_path.exists()
+    envelope = json.loads(refused.stdout)
+    assert envelope == json.loads(_run_cli(["--stdin"], stdin=payload).stdout)
+    assert set(envelope) == {"error", "code"} and envelope["code"] == "INVALID_INPUT"
 
 
 def test_inputs_need_a_skill_dir(tmp_path):
@@ -319,8 +349,8 @@ def test_cli_inventory_with_inputs(tmp_path, wrap):
     res = _run_cli(["--inputs", inputs, "--skill-dir", skill, "--inventory", str(inventory),
                     "--output", str(out_path)])
     assert res.returncode == 0, res.stderr
-    out = json.loads(res.stdout)
-    assert json.loads(out_path.read_text(encoding="utf-8")) == out
+    out = json.loads(out_path.read_text(encoding="utf-8"))
+    assert json.loads(res.stdout)["output"] == str(out_path)  # #1063: stdout is the summary, the file the result
     assert (out["skipped"], out["verified"], out["absent"], out["inflated"]) == (False, 1, ["bar"], True)
     # Without --inventory the text alone decides, as before.
     plain = json.loads(_run_cli(["--inputs", inputs, "--skill-dir", skill]).stdout)
