@@ -42,7 +42,8 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     caller's shifted positions do
   - plans each check at the declaration the skill cites (#781): for a name
     the surface records in several files, `plan --skill-dir` picks the one
-    file the skill cites on a line naming it, and hands the judge every
+    file the skill cites on a line naming it (a table row's in its own
+    cells, never in the next row, #1066), and hands the judge every
     file as `candidates` when the citations do not settle it; a record with
     no file never wins, and a mismatch found at a candidate names its `file`;
     end to end (#830), the runner and the surface give a name two monorepo
@@ -1830,6 +1831,31 @@ def test_a_usage_form_ranks_with_an_entry_that_lists_its_parameters(entries, com
 ], ids=["only-an-unrecorded-file", "the-record-file-and-an-unrelated-one"])
 def test_only_a_cited_file_the_surface_records_settles_the_check(tmp_path, line, planned):
     _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n{line}\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DEFINE_MAIN], "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", NAMESAKES)
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", str(tmp_path / "skill"))
+    assert proc.returncode == 0, proc.stderr
+    [group] = json.loads(proc.stdout)["files"]
+    [check] = group["checks"]
+    if planned is None:
+        assert group["file"] == ANGULAR and [c["file"] for c in check["candidates"]] == [ANGULAR, REACT_VITE]
+    else:
+        assert group["file"] == planned and "candidates" not in check
+
+
+@pytest.mark.parametrize("rows, planned", [
+    # an uncited row, then another export's row that cites react-vite: nothing settles the check
+    (["| `defineMain` | function | Types the main config. |",
+      f"| `defineConfig` | function | [AST:{REACT_VITE}:L9] |"], None),
+    # a row that cites react-vite, then another export's row that cites angular: react-vite settles it
+    ([f"| `defineMain` | function | [AST:{REACT_VITE}:L3] |",
+      f"| `defineConfig` | function | [AST:{ANGULAR}:L9] |"], REACT_VITE),
+], ids=["an-uncited-row-then-another-export-s-row", "a-cited-row-then-another-export-s-row"])
+def test_a_table_row_s_cited_file_is_in_its_cells(tmp_path, rows, planned):
+    """#1066 (oms-cocoindex `Settings`): a table row's cited file is in its own cells, so the next row, which
+    documents another export, never places the check at its file or turns a settled check into candidates."""
+    table = "\n".join(["| Export | Kind | Source |", "| --- | --- | --- |", *rows])
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n{table}\n")
     inventory = _write(tmp_path / "inventory.json", {"exports": [DEFINE_MAIN], "cross_check_mismatches": []})
     surface = _write(tmp_path / "surface.json", NAMESAKES)
     proc = _run("plan", "--inventory", inventory, "--surface", surface, "--skill-dir", str(tmp_path / "skill"))

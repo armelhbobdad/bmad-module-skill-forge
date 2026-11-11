@@ -2768,6 +2768,34 @@ def test_a_table_row_s_own_citations_are_in_its_cells():
     assert mod.form_citations(fenced, 2, "Settings") == {("pkg/_internal/setting.py", 56, 56)}
 
 
+def test_a_table_row_s_cited_files_are_in_its_cells(tmp_path):
+    """#1066: _skill_cited_files, which places a homonym's signature check and picks its declaring file, reads a
+    table row outside a fenced block as form_citations does (#998): its own cells alone. An uncited row followed by
+    another export's row that cites a file cites nothing, so the check is never placed at that other export's file;
+    a line after the table is the table's. A heading still reads the next non-blank line, and a line that opens
+    with `|` in a fenced block is code, which reads it too."""
+    def cited(*lines):
+        skill = tmp_path / f"skill{len(list(tmp_path.iterdir()))}"
+        skill.mkdir()
+        (skill / "SKILL.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        found = mod._skill_cited_files(skill, "Settings")
+        assert mod._skill_cited_files(skill, "Settings", mod.skill_markdown_lines(skill)) == found
+        return found
+
+    head = ["| Export | Kind | Source |", "| --- | --- | --- |"]
+    assert cited(*head, "| `Settings` | class | The settings |",
+                 "| `ServerSettings` | class | [AST:pkg/setting.py:L93] |") == set()
+    assert cited(*head, "| `Settings` | class | [AST:pkg/_internal/setting.py:L56] |",
+                 "| `ServerSettings` | class | [AST:pkg/setting.py:L93] |") == {"pkg/_internal/setting.py"}
+    assert cited("  | `Settings` | class | The settings |",
+                 "| `ServerSettings` | class | [AST:pkg/setting.py:L93] |") == set(), "an indented row is a row"
+    assert cited(*head, "| `Settings` | class |", "", "[AST:pkg/setting.py:L93]") == set()
+    assert cited("### `Settings`", "", "[AST:pkg/_internal/setting.py:L56]", "",
+                 "| `ServerSettings` | class |") == {"pkg/_internal/setting.py"}
+    assert cited("```elixir", "| Settings.load(path)", "[AST:pkg/_internal/setting.py:L56]", "```") == {
+        "pkg/_internal/setting.py"}
+
+
 @pytest.mark.parametrize("citations, file, line, named", [
     ({("a.py", 37, 37)}, "a.py", 37, True),
     ({("a.py", 37, 37)}, "./a.py", 37, True),

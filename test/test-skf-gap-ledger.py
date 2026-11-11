@@ -36,7 +36,8 @@ counts and the Gap Report is rendered from:
     `defined_at` extensions are pinned to the verifier's, and the
     coverage-check §5b call records one; a homonym (no `defined_at`,
     several `declared_in` files) is one when the skill's `[AST:]`/`[SRC:]`
-    citations on a line naming it cite exactly one of those files, or
+    citations on a line naming it (a table row's in its own cells, never
+    in the next row, #1066) cite exactly one of those files, or
     only a package's `__init__.py` and a module of its name in that
     folder (#1012, at the package), and
     stays Medium when they cite any other two or none, without --skill-dir, or with
@@ -47,9 +48,9 @@ counts and the Gap Report is rendered from:
     script: {name} (another package's export *)` at the documenting line,
     naming each star and asking no change, beside the Deep tier's `Not
     checked by script: {name}` score-signatures.py records (#1084);
-    another cited file, no --skill-dir, a
-    missing or malformed list, a `defined_at`, a rescope or a fabricated
-    name keeps its gap
+    another cited file, a file only the next table row cites (#1066), no
+    --skill-dir, a missing or malformed list, a `defined_at`, a rescope or
+    a fabricated name keeps its gap
   - an inflated `scope.include` union (#795): when the inflation guard
     fires on the set the barrel branch counts, its undocumented names are
     one Medium `denominator-inflation` gap at the brief listing at most 50
@@ -1855,8 +1856,10 @@ class TestCoverageAdapter:
          None),
         ("# demo\n\n### `Task`\n\n`[AST:pkg/tasks/task.py:L24]`\n", None),
         ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]` `[AST:pkg/models/Task.py]`\n", None),
+        ("# demo\n\n| `Task` | class | `[AST:pkg/tasks/task.py:L24]` |\n"
+         "| `Other` | class | `[AST:pkg/models/Task.py:L9]` |\n", None),
     ], ids=["skill-md", "references-src-range", "a-cited-file-that-declares-nothing", "the-other-on-a-line-without-it",
-            "a-heading-then-its-citation", "a-citation-with-no-line-is-ignored"])
+            "a-heading-then-its-citation", "a-citation-with-no-line-is-ignored", "a-row-then-another-export-s-row"])
     def test_a_homonym_the_skill_cites_once_is_a_documented_extra(self, tmp_path: Path, skill_md: str,
                                                                  refs: str | None):
         record = self._homonym(tmp_path, skill_md, refs)
@@ -1904,6 +1907,7 @@ class TestCoverageAdapter:
         ("# demo\n\n`Task` `[AST:pkg/tasks/__init__.py:L1]`\n", {}),
         ("# demo\n\n`Task`\nPlain text.\nSee `[AST:pkg/tasks/task.py:L24]`\n", {}),
         ("# demo\n\n### `Task`\n\n`[AST:pkg/tasks/task.py:L24]` `[AST:pkg/models/Task.py:L9]`\n", {}),
+        ("# demo\n\n| `Task` | class |\n| `Other` | class | `[AST:pkg/tasks/task.py:L24]` |\n", {}),
         ("# demo\n\nSee `[AST:pkg/tasks/Task.py:L3]` and `[AST:pkg/models/Task.py:L9]`\n", {}),
         ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\n", {"skill": False}),
         ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\n", {"item": HOMONYM | {"declared_in": ["pkg/tasks/task.py:24"]}}),
@@ -1926,8 +1930,8 @@ class TestCoverageAdapter:
         ("# demo\n\n`errors` `[AST:pkg/a/errors/__init__.py:L1]` `[AST:pkg/b/errors/__init__.py:L1]`\n",
          {"name": "errors", "item": HOMONYM | {"declared_in": [
              "pkg/a/errors/__init__.py:1", "pkg/b/errors/__init__.py:1"]}}),
-    ], ids=["both-cited", "neither-cited", "cited-two-lines-on", "both-on-the-next-line", "named-only-in-a-citation",
-            "no-skill-dir",
+    ], ids=["both-cited", "neither-cited", "cited-two-lines-on", "both-on-the-next-line",
+            "an-uncited-row-then-another-export-s-row", "named-only-in-a-citation", "no-skill-dir",
             "one-file", "not-a-list", "an-item-without-a-line", "no-declared-in", "rescoped",
             "a-package-and-a-module-of-another-package", "a-package-its-module-and-another-file",
             "a-package-not-named-like-it", "a-module-below-the-package-folder", "two-packages"])
@@ -1966,8 +1970,11 @@ class TestCoverageAdapter:
         ({"skill_md": "# demo\n\nSee references.\n",
           "refs": "# API\n\n- `Mock` `[SRC:./code/core/src/test/spy.ts:L15-L15]`\n"}, "references/api.md:3"),
         ({"skill_md": "# demo\n\n### `Mock`\n\n`[AST:code/core/src/test/spy.ts:L15]`\n"}, "SKILL.md:3"),
+        ({"skill_md": "# demo\n\n| `Mock` | type | `[AST:code/core/src/test/spy.ts:L15]` |\n"
+                      "| `Spy` | type | `[AST:code/core/src/test/other.ts:L3]` |\n"}, "SKILL.md:3"),
     ], ids=["classify-stale-placed-it-nowhere", "no-classify-stale", "a-surface-with-no-extraction",
-            "a-homonym-cited-at-neither-file", "a-reference-file-and-a-range", "a-heading-then-its-citation"])
+            "a-homonym-cited-at-neither-file", "a-reference-file-and-a-range", "a-heading-then-its-citation",
+            "a-row-then-another-export-s-row"])
     def test_a_name_cited_at_another_packages_star_is_not_checked_by_script(self, tmp_path: Path, kwargs: dict,
                                                                            where: str):
         """An Info `observation` at the documenting line, naming the star statement and its file and asking no
@@ -2012,13 +2019,15 @@ class TestCoverageAdapter:
         {"skill_md": "# demo\n\n`Mock` mocks. `[AST:code/core/src/test/other.ts:L15]`\n"},
         {"skill_md": "# demo\n\n`Mock` mocks. `[AST:code/core/src/test/spy.ts]`\n"},
         {"skill_md": "# demo\n\n`Mock` mocks.\nPlain text.\nSee `[AST:code/core/src/test/spy.ts:L15]`\n"},
+        {"skill_md": "# demo\n\n| `Mock` | type | Mocks. |\n| `Spy` | type | `[AST:code/core/src/test/spy.ts:L15]` |\n"},
         {"skill": False},
         {"stars": None},
         {"stars": "code/core/src/test/spy.ts"},
         {"stars": ({"file": "code/core/src/test/spy.ts", "line": 15},
                    {"file": 3, "statement": "export * from 'x'"}, "code/core/src/test/spy.ts")},
         {"item": UNPLACED | {"defined_at": "code/core/src/test/mock.ts:3"}, "surface": SURFACE | {"extraction": None}},
-    ], ids=["another-file-cited", "a-citation-with-no-line", "cited-on-a-line-without-it", "no-skill-dir",
+    ], ids=["another-file-cited", "a-citation-with-no-line", "cited-on-a-line-without-it",
+            "an-uncited-row-then-another-export-s-row", "no-skill-dir",
             "no-unresolved-stars", "not-a-list", "malformed-items", "a-declaration-no-extraction-can-place"])
     def test_any_other_unplaced_name_stays_medium(self, tmp_path: Path, kwargs: dict):
         record = self._starred(tmp_path, **kwargs)

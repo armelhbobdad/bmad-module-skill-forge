@@ -117,7 +117,9 @@ cites (never read; default `metadata.json`):
             when the skill's `[AST:path:L<n>]` and `[SRC:path:L<n>]`
             citations on the lines of SKILL.md and references/**/*.md that
             name it (outside the citations), or on the next non-blank line
-            after one, cite exactly one of those files: the gap
+            after one that is not a table row outside a fenced block (a
+            row's own citations are in its cells, the next row documents
+            another export, #1066), cite exactly one of those files: the gap
             is at that file's `declared_in` item. A package
             `<dir>/NAME/__init__.py` cited with only modules named NAME
             directly in its folder (`<dir>/NAME/NAME.py` or `.pyi`) counts
