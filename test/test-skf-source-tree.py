@@ -2064,3 +2064,35 @@ class TestPinnedCopies:
                      "Keep identical to GIT_LOCATION_VARS in skf-check-workspace-drift.py",
                      "test/test-skf-source-tree.py pins"):
             assert note in text, note
+
+
+class TestImporterComment:
+    def test_the_comment_names_every_script_that_loads_this_file(self):
+        """The comment above split_version names each script under src/ that loads skf-source-tree.py, or reaches
+        it through skf-github-probe.py's _sibling(), so a change to the names they use is checked against each of
+        them (#1072)."""
+        assert HELPER.is_file(), f"missing helper: {HELPER}"
+        text = HELPER.read_text(encoding="utf-8")
+        start = text.index("# skf-check-workspace-drift.py (upstream)")
+        comment = " ".join(line.lstrip("# ") for line in text[start:text.index("\ndef ", start)].splitlines())
+        named = set(re.findall(r"(?<![\w/-])skf-[\w-]+\.py", comment))
+        loaders = set()
+        for path in sorted((REPO_ROOT / "src").rglob("*.py")):
+            if path == HELPER:
+                continue
+            nodes = list(ast.walk(ast.parse(path.read_text(encoding="utf-8"), filename=str(path))))
+            strings = {n.value for n in nodes if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+            loads = any(isinstance(n, ast.Attribute) and n.attr == "spec_from_file_location" for n in nodes) and bool(
+                strings & {"skf-source-tree.py", "skf-source-tree"})
+            through_probe = "skf-github-probe.py" in strings and any(
+                isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and n.func.attr == "_sibling"
+                and not n.args and not n.keywords for n in nodes)
+            if loads or through_probe:
+                loaders.add(path.name)
+        # The scan must still find the loader #1072 added: had it found none and the comment named none, the check
+        # below would pass. If that script stops loading this file, name another loader here.
+        assert "skf-extract-public-api.py" in loaders, (
+            f"the scan no longer finds skf-extract-public-api.py loading skf-source-tree.py; found: {sorted(loaders)}")
+        assert loaders == named, (
+            f"missing from the comment above split_version in skf-source-tree.py: {sorted(loaders - named)}; "
+            f"named there but no longer load it: {sorted(named - loaders)}")
