@@ -386,6 +386,18 @@ declaration of the name, and so does test-skill's Split-Body Sources
 (coverage-check-branches.md), which lets one declaration settle a
 split-body pair only on a list.
 
+Internal declarations (surface `internalDeclarations`): for each name the
+extraction's entry_point_diff.internal lists that no record names (a
+nested Python top's included), each declaration of it the extraction's
+exports[] holds (a re-export row declares nothing) in a file no
+scope.exclude glob matches, as {name, kind, file, line, signatureLine},
+built as an other declaration is; [] with none, and null exactly when
+`otherDeclarations` is. No entry point exports such a name, so one the
+skill documents is a documented extra. They join no set, no count, no
+guard and no summary key: score-signatures.py plan and score read them as
+the records of a name the surface holds no record of, so a documented
+extra's signature is compared at its declaration.
+
 Unresolved stars (surface `unresolvedStars`, #1005): each `export *` or
 `export type *` from another package (a specifier with no leading `.` or
 `/`) that a read of the source met and no script resolves, as {file, line,
@@ -1630,6 +1642,20 @@ def other_declarations(records: list[dict], declarations: list[dict], aliases: d
     return [dict(zip(OTHER_DECLARATION_KEYS, t)) for t in ordered]
 
 
+def internal_declarations(records: list[dict], declarations: list[dict], internal: list[str],
+                          excludes: list[str]) -> list[dict]:
+    """The declarations of the names no entry point exports: for each of
+    `internal` (the extraction's entry_point_diff.internal names) that no
+    record names, each of `declarations` (a re-export left out) recorded
+    under the name in a file no exclude glob matches, as other_declarations
+    gives an item (a stand-in record with no file keeps none out). They are
+    no records: score-signatures.py plan and score read them as the records
+    of a documented extra, so its documented signature is compared there."""
+    named = {record["name"] for record in records}
+    stand_ins = [{"name": name, "file": None} for name in internal if name not in named]
+    return other_declarations(stand_ins, declarations, {}, excludes)
+
+
 # The runner's file issues for a file it could not open at all: no one can read it by eye either.
 UNREADABLE_ISSUES = frozenset({"missing", "unreadable"})
 
@@ -1724,8 +1750,8 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
     unmatched_tier_a = _globs(recorded.get("unmatched_tier_a_include"))
     extraction = _extraction_summary(data, language)
     if extraction["fallback"]["needed"]:
-        return {"records": [], "nestedRecords": [], "declarations": [], "aliases": {}, "sets": {}, "outside": [],
-                "nested": [],
+        return {"records": [], "nestedRecords": [], "declarations": [], "aliases": {}, "internal": [], "sets": {},
+                "outside": [], "nested": [],
                 "staleScope": {"unmatchedInclude": unmatched, "unmatchedTierAInclude": unmatched_tier_a,
                                "restored": []},
                 "gaps": [], "scope": scope, "scopeType": recorded.get("type"), "umbrella": dict(NO_UMBRELLA),
@@ -1809,6 +1835,10 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
             line, signature_line = _declared_at(e)
             declarations.append({"exportName": name, "kind": e.get("export_type"), "file": file, "line": line,
                                  "signatureLine": signature_line})
+    # The names no entry point exports that the extraction records (`internal`): a documented one's declarations
+    # are the records its signature check reads.
+    internal = sorted({i["name"] for i in diff.get("internal") or []
+                       if isinstance(i, dict) and isinstance(i.get("name"), str) and i["name"]})
 
     # The umbrella ratio reads the public rows alone: an other definition is no root barrel name there.
     root_names = [p for p in _members_in_place(rows["public"]) if p.get("entry") in root_files]
@@ -1825,6 +1855,7 @@ def from_extraction(data: dict, language: str | None = None, brief: dict | None 
         "nestedRecords": nested_records,
         "declarations": declarations,
         "aliases": aliases,
+        "internal": internal,
         "sets": sets,
         "outside": [_outside_row(o, scope) for o in outside],
         "nested": [{"entry": top, "within": nested[top], "names": nested_names[top]} for top in sorted(nested)],
@@ -2139,6 +2170,11 @@ def surface(args: argparse.Namespace) -> dict:
     # null (never looked for), not [] (none found), and the split-body Source settles no pair on it (#1026).
     others = (other_declarations(records, extracted["declarations"], extracted["aliases"], scope["exclude"])
               if extracted is not None and not extracted["extraction"]["fallback"]["needed"] else None)
+    # Each declaration of a name no entry point exports and no record names, such as a documented extra: the records
+    # the signature plan and score read for it, and no record, set or count. Looked for exactly when the other
+    # declarations are, so null too when they are.
+    internal = (internal_declarations(records, extracted["declarations"], extracted["internal"], scope["exclude"])
+                if others is not None else None)
     # A tier A glob the runner lists as matching no file counts no name, and
     # so does one whose folder or file differs from every scope.include
     # glob's before any `*` or `?` (`gen/**` beside `src/**`) or one a
@@ -2283,6 +2319,7 @@ def surface(args: argparse.Namespace) -> dict:
         },
         "exports": records,
         "otherDeclarations": others,
+        "internalDeclarations": internal,
         "unresolvedStars": _unique_stars(stars),
         "sets": sets,
         **out,

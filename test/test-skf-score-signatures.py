@@ -72,8 +72,14 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     owner's declarations, counts it only where the plan checks it, and
     takes a bound one's mismatch at the member's line, and one the judge
     reads in a file no declaration of its owner is in at that file
+  - compares a documented extra (#1087), a name no entry point exports
+    that the extraction declares in a scoped-in file: the surface's
+    `internalDeclarations` stand in for the records it lacks, so plan
+    files its check at its declaration and score counts it in Signature
+    Accuracy, never in Type Coverage
 The surface fixture is load-coverage-inputs.py surface output built from a
---mode full extraction, so a recipe's internal match is never compared.
+--mode full extraction, so a recipe's internal match is compared only as a
+documented extra.
 """
 
 from __future__ import annotations
@@ -112,7 +118,9 @@ INVENTORY = {"exports": [
 ], "cross_check_mismatches": []}
 
 # load-coverage-inputs.py surface output for an extraction: internalThing was
-# a recipe match no entry point exports, so the surface never lists it.
+# a recipe match no entry point exports, so no export record lists it, and the
+# inventory does not document it, so its `internalDeclarations` entry is left
+# out here.
 SURFACE = {
     "exports": [
         {"name": "Extra", "kind": "class", "file": "src/extra.ts", "line": 1, "signatureLine": "export class Extra {",
@@ -2986,6 +2994,206 @@ def test_the_plan_s_not_compared_names_are_read_as_strings(tmp_path, value, name
     assert json.loads(proc.stdout)["comparedNames"] == sorted({LANCE, "helper"} - names)
 
 
+# #1087: oms-cocoindex's documented extras. pkg/__init__.py exports `run` alone, from pkg/core.py; pkg/text.py declares
+# detect_code_language at line 4 and RecursiveSplitter at line 8, which no entry point exports. The surface records
+# neither and lists both in `internalDeclarations`; the skill documents all three. Without that key the plan checked
+# `run` alone and score answered a judge's mismatch for detect_code_language with "not scored, no gap".
+TEXT_PY = "pkg/text.py"
+CORE_PY = "pkg/core.py"
+RUN_RECORD = {"name": "run", "kind": "function", "file": CORE_PY, "line": 1, "signatureLine": "def run(flow):",
+              "origin": "extraction"}
+DETECT_SIG = "def detect_code_language(*, filename: str) -> str | None:"
+DETECT = {"name": "detect_code_language", "kind": "function", "file": TEXT_PY, "line": 4, "signatureLine": DETECT_SIG}
+SPLITTER = {"name": "RecursiveSplitter", "kind": "class", "file": TEXT_PY, "line": 8,
+            "signatureLine": "class RecursiveSplitter:"}
+EXTRAS = {"exports": [RUN_RECORD], "otherDeclarations": [], "internalDeclarations": [SPLITTER, DETECT],
+          "sets": {"all": ["run"], "root": ["run"]}}
+RUN_ENTRY = {"name": "run", "kind": "function", "params": "flow", "description": "Runs a flow."}
+DETECT_ENTRY = {"name": "detect_code_language", "kind": "function", "params": "filename: str, content: str",
+                "return_type": "str", "description": "Guesses a file's language."}
+SPLITTER_ENTRY = {"name": "RecursiveSplitter", "kind": "class", "params": "chunk_size: int",
+                  "description": "Splits text."}
+EXTRA_INVENTORY = [RUN_ENTRY, DETECT_ENTRY, SPLITTER_ENTRY]
+DETECT_MISMATCH = {"name": "detect_code_language", "line": 4, "source_sig": "(*, filename: str) -> str | None",
+                   "documented_sig": "(filename: str, content: str) -> str",
+                   "issue": "the source takes `filename` by keyword alone and no `content`"}
+
+
+def _check_rows(plan: dict) -> list[tuple]:
+    """(file, name, line, signatureLine) of each check of a plan, by group."""
+    return [(group["file"], c["name"], c["line"], c["signatureLine"]) for group in plan["files"]
+            for c in group["checks"]]
+
+
+def test_a_documented_extra_is_planned_at_its_declaration(tmp_path):
+    """#1087 (oms-cocoindex): a documented name no entry point exports, which the extraction declares in a scoped-in
+    file, is checked at that declaration, with its line and signature line, and counted in `compared`, never in
+    `notCompared`. An internal declaration whose name the skill does not document (RecursiveSplitter here) gets
+    no check, and a surface without the key plans `run` alone, as before."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [RUN_ENTRY, DETECT_ENTRY],
+                                                     "cross_check_mismatches": []})
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface",
+                           _write(tmp_path / "surface.json", EXTRAS)).stdout)
+    assert _check_rows(plan) == [(CORE_PY, "run", 1, "def run(flow):"),
+                                 (TEXT_PY, "detect_code_language", 4, DETECT_SIG)]
+    [extra] = plan["files"][1]["checks"]
+    assert extra == {"name": "detect_code_language", "line": 4, "signatureLine": DETECT_SIG,
+                     "documented": {"params": "filename: str, content: str", "return_type": "str"}}
+    assert (plan["compared"], plan["notCompared"]) == (2, [])
+    bare = {k: v for k, v in EXTRAS.items() if k != "internalDeclarations"}
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface",
+                           _write(tmp_path / "bare.json", bare)).stdout)
+    assert _check_rows(plan) == [(CORE_PY, "run", 1, "def run(flow):")]
+    assert (plan["compared"], plan["notCompared"]) == (1, [])
+
+
+OLD_TEXT_PY = "pkg/text_v1.py"
+
+
+@pytest.mark.parametrize("cited, planned, candidates", [
+    (OLD_TEXT_PY, OLD_TEXT_PY, None),
+    (TEXT_PY, TEXT_PY, None),
+    (None, TEXT_PY, [TEXT_PY, OLD_TEXT_PY]),
+], ids=["cites-the-second", "cites-the-first", "cites-neither"])
+def test_a_documented_extra_declared_in_two_files_is_planned_where_the_skill_cites_it(tmp_path, cited, planned,
+                                                                                     candidates):
+    """#1087: a documented extra the extraction declares in two scoped-in files is checked, as a name the surface
+    records in two files is (#781): at the one the skill cites on a line that names it, else at the first, with
+    both as `candidates`."""
+    twice = {**EXTRAS, "internalDeclarations": [SPLITTER, DETECT, {**DETECT, "file": OLD_TEXT_PY, "line": 2}]}
+    citation = f" [AST:{cited}:L1]" if cited else ""
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n`detect_code_language(filename, content)` guesses{citation}.\n")
+    inventory = _write(tmp_path / "inventory.json", {"exports": [DETECT_ENTRY], "cross_check_mismatches": []})
+    proc = _run("plan", "--inventory", inventory, "--surface", _write(tmp_path / "surface.json", twice),
+                "--skill-dir", str(tmp_path / "skill"))
+    assert proc.returncode == 0, proc.stderr
+    [group] = json.loads(proc.stdout)["files"]
+    [check] = group["checks"]
+    assert (group["file"], check["line"]) == (planned, 2 if planned == OLD_TEXT_PY else 4)
+    assert [c["file"] for c in check.get("candidates", [])] == (candidates or [])
+
+
+@pytest.mark.parametrize("with_plan", [True, False], ids=["with-the-plan", "without-the-plan"])
+def test_a_documented_extra_s_critical_mismatch_counts_against_signature_accuracy(tmp_path, with_plan):
+    """#1087 (oms-cocoindex Signature Accuracy 100 over 42 of 67 documented signatures): a Critical mismatch a judge
+    reports for a documented extra at its declaration is scored, with --plan or without it: the extra is compared,
+    counted wrong, and its gap is at that declaration, so the hard gate can fail on it. Type Coverage reads the export
+    records alone: RecursiveSplitter, a class, counts no type."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": EXTRA_INVENTORY, "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", EXTRAS)
+    args = []
+    if with_plan:
+        plan = tmp_path / "signature-plan.json"
+        assert _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(plan)).returncode == 0
+        args = ["--plan", str(plan)]
+    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": TEXT_PY, "signature_mismatches": [
+        {**DETECT_MISMATCH, "file": TEXT_PY}]}))
+    gaps = tmp_path / "gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", surface, *args, "--results", results,
+                "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["comparedNames"] == ["RecursiveSplitter", "detect_code_language", "run"]
+    assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (2, 3, 66.67)
+    assert [(m["name"], m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [
+        ("detect_code_language", TEXT_PY, 4, "Critical")]
+    [gap] = json.loads(gaps.read_text(encoding="utf-8"))
+    assert (gap["severity"], gap["category"], gap["source"], gap["export"]) == (
+        "Critical", "signature-mismatch", f"{TEXT_PY}:4", "detect_code_language")
+    assert (out["totalTypes"], out["typeCoverage"]) == (0, 100.0)
+    assert not any("not scored" in w or "no file the plan offered" in w for w in out["warnings"]), out["warnings"]
+
+
+MERGE = {"name": "merge_flows", "kind": "function", "file": CORE_PY, "line": 10,
+         "signatureLine": "def merge_flows(a, b):"}
+
+
+@pytest.mark.parametrize("internal, bound", [
+    ([], [(0, CORE_PY, 1)]),
+    ([MERGE], []),
+], ids=["no-declaration-follows-it", "an-internal-declaration-follows-it"])
+def test_an_internal_declaration_ends_the_span_of_the_one_before_it(tmp_path, internal, bound):
+    """#1087: an internal declaration is one the extraction records in its file, so it ends the span of the
+    declaration before it as a surface record does: a citation of pkg/core.py:L12 names `run`, declared at L1, only
+    while no declaration follows it there."""
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n`run(flow)` runs it [SRC:{CORE_PY}:L12].\n")
+    inventory = [{**RUN_ENTRY, "at": "SKILL.md:3"}]
+    plan = mod.plan(inventory, ["run"], [RUN_RECORD], str(tmp_path / "skill"), [], internal)
+    assert _bound(plan, "run") == bound
+
+
+RUN_CONTRADICTED = {"name": "run", "line": 1, "source_sig": "(flow) -> None", "documented_sig": "(flow) -> Result",
+                    "issue": "the annotation says None; the body returns the result",
+                    "difference": "annotation-contradicted", "evidence_line": 12}
+DETECT_CONTRADICTED = {"name": "detect_code_language", "line": 6, "source_sig": "(*, filename: str) -> None",
+                       "documented_sig": "(*, filename: str) -> str", "issue": "the annotation says None",
+                       "difference": "annotation-contradicted", "evidence_line": 5}
+
+
+@pytest.mark.parametrize("entry, mismatch, internal, severity, fact", [
+    ({**RUN_ENTRY, "return_type": "Result"}, RUN_CONTRADICTED, [], "Info", None),
+    ({**RUN_ENTRY, "return_type": "Result"}, RUN_CONTRADICTED, [MERGE], "Critical",
+     "evidence_line 12 is not before the next declaration in the file, at line 10"),
+    # the extra's own declaration line is its internal declaration's, 4, whatever line the judge gives
+    ({**DETECT_ENTRY, "params": "*, filename: str"}, DETECT_CONTRADICTED, [DETECT, SPLITTER], "Info", None),
+    ({**DETECT_ENTRY, "params": "*, filename: str"}, {**DETECT_CONTRADICTED, "evidence_line": 9},
+     [DETECT, SPLITTER], "Critical", "evidence_line 9 is not before the next declaration in the file, at line 8"),
+], ids=["a-record-with-nothing-after-it", "a-record-an-internal-declaration-follows",
+        "an-extra-s-body-line", "past-the-next-internal-declaration"])
+def test_an_internal_declaration_locates_the_lines_a_record_would(entry, mismatch, internal, severity, fact):
+    """#1087: score reads an internal declaration as a surface record when it locates an annotation-contradicted
+    mismatch's lines (no --source-root: the line order alone): it ends the body of the declaration before it in its
+    file, and it is a documented extra's declaration line."""
+    result = {"file": CORE_PY if mismatch["name"] == "run" else TEXT_PY, "signature_mismatches": [mismatch]}
+    out = mod.score([entry], ["run"], [RUN_RECORD], [result], internal=internal)
+    assert [(m["name"], m["severity"]) for m in out["mismatches"]] == [(mismatch["name"], severity)]
+    found = [w for w in out["warnings"] if "tagged annotation-contradicted" in w]
+    assert (len(found) == 1 and fact in found[0]) if fact else found == [], found
+
+
+def test_a_documented_extra_declared_in_two_files_keeps_its_closest_mismatch_without_the_plan():
+    """#1087: without --plan, score offers a documented extra's check at each file its internal declarations name,
+    as at each file a surface name's records name, so a judge's mismatch at each of its two declaring files is one
+    mismatch per form, the least severe (the closest candidate): an Info one at pkg/text_v1.py:2, never a Critical
+    one at pkg/text.py:4 beside it, and the extra still counts as matching."""
+    entry = {**DETECT_ENTRY, "params": "*, filename: str"}
+    critical = {**DETECT_CONTRADICTED, "line": 4, "issue": "the source returns None"}
+    del critical["difference"], critical["evidence_line"]
+    results = [{"file": TEXT_PY, "signature_mismatches": [critical]},
+               {"file": OLD_TEXT_PY, "signature_mismatches": [{**DETECT_CONTRADICTED, "line": 2, "evidence_line": 3}]}]
+    out = mod.score([entry], ["run"], [RUN_RECORD], results, internal=[DETECT, {**DETECT, "file": OLD_TEXT_PY,
+                                                                                  "line": 2}])
+    assert [(m["name"], m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [
+        ("detect_code_language", OLD_TEXT_PY, 2, "Info")]
+    assert [g["severity"] for g in out["gapRecords"]] == ["Info"]
+    assert (out["comparedNames"], out["signatureAccuracy"]) == (["detect_code_language"], 100.0)
+
+
+@pytest.mark.parametrize("value", [
+    "absent", None, "pkg/text.py", {"name": "detect_code_language", "file": TEXT_PY},
+    [1, None, "x", {"file": TEXT_PY, "line": 4}, {"name": "", "file": TEXT_PY}, {"name": 7, "file": TEXT_PY},
+     {"name": "detect_code_language"}, {"name": "detect_code_language", "file": "  ", "line": 4}],
+], ids=["absent", "null", "a-string", "an-object", "items-with-no-name-or-file"])
+def test_an_odd_internal_declarations_value_is_ignored(tmp_path, value):
+    """#1087: load_internal_declarations keeps the items with a non-empty string name and a file: an older surface
+    without the key, a null (no runner extraction looked), a value that is no list and items with no name or file
+    give none, and plan and score with such a surface exit 0 as with no key at all."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": EXTRA_INVENTORY, "cross_check_mismatches": []})
+    bare = {k: v for k, v in EXTRAS.items() if k != "internalDeclarations"}
+    odd = bare if value == "absent" else {**bare, "internalDeclarations": value}
+    surface, plain = _write(tmp_path / "odd.json", odd), _write(tmp_path / "bare.json", bare)
+    assert mod.load_internal_declarations(surface) == []
+    results = _write(tmp_path / "s.txt", json.dumps({"file": TEXT_PY, "signature_mismatches": [DETECT_MISMATCH]}))
+    for command in (["plan"], ["score", "--results", results]):
+        procs = [_run(command[0], "--inventory", inventory, "--surface", path, *command[1:])
+                 for path in (surface, plain)]
+        assert [p.returncode for p in procs] == [0, 0], [p.stderr for p in procs]
+        assert procs[0].stdout == procs[1].stdout
+    out = json.loads(procs[0].stdout)
+    assert out["comparedNames"] == ["run"]
+    assert any("for `detect_code_language`, which is no documented signature" in w for w in out["warnings"])
+
+
 # #918 end to end: the cognee shape, a namespace member and a lazy `__getattr__` re-export of a same-named function,
 # each declared at its line in cognee 1.6.2 (pipeline.py:53, run_pipeline.py:37).
 HOMONYM_TREE = {
@@ -3094,6 +3302,60 @@ def test_a_function_only_a_lazy_re_export_reaches_is_compared_where_its_form_cit
                           "--results", results).stdout)
     assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(LIGHTWEIGHT, 37)]
     assert [g["title"] for g in out["gapRecords"]] == ["Signature mismatch: run_pipeline (form 4 of 6)"]
+
+
+# #1087 end to end: the oms-cocoindex shape, an entry point that exports one name and a module of documented extras.
+EXTRAS_TREE = {
+    "pkg/__init__.py": "from .core import run\n",
+    CORE_PY: "def run(flow):\n    return flow\n",
+    TEXT_PY: (f"import re\n\n\n{DETECT_SIG}\n    return None\n\n\nclass RecursiveSplitter:\n"
+              "    def __init__(self, chunk_size: int) -> None:\n        self.chunk_size = chunk_size\n"),
+}
+
+
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="ast-grep is not installed")
+def test_a_documented_extra_is_compared_end_to_end(tmp_path):
+    """#1087 (oms-cocoindex detect_code_language) end to end: the runner lists the two names pkg/text.py declares as
+    `internal`, the surface lists their declarations, the plan files both under pkg/text.py at their lines, and a
+    Critical mismatch a judge reports for detect_code_language is scored: three names compared, two matching, the
+    gap at pkg/text.py:4, and no type counted."""
+    source = tmp_path / "src"
+    for rel, text in EXTRAS_TREE.items():
+        _write(source / rel, text)
+    extraction, surface = tmp_path / "extract-full.json", tmp_path / "surface.json"
+    proc = subprocess.run([sys.executable, str(EXTRACTOR), "--mode", "full", "--source-root", str(source),
+                           "--scope-type", "public-api", "--tier", "Forge", "--head-cap", "0", "--output",
+                           str(extraction)], capture_output=True, text=True, timeout=600)
+    if proc.returncode == 3:
+        pytest.skip("the extractor found no ast-grep it can run")
+    assert proc.returncode == 0, proc.stderr
+    proc = subprocess.run([sys.executable, str(LOADER), "surface", "--extraction", str(extraction), "--output",
+                           str(surface)], capture_output=True, text=True, timeout=600)
+    assert proc.returncode == 0, proc.stderr
+    data = json.loads(surface.read_text(encoding="utf-8"))
+    assert [(r["name"], r["file"], r["line"]) for r in data["exports"]] == [("run", CORE_PY, 1)]
+    assert data["internalDeclarations"] == [SPLITTER, DETECT]
+    inventory = _write(tmp_path / "inventory.json", {"exports": EXTRA_INVENTORY, "cross_check_mismatches": []})
+    plan = tmp_path / "signature-plan.json"
+    proc = _run("plan", "--inventory", inventory, "--surface", str(surface), "--output", str(plan))
+    assert proc.returncode == 0, proc.stderr
+    planned = json.loads(plan.read_text(encoding="utf-8"))
+    assert _check_rows(planned) == [(CORE_PY, "run", 1, "def run(flow):"),
+                                    (TEXT_PY, "RecursiveSplitter", 8, "class RecursiveSplitter:"),
+                                    (TEXT_PY, "detect_code_language", 4, DETECT_SIG)]
+    assert (planned["compared"], planned["notCompared"]) == (3, [])
+    results = [_write(tmp_path / f"signatures-{n}.txt", json.dumps(result)) for n, result in enumerate([
+        {"file": CORE_PY, "signature_mismatches": []},
+        {"file": TEXT_PY, "signature_mismatches": [DETECT_MISMATCH]}], 1)]
+    gaps = tmp_path / "signature-gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", str(surface), "--plan", str(plan),
+                *(arg for path in results for arg in ("--results", path)), "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["comparedNames"] == ["RecursiveSplitter", "detect_code_language", "run"]
+    assert (out["signatureAccuracy"], out["totalTypes"]) == (66.67, 0)
+    assert [(g["severity"], g["source"]) for g in json.loads(gaps.read_text(encoding="utf-8"))] == [
+        ("Critical", f"{TEXT_PY}:4")]
 
 
 def test_empty_params_on_a_kind_that_takes_none_is_no_signature():

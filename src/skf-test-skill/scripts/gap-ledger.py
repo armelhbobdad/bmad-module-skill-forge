@@ -1545,8 +1545,9 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
                           f"`{declared.rsplit(':', 1)[0]}` and its same-named module {same_named}, so the gap is at "
                           "the package")
             # never routed: update-skill leaves an `observation` alone. Signature scoring compares a
-            # documented signature of a name on the surface's records (a nested sub-package's) alone.
-            checked = ("Signature scoring compares its documented signature with the surface's record of it."
+            # documented signature of a name on the surface's records (a nested sub-package's) or on its
+            # internal declarations (a documented extra's) alone.
+            checked = ("Signature scoring compares its documented signature with its declaration in the source."
                        if name in scored else
                        "Its documented signature was not checked against that declaration.")
             records.append(_gap(

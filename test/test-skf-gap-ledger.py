@@ -1121,7 +1121,7 @@ class TestCoverageAdapter:
 
     @pytest.mark.parametrize("signatures, said", [
         ({"missingTypes": [], "comparedNames": ["fetchData"]},
-         "Signature scoring compares its documented signature with the surface's record of it."),
+         "Signature scoring compares its documented signature with its declaration in the source."),
         # on the surface's records, but the skill documents no signature for it: nothing was compared
         ({"missingTypes": [], "comparedNames": ["Options"]},
          "Its documented signature was not checked against that declaration."),
@@ -1129,7 +1129,8 @@ class TestCoverageAdapter:
         (None, "Its documented signature was not checked against that declaration."),
     ], ids=["compared", "not-compared", "an-older-result", "no-signatures"])
     def test_the_remediation_says_whether_signature_scoring_compared_it(self, signatures, said):
-        # a nested sub-package's name: out of `all`, on the records
+        # a nested sub-package's name (out of `all`, on the records) or a documented extra (on the surface's
+        # internalDeclarations): score compares its signature with its declaration and lists it in comparedNames
         stale = [{"name": "fetchData", "fabricated": False, "source": None, "defined_at": "src/fetch.ts:12"}]
         [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["fetchData"]},
                                      surface=self.EXCLUDED_SURFACE, signatures=signatures, stale=stale)

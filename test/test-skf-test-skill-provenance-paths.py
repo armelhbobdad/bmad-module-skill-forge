@@ -2607,6 +2607,18 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
     # #695: a stale tier A glob fires the guard too and counts no name
     assert ("A stale `scope.tier_a_include` glob fires the guard too (`guards.staleScope.unmatchedTierAInclude`) "
             "and counts no name") in held
+    # #1087: a documented extra's declarations reach plan and score as its records, never a set, Export Coverage or
+    # Type Coverage
+    assert ("`internalDeclarations` lists, for each name the extraction finds no entry point exports (its `internal` "
+            "names) and that no surface record names, each declaration of it the extraction records in a file the "
+            "brief does not exclude, in the fields `otherDeclarations` uses; it is `null` exactly when "
+            "`otherDeclarations` is. They add no name to a set either, and neither Export Coverage nor Type Coverage "
+            "reads them: `plan` and `score` read them as the records of such a name, so a documented extra's "
+            "signature is planned, judged and counted in Signature Accuracy at its declaration.") in held
+    internal = _flow(_slice(_read(SOURCE_ACCESS), "Internal module symbols are", "This matches the extraction"))
+    assert ("the extraction's `internal` names reach it only as `internalDeclarations` (What the Surface Holds, "
+            "below), which add no name to its sets or to the coverage denominator.") in internal
+    assert "never reach it" not in internal
     # the report lists every name the surface leaves out of the barrel or puts back in it, and the extraction gaps
     # (#1048), through §5's render
     assert ("§5's render lists `excluded.outsideScope`, `excluded.nestedEntries`, the restored names and "
