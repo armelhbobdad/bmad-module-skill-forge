@@ -5,12 +5,13 @@ A workflow takes its lock in one tool call and releases it several calls
 later, each call in a new process, so the headline test acquires the lock
 in a process that exits, then checks that a second run is refused until the
 stale timeout passes and replaces the lock after it. The rest covers
-release by the owner only, renewal by the owner, run ids, the lock files
-older SKF versions left (PID and time lines, the empty file an `flock`
-left, which empty_is_stale replaces at once), the guard that keeps
-simultaneous calls from both taking the lock, acquire_within() (the
-in-call form skf-forge-tier-rw.py uses) and the CLI exit codes, usage
-errors included.
+release by the owner only, renewal by the owner, run ids, the window each
+acquire stores in the lock, which another run honours when it is longer
+than its own (#1086), the lock files older SKF versions left (PID and
+time lines, the empty file an `flock` left, which empty_is_stale
+replaces at once), the guard that keeps simultaneous calls from both
+taking the lock, acquire_within() (the in-call form skf-forge-tier-rw.py
+uses) and the CLI exit codes, usage errors included.
 """
 
 from __future__ import annotations
@@ -98,7 +99,7 @@ class TestAcquire:
             "message": out["message"],
         }
         assert _record(lock) == {"owner": OWNER_A, "acquired_at": "2026-09-30T10:00:00Z",
-                                 "tool": "skf-run-lock"}
+                                 "stale_after_minutes": 60, "tool": "skf-run-lock"}
         # The parent folder was created, and no temp or guard file is left.
         assert _names(lock.parent) == [".skf-update.lock"]
 
@@ -245,6 +246,156 @@ class TestForeignLockFiles:
         out = mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=1), empty_is_stale=True)
         assert out["acquired"] is False
         assert lock.read_bytes() == content
+
+
+# ─── the window the lock stores (#1086) ─────────────────────────────────────
+
+
+def _write_record(lock: Path, window_json: str | None) -> None:
+    """A record OWNER_A wrote at T0, with stale_after_minutes as raw JSON text (or no key)."""
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    window = "" if window_json is None else f', "stale_after_minutes": {window_json}'
+    lock.write_text(f'{{"owner": "{OWNER_A}", "acquired_at": "{_at(T0)}"{window}, '
+                    f'"tool": "skf-run-lock"}}\n', encoding="utf-8")
+
+
+def _assert_stale_at_matches(out: dict) -> None:
+    """stale_at is held_since plus stale_after_minutes in every output."""
+    since = datetime.strptime(out["held_since"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    assert out["stale_at"] == _at(since + timedelta(minutes=out["stale_after_minutes"]))
+
+
+class TestStoredWindow:
+    """Test Skill renews with --stale-after 180 right before a subagent dispatch, since
+    nothing renews the lock while one runs; a second run's acquire passes the default 60,
+    so the lock keeps each acquire's window and a held lock goes stale only after the
+    longer of the caller's window and the stored one."""
+
+    @pytest.mark.parametrize(("stale_after", "stored"), [(180 * 60, 180), (HOUR, 60), (15, 0.25)])
+    def test_the_record_stores_the_window_of_the_acquire_that_wrote_it(self, lock, stale_after, stored):
+        out = mod.acquire(lock, OWNER_A, stale_after, now=T0)
+        record = _record(lock)
+        # Only the window is new; an older helper still finds the owner and the time.
+        assert list(record) == ["owner", "acquired_at", "stale_after_minutes", "tool"]
+        assert record == {"owner": OWNER_A, "acquired_at": "2026-09-30T10:00:00Z",
+                          "stale_after_minutes": stored, "tool": "skf-run-lock"}
+        assert out["stale_after_minutes"] == stored
+        _assert_stale_at_matches(out)
+
+    def test_a_holders_longer_window_refuses_a_shorter_caller(self, lock):
+        mod.acquire(lock, OWNER_A, 180 * 60, now=T0)
+        for later in (timedelta(minutes=61), timedelta(minutes=179, seconds=59)):
+            out = mod.acquire(lock, OWNER_B, HOUR, now=T0 + later)
+            assert out["acquired"] is False, later
+            assert out["held_by"] == OWNER_A
+            assert out["stale_at"] == "2026-09-30T13:00:00Z"
+            assert out["stale_after_minutes"] == 180
+            _assert_stale_at_matches(out)
+            # The user is told the real time the lock goes stale.
+            assert "or wait until 2026-09-30T13:00:00Z" in out["message"]
+            assert f"if no run is active, delete {lock}" in out["message"]
+            assert _record(lock)["owner"] == OWNER_A
+        out = mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=180))
+        assert out["acquired"] is True
+        assert out["stale_replaced"] == {"held_by": OWNER_A, "held_since": "2026-09-30T10:00:00Z"}
+        # The new holder's record keeps its own window.
+        assert _record(lock)["stale_after_minutes"] == 60
+
+    def test_a_callers_longer_window_wins_over_a_shorter_stored_one(self, lock):
+        mod.acquire(lock, OWNER_A, 15 * 60, now=T0)
+        out = mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=30))
+        assert out["acquired"] is False
+        assert out["stale_at"] == "2026-09-30T11:00:00Z"
+        assert out["stale_after_minutes"] == 60
+        assert mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=60))["acquired"] is True
+
+    def test_the_owners_plain_renewal_sets_the_window_back(self, lock):
+        mod.acquire(lock, OWNER_A, 180 * 60, now=T0)
+        renewed = mod.acquire(lock, OWNER_A, HOUR, now=T0 + timedelta(minutes=10))
+        assert renewed["refreshed"] is True
+        assert renewed["stale_after_minutes"] == 60 and renewed["stale_at"] == "2026-09-30T11:10:00Z"
+        assert _record(lock)["stale_after_minutes"] == 60
+        held = mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=69, seconds=59))
+        assert held["acquired"] is False and held["stale_after_minutes"] == 60
+        out = mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=70))
+        assert out["acquired"] is True
+        assert out["stale_replaced"]["held_by"] == OWNER_A
+
+    @pytest.mark.parametrize("content", [
+        None,  # a record an older helper wrote
+        "pid",  # the PID and time lines of SKF versions before 3.0.0
+    ])
+    def test_a_lock_without_a_window_goes_stale_by_the_callers(self, lock, content):
+        if content is None:
+            _write_record(lock, None)
+        else:
+            lock.parent.mkdir(parents=True)
+            lock.write_bytes(f"12345\n{_at(T0)}\n".encode())
+        held = mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=59, seconds=59))
+        assert held["acquired"] is False
+        assert held["stale_after_minutes"] == 60 and held["stale_at"] == "2026-09-30T11:00:00Z"
+        assert mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=60))["acquired"] is True
+
+    @pytest.mark.parametrize("window_json", [
+        '"180"', "true", "false", "null", "0", "-5", "525601", "1e300", "NaN", "Infinity", "-Infinity",
+        "[180]", '{"minutes": 180}',
+        # JSON reads it as an exact int that no float can hold.
+        pytest.param("1" + "0" * 400, id="an-int-too-large-for-a-float"),
+    ])
+    def test_a_stored_window_that_is_not_valid_is_ignored(self, lock, window_json):
+        _write_record(lock, window_json)
+        held = mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=59, seconds=59))
+        assert held["acquired"] is False and held["held_by"] == OWNER_A
+        assert held["stale_after_minutes"] == 60 and held["stale_at"] == "2026-09-30T11:00:00Z"
+        out = mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=60))
+        assert out["acquired"] is True
+        assert out["stale_replaced"]["held_by"] == OWNER_A
+
+    @pytest.mark.parametrize(("window_json", "minutes"), [("180", 180), ("180.0", 180), ("525600", 525600)])
+    def test_a_valid_stored_window_is_honoured_up_to_one_year(self, lock, window_json, minutes):
+        _write_record(lock, window_json)
+        held = mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=minutes - 1))
+        assert held["acquired"] is False and held["stale_after_minutes"] == minutes
+        _assert_stale_at_matches(held)
+        assert mod.acquire(lock, OWNER_B, HOUR, now=T0 + timedelta(minutes=minutes))["acquired"] is True
+
+    def test_the_cli_honours_the_window_a_longer_renewal_stored(self, tmp_path):
+        lock = tmp_path / "1.0.0" / ".test-skill.lock"
+        owner_a, owner_b = "test-skill:demo:run-a", "test-skill:demo:run-b"
+        code, first, err = _cli("acquire", "--lock", str(lock), "--owner", owner_a, "--stale-after", "180")
+        assert code == 0, err
+        assert first["stale_after_minutes"] == 180 and _record(lock)["stale_after_minutes"] == 180
+        # Date the lock back 61 minutes, keeping its window: a default acquire is still refused.
+        record = _record(lock)
+        since = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=61)
+        record["acquired_at"] = _at(since)
+        lock.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        code, second, err = _cli("acquire", "--lock", str(lock), "--owner", owner_b)
+        assert code == 3, err
+        assert second["acquired"] is False and second["held_by"] == owner_a
+        assert second["stale_after_minutes"] == 180
+        assert second["stale_at"] == _at(since + timedelta(minutes=180))
+        # The holder's plain renewal stores the default window again.
+        code, renewed, err = _cli("acquire", "--lock", str(lock), "--owner", owner_a)
+        assert code == 0 and renewed["refreshed"] is True, err
+        assert _record(lock)["stale_after_minutes"] == 60
+
+    def test_the_docstring_names_the_stored_window(self):
+        doc = mod.__doc__
+        lock_file = doc[doc.index("Lock file:"):doc.index("Library use:")]
+        assert '"stale_after_minutes": ...' in lock_file
+        assert "the longer of its own --stale-after and that stored window" in " ".join(lock_file.split())
+        acquire_doc = " ".join(doc[doc.index("\nacquire\n"):doc.index("\nrelease\n")].split())
+        assert "or than the window the holder stored in the lock when that one is longer" in acquire_doc
+
+    def test_the_cli_help_names_the_stored_window(self):
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "acquire", "--help"],
+                              capture_output=True, text=True, timeout=60)
+        assert proc.returncode == 0, proc.stderr
+        # The option's own entry, after the usage line that also names it.
+        flag = " ".join(proc.stdout[proc.stdout.rindex("--stale-after STALE_AFTER"):].split())
+        assert "another run's lock is stale, unless that lock stores a longer window" in flag
+        assert "the lock this call takes or renews stores this one (default 60, at most 525600)" in flag
 
 
 # ─── release ────────────────────────────────────────────────────────────────

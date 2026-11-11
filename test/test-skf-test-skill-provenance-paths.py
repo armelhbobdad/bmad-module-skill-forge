@@ -87,6 +87,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -561,6 +562,9 @@ RENEW = f'uv run {{runLockHelper}} acquire {LOCK_ARGS} --owner "{{run_owner}}"'
 RELEASE = f'uv run {{runLockHelper}} release {LOCK_ARGS} --owner "{{run_owner}}"'
 # Each step after the lock writes the release command out before its first HALT.
 STEP_RELEASE = f"It releases the run lock first, whatever the release prints: from `{{project-root}}`, run `{RELEASE}`"
+# ... and, headless, prints its envelope through the shared emitter.
+EMIT_HALT = ('uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --run-dir "{run_dir}" '
+             '--target stderr < "{run_dir}/halt.json"')
 RUN_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 # Step files after init.md §6a, in stage order. health-check.md is loaded
 # after report.md §7 released the lock.
@@ -688,6 +692,145 @@ def test_each_subagent_dispatch_renews_the_lock(tmp_path):
     assert renewed.returncode == 0 and kept["refreshed"] is True and kept["held_since"] != "2000-01-01T00:00:00Z"
     second = _run(ACQUIRE, _lock_values(forge_version), tmp_path)
     assert second.returncode == 3 and json.loads(second.stdout)["held_by"] == owner
+
+
+def test_each_stage_and_each_by_eye_read_renews_the_lock():
+    """#1064: between two subagent returns the main thread can work a long time on
+    its own: at Quick tier it reads every entry point by eye, then runs coherence,
+    the external validators, the gate and the score before report.md §4b.2. So the
+    run also renews as each stage from detect-mode.md to report.md starts and after
+    each message of by-eye source reads (the Forge tier's `readByEye` files, State 4,
+    a split body), with the same command and HALTs as the other renewal points."""
+    skill = _read(SKILL_MD)
+    rules = _slice(skill, "## Workflow Rules", "## Stages")
+    rule = _flow(next((line for line in rules.splitlines() if RENEW in line), ""))
+    by_eye = "each time the main thread finishes reading a source file by eye (once for files read in one message)"
+    # The rule names the stages it reaches, as its copies do: none after report.md §7's release.
+    stage = "as each stage from detect-mode.md to report.md starts, before its first numbered section"
+    assert "as each stage after init.md starts" not in rule
+    for needle in (by_eye, stage, "Exit 3 (another run took the lock over) HALTs `another-run-active`",
+                   "exit 1 or 2, or no JSON, HALTs `helper-failed`", "phase `<step>:run-lock`"):
+        assert needle in rule, needle
+    # Both points join the list of renewals, before the discovery subagents' renewal and the command.
+    assert rule.index(by_eye) < rule.index("before report.md §4b.2 spawns its discovery subagents") \
+        < rule.index(RENEW)
+    assert rule.index(stage) < rule.index("before report.md §4b.2 spawns its discovery subagents")
+    # The stage clause reaches every stage that runs under the lock: init.md takes it in §6a,
+    # report.md §7 releases it before health-check.md loads.
+    table = _slice(skill, "## Stages", "## Invocation Contract")
+    files = [Path(rel).name for rel in re.findall(r"^\|[^|\n]+\|[^|\n]+\| (references/[\w.-]+\.md) \|", table, re.M)]
+    assert files[0] == "init.md" and files[-1] == "health-check.md", files
+    assert files[1:-1] == AFTER_THE_LOCK
+    # A renewal that halts as a stage starts runs under that stage's Halt envelope, so
+    # each of them states one, with the release and the emitter, before its first section.
+    for name in AFTER_THE_LOCK:
+        body = _read(REFS / name)
+        first = re.search(r"^### §?\d", body, re.M)
+        assert first, name
+        head = body[:first.start()]
+        assert "**Halt envelope.**" in head and STEP_RELEASE in head, name
+        assert EMIT_HALT in head, name
+    # The contract, the user docs and the init comment name both points, the stage
+    # starts ending at report.md: no renewal retakes the lock once §7 released it.
+    row = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Concurrency** |"))
+    for needle in ("each time the main thread finishes reading source files by eye",
+                   "as each stage from detect-mode.md to report.md starts"):
+        assert needle in row, needle
+    docs = _flow(_slice(_read(REPO_ROOT / "docs" / "troubleshooting.md"),
+                        "### Test Skill stops with `another-run-active`", "\n### "))
+    for needle in ("because one subagent ran 180 minutes, or the main thread's own work 60 minutes, past its last renewal",
+                   "the run renews its lock as each step before the health check starts, after it reads source "
+                   "files by eye,",
+                   # A renewal that fails as a step starts halts under that step's phase.
+                   "`<step>:run-lock` as a step starts or while it runs"):
+        assert needle in docs, needle
+    init_comments = _flow(_read(INIT).replace("\n#", ""))
+    for needle in ("renew the lock through it as each stage from detect-mode.md to report.md starts",
+                   "and after each by-eye read of source files"):
+        assert needle in init_comments, needle
+
+
+def test_each_dispatch_renews_the_lock_for_180_minutes(tmp_path):
+    """#1086: the main thread can run nothing while one foreground dispatch is in
+    flight, and the coverage-check §1 reader ran 34.4 minutes on a 2,250-line skill,
+    its work growing with the skill. So the run renews right before each dispatch (or,
+    without subagents, before the main thread starts a subagent's work) with
+    `--stale-after 180`, the helper keeps that window in the lock, so a second run's
+    default acquire honours it, and the next plain renewal sets it back to 60."""
+    rules = _slice(_read(SKILL_MD), "## Workflow Rules", "## Stages")
+    rule = _flow(next((line for line in rules.splitlines() if RENEW in line), ""))
+    renew_180 = RENEW + " --stale-after 180"
+    for needle in ("right before each subagent dispatch (once for parallel calls sent in one message;",
+                   "or, without subagents, before the main thread starts the work a step gives a subagent",
+                   "since nothing can renew the lock while one dispatch runs",
+                   "the next renewal that passes no `--stale-after` sets it back to 60"):
+        assert needle in rule, needle
+    # The plain renewal stays the rule's first command, the 180 one follows it, and the HALTs cover both.
+    commands = re.findall(r"`(uv run \{runLockHelper\} acquire [^`]*)`", rule)
+    assert commands == [RENEW, renew_180], commands
+    assert rule.index(RENEW) < rule.index(renew_180) < rule.index("Exit 3 (another run took the lock over)")
+
+    forge_version = tmp_path / "v"
+    lock = forge_version / ".test-skill.lock"
+    stamp = "%Y-%m-%dT%H:%M:%SZ"
+
+    def age_61_minutes() -> datetime:
+        """Date the lock back 61 minutes, keeping the window it stores."""
+        record = json.loads(lock.read_text(encoding="utf-8"))
+        since = datetime.now(timezone.utc).replace(microsecond=0) - timedelta(minutes=61)
+        record["acquired_at"] = since.strftime(stamp)
+        lock.write_text(json.dumps(record) + "\n", encoding="utf-8")
+        return since
+
+    owner = json.loads(_run(ACQUIRE, _lock_values(forge_version), tmp_path).stdout)["owner"]
+    values = _lock_values(forge_version, run_owner=owner)
+    before = _run(renew_180, values, tmp_path)
+    renewed = json.loads(before.stdout)
+    assert before.returncode == 0 and renewed["refreshed"] is True, before.stderr
+    # The renewal reports the window it stored.
+    renewed_at = datetime.strptime(renewed["held_since"], stamp).replace(tzinfo=timezone.utc)
+    assert renewed["stale_after_minutes"] == 180
+    assert renewed["stale_at"] == (renewed_at + timedelta(minutes=180)).strftime(stamp)
+    since = age_61_minutes()
+    # A second run's init.md §6a acquire (default 60) is refused: the dispatch is still covered.
+    second = _run(ACQUIRE, _lock_values(forge_version), tmp_path)
+    refused = json.loads(second.stdout)
+    assert second.returncode == 3 and refused["held_by"] == owner
+    assert refused["stale_after_minutes"] == 180
+    held_since = datetime.strptime(refused["held_since"], stamp).replace(tzinfo=timezone.utc)
+    assert held_since == since
+    assert refused["stale_at"] == (held_since + timedelta(minutes=180)).strftime(stamp)
+    # The plain renewal after the dispatch sets the window back to 60.
+    after = _run(RENEW, values, tmp_path)
+    assert after.returncode == 0 and json.loads(after.stdout)["refreshed"] is True, after.stderr
+    age_61_minutes()
+    third = _run(ACQUIRE, _lock_values(forge_version), tmp_path)
+    taken = json.loads(third.stdout)
+    assert third.returncode == 0 and taken["acquired"] is True
+    assert taken["stale_replaced"]["held_by"] == owner
+    # Another run holds the lock now, so the first run's next 180 renewal exits 3 and HALTs like any renewal.
+    over = _run(renew_180, values, tmp_path)
+    assert over.returncode == 3 and json.loads(over.stdout)["held_by"] == taken["owner"]
+
+    # The contract, the user docs and the init comment name the 180-minute renewal before a dispatch.
+    row = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Concurrency** |"))
+    for needle in ("right before each subagent dispatch (report.md §4b.2's discovery subagents among them)",
+                   "or, without subagents, before the main thread starts the work a step gives a subagent",
+                   "passes `--stale-after 180`, a window the helper keeps in the lock"):
+        assert needle in row, needle
+    docs = _flow(_slice(_read(REPO_ROOT / "docs" / "troubleshooting.md"),
+                        "### Test Skill stops with `another-run-active`", "\n### "))
+    for needle in ("(60 minutes after it was taken or renewed, 180 when it was renewed as a subagent started or, "
+                   "without subagents, as the main thread started a subagent's work)",
+                   "just before each subagent starts or, without subagents, before the main thread starts a "
+                   "subagent's work,",
+                   "a renewal before a subagent or that work lasts 180 minutes, since nothing renews the lock "
+                   "while one runs)",
+                   "because one subagent ran 180 minutes, or the main thread's own work 60 minutes, past its last renewal"):
+        assert needle in docs, needle
+    init_comments = _flow(_read(INIT).replace("\n#", ""))
+    assert ("right before each subagent dispatch for 180 minutes (or, without subagents, before the main "
+            "thread starts a subagent's work)") in init_comments
 
 
 @pytest.mark.parametrize("name", AFTER_THE_LOCK)

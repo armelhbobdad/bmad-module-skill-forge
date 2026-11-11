@@ -49,5 +49,5 @@ This table is the single source of truth for classifying a gap. Every stage reco
 | Info     | `provenance-unverified`     | Provenance line not verified: the line-check rules found no definition line, or the recorded line is not a line number (`line-invalid`) (coverage-check §4c) |
 | Info     | `migration-section`         | Historical migration content in Section 4b with no T2-future annotation (Case 2 of `migration-section-rules.md`) |
 | Info     | `multi-denominator`         | Multi-denominator reporting: barrel and documented-surface clusters diverge by design (>10% cross-cluster) |
-| Info     | `discovery`                 | Discovery testing not performed (`--no-discovery`, a catalog of fewer than 2 skills, or no subagents to route the prompts): realistic prompt testing recommended before export (report §4b) |
+| Info     | `discovery`                 | Discovery testing not performed (`--no-discovery`, a catalog of fewer than 2 skills, or no subagent without file or shell tools to route the prompts): realistic prompt testing recommended before export (report §4b) |
 | Info     | `external-validator`        | A Tessl Review content suggestion (advisory; one marked `(not applicable: …)` is not recorded) |
