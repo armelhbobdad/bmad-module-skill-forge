@@ -1195,8 +1195,8 @@ def test_two_spellings_of_one_type_are_no_mismatch():
     # the declaration a form is compared with, as the source reads it there, a star import, its own package or a
     # module it imports included, so one judge no longer passes the form while another raises a Critical
     # `signature-mismatch`. A name written through a module path is the one that path names; when the file reaches
-    # none of them, the skill's documented one decides, else any of them, and a judge that cannot read the source
-    # matches any of them.
+    # none of them, the file's own non-alias type of that name decides, as #1050's opening sentence reads it, else the
+    # skill's documented one, else any of them, and a judge that cannot read the source matches any of them.
     shared = ("When the skill and the package between them document or export more than one declaration under one "
               "type name (cognee's base `DataPoint`, and `ExtendableDataPoint`, which `cognee.low_level` exports as "
               "`DataPoint`), a form that writes that name bare means the one of them that the file of the declaration "
@@ -1207,8 +1207,10 @@ def test_two_spellings_of_one_type_are_no_mismatch():
               "makes the `DataPoint` that `rehydrate_node`'s form returns the base class, the class its source "
               "returns. A form that writes the name through a module or namespace path means the one that path names, "
               "whatever that file reaches: `cognee.low_level.DataPoint` is `ExtendableDataPoint`. When that file "
-              "reaches none of them by that name, the bare name means the one the skill documents under it, and a "
-              "form that writes it matches any of them when the skill documents none or several. A judge that does "
+              "reaches none of them by that name, the bare name means the type that file declares under it other than "
+              "as an alias, as above (a local `interface Options`); when it declares none, the bare name means the one "
+              "the skill documents under it, and a form that writes it matches any of them when the skill documents "
+              "none or several. A judge that does "
               "not read the source (coverage-check.md §1's reader) matches a form that writes that name bare with any "
               "of them.")
     assert shared in spellings
