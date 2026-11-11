@@ -5,3 +5,4 @@ summary: |
 migration: |
   If a skill now stops at the hard gate on a `signature-mismatch` gap, such as one at a documented extra's declaration, first check that the gap's Source is the declaration the skill documents and not an unrelated internal helper of the same bare name. If it is such a helper, add an `[AST:]` or `[SRC:]` citation of the right file on the line that documents the name, so the next test compares that declaration, instead of letting `@Ferris US <skill> --from-test-report` rewrite the form from the helper. Otherwise correct the form the gap quotes as `documented_sig`, then run Test Skill again.
 issues: [1087]
+prs: [1102]
