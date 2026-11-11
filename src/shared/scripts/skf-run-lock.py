@@ -33,10 +33,14 @@ acquire
   Takes the lock when no lock file exists, when the lock is this owner's
   own (its time is renewed: a run that may outlast the timeout re-runs
   acquire to keep its lock), or when the lock is stale: older than
-  --stale-after minutes (60 by default, at most 525600: one year). A stale
-  lock is replaced, and stale_replaced says whose it was. Any other lock is
-  held by another run: nothing changes, and the output names that run.
-  Missing parent folders of --lock are created.
+  --stale-after minutes (60 by default, at most 525600: one year), or than
+  the window the holder stored in the lock when that one is longer. Each
+  acquire that takes or renews the lock stores its own --stale-after there,
+  so a run about to wait on one long call renews with a longer
+  --stale-after, and its next renewal without one sets the window back to
+  60. A stale lock is replaced, and stale_replaced says whose it was. Any
+  other lock is held by another run: nothing changes, and the output names
+  that run. Missing parent folders of --lock are created.
 
   A lock file that is not this helper's record (the PID and time lines that
   SKF versions before 3.0.0 wrote, the empty file an `flock` left) names no
@@ -54,8 +58,12 @@ acquire
                          owner when acquired), or null for a lock that names
                          no owner
     held_since           ISO UTC time the holder took or renewed the lock
-    stale_at             ISO UTC time the holder's lock goes stale
-    stale_after_minutes  the timeout this call applied
+    stale_at             ISO UTC time the holder's lock goes stale:
+                         held_since plus stale_after_minutes
+    stale_after_minutes  the timeout this call applied: its own
+                         --stale-after when it took or renewed the lock
+                         (the window the lock now stores), else the longer
+                         of that and the holder's stored window
     stale_replaced       null | {"held_by": ..., "held_since": ...}: the
                          stale lock this call replaced
     message              one line for the user; when acquired is false it
@@ -84,16 +92,24 @@ run-id
   `20260930T101500Z-3f9a1c2e`: the time of the call and a random suffix,
   safe in file names.
 
-Lock file: one JSON line, {"owner": ..., "acquired_at": ..., "tool":
-"skf-run-lock"}, written to `<lock>.skf-<8 hex>-tmp` and renamed over the
-lock, so it is never seen half written. Each acquire and release reads and
-changes the lock while it holds `<lock>.skf-guard`, an OS lock
-(`fcntl.flock` on POSIX, `msvcrt.locking` on Windows) that lives only for
-that one call and is released if the call dies, so two runs that start
-together never both take the lock and a release never deletes a lock
-another run just took. The guard file is removed when the call ends. Every
-name this helper creates beside the lock carries `.skf-`, which
-skf-skill-inventory.py counts as SKF's own.
+Lock file: one JSON line, {"owner": ..., "acquired_at": ...,
+"stale_after_minutes": ..., "tool": "skf-run-lock"}, written to
+`<lock>.skf-<8 hex>-tmp` and renamed over the lock, so it is never seen
+half written. stale_after_minutes is the --stale-after of the acquire that
+wrote the record: another owner's acquire treats the lock as stale only
+after the longer of its own --stale-after and that stored window. A helper
+that predates the key reads only the owner and the time and ignores it. A
+record with no stale_after_minutes (an older helper's, a PID file), or one
+that is not a number of minutes above 0 and at most 525600, leaves the
+caller's --stale-after alone.
+
+Each acquire and release reads and changes the lock while it holds
+`<lock>.skf-guard`, an OS lock (`fcntl.flock` on POSIX, `msvcrt.locking` on
+Windows) that lives only for that one call and is released if the call
+dies, so two runs that start together never both take the lock and a
+release never deletes a lock another run just took. The guard file is
+removed when the call ends. Every name this helper creates beside the lock
+carries `.skf-`, which skf-skill-inventory.py counts as SKF's own.
 
 Library use: skf-forge-tier-rw.py loads this file by its path and calls
 acquire_within() and release() around one read-modify-write. It passes
@@ -326,12 +342,27 @@ def _windows_retry(action) -> None:
 
 
 class _Held:
-    """What a lock file says: its owner (or None), since when, and whether it is empty."""
+    """What a lock file says: its owner (or None), since when, whether it is empty, its window."""
 
-    def __init__(self, owner: str | None, since: datetime, empty: bool = False):
+    def __init__(self, owner: str | None, since: datetime, empty: bool = False,
+                 window: float | None = None):
         self.owner = owner
         self.since = since
         self.empty = empty
+        # Minutes, from the record's stale_after_minutes; None when it has none to trust.
+        self.window = window
+
+
+def _stored_window(value) -> float | None:
+    """A record's stale_after_minutes when it is a number of minutes above 0 and at most one year."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    # No math.isfinite here: it raises OverflowError on an int too large for a
+    # float, while this comparison handles an int of any size, and NaN and the
+    # infinities fail it.
+    if not 0 < value <= MAX_STALE_AFTER_MIN:
+        return None
+    return float(value)
 
 
 def _read(lock: Path) -> _Held | None:
@@ -346,10 +377,12 @@ def _read(lock: Path) -> _Held | None:
         record = json.loads(text)
     except ValueError:
         record = None
+    window = None
     if isinstance(record, dict):
         owner = record.get("owner")
         owner = owner if isinstance(owner, str) and owner else None
         since = _parse_time(record.get("acquired_at"))
+        window = _stored_window(record.get("stale_after_minutes"))
     else:
         # Not this helper's record: the PID and time lines older SKF versions
         # wrote, an empty file an `flock` left, or anything else.
@@ -358,12 +391,16 @@ def _read(lock: Path) -> _Held | None:
         since = _parse_time(lines[1]) if len(lines) > 1 else None
     if since is None:
         since = datetime.fromtimestamp(mtime, timezone.utc)
-    return _Held(owner, since, empty=not raw)
+    return _Held(owner, since, empty=not raw, window=window)
 
 
-def _write(lock: Path, owner: str, now: datetime) -> None:
-    """Write the record to a temp file beside the lock, then rename it over the lock."""
-    record = {"owner": owner, "acquired_at": _stamp(now), "tool": TOOL}
+def _write(lock: Path, owner: str, now: datetime, stale_after: float) -> None:
+    """Write the record to a temp file beside the lock, then rename it over the lock.
+
+    stale_after is this acquire's window in seconds, stored in minutes.
+    """
+    record = {"owner": owner, "acquired_at": _stamp(now),
+              "stale_after_minutes": _minutes(stale_after), "tool": TOOL}
     content = (json.dumps(record) + "\n").encode("utf-8")
     tmp = lock.with_name(f"{lock.name}.skf-{secrets.token_hex(4)}-tmp")
     # O_BINARY (Windows only; 0 elsewhere) keeps the bytes verbatim.
@@ -388,7 +425,9 @@ def acquire(lock, owner: str, stale_after: float, now: datetime | None = None,
             *, empty_is_stale: bool = False) -> dict:
     """Take the lock for owner, or report who holds it.
 
-    stale_after is in seconds, at most one year. `now` is for tests. With
+    stale_after is in seconds, at most one year; the record keeps it, and
+    another owner's lock goes stale only after the longer of stale_after and
+    the window that lock's record keeps. `now` is for tests. With
     empty_is_stale, an empty lock file counts as stale at once. Raises
     ValueError for a bad owner, lock or timeout, OSError when the lock cannot
     be read or written.
@@ -413,9 +452,14 @@ def acquire(lock, owner: str, stale_after: float, now: datetime | None = None,
         refreshed = held is not None and held.owner == owner
         replaced = None
         if held is not None and not refreshed:
-            if t - held.since < window and not (empty_is_stale and held.empty):
+            # The holder's stored window binds when it is longer than this call's.
+            effective = stale_after
+            if held.window is not None:
+                effective = max(stale_after, held.window * 60)
+            effective_window = timedelta(seconds=effective)
+            if t - held.since < effective_window and not (empty_is_stale and held.empty):
                 who = held.owner or "an owner the lock file does not name"
-                stale_at = _stale_at(held.since, window)
+                stale_at = _stale_at(held.since, effective_window)
                 return {
                     "acquired": False,
                     "refreshed": False,
@@ -425,7 +469,7 @@ def acquire(lock, owner: str, stale_after: float, now: datetime | None = None,
                     "held_by": held.owner,
                     "held_since": _stamp(held.since),
                     "stale_at": stale_at,
-                    "stale_after_minutes": _minutes(stale_after),
+                    "stale_after_minutes": _minutes(effective),
                     "stale_replaced": None,
                     "message": (f"another run holds {path}: {who} since {_stamp(held.since)}. "
                                 f"Wait for it to finish; if no run is active, delete {path} "
@@ -434,7 +478,7 @@ def acquire(lock, owner: str, stale_after: float, now: datetime | None = None,
             replaced = {"held_by": held.owner, "held_since": _stamp(held.since)}
         # Computed before the write, so no error can follow a lock taken.
         held_since, stale_at = _stamp(t), _stale_at(t, window)
-        _write(path, owner, t)
+        _write(path, owner, t, stale_after)
 
     if refreshed:
         message = f"renewed the run lock {path} for {owner}"

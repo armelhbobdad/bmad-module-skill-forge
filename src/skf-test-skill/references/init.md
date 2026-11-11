@@ -43,9 +43,11 @@ checkWorkspaceDriftProbeOrder:
 # bound for the rest of the run: SKILL.md Workflow Rules renew the lock
 # through it as each stage from detect-mode.md to report.md starts, as each
 # subagent dispatch returns (or, without subagents, as the main thread
-# finishes a subagent's work) and after each by-eye read of source files,
-# report.md §4c renews it before the result files, and every later HALT
-# and report.md §7 release it.
+# finishes a subagent's work), right before each subagent dispatch for 180
+# minutes (or, without subagents, before the main thread starts a
+# subagent's work) and after each by-eye read of source files, report.md
+# §4c renews it before the result files, and every later HALT and
+# report.md §7 release it.
 runLockProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
   - '{project-root}/src/shared/scripts/skf-run-lock.py'
