@@ -269,16 +269,23 @@ def test_a_documented_extra_s_internal_declarations_are_its_declarations_for_the
     SKILL.md's form. Its one-declaration test and its reading of a name declared more than once now take such a
     name's internal declarations as its declarations; the rules say so for the forms §2's `bound` binds, whose
     paragraph in coverage-check.md names them by that term; and source-access-protocol.md names the Source among
-    the key's readers."""
+    the key's readers. With #1088's method rule beside it, the section says once, before its first rule, what a
+    name's records are, an owner's among them, so a method pair whose owner is a documented extra is read at that
+    declaration, as plan and score check the method there, and the one-declaration test, the method rule and the
+    reading of a name declared more than once read that term with no wording of their own for it."""
     split_body = _flow(_read(REFS / "coverage-check-branches.md").split("\n## Split-Body Sources\n", 1)[1])
-    one = ("against the export's declaration at the `file` and `line` `surface.json` gives (for a name with no "
-           "`exports` record, such as a documented extra, its `internalDeclarations` entry), by its rules, when that "
+    records = ("Here a name's `surface.json` records, a method's owner's among them, are its `exports` records or, for "
+               "a name with none, such as a documented extra, its `internalDeclarations` entries.")
+    one = ("against the export's declaration at the `file` and `line` `surface.json` gives, by its rules, when that "
            "one declaration decides")
-    each = ("set each form against each declaration of the name, its `surface.json` records (for a name with none, "
-            "its `internalDeclarations` entries) and its `otherDeclarations` entries, read at their `file` and `line`")
-    for sentence in (one, each):
+    owner = "read from the `file` and `line` of the owner's `surface.json` record"
+    each = ("set each form against each declaration of the name, its `surface.json` records and its "
+            "`otherDeclarations` entries, read at their `file` and `line`")
+    for sentence in (records, one, owner, each):
         assert split_body.count(sentence) == 1, sentence
-    assert split_body.index(one) < split_body.index(each)
+    assert split_body.index(records) < split_body.index(one) < split_body.index(owner) < split_body.index(each)
+    assert "(for a name with no `exports` record, such as a documented extra" not in split_body
+    assert "(for a name with none, its `internalDeclarations` entries)" not in split_body
     homonyms = _paragraph(_read(RULES), "In the split-body cross-check both forms are documented")
     assert ("or coverage-check.md §2's `bound` binds them to two, a declaration being one of the name's surface "
             "records (for a name with no `exports` record, its `internalDeclarations` entries) or one `surface.json` "
@@ -954,8 +961,8 @@ def test_a_method_form_is_compared_with_its_owner_s_member():
     # is its class's
     assert ("`owner` is not validated. The signature check compares a `method`'s form with the member of that name "
             "its owner declares (for an object, its class; signature-comparison-rules.md), under `{owner}.{name}`, "
-            "when the source surface records its owner and the recipe runner built it; a `method` with no `owner` is "
-            "never compared.") in contract
+            "when the source surface records its owner (for an owner no entry point exports, its declaration in a "
+            "scoped-in file) and the recipe runner built it; a `method` with no `owner` is never compared.") in contract
     assert "except a `method`" not in contract and "a `method` and a form that writes only" not in contract
     doc = _flow(_read(SCORE_SIGNATURES))
     assert '"member" (a method\'s check alone: its bare name, `name` being `{owner}.{member}`)' in doc
@@ -1568,8 +1575,7 @@ def test_every_coverage_check_judge_names_the_rules_file():
     assert "follow its **Split-Body Sources** section" in _paragraph(text, "**A split-body mismatch's Source**")
     split_body = _flow(_read(REFS / "coverage-check-branches.md").split("\n## Split-Body Sources\n", 1)[1])
     assert ("load `{signatureRulesFile}` and set the two forms its `issue` gives against the export's declaration at "
-            "the `file` and `line` `surface.json` gives (for a name with no `exports` record, such as a documented "
-            "extra, its `internalDeclarations` entry), by its rules, when that one declaration decides") in split_body
+            "the `file` and `line` `surface.json` gives, by its rules, when that one declaration decides") in split_body
     assert OVERLOAD_RULE not in text
     candidates = _paragraph(text, "A check with `candidates` reads each")
     assert candidates.endswith("and its `difference` tagged against it."), candidates

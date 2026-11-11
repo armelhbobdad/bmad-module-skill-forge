@@ -76,7 +76,7 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     that the extraction declares in a scoped-in file: the surface's
     `internalDeclarations` stand in for the records it lacks, so plan
     files its check at its declaration and score counts it in Signature
-    Accuracy, never in Type Coverage
+    Accuracy, never in Type Coverage, and so does a method it owns
   - hands a Deep-tier judge the skill's import lines of each name and its
     documented members (#1084, plan --doc-errors), a name documented only
     by them in a check `compared` never counts, and records each
@@ -2878,8 +2878,8 @@ LANCE_ENTRY = {"name": LANCE, "kind": "class", "params": "uri: str, *, read_cons
                "at": "SKILL.md:3"}
 LANCE_GAP = {"name": LANCE, "kind": None, "file": None, "line": None, "signatureLine": None, "origin": "extraction"}
 NOT_COMPARED = ("Signature Accuracy leaves out each documented name the plan gave no check, since no surface record "
-                "of it names a file and no form of it is bound to a declaration (such as an extraction gap the runner "
-                "did not locate): ")
+                "of it, or of a method's owner, names a file and no form of it is bound to a declaration (such as an "
+                "extraction gap the runner did not locate): ")
 
 
 def _lance(tmp_path: Path, records: list[dict]) -> tuple[str, str]:
@@ -2982,6 +2982,31 @@ def test_a_mismatch_for_a_name_given_no_check_grades_nothing():
     assert out["warnings"][0] == NOT_COMPARED + f"`{LANCE}`"
     assert out["warnings"][1].startswith(f"src/lance.py:10: a signature mismatch for `{LANCE}`")
     assert out["warnings"][1].endswith(": not scored, no gap")
+
+
+def test_a_method_of_a_name_no_record_locates_is_left_out_and_named(tmp_path):
+    """#1061 with #1088: a method is checked at its owner's record, so a method of LanceAsyncConnection, whose only
+    record is a not-located extraction gap, gets no check either, and `notCompared` lists
+    `LanceAsyncConnection.connect` beside its owner. score --plan leaves both out of Signature Accuracy and names
+    both in its one warning, where it dropped the method unnamed, since a method counts only where the plan checks
+    it. Without --plan both count, as any name the plan gave no check does."""
+    connect = {"name": "connect", "kind": "method", "owner": LANCE, "params": "uri: str", "description": "Connects.",
+               "at": "SKILL.md:5"}
+    _, surface = _lance(tmp_path, [LANCE_GAP])
+    inventory = _write(tmp_path / "inventory.json", {"exports": [LANCE_ENTRY, connect, INVENTORY["exports"][1]],
+                                                     "cross_check_mismatches": []})
+    path = tmp_path / "signature-plan.json"
+    assert _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(path)).returncode == 0
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    assert [group["file"] for group in plan["files"]] == ["src/helper.ts"]
+    assert (plan["compared"], plan["notCompared"]) == (1, [LANCE, f"{LANCE}.connect"])
+    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": "src/helper.ts", "signature_mismatches": []}))
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--plan", str(path),
+                          "--results", results).stdout)
+    assert (out["comparedNames"], out["totalDocumented"], out["matchingSignatures"]) == (["helper"], 1, 1)
+    assert out["warnings"] == [NOT_COMPARED + f"`{LANCE}`, `{LANCE}.connect`", KINDLESS + f"`{LANCE}`"]
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
+    assert out["comparedNames"] == [LANCE, f"{LANCE}.connect", "helper"]
 
 
 @pytest.mark.parametrize("value, names", [
@@ -3115,6 +3140,53 @@ def test_a_documented_extra_s_critical_mismatch_counts_against_signature_accurac
         "Critical", "signature-mismatch", f"{TEXT_PY}:4", "detect_code_language")
     assert (out["totalTypes"], out["typeCoverage"]) == (0, 100.0)
     assert not any("not scored" in w or "no file the plan offered" in w for w in out["warnings"]), out["warnings"]
+
+
+# A method of RecursiveSplitter, a documented extra declared at pkg/text.py:8, whose member the judge reads at line 12.
+SPLIT_ENTRY = {"name": "split", "kind": "method", "owner": "RecursiveSplitter", "params": "text: str",
+               "return_type": "list[str]", "description": "Splits a text.", "at": "SKILL.md:3"}
+SPLIT_MISMATCH = {"name": "RecursiveSplitter.split", "line": 12, "file": TEXT_PY,
+                  "source_sig": "(self, text: str, *, overlap: int) -> list[str]",
+                  "documented_sig": "(text: str) -> list[str]", "issue": "the source requires the keyword `overlap`"}
+
+
+@pytest.mark.parametrize("with_plan", [True, False], ids=["with-the-plan", "without-the-plan"])
+def test_a_method_of_a_documented_extra_is_checked_at_its_declaration(tmp_path, with_plan):
+    """#1087 with #1088: a method checked at its owner's record, of an owner that is a documented extra (no entry
+    point exports RecursiveSplitter; `internalDeclarations` declares it at pkg/text.py:8), is checked at that
+    declaration as `RecursiveSplitter.split`, as plan reads an extra's declarations as its records. score counts
+    it, with --plan or without it, and takes its Critical mismatch at the member's line in that file: without a plan
+    it offers the method its owner's records as plan reads them, where it read the export records alone, so the
+    method was never compared and its mismatch scored nothing. Without the key the owner has no record and the
+    method is neither checked nor counted."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [RUN_ENTRY, SPLIT_ENTRY],
+                                                     "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", EXTRAS)
+    path = tmp_path / "signature-plan.json"
+    assert _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(path)).returncode == 0
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    assert _check_rows(plan) == [(CORE_PY, "run", 1, "def run(flow):"),
+                                 (TEXT_PY, "RecursiveSplitter.split", 8, "class RecursiveSplitter:")]
+    assert plan["files"][1]["checks"][0]["member"] == "split"
+    assert (plan["compared"], plan["notCompared"]) == (2, [])
+    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": TEXT_PY,
+                                                                "signature_mismatches": [SPLIT_MISMATCH]}))
+    gaps = tmp_path / "gaps.json"
+    proc = _run("score", "--inventory", inventory, "--surface", surface, *(["--plan", str(path)] if with_plan else []),
+                "--results", results, "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["comparedNames"] == ["RecursiveSplitter.split", "run"]
+    assert (out["matchingSignatures"], out["totalDocumented"], out["signatureAccuracy"]) == (1, 2, 50.0)
+    assert [(m["name"], m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [
+        ("RecursiveSplitter.split", TEXT_PY, 12, "Critical")]
+    [gap] = json.loads(gaps.read_text(encoding="utf-8"))
+    assert (gap["severity"], gap["source"], gap["export"]) == ("Critical", f"{TEXT_PY}:12", "RecursiveSplitter.split")
+    assert not any("not scored" in w or "no file the plan offered" in w for w in out["warnings"]), out["warnings"]
+    bare = {k: v for k, v in EXTRAS.items() if k != "internalDeclarations"}
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface",
+                           _write(tmp_path / "bare.json", bare)).stdout)
+    assert _check_rows(plan) == [(CORE_PY, "run", 1, "def run(flow):")]
 
 
 MERGE = {"name": "merge_flows", "kind": "function", "file": CORE_PY, "line": 10,
@@ -3471,6 +3543,34 @@ def test_a_doc_check_joins_its_file_s_group_in_name_order_with_its_candidates(tm
                      "members": [{"at": "SKILL.md:7", "methods": ["get(key)"]},
                                  {"at": "references/api.md:3", "properties": "size: int"}]}
     assert "imports" not in group["checks"][0] and "members" not in group["checks"][0]
+
+
+def test_a_method_s_owner_gets_its_doc_check_beside_the_method_s_check(tmp_path):
+    """#1084 with #1088: a method's check is keyed `{owner}.{name}`, a key no documented name has (a `method` entry
+    documents no name), so with --doc-errors SearchType, documented by its fields and import line alone, still gets
+    a doc check of its own at its record, before `SearchType.get` in its file's group, and the method's check carries
+    neither `imports` nor `members`: a method is never imported by its own name, and its entry is no member of its
+    owner. score drops a `doc_errors` item a judge gives under the method's key, with --plan or without it."""
+    get = {"name": "get", "kind": "method", "owner": "SearchType", "params": "key: str", "description": "",
+           "at": "SKILL.md:7"}
+    proc, path, inventory, surface = _doc_plan(tmp_path, "--doc-errors", entries=[DOC_RUN_ENTRY, DOC_TYPE_ENTRY, get])
+    assert proc.returncode == 0, proc.stderr
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    [group] = [g for g in plan["files"] if g["file"] == TYPES_PY]
+    assert group["checks"] == [
+        {"name": "SearchType", "line": 3, "signatureLine": "class SearchType(Enum):", "imports": [DOC_IMPORT],
+         "members": [DOC_MEMBERS]},
+        {"name": "SearchType.get", "member": "get", "line": 3, "signatureLine": "class SearchType(Enum):",
+         "documented": {"params": "key: str"}}]
+    assert plan["compared"] == 2
+    item = {**DOC_ERROR, "name": "SearchType.get", "at": "SKILL.md:7"}
+    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": TYPES_PY, "signature_mismatches": [],
+                                                                "doc_errors": [item]}))
+    for plan_args in (["--plan", str(path)], []):
+        out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, *plan_args,
+                              "--results", results).stdout)
+        assert out["gapRecords"] == []
+        assert any("doc_errors[0]" in w and "SearchType.get" in w for w in out["warnings"]), out["warnings"]
 
 
 # Each import statement an import reader takes, by the fence it sits in; the skill documents SearchType (fields at

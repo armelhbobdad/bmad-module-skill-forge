@@ -108,7 +108,8 @@ documentation errors a Deep-tier judge returns.
          gives an `owner` (a non-empty string) is a form of
          `{owner}.{name}` (#1088), never merged with a function of its bare
          name, and is checked under that name, with its bare name as
-         `member`, only when its owner has a surface record: the check is
+         `member`, only when its owner has a surface record (a documented
+         extra's `internalDeclarations` entry included): the check is
          planned as its owner's would be (its record, line and candidates),
          and its forms are bound among the owner's declarations, by the
          citations of their places that name the member, which the owner's
@@ -116,11 +117,12 @@ documentation errors a Deep-tier judge returns.
          none of whose surface records names a file (a not-located
          extraction gap, a record whose file is blank, or no record at all)
          and none of whose forms is bound gets no check, since no judge has
-         a file to read: `notCompared` lists it (#1061). With --doc-errors
-         (a Deep-tier plan, #1084) each check also carries, as `imports`,
-         each import statement a fenced Python, TS/JS or untagged block of
-         the skill writes that imports the name by its own name from a
-         module that is not relative (`from M import ...`, on one line or
+         a file to read: `notCompared` lists it (#1061), a method's
+         `{owner}.{name}` when none of its owner's records names one. With
+         --doc-errors (a Deep-tier plan, #1084) each check also carries, as
+         `imports`, each import statement a fenced Python, TS/JS or untagged
+         block of the skill writes that imports the name by its own name
+         from a module that is not relative (`from M import ...`, on one line or
          as a parenthesized list, and `import ... { ... } from "M"`, an
          `as` alias read by the name it imports, a default or namespace
          import importing none), at its first line, and, as `members`, the
@@ -141,9 +143,10 @@ documentation errors a Deep-tier judge returns.
              the documented signatures of the signature universe (with a
              fallback scan's exports_found) and each method's
              `{owner}.{name}` the plan holds a check of (with no --plan,
-             one whose owner has a surface record), with --plan less each
-             name the plan's `notCompared` lists (named in `warnings`,
-             #1061), and matching those no result names in a Critical
+             one whose owner has a surface record, a documented extra's
+             included), with --plan less each name the plan's `notCompared`
+             lists, a method's included (named in `warnings`, #1061), and
+             matching those no result names in a Critical
              mismatch: a wrong signature is wrong whichever set the
              denominator counts
            Type Coverage = documented types / total types * 100, where
@@ -1243,18 +1246,19 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
     name documented in several forms carries the others that list members
     or state a return type as `alternatives` (documented_forms). A
     `method` that gives an `owner` is checked as `{owner}.{name}`
-    (method_keys, #1088) when its owner has a surface record: where the
-    owner's own check would be, with the owner's candidates, its bare name
-    as `member`, each form bound to one of the owner's declarations by the
-    citations of its places that name the member; the fallback scan's maps
-    leave it out. A name none of whose records names a file (a not-located
-    extraction gap, a record whose file is blank, or no record at all) and
-    none of whose forms is bound gets no check, since no judge has a file
-    to read: `notCompared` lists it, sorted (#1061). With `doc_errors` (a
-    Deep-tier plan, #1084) each check also carries the skill's import lines
-    of its name and its entries' documented members, and a documented name
-    with no compared form but with either gets a check of its own, which
-    `compared` never counts (_add_doc_checks)."""
+    (method_keys, #1088) when its owner has a record, its `internal` entries
+    for a documented extra: where the owner's own check would be, with the
+    owner's candidates, its bare name as `member`, each form bound to one of
+    the owner's declarations by the citations of its places that name the
+    member; the fallback scan's maps leave it out. A name none of whose
+    records names a file (a not-located extraction gap, a record whose file
+    is blank, or no record at all), a method's when none of its owner's
+    does, and none of whose forms is bound gets no check, since no judge has
+    a file to read: `notCompared` lists it, sorted (#1061). With
+    `doc_errors` (a Deep-tier plan, #1084) each check also carries the
+    skill's import lines of its name and its entries' documented members,
+    and a documented name with no compared form but with either gets a
+    check of its own, which `compared` never counts (_add_doc_checks)."""
     forms = _forms_and_places(inventory)
     spots = _places_by_name(inventory)
     shared = _shared_places(inventory)
@@ -2363,13 +2367,15 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     in that file as a surface record's does. A bound declaration joins no
     name, set or count. A method's `{owner}.{name}` (method_keys, #1088) is
     compared when `offered` holds its check, else, with no plan, when its
-    owner has a surface record; its mismatch is offered its owner's files,
+    owner has a record, its `internal` entries for a documented extra (as
+    in plan); its mismatch is offered its owner's files,
     and a bound one is taken at the judge's file and `line`, the member's,
     since its bound declaration is its owner's: with a warning when the
     judge names another declaration's file, and with none when it names a
     file no declaration of the owner is in, the member's own. A name in
-    `not_compared` (read from --plan: the names it gave no check, #1061) is
-    left out of the compared names and named in one warning. Each result's
+    `not_compared` (read from --plan: the names it gave no check, #1061), a
+    method's `{owner}.{name}` included, is left out of the compared names
+    and named in one warning. Each result's
     `doc_errors` items become Info observations after the mismatch records
     (_doc_error_records), each at a place `doc_places` (read from --plan,
     #1084) gives its name, else of a documented name; they change no
@@ -2379,8 +2385,9 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     methods = method_keys(inventory)
     # A name's records, a documented extra's declarations standing in for the surface records it lacks.
     records = _records_or_internal(exports, internal)
-    # The records a mismatch's files are offered from with no plan: a method's are its owner's.
-    offer_by = {**records, **{key: by_name.get(owner) or [] for key, (owner, _) in methods.items()}}
+    # The records a mismatch's files are offered from with no plan: a method's are its owner's, a documented extra's
+    # declarations for an owner the surface holds no record of, as plan reads them (#1087).
+    offer_by = {**records, **{key: records.get(owner) or [] for key, (owner, _) in methods.items()}}
     # The declarations a line is located among: the surface's records, its internal declarations, and each one a form
     # is bound to (an other declaration only through a binding).
     located = exports + (internal or []) + [{"name": name, **at} for name, forms in bound.items()
@@ -2390,9 +2397,12 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     surface = set(names) | {n for r in results for n in r.get("exports_found") or []}
     documented = documented_names(inventory)
     forms = documented_forms(inventory)
+    # A method is compared where the plan holds its check, else where its owner has a record, as plan reads one. One
+    # the plan lists in `notCompared` joins too, so it is left out below and named with the other names (#1061).
+    held = None if offered is None else set(offered) | (not_compared or set())
     compared = ((surface | signature_universe(names, exports, internal)) & (set(forms) - set(methods))
                 | {key for key, (owner, _) in methods.items()
-                   if (key in offered if offered is not None else bool(by_name.get(owner)))})
+                   if (key in held if held is not None else bool(records.get(owner)))})
     warnings = []
     for name in sorted(set(forms) & set(planned or {})):
         if planned[name] != forms[name]:
@@ -2405,8 +2415,9 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     if left_out:
         compared -= set(left_out)
         warnings.append("Signature Accuracy leaves out each documented name the plan gave no check, since no surface "
-                        "record of it names a file and no form of it is bound to a declaration (such as an extraction "
-                        "gap the runner did not locate): " + ", ".join(f"`{n}`" for n in left_out))
+                        "record of it, or of a method's owner, names a file and no form of it is bound to a "
+                        "declaration (such as an extraction gap the runner did not locate): "
+                        + ", ".join(f"`{n}`" for n in left_out))
 
     graded: dict[tuple, dict] = {}
     seen = set()
