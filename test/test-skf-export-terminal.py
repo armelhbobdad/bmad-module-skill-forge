@@ -35,6 +35,17 @@ commands it documents:
   unbacked; §3a and the snippet format write a `; ` inside a pitfall, a prior
   one included, as `, ` outside a code span, so a written line reads back as
   the pitfalls it was written with.
+- #1092: a prior pitfall stays derived, without `[CARRIED]`, while a T2-future
+  annotation states it or the current SKILL.md still states its main claim
+  anywhere, its frontmatter description and whole body included. New gotchas
+  still come only from a T2-future annotation and source 2's SKILL.md places,
+  and one left without a slot is named in a warning that says how to free a
+  slot. A prior pitfall that joins several stays stated while one T2-future
+  annotation or one of source 2's bullets, rows or Quick Start calls states it
+  whole, and is written once; one SKILL.md states only apart or only in other
+  prose, a value §2.5 reads whole among them, stays unbacked, so it is carried
+  at most once, then dropped. §2.5, the carry and drop warnings and the snippet format
+  say the same.
 """
 
 from __future__ import annotations
@@ -844,7 +855,8 @@ def test_a_gotcha_the_current_skill_md_states_is_derived_not_carried():
     assert "a `## Key API Summary` row whose purpose says deprecated or removed" in skill_md
     assert "an async requirement its Quick Start shows (an API it calls with `await`)" in skill_md
     assert "Key API Summary` rows give" not in text, "the summary table has no kind column"
-    assert "that source 1 or 2 still states, kept in its prior wording without the `[CARRIED]` marker" in sources
+    assert "kept in its prior wording without the `[CARRIED]` marker" in \
+        _line(sources, "3. **A prior pitfall still stated:**")
     assert "`[CARRIED]` applies only to a prior pitfall no current source backs." in sources
     assert "cannot be derived from the current evidence report" not in text
     drop = _line(shared, "- **If an unbacked prior pitfall is already carried")
@@ -962,8 +974,12 @@ SEPARATOR_CLAUSE = ("A `; ` is a separator only when an even number of backticks
 WHOLE_VALUE_CLAUSE = ("A split that gives more than 3 pieces comes from a line §3a never writes, such as an older or "
                       "hand-written one: the whole value is then one pitfall, already carried when it starts with "
                       "`[CARRIED]`.")
-WHOLE_VALUE_UNBACKED_CLAUSE = ("§3a counts such a value as unbacked, since no current source states it whole: the "
-                               "current sources give its still-true pitfalls back as derived gotchas.")
+WHOLE_VALUE_UNBACKED_CLAUSE = ("§3a counts such a value as unbacked, even when the current SKILL.md states each of "
+                               "its pitfalls, unless one T2-future annotation, or one bullet, row or Quick Start "
+                               "call of §3a's source 2, states it whole: a T2-future annotation and the SKILL.md "
+                               "places of §3a's source 2 give "
+                               "its still-true pitfalls back as new gotchas, and one that only other SKILL.md prose "
+                               "states is dropped with the value, which gets at most one `[CARRIED]` cycle.")
 WRITE_CLAUSE = ("A pitfall never holds the separator: in every pitfall the line writes, a prior one kept or carried "
                 "included, write a `; ` outside a code span as `, ` (a code span keeps its `; `), so §2.5 reads the "
                 "line back as the same pitfalls.")
@@ -989,8 +1005,8 @@ COCOINDEX_HEAD = (
 )
 
 
-def _read_gotchas(value: str) -> list[tuple[str, bool]]:
-    """(pitfall, already carried) for each pitfall §2.5 step 3 reads from a prior `|gotchas:` value."""
+def _split_gotchas(value: str) -> list[str]:
+    """The pieces §2.5 step 3 splits a prior `|gotchas:` value into, before it reads more than 3 as one."""
     pieces, start, ticks, depth = [], 0, 0, 0
     for i, char in enumerate(value):
         if char == "`":
@@ -1003,6 +1019,12 @@ def _read_gotchas(value: str) -> list[tuple[str, bool]]:
             pieces.append(value[start:i])
             start = i + 2
     pieces.append(value[start:])
+    return pieces
+
+
+def _read_gotchas(value: str) -> list[tuple[str, bool]]:
+    """(pitfall, already carried) for each pitfall §2.5 step 3 reads from a prior `|gotchas:` value."""
+    pieces = _split_gotchas(value)
     if len(pieces) > 3:
         pieces = [value]
     read = []
@@ -1075,3 +1097,292 @@ def test_a_written_gotchas_line_reads_back_as_the_pitfalls_it_holds():
         assert _write_gotchas(_read_gotchas(line)) == line
     assert _read_gotchas(_write_gotchas([("see (x", False), ("y", False), ("z", True)])) == \
         [("see (x; y; [CARRIED] z", False)]
+
+
+# --------------------------------------------------------------------------
+# #1092: a prior pitfall the current SKILL.md still says anywhere stays derived
+# --------------------------------------------------------------------------
+
+# §3a source 3, sentence by sentence.
+PRIOR_STATED_CLAUSE = ("3. **A prior pitfall still stated:** a pitfall of `prior_gotchas` (§2.5), already carried "
+                       "or not, that source 1 states or that the current SKILL.md still says anywhere (its "
+                       "frontmatter `description` and its whole body, not only source 2's places), kept in its "
+                       "prior wording without the `[CARRIED]` marker.")
+MAIN_CLAIM_CLAUSE = ("SKILL.md still says a pitfall when it states the pitfall's main claim (what to do or avoid, "
+                     "with any version or name the pitfall gives) in SKILL.md's own words: a detail the pitfall "
+                     "adds need not appear, and a pitfall whose main claim SKILL.md no longer states, or now "
+                     "contradicts with another version or name in any place (even while another place still "
+                     "states it), stays unbacked.")
+NEW_GOTCHAS_CLAUSE = ("New gotchas come only from source 1 and source 2's places: a pitfall SKILL.md states only "
+                      "elsewhere is kept when the prior line holds it, never added as a new one.")
+ONE_PITFALL_CLAUSE = ("SKILL.md prose outside source 2's places backs only a prior pitfall that is one pitfall (a "
+                      "parenthesis that adds detail to it does not make it several): one that joins several pitfalls "
+                      "that each warn on their own is still stated only when one T2-future annotation, or one "
+                      "bullet, row or Quick Start call of source 2, states it whole, every pitfall it joins "
+                      "included, so it stays unbacked when SKILL.md states its pitfalls only apart or only in other "
+                      "prose, such as a value §2.5 reads whole, the one pitfall that value reads back as once §3a "
+                      "has written it (its `; ` written as `, `), or an older export's line that joined its "
+                      "pitfalls with `, `.")
+WRITTEN_ONCE_CLAUSE = ("A prior pitfall that source 1 or source 2 states, one that joins several included, is "
+                       "written once, as that prior pitfall in its prior wording, never also as a new gotcha.")
+# §3a's branches.
+DERIVED_RANK_CLAUSE = "(source 3, a pitfall only SKILL.md's prose states included)"
+NO_SLOT_WARNING = ("When a new gotcha gets no slot, emit warning: \"**New gotchas left off the line:** {each one, "
+                   "with where it is stated: the evidence report's T2-future section, or the SKILL.md section, "
+                   "`## Key API Summary` row or Quick Start call}. The line's 3 slots went first to the prior "
+                   "pitfalls a T2-future annotation or the current SKILL.md still states, in their prior order, "
+                   "then to new gotchas in source order.")
+NO_SLOT_REMEDY = ("to give a left-off gotcha a slot, remove from the `|gotchas:` line of "
+                  "`{resolved_skill_package}/context-snippet.md` a prior pitfall that SKILL.md states only in other "
+                  "prose, then re-run export. A pitfall a T2-future annotation or one of those SKILL.md places "
+                  "states comes back as a new gotcha, in source order, so removing it frees a slot only for a "
+                  "left-off gotcha stated before it.\"")
+CARRY_PROMISE = ("They will be DROPPED on the next export unless a T2-future annotation in the evidence report or "
+                 "the current SKILL.md states them, except one that joins several pitfalls, such as a whole older "
+                 "line, which is dropped unless one T2-future annotation, one bullet of a section whose heading "
+                 "names gotchas, deprecations, migration, breaking changes or import corrections, one "
+                 "`## Key API Summary` row whose purpose says deprecated or removed, or one Quick Start `await` "
+                 "call states it whole.")
+DROP_REASONS = ("\"**Stale gotchas dropped:** {each pitfall, with why it was dropped: it was already carried "
+                "forward once, or the line's 3 slots went to current gotchas, and, for one that joins several "
+                "pitfalls, that no single place states it whole}. The pitfalls that do not join several no longer "
+                "appear in the current SKILL.md or evidence report.")
+DROP_COMES_BACK = ("A dropped pitfall comes back only as a new gotcha: if one is still relevant, re-forge the skill "
+                   "with update-skill so its SKILL.md states it in a bullet of a section whose heading names "
+                   "gotchas, deprecations, migration, breaking changes or import corrections, in a "
+                   "`## Key API Summary` row whose purpose says deprecated or removed, or as an async requirement "
+                   "its Quick Start shows (other SKILL.md prose that says it does not add it back), or add it to "
+                   "the evidence report's T2-future section, then re-run export.")
+DROP_JOINED_ADVICE = ("For one that joins several pitfalls, state it whole in one such place, or each of its "
+                      "pitfalls in its own.\"")
+# The snippet format's gotchas rule.
+FORMAT_PRIOR_STATED_CLAUSE = ("and a prior pitfall, already carried or not, that a T2-future annotation states or "
+                              "that the current SKILL.md still says anywhere (its frontmatter description and its "
+                              "whole body), kept in its prior wording without the `[CARRIED]` marker.")
+FORMAT_MAIN_CLAIM_CLAUSE = ("SKILL.md says a pitfall when it states the pitfall's main claim (what to do or avoid, "
+                            "with any version or name the pitfall gives) in SKILL.md's own words.")
+FORMAT_NEW_GOTCHAS_CLAUSE = ("New gotchas come only from the evidence report's T2-future annotations and those "
+                             "SKILL.md places: a gotchas-type section's bullets, a deprecated or removed "
+                             "`## Key API Summary` row and an async requirement the Quick Start shows.")
+FORMAT_JOINED_CLAUSE = ("A pitfall that joins several pitfalls, such as a value step 3 reads whole, is still stated "
+                        "only when one T2-future annotation or one of those bullets, rows or Quick Start calls "
+                        "states it whole, not when SKILL.md states its pitfalls only apart or only in other prose, "
+                        "and a prior pitfall one of those states is written once, never also as a new gotcha.")
+
+# The SKILL.md places source 2 reads. Source 3 reads every place, these included.
+SOURCE_2_PLACES = {"gotchas bullet", "deprecated Key API Summary row", "Quick Start await"}
+
+
+def _resolve_gotchas(prior_value: str, skill_md: list[tuple[str, str]], is_first_export: bool,
+                     report: tuple[str, ...] = (), several: tuple[str, ...] = ()
+                     ) -> tuple[str, list[str], list[str], list[str]]:
+    """The `|gotchas:` value §3a writes, then the pitfalls its carry, drop and no-slot warnings name.
+
+    `skill_md` lists (place, pitfall) in SKILL.md order, one entry per place, a pitfall standing for the one
+    whose main claim that place states, whole, in SKILL.md's own words (source 3 checks meaning, not text, so
+    a test names the pitfall meant); a place that states only part of a joined pitfall names that part.
+    `report` holds source 1's T2-future annotations, one entry per annotation. `several` names the prior pitfalls that
+    join several pitfalls, a judgment of meaning too; a value §2.5 reads whole is one without being named."""
+    prior = _read_gotchas(prior_value) if prior_value else []
+    joined = set(several) | ({prior[0][0]} if prior_value and len(_split_gotchas(prior_value)) > 3 else set())
+    said = set(report) | {pitfall for _, pitfall in skill_md}
+    sourced = list(report) + [pitfall for place, pitfall in skill_md if place in SOURCE_2_PLACES]
+    prior_texts = [text for text, _ in prior]
+    # Prose backs a prior pitfall that is one pitfall; one that joins several needs one annotation or one
+    # source-2 place stating it whole. Either way a prior pitfall a source states is never also new.
+    backed = [text for text in prior_texts if text in (sourced if text in joined else said)]
+    new = [text for text in dict.fromkeys(sourced) if text not in prior_texts]
+    line, left_off = [(text, False) for text in (backed + new)[:3]], (backed + new)[3:]
+    carry, drop = [], []
+    for text, carried in prior:
+        if text in backed:
+            continue
+        if len(line) == 3 or (carried and not is_first_export):
+            drop.append(text)
+        else:
+            line.append((text, not is_first_export))
+            carry += [] if is_first_export else [text]
+    return _write_gotchas(line), carry, drop, left_off
+
+
+# oh-my-skills a02403f, skills/oms-uitripled/0.1.0/oms-uitripled/SKILL.md, which has no gotchas-type section,
+# so source 2 gives none. The sentences that state each prior pitfall's main claim, in SKILL.md's own words:
+# - REACT_19, its description: "Installs React 19 and Next.js 16 UI components", and its Overview: "All
+#   components are built with React 19, Next.js 16, TypeScript, Tailwind CSS 4, and Framer Motion." ("peer
+#   deps" is a detail the pitfall adds.)
+# - BARREL, its description: "do NOT generate barrel imports from the react-shadcn package", and its Overview:
+#   "it is not an installable npm package for direct imports".
+# - USE_CLIENT, its Quick Start prose: "Render the copied components from client code: 170 of the 171 shadcn
+#   entries ship a file that starts with `"use client"`".
+BARREL, USE_CLIENT, REACT_19 = (text for text, _ in _read_gotchas(UITRIPLED_A02403F))
+UITRIPLED_A02403F_SKILL_MD = [("description", REACT_19), ("description", BARREL), ("Overview", BARREL),
+                              ("Overview", REACT_19), ("Quick Start prose", USE_CLIENT)]
+# The same SKILL.md with React 20 and Next.js 17 in place of React 19 and Next.js 16: another version.
+REACT_20 = "React 20 / Next.js 17 peer deps are required."
+UITRIPLED_REACT_20_SKILL_MD = [(place, REACT_20 if pitfall == REACT_19 else pitfall)
+                               for place, pitfall in UITRIPLED_A02403F_SKILL_MD]
+# oh-my-skills b732108, skills/oms-cognee/1.6.2/oms-cognee/SKILL.md:230, a `## Deprecations & Gotchas` bullet
+# whose lead joins two warnings that each stand on their own: a pitfall that joins several, stated whole.
+START_UI = "`cognee.start_ui` is sync (not async) and requires a `pid_callback` positional argument"
+
+
+def test_a_prior_pitfall_the_current_skill_md_still_says_anywhere_is_derived():
+    """#1092: source 3 keeps a prior pitfall, carried or not, that source 1 states or whose main claim the
+    current SKILL.md still states anywhere; new gotchas come only from source 1 and source 2's places, and one
+    left without a slot is named with the way to free a slot; a pitfall that joins several needs one
+    annotation or one source-2 place stating it whole, and a prior pitfall a source states is written once.
+    §2.5, the carry and drop warnings and the snippet format say the same."""
+    text, fmt = _read(SNIPPET), _read(SNIPPET_FORMAT)
+    shared = _section(_generate(), "#### 3a. Gotchas (Both Skill Types)", "#### 3b. ")
+    sources = _section(shared, "A gotcha is **derived** when a current source states it:", "**Detect first-export state")
+    three = _line(sources, "3. **A prior pitfall still stated:**")
+    assert _in_order(three, PRIOR_STATED_CLAUSE, MAIN_CLAIM_CLAUSE, NEW_GOTCHAS_CLAUSE, ONE_PITFALL_CLAUSE,
+                     WRITTEN_ONCE_CLAUSE)
+    rule = _line(fmt, "- **gotchas line**")
+    assert _in_order(rule, "an async requirement its Quick Start shows; ", FORMAT_PRIOR_STATED_CLAUSE,
+                     FORMAT_MAIN_CLAIM_CLAUSE, FORMAT_NEW_GOTCHAS_CLAUSE, FORMAT_JOINED_CLAUSE,
+                     "The prior pitfalls still stated come first, in their prior order")
+    for clause in (three, rule):
+        assert "in its own wording" not in clause, "SKILL.md's own words: a check of meaning, never of text"
+    assert "listed before it" not in rule
+    for gone in ("source 1 or 2 still states", "either of them still states", "dropped either way",
+                 "Source 3 backs only a prior pitfall that is one pitfall", "only a pitfall that is one pitfall counts"):
+        assert gone not in text and gone not in fmt
+    assert WHOLE_VALUE_UNBACKED_CLAUSE in _line(_section(text, "### 2.5. Check Existing Snippet", "### 2.7. "), "3. ")
+    assert _in_order(_line(shared, "- **If gotchas are derived:**"),
+                     "the prior pitfalls a current source still states, in their prior order", DERIVED_RANK_CLAUSE,
+                     "the first 3 of them", NO_SLOT_WARNING, NO_SLOT_REMEDY)
+    carry = _line(shared, "- **If an unbacked prior pitfall gets a free slot AND `is_first_export == false`")
+    assert CARRY_PROMISE in carry and "unless the current SKILL.md or evidence report states them" not in carry
+    drop = _line(shared, "- **If an unbacked prior pitfall is already carried")
+    assert _in_order(drop, DROP_REASONS, DROP_COMES_BACK, DROP_JOINED_ADVICE)
+    assert "re-forge the skill with update-skill so its SKILL.md states it, or" not in drop
+
+
+@pytest.mark.parametrize("prior_value, skill_md, report, is_first_export, several, expected", [
+    pytest.param(UITRIPLED_A02403F, UITRIPLED_A02403F_SKILL_MD, (), False, (),
+                 (_write_gotchas([(BARREL, False), (USE_CLIENT, False), (REACT_19, False)]), [], [], []),
+                 id="issue-1092-uitripled"),
+    pytest.param(UITRIPLED_A02403F, UITRIPLED_REACT_20_SKILL_MD, (), False, (),
+                 (_write_gotchas([(BARREL, False), (USE_CLIENT, False), (REACT_19, True)]), [REACT_19], [], []),
+                 id="another-version-is-unbacked"),
+    pytest.param("[CARRIED] a; [CARRIED] b; c", [("Overview", "a")], (), False, (),
+                 ("a; [CARRIED] c", ["c"], ["b"], []), id="carried-still-said"),
+    pytest.param("[CARRIED] a; b", [], ("a",), False, (), ("a; [CARRIED] b", ["b"], [], []),
+                 id="carried-only-the-report-states"),
+    pytest.param("a; b", [("description", "z"), ("Overview", "b"), ("gotchas bullet", "n")], (), False, (),
+                 ("b; n; [CARRIED] a", ["a"], [], []), id="prose-never-adds"),
+    pytest.param("a; b", [("gotchas bullet", "a"), ("gotchas bullet", "n")], (), False, (),
+                 ("a; n; [CARRIED] b", ["b"], [], []), id="a-source-2-place-states-a-prior-one"),
+    pytest.param("", UITRIPLED_A02403F_SKILL_MD, (), False, (), ("", [], [], []),
+                 id="issue-1092-uitripled-no-prior-line"),
+    pytest.param("a; b", [("Overview", "b")], ("r", "a"), False, (), ("a; b; r", [], [], []),
+                 id="report-states-and-adds"),
+    pytest.param("a; [CARRIED] b; c", [("Overview", "a")], (), True, (), ("a; b; c", [], [], []), id="first-export"),
+    pytest.param("a; b; c", [("Overview", "a"), ("Overview", "b"), ("Overview", "c"), ("gotchas bullet", "n")], (),
+                 False, (), ("a; b; c", [], [], ["n"]), id="no-slot-for-a-new-gotcha"),
+    pytest.param("a; b", [("Overview", "a"), ("Overview", "b"), ("gotchas bullet", "n"), ("Quick Start await", "m")],
+                 ("r",), False, (), ("a; b; r", [], [], ["n", "m"]), id="more-than-3-derived"),
+    pytest.param(START_UI, [("gotchas bullet", START_UI)], (), False, (START_UI,),
+                 (_write_gotchas([(START_UI, False)]), [], [], []), id="a-gotchas-bullet-states-a-joined-one-whole"),
+    pytest.param(START_UI, [], (START_UI,), False, (START_UI,), (_write_gotchas([(START_UI, False)]), [], [], []),
+                 id="an-annotation-states-a-joined-one-whole"),
+    pytest.param("a, b", [("Overview", "a"), ("description", "b")], (), False, ("a, b",),
+                 ("[CARRIED] a, b", ["a, b"], [], []), id="prose-states-a-joined-ones-parts-apart"),
+])
+def test_a_prior_pitfall_skill_md_still_says_is_kept_unmarked(prior_value, skill_md, report, is_first_export,
+                                                               several, expected):
+    """#1092: re-exports and a first export, through §3a as written."""
+    text = _read(SNIPPET)
+    for clause in (PRIOR_STATED_CLAUSE, MAIN_CLAIM_CLAUSE, NEW_GOTCHAS_CLAUSE, ONE_PITFALL_CLAUSE,
+                   WRITTEN_ONCE_CLAUSE, NO_SLOT_WARNING):
+        assert clause in text
+    assert _resolve_gotchas(prior_value, skill_md, is_first_export, report, several) == expected
+
+
+def test_a_prior_pitfall_skill_md_no_longer_says_is_carried_once_then_dropped():
+    """#1092: reading SKILL.md whole changes nothing for a pitfall it says nowhere."""
+    assert PRIOR_STATED_CLAUSE in _read(SNIPPET)
+    first = _resolve_gotchas("a; b", [("Overview", "a")], is_first_export=False)
+    assert first == ("a; [CARRIED] b", ["b"], [], [])
+    assert _resolve_gotchas(first[0], [("Overview", "a")], is_first_export=False) == ("a", [], ["b"], [])
+
+
+def test_a_prior_value_that_joins_several_pitfalls_is_carried_once_then_dropped():
+    """#1092: a value §2.5 reads whole, then the one pitfall it reads back as once written, stays unbacked
+    although SKILL.md states each of its pitfalls, so it gets one `[CARRIED]` cycle and is dropped; only its
+    pitfall source 2 states comes back, as a new gotcha. An older `, `-joined line whose pitfalls SKILL.md
+    states only in prose, or only apart, rides the same one cycle."""
+    text = _read(SNIPPET)
+    assert ONE_PITFALL_CLAUSE in text and WHOLE_VALUE_UNBACKED_CLAUSE in text and CARRY_PROMISE in text
+    whole = "a; b; c; d"
+    joined = _write_gotchas([(whole, False)])
+    assert _split_gotchas(whole) == ["a", "b", "c", "d"] and _read_gotchas(joined) == [(joined, False)], \
+        "once written, the value is one piece the more-than-3 test no longer catches"
+    # The Overview states each of a, b, c and d, so a check of meaning alone would find the value said, as
+    # read and as read back; a gotchas bullet states d.
+    skill_md = [("Overview", whole), ("Overview", joined)] + [("Overview", part) for part in "abcd"] + \
+        [("gotchas bullet", "d")]
+    carried = _resolve_gotchas(whole, skill_md, is_first_export=False)
+    assert carried == ("d; [CARRIED] " + joined, [whole], [], [])
+    dropped = _resolve_gotchas(carried[0], skill_md, is_first_export=False, several=(joined,))
+    assert dropped == ("d", [], [joined], [])
+    assert _resolve_gotchas(dropped[0], skill_md, is_first_export=False) == ("d", [], [], [])
+    # Written unmarked by a first export, the value still gets one carry only.
+    fresh = _resolve_gotchas(whole, skill_md, is_first_export=True)
+    assert fresh == ("d; " + joined, [], [], [])
+    carried = _resolve_gotchas(fresh[0], skill_md, is_first_export=False, several=(joined,))
+    assert carried == ("d; [CARRIED] " + joined, [joined], [], [])
+    assert _resolve_gotchas(carried[0], skill_md, is_first_export=False, several=(joined,)) == \
+        ("d", [], [joined], [])
+    # One T2-future annotation that states the whole value keeps it unmarked, read whole and read back.
+    stated = _resolve_gotchas(whole, [], is_first_export=False, report=(whole,))
+    assert stated == (joined, [], [], [])
+    assert _resolve_gotchas(stated[0], [], is_first_export=False, report=(joined,), several=(joined,)) == stated
+    # An older export's line that joined its pitfalls with `, ` is one pitfall that joins several.
+    older = _resolve_gotchas("a, b", [("Overview", "a, b")], is_first_export=False, several=("a, b",))
+    assert older == ("[CARRIED] a, b", ["a, b"], [], [])
+    assert _resolve_gotchas(older[0], [("Overview", "a, b")], is_first_export=False, several=("a, b",)) == \
+        ("", [], ["a, b"], [])
+    # The same line with each pitfall in a gotchas bullet of its own: they come back as new gotchas while the
+    # joined one rides its one carry, and the line then stays the same.
+    apart = [("gotchas bullet", "a"), ("gotchas bullet", "b")]
+    older = _resolve_gotchas("a, b", apart, is_first_export=False, several=("a, b",))
+    assert older == ("a; b; [CARRIED] a, b", ["a, b"], [], [])
+    settled = _resolve_gotchas(older[0], apart, is_first_export=False, several=("a, b",))
+    assert settled == ("a; b", [], ["a, b"], [])
+    assert _resolve_gotchas(settled[0], apart, is_first_export=False) == ("a; b", [], [], [])
+
+
+@pytest.mark.parametrize("skill_md, report", [
+    pytest.param([("Overview", START_UI), ("gotchas bullet", START_UI)], (), id="oms-cognee-gotchas-bullet"),
+    pytest.param([("Overview", START_UI)], (START_UI,), id="t2-future-annotation"),
+])
+@pytest.mark.parametrize("is_first_export", [False, True])
+def test_a_joined_prior_pitfall_one_place_states_whole_stays_on_the_line(skill_md, report, is_first_export):
+    """#1092: a prior pitfall that joins several, which one gotchas-type bullet or one T2-future annotation
+    states whole, is kept unmarked, written once, on every export, never carried, dropped and added back."""
+    text, fmt = _read(SNIPPET), _read(SNIPPET_FORMAT)
+    assert ONE_PITFALL_CLAUSE in text and WRITTEN_ONCE_CLAUSE in text and FORMAT_JOINED_CLAUSE in fmt
+    line = _write_gotchas([(START_UI, False)])
+    for export in range(3):
+        result = _resolve_gotchas(line, skill_md, is_first_export and export == 0, report, several=(START_UI,))
+        assert result == (line, [], [], []), f"export {export + 1}"
+        line = result[0]
+
+
+def test_removing_a_prior_pitfall_gives_a_left_off_gotcha_its_slot():
+    """#1092: the no-slot warning's way out, through §3a as written."""
+    assert NO_SLOT_WARNING in _read(SNIPPET) and NO_SLOT_REMEDY in _read(SNIPPET)
+    skill_md = [("Overview", "a"), ("Overview", "b"), ("Overview", "c"), ("gotchas bullet", "n")]
+    assert _resolve_gotchas("a; b; c", skill_md, is_first_export=False) == ("a; b; c", [], [], ["n"])
+    freed = _resolve_gotchas("a; b", skill_md, is_first_export=False)
+    assert freed == ("a; b; n", [], [], [])
+    assert _resolve_gotchas(freed[0], skill_md, is_first_export=False) == freed
+    # A pitfall a source-2 place states comes back as a new gotcha, in source order, so removing it frees a
+    # slot only for a left-off gotcha stated before it. With no prior line, new gotchas alone fill the line.
+    bullets = [("gotchas bullet", pitfall) for pitfall in "abne"]
+    assert _resolve_gotchas("", bullets, is_first_export=False) == ("a; b; n", [], [], ["e"])
+    assert _resolve_gotchas("a; b; e", bullets, is_first_export=False) == ("a; b; e", [], [], ["n"])
+    assert _resolve_gotchas("b; e", bullets, is_first_export=False) == ("b; e; a", [], [], ["n"])
+    assert _resolve_gotchas("a; b", bullets, is_first_export=False) == ("a; b; n", [], [], ["e"])
