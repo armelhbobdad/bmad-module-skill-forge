@@ -1900,11 +1900,17 @@ UNBOUND = "the form is compared as one whose citations name no declaration"
     {"name": "run", "kind": "function", "params": "a", "at": None},
     {"name": "withActions", "kind": "constant", "params": "storyFn: PartialStoryFn<T>", "return_type": "T['storyResult']"},
     {"name": "getTheme", "kind": "constant", "params": [], "return_type": "Theme"},
+    {"name": "story", "kind": "method", "owner": "ReactMeta", "params": "story: StoryAnnotations"},
+    {"name": "meta", "kind": "method", "owner": "ReactPreview", "params": ""},
+    {"name": "getByRole", "kind": "method", "owner": "Canvas", "usage_signature": "canvas.getByRole('button')"},
 ], ids=["params", "empty-function-params", "empty-list", "usage", "class-params", "null", "function-constant",
-        "no-argument-function-constant"])
+        "no-argument-function-constant", "method-with-an-owner", "no-argument-method-with-an-owner",
+        "method-usage-with-an-owner"])
 def test_an_entry_with_a_form_and_no_at_is_a_warning(entry):
     """#918: a form with no place is still compared, unbound, so the inventory stays valid and the entry is
-    listed in `warnings`; a JSON null `at` is no `at`, and is left out of the inventory."""
+    listed in `warnings`; a JSON null `at` is no `at`, and is left out of the inventory. #1088: a `method` that gives
+    an `owner` is compared too, as `{owner}.{name}` with its owner's member, so its form asks for a place as a
+    function's does, an empty `params` included."""
     r = mod.validate_inventory(_places(entry))
     assert r["valid"] is True and r["violations"] == [], r["violations"]
     assert r["warnings"] == [f"exports[0] (`{entry['name']}`) carries a form but no `at`, so {UNBOUND}"]
@@ -1917,8 +1923,13 @@ def test_an_entry_with_a_form_and_no_at_is_a_warning(entry):
     {"name": "MAX", "kind": "constant"},
     {"name": "parse", "kind": "function", "return_type": "Doc"},
     {"name": "Card", "kind": "constant", "usage_signature": "  "},
-], ids=["method", "blank-class-params", "data-constant", "return-type-only", "blank-usage"])
+    {"name": "get", "kind": "method", "owner": "", "params": "key"},
+    {"name": "get", "kind": "method", "owner": ["agents"], "params": "key"},
+    {"name": "get", "kind": "method", "owner": "agents", "description": "Gets."},
+], ids=["method", "blank-class-params", "data-constant", "return-type-only", "blank-usage", "method-with-a-blank-owner",
+        "method-with-an-owner-that-is-no-string", "method-with-an-owner-and-no-form"])
 def test_an_entry_plan_compares_no_form_of_needs_no_at(entry):
+    """plan compares no `method` with no `owner` (#1088 keys a method by its owner), so one asks for no place."""
     r = mod.validate_inventory(_places(entry))
     assert r["valid"] is True and r["warnings"] == []
     assert mod.compared_form(entry) is False
@@ -1937,7 +1948,9 @@ def test_a_bad_at_is_dropped_with_a_warning(at, violation):
     """Any entry's `at`, one a method gives too, is "<path>:<line>" in a file the inventory reads. One that is not
     never refuses the inventory: it is dropped, so the inventory carries no bad `at`, and listed in `warnings`."""
     for entry, left in ((_form_entry(at), f"; it is dropped and {UNBOUND}"),
-                        ({"name": "get", "kind": "method", "at": at}, "; it is dropped")):
+                        ({"name": "get", "kind": "method", "at": at}, "; it is dropped"),
+                        ({"name": "get", "kind": "method", "owner": "agents", "params": "key", "at": at},
+                         f"; it is dropped and {UNBOUND}")):
         r = mod.validate_inventory(_places(entry))
         assert r["valid"] is True and r["violations"] == [], r["violations"]
         [message] = r["warnings"]

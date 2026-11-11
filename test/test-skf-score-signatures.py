@@ -66,6 +66,11 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     every form's mismatch, at its own form when it quotes none (#919); with
     --plan the forms are the plan's; and compares a component `constant`
     the inventory gives a usage form (#837)
+  - checks a `method` that gives an `owner` as `{owner}.{name}` (#1088),
+    never merged with a function of its bare name, at its owner's surface
+    record with its bare name as `member`, binds its forms among the
+    owner's declarations, counts it only where the plan checks it, and
+    takes a bound one's mismatch at the member's line
 The surface fixture is load-coverage-inputs.py surface output built from a
 --mode full extraction, so a recipe's internal match is never compared.
 """
@@ -3842,3 +3847,275 @@ def test_a_surface_without_the_set_exits_1(tmp_path):
     inventory, surface = _files(tmp_path)
     proc = _run("score", "--inventory", inventory, "--surface", surface, "--surface-set", "subpaths")
     assert proc.returncode == 1 and "no name set `subpaths`" in proc.stderr
+
+
+# --------------------------------------------------------------------------
+# a method's form, checked at its owner (#1088)
+# --------------------------------------------------------------------------
+
+# oms-storybook-react-vite references/story-types.md: `ReactMeta.story`'s three overloads, each a `method` entry of
+# its owner `ReactMeta`, beside a function of the same bare name the skill documents too.
+PREVIEW = "src/preview.tsx"
+REACT_META = {"name": "ReactMeta", "kind": "interface", "file": PREVIEW, "line": 10,
+              "signatureLine": "export interface ReactMeta<T, MetaInput> extends Meta<T, MetaInput> {",
+              "origin": "extraction"}
+STORY_RECORD = {"name": "story", "kind": "function", "file": "src/story.ts", "line": 3,
+                "signatureLine": "export function story(x: number): void {", "origin": "extraction"}
+STORY_FUNCTION = {"name": "story", "kind": "function", "params": "x: number", "description": "A story."}
+STORY_FORMS = ["story: StoryAnnotations<T, T['args']>", "story: () => ReactTypes['storyResult']",
+               "story: StoryAnnotations<T, T['args']> & { render: () => ReactTypes['storyResult'] }"]
+STORY_METHODS = [{"name": "story", "kind": "method", "owner": "ReactMeta", "params": params,
+                  "return_type": "ReactStory<T>", "description": "A story of the meta."} for params in STORY_FORMS]
+STORY_MISMATCH = {"name": "ReactMeta.story", "line": 42, "documented_sig": f"({STORY_FORMS[0]}) -> ReactStory<T>",
+                  "source_sig": "story<TInput extends StoryAnnotations<T, T['args']>>(story?: TInput): ReactStory<T>",
+                  "issue": "the source's `story` parameter is optional"}
+
+
+def _method_plan(inventory: list[dict], exports: list[dict], names: list[str] | None = None) -> dict:
+    return mod.plan(inventory, sorted({e["name"] for e in exports}) if names is None else names, exports)
+
+
+def _checks(plan: dict) -> dict[str, tuple[str, dict]]:
+    return {c["name"]: (group["file"], c) for group in plan["files"] for c in group["checks"]}
+
+
+def test_a_method_that_gives_an_owner_is_checked_at_its_owner(tmp_path):
+    """#1088: plan skipped every `method` entry, so a strict oms-storybook-react-vite run scored Signature Accuracy
+    170/170 without comparing one of its 23 method forms. A method that gives an `owner` is checked as
+    `{owner}.{name}`, its bare name as `member`, at its owner's surface record, and plan counts it; the fallback
+    scan's map leaves it out, since that scan's judges compare the names a file exports."""
+    plan = _method_plan(STORY_METHODS[:1], [REACT_META])
+    assert plan["compared"] == 1
+    assert plan["files"] == [{"file": PREVIEW, "checks": [{
+        "name": "ReactMeta.story", "member": "story", "line": 10, "signatureLine": REACT_META["signatureLine"],
+        "documented": {"params": STORY_FORMS[0], "return_type": "ReactStory<T>"}}]}]
+    assert list(plan["files"][0]["checks"][0])[:2] == ["name", "member"]
+    assert plan["documentedSignatures"] == {} and plan["documentedAlternatives"] == {}
+
+
+def test_a_method_never_merges_with_a_function_of_its_bare_name():
+    """#1088: the method is keyed by its owner, so a function `story` keeps its own check at its own record, and
+    neither's form is offered to the other."""
+    plan = _method_plan([STORY_FUNCTION, *STORY_METHODS[:1]], [REACT_META, STORY_RECORD])
+    checks = _checks(plan)
+    assert plan["compared"] == 2 and set(checks) == {"story", "ReactMeta.story"}
+    assert checks["story"] == ("src/story.ts", {"name": "story", "line": 3, "signatureLine": STORY_RECORD["signatureLine"],
+                                                "documented": {"params": "x: number"}})
+    assert checks["ReactMeta.story"][0] == PREVIEW and "alternatives" not in checks["ReactMeta.story"][1]
+    assert set(plan["documentedSignatures"]) == {"story"}
+    assert plan["documentedSignatures"]["story"] == {"params": "x: number"}
+
+
+def test_a_method_s_overloads_are_one_check_with_alternatives():
+    """#1088: the three `ReactMeta.story` entries are three forms of one key: one check, the first `documented`
+    and the other two `alternatives`, ranked as any name's are."""
+    plan = _method_plan(STORY_METHODS, [REACT_META])
+    [(file, check)] = _checks(plan).values()
+    assert file == PREVIEW and check["name"] == "ReactMeta.story"
+    assert check["documented"]["params"] == STORY_FORMS[0]
+    assert [f["params"] for f in check["alternatives"]] == STORY_FORMS[1:]
+
+
+@pytest.mark.parametrize("exports, names", [
+    ([STORY_RECORD], None),
+    ([STORY_RECORD], ["ReactMeta", "story"]),
+    ([{**REACT_META, "name": "Meta"}, STORY_RECORD], None),
+], ids=["owner-off-the-surface", "owner-in-all-with-no-record", "another-owner"])
+def test_a_method_whose_owner_has_no_surface_record_is_not_checked(exports, names):
+    """#1088: a method is checked only where its owner's own check would be, at its owner's surface record: with
+    none (the owner outside the universe, or a name in `all` with no record), no check and no count, as before."""
+    plan = _method_plan([STORY_FUNCTION, *STORY_METHODS], exports, names)
+    assert set(_checks(plan)) == {"story"} and plan["compared"] == 1
+
+
+def test_a_method_with_no_owner_is_never_compared(tmp_path):
+    """#1088: a `method` with no `owner` (or a blank one) has no key, so it is neither checked, counted, nor a form
+    of a function of its bare name; the validator asks it for no `at`."""
+    bare = [{**STORY_METHODS[0], "owner": owner} for owner in (None, "", ["ReactMeta"])]
+    bare.append({k: v for k, v in STORY_METHODS[0].items() if k != "owner"})
+    plan = _method_plan([STORY_FUNCTION, *bare], [REACT_META, STORY_RECORD])
+    assert [(c["name"], c["documented"]) for _, c in _checks(plan).values()] == [("story", {"params": "x: number"})]
+    assert mod.method_keys(bare) == {}
+    assert not any(mod._inventory().compared_form(e) for e in bare)
+
+
+def _method_run(tmp_path: Path, inventory: list[dict], exports: list[dict], results: list[dict],
+                plan: str | None = "surface", tree: dict[str, str] | None = None) -> dict:
+    """plan (with the surface, without it for "fallback", none for None), then score over `results`, by the CLI."""
+    inv = _write(tmp_path / "inventory.json", {"exports": inventory, "cross_check_mismatches": []})
+    surface = _write(tmp_path / "surface.json", {
+        "exports": exports, "sets": {"all": sorted({e["name"] for e in exports})}})
+    args = []
+    if plan is not None:
+        output = tmp_path / "signature-plan.json"
+        skill = ["--skill-dir", str(tmp_path / "skill")] if tree is not None else []
+        for rel, text in (tree or {}).items():
+            _write(tmp_path / "skill" / rel, text)
+        proc = _run("plan", "--inventory", inv, *(["--surface", surface] if plan == "surface" else []), *skill,
+                    "--output", str(output))
+        assert proc.returncode == 0, proc.stderr
+        args = ["--plan", str(output)]
+    files = [_write(tmp_path / f"signatures-{n}.txt", r) for n, r in enumerate(results, 1)]
+    gaps = tmp_path / "signature-gaps.json"
+    proc = _run("score", "--inventory", inv, "--surface", surface, *args,
+                *[a for f in files for a in ("--results", f)], "--gaps-output", str(gaps))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    return {**json.loads(proc.stdout), "gaps": json.loads(gaps.read_text(encoding="utf-8"))}
+
+
+def test_a_wrong_method_form_lowers_signature_accuracy(tmp_path):
+    """#1088, the acceptance run: a function `story` and `ReactMeta.story`'s three overloads, `ReactMeta` and
+    `story` on the surface. The judge of `src/preview.tsx` reports the first overload's mismatch under the check's
+    name, at the member's line: `ReactMeta.story` is compared beside `story`, its Critical mismatch lowers Signature
+    Accuracy to 50, and its gap names its form, at the owner's file and the member's line."""
+    out = _method_run(tmp_path, [STORY_FUNCTION, *STORY_METHODS], [REACT_META, STORY_RECORD], [
+        {"file": PREVIEW, "signature_mismatches": [STORY_MISMATCH]},
+        {"file": "src/story.ts", "signature_mismatches": []}])
+    assert out["comparedNames"] == ["ReactMeta.story", "story"]
+    assert (out["signatureAccuracy"], out["matchingSignatures"], out["totalDocumented"]) == (50.0, 1, 2)
+    [gap] = out["gaps"]
+    assert (gap["title"], gap["source"], gap["severity"], gap["export"]) == (
+        "Signature mismatch: ReactMeta.story (form 1 of 3)", f"{PREVIEW}:42", "Critical", "ReactMeta.story")
+    assert not any("ReactMeta.story" in w for w in out["warnings"]), out["warnings"]
+
+
+@pytest.mark.parametrize("plan, exports, compared", [
+    ("surface", [REACT_META], ["ReactMeta.story"]),
+    (None, [REACT_META], ["ReactMeta.story"]),
+    ("fallback", [REACT_META], []),
+    (None, [{**REACT_META, "name": "Meta"}], []),
+], ids=["with-the-plan", "without-a-plan", "the-fallback-scan-s-plan", "without-a-plan-or-the-owner"])
+def test_a_method_is_counted_only_where_the_plan_checks_it(tmp_path, plan, exports, compared):
+    """#1088: with --plan, a method key counts only when the plan holds its check, so the fallback scan's plan (no
+    surface, no checks), whose judges never see a method, never counts one as matching unjudged. Without a plan it
+    counts by plan's rule: its owner has a surface record."""
+    out = _method_run(tmp_path, STORY_METHODS, exports, [{"file": PREVIEW, "signature_mismatches": [STORY_MISMATCH]}],
+                      plan)
+    assert out["comparedNames"] == compared
+    if compared:
+        assert [(g["title"], g["source"]) for g in out["gaps"]] == [
+            ("Signature mismatch: ReactMeta.story (form 1 of 3)", f"{PREVIEW}:42")]
+        assert out["signatureAccuracy"] == 0.0
+    else:
+        assert out["gaps"] == [] and out["signatureAccuracy"] == 100.0
+        assert any("`ReactMeta.story`, which is no documented signature on the source surface" in w
+                   for w in out["warnings"]), out["warnings"]
+
+
+# `ReactMeta` declared in two files; SKILL.md's line 3 writes the first overload and cites a line of the member, in
+# the span of PREVIEW's declaration.
+VUE_META = {**REACT_META, "file": "src/vue.tsx", "line": 5, "signatureLine": "export interface ReactMeta {"}
+MEMBER_SKILL = f"# Demo\n\n`meta.story({STORY_FORMS[0]})` [AST:{PREVIEW}:L42]\n"
+
+
+@pytest.mark.parametrize("named", [PREVIEW, "src/vue.tsx"], ids=["the-bound-file", "another-file"])
+def test_a_bound_method_form_is_taken_at_the_member_s_line(tmp_path, named):
+    """#1088: a method's form is bound among its owner's declarations, by the citations of its place that name the
+    member: SKILL.md cites line 42, in the span of PREVIEW's `ReactMeta`, so the form is bound to that declaration.
+    The judge reports it at the member's line, 42, and score takes it at the bound file and that line, never the
+    owner's line 10. A judge that names another file is listed in `warnings`, as any bound form's is."""
+    inventory = [{**STORY_METHODS[0], "at": "SKILL.md:3"}]
+    plan = _plan_in(tmp_path / "plan", {"SKILL.md": MEMBER_SKILL}, inventory, [REACT_META, VUE_META],
+                    names=["ReactMeta"])
+    [(file, check)] = _checks(plan).values()
+    assert (file, check["member"]) == (PREVIEW, "story")
+    assert check["bound"] == [{"form": 0, "file": PREVIEW, "line": 10, "signatureLine": REACT_META["signatureLine"]}]
+    assert [c["file"] for c in check["candidates"]] == [PREVIEW, "src/vue.tsx"]
+    out = _method_run(tmp_path, inventory, [REACT_META, VUE_META],
+                      [{"file": PREVIEW, "signature_mismatches": [{**STORY_MISMATCH, "file": named}]}],
+                      tree={"SKILL.md": MEMBER_SKILL})
+    assert [(m["file"], m["line"]) for m in out["mismatches"]] == [(PREVIEW, 42)]
+    assert [g["source"] for g in out["gaps"]] == [f"{PREVIEW}:42"]
+    held = [w for w in out["warnings"] if "ReactMeta.story" in w]
+    if named == PREVIEW:
+        assert held == []
+    else:
+        assert held == [f"{PREVIEW}:42: a signature mismatch for `ReactMeta.story` names `src/vue.tsx`, but its form 0 "
+                        f"is bound to its owner's declaration in {PREVIEW}: recorded at {PREVIEW}:42"]
+
+
+def test_a_method_mentioned_with_no_form_is_never_compared(tmp_path):
+    """#1088: a `method` that gives an `owner` but no form (a mention) has no form of its key, so plan makes no check
+    of it, even with its owner on the surface, and score counts nothing for it: no crash on a key with no form."""
+    mention = {"name": "get", "kind": "method", "owner": "ReactMeta", "description": "Gets."}
+    assert mod.method_keys([mention]) == {}
+    plan = _method_plan([STORY_FUNCTION, mention], [REACT_META, STORY_RECORD])
+    assert set(_checks(plan)) == {"story"} and plan["compared"] == 1
+    out = _method_run(tmp_path, [STORY_FUNCTION, mention], [REACT_META, STORY_RECORD],
+                      [{"file": "src/story.ts", "signature_mismatches": []}])
+    assert out["comparedNames"] == ["story"] and out["signatureAccuracy"] == 100.0
+
+
+def test_a_method_s_check_sits_at_the_owner_file_the_skill_cites(tmp_path):
+    """#1088: a method's check is placed as its owner's would be (_check_at over the owner's records): with the owner
+    declared in two files, a skill line that names the owner and cites one of them places the check there, with no
+    candidates, so a form that matches only the other file's namesake is never counted as matching."""
+    skill = f"# Demo\n\n## ReactMeta [AST:src/vue.tsx:L5]\n\n`meta.story({STORY_FORMS[0]})`\n"
+    plan = _plan_in(tmp_path, {"SKILL.md": skill}, [{**STORY_METHODS[0], "at": "SKILL.md:5"}],
+                    [REACT_META, VUE_META], names=["ReactMeta"])
+    [(file, check)] = _checks(plan).values()
+    assert (file, check["line"], check["member"]) == ("src/vue.tsx", 5, "story")
+    assert "candidates" not in check
+
+
+def test_a_method_form_binds_to_its_owner_s_other_declaration(tmp_path):
+    """#1088: a method's forms are bound among its owner's declarations, its `otherDeclarations` included: an owner
+    the surface records only at a re-export, with its declaration in another file, binds a form whose citation names
+    a line of that declaration's span to it."""
+    reexport = {**REACT_META, "file": "src/index.ts", "line": 3, "signatureLine": "export { ReactMeta } from './preview';"}
+    plan = _plan_in(tmp_path, {"SKILL.md": MEMBER_SKILL}, [{**STORY_METHODS[0], "at": "SKILL.md:3"}], [reexport],
+                    others=[REACT_META], names=["ReactMeta"])
+    [(file, check)] = _checks(plan).values()
+    assert (file, check["line"]) == ("src/index.ts", 3)
+    assert check["bound"] == [{"form": 0, "file": PREVIEW, "line": 10, "signatureLine": REACT_META["signatureLine"]}]
+
+
+@pytest.mark.parametrize("exports, bound", [
+    ([REACT_META, VUE_META], []),
+    ([REACT_META], [(0, PREVIEW, 10), (1, PREVIEW, 10)]),
+], ids=["owner-declared-in-two-files", "owner-declared-once"])
+def test_a_place_that_writes_two_of_a_method_s_forms_binds_none_of_them(tmp_path, exports, bound):
+    """#1088: a place that writes two differing forms of `{owner}.{name}` is shared (_shared_places keys a method by
+    its owner), so with the owner declared in two files its citation binds neither form, and the Vue form is never
+    compared with the React declaration alone; with the owner declared once, the place still binds both."""
+    row = f"| `meta.story({STORY_FORMS[0]})` / `meta.story({STORY_FORMS[1]})` [AST:{PREVIEW}:L42] |\n"
+    inventory = [{**entry, "at": "SKILL.md:3"} for entry in STORY_METHODS[:2]]
+    plan = _plan_in(tmp_path, {"SKILL.md": f"# Demo\n\n{row}"}, inventory, exports, names=["ReactMeta"])
+    [(_, check)] = _checks(plan).values()
+    assert [(b["form"], b["file"], b["line"]) for b in check.get("bound", [])] == bound
+
+
+# The next surface record in PREVIEW after `ReactMeta`: it ends the owner's span, as any declaration's.
+REACT_PREVIEW = {"name": "ReactPreview", "kind": "interface", "file": PREVIEW, "line": 80,
+                 "signatureLine": "export interface ReactPreview {", "origin": "extraction"}
+
+
+@pytest.mark.parametrize("evidence, severity", [(45, "Info"), (20, "Critical"), (85, "Critical")],
+                         ids=["after-the-member", "before-the-member", "past-the-next-declaration"])
+def test_an_annotation_contradicted_method_mismatch_reads_its_evidence_from_the_member(evidence, severity):
+    """#1088: a method key has no surface record of its own, so an annotation-contradicted mismatch's `evidence_line`
+    is checked from the judge's line, the member's, to the next surface record in the file: a line before the member
+    (inside the owner, above it) or past that record grades the mismatch as an untagged one."""
+    entry = {**STORY_MISMATCH, "difference": "annotation-contradicted", "evidence_line": evidence,
+             "documented_sig": f"({STORY_FORMS[0]}): ReactStory<T>", "source_sig": f"story({STORY_FORMS[0]}): any"}
+    out = mod.score(STORY_METHODS[:1], ["ReactMeta", "ReactPreview"], [REACT_META, REACT_PREVIEW],
+                    [{"file": PREVIEW, "signature_mismatches": [entry]}])
+    assert [(m["line"], m["severity"]) for m in out["mismatches"]] == [(42, severity)]
+    assert out["signatureAccuracy"] == (100.0 if severity == "Info" else 0.0)
+
+
+@pytest.mark.parametrize("plan", ["surface", None], ids=["with-the-plan", "without-a-plan"])
+def test_an_unbound_method_mismatch_keeps_its_closest_candidate(tmp_path, plan):
+    """#1088: an unbound method's mismatch is offered its owner's files (the plan's check and candidates, else the
+    owner's surface records): with the owner declared in two files, a parameter-name difference at one (Low in a
+    .tsx file) and a Critical mismatch at the other keep the closest, so the method still matches."""
+    renamed = {**STORY_MISMATCH, "documented_sig": "(s: StoryAnnotations<T, T['args']>) -> ReactStory<T>",
+               "difference": "parameter-name"}
+    other = {**{k: v for k, v in renamed.items() if k != "difference"}, "file": "src/vue.tsx", "line": 7,
+             "source_sig": "story(x: number): void"}
+    inventory = [{**STORY_METHODS[0], "params": "s: StoryAnnotations<T, T['args']>"}]
+    out = _method_run(tmp_path, inventory, [REACT_META, VUE_META],
+                      [{"file": PREVIEW, "signature_mismatches": [renamed, other]}], plan)
+    assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(PREVIEW, 42, "Low")]
+    assert out["comparedNames"] == ["ReactMeta.story"] and out["signatureAccuracy"] == 100.0
+    assert not any("no file the plan offered" in w for w in out["warnings"]), out["warnings"]

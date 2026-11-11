@@ -139,11 +139,12 @@ An entry's `at` (#918) is the place the skill writes its form,
 inventory's `references` lists (normalized as a pair's file is, and left in
 the entry that way), and the line the form starts on. Each entry whose
 `params` or `usage_signature` score-signatures.py plan compares
-(compared_form: no `method`, with a `params` or `usage_signature` list or
-non-blank string, or a function's `params` string, `""` included) is asked
-for one. A missing or bad `at` never makes the inventory invalid: a bad one
-is dropped from its entry, so the inventory --output writes carries none,
-and each is listed in `warnings`, naming the entry. Its form is then
+(compared_form: a `method` only with an `owner`, with a `params` or
+`usage_signature` list or non-blank string, or a function's or a method's
+`params` string, `""` included) is asked for one. A missing or bad `at`
+never makes the inventory invalid: a bad one is dropped from its entry, so
+the inventory --output writes carries none, and each is listed in
+`warnings`, naming the entry. Its form is then
 compared as one whose citations name no declaration, as before #918. An
 `at` (on any entry) is bad when it is no "<path>:<line>" with a line from
 1 or names another file. With --skill-package it is bad too when its file
@@ -158,12 +159,12 @@ entry that carries it is bad unless it is a checked origin whose signature
 that entry carries, and the origin is a warning of its own when each entry
 that carries it keeps its `at` at another such origin (the citations there
 are not read). A warning says its form is left unbound (UNBOUND) only when
-it is, and at most once for an entry: a method's dropped `at` and an
-origin's own warning do not. score-signatures.py plan reads the citations
-of each form's place (form_citations) to compare it with the declaration
-they name. A form that writes only a `return_type` gives no `at`, so it is
-never bound: plan compares it as it compares a form whose citations name no
-declaration.
+it is, and at most once for an entry: the dropped `at` of a method with
+no `owner` and an origin's own warning do not. score-signatures.py plan
+reads the citations of each form's place (form_citations) to compare it
+with the declaration they name. A form that writes only a `return_type`
+gives no `at`, so it is never bound: plan compares it as it compares a form
+whose citations name no declaration.
 
 The inventory's optional `undecided` (#1021) lists each reading the
 inventory contract or signature-comparison-rules.md leaves open that the
@@ -679,12 +680,15 @@ def _scorer():
 
 def compared_form(entry: dict) -> bool:
     """Whether score-signatures.py plan compares a form the entry's `params`
-    or `usage_signature` writes, so the entry carries `at`: an entry that is
-    no `method` whose `params` or `usage_signature` is a list or a non-blank
-    string, or, for a function, whose `params` is a string (`""`, the form
-    of one that takes none). plan also compares a form that writes only a
-    `return_type`; that one carries no `at`, so it is never bound."""
-    if entry.get("kind") == "method":
+    or `usage_signature` writes, so the entry carries `at`: an entry whose
+    `params` or `usage_signature` is a list or a non-blank string, or, for a
+    function or a method, whose `params` is a string (`""`, the form of one
+    that takes none). A `method` counts only when its `owner` is a non-empty
+    string: plan compares it as `{owner}.{name}` with its owner's member
+    (#1088), and never one with no owner. plan also compares a form that
+    writes only a `return_type`; that one carries no `at`, so it is never
+    bound."""
+    if entry.get("kind") == "method" and not (isinstance(entry.get("owner"), str) and entry["owner"]):
         return False
     if entry.get("kind") in SIGNATURE_KINDS and isinstance(entry.get("params"), str):
         return True

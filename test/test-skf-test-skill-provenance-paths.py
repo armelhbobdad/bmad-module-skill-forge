@@ -1604,17 +1604,17 @@ def test_an_entry_with_no_form_gives_one_place_as_its_at(tmp_path):
     UILibraryContextValue = {` in a fence, cited `references/setup.md:90` on one run and a bare `SKILL.md` on the
     next. Readers also split on whether a mention, a heading or prose that names a name with no form gives an entry
     beside the ones its other places give, and at which line. An entry with no compared form now gives its place as
-    `at`, a `method` and a return-only form aside; a place that writes a name with no form, members or fields gives
-    no entry when another place gives one, the floor's places aside; and of several such places of a name the skill
-    documents the first alone gives one. Coherence review: that last clause gives no entry to a name the skill writes
-    only at such places (an import and a prose code span, as oms-uitripled's `CardContent`), which the rehearsals
-    left for a maintainer decision, so it reaches only a name the skill documents. The example shows a class and a
-    type entry with an `at`, and the validator keeps a type entry's `at` on a line that writes the name with no
-    warning."""
+    `at`, a return-only form aside (and, until #1088, a `method`); a place that writes a name with no form, members
+    or fields gives no entry when another place gives one, the floor's places aside; and of several such places of a
+    name the skill documents the first alone gives one. Coherence review: that last clause gives no entry to a name
+    the skill writes only at such places (an import and a prose code span, as oms-uitripled's `CardContent`), which
+    the rehearsals left for a maintainer decision, so it reaches only a name the skill documents. The example shows a
+    class and a type entry with an `at`, and the validator keeps a type entry's `at` on a line that writes the name
+    with no warning."""
     contract = _flow(_read(INVENTORY_CONTRACT))
     formless_at = ("That line writes the entry's `name`, or, in a fenced block, the block does. An entry with no "
-                   "compared form gives its place as `at` too, a `method` and a form that writes only a `return_type` "
-                   "(below) aside, so a gap about its name, such as a stale name's, cites that line.")
+                   "compared form gives its place as `at` too, a form that writes only a `return_type` (below) aside, "
+                   "so a gap about its name, such as a stale name's, cites that line.")
     one_place = ("such as a stale name's, cites that line. A place that writes a name but no form of it, and no "
                  "`methods`, `properties` or `fields` its entry would carry (a mention, a bare code span, an "
                  "import, a heading or prose that names or describes it), gives it no entry when another place gives the name one, "
@@ -2302,8 +2302,8 @@ def test_the_floor_runs_before_the_inventory_subagent():
     section1a = _flow(_slice(text, "#### 1a. Parent-Side Schema Validation", "### 1b."))
     assert ("refuses it when it leaves out a floor name those files write, or an origin's `signature`.") in section1a
     # #918: a missing or bad place is a warning, its forms named in the Coverage Analysis section's notes: only the
-    # warnings that say the validator's UNBOUND text, one per form left unbound (a method's dropped `at` and a floor
-    # origin's own warning do not).
+    # warnings that say the validator's UNBOUND text, one per form left unbound (the dropped `at` of a method with no
+    # `owner` and a floor origin's own warning do not).
     unbound = runpy_module(SCRIPTS_DIR / "validate-inventory.py").UNBOUND
     assert ("- `valid` true (exit 0): every later command reads `{run_dir}/inventory.json`. Each of its `warnings` "
             f"that says \"{unbound}\" names a form whose place (`at`) is missing or bad, dropped so §2 binds it to no "
