@@ -46,6 +46,14 @@ commands it documents:
   prose, a value §2.5 reads whole among them, stays unbacked, so it is carried
   at most once, then dropped. §2.5, the carry and drop warnings and the snippet format
   say the same.
+- #1093: §3b writes each name the prior `|api:` line lists with the mark that
+  line gave it, `()` or bare, whatever its provenance `export_type`, and the
+  map's kind sets `()` only for a name new to the line, so a re-export of an
+  unchanged surface writes the same line. The snippet format's api line rule
+  points to step 3 for `()`, its single-skill template's `|api:` placeholder
+  and Line 4 bullet send the marks to that rule instead of giving functions
+  `()`, and update-skill's headline-exports trigger no longer counts a listed
+  name's kind change.
 """
 
 from __future__ import annotations
@@ -823,6 +831,15 @@ def test_both_skill_types_use_one_gotchas_decision_tree():
 
 SNIPPET_FORMAT = "assets/snippet-format.md"
 UPDATE_WRITE = SRC / "skf-update-skill" / "references" / "write.md"
+# #1093: §3b item 2's `()` sentences and the snippet format's pointer, which
+# the api ranking pin and `_api_marks` (below) follow.
+PRIOR_MARK_CLAUSE = ("Write each `prior_api` name as the prior `|api:` line wrote it, with `()` or bare, whatever "
+                     "its `export_type`")
+NEW_NAME_CLAUSE = ("A name new to the line (one `prior_api` does not hold, every name when there is no prior "
+                   "snippet) takes `()` when its `export_type` in the provenance map at `{forge_provenance_map}` is "
+                   "a function, and is written bare for any other kind, or when that map is null or gives no kind "
+                   "for the name.")
+FORMAT_MARK_CLAUSE = "Step 3's single-skill api ranking alone sets which names take `()`."
 
 
 def _generate() -> str:
@@ -916,8 +933,9 @@ def test_the_api_line_has_one_ranking():
            "deprecations, migration or breaking changes gives it as the deprecated, removed or renamed name (not as " \
            "its replacement), or its `## Key API Summary` row's purpose says deprecated or removed" in rank
     assert "the first 10 for the Deep tier, 5 for the other tiers" in rank
-    assert _in_order(rank, "Append `()` to a name whose `export_type` in the provenance map at `{forge_provenance_map}` "
-                     "is a function", "keep the `()` the prior `|api:` line gave it")
+    assert _in_order(rank, "the first 10 for the Deep tier", PRIOR_MARK_CLAUSE, NEW_NAME_CLAUSE)
+    assert "when that map is null or gives no kind for the name, keep the `()` the prior `|api:` line gave it" \
+        not in rank and "Append `()` to a name whose" not in rank, "#1093: a kind never overrules the prior line"
     assert "Key API Summary kind" not in text and "{forge_version}/provenance-map.json" not in text
     assert "`{forge_provenance_map}` ← `paths.provenance_map.path`" in _read(LOAD)
     trim = _line(_section(text, "### 4. Verify Token Count", "### 5. "), "- If `{count}` is above 300")
@@ -925,12 +943,14 @@ def test_the_api_line_has_one_ranking():
     assert "Select top exports" not in text
     fmt = _read(SNIPPET_FORMAT)
     assert "Top exports from metadata.json" not in fmt
-    assert _in_order(_line(fmt, "- **api line**"), "the prior snippet's `|api:` names in order",
+    api_rule = _line(fmt, "- **api line**")
+    assert _in_order(api_rule, "the prior snippet's `|api:` names in order",
                      "SKILL.md's `## Key API Summary` rows in row order", "then metadata.json `exports` in order",
                      "never one the current SKILL.md marks deprecated or removed",
                      "The first 10 for Deep tier, 5 for all other tiers", "names drop from the end",
-                     "Append `()` to a name whose provenance `export_type` is a function, or else when the prior "
-                     "`|api:` line wrote it with `()`")
+                     FORMAT_MARK_CLAUSE, "Comma-separated.")
+    assert "export_type" not in api_rule and "wrote it with `()`" not in api_rule, \
+        "#1093: the api line rule points to step 3 and keeps no `()` rule of its own"
     five = _regeneration()
     assert "top exports" not in five and "top-K" not in five
     assert "Rank the api names and verify the section anchors as " \
@@ -1386,3 +1406,125 @@ def test_removing_a_prior_pitfall_gives_a_left_off_gotcha_its_slot():
     assert _resolve_gotchas("a; b; e", bullets, is_first_export=False) == ("a; b; e", [], [], ["n"])
     assert _resolve_gotchas("b; e", bullets, is_first_export=False) == ("b; e; a", [], [], ["n"])
     assert _resolve_gotchas("a; b", bullets, is_first_export=False) == ("a; b; n", [], [], ["e"])
+
+
+# --------------------------------------------------------------------------
+# #1093: a name the prior `|api:` line lists keeps the mark that line gave it
+# --------------------------------------------------------------------------
+
+# The reason item 2 gives, for both halves of the #1093 dry run: the three const
+# arrow functions that lost `()` and the two components that gained it.
+KIND_REASON = ("a kind does not say how the line marks a name (an AST recipe labels a const arrow function "
+               "`function` where a by-eye read can label it `const`, and a component declared with `function` is "
+               "labeled `function` though the line can write it bare), so a kind never changes the mark of a name "
+               "the line lists.")
+# The single-skill template §3b fills from the snippet format.
+TEMPLATE_API = "|api: {ranked exports, each with () or bare as the api line rule gives it, comma-separated}"
+TEMPLATE_LINE_4 = "- **Line 4 (api):** The ranked exports, each with `()` or bare as the api line rule below gives it"
+
+# oh-my-skills forge-data/oms-uitripled/0.1.0/provenance-map.json: each name's
+# `export_type`. `ThemeProvider` and `UILibraryProvider` come from ast-grep, the
+# others from by-eye `source-read` entries, which label three const arrow
+# functions `const`.
+UITRIPLED_KINDS = {"ThemeProvider": "function", "useTheme": "const", "UILibraryProvider": "function",
+                   "useUILibrary": "function", "cn": "function", "sanitizeSlug": "const",
+                   "generateUniqueSlug": "function", "generateGridCode": "const",
+                   "mergeComponentImports": "function", "add": "function"}
+# oh-my-skills skills/oms-uitripled/0.1.0/oms-uitripled/context-snippet.md line 4,
+# at a02403f (the prior line of the #1093 dry run) and at 7a14e80 (the line the
+# SKF 10.0.0 re-export published, its marks set by the kinds above).
+UITRIPLED_API_A02403F = ("ThemeProvider, useTheme(), UILibraryProvider, useUILibrary(), cn(), sanitizeSlug(), "
+                         "generateUniqueSlug(), generateGridCode(), mergeComponentImports(), add()")
+UITRIPLED_API_7A14E80 = ("ThemeProvider(), useTheme, UILibraryProvider(), useUILibrary(), cn(), sanitizeSlug, "
+                         "generateUniqueSlug(), generateGridCode, mergeComponentImports(), add()")
+
+
+def _read_api(value: str) -> dict[str, bool]:
+    """§2.5 item 5: each `prior_api` name, in order, and whether the prior `|api:` value wrote it with `()`."""
+    names = {}
+    for piece in (piece.strip() for piece in value.split(",")):
+        if piece:
+            names[piece.removesuffix("()").strip()] = piece.endswith("()")
+    return names
+
+
+def _api_marks(prior_line: str, ranked_names: list[str], kinds: dict[str, str] | None) -> str:
+    """The `|api:` value §3b item 2 writes for the ranked names: a `prior_api` name with the mark the prior line
+    gave it, whatever its kind, and a name new to the line with `()` only when the provenance map (`kinds`, None
+    when there is no map) labels it `function`. The oracle reads no other kind as a function."""
+    prior = _read_api(prior_line)
+
+    def parens(name: str) -> bool:
+        if name in prior:
+            return prior[name]
+        return kinds is not None and kinds.get(name) == "function"
+
+    return ", ".join(name + ("()" if parens(name) else "") for name in ranked_names)
+
+
+def test_the_prior_api_line_sets_the_mark_of_each_name_it_lists():
+    """#1093: §3b item 2 keeps a listed name's prior mark and lets `export_type` mark only a new name; the snippet
+    format, load-skill's binding and update-skill's trigger say the same."""
+    rank = _line(_section(_generate(), "#### 3b. Single Skills", "#### 3c. "), "2. ")
+    assert _in_order(rank, "so the `|api:` line stays the same from export to export while the surface does",
+                     "first the `prior_api` names", PRIOR_MARK_CLAUSE + ": " + KIND_REASON, NEW_NAME_CLAUSE)
+    assert FORMAT_MARK_CLAUSE in _line(_read(SNIPPET_FORMAT), "- **api line**")
+    assert "`{forge_provenance_map}` ← `paths.provenance_map.path` (that folder's `provenance-map.json`, else the " \
+           "flat copy, else null), whose `export_type` gives step 3 the `()` of an api name new to the line." \
+           in _read(LOAD)
+    exports = _line(_regeneration(), "- **Headline exports changed**")
+    assert "differ from the prior snippet's `|api:` line (a listed name left `exports` or is now deprecated, or a " \
+           "`NEW_EXPORT` took a free slot)." in exports
+    assert "MODIFIED_EXPORT" not in exports and "changed the kind" not in exports
+
+
+def test_the_single_skill_template_gives_no_mark_rule_of_its_own():
+    """#1093: §3b fills the single-skill template from the snippet format, so its `|api:` placeholder and its
+    Line 4 bullet send each name's mark to the api line rule; neither gives a function `()` on its own."""
+    assert "from {snippetFormatData}" in _line(_generate(), "Emit the single-skill template")
+    fmt = _read(SNIPPET_FORMAT)
+    template = _section(fmt, "## Single Skill Snippet Template", "## Stack Skill Snippet Template")
+    assert _line(template, "|api: ") == TEMPLATE_API
+    assert _line(template, "- **Line 4 (api):**") == TEMPLATE_LINE_4
+    for text in (template, _line(fmt, "- **api line**")):
+        assert "for functions" not in text and "export_type" not in text, \
+            "#1093: only step 3 says which api names take `()`"
+
+
+@pytest.mark.parametrize("prior_line", [UITRIPLED_API_A02403F, UITRIPLED_API_7A14E80], ids=["a02403f", "7a14e80"])
+@pytest.mark.parametrize("kinds", [UITRIPLED_KINDS, None], ids=["0.1.0-map", "no-map"])
+def test_an_unchanged_surface_writes_the_same_api_line(prior_line, kinds):
+    """#1093: re-ranked on the same surface, each oms-uitripled line comes back as it was, each of its 10 names
+    with its prior mark, whichever marks the line holds and with or without a provenance map."""
+    assert PRIOR_MARK_CLAUSE in _read(SNIPPET) and NEW_NAME_CLAUSE in _read(SNIPPET)
+    ranked = list(_read_api(prior_line))
+    assert ranked == list(UITRIPLED_KINDS), "the prior names rank first, and the surface lists all 10"
+    assert _api_marks(prior_line, ranked, kinds) == prior_line
+
+
+def test_the_kinds_alone_set_every_mark_only_when_there_is_no_prior_line():
+    """#1093: with no prior snippet every name is new to the line, so the 0.1.0 kinds give the 7a14e80 line,
+    which differs from the a02403f line in the 5 marks the issue names."""
+    assert NEW_NAME_CLAUSE in _read(SNIPPET)
+    assert _api_marks("", list(UITRIPLED_KINDS), UITRIPLED_KINDS) == UITRIPLED_API_7A14E80
+    before, after = _read_api(UITRIPLED_API_A02403F), _read_api(UITRIPLED_API_7A14E80)
+    assert {name for name in before if before[name] != after[name]} == \
+        {"ThemeProvider", "useTheme", "UILibraryProvider", "sanitizeSlug", "generateGridCode"}
+
+
+LISTED_KINDS = {"useTheme": "const", "ThemeProvider": "function"}
+
+
+@pytest.mark.parametrize("kinds, expected", [
+    pytest.param({**LISTED_KINDS, "createTheme": "function"}, "useTheme(), ThemeProvider, createTheme()",
+                 id="function"),
+    pytest.param({**LISTED_KINDS, "createTheme": "const"}, "useTheme(), ThemeProvider, createTheme", id="const"),
+    pytest.param({**LISTED_KINDS, "createTheme": "class"}, "useTheme(), ThemeProvider, createTheme", id="class"),
+    pytest.param(LISTED_KINDS, "useTheme(), ThemeProvider, createTheme", id="no-kind"),
+    pytest.param(None, "useTheme(), ThemeProvider, createTheme", id="no-map"),
+])
+def test_only_a_name_new_to_the_api_line_takes_its_mark_from_its_kind(kinds, expected):
+    """#1093: a new name takes `()` for a function kind and is bare for any other kind, for no kind and with no
+    map, while the listed names keep their prior marks against their kinds."""
+    assert PRIOR_MARK_CLAUSE in _read(SNIPPET) and NEW_NAME_CLAUSE in _read(SNIPPET)
+    assert _api_marks("useTheme(), ThemeProvider", ["useTheme", "ThemeProvider", "createTheme"], kinds) == expected
