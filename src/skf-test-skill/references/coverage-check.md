@@ -173,10 +173,10 @@ uv run {coverageInputsScript} metadata --metadata "{resolved_skill_package}/meta
 - **A stack skill** (`branch` `stack`): `coverage-inputs.json` `stack.denominator`. Its own barrel is empty by design, and its `[from skill: …]` citations never make it docs-only. **If `stack.denominator` is 0**: HALT (`halt_reason: "indeterminate-surface"`, phase `coverage-check:denominator`) with `Error: stack composition surface empty: {skill_name} cites no contracts, libraries, or integration pairs, so Export Coverage is undefined. Verify the stack was compiled from at least one constituent skill.` Do not write the Coverage Analysis section; this is an indeterminate state, not a FAIL.
 - **A docs-only skill**: the `docsOnly` branch, over the inventory.
 
-**Numerator ground truth.** A declared count equal to the denominator (`stats.exports_documented == stats.effective_denominator`, the inflation signature) may be padded to a tautological 100%. Run it on every source-based skill (without the signature it reports `skipped`):
+**Numerator ground truth.** A declared count equal to the denominator (`stats.exports_documented == stats.effective_denominator`, the inflation signature) may be padded to a tautological 100%. A declared name is `verified` only when the validated inventory gives it an entry and the skill's text writes it: one the skill writes only where the inventory contract gives it none (such as a type position in another name's signature, a sentence saying the skill does not cover it, a local import alias, a name it says the source does not export, a form marked removed or from an earlier version) is `absent`. Run it on every source-based skill (without the signature it reports `skipped`):
 
 ```bash
-uv run {numeratorVerifyScript} --inputs "{run_dir}/coverage-inputs.json" --skill-dir "{resolved_skill_package}" --output "{run_dir}/numerator.json"
+uv run {numeratorVerifyScript} --inputs "{run_dir}/coverage-inputs.json" --skill-dir "{resolved_skill_package}" --inventory "{run_dir}/inventory.json" --output "{run_dir}/numerator.json"
 ```
 
 Unless §2c's scalar branch counts its set, it takes the `verified` count as the numerator when `inflated` is true; §4b records the gap. Exit 1 or 2: HALT with its message (`halt_reason: "helper-failed"`, phase `coverage-check:numerator`).

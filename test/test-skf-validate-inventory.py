@@ -809,6 +809,28 @@ def test_a_name_that_ends_in_punctuation_still_matches_inside():
     assert mod.names_present(["$state"], "my$state") == []
 
 
+def test_inventory_names_are_the_entries_names_and_an_owned_methods_qualified_names():
+    """#1068: the names verify-declared-numerator.py and the stack branch count are the inventory's: each entry's
+    `name`, and a `method` with an `owner` also as `{owner}.{name}` and `{owner}::{name}`, so a declared Rust
+    `Widget::render` matches its method entry. An ownerless method gives its bare name alone; an item that is no
+    object, or whose `name` is blank or no string, gives none."""
+    exports = [
+        {"name": "connect", "kind": "function"},
+        {"name": "render", "kind": "method", "owner": "Widget"},
+        {"name": "run", "kind": "method"},
+        {"name": "close", "kind": "method", "owner": ""},
+        {"name": "Client", "kind": "class", "owner": "ignored"},
+        {"name": "", "kind": "function"},
+        {"name": 3, "kind": "function"},
+        {"kind": "type"},
+        "stray",
+        None,
+    ]
+    assert mod.inventory_names(exports) == {"connect", "render", "Widget.render", "Widget::render", "run", "close",
+                                            "Client"}
+    assert mod.inventory_names([]) == set() and mod.inventory_names(None) == set()
+
+
 def test_load_doc_text_reads_skill_md_then_sorted_references(tmp_path):
     (tmp_path / "references" / "sub").mkdir(parents=True)
     (tmp_path / "SKILL.md").write_bytes(b"one")

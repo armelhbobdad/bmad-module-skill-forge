@@ -49,6 +49,16 @@ It covers the four branches §2c enumerates:
     SKILL.md ∪ references/*.md; denominator = stack_denominator,
     Missing = max(0, denominator − Documented), Stale not enumerable,
     Export Coverage = min(100, Documented / stack_denominator * 100).
+    On a `provenance` basis (`compositionBasis`, the loader's `stack.basis`)
+    with the inventory's `exports` given, a cited name counts only when the
+    inventory gives it an entry (validate-inventory.py's `inventory_names`)
+    and the text writes it, as verify-declared-numerator.py counts (#1068):
+    a name the skill writes only in a type position, only in a sentence
+    saying it does not cover it, only as a local import alias or a name it
+    says the source does not export, or only in a form marked removed or from
+    an earlier version is missing. On a `composition` basis the names are
+    libraries and `a + b` integration pairs, which name no export, so no
+    inventory entry lists them: they are looked up in the text alone.
 
   * "docsOnly" (a skill whose citations are all [EXT:...], or no source
     access): no source to compare against, so Export Coverage measures
@@ -100,7 +110,8 @@ each sets the input field it names and wins over the same field in the JSON:
   --coverage-inputs PATH  load-coverage-inputs.py metadata output: for the
                         scalar branch, denominatorValue from its
                         `effectiveDenominator` (stats.effective_denominator);
-                        for the stack branch, compositionNames and
+                        for the stack branch, compositionNames,
+                        compositionBasis (its `basis`) and
                         denominatorValue from its `stack` object
   --verified PATH       scalar: verify-declared-numerator.py's result; when it
                         found the declared count inflated, its `verified`
@@ -119,7 +130,8 @@ Input schema (one object):
     "sourceRead": <bool>,                                  # scalar: the surface was read from the source
     "setCounted": <bool>,                                  # scalar: count barrelSet (a trusted scope set)
     "denominatorValue": <int>,                             # scalar/stack: resolved denominator
-    "compositionNames": ["lib::x", ...],                   # stack: names to look up
+    "compositionNames": ["connect", ...],                  # stack: names to look up
+    "compositionBasis": "provenance" | "composition",      # stack: stack.basis (null: no basis given)
     "skillPackagePath": "/path/to/skill",                  # scalar/stack: SKILL.md ∪ references
     "verifiedNumerator": <int>,                            # scalar: overrides the lookup count
     "undecided": [ {"export", "at", "rule", "reading", "other_gap"} ]  # any branch: the inventory's open readings
@@ -223,6 +235,9 @@ import sys
 from pathlib import Path
 
 VALID_SOURCES = ("barrel", "scalar", "stack", "docsOnly")
+# load-coverage-inputs.py metadata's `stack.basis`: the provenance map's cited export names, or the libraries
+# and integration pairs the stack composes.
+STACK_BASES = ("provenance", "composition")
 # The grades score-signatures.py gives a caller-invisible signature difference, most severe first.
 NON_BLOCKING_MISMATCH = ("Low", "Info")
 
@@ -331,6 +346,11 @@ def _validate(inp):
             return f"{source} branch requires `skillPackagePath` to read SKILL.md ∪ references"
         if source == "stack" and inp.get("compositionNames") is None:
             return "stack branch requires `compositionNames` (composition-surface names to look up)"
+        if source == "stack" and inp.get("compositionBasis") not in STACK_BASES + (None,):
+            return f"stack branch: `compositionBasis` must be one of {', '.join(STACK_BASES)} or null"
+        if source == "stack" and inp.get("compositionBasis") == "provenance" and inp.get("exports") is not None \
+                and not isinstance(inp["exports"], list):
+            return "stack branch: `exports` must be a list (the validated inventory's entries) when present"
         verified = inp.get("verifiedNumerator")
         if verified is not None and (not isinstance(verified, int) or isinstance(verified, bool) or verified < 0):
             return "verifiedNumerator must be an integer >= 0"
@@ -505,6 +525,12 @@ def _reconcile(inp, doc_text=None):
             candidates = sorted(build_documented_set(inp.get("exports")))
         else:  # stack
             candidates = [n for n in inp["compositionNames"] if isinstance(n, str) and n]
+            if inp.get("compositionBasis") == "provenance" and isinstance(inp.get("exports"), list):
+                # #1068: a cited export name counts only when the inventory gives it an entry, as §2b's
+                # numerator check counts. Library and pair names (`composition`) name no export, so the
+                # inventory never lists them and the text alone decides.
+                documented_names = _inventory().inventory_names(inp["exports"])
+                candidates = [n for n in candidates if n in documented_names]
         documented = len(names_present(candidates, doc_text))
 
     # The numerator and the resolved denominator can measure different sets,
@@ -912,6 +938,7 @@ def apply_file_inputs(inp, args):
             if not isinstance(stack, dict):
                 raise InputFileError(f"--coverage-inputs {args.coverage_inputs} has no `stack` object")
             inp["compositionNames"] = stack.get("compositionNames")
+            inp["compositionBasis"] = stack.get("basis")
             if args.denominator_value is None:
                 inp["denominatorValue"] = stack.get("denominator")
     if args.verified is not None:

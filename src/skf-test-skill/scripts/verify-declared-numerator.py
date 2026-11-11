@@ -16,22 +16,41 @@ count is not trusted: every declared export name is looked up in the skill's
 documentation surface and only the names that actually appear count toward
 coverage.
 
-Distinct from reconcile-coverage.py (whose scalar/stack branches look up the §1
-inventory names and return only a residual missing *count*): this script looks
-up the full declared metadata/provenance set and enumerates the *absent* names so
-§4b can list them in a High-severity gap. Both scripts read the same text and
-match names the same way, through validate-inventory.py beside them (SKILL.md ∪
-sorted references/*.md, UTF-8; the name as a fixed string, case-sensitive, never
-inside a longer identifier, so `get` is not found in `target` or `getAll`), so
-their numerators agree.
+A declared name counts only when the validated §1 inventory gives it an entry
+and the skill's text writes it (#1068): validate-inventory.py's
+`inventory_names` (an entry's `name`, and a `method` entry's `{owner}.{name}`
+and `{owner}::{name}`), then its `names_present`. A name the inventory contract
+gives no entry (such as one the skill writes only in a type position, only in
+a sentence saying it does not cover it, only as a local import alias or a name
+it says the source does not export, or only in a form marked removed or from
+an earlier version) is absent however often the text writes it. Without an
+inventory (no --inventory and no `exports`) the text alone decides, as it did
+before.
+
+Distinct from reconcile-coverage.py (whose stack branch, and scalar branch
+when it counts no set, return only a residual missing *count*): this script
+looks up the full declared metadata/provenance set and enumerates the *absent*
+names so §4b can list them in a High-severity gap. Both scripts count a name
+only when the inventory gives it an entry and the text writes it (the stack
+branch on a provenance basis; on a composition basis it looks library and
+integration pair names up in the text alone, since they name no export the
+inventory lists), and both read the same text and match names the same way,
+through validate-inventory.py beside them (SKILL.md ∪ sorted references/*.md,
+UTF-8; the name as a fixed string, case-sensitive, never inside a longer
+identifier, so `get` is not found in `target` or `getAll`), so a name both
+look up is found by both or by neither.
 
 Input schema (one JSON object):
   {
     "declaredNames": ["foo", "Bar::baz", ...],  # metadata.exports[] / provenance declared set
-    "skillPackagePath": "/path/to/skill"        # SKILL.md ∪ references/*.md
+    "skillPackagePath": "/path/to/skill",       # SKILL.md ∪ references/*.md
+    "exports": [{"name": "foo", ...}, ...]      # optional: the validated inventory's entries
   }
 
 or the files: --inputs <coverage-inputs.json> --skill-dir <skill package>.
+--inventory <inventory.json>, with any input, sets `exports` from the
+validated inventory validate-inventory.py wrote with --output (or its whole
+result, `inventory.exports`) and wins over the JSON field.
 --inputs reads load-coverage-inputs.py metadata's output: its `declaredNames`
 and `inflationSignature`. Without the signature there is nothing to verify,
 so the result is `skipped` and `inflated` is false; a caller can run the
@@ -41,7 +60,7 @@ Output (stdout, one object):
   {
     "skipped":   <bool>,          # --inputs only: true when there is no inflation signature
     "declared":  <int>,           # de-duplicated declared name count
-    "verified":  <int>,           # declared names present in the doc surface
+    "verified":  <int>,           # declared names the inventory gives an entry and the doc surface writes
     "present":   [names],         # sorted
     "absent":    [names],         # sorted (declared − verified): the gap list
     "inflated":  <bool>           # verified < declared (numerator was padded)
@@ -53,14 +72,15 @@ overrides the declared count when `inflated` is true): reconcile-coverage.py
 --verified reads this result. --output also writes it to a file.
 
 CLI usage (mirrors reconcile-coverage.py):
-  uv run verify-declared-numerator.py --inputs <file> --skill-dir <dir> [--output <file>]
+  uv run verify-declared-numerator.py --inputs <file> --skill-dir <dir> [--inventory <file>] [--output <file>]
   uv run verify-declared-numerator.py '<JSON>'                  # positional
   uv run verify-declared-numerator.py --json-input '<JSON>'     # explicit flag
   cat input.json | uv run verify-declared-numerator.py --stdin  # piped input
 
 Exit codes:
   0  verification emitted successfully
-  1  no input, input that does not parse as JSON, or an --inputs file that cannot be read
+  1  no input, input that does not parse as JSON, an --inputs file that cannot be read, or an
+     --inventory file that cannot be read, is not JSON or holds no `exports` list
   2  input parsed but schema/semantics invalid (error object emitted as JSON)
 """
 
@@ -106,6 +126,8 @@ def _validate(inp):
         return "declaredNames must be a non-empty list of strings"
     if not inp.get("skillPackagePath"):
         return "skillPackagePath is required to grep SKILL.md ∪ references"
+    if inp.get("exports") is not None and not isinstance(inp["exports"], list):
+        return "exports must be a list (the validated inventory's entries) when present"
     return None
 
 
@@ -119,7 +141,12 @@ def verify(inp, doc_text=None):
     if doc_text is None:
         doc_text = load_doc_text(inp["skillPackagePath"])
 
-    present = _inventory().names_present(declared_set, doc_text)
+    candidates = declared_set
+    if isinstance(inp.get("exports"), list):
+        # #1068: a name the inventory gives no entry is not documented, whatever the text writes.
+        documented = _inventory().inventory_names(inp["exports"])
+        candidates = [n for n in declared_set if n in documented]
+    present = _inventory().names_present(candidates, doc_text)
     absent = sorted(set(declared_set) - set(present))
 
     return {
@@ -140,8 +167,9 @@ def _build_parser():
         description=(
             "Deterministic numerator ground-truth verifier (coverage-check.md "
             "§2b). Greps the full declared export set against SKILL.md ∪ "
-            "references/*.md and enumerates the present/absent names so a padded "
-            "numerator is caught and the verified count replaces it."
+            "references/*.md, counting a name only when the validated inventory "
+            "(--inventory) gives it an entry, and enumerates the present/absent "
+            "names so a padded numerator is caught and the verified count replaces it."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
@@ -174,12 +202,16 @@ def _build_parser():
     )
     parser.add_argument("--skill-dir", metavar="DIR",
                         help="the skill package (with --inputs): SKILL.md and references/")
+    parser.add_argument("--inventory", metavar="PATH",
+                        help="the validated inventory file (its `exports`): a declared name counts only when it "
+                             "gives the name an entry; wins over the JSON `exports`")
     parser.add_argument("--output", metavar="PATH", help="also write the result to this file")
     return parser
 
 
-def verify_from_inputs(inputs, skill_dir, doc_text=None):
-    """Verify the declared set of a load-coverage-inputs.py metadata result."""
+def verify_from_inputs(inputs, skill_dir, doc_text=None, exports=None):
+    """Verify the declared set of a load-coverage-inputs.py metadata result, against the validated inventory's
+    `exports` when given."""
     if not isinstance(inputs, dict):
         return make_error("--inputs must hold a JSON object")
     names = inputs.get("declaredNames")
@@ -187,10 +219,32 @@ def verify_from_inputs(inputs, skill_dir, doc_text=None):
         declared = len({n for n in names if isinstance(n, str) and n}) if isinstance(names, list) else 0
         return {"skipped": True, "declared": declared, "verified": None, "present": [], "absent": [],
                 "inflated": False}
-    result = verify({"declaredNames": names, "skillPackagePath": skill_dir}, doc_text=doc_text)
+    inp = {"declaredNames": names, "skillPackagePath": skill_dir}
+    if exports is not None:
+        inp["exports"] = exports
+    result = verify(inp, doc_text=doc_text)
     if result.get("code") != "INVALID_INPUT":
         result = {"skipped": False, **result}
     return result
+
+
+class InputFileError(Exception):
+    """An input file that cannot be read, or is not the file its flag names (exit 1)."""
+
+
+def _read_inventory(path):
+    """The `exports` list of the validated inventory validate-inventory.py wrote (or its whole result)."""
+    try:
+        data = json.loads(Path(path).read_bytes().decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise InputFileError(f"cannot read --inventory {path}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise InputFileError(f"--inventory {path} is not JSON: {exc.msg}") from exc
+    if isinstance(data, dict) and isinstance(data.get("inventory"), dict):
+        data = data["inventory"]  # validate-inventory.py's whole result
+    if not isinstance(data, dict) or not isinstance(data.get("exports"), list):
+        raise InputFileError(f"--inventory {path} holds no `exports` list")
+    return data["exports"]
 
 
 def _resolve_input(args):
@@ -215,15 +269,22 @@ def _write_output(path, result):
 def main(argv=None):
     parser = _build_parser()
     args = parser.parse_args(argv)
+    if args.inputs is not None and not args.skill_dir:
+        parser.error("--inputs needs --skill-dir")
+    exports = None
+    if args.inventory is not None:
+        try:
+            exports = _read_inventory(args.inventory)
+        except InputFileError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
     if args.inputs is not None:
-        if not args.skill_dir:
-            parser.error("--inputs needs --skill-dir")
         try:
             inputs = json.loads(Path(args.inputs).read_bytes().decode("utf-8-sig"))
         except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             print(f"error: cannot read --inputs {args.inputs}: {exc}", file=sys.stderr)
             return 1
-        result = verify_from_inputs(inputs, args.skill_dir)
+        result = verify_from_inputs(inputs, args.skill_dir, exports=exports)
     else:
         raw = _resolve_input(args)
         if not raw.strip():
@@ -240,6 +301,8 @@ def main(argv=None):
             print(json.dumps(make_error(f"Invalid JSON: {exc.msg}"), indent=2))
             return 1
 
+        if exports is not None and isinstance(data, dict):
+            data["exports"] = exports
         result = verify(data)
     if args.output:
         _write_output(args.output, result)

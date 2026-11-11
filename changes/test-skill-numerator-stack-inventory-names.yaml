@@ -1,0 +1,5 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's verified count of a padded declared count, and a stack skill's count of the export names its provenance map cites, now count a name only when the documented inventory gives it an entry and the skill's text writes it. Before, both looked each name up in the skill's text alone. A name the skill writes only in a type position such as a parameter type, only in a sentence saying it does not cover it, only as a local import alias or a name it says the source does not export, or only in a form marked removed or from an earlier version now joins the High `numerator-inflation` gap's absent exports or the stack's missing count, as it already did where Export Coverage counts the inventory's names. A stack counted from its libraries and integration pairs still looks them up in the skill's text, since the inventory lists exports, not libraries.
+issues: [1068]

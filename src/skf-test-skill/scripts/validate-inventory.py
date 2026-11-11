@@ -500,6 +500,29 @@ def names_present(names, doc_text):
     return sorted(present)
 
 
+def inventory_names(exports):
+    """The names a validated inventory gives an entry (#1068): each entry's non-empty string `name`, and
+    `{owner}.{name}` and `{owner}::{name}` for a `method` entry whose `owner` is a non-empty string, so a
+    declared `Widget::render` still matches its method entry. A name the inventory contract gives no entry (such
+    as one the skill writes only in a type position, only in a sentence saying it does not cover it, only as a
+    local import alias or a name it says the source does not export, or only in a form marked removed or from an
+    earlier version) is none of them. verify-declared-numerator.py and reconcile-coverage.py's stack branch
+    count a name only when it is one of these and names_present finds it in the text.
+
+    >>> sorted(inventory_names([{"name": "foo"}, {"name": "render", "kind": "method", "owner": "Widget"},
+    ...                         {"name": "run", "kind": "method"}, {"name": ""}, "bar"]))
+    ['Widget.render', 'Widget::render', 'foo', 'render', 'run']
+    """
+    names = set()
+    for entry in exports or []:
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str) and entry["name"]:
+            names.add(entry["name"])
+            if entry.get("kind") == "method" and isinstance(entry.get("owner"), str) and entry["owner"]:
+                names.add(f"{entry['owner']}.{entry['name']}")
+                names.add(f"{entry['owner']}::{entry['name']}")
+    return names
+
+
 # --- Skill citations ----------------------------------------------------------
 
 # A source citation the skill writes, `[AST:path:L12]`, `[SRC:path:L12-34]` or `[SRC:path:L12-L34]` (one with no

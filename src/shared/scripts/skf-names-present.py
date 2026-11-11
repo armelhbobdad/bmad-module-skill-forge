@@ -16,9 +16,14 @@ rule; NAME_CHARS here must stay the same). A name holding
 `::` (an impl-block method, `Type::method`) rolls up under its type and is
 never looked up, and an entry with no name is no cited contract.
 create-stack-skill (generate-output section 8) runs this helper on a
-compose-mode map before the commit, so a stack never commits a name
-skf-test-skill will not credit. The rule here is the scorer's:
+compose-mode map before the commit, so a stack never commits a name its
+text does not write. The rule here is the scorer's text match:
 test/test-skf-stack-step-rules.py runs both on the same package.
+skf-test-skill also counts a cited name only when the validated inventory
+of its run gives it an entry (#1068), so a name the skill writes only in a
+type position, in a sentence saying it does not cover it, as an import
+alias, or in a removed form still counts as missing there; this helper
+runs before any inventory exists and cannot check that.
 
 Usage:
   uv run skf-names-present.py --provenance <provenance-map.json> \\

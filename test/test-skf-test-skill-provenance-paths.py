@@ -2831,6 +2831,56 @@ def test_the_prose_scalar_branch_counts_the_named_set(tmp_path):
     assert "- **Missing names** (`missing`, barrel or scalar):" in flow
 
 
+def test_the_prose_numerator_and_stack_count_only_the_inventorys_names(tmp_path):
+    """#1068 through the coverage step's own commands: a stack skill whose provenance map cites `connect`, `Client`
+    and `legacy`, and whose SKILL.md writes `legacy` only in a sentence saying it does not cover it, so its
+    inventory gives `legacy` no entry (inventory-contract.md). §2b's numerator check and the branches file's stack
+    command both read the inventory: `legacy` is absent from the verified count and missing from the stack's."""
+    skill = _write_tree(tmp_path / "skill", {
+        "SKILL.md": "---\nname: demo-stack\ndescription: Demo. Use when testing.\n---\n# Demo stack\n\n"
+                    "`connect(url)` opens a session. `Client` wraps it.\n\n`legacy` is not covered here.\n",
+        "metadata.json": json.dumps({"skill_type": "stack",
+                                     "stats": {"exports_documented": 3, "effective_denominator": 3}}),
+    })
+    provenance = tmp_path / "provenance-map.json"
+    provenance.write_bytes(json.dumps({"skill_type": "stack", "entries": [
+        {"export_name": n, "source_library": lib} for n, lib in (("connect", "liba"), ("Client", "liba"),
+                                                                 ("legacy", "libb"))]}).encode("utf-8"))
+    run = tmp_path / "run"
+    run.mkdir()
+    (run / "inventory-response.txt").write_bytes(json.dumps({"exports": [
+        {"name": "connect", "kind": "function", "params": "url", "description": "Opens a session.",
+         "at": "SKILL.md:7"},
+        {"name": "Client", "kind": "class", "description": "Wraps it.", "at": "SKILL.md:7"},
+    ], "cross_check_mismatches": []}).encode("utf-8"))
+    values = {"{run_dir}": run.as_posix(), "{resolved_skill_package}": skill.as_posix(),
+              "{forge_provenance_map}": provenance.as_posix()}
+
+    _exec(_command(COVERAGE, "uv run {coverageInputsScript} floor"), values, tmp_path)
+    assert _exec(_command(COVERAGE, "uv run {validateInventoryScript}"), values, tmp_path)["valid"] is True
+    inputs = _exec(_choose(_command(COVERAGE, "uv run {coverageInputsScript} metadata"), keep=("--provenance",)),
+                   values, tmp_path)
+    assert inputs["inflationSignature"] is True
+    assert inputs["stack"] == {"basis": "provenance", "denominator": 3,
+                               "compositionNames": ["Client", "connect", "legacy"]}
+    numerator = _exec(_command(COVERAGE, "uv run {numeratorVerifyScript}"), values, tmp_path)
+    assert (numerator["declared"], numerator["verified"], numerator["absent"], numerator["inflated"]) == \
+        (3, 2, ["legacy"], True)
+    assert json.loads((run / "numerator.json").read_bytes()) == numerator
+    stack = _exec(_command(COVERAGE_BRANCHES, "--denominator-source stack"), values, tmp_path)
+    assert (stack["branch"], stack["documented"], stack["denominator"], stack["missingCount"]) == ("stack", 2, 3, 1)
+
+    assert ("A declared name is `verified` only when the validated inventory gives it an entry and the skill's text "
+            "writes it: one the skill writes only where the inventory contract gives it none (such as a type "
+            "position in another name's signature, a sentence saying the skill does not cover it, a local import "
+            "alias, a name it says the source does not export, a form marked removed or from an earlier version) "
+            "is `absent`.") in _flow(_read(COVERAGE))
+    assert ("With `coverage-inputs.json` `stack.basis` `provenance`, it counts each cited export name that the "
+            "validated inventory gives an entry and the skill's text writes, as §2b's numerator check does. With "
+            "`composition`, it looks each library and integration pair name up in the text alone: those name no "
+            "export, so the inventory never lists them.") in _flow(_read(COVERAGE_BRANCHES))
+
+
 def test_the_prose_fallback_scan_runs(tmp_path):
     """coverage-check-tiers.md's Fallback Per-File Scan, as written: `plan` without `--surface` maps every
     documented signature, the saved per-file responses (fence and all) build the surface, and §2b's
