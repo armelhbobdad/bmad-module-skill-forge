@@ -1109,14 +1109,24 @@ class TestStaleNameLineCheck:
             "a helper that does not resolve or exits non-zero",
             "A name with a `defined_at` (the source still declares it there, an import never counting, a module "
             "so named counting unless the name's inventory kind rules it out), or whose `declared_in` lists several "
-            "files of which its forms' own `[AST:]`/`[SRC:]` citations (at their inventory `at`), else the skill's "
-            "on lines naming it, cite exactly one (or a package and its same-named module), is a "
-            "documented extra: an Info `observation` gap at "
+            "files of which its forms' own `[AST:]`/`[SRC:]` citations (at their inventory `at`), else, when they "
+            "cite none, the skill's on lines naming it, cite exactly one (or a package and its same-named module), "
+            "is a documented extra: an Info `observation` gap at "
             "that declaration, when `surface.json` has an `extraction` and its `excluded.outsideScope` does not "
             "list the name",
-            "(no `defined_at` and no single cited declaring file, one scoped out, no `extraction`, a dotted name,",
+            "(no `defined_at` and no single cited declaring file, one scoped out, no `extraction`, a dotted name, a "
+            "helper that does not resolve or exits non-zero)",
         ):
             assert needle in flow, needle
+        # #1077 review: forms whose own citations cite two declaring files keep the Medium, whatever the skill's
+        # lines cite, since those lines miss a citation after a fence, on a comment line above or with no `:L<n>`
+        medium = next(r for r in _read(SCORING_FILE).splitlines() if r.startswith("| Medium   | `stale-documentation`"))
+        assert ("and either its forms' own citations (at their inventory `at`) cite two of the files that do or "
+                "neither they nor the skill's citations on the lines that name it cite a single one (a Python package's "
+                "`NAME/__init__.py` cited with only its same-named module counting as one)") in medium
+        info = next(r for r in _read(SCORING_FILE).splitlines() if r.startswith("| Info     | `observation`"))
+        assert ("the one its forms' own citations cite (at their inventory `at`), else, when they cite none, the "
+                "one the skill cites on a line naming it,") in info
 
     def test_a_name_cited_at_another_packages_star_is_not_checked_by_script(self, section: str,
                                                                            tmp_path: pathlib.Path) -> None:

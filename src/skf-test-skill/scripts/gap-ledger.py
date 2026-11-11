@@ -135,7 +135,10 @@ cites (never read; default `metadata.json`):
             name it (outside the citations), or on the next non-blank line
             after one that is not a table row outside a fenced block (a
             row's own citations are in its cells, the next row documents
-            another export, #1066). A package
+            another export, #1066), read with the forms' own, which that
+            scan misses after a closing fence, on a comment line above or
+            with no `:L<n>`, so forms citing two of the files keep it
+            Medium. A package
             `<dir>/NAME/__init__.py` cited with only modules named NAME
             directly in its folder (`<dir>/NAME/NAME.py` or `.pyi`) counts,
             in either reading, as that one file, the package `<dir>.NAME`
@@ -1406,7 +1409,11 @@ def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
     citation of a second declaring file. The skill's are the ones
     validate-inventory.py's _skill_cited_files reads on a line that names it,
     read when its forms' own cite no single file between them: no `forms`,
-    none in a skill file, or forms citing none of those files or two. That
+    none in a skill file, or forms citing none of those files or two. They
+    are read with the forms' own, which that line scan misses after a
+    closing fence, on a comment line above the declaration or with no
+    `:L<n>`, so forms citing two files keep the Medium and the skill's lines
+    decide only for forms citing none of them. That
     pick is (the item, the number of files `declared_in` lists, [], each
     form's "<path>:<line>" that cites the picked file, or [] for the
     skill's). Cited items that are only a
@@ -1450,7 +1457,10 @@ def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
     if picked:
         files = {citations._cited_path(d.rsplit(":", 1)[0]) for d in (picked[0], *picked[2])}
         return (*picked, [at for at, cited in own.items() if cited & files])
-    picked = _one_cited_file(name, by_file, citations._skill_cited_files(Path(skill_dir), name, list(texts.values())))
+    # the skill's lines with the forms' own, which a line scan misses (after a fence, a comment above, no `:L<n>`):
+    # forms citing two files never leave one for the skill's lines to pick
+    skill = citations._skill_cited_files(Path(skill_dir), name, list(texts.values()))
+    picked = _one_cited_file(name, by_file, skill | set().union(*own.values()))
     return (*picked, []) if picked else None
 
 

@@ -229,7 +229,8 @@ or references/**/*.md that writes a name with the match above, or on the
 next non-blank line, but never after a table row outside a fenced block,
 whose own citations are in its cells (the next row documents another
 export, #1066). gap-ledger.py reads it to pick the declaration of a
-stale homonym, score-signatures.py to plan a signature check at the
+stale homonym whose forms' own citations (below) cite none of its
+declaring files, score-signatures.py to plan a signature check at the
 declaration the skill cites. A form's own citations are shared the same way
 (#918): `form_citations` gives the citations of the form an `at` places, on
 its line; on the next non-blank line, unless that line writes the name (it
@@ -252,7 +253,9 @@ binds a form to the one declaration of its name they name (with
 name declared more than once, never by the citations of a place where the
 inventory gives the name two forms that differ (a row that quotes another
 declaration's form as a contrast): there each form is bound only by its
-other places, if any.
+other places, if any. gap-ledger.py reads them, with the same other
+places, to pick a stale homonym's declaring file from every form of the
+name before the lines that name it (#1077).
 
 CLI usage (mirrors reconcile-coverage.py):
   uv run validate-inventory.py --input <response file> [--output <inventory file>]

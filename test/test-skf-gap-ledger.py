@@ -45,8 +45,10 @@ counts and the Gap Report is rendered from:
     only a package's `__init__.py` and a module of its name in that
     folder (#1012, at the package), its issue naming the reading that
     picked it, and
-    stays Medium when they cite any other two or none (a form that cites
-    none or two, or no usable `at`, leaves the skill's lines to decide),
+    stays Medium when they cite any other two or none (forms that cite
+    two between them keep it Medium, a citation the skill's lines miss
+    counted; a form that cites none, or no usable `at`, leaves the skill's
+    lines to decide),
     without --skill-dir, or with
     a `declared_in` that is not a list of several `file:line` items
   - a name cited at another package's `export *` (#1005): a stale name
@@ -2108,8 +2110,7 @@ class TestCoverageAdapter:
     @pytest.mark.parametrize("skill_md, refs, item, inventory, expected", [
         ("# demo\n\n`R` stands for a result. `[AST:pkg/app.py:L20]`\n", R_FORM.replace("[AST:pkg/query.py:L43]", ""),
          R_ITEM, R_AT, ("Info", "pkg/app.py:20")),
-        ("# demo\n\n" + R_ROW, R_FORM.replace("L43]", "L43] [AST:pkg/app.py:L20]"), R_ITEM, R_AT,
-         ("Info", "pkg/app.py:20")),
+        ("# demo\n\n" + R_ROW, R_FORM.replace("L43]", "L43] [AST:pkg/app.py:L20]"), R_ITEM, R_AT, ("Medium", None)),
         ("# demo\n\n" + R_ROWS, R_FORM.replace("L43]", "L43] [AST:pkg/app.py:L20]"), R_ITEM, R_AT, ("Medium", None)),
         ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM, None, ("Medium", None)),
         ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM, {"exports": [{"name": "R", "kind": "type", "description": ""}]},
@@ -2131,8 +2132,10 @@ class TestCoverageAdapter:
             "a-method-s-at", "a-defined-at-wins"])
     def test_a_homonym_s_form_that_cites_no_single_file_reads_the_skill_s_lines(
             self, tmp_path: Path, skill_md: str, refs: str, item: dict, inventory: dict | None, expected: tuple):
-        """With no usable `at`, or a form whose own citations cite none of its declaring files or two, the
-        skill's citations on lines naming it decide, worded as before; a `defined_at` still wins first."""
+        """With no usable `at`, or a form whose own citations cite none of its declaring files, the skill's
+        citations on lines naming it decide, worded as before. A form citing two keeps the Medium whatever those
+        cite: the #1077 review found the second case an Info at `pkg/app.py`, from the row alone, since the line
+        scan misses the citations after the fence. A `defined_at` still wins first."""
         record = self._homonym(tmp_path, skill_md, refs, item=item, name="R", inventory=inventory)
         severity, source = expected
         assert record["severity"] == severity, record
@@ -2161,15 +2164,30 @@ class TestCoverageAdapter:
          "its form at `SKILL.md:3` cites only `pkg/tasks/task.py`"),
     ], ids=["each-form-cites-another-file", "both-forms-cite-one-file", "one-form-cites-none"])
     def test_every_form_of_a_homonym_counts(self, tmp_path: Path, refs: str, expected: str | None):
-        """Forms that cite two declaring files between them leave the skill's lines to decide, which cite both
-        here: a Medium, as before #1077 (on its first fix, SKILL.md's form alone made it an Info at
-        `pkg/tasks/task.py`). Forms that cite one name each form that cites it."""
+        """Forms that cite two declaring files between them keep a Medium, as before #1077 (on its first fix,
+        SKILL.md's form alone made it an Info at `pkg/tasks/task.py`), whatever the skill's lines cite. Forms that
+        cite one name each form that cites it."""
         record = self._homonym(tmp_path, self.TASK_ROW, refs, inventory=self.TWO_FORMS)
         if expected is None:
             assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
             return
         assert brief([record]) == [("Info", "observation", "Documented extra: Task", "pkg/tasks/task.py:24", "Task")]
         assert record["issue"].endswith(f"of the 2 files that declare it, {expected}")
+
+    @pytest.mark.parametrize("refs, at", [
+        ("# API\n\n```python\n# [SRC:pkg/models/Task.py:L9]\nclass Task(fn, size): ...\n```\n", "references/api.md:5"),
+        ("# API\n\n```python\nclass Task(fn, size): ...\n```\n[AST:pkg/models/Task.py:L9]\n", "references/api.md:4"),
+        ("# API\n\n`Task(fn, size)` `[AST:pkg/models/Task.py]`\n", "references/api.md:3"),
+    ], ids=["on-a-comment-line-above-in-a-fence", "after-the-closing-fence", "with-no-line"])
+    def test_a_form_citation_the_skill_s_lines_miss_still_counts(self, tmp_path: Path, refs: str, at: str):
+        """#1077 review: forms citing two declaring files between them fell back to the skill's lines alone,
+        whose scan misses a citation on a comment line above the declaration in a fence, after a closing fence or
+        with no `:L<n>`. It found SKILL.md's row only and recorded an Info "the skill cites only
+        `pkg/tasks/task.py`", though the reference file's form cites `pkg/models/Task.py`. The forms' own
+        citations now count with the skill's lines: a Medium."""
+        inventory = {"exports": [self.TWO_FORMS["exports"][0], dict(self.TWO_FORMS["exports"][1], at=at)]}
+        record = self._homonym(tmp_path, self.TASK_ROW, refs, inventory=inventory)
+        assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
 
     def test_a_fenced_block_holding_two_forms_shares_no_block_citation(self, tmp_path: Path):
         """#1077 review: as score-signatures.py's plan reads them, each form reads the name's other places in its

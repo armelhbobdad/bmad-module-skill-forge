@@ -2733,6 +2733,11 @@ def test_the_forge_surface_reads_the_brief_for_a_stale_scope(tmp_path):
             "planned, judged and counted in Signature Accuracy at its declaration, and the two forms of a split-body "
             "mismatch of it are set against that declaration."
             ) in held
+    # review of #1077: of several declarations, plan picks one from the lines naming the name, as among surface
+    # records, and binds each form to its own cited one
+    assert ("For one declared in several files, `plan` picks among them as among a name's surface records, from the "
+            "lines naming it, and binds each form to the one its own citations cite (coverage-check.md §2's "
+            "`bound`).") in held
     internal = _flow(_slice(_read(SOURCE_ACCESS), "Internal module symbols are", "This matches the extraction"))
     assert ("the extraction's `internal` names reach it only as `internalDeclarations` (What the Surface Holds, "
             "below), which add no name to its sets or to the coverage denominator.") in internal
