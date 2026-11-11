@@ -562,6 +562,9 @@ RENEW = f'uv run {{runLockHelper}} acquire {LOCK_ARGS} --owner "{{run_owner}}"'
 RELEASE = f'uv run {{runLockHelper}} release {LOCK_ARGS} --owner "{{run_owner}}"'
 # Each step after the lock writes the release command out before its first HALT.
 STEP_RELEASE = f"It releases the run lock first, whatever the release prints: from `{{project-root}}`, run `{RELEASE}`"
+# ... and, headless, prints its envelope through the shared emitter.
+EMIT_HALT = ('uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --run-dir "{run_dir}" '
+             '--target stderr < "{run_dir}/halt.json"')
 RUN_ID_RE = re.compile(r"^\d{8}T\d{6}Z-[0-9a-f]{8}$")
 # Step files after init.md §6a, in stage order. health-check.md is loaded
 # after report.md §7 released the lock.
@@ -695,14 +698,16 @@ def test_each_stage_and_each_by_eye_read_renews_the_lock():
     """#1064: between two subagent returns the main thread can work a long time on
     its own: at Quick tier it reads every entry point by eye, then runs coherence,
     the external validators, the gate and the score before report.md §4b.2. So the
-    run also renews as each stage after init.md starts and after each message of
-    by-eye source reads (the Forge tier's `readByEye` files, State 4, a split body),
-    with the same command and HALTs as the other renewal points."""
+    run also renews as each stage from detect-mode.md to report.md starts and after
+    each message of by-eye source reads (the Forge tier's `readByEye` files, State 4,
+    a split body), with the same command and HALTs as the other renewal points."""
     skill = _read(SKILL_MD)
     rules = _slice(skill, "## Workflow Rules", "## Stages")
     rule = _flow(next((line for line in rules.splitlines() if RENEW in line), ""))
     by_eye = "each time the main thread finishes reading a source file by eye (once for files read in one message)"
-    stage = "as each stage after init.md starts, before its first numbered section"
+    # The rule names the stages it reaches, as its copies do: none after report.md §7's release.
+    stage = "as each stage from detect-mode.md to report.md starts, before its first numbered section"
+    assert "as each stage after init.md starts" not in rule
     for needle in (by_eye, stage, "Exit 3 (another run took the lock over) HALTs `another-run-active`",
                    "exit 1 or 2, or no JSON, HALTs `helper-failed`", "phase `<step>:run-lock`"):
         assert needle in rule, needle
@@ -716,6 +721,15 @@ def test_each_stage_and_each_by_eye_read_renews_the_lock():
     files = [Path(rel).name for rel in re.findall(r"^\|[^|\n]+\|[^|\n]+\| (references/[\w.-]+\.md) \|", table, re.M)]
     assert files[0] == "init.md" and files[-1] == "health-check.md", files
     assert files[1:-1] == AFTER_THE_LOCK
+    # A renewal that halts as a stage starts runs under that stage's Halt envelope, so
+    # each of them states one, with the release and the emitter, before its first section.
+    for name in AFTER_THE_LOCK:
+        body = _read(REFS / name)
+        first = re.search(r"^### §?\d", body, re.M)
+        assert first, name
+        head = body[:first.start()]
+        assert "**Halt envelope.**" in head and STEP_RELEASE in head, name
+        assert EMIT_HALT in head, name
     # The contract, the user docs and the init comment name both points, the stage
     # starts ending at report.md: no renewal retakes the lock once §7 released it.
     row = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Concurrency** |"))
