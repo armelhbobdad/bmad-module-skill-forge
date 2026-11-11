@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-test-skill
+summary: |
+  Test Skill no longer sends a signature judge a documented name it cannot locate in any file, such as an extraction gap the runner did not locate. `score-signatures.py plan` used to file that name's check under the empty file name `""`, where no judge has a file to read: a judge result for it broke the result schema, so `score` exited 2, and a second one halted the coverage check with `helper-failed`. The plan now gives such a name no check and lists it in a new `notCompared` key, and `score --plan` leaves it out of Signature Accuracy and names it under the report's Scoring Warnings, where before, with no judge result, it was counted as a matching signature. A name whose form the skill's own citations bind to one declaration is still compared at that declaration.
+issues: [1061]

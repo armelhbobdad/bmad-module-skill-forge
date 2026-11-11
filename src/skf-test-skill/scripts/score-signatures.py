@@ -105,7 +105,11 @@ ratios and the gap records of the wrong signatures.
          planned as its owner's would be (its record, line and candidates),
          and its forms are bound among the owner's declarations, by the
          citations of their places that name the member, which the owner's
-         span holds. A `method` with no `owner` is never compared. Also the
+         span holds. A `method` with no `owner` is never compared. A name
+         none of whose surface records names a file (a not-located
+         extraction gap, a record whose file is blank, or no record at all)
+         and none of whose forms is bound gets no check, since no judge has
+         a file to read: `notCompared` lists it (#1061). Also the
          whole documented-signature map, and each name's alternatives, for
          the fallback scan that has no surface lines yet, which leave every
          `{owner}.{name}` out: that scan's judges compare the names a file
@@ -116,9 +120,11 @@ ratios and the gap records of the wrong signatures.
              the documented signatures of the signature universe (with a
              fallback scan's exports_found) and each method's
              `{owner}.{name}` the plan holds a check of (with no --plan,
-             one whose owner has a surface record), and matching those no
-             result names in a Critical mismatch: a wrong signature is
-             wrong whichever set the denominator counts
+             one whose owner has a surface record), with --plan less each
+             name the plan's `notCompared` lists (named in `warnings`,
+             #1061), and matching those no result names in a Critical
+             mismatch: a wrong signature is wrong whichever set the
+             denominator counts
            Type Coverage = documented types / total types * 100, where
              total types counts the names of the --surface-set set (the
              denominator set coverage-check section 2b picked) whose kind is
@@ -319,8 +325,10 @@ Inputs, all files in the run folder:
                name the surface records in several files, and bind each form
                whose own citations name one declaration of its name to it
   --plan       score only: the plan's output, whose checks name the files a
-               mismatch of each name may be recorded at, and the declaration
-               each bound form's mismatch is taken at
+               mismatch of each name may be recorded at and the declaration
+               each bound form's mismatch is taken at, and whose
+               `notCompared` lists the names it gave no check, which
+               Signature Accuracy leaves out
   --source-root  score only: the local source tree the judges read (a
                drifted workspace included), where an annotation-contradicted
                mismatch's `evidence_line` is checked in its file
@@ -344,6 +352,7 @@ score write their result to that file and print only its summary):
           citation does not settle the declaration), "bound": [{"form",
           "file", "line", "signatureLine"}] (only when a form's own
           citations name one declaration of the name)}]}],
+          "notCompared": [the names given no check, sorted],
           "documentedSignatures": {...}, "documentedAlternatives": {name:
           [{...}], for each name with alternatives}}
          or, with --output, the summary {"compared": N, "files": the
@@ -355,9 +364,13 @@ score write their result to that file and print only its summary):
          alone in its file, whose per-file result lists names only, or a
          record with no file. The judge finds a declaration that has a file
          in that `file` and gives its mismatch the line it found there
-         (#1022). A check whose record has no file sits under the `files[]`
-         entry "", which names no file to read: a judge reads only its
-         `bound` forms, each at its bound declaration.
+         (#1022). A check whose record has no file has a bound form and
+         sits under the `files[]` entry "", which names no file to read: a
+         judge reads only its `bound` forms, each at its bound declaration.
+         A name that no surface record locates in a file and none of whose
+         forms is bound gets no check (#1061): `notCompared` lists it, and
+         score with --plan leaves it out of Signature Accuracy and names it
+         in `warnings`.
   score: {"valid": true, "signatureAccuracy", "matchingSignatures",
           "totalDocumented", "comparedNames": [the names compared],
           "typeCoverage", "documentedTypes", "totalTypes",
@@ -646,6 +659,15 @@ def load_plan_bound(path: str) -> dict[str, dict[int, dict]]:
                 if isinstance(form, int) and not isinstance(form, bool) and form >= 0 and _record_file(item):
                     bound.setdefault(check["name"], {})[form] = {"file": _record_file(item), "line": item.get("line")}
     return bound
+
+
+def load_plan_not_compared(path: str) -> set[str]:
+    """The names plan gave no check (#1061), from its `notCompared`: none
+    when the key is absent or no list, and an item that is no string is
+    left out."""
+    data = _read_json(path, "--plan")
+    names = data.get("notCompared") if isinstance(data, dict) else None
+    return {name for name in names if isinstance(name, str)} if isinstance(names, list) else set()
 
 
 def check_result(item: object, where: str) -> list[str]:
@@ -1100,12 +1122,16 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
     owner's own check would be, with the owner's candidates, its bare name
     as `member`, each form bound to one of the owner's declarations by the
     citations of its places that name the member; the fallback scan's maps
-    leave it out."""
+    leave it out. A name none of whose surface records names a file (a
+    not-located extraction gap, a record whose file is blank, or no record
+    at all) and none of whose forms is bound gets no check, since no judge
+    has a file to read: `notCompared` lists it, sorted (#1061)."""
     forms = _forms_and_places(inventory)
     spots = _places_by_name(inventory)
     shared = _shared_places(inventory)
     methods = method_keys(inventory)
     files: dict[str, list[dict]] = {}
+    not_compared: list[str] = []
     compared = 0
     if names is not None:
         by_name = _records_by_name(exports)
@@ -1118,7 +1144,6 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
             # A method's check is its owner's (#1088): the owner's records, declarations and candidates.
             owner, member = methods.get(name, (name, name))
             record, candidates = _check_at(owner, by_name.get(owner) or [], skill_dir, lines)
-            compared += 1
             check = {"name": name, **({"member": member} if name in methods else {})}
             check.update({
                 "line": record.get("line"),
@@ -1135,12 +1160,19 @@ def plan(inventory: list[dict], names: list[str] | None, exports: list[dict], sk
                      if texts is not None else [])
             if bound:
                 check["bound"] = bound
+            # No surface record of the name names a file and no form of it is bound: no judge has a file to read, so
+            # it gets no check, and score leaves it out of Signature Accuracy and names it (#1061).
+            if not (_record_file(record) or bound):
+                not_compared.append(name)
+                continue
+            compared += 1
             files.setdefault(_record_file(record), []).append(check)
     # The fallback scan's judges compare the names its files export: a method there would count as matching unjudged.
     named_forms = {name: [fields for fields, _ in fs] for name, fs in forms.items() if name not in methods}
     return {
         "compared": compared,
         "files": [{"file": f, "checks": checks} for f, checks in sorted(files.items())],
+        "notCompared": not_compared,
         "documentedSignatures": {name: fs[0] for name, fs in named_forms.items()},
         # The fallback scan's alternatives: a name's form n is its nth entry here, as in a check's `alternatives`.
         "documentedAlternatives": {name: fs[1:] for name, fs in named_forms.items() if len(fs) > 1},
@@ -1923,7 +1955,7 @@ def _form_index(name: str, entry: dict, forms: list[dict]) -> tuple[int, bool, l
 def score(inventory: list[dict], names: list[str], exports: list[dict], results: list[dict],
           type_names: list[str] | None = None, offered: dict[str, list[str]] | None = None,
           source_root: str | None = None, planned: dict[str, list[dict]] | None = None,
-          bound: dict[str, dict[int, dict]] | None = None) -> dict:
+          bound: dict[str, dict[int, dict]] | None = None, not_compared: set[str] | None = None) -> dict:
     """The two categories: Signature Accuracy over the signature universe of
     `names` (the `all` set) and `exports`, Type Coverage over `type_names`
     when given, else over `names`. A fallback scan's exports_found join the
@@ -1944,7 +1976,9 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     and a bound one is taken at the judge's file and `line`, the member's,
     since its bound declaration is its owner's: with a warning when the
     judge names another declaration's file, and with none when it names a
-    file no declaration of the owner is in, the member's own."""
+    file no declaration of the owner is in, the member's own. A name in
+    `not_compared` (read from --plan: the names it gave no check, #1061) is
+    left out of the compared names and named in one warning."""
     bound = bound or {}
     by_name = _records_by_name(exports)
     methods = method_keys(inventory)
@@ -1968,6 +2002,13 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
                       if len(planned[name]) != len(forms[name]) else "different forms than the inventory gives")
             warnings.append(f"`{name}`: the plan offered {differ}: graded against the plan's")
             forms[name] = planned[name]
+    # No judge read a name the plan gave no check (#1061): counted, it would match.
+    left_out = sorted(compared & (not_compared or set()))
+    if left_out:
+        compared -= set(left_out)
+        warnings.append("Signature Accuracy leaves out each documented name the plan gave no check, since no surface "
+                        "record of it names a file and no form of it is bound to a declaration (such as an extraction "
+                        "gap the runner did not locate): " + ", ".join(f"`{n}`" for n in left_out))
 
     graded: dict[tuple, dict] = {}
     seen = set()
@@ -2177,8 +2218,9 @@ def _cmd_score(args: argparse.Namespace) -> tuple[dict, int]:
     offered = load_plan(args.plan) if args.plan is not None else None
     planned = load_plan_forms(args.plan) if args.plan is not None else None
     bound = load_plan_bound(args.plan) if args.plan is not None else None
+    not_compared = load_plan_not_compared(args.plan) if args.plan is not None else None
     out = score(inventory, names, exports, results, None if args.surface_set == "all" else chosen, offered,
-                args.source_root, planned, bound)
+                args.source_root, planned, bound, not_compared)
     if args.output:
         _write_json(args.output, out)
     if args.gaps_output:
@@ -2214,8 +2256,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--surface", required=True, help="load-coverage-inputs.py surface output")
     p.add_argument("--surface-set", default="all",
                    help="the surface name set Type Coverage counts (default: all)")
-    p.add_argument("--plan", help="the plan's output: the files each check offered a mismatch at, and the "
-                                  "declaration each bound form's mismatch is taken at")
+    p.add_argument("--plan", help="the plan's output: the files each check offered a mismatch at, the "
+                                  "declaration each bound form's mismatch is taken at, and the names it gave no "
+                                  "check, which Signature Accuracy leaves out")
     p.add_argument("--source-root", help="the local source tree the judges read: an annotation-contradicted "
                                          "mismatch's evidence_line must start with `return` there, or be the "
                                          "declaration line with its expression body")

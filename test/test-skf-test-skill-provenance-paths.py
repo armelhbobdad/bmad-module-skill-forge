@@ -2563,8 +2563,9 @@ def test_the_forge_tier_reads_by_eye_every_file_the_surface_names():
     # Whatever the branch, each file read by eye and each file no one could open is listed, never dropped silently.
     assert bullets[2] == ("- In the Coverage Analysis section, list each `readByEye` file as read by eye, each "
                           "`extraction.unread` file as unread.")
-    # #1048: no gap is read by eye; the signature plan judges a documented one that has a file (one with none is
-    # planned under the files[] entry "", which names no file to read) and §5's render lists them all.
+    # #1048: no gap is read by eye; the signature plan judges a documented one that has a file (one with none and no
+    # bound form gets no check, and score names it as left out of Signature Accuracy, #1061) and §5's render lists
+    # them all.
     assert bullets[3] == ("- `extractionGaps[]` names exports no recipe found: on the surface, judged below when "
                           "documented and located; read none by eye.")
     assert "read their signature by eye" not in section

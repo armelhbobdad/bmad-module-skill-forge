@@ -182,7 +182,7 @@ def test_the_plan_compares_each_documented_signature_on_the_surface(tmp_path):
 def test_the_plan_without_a_surface_is_the_signature_map(tmp_path):
     inventory, _ = _files(tmp_path)
     plan = json.loads(_run("plan", "--inventory", inventory).stdout)
-    assert plan["files"] == [] and plan["compared"] == 0
+    assert plan["files"] == [] and plan["compared"] == 0 and plan["notCompared"] == []
     assert plan["documentedSignatures"]["useThing"] == {"usage_signature": "useThing(): Thing"}
 
 
@@ -2314,8 +2314,11 @@ def test_a_by_eye_record_alone_plans_no_line_and_is_scored_at_the_judge_s(tmp_pa
             "with no file.") in doc
     # A check whose record has no file names no file to read, so the docstring never says a judge finds it there.
     assert ("The judge finds a declaration that has a file in that `file` and gives its mismatch the line it found "
-            "there (#1022). A check whose record has no file sits under the `files[]` entry \"\", which names no file "
-            "to read: a judge reads only its `bound` forms, each at its bound declaration.") in doc
+            "there (#1022). A check whose record has no file has a bound form and sits under the `files[]` entry \"\", "
+            "which names no file to read: a judge reads only its `bound` forms, each at its bound declaration. A name "
+            "that no surface record locates in a file and none of whose forms is bound gets no check (#1061): "
+            "`notCompared` lists it, and score with --plan leaves it out of Signature Accuracy and names it in "
+            "`warnings`.") in doc
     _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n`configure(path, *, strict=False)` reads [AST:{CONFIG}].\n")
     inventory = _write(tmp_path / "inventory.json", {"exports": [CONFIGURE_FORMS[0]], "cross_check_mismatches": []})
     surface = _write(tmp_path / "surface.json", {"exports": [CONFIGURE_BY_EYE], "sets": {"all": ["configure"]}})
@@ -2790,7 +2793,8 @@ def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tm
     """#918: the check of a name whose only record has no file stays at that record, in the "" group, and binds its
     form to the other declaration its citation names at its line, never the copy the skill cites elsewhere. A
     mismatch the judge finds there is recorded there, and that line bounds the evidence of an
-    annotation-contradicted one. Without --skill-dir the check binds nothing, as before."""
+    annotation-contradicted one. Without --skill-dir no form is bound, so no judge has a file to read: the name gets
+    no check and `notCompared` lists it (#1061)."""
     _write(tmp_path / "skill" / "SKILL.md",
            f"# Demo\n\n`createTest(story, annotations?)` builds a test [AST:{PORTABLE}:L319].\n\n"
            f"The template's createTest is a copy [SRC:{PORTABLE_COPY}:L40].\n")
@@ -2801,12 +2805,13 @@ def test_a_form_of_a_record_with_no_file_is_bound_to_the_declaration_it_cites(tm
                 "--output", str(plan))
     assert proc.returncode == 0, proc.stderr
     documented = {"params": "story: Story, annotations?: Annotations", "return_type": "Test"}
-    assert json.loads(plan.read_text(encoding="utf-8"))["files"] == [{"file": "", "checks": [{
+    planned = json.loads(plan.read_text(encoding="utf-8"))
+    assert planned["files"] == [{"file": "", "checks": [{
         "name": "createTest", "line": None, "signatureLine": None, "documented": documented,
         "bound": [{"form": 0, "file": PORTABLE, "line": 319, "signatureLine": "export function createTest("}]}]}]
+    assert planned["notCompared"] == []
     without = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
-    assert without["files"] == [{"file": "", "checks": [{
-        "name": "createTest", "line": None, "signatureLine": None, "documented": documented}]}]
+    assert (without["files"], without["compared"], without["notCompared"]) == ([], 0, ["createTest"])
     mismatch = {"name": "createTest", "line": 325, "file": PORTABLE, "difference": "annotation-contradicted",
                 "evidence_line": 322, "source_sig": "(story: Story, annotations?: Annotations): void",
                 "documented_sig": "(story: Story, annotations?: Annotations): Test",
@@ -2841,6 +2846,144 @@ def test_a_form_bound_to_an_other_declaration_is_graded_at_its_file():
     assert (out["matchingSignatures"], out["totalDocumented"]) == (1, 1)
     out = mod.score([CREATE_TEST], ["createTest"], FILELESS["exports"], results, offered={"createTest": [""]})
     assert [m["severity"] for m in out["mismatches"]] == ["Critical"]
+
+
+# #1061: a documented name no surface record locates in a file and none of whose forms is bound, such as
+# oms-cocoindex's `LanceAsyncConnection`, an extraction gap the runner did not locate. Its check used to sit under the
+# files[] entry "", which names no file: a judge result for "" breaks the schema, so score exits 2, and with no result
+# score counted the name compared and matching.
+LANCE = "LanceAsyncConnection"
+LANCE_ENTRY = {"name": LANCE, "kind": "class", "params": "uri: str, *, read_consistency_interval=None",
+               "at": "SKILL.md:3"}
+LANCE_GAP = {"name": LANCE, "kind": None, "file": None, "line": None, "signatureLine": None, "origin": "extraction"}
+NOT_COMPARED = ("Signature Accuracy leaves out each documented name the plan gave no check, since no surface record "
+                "of it names a file and no form of it is bound to a declaration (such as an extraction gap the runner "
+                "did not locate): ")
+
+
+def _lance(tmp_path: Path, records: list[dict]) -> tuple[str, str]:
+    """An inventory documenting LanceAsyncConnection and helper, and a surface with `records` of the first and
+    helper's at src/helper.ts:1."""
+    inventory = _write(tmp_path / "inventory.json", {"exports": [LANCE_ENTRY, INVENTORY["exports"][1]],
+                                                     "cross_check_mismatches": []})
+    helper = next(r for r in SURFACE["exports"] if r["name"] == "helper")
+    surface = _write(tmp_path / "surface.json", {"exports": [*records, helper], "sets": {"all": [LANCE, "helper"]}})
+    return inventory, surface
+
+
+@pytest.mark.parametrize("records, skill", [
+    ([LANCE_GAP], False),
+    ([LANCE_GAP], True),
+    ([{**LANCE_GAP, "file": "  "}], False),
+    ([], False),
+], ids=["not-located-gap", "not-located-gap-with-skill-dir", "blank-file", "no-record"])
+def test_a_name_no_record_locates_and_no_form_binds_gets_no_check(tmp_path, records, skill):
+    """#1061: a documented name none of whose surface records names a file (an extraction gap the runner did not
+    locate, a record whose file is blank, or a name of the `all` set with no record) and none of whose forms is bound
+    gets no check, since no judge has a file to read: the plan files nothing under the files[] entry "", lists the
+    name in `notCompared` and leaves it out of `compared`. With --skill-dir a citation that names no declaration of the
+    name binds nothing. Its forms stay in the fallback scan's map, and the --output summary keeps its five keys."""
+    _write(tmp_path / "skill" / "SKILL.md", f"# Demo\n\n`{LANCE}(uri)` connects [AST:src/lance.py:L10].\n")
+    inventory, surface = _lance(tmp_path, records)
+    path = tmp_path / "signature-plan.json"
+    skill_dir = ["--skill-dir", str(tmp_path / "skill")] if skill else []
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, *skill_dir, "--output", str(path))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == {"compared": 1, "files": 1, "checks": 1, "documented": 2, "output": str(path)}
+    plan = json.loads(path.read_text(encoding="utf-8"))
+    assert [(group["file"], [c["name"] for c in group["checks"]]) for group in plan["files"]] == [
+        ("src/helper.ts", ["helper"])]
+    assert (plan["compared"], plan["notCompared"]) == (1, [LANCE])
+    assert plan["documentedSignatures"][LANCE] == {"params": LANCE_ENTRY["params"]}
+
+
+def test_a_name_with_a_filed_record_beside_a_fileless_one_keeps_its_check(tmp_path):
+    """#1061: a name one of whose records names a file keeps its check at that record, as before, whichever record the
+    surface lists first: it is compared, and `notCompared` is empty."""
+    filed = {"name": LANCE, "kind": "class", "file": "src/lance.py", "line": 10,
+             "signatureLine": "class LanceAsyncConnection:", "origin": "extraction"}
+    inventory, surface = _lance(tmp_path, [LANCE_GAP, filed])
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    assert [(group["file"], [(c["name"], c["line"]) for c in group["checks"]]) for group in plan["files"]] == [
+        ("src/helper.ts", [("helper", 1)]), ("src/lance.py", [(LANCE, 10)])]
+    assert (plan["compared"], plan["notCompared"]) == (2, [])
+
+
+def test_a_name_given_no_check_is_left_out_of_signature_accuracy_and_named(tmp_path):
+    """#1061, end to end: plan gives the not-located LanceAsyncConnection no check, so no judge is sent to a files[]
+    entry "" and score, reading src/helper.ts's result alone, exits 0. With --plan it leaves the name out of Signature
+    Accuracy and names it in one warning. Without --plan score is unchanged: the name counts as compared and
+    matching."""
+    inventory, surface = _lance(tmp_path, [LANCE_GAP])
+    path = tmp_path / "signature-plan.json"
+    proc = _run("plan", "--inventory", inventory, "--surface", surface, "--output", str(path))
+    assert proc.returncode == 0, proc.stderr
+    assert [group["file"] for group in json.loads(path.read_text(encoding="utf-8"))["files"]] == ["src/helper.ts"]
+    results = _write(tmp_path / "signatures-1.txt", json.dumps({"file": "src/helper.ts", "signature_mismatches": []}))
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", str(path), "--results", results)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert (out["comparedNames"], out["totalDocumented"], out["matchingSignatures"], out["signatureAccuracy"]) == (
+        ["helper"], 1, 1, 100.0)
+    # The extraction record has no kind, so Type Coverage names it too (#1020).
+    assert out["warnings"] == [NOT_COMPARED + f"`{LANCE}`", KINDLESS + f"`{LANCE}`"]
+    out = json.loads(_run("score", "--inventory", inventory, "--surface", surface, "--results", results).stdout)
+    assert (out["comparedNames"], out["totalDocumented"], out["matchingSignatures"]) == ([LANCE, "helper"], 2, 2)
+    assert out["warnings"] == [KINDLESS + f"`{LANCE}`"]
+
+
+def test_signature_accuracy_with_every_name_left_out_has_nothing_to_compare():
+    """#1061: when the plan gave no check to every name score would compare, Signature Accuracy scores 100. The
+    warning that names them comes right after the plan-differs warnings and before the one that says the category has
+    nothing to compare; a `notCompared` name score would not compare anyway is named in none."""
+    planned = {LANCE: [{"params": "uri: str"}]}
+    out = mod.score([LANCE_ENTRY], [LANCE], [LANCE_GAP], [], planned=planned, not_compared={LANCE, "Unknown"})
+    assert (out["comparedNames"], out["totalDocumented"], out["matchingSignatures"], out["signatureAccuracy"]) == (
+        [], 0, 0, 100.0)
+    assert out["warnings"] == [
+        f"`{LANCE}`: the plan offered different forms than the inventory gives: graded against the plan's",
+        NOT_COMPARED + f"`{LANCE}`",
+        "no documented signature is on the source surface: Signature Accuracy has nothing to compare and scores 100",
+        KINDLESS + f"`{LANCE}`"]
+
+
+def test_a_mismatch_for_a_name_given_no_check_grades_nothing():
+    """#1061: a mismatch a result still reports for a name the plan gave no check grades nothing: no mismatch, no gap,
+    and the name stays out of the compared and matching counts, whatever order score drops it in."""
+    helper = next(r for r in SURFACE["exports"] if r["name"] == "helper")
+    mismatch = {"name": LANCE, "line": 10, "source_sig": "(uri: str)", "documented_sig": LANCE_ENTRY["params"],
+                "issue": "missing keyword parameter 'read_consistency_interval'"}
+    out = mod.score([LANCE_ENTRY, INVENTORY["exports"][1]], [LANCE, "helper"], [LANCE_GAP, helper],
+                    [{"file": "src/lance.py", "signature_mismatches": [mismatch]}], not_compared={LANCE})
+    assert (out["mismatches"], out["gapRecords"]) == ([], [])
+    assert (out["comparedNames"], out["totalDocumented"], out["matchingSignatures"], out["signatureAccuracy"]) == (
+        ["helper"], 1, 1, 100.0)
+    assert out["warnings"][0] == NOT_COMPARED + f"`{LANCE}`"
+    assert out["warnings"][1].startswith(f"src/lance.py:10: a signature mismatch for `{LANCE}`")
+    assert out["warnings"][1].endswith(": not scored, no gap")
+
+
+@pytest.mark.parametrize("value, names", [
+    (None, set()),
+    (LANCE, set()),
+    ({LANCE: True}, set()),
+    ([1, None, True, [LANCE], LANCE], {LANCE}),
+], ids=["absent", "a-string", "an-object", "items-that-are-no-string"])
+def test_the_plan_s_not_compared_names_are_read_as_strings(tmp_path, value, names):
+    """#1061: load_plan_not_compared reads the plan's `notCompared`: an older plan without it, a value that is no list
+    and an item that is no string leave nothing out, and score with such a plan exits 0, counting LanceAsyncConnection
+    compared unless a string item names it."""
+    inventory, surface = _lance(tmp_path, [LANCE_GAP])
+    plan = json.loads(_run("plan", "--inventory", inventory, "--surface", surface).stdout)
+    plan.pop("notCompared", None)
+    if value is not None:
+        plan["notCompared"] = value
+    path = _write(tmp_path / "plan.json", plan)
+    assert mod.load_plan_not_compared(path) == names
+    results = _write(tmp_path / "s.txt", json.dumps({"file": "src/helper.ts", "signature_mismatches": []}))
+    proc = _run("score", "--inventory", inventory, "--surface", surface, "--plan", path, "--results", results)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["comparedNames"] == sorted({LANCE, "helper"} - names)
 
 
 # #918 end to end: the cognee shape, a namespace member and a lazy `__getattr__` re-export of a same-named function,
