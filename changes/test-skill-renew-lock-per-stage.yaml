@@ -3,3 +3,4 @@ scope: skf-test-skill
 summary: |
   Test Skill now also renews its run lock as each of its steps before the health check starts and each time it finishes reading source files by eye, not only as a subagent returns. The lock goes stale 60 minutes after it was taken or last renewed, and between two subagents the run could read a skill's source by eye for a long time, such as every entry point of a skill in another language at the Quick tier, then check coherence, run the external validators and score the skill before its next renewal. A second run of the same skill version started then took the lock over instead of stopping with `another-run-active`, and the first run halted later with no result written. A second run now stops at the start with `another-run-active` while the first one reads.
 issues: [1064]
+prs: [1100]
