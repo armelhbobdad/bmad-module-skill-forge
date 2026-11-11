@@ -813,8 +813,10 @@ def test_a_method_form_is_compared_with_its_owner_s_member():
     170/170 with 23 method forms (`ReactMeta.story`'s three overloads among them) never compared. A method that gives
     an `owner` is now checked at its owner's surface record as `{owner}.{name}`, with its bare name as `member`. The
     rules file says which declaration that is, right after the constructor it reads the same way: the member the owner
-    declares in its body or outside it (a Go receiver's method, a Rust `impl` block's), or binds, else its nearest
-    base's in the source tree, and a member neither declares left uncompared, as such a constructor's parameters are.
+    declares in its body or outside it (a Go receiver's method, a Rust `impl` block's), or binds, else the first
+    class's in its method resolution order to declare it, left uncompared outside the source tree, as such a
+    constructor's parameters are; an object owner read as its class; a base's overloads joining the owner's in Java,
+    Kotlin, C# and Swift.
     coverage-check.md §2 tells the judge what the check's fields are and where to report, a bound form's mismatch at
     the member's file and line too (a Go method may sit in another file than its receiver type), in one paragraph
     after `bound`'s, and the contract says a method's form is compared when
@@ -829,14 +831,32 @@ def test_a_method_form_is_compared_with_its_owner_s_member():
             "a Kotlin or Swift extension, a function assigned to its `prototype`); for an owner that binds the name to "
             "a function declared elsewhere (a class attribute assigned a function, a keyword of the "
             "`types.SimpleNamespace(...)` call that builds it), that function, read in the owner's file or through its "
-            "import; else the member its nearest base in the source tree declares, in method resolution order, as a "
-            "constructor is read.",
+            "import; else the member the first class in its method resolution order to declare or bind it gives, as "
+            "a constructor is read, left uncompared when that class is outside the source tree (`class "
+            "Session(requests.Session, RetryMixin)`, whose two bases both declare `request`, runs "
+            "`requests.Session.request`).",
             "Several declarations of the member are read as Overload sets says, and its mismatch is reported under "
             "the check's `name`, `{owner}.{member}`, at the member's file and line.",
             "A member that neither the owner nor a base in the source tree declares or binds (one inherited from "
             "another package's class, say) is left uncompared and counts as matching, as such a constructor's "
             "parameters are."):
         assert sentence in method, sentence
+    # #1088 review: an object owner (loguru's `logger = _Logger(...)`) declares no member, so it is read as its
+    # class, as a call to an instance is read with its class's `__call__`; in Java, Kotlin, C# and Swift a subclass
+    # keeps its bases' overloads, so `client.send(msg)` is no mismatch beside a subclass's two-parameter overload;
+    # the base walk follows method resolution order, so an in-tree mixin never stands in for another package's
+    # class that comes first (`requests.Session.request` runs, never `RetryMixin.request`)
+    for sentence in (
+            "An owner bound to an instance of a class, or a const annotated with a type, is read as that class or "
+            "type, as a call to an instance is compared with its class's `__call__`: after `logger = _Logger(...)`, "
+            "`logger.add(sink)` is compared with `_Logger.add`.",
+            "In Java, Kotlin, C# and Swift, where a subclass keeps its bases' overloads, the overloads of that name "
+            "the owner and its bases declare are one set, so `client.send(msg)` matches `send(String s)` in `Base` "
+            "beside `send(String s, int retries)` in `class Client extends Base`."):
+        assert sentence in method, sentence
+    assert "its nearest base in the source tree declares, in method resolution order" not in rules
+    assert "A call to an instance is compared with its class's `__call__`" in _paragraph(
+        rules, "A call to a class is compared"), "the instance reading it points at"
     paragraphs = rules.split("\n\n")
     [constructor] = [i for i, p in enumerate(paragraphs) if p.startswith("A call to a class is compared")]
     assert paragraphs[constructor + 1].startswith(opening), "right after the constructor it reads like"
@@ -853,9 +873,13 @@ def test_a_method_form_is_compared_with_its_owner_s_member():
     [bound] = [i for i, p in enumerate(section2) if p.startswith("A check's `bound` lists each form")]
     assert section2[bound + 1] == member, "right after `bound`'s paragraph"
     contract = _paragraph(_read(REFS / "inventory-contract.md"), "The contract `validate-inventory.py` checks")
+    # #1088 review: the fallback per-file scan's plan holds no check, so the contract says, as Verifying a Skill and
+    # the fragment do, that a method is compared only when the recipe runner built the surface; an object's member
+    # is its class's
     assert ("`owner` is not validated. The signature check compares a `method`'s form with the member of that name "
-            "its owner declares (signature-comparison-rules.md), under `{owner}.{name}`, when the source surface "
-            "records its owner; a `method` with no `owner` is never compared.") in contract
+            "its owner declares (for an object, its class; signature-comparison-rules.md), under `{owner}.{name}`, "
+            "when the source surface records its owner and the recipe runner built it; a `method` with no `owner` is "
+            "never compared.") in contract
     assert "except a `method`" not in contract and "a `method` and a form that writes only" not in contract
     doc = _flow(_read(SCORE_SIGNATURES))
     assert '"member" (a method\'s check alone: its bare name, `name` being `{owner}.{member}`)' in doc

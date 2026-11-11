@@ -240,8 +240,8 @@ ratios and the gap records of the wrong signatures.
          form's as for any other mismatch. A method's mismatch whose `file`
          holds no declaration of its owner, bound or offered, is the
          member's own (a Go method of its receiver type in another file, a
-         base class): it is taken at that file and the judge's `line`, bound
-         or not, with no warning. Results
+         base class, an object owner's class): it is taken at that file and
+         the judge's `line`, bound or not, with no warning. Results
          that report one declaration (name, file and line) more than once
          keep its most severe grade: Critical, then Low, then Info. Of the
          mismatches of one unbound form of a check that offered several
@@ -1977,8 +1977,9 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
             # A mismatch found at one of a check's candidates names that file; any other file is not taken.
             named = entry.get("file")
             # A method's member may be declared in a file no declaration of its owner is in (a Go method of its
-            # receiver type, a base class, a function the owner binds through an import): the file the judge names
-            # there is the member's, so its mismatch is taken at that file and the judge's line (#1088).
+            # receiver type, a base class, an object owner's class, a function the owner binds through an import): the
+            # file the judge names there is the member's, so its mismatch is taken at that file and the judge's line
+            # (#1088).
             elsewhere = name in methods and named is not None and not _is_offered_file(
                 [*files, *(decl["file"] for decl in bound.get(name, {}).values())], named)
             if elsewhere:

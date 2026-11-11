@@ -4155,6 +4155,33 @@ def test_a_method_mismatch_read_in_another_file_is_taken_there(tmp_path, plan, d
     assert not any("Client.Do" in w for w in out["warnings"]), out["warnings"]
 
 
+# loguru: `logger` is a module constant bound to an instance of `_Logger`, a class another file declares.
+LOGGER = {"name": "logger", "kind": "const", "file": "loguru/__init__.py", "line": 20,
+          "signatureLine": "logger = _Logger(core=_Core(), exception=None, depth=0)", "origin": "extraction"}
+LOGGER_ADD = {"name": "add", "kind": "method", "owner": "logger", "params": 'sink, *, level="DEBUG"',
+              "return_type": "int", "description": "Adds a sink.", "at": "SKILL.md:3"}
+
+
+def test_an_object_owner_s_method_is_checked_at_the_object_and_taken_at_its_class(tmp_path):
+    """#1088 review: an owner bound to an instance (loguru's `logger = _Logger(...)`) declares no member, and the rules
+    read only an owner's body, bindings and bases, so `logger.add` was left uncompared while plan checked it at
+    `logger`'s record and score counted it as matching. signature-comparison-rules.md now reads such an owner as its
+    class, as a call to an instance is compared with its class's `__call__`; the code it relies on is pinned here:
+    the check stays at the object's record, and a mismatch the judge reads in `_Logger`'s file is taken there."""
+    [(file, check)] = _checks(_method_plan([LOGGER_ADD], [LOGGER])).values()
+    assert (file, check["name"], check["member"], check["line"]) == ("loguru/__init__.py", "logger.add", "add", 20)
+    mismatch = {"name": "logger.add", "file": "loguru/_logger.py", "line": 245,
+                "documented_sig": 'add(sink, *, level="DEBUG") -> int',
+                "source_sig": "def add(self, sink, *, level=_defaults.LOGURU_LEVEL, format=..., filter=None) -> int",
+                "issue": "`level` takes no string default in the source"}
+    out = _method_run(tmp_path, [LOGGER_ADD], [LOGGER],
+                      [{"file": "loguru/__init__.py", "signature_mismatches": [mismatch]}])
+    assert out["comparedNames"] == ["logger.add"] and out["signatureAccuracy"] == 0.0
+    assert [(g["title"], g["source"]) for g in out["gaps"]] == [
+        ("Signature mismatch: logger.add", "loguru/_logger.py:245")]
+    assert not any("logger.add" in w for w in out["warnings"]), out["warnings"]
+
+
 def test_a_bound_method_form_read_in_another_file_is_taken_there(tmp_path):
     """#1088 review: a bound method form's mismatch the judge reads in a file no declaration of its owner is in (the
     member a base class declares, say) is taken at that file and the judge's line, not at the bound declaration's

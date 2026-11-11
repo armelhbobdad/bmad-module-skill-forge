@@ -763,7 +763,13 @@ class TestStagesRecordTheirGaps:
         resolution order, so a method only a base class declares settles its pair, unless a method of that name is
         declared for the owner outside its body (a Go receiver method, a function assigned to its `prototype`): §2
         compares that one, so no base's member stands in for it and nothing decides. An owner with no record, or a
-        member only another package declares, still decides nothing."""
+        member only another package declares, still decides nothing.
+        #1088 review: the nearest base in the source tree is not the member Python runs when another package's class
+        comes first in method resolution order (`class Session(requests.Session, RetryMixin)`), and in Java, Kotlin,
+        C# and Swift a subclass keeps its bases' overloads, so `Client`'s one `send(String s, int retries)` beside
+        `Base`'s `send(String s)` settled a pair against SKILL.md's correct `client.send(msg)`. The walk takes the
+        first class in method resolution order to declare or bind the member, nothing decides when that class is
+        another package's, and a base's overloads in those languages make an overload set, which decides nothing."""
         text = _read(COVERAGE_FILE)
         section1 = _flow(_slice(text, "### 1. Extract Documented Exports", "#### 1a."))
         assert ("For each export two or more of the files it reads document, it compares the SKILL.md body with "
@@ -840,24 +846,34 @@ class TestStagesRecordTheirGaps:
                   "assigned a function), the declaration that binding names, read in the owner's file or through its "
                   "import, or, for an owner that neither declares nor binds it and has no method of that name declared "
                   "for it outside its body (a Go method of its receiver type, one in a Rust `impl` block or a Kotlin "
-                  "or Swift extension, a function assigned to its `prototype`), the member its nearest base in the "
-                  "source tree declares or binds, in method resolution order, each base read in its subclass's file "
-                  "or through that file's import, and it decides when the owner's name has one declaration by the "
-                  "test above and the owner, or else that base, declares or binds the member once, with no overload "
-                  "set.")
+                  "or Swift extension, a function assigned to its `prototype`), the member the first class in its "
+                  "method resolution order to declare or bind it gives, each base read in its subclass's file or "
+                  "through that file's import, and it decides when the owner's name has one declaration by the test "
+                  "above and the owner, or else that class, declares or binds the member once, with no overload set, "
+                  "the overloads of that name the owner and its bases declare counting as one set in Java, Kotlin, "
+                  "C# and Swift.")
         # a bare-name record never stands in, nor a base's member for a method declared for the owner outside its
         # body, which §2 compares instead; and a pair the rule cannot place under its owner is settled by nothing:
-        # no record of the owner, such a method, or a member neither it nor a base in the source tree declares
-        # (#1062: one only another package's class declares)
+        # no record of the owner, such a method, a member neither it nor a base in the source tree declares (#1062:
+        # one only another package's class declares), or one another package's class gives first
         bare = ("A record of the bare name never stands in for the member, nor a base's member for a method declared "
                 "for the owner outside its body, so with no record of the owner, with such a method, with no such "
-                "member in the owner or a base in the source tree, or with no `owner` on a pair whose `export` the "
-                "inventory lists only as a `method`, nothing decides.")
+                "member in the owner or a base in the source tree, with the first class to declare or bind it outside "
+                "that tree, or with no `owner` on a pair whose `export` the inventory lists only as a `method`, "
+                "nothing decides.")
         for sentence in (member, bare):
             assert rule.count(sentence) == 1, sentence
         # #1062: the owner-only wording is gone, since a base's member decides when the owner's does not
         assert "the owner declares or binds the member once" not in rule
         assert "so with no record of the owner or no such member, or" not in rule
+        # #1088 review: the walk follows method resolution order to the first class that declares the member, never
+        # past another package's class to an in-tree base, and in Java, Kotlin, C# and Swift a base's overloads make
+        # the owner's member an overload set, so neither settles a pair by a member the source does not run or by one
+        # overload alone; §2's rules read the same member
+        assert "the member its nearest base in the source tree declares or binds" not in rule
+        rules = _flow(_read(REFS / "signature-comparison-rules.md"))
+        assert "the member the first class in its method resolution order to declare or bind it gives" in rules
+        assert "the overloads of that name the owner and its bases declare are one set" in rules
         # the base walk stops at the methods §2 reads for the owner outside its body, listed as §2's rule lists them,
         # so the split-body Source and §2's judge read the same member
         out_of_body = ("(a Go method of its receiver type, one in a Rust `impl` block or a Kotlin or Swift extension, "
