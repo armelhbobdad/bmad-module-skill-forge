@@ -373,6 +373,42 @@ def test_a_documented_overload_set_is_read_as_one_set():
             "says.") in split_body, "the split-body paragraph points at the sentence it reads"
 
 
+def test_a_form_bound_to_an_overload_set_is_compared_with_the_whole_set():
+    """#1081 (oms-cognee 1.6.2): the extraction records an overloaded name at its first stub, so a form whose own
+    citations name the name is bound to that stub, and Reading a form compares a bound form with "its bound
+    declaration alone". No sentence said whether "alone" leaves out the set's own overloads, so cognee's `export`
+    form, returning `GraphSnapshot | ExportResult`, bound to the first `@overload` stub (`-> GraphSnapshot`) and
+    matching the implementation (`-> ExportResult | GraphSnapshot`), was an untagged Critical against the stub alone
+    and no mismatch through the implementation, and the judge listed it as undecided. A bound declaration that opens
+    an overload set is the whole set, its mismatch still reported at the bound file and line; "its bound declaration
+    alone" leaves out the other declarations the check offers (its location and candidates) only; and a bound
+    declaration the other languages' paragraph makes one set with other declarations in its file stands for that
+    set's declarations there."""
+    overloads = _section("Overload sets")
+    whole = ("A bound declaration (Reading a form) that opens an overload set is the whole set, its stubs and its "
+             "implementation, so a form bound to it is compared as this section says, never with its first stub "
+             "alone, and its mismatch is reported at the bound declaration's file and line: a form of cognee's "
+             "`export` returning `GraphSnapshot | ExportResult`, bound to its first stub (`-> GraphSnapshot`), "
+             "matches its implementation (`-> ExportResult | GraphSnapshot`) and is no mismatch.")
+    alone = ("In Reading a form and in coverage-check.md §2, \"its bound declaration alone\" leaves out the other "
+             "declarations the check offers (its location and candidates), not the set's own overloads.")
+    declarations = ("A bound declaration that the paragraph below makes one set with other declarations in its file "
+                    "likewise stands for that set's declarations there, so a form bound to it that matches any of "
+                    "them is no mismatch.")
+    for sentence in (whole, alone, declarations):
+        assert sentence in overloads, sentence
+    assert overloads.index(whole) < overloads.index(alone) < overloads.index(declarations)
+    paragraphs = [_flow(p) for p in _slice(_read(RULES), "## Overload sets\n", "## Difference tags").split("\n\n")]
+    source = paragraphs.index(next(p for p in paragraphs if p.startswith("A declaration opening an overload set")))
+    assert paragraphs[source + 1].startswith("A bound declaration (Reading a form) that opens an overload set"), \
+        "right after the stub rule it reads a bound declaration by"
+    assert paragraphs[source + 2].startswith("A name declared several times"), "the paragraph below is the other set"
+    assert _flow(_read(RULES)).count("that opens an overload set is the whole set") == 1, "one copy"
+    # The phrase the paragraph defines is still the one Reading a form and §2 write.
+    assert "is compared with its bound declaration alone" in _section("Reading a form")
+    assert "Compare a bound form with its bound declaration alone" in _flow(_read(COVERAGE))
+
+
 def test_a_usage_form_is_read_as_what_it_writes():
     """#826, deferred from #862: an entry whose only form is its `usage_signature` had no rule saying how it is read.
     The call-example rule, its one copy, reads a component usage as a list of bare names of the props it sets and a
@@ -400,7 +436,8 @@ def test_a_usage_form_is_read_as_what_it_writes():
     usage = ("An entry's `usage_signature` written as a usage is read this way, and each usage in a list of usages is "
              "compared as a form of its own, under its entry's `form` index.")
     assert usage in reading
-    assert f"{spread} {unpacking} {usage}" in reading, "#1024: right after the spread sentence, before the usage rule"
+    assert f"{spread} {unpacking}" in reading, "#1024: right after the spread sentence"
+    assert reading.index(unpacking) < reading.index(usage), "#1024: before the usage rule (#1065's sentence between)"
     assert reading.count("`Settings(**config)`") == 1, "#1024: one copy of the unpacking rule"
     # score-signatures.py's parameter fact still refuses an unpacking, on the strict side, and its docstring says so
     assert ("a call's `*items` or `**mapping` argument (read as a `*args` or `**kwargs` the source must declare, so "
@@ -418,6 +455,43 @@ def test_a_usage_form_is_read_as_what_it_writes():
     assert f"under its entry's `form` index. {placeholder}" in call, "the call bullet's last sentence"
     [bullet] = [line for line in _read(RULES).splitlines() if line.startswith("- A call or usage example")]
     assert bullet.endswith(placeholder), bullet
+
+
+def test_an_unpacking_with_no_parameter_to_pass_is_a_mismatch():
+    """#1065 (found in the #1056 review): #1024 said what a Python `*items` or `**mapping` passes, but not whether
+    `f(*items)` against `def f()` is a mismatch. The call runs when `items` is empty, so a judge could pass it while
+    another raised a Critical. The call rule requires each argument a call passes to exist, so an unpacking with no
+    parameter left to pass, and no `*args` or `**kwargs` to take it, is a mismatch, as score-signatures.py's
+    parameter fact already reads it. A parameter a literal, variable or `name=value` argument of the call already
+    passes is not left to pass: `f(a, **m)` against `def f(a)` raises "multiple values" for any non-empty `m`. Another
+    unpacking passes none for sure, so `f(*args, **kwargs)` against `def f(a)` still has `a` left."""
+    call = _paragraph(_read(RULES), "- A call or usage example passes values")
+    unpacking = "a `*items` never passes a keyword-only parameter, nor a `**mapping` a positional-only one."
+    empty = ("A `*items` with no parameter left to pass (none a caller may pass by position from its position on, and "
+             "no `*args`), or a `**mapping` with none left that a caller may pass by name and no `**kwargs`, passes "
+             "arguments the declaration does not take, and a parameter a literal, variable or `name=value` argument "
+             "of the call already passes is not left: `f(*items)` against `def f()` and `f(a, **options)` against "
+             "`def f(a)` are mismatches, even though each call runs when its unpacking is empty.")
+    usage = "An entry's `usage_signature` written as a usage is read this way"
+    assert f"{unpacking} {empty} {usage}" in call, "#1065: right after the #1024 sentence, before the usage rule"
+    assert _flow(_read(RULES)).count("`f(*items)` against `def f()`") == 1, "one copy"
+    # the call rule it reads by, and the unpacking that still has a parameter to pass
+    assert "each argument it passes must exist, by position or by name" in call
+    assert "(`Settings(**config)` matches `__init__(self, host, port)`)" in call
+    # score-signatures.py's parameter fact reads it the same way: the unpacking is no source parameter
+    spec = importlib.util.spec_from_file_location("score_signatures", SCORE_SIGNATURES)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    for documented, source, name in (("f(*items) -> X", "() -> Y", "*items"),
+                                     ("f(a, *items) -> X", "(a) -> Y", "*items"),
+                                     ("f(**options) -> X", "() -> Y", "**options"),
+                                     ("f(a, **options) -> X", "(a) -> Y", "**options"),
+                                     ("f(*items) -> X", "(**kwargs) -> Y", "*items")):
+        difference = module._parameter_difference(documented, source, ".py")
+        assert difference == f"`{name}` is not a source parameter", (documented, difference)
+    assert module._parameter_difference("f(*items) -> X", "(*args) -> Y", ".py") is None, "a `*args` takes it"
+    assert module._parameter_difference("f(**options) -> X", "(**kwargs) -> Y", ".py") is None, \
+        "a `**kwargs` takes it"
 
 
 def test_each_documented_form_of_a_name_is_compared_by_its_own_rules():
@@ -768,6 +842,29 @@ def test_a_type_naming_some_of_the_other_form_s_union_agrees_in_the_split_body_c
     assert "a documented return type must cover every member the source can return." in annotations
 
 
+def test_a_return_type_leaving_out_a_member_of_the_other_form_s_union_disagrees_in_the_split_body_cross_check():
+    """#1065 (found in the #1056 review): #1015 carried Annotations' union rule into the split-body cross-check for a
+    parameter type only, and left a return type `-> X` against the other form's `-> X | None` with no rule, so a
+    judge could pass the pair while another raised a High `split-body-mismatch`. A return type gets no such reading:
+    one that leaves out a member of the other form's union disagrees with it, whichever form writes it, as
+    Annotations fails `-> X` against a source's `X | None`, and §5b's split-body Source then names the form the
+    declaration contradicts."""
+    rules = _read(RULES)
+    paragraph = _paragraph(rules, "In the split-body cross-check both forms are documented")
+    union = "`node_name: list[str]` matches `node_name: list[str] | None = None`."
+    returns = ("A return type gets no such reading: one form's return type that leaves out a member of the other "
+               "form's union disagrees with it, since a caller following that form is not told it can get that member "
+               "back, so `-> Node` against `-> Node | None` is a mismatch.")
+    receiver = "A leading receiver (`self`, `cls`,"
+    assert f"{union} {returns} {receiver}" in paragraph, "#1065: right after the #1015 sentence, before the receiver"
+    assert _flow(rules).count("A return type gets no such reading") == 1, "one copy"
+    # a return type one form leaves out is still not compared, and two spellings of one union still agree
+    assert "a type, return type or type arguments one of them leaves out are not compared" in paragraph
+    assert "`Optional[X]`, `Union[X, None]` and `X | None`" in _section("Equivalent spellings")
+    # the Annotations rule it keeps, against the source
+    assert "a documented return type must cover every member the source can return." in _section("Annotations")
+
+
 def test_each_export_s_form_is_read_alone():
     """#843: GAP-105 read a bare-name list's parameters as required because every other row of its Key API Summary
     table wrote defaults. A form is one export's: the rows of other exports state nothing about it."""
@@ -939,7 +1036,33 @@ def test_a_return_written_as_value_names_states_no_return_type():
     lines = _read(RULES).splitlines()
     [i] = [n for n, line in enumerate(lines) if line.startswith("- A return type the form does not state")]
     assert lines[i + 1].startswith("- A return written as names of values rather than types,"), "the next bullet"
-    assert lines[i + 1].endswith("and a description followed by a type (`HTML str`) each state one."), "#957: last"
+    assert "and a description followed by a type (`HTML str`) each state one." in lines[i + 1], "#957: in the bullet"
+
+
+def test_a_return_written_in_words_as_a_container_states_it_with_its_item_type():
+    """#1083: oms-cognee writes `list of {type, count, samples, sample_size, relationships} dicts` for a function
+    declared `-> list[dict[str, Any]]`. Read as the list it names, it states `list[dict]`, which matches; read as a
+    description followed by the type `dicts`, as `HTML str` is read, it states `dict` alone, an untagged Critical
+    that fails the hard gate. Annotations now gives the container reading: a plural names its type, key names inside
+    the words are description, `type` among them, and words for the items that name no type write no type argument,
+    so a type argument left out stays uncompared. It ends the value-names bullet, right after the `HTML str` clause
+    it sets apart, so no line is added and the #1042 bullet stays the next one. score-signatures.py's _states_return
+    already reads such a return as a stated one, and the script never compares return types, so only prose changes."""
+    annotations = _section("Annotations")
+    container = ("A return written in words as a container of a type (`list of X`, `X list`) states that container "
+                 "with X as its type argument, not a description followed by a type: a plural (`dicts`) names its "
+                 "type, a braced or bracketed list of key names inside the words (`{type, count}`, `type` among "
+                 "them) is description, and words for its items that name no type (`list of results`, `HTML list`) "
+                 "write no type argument, so `list of {type, count, samples, sample_size, relationships} dicts` "
+                 "states `list[dict]`, which matches `list[dict[str, Any]]` (below).")
+    assert container in annotations
+    lines = _read(RULES).splitlines()
+    values = "- A return written as names of values rather than types,"
+    [i] = [n for n, line in enumerate(lines) if line.startswith(values)]
+    assert lines[i].endswith("(`HTML str`) each state one. " + container), "#1083: ends the value-names bullet"
+    assert _flow(_read(RULES)).count("as a container of a type") == 1, "one copy"
+    # the rule its "(below)" points at stays
+    assert "`list[dict]` matches `list[dict[str, Any]]`" in annotations
 
 
 def test_a_return_that_names_alternative_types_after_its_type_states_their_union():
@@ -949,7 +1072,7 @@ def test_a_return_that_names_alternative_types_after_its_type_states_their_union
     every type it names, it is a match. Annotations now gives the union reading, the conditions naming no type, and
     keeps a type a parenthetical names for another reason a description. score-signatures.py's _states_return
     already reads such a return as a stated one, and the script never compares return types, so only prose changes.
-    A bullet of its own, so the value-names bullet still ends on its `HTML str` clause. It names both bounds, so an
+    A bullet of its own, right after the value-names bullet. It names both bounds, so an
     alternative the source never returns is a mismatch for every judge, not only for one that reads past "(below)"."""
     annotations = _section("Annotations")
     alternatives = ("- A return written as a type followed by other types it names as alternatives, in a parenthetical "

@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-test-skill
+summary: |
+  Test Skill's signature rules now read a return written in words as a container of a type, such as `list of X` or `X list`, as that container with X as its type argument, not as a description followed by a type. A plural such as `dicts` names its type, a braced or bracketed list of key names inside the words is description, even a key named `type`, and words for the items that name no type, such as `list of results` or `HTML list`, write no type argument, which is then not compared. A documented `list of {type, count, samples, sample_size, relationships} dicts` therefore states `list[dict]` and matches the source's `list[dict[str, Any]]`. A parameter or prop type written that way reads the same. Before, a judge that read `dicts` as a type after a description compared `dict` alone and raised a Critical `signature-mismatch` gap on the correct form, failing the hard gate, while another judge passed the same skill. Because the item type now counts, a documented `Node list` against a source's `list[Edge]`, or `list of Nodes` against `Node`, makes the documented type differ from the source's, a Critical gap that some runs passed, so such a skill can now stop at the hard gate.
+migration: |
+  If a skill now stops at the hard gate on a `signature-mismatch` gap whose documented return or type is written in words as a container, write the container and item type the source declares, then run Test Skill again.
+issues: [1083]
+prs: [1096]
