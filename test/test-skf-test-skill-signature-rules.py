@@ -1000,7 +1000,33 @@ def test_a_return_written_as_value_names_states_no_return_type():
     lines = _read(RULES).splitlines()
     [i] = [n for n, line in enumerate(lines) if line.startswith("- A return type the form does not state")]
     assert lines[i + 1].startswith("- A return written as names of values rather than types,"), "the next bullet"
-    assert lines[i + 1].endswith("and a description followed by a type (`HTML str`) each state one."), "#957: last"
+    assert "and a description followed by a type (`HTML str`) each state one." in lines[i + 1], "#957: in the bullet"
+
+
+def test_a_return_written_in_words_as_a_container_states_it_with_its_item_type():
+    """#1083: oms-cognee writes `list of {type, count, samples, sample_size, relationships} dicts` for a function
+    declared `-> list[dict[str, Any]]`. Read as the list it names, it states `list[dict]`, which matches; read as a
+    description followed by the type `dicts`, as `HTML str` is read, it states `dict` alone, an untagged Critical
+    that fails the hard gate. Annotations now gives the container reading: a plural names its type, key names inside
+    the words are description, `type` among them, and words for the items that name no type write no type argument,
+    so a type argument left out stays uncompared. It ends the value-names bullet, right after the `HTML str` clause
+    it sets apart, so no line is added and the #1042 bullet stays the next one. score-signatures.py's _states_return
+    already reads such a return as a stated one, and the script never compares return types, so only prose changes."""
+    annotations = _section("Annotations")
+    container = ("A return written in words as a container of a type (`list of X`, `X list`) states that container "
+                 "with X as its type argument, not a description followed by a type: a plural (`dicts`) names its "
+                 "type, a braced or bracketed list of key names inside the words (`{type, count}`, `type` among "
+                 "them) is description, and words for its items that name no type (`list of results`, `HTML list`) "
+                 "write no type argument, so `list of {type, count, samples, sample_size, relationships} dicts` "
+                 "states `list[dict]`, which matches `list[dict[str, Any]]` (below).")
+    assert container in annotations
+    lines = _read(RULES).splitlines()
+    values = "- A return written as names of values rather than types,"
+    [i] = [n for n, line in enumerate(lines) if line.startswith(values)]
+    assert lines[i].endswith("(`HTML str`) each state one. " + container), "#1083: ends the value-names bullet"
+    assert _flow(_read(RULES)).count("as a container of a type") == 1, "one copy"
+    # the rule its "(below)" points at stays
+    assert "`list[dict]` matches `list[dict[str, Any]]`" in annotations
 
 
 def test_a_return_that_names_alternative_types_after_its_type_states_their_union():
@@ -1010,7 +1036,7 @@ def test_a_return_that_names_alternative_types_after_its_type_states_their_union
     every type it names, it is a match. Annotations now gives the union reading, the conditions naming no type, and
     keeps a type a parenthetical names for another reason a description. score-signatures.py's _states_return
     already reads such a return as a stated one, and the script never compares return types, so only prose changes.
-    A bullet of its own, so the value-names bullet still ends on its `HTML str` clause. It names both bounds, so an
+    A bullet of its own, right after the value-names bullet. It names both bounds, so an
     alternative the source never returns is a mismatch for every judge, not only for one that reads past "(below)"."""
     annotations = _section("Annotations")
     alternatives = ("- A return written as a type followed by other types it names as alternatives, in a parenthetical "
