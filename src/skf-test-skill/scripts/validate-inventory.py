@@ -267,8 +267,9 @@ path, so a quote or an apostrophe in a description never meets a shell.
 JSON) when it is valid, for the steps that read it by path; an invalid
 inventory removes a file left there by an earlier attempt. --skill-package
 names the skill package under test (the folder that holds SKILL.md) and
-adds the spot-check and the inventory's `crossChecked` count. --floor names
-the floor file (UTF-8 JSON) and adds the floor check.
+adds the spot-check and the inventory's `crossChecked` count, with
+`uncounted` and a warning for each mismatch the count leaves out. --floor
+names the floor file (UTF-8 JSON) and adds the floor check.
 
 Input: the subagent's RAW response text (JSON, optionally wrapped in a markdown
 code fence — a leading line of three backticks with an optional language tag and
@@ -289,6 +290,8 @@ it leaves out `inventory` and `completeness` and gives `output` instead):
                                  # "crossChecked": {"count": <int>, "names": [<name>, ...]},
                                  # plus "uncounted": [{"export", "reference_file", "why"}]
                                  # when a mismatch's `export` is not among `names`
+                                 # (one written `{owner}.{name}` counts by its
+                                 # `method` entry's `name`)
     "completeness": {            # present when valid
       "total": <int>,            # documented items, one per name and kind
       "complete": <int>,

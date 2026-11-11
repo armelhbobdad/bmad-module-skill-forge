@@ -1813,7 +1813,8 @@ class TestOutputFormats:
         assert block.index("**Mismatches Found:**") < block.index("**Not Cross-Checked:**")
         assert ("**Not Cross-Checked** gives each mismatch Exports Cross-Checked does not count, from "
                 "`crossChecked.uncounted`, which `scripts/validate-inventory.py` writes only when a mismatch's "
-                "`export` is not among `crossChecked.names`: its `export`, its `reference_file` and why (its two "
+                "`export` is not among `crossChecked.names` (one written `{owner}.{name}` counts by its `method` "
+                "entry's `name`): its `export`, its `reference_file` and why (its two "
                 "places are in one file, a file of its pair is not one the inventory reads, or a file of its pair "
                 "does not write it).") in _flow(section)
         contract = _flow(_read(REFS / "inventory-contract.md"))
