@@ -11,7 +11,8 @@ Accuracy and Type Coverage, 22% and 14% of a contextual score. Which
 signature differs is a judgment, made by a subagent that reads the source;
 everything after it has one answer per input and runs here: the list of
 signatures to compare, the schema check of each subagent result, the two
-ratios and the gap records of the wrong signatures.
+ratios and the gap records of the wrong signatures and of the
+documentation errors a Deep-tier judge returns.
 
   plan   the comparisons to make. For each documented export with a
          signature (an inventory entry that carries `params`, `return_type`
@@ -370,13 +371,14 @@ Inputs, all files in the run folder:
   --doc-errors  plan only, with --skill-dir (a Deep-tier plan, #1084): each
                check also carries the skill's import lines of its name and
                its entries' documented members, and a documented name with
-               no compared form but with either gets a check of its own,
-               which `compared` never counts
+               no compared form but with either gets a check of its own when
+               a surface record of it names a file, which `compared` never
+               counts
   --plan       score only: the plan's output, whose checks name the files a
                mismatch of each name may be recorded at and the declaration
                each bound form's mismatch is taken at, and whose
-               `notCompared` lists the names it gave no check, which
-               Signature Accuracy leaves out
+               `notCompared` lists the names with a documented signature it
+               gave no check, which Signature Accuracy leaves out
   --source-root  score only: the local source tree the judges read (a
                drifted workspace included), where an annotation-contradicted
                mismatch's `evidence_line` is checked in its file
@@ -403,7 +405,8 @@ score write their result to that file and print only its summary):
           citations name one declaration of the name), "imports": [{"at",
           "statement"}], "members": [{"at", "fields", "properties",
           "methods"}] (with --doc-errors, only when the name has one)}]}],
-          "notCompared": [the names given no check, sorted],
+          "notCompared": [the names with a documented signature given no
+          check, sorted],
           "documentedSignatures": {...}, "documentedAlternatives": {name:
           [{...}], for each name with alternatives}}
          or, with --output, the summary {"compared": N, "files": the
@@ -422,10 +425,10 @@ score write their result to that file and print only its summary):
          forms is bound gets no check (#1061): `notCompared` lists it, and
          score with --plan leaves it out of Signature Accuracy and names it
          in `warnings`. With --doc-errors a documented name with no
-         compared form but with `imports` or `members` has a check of
-         its own, holding only those beside its `name`, `line`,
-         `signatureLine` and any `candidates`: the summary's `checks`
-         counts it, and `compared` never does.
+         compared form but with `imports` or `members` and a surface record
+         that names a file has a check of its own, holding only those
+         beside its `name`, `line`, `signatureLine` and any `candidates`:
+         the summary's `checks` counts it, and `compared` never does.
   score: {"valid": true, "signatureAccuracy", "matchingSignatures",
           "totalDocumented", "comparedNames": [the names compared],
           "typeCoverage", "documentedTypes", "totalTypes",
@@ -2651,7 +2654,7 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--doc-errors", action="store_true",
                    help="a Deep-tier plan, with --skill-dir: give each check the skill's import lines of its name and "
                         "its entries' documented members, and a documented name with no compared form but with "
-                        "either a check that `compared` does not count")
+                        "either and a record with a file a check that `compared` does not count")
     p.add_argument("--output", help="write the plan to this file and print only its summary")
     p.set_defaults(func=_cmd_plan)
 

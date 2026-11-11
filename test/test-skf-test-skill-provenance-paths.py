@@ -2487,9 +2487,10 @@ def test_the_deep_tier_asks_only_for_what_runs():
             "exist") in deep
     assert ("the recipe runner traces each re-export to the file that defines it when it runs (the fallback "
             "per-file scan does not)") in deep
+    # A name no surface record locates in a file gets no check, since its judge would have no file to read.
     assert ("Run its plan with `--doc-errors`: each check also carries the skill's import lines of its name "
-            "(`imports`) and its documented members (`members`), and a documented name with no form but with either "
-            "gets a check with no `documented`.") in deep
+            "(`imports`) and its documented members (`members`), and a located documented name with no form but with "
+            "either gets a check with no `documented`.") in deep
     assert ("Its judge compares them with the source by `{signatureRulesFile}` and adds each that differs to the JSON "
             "above as `doc_errors`, which `score` records as an Info `Not checked by script: {name}` observation at "
             "the documenting line.") in deep
@@ -2512,7 +2513,7 @@ def test_the_deep_tier_asks_only_for_what_runs():
     assert "by hand" not in observation
     # #1005: and written by gap-ledger.py under a title of its own for a name cited at another package's star,
     # so that the record score-signatures.py writes of the name stays its own gap
-    assert ("recorded by score-signatures.py from a signature judge's `doc_errors` (coverage-check §2 and §2b). Also "
+    assert ("recorded by score-signatures.py from a signature judge's `doc_errors` (coverage-check §2). Also "
             "a stale name with no `defined_at`, not scoped out by "
             "the brief (`excluded.outsideScope`), that the skill cites at a file holding another package's "
             "`export *` (`surface.json` `unresolvedStars`): `Not checked by script: {name} (another package's "
