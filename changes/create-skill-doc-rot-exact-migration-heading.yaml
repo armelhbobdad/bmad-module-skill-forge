@@ -3,3 +3,4 @@ scope: skf-create-skill
 summary: |
   Create Skill's doc-rot scan now leaves the compiled SKILL.md's own migration section out of the correction candidates only under the exact level-2 heading `## Migration & Deprecation Warnings`, the heading Create Skill emits and Test Skill's Deep-tier migration check counts as Section 4b. Before, it also left out a section whose heading differed in case or had more text after it, such as `## Migration & Deprecation Warnings (pre-1.0)`, while Test Skill reported that skill's Section 4b as missing, so the two read one heading two ways.
 issues: [1069]
+prs: [1095]
