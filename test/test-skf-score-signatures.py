@@ -70,7 +70,8 @@ unchecked subagent JSON, with `total_types` defined nowhere. The script:
     never merged with a function of its bare name, at its owner's surface
     record with its bare name as `member`, binds its forms among the
     owner's declarations, counts it only where the plan checks it, and
-    takes a bound one's mismatch at the member's line
+    takes a bound one's mismatch at the member's line, and one the judge
+    reads in a file no declaration of its owner is in at that file
 The surface fixture is load-coverage-inputs.py surface output built from a
 --mode full extraction, so a recipe's internal match is never compared.
 """
@@ -4119,3 +4120,50 @@ def test_an_unbound_method_mismatch_keeps_its_closest_candidate(tmp_path, plan):
     assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [(PREVIEW, 42, "Low")]
     assert out["comparedNames"] == ["ReactMeta.story"] and out["signatureAccuracy"] == 100.0
     assert not any("no file the plan offered" in w for w in out["warnings"]), out["warnings"]
+
+
+# A Go method kept in another file than its receiver type: `Client` at client.go, `func (c *Client) Do` at
+# client_do.go.
+CLIENT = {"name": "Client", "kind": "struct", "file": "client.go", "line": 5, "signatureLine": "type Client struct {",
+          "origin": "extraction"}
+CLIENT_DO = {"name": "Do", "kind": "method", "owner": "Client", "params": "req *Request",
+             "return_type": "(*Response, error)", "description": "Sends a request."}
+DO_MISMATCH = {"name": "Client.Do", "file": "client_do.go", "line": 12,
+               "documented_sig": "(req *Request) -> (*Response, error)",
+               "source_sig": "func (c *Client) Do(ctx context.Context, req *Request) (*Response, error)",
+               "issue": "the source's `Do` takes `ctx` first"}
+
+
+@pytest.mark.parametrize("plan", ["surface", None], ids=["with-the-plan", "without-a-plan"])
+@pytest.mark.parametrize("difference, severity", [(None, "Critical"), ("parameter-name", "Low")],
+                         ids=["untagged", "parameter-name"])
+def test_a_method_mismatch_read_in_another_file_is_taken_there(tmp_path, plan, difference, severity):
+    """#1088 review: the rules send the judge to a member outside its owner's file (a Go method of its receiver type,
+    a base class, a function the owner binds through an import), but score offered a method check only its owner's
+    files, so a mismatch the judge read at client_do.go:12 was recorded at client.go:12, a line of another file, and
+    the gap's Source sent the reader there. A file that holds no declaration of the owner is the member's own: the
+    mismatch is taken at that file and line, graded there (a parameter-name difference in a .go file is Low), with no
+    warning."""
+    entry = {**DO_MISMATCH, **({"difference": difference} if difference else {})}
+    out = _method_run(tmp_path, [CLIENT_DO], [CLIENT], [{"file": "client.go", "signature_mismatches": [entry]}], plan)
+    assert out["comparedNames"] == ["Client.Do"]
+    assert [(m["file"], m["line"], m["severity"]) for m in out["mismatches"]] == [("client_do.go", 12, severity)]
+    if severity == "Critical":
+        [gap] = out["gaps"]
+        assert (gap["title"], gap["source"]) == ("Signature mismatch: Client.Do", "client_do.go:12")
+        assert "the signature the source defines at `client_do.go:12`" in gap["remediation"]
+    assert not any("Client.Do" in w for w in out["warnings"]), out["warnings"]
+
+
+def test_a_bound_method_form_read_in_another_file_is_taken_there(tmp_path):
+    """#1088 review: a bound method form's mismatch the judge reads in a file no declaration of its owner is in (the
+    member a base class declares, say) is taken at that file and the judge's line, not at the bound declaration's
+    file; one that names the owner's other declaration still stands at the bound file, with the warning (above)."""
+    inventory = [{**STORY_METHODS[0], "at": "SKILL.md:3"}]
+    out = _method_run(tmp_path, inventory, [REACT_META, VUE_META],
+                      [{"file": PREVIEW, "signature_mismatches": [{**STORY_MISMATCH, "file": "src/base.tsx",
+                                                                   "line": 7}]}],
+                      tree={"SKILL.md": MEMBER_SKILL})
+    assert [(m["file"], m["line"]) for m in out["mismatches"]] == [("src/base.tsx", 7)]
+    assert [g["source"] for g in out["gaps"]] == ["src/base.tsx:7"]
+    assert not any("ReactMeta.story" in w for w in out["warnings"]), out["warnings"]

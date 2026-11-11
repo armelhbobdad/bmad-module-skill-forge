@@ -237,7 +237,11 @@ ratios and the gap records of the wrong signatures.
          another one (or none, from a group in
          another file) is listed in `warnings`; the declaration joins no
          name, set or count, and the gap's title and form index are the
-         form's as for any other mismatch. Results
+         form's as for any other mismatch. A method's mismatch whose `file`
+         holds no declaration of its owner, bound or offered, is the
+         member's own (a Go method of its receiver type in another file, a
+         base class): it is taken at that file and the judge's `line`, bound
+         or not, with no warning. Results
          that report one declaration (name, file and line) more than once
          keep its most severe grade: Critical, then Low, then Info. Of the
          mismatches of one unbound form of a check that offered several
@@ -1938,7 +1942,8 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
     compared when `offered` holds its check, else, with no plan, when its
     owner has a surface record; its mismatch is offered its owner's files,
     and a bound one is taken at its bound declaration's file and the
-    judge's `line`, the member's."""
+    judge's `line`, the member's, unless the judge names a file no
+    declaration of the owner is in: the member's own, where it is taken."""
     bound = bound or {}
     by_name = _records_by_name(exports)
     methods = method_keys(inventory)
@@ -1971,6 +1976,13 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
             files = _offered_files(offered, offer_by, name)
             # A mismatch found at one of a check's candidates names that file; any other file is not taken.
             named = entry.get("file")
+            # A method's member may be declared in a file no declaration of its owner is in (a Go method of its
+            # receiver type, a base class, a function the owner binds through an import): the file the judge names
+            # there is the member's, so its mismatch is taken at that file and the judge's line (#1088).
+            elsewhere = name in methods and named is not None and not _is_offered_file(
+                [*files, *(decl["file"] for decl in bound.get(name, {}).values())], named)
+            if elsewhere:
+                files = [*files, named]
             file = _path(named if named is not None and _is_offered_file(files, named) else result["file"])
             line = entry["line"]
             if name not in compared:
@@ -1984,9 +1996,10 @@ def score(inventory: list[dict], names: list[str], exports: list[dict], results:
             # A form's own label lowers a grade only for the form the mismatch quotes as `documented_sig`.
             index, quoted, notes = _form_index(name, entry, forms[name])
             # A bound form is compared with its bound declaration alone: its mismatch is taken there (#918). A
-            # method's is its owner's, so the mismatch keeps the judge's line, the member's (#1088).
+            # method's is its owner's, so the mismatch keeps the judge's line, the member's (#1088), and one read
+            # elsewhere keeps the judge's file too.
             at = bound.get(name, {}).get(index)
-            if at is not None:
+            if at is not None and not elsewhere:
                 judged = _path(named if named is not None else result["file"])
                 file = _path(at["file"])
                 if _is_line(at["line"]) and name not in methods:

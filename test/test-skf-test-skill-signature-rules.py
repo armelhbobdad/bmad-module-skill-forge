@@ -816,7 +816,8 @@ def test_a_method_form_is_compared_with_its_owner_s_member():
     declares in its body or outside it (a Go receiver's method, a Rust `impl` block's), or binds, else its nearest
     base's in the source tree, and a member neither declares left uncompared, as such a constructor's parameters are.
     coverage-check.md §2 tells the judge what the check's fields are and where to report, a bound form's mismatch at
-    the member's line too, in one paragraph after `bound`'s, and the contract says a method's form is compared when
+    the member's file and line too (a Go method may sit in another file than its receiver type), in one paragraph
+    after `bound`'s, and the contract says a method's form is compared when
     the surface records its owner, so its `at` is asked for as any compared form's is."""
     rules = _read(RULES)
     opening = "A method's form (a check that gives `member`, coverage-check.md §2)"
@@ -831,7 +832,7 @@ def test_a_method_form_is_compared_with_its_owner_s_member():
             "import; else the member its nearest base in the source tree declares, in method resolution order, as a "
             "constructor is read.",
             "Several declarations of the member are read as Overload sets says, and its mismatch is reported under "
-            "the check's `name`, `{owner}.{member}`, at the member's line.",
+            "the check's `name`, `{owner}.{member}`, at the member's file and line.",
             "A member that neither the owner nor a base in the source tree declares or binds (one inherited from "
             "another package's class, say) is left uncompared and counts as matching, as such a constructor's "
             "parameters are."):
@@ -845,7 +846,7 @@ def test_a_method_form_is_compared_with_its_owner_s_member():
     member = ("A check with `member` is a `method`'s, named `{owner}.{member}`: its `file` and `line`, `candidates` "
               "and `bound` entries are its owner's declarations. Compare its forms with the owner's member of that "
               "name, as `{signatureRulesFile}` says, and report each mismatch under the check's `name`, at the "
-              "member's `line`, a bound form's too.")
+              "member's `file` and `line`, a bound form's too.")
     assert _paragraph(coverage, "A check with `member`") == member
     assert len(member) <= 350, "coverage-check.md's budget is shared"
     section2 = coverage.split("\n\n")
