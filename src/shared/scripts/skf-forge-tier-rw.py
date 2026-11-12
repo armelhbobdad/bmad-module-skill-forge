@@ -37,7 +37,11 @@ Subcommands:
                 `tools` that is not a mapping, or ends on its `tier` line
                 with no newline after it (a cut inside `tier: Forge+`
                 reads as Forge) exits 2, so a file cut before the end of
-                its `tier` line never reads as a tier. A preferences.yaml
+                its `tier` line never reads as a tier. write-tools writes
+                `tools` and then `tier` first, so a file cut after that
+                line still holds both whole: it exits 2 when what is left
+                does not parse, else reads as the whole file would, with
+                no warning. A preferences.yaml
                 that is not there means no override; one that cannot be
                 read or is not a mapping sets `preferences_error` to why
                 and applies no override. Takes no lock: it writes

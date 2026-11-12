@@ -588,6 +588,31 @@ def test_effective_exits_2_on_every_cut_inside_a_forge_plus_tier_line(tmp_target
     assert _ok_effective(tmp_target, prefs)["tier"] == "Forge+"
 
 
+@pytest.mark.parametrize("payload", [_payload_with_arrays(), {**_baseline_payload(), "tier": "Forge+"}],
+                         ids=["deep", "forge-plus"])
+def test_effective_reads_the_whole_tier_and_tools_from_every_cut_after_the_tier_line(tmp_target, payload,
+                                                                                    capsys):
+    """write-tools writes `tools` and then `tier` first, so a file cut after its tier line still holds both
+    whole: every such cut exits 2 or reads the tier and tools of the whole file, never another tier."""
+    _write_tools(tmp_target, payload)
+    full = tmp_target.read_text(encoding="utf-8")
+    whole = mod.effective_tier(tmp_target, tmp_target.with_name("preferences.yaml"))
+    start = full.index(f"\ntier: {payload['tier']}\n") + len(f"\ntier: {payload['tier']}\n")
+    assert full.index("tools:") < start and full.index("tier_detected_at:") >= start
+    read = 0
+    for end in range(start, len(full)):
+        tmp_target.write_text(full[:end], encoding="utf-8")
+        try:
+            got = mod.effective_tier(tmp_target, tmp_target.with_name("preferences.yaml"))
+        except SystemExit as stop:
+            assert stop.code == 2, end
+            continue
+        assert (got["tier"], got["tools"]) == (whole["tier"], whole["tools"]), end
+        read += 1
+    assert read
+    capsys.readouterr()
+
+
 def test_effective_reads_a_forge_tier_file_without_tools(tmp_path):
     target, prefs = _sidecar(tmp_path, "tier: Forge\n")
     assert _fields(_ok_effective(target, prefs)) == {**DETECTED, "tools": {}}
