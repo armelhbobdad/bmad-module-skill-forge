@@ -3244,9 +3244,22 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     assert (coverage["documented"], coverage["denominator"], coverage["exportCoverage"]) == (3, 3, 100.0)
     coherence = _exec(_command(COVERAGE_BRANCHES, "uv run {coherenceScript}"), values, tmp_path)
     assert coherence["findings"] == []
-    external = _exec(_command(EXTERNAL, "uv run {externalScoreScript}").replace(
-        "<score or null>", "80", 1).replace("<score or null>", "null"), values, tmp_path)
-    assert external["externalScore"] == 80.0
+    # #1120: §2 and §3 saved the tools' JSON in the run folder; §4's script reads skill-check's score for the skill
+    # (here an entry beside another skill's), and a tessl.json a stopped call left empty counts as no Tessl score.
+    (run / "skill-check.json").write_bytes((json.dumps({
+        "summary": {"skillCount": 2, "errorCount": 0, "warningCount": 1},
+        "diagnostics": [{"ruleId": "body.max_lines", "severity": "warn", "message": "long", "file": "skill/SKILL.md",
+                         "line": 4, "column": 1}],
+        "scores": [{"skillId": "x/other", "relativePath": "other/SKILL.md", "score": 40},
+                   {"skillId": "x/skill", "relativePath": "skill/SKILL.md", "score": 80}]}) + "\nWrote r.json\n"
+                                                ).encode("utf-8"))
+    (run / "tessl.json").write_bytes(b"")
+    command = _command(EXTERNAL, "uv run {externalScoreScript}")
+    external = _exec(command, values | {"{skillDir}": skill.as_posix()}, tmp_path)
+    assert (external["externalScore"], external["toolsUsed"], external["skillCheckWarningCount"]) == (
+        80.0, ["skill-check"], 1)
+    assert [(d["ruleId"], d["file"], d["line"]) for d in external["skillCheckDiagnostics"]] == [
+        ("body.max_lines", "SKILL.md", 4)]
 
     flags = {"mode": "naive", "tier": "Forge", "docsOnly": False, "state2": False, "stackSkill": False,
              "referenceApp": False, "threshold": 80, "analysisConfidence": "full", "toolingStatus": "ok"}

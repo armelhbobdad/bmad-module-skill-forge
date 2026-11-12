@@ -1224,11 +1224,12 @@ def test_the_scan_finds_every_hard_halt():
     # halts for a missing resolver (§1b) and language detector (§4) in place of a by-hand walk;
     # SKILL.md gained the runtime halt for a missing python3 or uv, then the halts for a config the
     # preflight cannot load and for a missing helper of any stage (#1117).
-    # quick-extract.md and write-and-validate.md gained the halts for a missing shipped helper (#599).
+    # quick-extract.md and write-and-validate.md gained the halts for a missing shipped helper (#599), and
+    # write-and-validate.md the one for a missing validation summarizer (#1120).
     # batch-mode.md gained the halts for a failing next, a second failing record and a failing summarize (#903).
     assert per_file == {"SKILL.md": 5, "batch-mode.md": 6, "compile.md": 1, "ecosystem-check.md": 2,
                         "finalize.md": 1, "quick-extract.md": 5, "resolve-target.md": 12,
-                        "write-and-validate.md": 6}
+                        "write-and-validate.md": 7}
     assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES)
 
 
@@ -1269,12 +1270,12 @@ def test_no_stage_halts_without_an_exit_code():
     assert '"reason": "Headless mode requires a target argument."' in gate
 
 
-@pytest.mark.parametrize("site", range(38), ids=lambda i: f"halt-{i}")
+@pytest.mark.parametrize("site", range(39), ids=lambda i: f"halt-{i}")
 def test_every_hard_halt_emits_through_the_emitter(site):
     """#593: each HARD HALT carries the inline emit command, and its payload builds the envelope it names,
     except the runtime halt, which no emitter can serve (test_a_missing_runtime_halts_before_the_run_folder)."""
     sites = _halt_sites()
-    assert len(sites) == 38
+    assert len(sites) == 39
     name, code, reason, segment = sites[site]
     if _runtime_halt(segment):
         assert name == "SKILL.md"
@@ -1316,6 +1317,10 @@ SHIPPED_HELPERS = [
                  "frontmatter-validator-missing", "skip frontmatter validation", id="frontmatter-validator"),
     pytest.param("write-and-validate.md", "{outputValidator}", "skf-validate-output.py", "output-validator-missing",
                  "skip body/snippet/metadata validation", id="output-validator"),
+    # #1120: without the summarizer the step would count the issues by hand, as it did before.
+    pytest.param("write-and-validate.md", "{validationSummaryHelper}", "skf-summarize-validation.py",
+                 "validation-summarizer-missing", "`skill_md` counts skill-check's `diagnostics[]`",
+                 id="validation-summarizer"),
 ]
 
 
@@ -1349,7 +1354,7 @@ def test_the_helper_halts_follow_the_runtime_halt_in_the_contract():
                                 "named in the message and in `details.cause` (step 3: `skf-github-fetch.py`, "
                                 "`skf-skills-module.py` §1, `skf-extract-public-api.py` §2; step 5: "
                                 "`skf-atomic-write.py` §2, `skf-validate-frontmatter.py` §4 when skill-check is "
-                                "unavailable, `skf-validate-output.py` §5)")
+                                "unavailable, `skf-validate-output.py` §5, `skf-summarize-validation.py` §6)")
 
 
 def test_the_output_validator_runs_through_uv():
@@ -1625,20 +1630,49 @@ def test_every_headless_gate_records_its_decision():
 VALIDATION_ISSUES = '`{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`'
 
 
+SUMMARIZER = SCRIPTS / "skf-summarize-validation.py"
+SUMMARY_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-summarize-validation.py",
+                 "{project-root}/src/shared/scripts/skf-summarize-validation.py"]
+SUMMARY_CALL = ('uv run {validationSummaryHelper} --skill-check "{run_dir}/skill-check.json" '
+                '--frontmatter "{run_dir}/frontmatter.json" --output "{run_dir}/output.json" '
+                '--security "{run_dir}/security.json" --skill-dir "{skill_package}" '
+                '> "{run_dir}/validation-summary.json"\n')
+
+
 def test_step_5_counts_the_validation_issues_in_the_schema_shape():
-    """#586: {validation_issues} is the object the schema requires, counted from the validators' arrays."""
-    report = _section(_read(QS / "references" / "write-and-validate.md"), "### 6. Report Validation Results",
-                      "### 7. ")
-    assert f"`{{validation_issues}}` ← {VALIDATION_ISSUES}" in report
-    for count in ("`skill_md` counts skill-check's `diagnostics[]` (without skill-check, the frontmatter "
-                  "validator's `issues[]`) plus `validation.skill_md.body[]`",
-                  "`context_snippet` counts `validation.context_snippet.issues[]`",
-                  "`metadata` counts `validation.metadata.issues[]`",
-                  "`security` counts the §4 security scan's `findings[]`",
-                  "A check that did not run counts 0"):
-        assert count in report, count
+    """#586, #1120: {validation_issues} is the object the schema requires, and {quality_score} skill-check's score,
+    both taken from the summarizer §6 runs over the four outputs the validators saved, every flag passed; the step
+    keeps no rule for the score or the counts, and finalize copies both values from that file."""
+    text = _read(WRITE_AND_VALIDATE)
+    frontmatter = text.split("---\n", 2)[1]
+    assert "validationSummaryProbeOrder:\n" + "".join(f"  - '{path}'\n" for path in SUMMARY_PROBE) in frontmatter
+    report = _section(text, "### 6. Report Validation Results", "### 7. ")
+    assert _bash_block(report, "{validationSummaryHelper}") == SUMMARY_CALL
+    assert report.index("Resolve `{validationSummaryHelper}` ← first existing path in `{validationSummaryProbeOrder}`") \
+        < report.index("HARD HALT") < report.index(SUMMARY_CALL)
+    assert "Pass every flag on every path: a file no check wrote counts nothing." in report
+    assert ("Bind `{quality_score}` ← `quality_score` (skill-check's score for this skill, null when skill-check did "
+            "not validate it or reported no score) and `{validation_issues}` ← `validation_issues` from "
+            "`{run_dir}/validation-summary.json`.") in report
+    assert ("list the entries of that file's `issues.skill_md`, `issues.context_snippet`, `issues.metadata` and "
+            "`issues.security`") in report
+    # Each validator saves its stdout where the summarizer reads it.
+    four = _section(text, "### 4. Validate SKILL.md via skill-check", "### 5. ")
+    five = _section(text, "### 5. Validate Body, Snippet, and Metadata", "### 6. ")
+    assert _bash_block(four, "{frontmatterValidator}") == (
+        'uv run {frontmatterValidator} "{skill_package}/SKILL.md" --skill-dir-name {repo_name} '
+        '> "{run_dir}/frontmatter.json"\n')
+    assert _bash_block(five, "{outputValidator}") == (
+        'uv run {outputValidator} "{skill_package}" --generated-by quick-skill --skip-frontmatter '
+        '> "{run_dir}/output.json"\n')
+    # No score rule and no counting rule is left in the step.
+    for stale in ("relativePath", "skillId", "scores[].score", "counts skill-check's", "counts `validation.",
+                  "A check that did not run counts 0", "**Parse the JSON in", "Record each issue as a validation issue",
+                  "Set `validation_result`"):
+        assert stale not in text, stale
     finalize = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
-    assert f"`validation_issues` (step 5, the object {VALIDATION_ISSUES})" in finalize
+    assert ("`quality_score` and `validation_issues` (the two values of `{run_dir}/validation-summary.json`, step 5 "
+            f"§6, copied as they are there: a number or null, and the object {VALIDATION_ISSUES})") in finalize
     shape = json.loads(VALIDATION_ISSUES.strip("`").replace("<n>", "0"))
     issues = _schema()["properties"]["summary"]["properties"]["validation_issues"]
     assert list(shape) == issues["required"] and set(shape) == set(issues["properties"])
@@ -1648,11 +1682,11 @@ def test_step_5_counts_the_validation_issues_in_the_schema_shape():
     assert '"security_result": "{security_result}"' in finalize
 
 
-def _success_payload(section: str) -> str:
+def _success_payload(section: str, quality_score: str = "91", issues: str | None = None) -> str:
     """finalize §3's staged payload, each bare JSON value filled in as a run fills it."""
     # {validation_issues} takes the shape step 5 defines, its counts filled in.
-    issues = VALIDATION_ISSUES.strip("`").replace("<n>", "1", 1).replace("<n>", "0")
-    sample = {"{export count}": "12", "{quality_score}": "91", "{repo_shape}": "null",
+    issues = issues or VALIDATION_ISSUES.strip("`").replace("<n>", "1", 1).replace("<n>", "0")
+    sample = {"{export count}": "12", "{quality_score}": quality_score, "{repo_shape}": "null",
               '"{extraction confidence}"': '"high"', '"{active_pointer}"': '"symlink"',
               "{language_resolution}": '"detected"', "{detected_languages}": '["python"]',
               "{zero_exports_rescue}": "null", "{validation_issues}": issues,
@@ -1663,6 +1697,59 @@ def _success_payload(section: str) -> str:
         assert placeholder in payload, placeholder
         payload = payload.replace(placeholder, value)
     return payload
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's command through a POSIX shell")
+@pytest.mark.parametrize("build", ["scores", "qualityScore", "stopped"])
+def test_the_summary_call_fills_the_success_payload(tmp_path: Path, build: str):
+    """#1120: §6's call, run by bash as written over saved validator outputs, writes the two values finalize §3
+    copies, and the envelope they build carries them. An older skill-check build that prints only a top-level
+    `qualityScore` reaches `summary.quality_score`; a skill-check that stopped leaves it null and the frontmatter
+    validator's issues count, as the frontmatter path does."""
+    report = _section(_read(WRITE_AND_VALIDATE), "### 6. Report Validation Results", "### 7. ")
+    package = tmp_path / "skills" / "demo" / "1.0.0" / "demo"
+    package.mkdir(parents=True)
+    (package / "SKILL.md").write_text("---\nname: demo\ndescription: Demo. Use when testing.\n---\n# Demo\n",
+                                      encoding="utf-8")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    diagnostic = {"ruleId": "body.max_lines", "severity": "warn", "message": "long", "file": "x", "line": 3}
+    checked = {"summary": {"skillCount": 1, "errorCount": 0, "warningCount": 1}, "diagnostics": [diagnostic]}
+    if build == "scores":
+        checked["scores"] = [{"skillId": "x/y", "relativePath": "skills/demo/1.0.0/demo/SKILL.md", "score": 86}]
+    elif build == "qualityScore":
+        checked["qualityScore"] = 72
+    text = "Error: unknown option '--fix'\n" if build == "stopped" else json.dumps(checked) + "\nWrote r.json\n"
+    (run_dir / "skill-check.json").write_text(text, encoding="utf-8")
+    if build == "stopped":
+        (run_dir / "frontmatter.json").write_text(json.dumps({"status": "fail", "issues": [
+            {"severity": "high", "field": "name", "message": "a"}, {"severity": "low", "field": "x", "message": "b"}]}),
+            encoding="utf-8")
+    (run_dir / "output.json").write_text(json.dumps({"validation": {
+        "skill_md": {"frontmatter": {"skipped": "--skip-frontmatter"}, "body": []},
+        "context_snippet": {"issues": [{"severity": "low", "field": "length", "message": "short"}]},
+        "metadata": {"issues": []}}}), encoding="utf-8")
+    # No security.json: a scan that wrote nothing counts nothing.
+    command = (_bash_block(report, "{validationSummaryHelper}").strip()
+               .replace("uv run {validationSummaryHelper}", f'"{sys.executable}" "{SUMMARIZER.as_posix()}"')
+               .replace("{run_dir}", run_dir.as_posix()).replace("{skill_package}", package.as_posix()))
+    done = subprocess.run(["bash", "-c", command], cwd=tmp_path, capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    summary = json.loads(_read(run_dir / "validation-summary.json"))
+    expected = {"scores": (86, 1), "qualityScore": (72, 1), "stopped": (None, 2)}[build]
+    assert (summary["quality_score"], summary["validation_issues"]["skill_md"]) == expected
+    assert summary["validation_issues"] | {"skill_md": 0} == {"skill_md": 0, "context_snippet": 1, "metadata": 0,
+                                                               "security": 0}
+    section = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
+    context = json.loads(_success_payload(section, json.dumps(summary["quality_score"]),
+                                          json.dumps(summary["validation_issues"])))
+    schema = _schema()
+    emitter = _emitter()
+    envelope = emitter.build_envelope(schema, context, halt=False, decisions=[], warnings=[], stamps={
+        "timestamp": "2026-11-13T00:00:00Z", "run_id": "ab12cd34", "result_path": None})
+    assert emitter.contract_errors(schema, envelope) == []
+    assert envelope["summary"]["quality_score"] == expected[0]
+    assert envelope["summary"]["validation_issues"] == summary["validation_issues"]
 
 
 def test_the_success_payload_builds_the_schema_envelope():
@@ -2129,7 +2216,7 @@ def test_step_5_does_not_retell_its_validators():
     assert "brief it with `@Ferris BS` and compile it with `@Ferris CS`" in text
 
 
-SCAN_CALL = 'uv run {securityScanHelper} run --package "{skill_package}"\n'
+SCAN_CALL = 'uv run {securityScanHelper} run --package "{skill_package}" > "{run_dir}/security.json"\n'
 
 
 def test_step_5_reads_the_security_scan_from_the_helper():
@@ -2149,9 +2236,9 @@ def test_step_5_reads_the_security_scan_from_the_helper():
     assert scan.startswith("**Security scan.** Run it whether or not skill-check ran.")
     assert _bash_block(scan, "{securityScanHelper}") == SCAN_CALL
     for needle in ("Bind `{security_result}` ← its `security_result` (`pass`, `warn` or `skipped`) and "
-                   "`{security_note}` ← its `note`",
-                   "record each `findings[]` entry's `text` as an advisory validation issue: security findings do "
-                   "not block output",
+                   "`{security_note}` ← its `note` in `{run_dir}/security.json`, whose `findings[]` §6 lists as "
+                   "advisory validation issues: security findings do not block output",
+                   "when the file holds no JSON object, bind `skipped` and `skf-security-scan.py printed no result`",
                    'For `skipped`, log "security scan skipped: {security_note}" in the validation results.',
                    "When no `{securityScanProbeOrder}` path exists, bind `{security_result}` ← `skipped` and "
                    "`{security_note}` ← `skf-security-scan.py missing`",
@@ -2162,7 +2249,7 @@ def test_step_5_reads_the_security_scan_from_the_helper():
     assert "the security scan at the end of section 4 still runs" in three and "security_result" not in three
     report = _section(text, "### 6. Report Validation Results", "### 7. ")
     assert "**Security:** {security_result}\n{`{security_note}`, then each §4 security finding}\n" in report
-    assert "`security` counts the §4 security scan's `findings[]`" in report
+    assert "`issues.security`" in report and '--security "{run_dir}/security.json"' in report
     # The old reading of skill-check's stderr tail is gone, and no note names an issue number.
     for stale in ("finding code", "skill-check.stderr` and the exit code", "security[]", "#892", "mcp-scan"):
         assert stale not in text, stale
@@ -2191,17 +2278,17 @@ def test_step_5_captures_skill_check_and_reads_a_run_with_no_json():
     assert four.index("```bash") < four.index(stopped) < four.index("**Guard outputs.**")
     fallback = _section(four, "**If no `{descriptionGuardProbeOrder}` path exists**", "\n")
     assert f"with the same capture (`{capture}`, its exit code noted)" in fallback
-    assert "**Parse the JSON in `{run_dir}/skill-check.json`**" in four
-    # stdout can carry a "Wrote <path>" line after the JSON, so the JSON is the object at its start.
+    # stdout can carry a "Wrote <path>" line after the JSON; §6's summarizer reads the object at its start (#1120).
     no_json = _section(four, "**If `{run_dir}/skill-check.json` does not start with a JSON object**", "\n")
     for needle in ("skill-check stopped before it validated (exit 2 on a config, option or plugin error)",
-                   'log "skill-check failed: {the stderr line that names the cause, or its last line}", keep '
-                   '`{quality_score}` null, and run the frontmatter validator below',
-                   "run the frontmatter validator below, as when skill-check is not available",
-                   "a `Wrote <path>` line when the project config sets a report path",
-                   "read only the JSON object at its start"):
+                   'log "skill-check failed: {the stderr line that names the cause, or its last line}" and run the '
+                   "frontmatter validator below, as when skill-check is not available",
+                   "Otherwise skill-check validated, even when its stdout goes on after the JSON (a `Wrote <path>` "
+                   "line when the project config sets a report path): §6 reads the score and the remaining "
+                   "diagnostics from that JSON."):
         assert needle in no_json, needle
-    assert four.index(no_json) < four.index("**Parse the JSON in") < four.index("**If skill-check is not available**")
+    assert "keep `{quality_score}` null" not in four and "**Parse the JSON in" not in four
+    assert four.index(no_json) < four.index("**If skill-check is not available**")
 
 
 HASH_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py",
@@ -2242,7 +2329,8 @@ def test_step_5_tells_a_fix_from_the_file_hash():
     report = _section(text, "### 6. Report Validation Results", "### 7. ")
     assert ("{list the auto-fixed issues: the §4 rewrite note when `{skill_md_changed}` is true, and the §4 "
             "description-guard note when the guard restored the description}") in report
-    assert "A check that did not run counts 0, and the §4 rewrite note and the guard note count nothing." in report
+    assert ('List beside them the notes §4 recorded, which count nothing: the rewrite note, the guard note, '
+            '"skill-check failed", "description guard unavailable" and the guard\'s high-severity issues.') in report
 
 
 def test_finalize_relays_the_flip_helpers_message():

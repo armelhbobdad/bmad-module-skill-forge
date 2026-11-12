@@ -74,7 +74,7 @@ Every run that reaches this step, a blocked one included, ends through one seque
 
 ### 4b. Discovery Testing
 
-**`--no-discovery` flag bypass (precedes the precondition check).** If `no_discovery: true` is set in workflow context (from §1 of `init.md`: the `--no-discovery` flag on invocation), record the skip (below) with the reason `--no-discovery flag set`, log the bypass, and SKIP §4b.1 to §4b.3. Proceed to §4b.4 (description optimization) only if Tessl Review's description score is below 90% or skill-check flagged description issues; otherwise skip directly to §4b.5.
+**`--no-discovery` flag bypass (precedes the precondition check).** If `no_discovery: true` is set in workflow context (from §1 of `init.md`: the `--no-discovery` flag on invocation), record the skip (below) with the reason `--no-discovery flag set`, log the bypass, and SKIP §4b.1 to §4b.3. Proceed to §4b.4 (description optimization) only if `{run_dir}/external.json` holds a `descriptionIssues` of true or a `tesslDescriptionScore` below 90; otherwise skip directly to §4b.5.
 
 Perform minimum-viable discovery testing. Its outcome is at most one gap (§4b.5), and the Discovery Quality subsection §4c writes shows it.
 
@@ -90,7 +90,7 @@ uv run {skillInventoryHelper} {skillsOutputFolder}
 
 Bind `{not_skf_output}` ← `not_skf_output` and `{discovery_catalog}` ← every `skills[]` entry whose `has_skill_md` is true and whose `skf_skill` is true or whose `name` is in `{not_skf_output}`, each as its `name` plus `{active_path}/SKILL.md`. Skills SKF did not generate stay in the catalog: they compete for the same prompts. `catalog_size` ← the number of `{discovery_catalog}` entries. Without the helper (no candidate resolves, or the status is not `ok`), build the same set with your file tools, never a shell pipeline: each folder directly in `{skillsOutputFolder}` whose name does not start with `.`, is not `_batch` and holds no `.skf-`, and that holds `SKILL.md` directly or at `active/<folder>/SKILL.md`.
 
-- If `catalog_size < 2`: **skip §4b.1 to §4b.3**. Record the skip with the reason `catalog size N={catalog_size}, requires ≥2 candidates for meaningful routing`. The routing test is vacuous with one candidate (any prompt returns the sole skill); reporting `3/3 PASS` under those conditions inflates the Discovery score and masks genuinely bad description triggers. Proceed to §4b.4 (description optimization) if Tessl Review's description score is below 90% or skill-check flagged description issues; otherwise skip to §4b.5.
+- If `catalog_size < 2`: **skip §4b.1 to §4b.3**. Record the skip with the reason `catalog size N={catalog_size}, requires ≥2 candidates for meaningful routing`. The routing test is vacuous with one candidate (any prompt returns the sole skill); reporting `3/3 PASS` under those conditions inflates the Discovery score and masks genuinely bad description triggers. Proceed to §4b.4 (description optimization) if `{run_dir}/external.json` holds a `descriptionIssues` of true or a `tesslDescriptionScore` below 90; otherwise skip to §4b.5.
 - If `catalog_size >= 2`: continue with §4b.1 as written.
 
 Optional escape hatch: the workflow accepts `--discovery-catalog=all` (init.md §1 stores `discovery_catalog_all: true`) to broaden the candidate pool to `{project-root}/.claude/skills/` or `{project-root}/_bmad/agents/` for single-skill repos where the repo-local catalog is trivially too small. When `discovery_catalog_all` is true, add each folder directly in `{project-root}/.claude/skills/` or `{project-root}/_bmad/agents/` that holds a `SKILL.md` directly to `{discovery_catalog}` (a name already in it counts once), then recount `catalog_size` before the precondition check.
@@ -128,7 +128,7 @@ For each prompt, PASS = `selected_skill == skill_name` (the skill under test), F
 
 Either gap has the SKILL.md frontmatter `description` as its Source, the misrouted prompts and the skills they reached as its Issue, and a Remediation that names the trigger phrases to add (§4b.4). Keep the prompts, the selected skills and the outcomes for the Discovery Quality table, which §4c writes after the Gap Report.
 
-**4b.4 Description optimization (secondary):** If the Tessl Review description score (the test report's `### Tessl Review` block; absent when Tessl Review did not run) is below 90%, or skill-check flagged description issues, keep these remediation hints for the Discovery Quality subsection §4c writes:
+**4b.4 Description optimization (secondary):** If `{run_dir}/external.json` (external-validators.md §4) holds a `descriptionIssues` of true (skill-check reported a description rule) or a `tesslDescriptionScore` below 90 (null when Tessl Review did not run), keep these remediation hints for the Discovery Quality subsection §4c writes:
 - Third-person voice check
 - Explicit trigger keywords matching real user phrasing
 - Negative triggers ("NOT for: ...") to prevent false positives

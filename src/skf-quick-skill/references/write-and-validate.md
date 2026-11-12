@@ -21,6 +21,9 @@ hashContentProbeOrder:
 securityScanProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-security-scan.py'
   - '{project-root}/src/shared/scripts/skf-security-scan.py'
+validationSummaryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-summarize-validation.py'
+  - '{project-root}/src/shared/scripts/skf-summarize-validation.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Generated SKILL.md text in {document_output_language}. -->
@@ -141,31 +144,25 @@ uv run {hashContentHelper} hash "{skill_package}/SKILL.md" > "{run_dir}/skill-md
 
 **If no `{descriptionGuardProbeOrder}` path exists**, never run `--fix` unguarded. Run `npx skill-check check "{skill_package}" --format json --no-security-scan` instead, which validates without fixing, with the same capture (`> "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"`, its exit code noted), and log the validation issue "description guard unavailable (`skf-description-guard.py` missing): skill-check ran without `--fix`".
 
-**If `{run_dir}/skill-check.json` does not start with a JSON object**, skill-check stopped before it validated (exit 2 on a config, option or plugin error): log "skill-check failed: {the stderr line that names the cause, or its last line}", keep `{quality_score}` null, and run the frontmatter validator below, as when skill-check is not available. Otherwise stdout can go on after the JSON (a `Wrote <path>` line when the project config sets a report path), so read only the JSON object at its start.
-
-**Parse the JSON in `{run_dir}/skill-check.json`** to extract:
-- `scores[].score` — overall score (0-100); match the entry by `relativePath`/`skillId`
-- `diagnostics[]` — remaining issues after auto-fix
-
-Bind `{quality_score}` ← that score, and record the remaining diagnostics as validation issues. `{quality_score}` is null when skill-check did not run.
+**If `{run_dir}/skill-check.json` does not start with a JSON object**, skill-check stopped before it validated (exit 2 on a config, option or plugin error): log "skill-check failed: {the stderr line that names the cause, or its last line}" and run the frontmatter validator below, as when skill-check is not available. Otherwise skill-check validated, even when its stdout goes on after the JSON (a `Wrote <path>` line when the project config sets a report path): §6 reads the score and the remaining diagnostics from that JSON.
 
 **Read the JSON, not the exit code.** skill-check prints its JSON, then exits 1 when `summary.errorCount` is above 0, or when `--strict` or `--fail-on-warning` is passed and `summary.warningCount` is above 0 (this call passes neither), so `summary.errorCount` alone is the validation verdict. `--no-security-scan` keeps the security scan out of this call: skill-check 1.2.0 writes its JSON before the scan runs and passes none of the scanner's findings on, so the scan runs on its own at the end of this section.
 
 **If skill-check is not available**, run the shared frontmatter validator. Resolve `{frontmatterValidator}` from `{frontmatterValidatorProbeOrder}`; first existing path wins. If no candidate exists, nothing can check the frontmatter: HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**`{skill_package}` was written but not validated.** skill-check is unavailable and SKF's frontmatter validator (`skf-validate-frontmatter.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF, then re-run." Stage `{"phase": "write-and-validate", "halt_reason": "resolution-failure", "reason": "The skill was written but not validated: the frontmatter validator is missing.", "skill_package": "{skill_package}", "outputs": {<each deliverable §2 wrote, as "metadata", "skill_md" or "context_snippet" with its path>}, "details": {"cause": "frontmatter-validator-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`.
 
 ```bash
-uv run {frontmatterValidator} "{skill_package}/SKILL.md" --skill-dir-name {repo_name}
+uv run {frontmatterValidator} "{skill_package}/SKILL.md" --skill-dir-name {repo_name} > "{run_dir}/frontmatter.json"
 ```
 
-The validator emits JSON with `status` (`pass`/`fail`), `issues[]` (each with `severity`, `code`, `message`), and `frontmatter` (the parsed name/description). Record each `issues[]` entry as a validation issue with its reported severity.
+The validator writes its JSON, with `status` (`pass`/`fail`), `issues[]` (each with `severity`, `field` and `message`) and `frontmatter` (the parsed name and description), to `{run_dir}/frontmatter.json`, where §6 reads the issues.
 
 **Security scan.** Run it whether or not skill-check ran. Resolve `{securityScanHelper}` ← first existing path in `{securityScanProbeOrder}` and run it on the written package, with the longest timeout your shell tool takes (it ends within two minutes):
 
 ```bash
-uv run {securityScanHelper} run --package "{skill_package}"
+uv run {securityScanHelper} run --package "{skill_package}" > "{run_dir}/security.json"
 ```
 
-It runs Snyk Agent Scan, at the version it pins, only when `SNYK_TOKEN` is set, and reads the scanner's own JSON report, so rely on the JSON it prints, never on an exit code. Bind `{security_result}` ← its `security_result` (`pass`, `warn` or `skipped`) and `{security_note}` ← its `note`, and record each `findings[]` entry's `text` as an advisory validation issue: security findings do not block output. For `skipped`, log "security scan skipped: {security_note}" in the validation results. When no `{securityScanProbeOrder}` path exists, bind `{security_result}` ← `skipped` and `{security_note}` ← `skf-security-scan.py missing`; when the call prints no JSON object, bind `skipped` and `skf-security-scan.py printed no result`. Log either one as a skipped scan.
+It runs Snyk Agent Scan, at the version it pins, only when `SNYK_TOKEN` is set, and reads the scanner's own JSON report, so rely on the JSON it prints, never on an exit code. Bind `{security_result}` ← its `security_result` (`pass`, `warn` or `skipped`) and `{security_note}` ← its `note` in `{run_dir}/security.json`, whose `findings[]` §6 lists as advisory validation issues: security findings do not block output. For `skipped`, log "security scan skipped: {security_note}" in the validation results. When no `{securityScanProbeOrder}` path exists, bind `{security_result}` ← `skipped` and `{security_note}` ← `skf-security-scan.py missing`; when the file holds no JSON object, bind `skipped` and `skf-security-scan.py printed no result`. Log either one as a skipped scan.
 
 ### 5. Validate Body, Snippet, and Metadata via skf-validate-output.py
 
@@ -174,12 +171,20 @@ Run the shared output validator against the on-disk skill package — it perform
 **Resolve `{outputValidator}`** from `{outputValidatorProbeOrder}`; first existing path wins. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**`{skill_package}` was written but not validated.** SKF's output validator (`skf-validate-output.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF, then re-run." Stage `{"phase": "write-and-validate", "halt_reason": "resolution-failure", "reason": "The skill was written but not validated: the output validator is missing.", "skill_package": "{skill_package}", "outputs": {<each deliverable §2 wrote, as "metadata", "skill_md" or "context_snippet" with its path>}, "details": {"cause": "output-validator-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`. Otherwise run:
 
 ```bash
-uv run {outputValidator} "{skill_package}" --generated-by quick-skill --skip-frontmatter
+uv run {outputValidator} "{skill_package}" --generated-by quick-skill --skip-frontmatter > "{run_dir}/output.json"
 ```
 
-The validator emits JSON with `result` (PASS/FAIL), `validation.skill_md.body[]`, `validation.context_snippet.issues[]`, `validation.metadata.issues[]`, and a severity-bucketed `summary`. Record each issue as a validation issue at its reported severity.
+The validator writes its JSON, with `result` (PASS/FAIL), `validation.skill_md.body[]`, `validation.context_snippet.issues[]`, `validation.metadata.issues[]` and a severity-bucketed `summary`, to `{run_dir}/output.json`, where §6 reads the issues.
 
 ### 6. Report Validation Results
+
+Resolve `{validationSummaryHelper}` ← first existing path in `{validationSummaryProbeOrder}`. If no candidate exists, HARD HALT with **exit code 3 (resolution-failure)**, in interactive mode too: "**`{skill_package}` was written and validated, but its validation was not summarized.** SKF's validation summarizer (`skf-summarize-validation.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF, then re-run." Stage `{"phase": "write-and-validate", "halt_reason": "resolution-failure", "reason": "The skill was written and validated, but its validation was not summarized: the validation summarizer is missing.", "skill_package": "{skill_package}", "outputs": {<each deliverable §2 wrote, as "metadata", "skill_md" or "context_snippet" with its path>}, "details": {"cause": "validation-summarizer-missing"}}` as `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --result-dir "{skill_package}" --target stderr < "{run_dir}/halt.json"`. Otherwise summarize the files §4 and §5 saved, from the folder §4 ran skill-check in. Pass every flag on every path: a file no check wrote counts nothing.
+
+```bash
+uv run {validationSummaryHelper} --skill-check "{run_dir}/skill-check.json" --frontmatter "{run_dir}/frontmatter.json" --output "{run_dir}/output.json" --security "{run_dir}/security.json" --skill-dir "{skill_package}" > "{run_dir}/validation-summary.json"
+```
+
+Bind `{quality_score}` ← `quality_score` (skill-check's score for this skill, null when skill-check did not validate it or reported no score) and `{validation_issues}` ← `validation_issues` from `{run_dir}/validation-summary.json`. Under the SKILL.md, context-snippet.md, metadata.json and Security headings below, list the entries of that file's `issues.skill_md`, `issues.context_snippet`, `issues.metadata` and `issues.security`, each with its `check`, `severity`, `message` and `line`: the issues the counts count. List beside them the notes §4 recorded, which count nothing: the rewrite note, the guard note, "skill-check failed", "description guard unavailable" and the guard's high-severity issues.
 
 "**Validation complete:**
 
@@ -203,7 +208,7 @@ These issues are advisory for community-tier skills: fix them in the written fil
 
 **Proceeding to finalize...**"
 
-Set `validation_result` with pass/fail status, quality score, and issues list, and `{validation_issues}` ← `{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`, each `<n>` the number of entries the validators returned for that heading: `skill_md` counts skill-check's `diagnostics[]` (without skill-check, the frontmatter validator's `issues[]`) plus `validation.skill_md.body[]`; `context_snippet` counts `validation.context_snippet.issues[]`; `metadata` counts `validation.metadata.issues[]`; `security` counts the §4 security scan's `findings[]`. A check that did not run counts 0, and the §4 rewrite note and the guard note count nothing. Step 6 §3's summary carries `{quality_score}`, `{validation_issues}` and `{security_result}`.
+Step 6 §3's summary carries `{quality_score}`, `{validation_issues}` and `{security_result}`.
 
 ### 7. Auto-Proceed to Finalize
 

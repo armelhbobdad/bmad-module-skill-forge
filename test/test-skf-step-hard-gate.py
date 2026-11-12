@@ -78,6 +78,7 @@ TEMPLATE_FILE = TS_DIR / "templates" / "test-report-template.md"
 FORMATS_FILE = TS_DIR / "assets" / "output-section-formats.md"
 GAP_LEDGER = TS_DIR / "scripts" / "gap-ledger.py"
 HARD_GATE = TS_DIR / "scripts" / "hard-gate.py"
+COMBINE = TS_DIR / "scripts" / "combine-external-scores.py"
 BUILD_CONTEXT = TS_DIR / "scripts" / "build-result-context.py"
 CONTRACT_FILE = REFS / "invocation-contract.md"
 VERIFY_PROVENANCE = REPO_ROOT / "src" / "shared" / "scripts" / "skf-verify-provenance-completeness.py"
@@ -89,7 +90,9 @@ GATE_CMD = (
     "--require-stage external-validators"
 )
 # The stages that record their gaps before the gate, each with the file
-# whose append command records them.
+# whose append command records them: a heredoc of the stage's own records, or
+# for external-validators the adapter over the external.json §4 wrote (#1120).
+EXTERNAL_APPEND = "--stage external-validators --from external"
 RECORDING_STAGES = {
     "coverage-check": COVERAGE_FILE,
     "coherence-check": COHERENCE_FILE,
@@ -177,21 +180,25 @@ def _append_command(path: pathlib.Path, stage: str) -> str:
     return line.split(" <<'SKF_GAPS'")[0]
 
 
-def _run(command: str, values: dict[str, str], stdin: str = "") -> subprocess.CompletedProcess:
+PROSE_SCRIPTS = {"gapLedgerScript": GAP_LEDGER, "hardGateScript": HARD_GATE, "externalScoreScript": COMBINE}
+
+
+def _run(command: str, values: dict[str, str], stdin: str = "",
+         cwd: pathlib.Path | None = None) -> subprocess.CompletedProcess:
     """Run a prose `uv run {script} ...` command with this Python and `values` filled in."""
-    m = re.fullmatch(r"uv run \{(gapLedgerScript|hardGateScript)\} (.*)", command)
-    assert m, f"not a gap-ledger or hard-gate call: {command!r}"
+    m = re.fullmatch(r"uv run \{(gapLedgerScript|hardGateScript|externalScoreScript)\} (.*)", command)
+    assert m, f"not a gap-ledger, hard-gate or combine-external-scores call: {command!r}"
     rest = m.group(2)
     for key, value in values.items():
         rest = rest.replace(key, value)
     assert not re.search(r"\{\w+\}", rest), f"unfilled placeholder in {rest!r}"
-    script = GAP_LEDGER if m.group(1) == "gapLedgerScript" else HARD_GATE
     return subprocess.run(
-        [sys.executable, str(script), *shlex.split(rest)],
+        [sys.executable, str(PROSE_SCRIPTS[m.group(1)]), *shlex.split(rest)],
         input=stdin,
         capture_output=True,
         text=True,
         encoding="utf-8",
+        cwd=cwd,
     )
 
 
@@ -247,8 +254,25 @@ def _ledger_records(values: dict[str, str]) -> list[dict]:
     return json.loads(pathlib.Path(values["{ledgerFile}"]).read_bytes())["records"]
 
 
-def _record(stage: str, records: list[dict], values: dict[str, str]) -> dict:
-    proc = _run(_append_command(RECORDING_STAGES.get(stage, REPORT_FILE), stage), values, json.dumps(records))
+def _external(diagnostics: tuple[dict, ...] = (), findings: tuple[dict, ...] = (), description: tuple[str, ...] = (),
+              content: tuple[str, ...] = ()) -> dict:
+    """A combine-external-scores.py file-mode result (external.json) holding these findings."""
+    return {"externalScore": None, "toolsUsed": [], "available": False, "skillCheckScore": None,
+            "skillCheckErrorCount": None, "skillCheckWarningCount": None, "descriptionIssues": False,
+            "skillCheckDiagnostics": list(diagnostics), "tesslReviewScore": None, "tesslDescriptionScore": None,
+            "tesslValidationFindings": list(findings), "tesslDescriptionSuggestions": list(description),
+            "tesslContentSuggestions": list(content)}
+
+
+def _record(stage: str, records: list[dict] | dict, values: dict[str, str]) -> dict:
+    """Append through the stage's documented call: its heredoc fed `records`, or for external-validators the
+    `--from external` call over `records` written as `{run_dir}/external.json` (an empty list: nothing found)."""
+    if stage == "external-validators":
+        run = pathlib.Path(values["{ledgerFile}"]).parent / "external-run"
+        _write_json(run / "external.json", records or _external())
+        proc = _run(_ledger_call(EXT_VALIDATORS_FILE, EXTERNAL_APPEND), values | {"{run_dir}": run.as_posix()})
+    else:
+        proc = _run(_append_command(RECORDING_STAGES.get(stage, REPORT_FILE), stage), values, json.dumps(records))
     assert proc.returncode == 0, proc.stdout + proc.stderr
     return json.loads(proc.stdout)
 
@@ -341,7 +365,10 @@ class TestGateReadsTheLedger:
         required = set(re.findall(r"--require-stage (\S+)", GATE_CMD))
         assert required == set(RECORDING_STAGES)
         for stage, path in RECORDING_STAGES.items():
-            assert _append_command(path, stage), stage
+            if stage == "external-validators":
+                assert _ledger_call(path, EXTERNAL_APPEND), stage
+            else:
+                assert _append_command(path, stage), stage
 
     def test_the_gate_no_longer_scans_the_report(self, text: str) -> None:
         for stale in ("**Severity:**", "scan the **Coverage Analysis**", "### GAP-{NNN}"):
@@ -390,7 +417,9 @@ class TestRunningTheGate:
             for name in ("alpha", "beta", "gamma")
         ], values)
         _record("coherence-check", [], values)
-        _record("external-validators", [_gap("Low", "external-validator", "skill-check: body-length")], values)
+        _record("external-validators", _external(diagnostics=(
+            {"ruleId": "body.max_lines", "severity": "warn", "message": "long", "file": "SKILL.md", "line": 3},)),
+            values)
         out = json.loads(_gate(values).stdout)
         assert (out["gate"], out["blocking_count"], out["non_blocking_count"]) == ("passed", 0, 4)
         assert out["envelope"] is None
@@ -667,8 +696,13 @@ class TestStagesRecordTheirGaps:
     @pytest.mark.parametrize("stage", sorted(RECORDING_STAGES))
     def test_each_stage_appends_even_when_it_found_nothing(self, stage: str) -> None:
         text = _flow(_body(RECORDING_STAGES[stage]))
-        assert "Run the command even when the array is empty (`[]`)" in text
-        assert "the quoted marker hands them to the script unchanged" in text
+        if stage == "external-validators":
+            # #1120: the adapter builds the records from external.json, so the step types none.
+            assert "Run the command even when neither validator ran" in text
+            assert "<<'SKF_GAPS'" not in text and "the quoted marker" not in text
+        else:
+            assert "Run the command even when the array is empty (`[]`)" in text
+            assert "the quoted marker hands them to the script unchanged" in text
         for outcome in ("Exit 0:", "Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`)", "Exit 1: HALT"):
             assert outcome in text, outcome
 
@@ -1055,9 +1089,67 @@ class TestStagesRecordTheirGaps:
 
     def test_external_validation_findings_are_recorded(self) -> None:
         section = _flow(_slice(_read(EXT_VALIDATORS_FILE), "### 5b. Record", "### 6. Report Results"))
-        for source in ("`skill_check_diagnostics`", "`{tessl_validation}`", "`{tessl_description_suggestions}`",
-                       "`{tessl_content_suggestions}`"):
+        for source in ("each skill-check diagnostic", "`{tessl_validation}`", "`{tessl_description_suggestions}`",
+                       "`{tessl_content_suggestions}`", "`{run_dir}/external.json`"):
             assert source in section, source
+        assert ('uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage external-validators --from external '
+                '--input "{run_dir}/external.json" [--not-applicable <index>:<rule-id>]...') in section
+        assert ("Pass one `--not-applicable <index>:<rule-id>` for each content suggestion section 3 marked, its index "
+                "its place in `{tessl_content_suggestions}` counting from 0") in section
+        assert "Correct the `--not-applicable` marks its `error` names and run the command again." in section
+
+    def test_the_documented_calls_record_the_saved_validator_outputs(self, values: dict[str, str],
+                                                                     tmp_path: pathlib.Path) -> None:
+        """#1120: §4's call over saved skill-check and Tessl JSON writes external.json, and §5b's call records its
+        findings, one content suggestion marked not applicable; a rerun records each gap once, and the gate passes
+        on them all."""
+        run, skill = tmp_path / "run", tmp_path / "skill"
+        skill.mkdir()
+        (skill / "SKILL.md").write_bytes(b"---\nname: skill\ndescription: Demo.\n---\n# Demo\n")
+        _write_json(run / "skill-check.json", {
+            "summary": {"skillCount": 1, "errorCount": 0, "warningCount": 2},
+            "diagnostics": [
+                {"ruleId": "description.use_when_phrase", "severity": "warn", "message": "no Use when",
+                 "file": "skill/SKILL.md", "line": 1, "column": 1, "suggestion": "Start with \"Use when\"."},
+                {"ruleId": "links.local_markdown_resolves", "severity": "warn", "message": "dead link",
+                 "file": "skill/SKILL.md", "line": 7, "column": 3}],
+            "scores": [{"skillId": "x/skill", "relativePath": "skill/SKILL.md", "score": 80}]})
+        _write_json(run / "tessl.json", {
+            "status": "reviewed", "review_score": 73, "description_score": 85, "content_score": 60,
+            "validation": {"passed": False, "errors": 0, "warnings": 1,
+                           "findings": [{"name": "frontmatter_unknown_keys", "status": "warning",
+                                         "message": "unknown key"}]},
+            "description_suggestions": ["Name the trigger phrases."],
+            "content_suggestions": ["Add examples.", "Drop the provenance citations.", "Split the body."]})
+        fill = values | {"{run_dir}": run.as_posix(), "{skillDir}": skill.as_posix()}
+        section = _read(EXT_VALIDATORS_FILE)
+        [score] = [line for line in _fence(section, "uv run {externalScoreScript}").splitlines()
+                   if "uv run {externalScoreScript}" in line]
+        proc = _run(score, fill, cwd=tmp_path)
+        assert proc.returncode == 0, proc.stdout + proc.stderr
+        assert json.loads(proc.stdout) == {
+            "externalScore": 76.5, "toolsUsed": ["skill-check", "tessl"], "skillCheckScore": 80,
+            "skillCheckErrorCount": 0, "skillCheckWarningCount": 2, "descriptionIssues": True,
+            "output": (run / "external.json").as_posix()}
+        append = _ledger_call(EXT_VALIDATORS_FILE, EXTERNAL_APPEND, keep=("--not-applicable",))
+        marked = append.replace("<index>:<rule-id>", "1:keep-provenance")
+        first = _run(marked, fill)
+        assert first.returncode == 0, first.stdout + first.stderr
+        assert [(r["severity"], r["category"], r["title"], r["source"]) for r in _ledger_records(values)] == [
+            ("Low", "external-validator", "skill-check: description.use_when_phrase", "SKILL.md:1"),
+            ("Low", "external-validator", "skill-check: links.local_markdown_resolves", "SKILL.md:7"),
+            ("Low", "external-validator", "Tessl Review: frontmatter_unknown_keys", "SKILL.md"),
+            ("Low", "description", "Name the trigger phrases.", "SKILL.md frontmatter description"),
+            ("Info", "external-validator", "Add examples.", "SKILL.md"),
+            ("Info", "external-validator", "Split the body.", "SKILL.md")]
+        again = json.loads(_run(marked, fill).stdout)
+        assert (again["appended"], len(again["duplicates"])) == ([], 6)
+        refused = _run(append.replace("<index>:<rule-id>", "3:keep-provenance"), fill)
+        assert refused.returncode == 2 and json.loads(refused.stdout)["code"] == "INVALID_INPUT"
+        _record("coverage-check", [], values)
+        _record("coherence-check", [], values)
+        out = json.loads(_gate(values).stdout)
+        assert (out["gate"], out["non_blocking_count"]) == ("passed", 6)
 
 
 class TestStaleNameLineCheck:
