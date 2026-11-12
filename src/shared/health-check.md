@@ -237,11 +237,11 @@ Only the user decides a possible match. A headless run never reaches this choice
 Execute the chosen action:
 
 - **R:** `gh api -X POST repos/{healthCheckRepo}/issues/{N}/reactions -f content='+1'`
-- **C:** Same reaction call, then `gh issue comment {N} --repo {healthCheckRepo} --body "{minimal env+delta body}"`. The delta body is the Environment table plus ONE sentence describing what's different from the original. No session narrative.
+- **C:** Same reaction call, then `gh issue comment {N} --repo {healthCheckRepo} --body-file "{localFallbackFolder}/bodies/{fp}-{timestamp}.md"`. The delta body is the Environment table plus ONE sentence describing what's different from the original. No session narrative. Write it to that file with the Write tool before the reaction, as **Pass each body as a file** in §5a-ii says.
 - **N:** After a match found by `{fp}`: the open issue carries this same fingerprint, so a new issue under it would be closed as its duplicate. Choose a more specific defect key that names what sets this defect apart (the more specific name the fix edits, or the case it covers, still in the source's words), recompute `{fp}` with it, then proceed to step 5a-ii. After a possible match, proceed to step 5a-ii as is: that issue's `fp-*` label differs from `{fp}`.
 - **S:** Record nothing.
 
-The **R** and **C** calls name `{healthCheckRepo}`, as the step's other issue calls do: without it, `gh` reacts or comments on the repository of the folder the workflow ran in, usually the user's own project. If one of them exits non-zero, log its stderr message and make no further call for this finding: **C** posts no comment after a failed reaction, and a reaction it already added stays. Record nothing (run neither record call below) and write the finding to the local queue (§5c) with the failed-submission reason.
+The **R** and **C** calls name `{healthCheckRepo}`, as the step's other issue calls do: without it, `gh` reacts or comments on the repository of the folder the workflow ran in, usually the user's own project. If one of them exits non-zero, log its stderr message and make no further call for this finding: **C** posts no comment after a failed reaction, and a reaction it already added stays. Record nothing (run neither record call below) and write the finding to the local queue (§5c) with the failed-submission reason. When **C** fails, its body file stays in `{localFallbackFolder}/bodies/`, its name starting with the `fingerprint` the queued finding records.
 
 When every call of **R** or **C** succeeded, record the outcome under `{fp}`, also when the match was found by `{legacy_fp}`: `reacted` after **R** and `commented` after **C**, with the matched issue's `url` and today's date as YYYY-MM-DD:
 
@@ -277,8 +277,10 @@ gh issue create \
   --repo {healthCheckRepo} \
   --title "[health-check][{severity}][{fp}] {workflow}: {short description}" \
   --label "health-check,workflow-improvement,{severity},{fp}" \
-  --body "{formatted body using issue template structure}"
+  --body-file "{localFallbackFolder}/bodies/{fp}-{timestamp}.md"
 ```
+
+**Pass each body as a file.** Before the label call above, write the issue body (the format below) with the Write tool to a file of its own, `{localFallbackFolder}/bodies/{fp}-{timestamp}.md`, `{timestamp}` being the time of the write as YYYYMMDD-HHmmss; **C** writes its comment body the same way. The body quotes paths, evidence and its `Section fingerprint:` line in backticks: on the command line, inside double quotes, the shell would run each backticked span or `$(...)` as a command and put its output in its place, and a double quote in it would end the argument. So a body never goes on the command line, and the file is never written through the shell (`echo`, `printf` or a heredoc), which can expand it the same way. If the Write fails, make no call for this finding: log the error and write the finding to the local queue (§5c) with the failed-submission reason. The title does stay on the command line, so write `{short description}` with no backtick, `$`, double quote or backslash. The file stays after the call, in `bodies/` apart from the findings the queue holds, as the record of what was sent or tried; a later post writes a new one.
 
 When sub-step 2 returned `regression`, append ` — REGRESSION` to that `--title` value, after `{short description}`, and include the `## Regression` backlink section in the body. The command above is the literal one you run, so the marker has to be in it: an instruction that the title should say REGRESSION loses to a copied command that does not.
 
@@ -289,6 +291,8 @@ The fingerprint `{fp}` appears in both title (human-readable) and label (server-
 The dedup Action reads the body's `Section fingerprint:` line too. When the new issue matches no open issue's fingerprint but another open health-check issue records the same section fingerprint under a different defect key, or was filed without a key and carries it as its label, the Action comments with a link to each such issue and adds the `possible-duplicate` label. It closes nothing on that match: two reports of one defect can name it by different keys, and every defect of one severity in one section shares the section fingerprint, so a maintainer decides.
 
 After the issue is created, record it under `{fp}` as §5b says, so this user does not re-report it while that issue stays open.
+
+If `gh issue create` exits non-zero, log its stderr message and record nothing: §5b runs only after a create that succeeded, so after a `regression` verdict the `resolved` record stays. Write the finding to the local queue (§5c) with the failed-submission reason, as a failed reaction or comment is: its queue file holds the text of its body file under the §5c frontmatter, so what failed to post is what waits to be submitted.
 
 **Writing rules — non-negotiable:**
 
@@ -369,7 +373,7 @@ Section fingerprint: `{legacy_fp}`
 | SKF Version | {from `{project-root}/_bmad/skf/VERSION`, else N/A} |
 ```
 
-After creating all issues, display:
+After creating all issues, display those that were created, `{N}` counting only them, unless none was (a create that failed is listed by §5c):
 
 "**{N} issue(s) created on {healthCheckRepo}:**
 {list each issue URL}
@@ -400,11 +404,11 @@ It prints `{"written": ..., "fp": ..., "record": ..., "set_aside": ...}`, `recor
 
 ### 5c. Local-Queue Path (gh unavailable, friction/gap default, or Queue locally)
 
-For findings that didn't go live (gh unavailable, SKF's health-check helper missing, user declined the friction/gap opt-in, user chose **\[S]** at the dedup gate, a run with no user to ask took **\[S]** at a possible match, a reaction or comment at the dedup gate failed, or the §4 review gate resolved to **\[Q]**), write a local file to `{localFallbackFolder}/`:
+For findings that didn't go live (gh unavailable, SKF's health-check helper missing, user declined the friction/gap opt-in, user chose **\[S]** at the dedup gate, a run with no user to ask took **\[S]** at a possible match, a reaction or comment at the dedup gate failed, a new issue failed to post, or the §4 review gate resolved to **\[Q]**), write a local file to `{localFallbackFolder}/`:
 
 **Filename:** `hc-{workflow}-{timestamp}.md` (one file per finding, timestamp as YYYYMMDD-HHmmss; when findings share a timestamp, append `-2`, `-3`, … to the later names so no file is overwritten)
 
-**File content:** Same structured format as the issue body above, with YAML frontmatter:
+**File content:** Same structured format as the issue body above, with YAML frontmatter (for a create that failed, that body is the text of its body file in `{localFallbackFolder}/bodies/`, unchanged):
 
 ```yaml
 ---

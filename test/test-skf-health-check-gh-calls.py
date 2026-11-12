@@ -9,6 +9,13 @@ signal and later sightings of the defect on that machine were suppressed while i
 recorded only when every call posted, and a failed reaction or comment goes to the local queue. No test runs the
 step prose, so these checks pin it: every `gh` command it holds, fenced or inline, and the rule that records only
 what posted.
+
+Each issue and comment body also went on the command line, inside double quotes (#1203). A body quotes paths,
+evidence and its `Section fingerprint:` line in backticks, so the shell ran each backticked span as a command and
+put its output in its place: text from a finding ran on the user's machine, the line the dedup Action reads could
+come out empty, and a double quote in the body broke the command, whose failed create then had no fallback and
+lost the finding. Now each body is written with the Write tool to a file of its own in the local queue folder's
+`bodies/` subfolder and passed with `--body-file`, and a create that fails goes to the local queue with that body.
 """
 
 from __future__ import annotations
@@ -21,6 +28,12 @@ SHARED_HEALTH_CHECK = REPO / "src" / "shared" / "health-check.md"
 
 SUB_STEP_5A_I = "**5a-i. If a matching open issue exists:**"
 SUB_STEP_5A_II = "**5a-ii. If no matching open issue exists**"
+CREATE = "**Then create the issue:**"
+WRITING_RULES = "**Writing rules"
+
+# Where each issue and comment body is written before the call that posts it: a file of its own for each post,
+# apart from the findings the queue folder holds.
+BODY_FILE = '--body-file "{localFallbackFolder}/bodies/{fp}-{timestamp}.md"'
 
 # The calls the step must hold, each as the start of one call found, so an extractor that misses fenced lines,
 # continuation lines or inline code spans fails here instead of passing on too few calls.
@@ -135,8 +148,11 @@ def test_r_and_c_react_and_comment_on_the_health_check_issue():
     actions = _slice(_read(SHARED_HEALTH_CHECK), "Execute the chosen action:", SUB_STEP_5A_II)
     # No leading slash, as the repository's other `gh api` calls write the path.
     assert "- **R:** `gh api -X POST repos/{healthCheckRepo}/issues/{N}/reactions -f content='+1'`\n" in actions
-    # What follows the prefix, the body, is #1203's to change.
-    assert "- **C:** Same reaction call, then `gh issue comment {N} --repo {healthCheckRepo} " in actions
+    # The comment's body goes in a file, written before either call, so a Write that fails posts nothing.
+    assert (f"- **C:** Same reaction call, then `gh issue comment {{N}} --repo {{healthCheckRepo}} {BODY_FILE}`. The "
+            "delta body is the Environment table plus ONE sentence describing what's different from the original. No "
+            "session narrative. Write it to that file with the Write tool before the reaction, as **Pass each body as "
+            "a file** in §5a-ii says.") in _flow(actions)
     assert ("The **R** and **C** calls name `{healthCheckRepo}`, as the step's other issue calls do: without it, `gh` "
             "reacts or comments on the repository of the folder the workflow ran in, usually the user's own "
             "project.") in _flow(actions)
@@ -160,11 +176,84 @@ def test_only_a_reaction_or_comment_that_posted_is_recorded():
     plain = choice.index(f"{record} ```")
     regression = choice.index(f"{record} --regression ```")
     instead = choice.index("When sub-step 2 returned `regression`, run this one instead")
-    assert choice.index(rule) < choice.index(success) < plain < instead < regression
+    # A **C** whose reaction or comment failed keeps its body file, named by the fingerprint the queued finding records.
+    kept = ("When **C** fails, its body file stays in `{localFallbackFolder}/bodies/`, its name starting with the "
+            "`fingerprint` the queued finding records.")
+    assert choice.index(rule) < choice.index(kept) < choice.index(success) < plain < instead < regression
     # The queue takes the finding, with a reason of its own.
     queue = _flow(_slice(text, "### 5c.", "**Filename:**"))
     assert ("a run with no user to ask took **\\[S]** at a possible match, a reaction or comment at the dedup gate "
-            "failed, or the §4 review gate resolved to **\\[Q]**") in queue
+            "failed, a new issue failed to post, or the §4 review gate resolved to **\\[Q]**") in queue
     reasons = _flow(_slice(text, "`{reason}` is the sentence", "**{N} finding(s) saved locally:**"))
     assert ('"Posting these to GitHub failed." (the failed-submission reason) or "The review gate queued these '
             'locally."') in reasons
+
+
+def test_no_body_goes_on_the_command_line():
+    """Inside double quotes the shell runs each backticked span of a body, so every body goes to `gh` as a file."""
+    text = _read(SHARED_HEALTH_CHECK)
+    # Not in a call and not in the prose either, so no copied example puts a body back on the command line.
+    inline = re.search(r"--body(?!-file)", text)
+    assert inline is None, text[max(0, inline.start() - 80):inline.end() + 80]
+    short = re.search(r"(?<![\w-])-b(?![\w-])", text)
+    assert short is None, text[max(0, short.start() - 80):short.end() + 80]
+    # The comment and the new issue each post the body file, as the call's last argument.
+    calls = _gh_calls(text)
+    for name in ("the comment", "the new issue"):
+        found = [call for call in calls if call.startswith(REQUIRED_CALLS[name])]
+        assert found and all(call.endswith(BODY_FILE) for call in found), (name, found)
+
+
+def test_each_body_is_written_to_a_file_with_the_write_tool():
+    raw = _slice(_read(SHARED_HEALTH_CHECK), CREATE, WRITING_RULES)
+    # The command keeps its other lines; only the body line changed.
+    assert ('  --title "[health-check][{severity}][{fp}] {workflow}: {short description}" \\\n'
+            '  --label "health-check,workflow-improvement,{severity},{fp}" \\\n'
+            f"  {BODY_FILE}\n```\n") in raw
+    after = _flow(raw[raw.index(f"  {BODY_FILE}\n```\n"):])
+    # Written before the label call too, so a Write that fails leaves no `fp-*` label with no issue behind it.
+    rule = ("**Pass each body as a file.** Before the label call above, write the issue body (the format below) with "
+            "the Write tool to a file of its own, `{localFallbackFolder}/bodies/{fp}-{timestamp}.md`, `{timestamp}` "
+            "being the time of the write as YYYYMMDD-HHmmss; **C** writes its comment body the same way.")
+    for needle in (
+        rule,
+        "on the command line, inside double quotes, the shell would run each backticked span or `$(...)` as a "
+        "command and put its output in its place, and a double quote in it would end the argument.",
+        "So a body never goes on the command line, and the file is never written through the shell (`echo`, "
+        "`printf` or a heredoc), which can expand it the same way.",
+        # With no body of this post written, a call would send nothing or an earlier post's body.
+        "If the Write fails, make no call for this finding: log the error and write the finding to the local "
+        "queue (§5c) with the failed-submission reason.",
+        # Inside double quotes a backslash still escapes what follows it, the closing quote included.
+        "The title does stay on the command line, so write `{short description}` with no backtick, `$`, double quote "
+        "or backslash.",
+        # Each post keeps its own file, out of the queue's findings, so none is replaced or read as one waiting.
+        "The file stays after the call, in `bodies/` apart from the findings the queue holds, as the record of what "
+        "was sent or tried; a later post writes a new one.",
+    ):
+        assert needle in after, needle
+    # The rule comes right after the command, before the regression marker that edits it.
+    assert after.index(rule) < after.index("When sub-step 2 returned `regression`, append")
+
+
+def test_a_create_that_failed_goes_to_the_local_queue_with_its_body():
+    text = _read(SHARED_HEALTH_CHECK)
+    create = _flow(_slice(text, CREATE, WRITING_RULES))
+    recorded = ("After the issue is created, record it under `{fp}` as §5b says, so this user does not re-report it "
+                "while that issue stays open.")
+    failed = ("If `gh issue create` exits non-zero, log its stderr message and record nothing: §5b runs only after a "
+              "create that succeeded, so after a `regression` verdict the `resolved` record stays. Write the finding "
+              "to the local queue (§5c) with the failed-submission reason, as a failed reaction or comment is: its "
+              "queue file holds the text of its body file under the §5c frontmatter, so what failed to post is what "
+              "waits to be submitted.")
+    assert recorded in create and failed in create
+    assert create.index(recorded) < create.index(failed)
+    # The issues-created display counts only the issues that posted.
+    display = _flow(_slice(text, "**Issue body format:**", "### 5b."))
+    assert ("After creating all issues, display those that were created, `{N}` counting only them, unless none was "
+            "(a create that failed is listed by §5c): \"**{N} issue(s) created on {healthCheckRepo}:**") in display
+    # The queue file of a failed create holds the body that failed to post.
+    queue = _flow(_slice(text, "### 5c.", "```yaml"))
+    assert ("**File content:** Same structured format as the issue body above, with YAML frontmatter (for a create "
+            "that failed, that body is the text of its body file in `{localFallbackFolder}/bodies/`, "
+            "unchanged):") in queue
