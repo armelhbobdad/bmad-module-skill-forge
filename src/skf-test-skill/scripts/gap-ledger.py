@@ -100,7 +100,9 @@ cites (never read; default `metadata.json`):
             name the --stale result (classify-stale) marks `fabricated` is a
             Critical `fabricated-signature` gap `Fabricated signature:
             {name}` at its `source` (one with no `source` is INVALID_INPUT,
-            never a lesser gap). One whose `defined_at` (where the source
+            never a lesser gap), unless one of its `entries` cites the line
+            of an `unresolvedStars` star (below, #1070), which reads it as
+            not fabricated. One whose `defined_at` (where the source
             declares it) is a Python or TS/JS `file:line` is a documented
             extra when its name has no dot and the --surface result was
             built from an extraction that read the whole scope (an
@@ -114,20 +116,40 @@ cites (never read; default `metadata.json`):
             `Documented extra: {name}` at `defined_at`. With no
             `defined_at`, a homonym (its `declared_in`
             lists several declaring files) is one too, with --skill-dir,
-            when the skill's `[AST:path:L<n>]` and `[SRC:path:L<n>]`
+            when its forms' own citations (at their inventory `at`), else the
+            skill's on lines naming it, cite exactly one of those files: the
+            gap is at that file's `declared_in` item. Its forms' own are the
+            `[AST:]` and `[SRC:]` citations validate-inventory.py's
+            form_citations gives the form at each --inventory `at` of an
+            entry of the name that is no `method` (one with no `:L<n>` part
+            included), with the name's other places in that file, as
+            score-signatures.py's plan reads them, read first since a
+            line that writes the name only as a type argument of another
+            export cites that export's file (#1077); the issue then names
+            the forms that cite it ("its form at ... cites only", "its
+            forms at ... and ... cite only"). The skill's, read
+            when those cite no single file between them or there is no such
+            `at` (the issue then says "the skill cites only"), are its
+            `[AST:path:L<n>]` and `[SRC:path:L<n>]`
             citations on the lines of SKILL.md and references/**/*.md that
             name it (outside the citations), or on the next non-blank line
-            after one, cite exactly one of those files: the gap
-            is at that file's `declared_in` item. A package
+            after one that is not a table row outside a fenced block (a
+            row's own citations are in its cells, the next row documents
+            another export, #1066), read with the forms' own, which that
+            scan misses after a closing fence, on a comment line above or
+            with no `:L<n>`, so forms citing two of the files keep it
+            Medium. A package
             `<dir>/NAME/__init__.py` cited with only modules named NAME
-            directly in its folder (`<dir>/NAME/NAME.py` or `.pyi`) counts
-            as that one file, the package `<dir>.NAME` resolves to (#1012);
-            any other two cited, or none, leave it Medium. The documented
+            directly in its folder (`<dir>/NAME/NAME.py` or `.pyi`) counts,
+            in either reading, as that one file, the package `<dir>.NAME`
+            resolves to (#1012); any other two cited, or none, in both
+            readings leave it Medium. The documented
             extra's remediation asks no
             change (update-skill never routes it) and says whether signature
             scoring compared its documented signature (a name the
             --signatures result lists in `comparedNames`). `excluded` is
-            read once a stale name that is not fabricated needs it, and a
+            read once a stale name that is not fabricated (one a map
+            entry's star lifts included) needs it, and a
             malformed one is then INVALID_INPUT. Any other is a Medium `stale-documentation` gap
             `Stale documentation: {name}` at the line that documents the
             name (with --skill-dir), else `SKILL.md`. That line is the
@@ -165,13 +187,24 @@ cites (never read; default `metadata.json`):
             (json, yaml...)); within a tier the first file, then its lowest
             line, wins. A bare word, a span that holds the name among other
             words (`uitripled add`), or a quoted string outside a fence or
-            holding other words too (`"add x"`) documents nothing. With no
+            holding other words too (`"add x"`) documents nothing, and so
+            does a sentence of a heading or a prose block that says the
+            skill does not cover a name (`out of scope for this skill` or
+            `not covered here`, any case, outside its code spans): none of
+            its spans or text keys tiers 2 to 4. A sentence ends at `.`,
+            `!` or `?` before whitespace, or at a table row's
+            unescaped `|`, never inside a code span, and runs across a
+            block's lines, so the line's other sentences and the row's other
+            cells still document a name (#1080). With no
             such line, or without --skill-dir, the line that documents it
             is the first `at` the --inventory result (validate-inventory.py,
             which keeps an `at` only on a line that writes the name) gives
             an entry of the name that is no `method`: SKILL.md's, then the
             first file in path order, then its lowest line (#1006). With
-            none, the Source is `SKILL.md`. An --inventory that is no object
+            none, the Source is `SKILL.md`. Each such `at` of the name is
+            also one of a homonym's forms, whose own citations pick its
+            declaring file first (#1077).
+            An --inventory that is no object
             with an `exports` list is INVALID_INPUT.
             Floor's InputError (no SKILL.md, or a top-level file it cannot
             read or decode) leaves tier 1 empty, and a skill file that
@@ -188,17 +221,26 @@ cites (never read; default `metadata.json`):
             remove it. A row the
             brief does not explain keeps the wording above. Any other with
             no `defined_at` (every name without --stale), with --skill-dir,
-            whose skill citations on a line naming it (as a homonym's are
-            read) cite a file the --surface result's `unresolvedStars` lists
-            (an `export *` from another package no script resolves, #1005)
+            whose skill citations on a line naming it (as a homonym's
+            fallback reads them) cite a file the --surface result's
+            `unresolvedStars` lists
+            (an `export *` from another package no script resolves, #1005),
+            or, with or without --skill-dir, one of whose `entries` has a
+            `star` (the module classify-stale read in the `export *` at its
+            cited line) that a star of its file (as citations compare it)
+            names, matched by file and module and never by line (#1070),
             is an Info `observation` gap `Not checked by script: {name}
             (another package's export *)` (so that the Deep tier's
             `Not checked by script: {name}`, which score-signatures.py
             records from a signature judge's `doc_errors`, stays its own
             gap) at
             the line that documents the name, else `SKILL.md`: its issue and
-            remediation name each such statement and its file, and the
+            remediation name each such statement and its file, and each
+            star an entry cites that no skill citation gives, as `its
+            provenance map cites it at` the statement, at the entry's file
+            and line, and the
             remediation asks no change unless that package lacks the name.
+            A skill citation alone never lifts a fabricated name.
             A missing or malformed `unresolvedStars` counts as empty. Every
             stale name's issue (fabricated, documented extra, not checked,
             stale documentation or scoped out) opens with the line that
@@ -287,6 +329,12 @@ cites (never read; default `metadata.json`):
             the export), else to cite the alias, moving the citations either
             way; when `renames` is `default`, which the map keys on
             `export_name` and so holds once, it asks only to cite the alias.
+            Else, when an entry of `{export_name}` in the --stale result has
+            a `star` (the module of the `export *` at its cited line, #1070)
+            that is no relative or absolute path and its file and line are
+            the item's, that Info gap's issue and remediation say the line
+            passes on that package's names, so no line of the file defines
+            it, and ask no change unless that package lacks the name.
             A --stale result that is not a list is INVALID_INPUT.
             `file-missing` is a Low `provenance-line`
             gap `Provenance file is missing for {export_name}`;
@@ -519,6 +567,15 @@ _RECEIVER_RE = re.compile(r"([A-Za-z_$][\w$]*)\.(?:[A-Za-z_$][\w$]*\.)*$")
 _IMPORT_RE = re.compile(
     r"\s*(?:import\s+([A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?(?:\s*,\s*[A-Za-z_][\w.]*(?:\s+as\s+[A-Za-z_]\w*)?)*)"
     r"\s*;?\s*$|from\s+([A-Za-z_]\w*)[\w.]*\s+import\b|import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from\b)")
+# A sentence's tokens (#1080): an inline code span, group 1 its backtick run, closed by an equal run on its line as
+# locate-export-segments.py's `_inline_code` reads one, so its dots and bars end nothing; `.`, `!` or `?` before
+# whitespace or the end, which ends a sentence; or an unescaped `|`, which ends one in a table row.
+_SENTENCE_TOKEN_RE = re.compile(r"(?<!`)(`++)(?!`)[^\n]*?(?<!`)\1(?!`)|[.!?](?=\s|\Z)|(?<!\\)\|")
+# What a sentence says, outside its code spans, when the skill does not cover the names it holds
+# (inventory-contract.md), in any case and with any whitespace between the words, as whole words that a letter or
+# digit, never an emphasis `_`, would join to another (#1080).
+_NOT_COVERED_RE = re.compile(r"(?<![^\W_])(?:out\s+of\s+scope\s+for\s+this\s+skill|not\s+covered\s+here)(?![^\W_])",
+                             re.IGNORECASE)
 
 
 class LedgerError(Exception):
@@ -924,7 +981,9 @@ def _sibling(filename: str):
     skill-citation scan the homonym pick reads), load-coverage-inputs.py
     (the documented inventory's floor, and its fence and table readers)
     and locate-export-segments.py (the skill's files and line model), the
-    last two for the line that documents a stale name."""
+    last two for the line that documents a stale name, and
+    load-coverage-inputs.py's `STAR_SPECIFIER_RE` for the module of an
+    `unresolvedStars` statement, with or without --skill-dir (#1070)."""
     module = _SIBLINGS.get(filename)
     if module is None:
         path = Path(__file__).resolve().parent / filename
@@ -1058,6 +1117,32 @@ def _module_roots(files: list[tuple[str, list[str]]], segments, coverage) -> fro
     return frozenset(roots)
 
 
+def _without_not_covered(text: str, row: bool = False) -> str:
+    """`text` with each sentence that says the skill does not cover a name (`_NOT_COVERED_RE`, read outside its code
+    spans) blanked, each of its characters a space but a newline, so lines keep their numbers and none of its spans
+    or text keys a name (#1080). A sentence ends at `.`, `!` or `?` before whitespace or the end, blanked with it,
+    or, in a table row (`row`), at an unescaped `|`, which stays so the row keeps its cells; never inside a code
+    span (`_SENTENCE_TOKEN_RE`), and it runs across the lines of `text`."""
+    kept, outside, start = list(text), list(text), 0
+
+    def blank(end: int) -> None:
+        if _NOT_COVERED_RE.search("".join(outside[start:end])):
+            kept[start:end] = [" " if char != "\n" else char for char in text[start:end]]
+
+    for token in _SENTENCE_TOKEN_RE.finditer(text):
+        if token.group(1):
+            # a code span: its words never say the phrase
+            outside[token.start():token.end()] = "`" * (token.end() - token.start())
+        elif token.group() != "|":
+            blank(token.end())
+            start = token.end()
+        elif row:
+            blank(token.start())
+            start = token.end()
+    blank(len(text))
+    return "".join(kept)
+
+
 def _documenting_lines(skill_dir: Path) -> dict[str, str]:
     """name -> the `file:line` that documents it as an export, the first tier
     that holds the name winning:
@@ -1095,7 +1180,13 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
     and a data block (json, yaml...). Within a tier the first file, then its
     lowest line, wins. A bare word, a span that holds the name among other
     words (`uitripled add`), or a quoted string outside a fence or holding
-    other words too (`"add x"`) documents nothing. A module path is a dotted
+    other words too (`"add x"`) documents nothing, and so does a sentence of a
+    heading or a prose block that says the skill does not cover a name (`out
+    of scope for this skill` or `not covered here`, any case, outside its code
+    spans): `_without_not_covered` blanks it before tiers 2 to 4 read the
+    text, a sentence ending at `.`, `!` or `?` before whitespace or at a table
+    row's unescaped `|`, never inside a code span, and running across a
+    block's lines (#1080). A module path is a dotted
     path of plain identifiers whose first segment is a module the skill's
     fenced code imports (`_module_roots`), so a receiver's or a type's path
     (`client.connect(url)`, `Client.connect`, `store.state`) documents
@@ -1138,13 +1229,17 @@ def _documenting_lines(skill_dir: Path) -> dict[str, str]:
                 for match in _QUOTED_RE.finditer(line):
                     tiers[5].setdefault(match.group(2), f"{rel}:{opening + offset + 2}")
         headings, prose = segments._prose(lines, start, code)
-        shaped = [(index, text) for index, _level, text, _above in headings]
+        # a sentence saying the skill does not cover a name keys nothing in tiers 2 to 4 (#1080): each heading and
+        # each prose block, its lines joined, is read with such sentences blanked
+        shaped = [(index, _without_not_covered(text)) for index, _level, text, _above in headings]
         written = list(shaped)
         for block in prose:
-            written += [(i, lines[i]) for i in range(block["start"], block["end"] + 1)]
-            if block["kind"] == "table-row" and block["header"] is not None:
+            row = block["kind"] == "table-row"
+            kept = _without_not_covered("\n".join(lines[block["start"]:block["end"] + 1]), row).split("\n")
+            written += list(enumerate(kept, block["start"]))
+            if row and block["header"] is not None:
                 if coverage._floor_table_header(coverage._cells(block["header"])[0]):
-                    shaped.append((block["start"], coverage._cells(lines[block["start"]])[0]))
+                    shaped.append((block["start"], coverage._cells(kept[0])[0]))
         for index, text in sorted(shaped):
             # its text, or a code span, that is a module path keys the path's last segment too (#1041)
             spans = [coverage._floor_name(span) or _module_path_name(span, roots)
@@ -1182,26 +1277,31 @@ def _documenting_line(skill_dir: Path, name: str) -> str | None:
     return _documenting_lines(skill_dir).get(name)
 
 
-def _inventory_places(inventory: object) -> dict[str, str]:
-    """name -> the first `at` the --inventory result (validate-inventory.py's, which with --skill-package keeps
-    only an `at` whose line writes the name) gives an entry of that name that is no `method`: SKILL.md's, then
-    the first file in path order, then its lowest line, as `_documenting_lines` orders its tiers (#1006). An
+def _inventory_forms(inventory: object) -> dict[str, list[tuple[str, int]]]:
+    """name -> every (path, line) `at` the --inventory result (validate-inventory.py's, which with --skill-package
+    keeps only an `at` whose line writes the name) gives an entry of that name that is no `method`, each once:
+    SKILL.md's first, then the files in path order, then their lines, as `_documenting_lines` orders its tiers
+    (#1006). They are the places of its forms, whose own citations pick a homonym's declaring file (#1077). An
     entry with no `at`, or one that is no "<path>:<line>", gives none. An inventory that is no object with an
     `exports` list raises AdapterError."""
     if inventory is None:
         return {}
     exports = _list(_object(inventory, "--inventory (validate-inventory.py)", "exports"), "exports", "--inventory")
     parse_at = _sibling("validate-inventory.py").parse_at
-    first: dict[str, tuple[bool, str, int]] = {}
+    places: dict[str, set[tuple[str, int]]] = {}
     for entry in exports:
         if not isinstance(entry, dict) or entry.get("kind") == "method" or not isinstance(entry.get("name"), str):
             continue
         at = parse_at(entry.get("at"))
         if at is not None:
-            key = (at[0] != "SKILL.md", *at)
-            if entry["name"] not in first or key < first[entry["name"]]:
-                first[entry["name"]] = key
-    return {name: f"{path}:{line}" for name, (_, path, line) in first.items()}
+            places.setdefault(entry["name"], set()).add(at)
+    return {name: sorted(spots, key=lambda at: (at[0] != "SKILL.md", *at)) for name, spots in places.items()}
+
+
+def _inventory_places(forms: dict[str, list[tuple[str, int]]]) -> dict[str, str]:
+    """name -> the first `at` of its `_inventory_forms`: SKILL.md's, then the first file in path order, then its
+    lowest line (#1006)."""
+    return {name: f"{path}:{line}" for name, [(path, line), *_] in forms.items()}
 
 
 def _documents(doc: str | None, name: str) -> str:
@@ -1219,8 +1319,8 @@ def _scoped_out_by(row: dict) -> bool:
                  or row.get("outsideInclude") is True))
 
 
-def _outside_scope(surface: dict | None, stale: dict[str, dict] | None = None,
-                   skill_dir: str | None = None) -> dict[str, dict] | None:
+def _outside_scope(surface: dict | None, stale: dict[str, dict] | None = None, skill_dir: str | None = None,
+                   forms: dict[str, list[tuple[str, int]]] | None = None) -> dict[str, dict] | None:
     """The names a surface result's `excluded.outsideScope` lists (defined in
     a file out of scope), each with its row: the first the brief explains
     (`_scoped_out_by`), else the first with a file, else its first. None
@@ -1234,7 +1334,8 @@ def _outside_scope(surface: dict | None, stale: dict[str, dict] | None = None,
     is the submodule, which no brief scoped out, while another row of the
     name still lists it. It stays when its `file` is the one the classified
     stale item of its name (`stale`) says the source declares it in, where
-    `_documented_extra_at` would put the gap: that name is the member."""
+    `_documented_extra_at` would put the gap, given the places of the
+    name's forms (`forms`, `_inventory_forms`): that name is the member."""
     excluded = (surface or {}).get("excluded")
     if excluded is None:
         return None
@@ -1259,7 +1360,8 @@ def _outside_scope(surface: dict | None, stale: dict[str, dict] | None = None,
     for row in rows:
         if isinstance(row, dict) and isinstance(row.get("name"), str):
             if (isinstance(row.get("namespace"), str) and row["namespace"] and row["namespace"] == row["name"]
-                    and not _declared_in_file(row, (stale or {}).get(row["name"]) or {}, skill_dir)):
+                    and not _declared_in_file(row, (stale or {}).get(row["name"]) or {}, skill_dir,
+                                              (forms or {}).get(row["name"]))):
                 continue  # the member, not the module the skill documents by that name
             known = outside.get(row["name"])
             if known is None or rank(row) > rank(known):
@@ -1267,16 +1369,18 @@ def _outside_scope(surface: dict | None, stale: dict[str, dict] | None = None,
     return outside
 
 
-def _declared_in_file(row: dict, item: dict, skill_dir: str | None) -> bool:
+def _declared_in_file(row: dict, item: dict, skill_dir: str | None,
+                      forms: list[tuple[str, int]] | None = None) -> bool:
     """Whether a stale item says the source declares its name in an
     `excluded.outsideScope` row's file: its `defined_at`, or its one cited
-    `declared_in` item, the place `_documented_extra_at` reads whatever the
+    `declared_in` item (its forms' own citations at their inventory `at`
+    first, #1077), the place `_documented_extra_at` reads whatever the
     brief scopes out (an empty `outside`)."""
-    at = _documented_extra_at(row["name"], item, {}, skill_dir)
-    if not at or not isinstance(row.get("file"), str) or not row["file"]:
+    extra = _documented_extra_at(row["name"], item, {}, skill_dir, forms)
+    if not extra or not isinstance(row.get("file"), str) or not row["file"]:
         return False
     cited_path = _sibling("validate-inventory.py")._cited_path
-    return cited_path(at[0].rsplit(":", 1)[0]) == cited_path(row["file"])
+    return cited_path(extra[0].rsplit(":", 1)[0]) == cited_path(row["file"])
 
 
 # The extensions classify-stale reads a `defined_at` in.
@@ -1287,20 +1391,39 @@ _DEFINED_AT_RE = re.compile(
     r"^.+(?:" + "|".join(re.escape(e) for e in sorted(_DEFINED_AT_EXTENSIONS)) + r"):[1-9]\d*$", re.IGNORECASE)
 
 
-def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
-                         skill_dir: str | None = None) -> tuple[str, int, list[str]] | None:
+def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None, skill_dir: str | None = None,
+                         forms: list[tuple[str, int]] | None = None) -> tuple[str, int, list[str], list[str]] | None:
     """Where the source declares a stale name that is a documented extra, given
     a surface built from an extraction whose `excluded.outsideScope` does not
-    list the name: (the item's `defined_at`, 0, []), or, with no `defined_at`,
-    (the one `declared_in` item whose file the skill cites on a line that
-    names it, the number of files `declared_in` lists, []) when it lists
-    several. Cited items that are only a package `<dir>/NAME/__init__.py` and
-    modules named NAME directly in its folder (`<dir>/NAME/NAME.py` or
-    `.pyi`) count as that one file, the package the import path `<dir>.NAME`
-    resolves to (#1012): (its item, the count, those modules' items).
+    list the name: (the item's `defined_at`, 0, [], []), or, with no
+    `defined_at`, when `declared_in` lists several files, the one
+    `declared_in` item whose file its forms' own citations (at their
+    inventory `at`), else the skill's on lines naming it, cite. Its forms'
+    own are every `[AST:]` and `[SRC:]` citation validate-inventory.py's
+    form_citations gives the form at each of `forms` (_inventory_forms: a
+    (path, line) in a SKILL.md or references/**/*.md file), with the name's
+    other places in that file, as score-signatures.py's _bindings reads
+    them, one with no `:L<n>` part included: a line that writes the name
+    only as a type argument of another export cites that export's file
+    (#1077), and every form counts, so one form never hides another's
+    citation of a second declaring file. The skill's are the ones
+    validate-inventory.py's _skill_cited_files reads on a line that names it,
+    read when its forms' own cite no single file between them: no `forms`,
+    none in a skill file, or forms citing none of those files or two. They
+    are read with the forms' own, which that line scan misses after a
+    closing fence, on a comment line above the declaration or with no
+    `:L<n>`, so forms citing two files keep the Medium and the skill's lines
+    decide only for forms citing none of them. That
+    pick is (the item, the number of files `declared_in` lists, [], each
+    form's "<path>:<line>" that cites the picked file, or [] for the
+    skill's). Cited items that are only a
+    package `<dir>/NAME/__init__.py` and modules named NAME directly in its
+    folder (`<dir>/NAME/NAME.py` or `.pyi`) count, in either reading, as
+    that one file, the package the import path `<dir>.NAME` resolves to
+    (#1012): (its item, the count, those modules' items, the forms or []).
     None for anything else, which stays a Medium gap: no `defined_at` and no
     single cited declaring file (two or more cited that are not such a
-    package and its modules, none, or no --skill-dir),
+    package and its modules, or none, in both readings, or no --skill-dir),
     a `defined_at` or `declared_in` item not a Python or TS/JS `file:line`, a
     dotted name, no surface or one without an extraction, or a name a brief
     scoped out (a namespace's member named like its namespace scopes out
@@ -1312,17 +1435,40 @@ def _documented_extra_at(name: str, item: dict, outside: dict[str, dict] | None,
     if defined_at is not None:
         if not isinstance(defined_at, str) or not _DEFINED_AT_RE.match(defined_at):
             return None
-        return defined_at, 0, []
+        return defined_at, 0, [], []
     declared_in = item.get("declared_in")
     if not skill_dir or not isinstance(declared_in, list) or not all(
             isinstance(d, str) and _DEFINED_AT_RE.match(d) for d in declared_in):
         return None
-    # validate-inventory.py's skill-citation scan, which score-signatures.py's plan reads too.
+    # validate-inventory.py's form and skill-citation scans, which score-signatures.py's plan reads too.
     citations = _sibling("validate-inventory.py")
     by_file = {citations._cited_path(d.rsplit(":", 1)[0]): d for d in declared_in}
     if len(by_file) < 2:
         return None
-    cited = citations._skill_cited_files(Path(skill_dir), name)
+    texts = citations.skill_markdown_by_path(Path(skill_dir))
+    # its forms' own citations first: a line naming it as another export's type argument cites that export (#1077);
+    # each form reads the name's other places in its file, as score-signatures.py's _bindings does
+    own: dict[str, set[str]] = {}
+    for path, line in forms or []:
+        others = {other for where, other in forms if where == path and other != line}
+        own[f"{path}:{line}"] = {cited for cited, _, _ in citations.form_citations(
+            texts.get(path) or [], line, name, others)}
+    picked = _one_cited_file(name, by_file, set().union(*own.values()))
+    if picked:
+        files = {citations._cited_path(d.rsplit(":", 1)[0]) for d in (picked[0], *picked[2])}
+        return (*picked, [at for at, cited in own.items() if cited & files])
+    # the skill's lines with the forms' own, which a line scan misses (after a fence, a comment above, no `:L<n>`):
+    # forms citing two files never leave one for the skill's lines to pick
+    skill = citations._skill_cited_files(Path(skill_dir), name, list(texts.values()))
+    picked = _one_cited_file(name, by_file, skill | set().union(*own.values()))
+    return (*picked, []) if picked else None
+
+
+def _one_cited_file(name: str, by_file: dict[str, str], cited: set[str]) -> tuple[str, int, list[str]] | None:
+    """The one item of a homonym's declaring files (`by_file`: each file, _cited_path, to its `declared_in` item)
+    among the `cited` files: (its item, the number of files, []), or, for cited files that are only a package
+    `<dir>/NAME/__init__.py` and modules named NAME directly in its folder, (the package's item, the number, those
+    modules' items) (#1012). None for none, or any other two."""
     chosen = [f for f in sorted(by_file) if f in cited]
     if len(chosen) == 1:
         return by_file[chosen[0]], len(by_file), []
@@ -1447,24 +1593,83 @@ def _star_files(surface: dict | None) -> dict[str, list[dict]]:
     return held
 
 
-def _unchecked_star_gap(name: str, stars: list[dict], doc: str | None) -> dict:
-    """The Info `observation` of a stale name with no `defined_at` that the skill cites at a file holding an
-    `export *` from another package (#1005): no script reads that package, so the surface cannot hold the
-    names it passes on, and the name may well be one of them. Its title is not the Deep tier's
-    `Not checked by script: {name}` score-signatures.py records from a signature judge's `doc_errors`, which the
-    ledger would read as the same gap at the same line."""
-    def at(star: dict) -> str:
-        line = _count(star.get("line"))
-        return f"`{star['statement']}` (`{star['file']}{f':{line}' if line else ''}`)"
+def _star_entries(item: dict) -> list[dict]:
+    """The `entries` of a classified stale item that cite an `export *` line (#1070): each with a `star`, the
+    module classify-stale read in the `export *` or `export type *` at its cited line, and a `source_file`, both
+    non-empty strings. A missing or malformed `entries` or `star` gives none."""
+    entries = item.get("entries")
+    return [e for e in entries if isinstance(e, dict) and isinstance(e.get("star"), str) and e["star"]
+            and isinstance(e.get("source_file"), str) and e["source_file"].strip()
+            ] if isinstance(entries, list) else []
 
-    through = " and ".join(at(s) for s in stars)
+
+def _entry_line(value: object) -> int | None:
+    """A map entry's `source_line` as classify-stale reads it (`_coerce_line`): a number, or a string `int()`
+    reads, above 0."""
+    if isinstance(value, str):
+        try:
+            value = int(value.strip())
+        except ValueError:
+            return None
+    line = _count(value)
+    return line if line is not None and line > 0 else None
+
+
+def _entry_stars(entries: list[dict], stars: dict[str, list[dict]]) -> list[dict]:
+    """The `unresolvedStars` statements whose own line one of `entries` (`_star_entries`) cites (#1070): a star of
+    the entry's file (as citations compare it, `_star_files`) whose statement names the entry's module, matched
+    by file and module and never by line, as load-coverage-inputs.py tells two stars apart (the runner's stars
+    carry no line). Each is given as {the statement, the entry's file and line}, the line classify-stale read,
+    once."""
+    if not entries or not stars:
+        return []
+    cited_path = _sibling("validate-inventory.py")._cited_path
+    specifier = _sibling("load-coverage-inputs.py").STAR_SPECIFIER_RE
+    found: list[dict] = []
+    for entry in entries:
+        for star in stars.get(cited_path(entry["source_file"]), []):
+            named = specifier.search(star["statement"])
+            if named and named.group(2) == entry["star"]:
+                at = {"file": entry["source_file"].strip(), "line": _entry_line(entry.get("source_line")),
+                      "statement": star["statement"]}
+                if at not in found:
+                    found.append(at)
+    return found
+
+
+def _unchecked_star_gap(name: str, stars: list[dict], doc: str | None, mapped: list[dict] | None = None) -> dict:
+    """The Info `observation` of a stale name with no `defined_at` that the skill cites at a file holding an
+    `export *` from another package (#1005, `stars`): no script reads that package, so the surface cannot hold
+    the names it passes on, and the name may well be one of them. Its title is not the Deep tier's
+    `Not checked by script: {name}` score-signatures.py records from a signature judge's `doc_errors`, which the
+    ledger would read as the same gap at the same line. `mapped` are the stars the name's provenance map
+    entries cite at their own lines (#1070, `_entry_stars`) that `stars` does not hold: the issue and
+    remediation name them too, at each entry's file and line, since an entry's star, never a skill citation,
+    is what reads a fabricated name as not fabricated."""
+    def at(group: list[dict]) -> str:
+        placed = [(s, _count(s.get("line"))) for s in group]
+        return " and ".join(f"`{s['statement']}` (`{s['file']}{f':{line}' if line else ''}`)" for s, line in placed)
+
+    passes = "passes" if len(mapped or []) == 1 else "pass"
+    if not stars:
+        return _gap(
+            "Info", "observation", f"Not checked by script: {name} (another package's export *)", doc or "SKILL.md",
+            f"No change unless the other package does not export `{name}`: its provenance map cites it at "
+            f"{at(mapped)}, which {passes} on that package's names, and no script reads them, so check by hand that "
+            f"the package exports `{name}`.",
+            issue=f"{_documents(doc, name)}, which the enumerated source API surface lacks; its provenance map "
+                  f"cites it at {at(mapped)}, which {passes} on another package's names and which no script resolves",
+            export=name)
+    entries = f" its provenance map cites it at {at(mapped)}, which {passes} on that package's names," if mapped else ""
+    issue_entries = (f", and its provenance map cites it at {at(mapped)}, which {passes} on another package's names "
+                     "and which no script resolves" if mapped else "")
     return _gap(
         "Info", "observation", f"Not checked by script: {name} (another package's export *)", doc or "SKILL.md",
         f"No change unless the other package does not export `{name}`: a file the skill cites passes on that "
-        f"package's names through {through}, and no script reads them, so check by hand that the package exports "
-        f"`{name}`.",
+        f"package's names through {at(stars)},{entries} and no script reads them, so check by hand that the package "
+        f"exports `{name}`.",
         issue=f"{_documents(doc, name)}, which the enumerated source API surface lacks; a file the skill cites "
-              f"passes on another package's names through {through}, which no script resolves",
+              f"passes on another package's names through {at(stars)}, which no script resolves{issue_entries}",
         export=name)
 
 
@@ -1497,9 +1702,12 @@ def _missing_gaps(cov: dict, surface: dict | None, types: set[str], meta: str) -
 def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str],
                 skill_dir: str | None, inventory: object = None) -> list[dict]:
     """One gap per `stale` name: fabricated, a documented extra, not checked by script (cited at a file whose
-    `export *` from another package no script resolves, #1005), or stale documentation (with its own wording
-    for a name defined in a file the brief scopes out, #796). A name no line documents (`_documenting_lines`)
-    is documented at its inventory place (`_inventory_places`, #1006), else by the skill."""
+    `export *` from another package no script resolves, #1005, or whose provenance map entry cites such a star's
+    own line, `_entry_stars`, which a fabricated name then is not, #1070), or stale documentation (with its own
+    wording for a name defined in a file the brief scopes out, #796). A name no line documents (`_documenting_lines`)
+    is documented at its first inventory place (`_inventory_places`, #1006), else by the skill. Each of its
+    inventory places is a form whose own citations pick a homonym's declaring file first (`_documented_extra_at`,
+    #1077)."""
     records: list[dict] = []
     # `excluded` is read once a stale name may be a documented extra
     outside: dict[str, dict] | None = None
@@ -1515,13 +1723,20 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
     names = _names(cov, "stale", "--input")
     # the lines that document each name, read once for every stale name
     documenting = _documenting_lines(Path(skill_dir)) if skill_dir and names else {}
-    # the validated inventory's place of a name no line documents as an export (#1006)
-    placed = _inventory_places(inventory)
+    # the validated inventory's places of each name's forms (#1077), the first that of a name no line documents
+    # as an export (#1006)
+    forms = _inventory_forms(inventory)
+    placed = _inventory_places(forms)
     for name in names:
         item = classified.get(name) or {}
         cited = item.get("source")
         doc = documenting.get(name) or placed.get(name)
-        if item.get("fabricated") is True:
+        # the stars whose own line a map entry of the name cites (#1070), read like those stars
+        starred = _star_entries(item)
+        if starred and stars is None:
+            stars = _star_files(surface)
+        mapped = _entry_stars(starred, stars or {})
+        if item.get("fabricated") is True and not mapped:
             if not isinstance(cited, str) or not cited:
                 # a Critical gap needs the line it cites: never downgrade it
                 raise AdapterError(f"--stale: {name!r} is fabricated with no source")
@@ -1534,17 +1749,19 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
                 export=name))
             continue
         if not outside_read:
-            outside, outside_read = _outside_scope(surface, classified, skill_dir), True
-        extra = _documented_extra_at(name, item, outside, skill_dir)
+            outside, outside_read = _outside_scope(surface, classified, skill_dir, forms), True
+        extra = _documented_extra_at(name, item, outside, skill_dir, forms.get(name))
         if extra:
-            declared, among, modules = extra
-            # a homonym: the one declaring file the skill's own citations name
-            picked = (f"; of the {among} files that declare it, the skill cites only "
+            declared, among, modules, named = extra
+            # a homonym: the one declaring file its forms' own citations name (#1077), else the skill's
+            who = ("the skill cites" if not named else f"its form at `{named[0]}` cites" if len(named) == 1 else
+                   f"its forms at {' and '.join(f'`{at}`' for at in named)} cite")
+            picked = (f"; of the {among} files that declare it, {who} only "
                       f"`{declared.rsplit(':', 1)[0]}`") if among else ""
             if modules:
                 # a package cited with its same-named module, #1012
                 same_named = " and ".join(f"`{m.rsplit(':', 1)[0]}`" for m in modules)
-                picked = (f"; of the {among} files that declare it, the skill cites only the package "
+                picked = (f"; of the {among} files that declare it, {who} only the package "
                           f"`{declared.rsplit(':', 1)[0]}` and its same-named module {same_named}, so the gap is at "
                           "the package")
             # never routed: update-skill leaves an `observation` alone. Signature scoring compares a
@@ -1565,16 +1782,25 @@ def _stale_gaps(cov: dict, surface: dict | None, stale: object, scored: set[str]
             # an entry point exports it from a file the brief scopes out (#796)
             records.append(_scoped_out_gap(name, outside[name], doc, _brief_of(surface)))
             continue
-        if skill_dir and item.get("defined_at") is None:
-            # no file declares it, and the skill cites a file that passes on another package's names (#1005)
-            citations = _sibling("validate-inventory.py")
-            if stars is None:
-                stars = _star_files(surface)
-                texts = citations.skill_markdown_lines(Path(skill_dir)) if stars else []
-            cited = citations._skill_cited_files(Path(skill_dir), name, texts) if stars else set()
-            through = [s for f in sorted(cited) for s in stars.get(f, [])]
-            if through:
-                records.append(_unchecked_star_gap(name, through, doc))
+        if item.get("defined_at") is None:
+            # no file declares it, and the skill cites a file that passes on another package's names (#1005), or
+            # its provenance map cites such a star's own line (#1070)
+            through: list[dict] = []
+            if skill_dir:
+                citations = _sibling("validate-inventory.py")
+                if stars is None:
+                    stars = _star_files(surface)
+                if texts is None:
+                    texts = citations.skill_markdown_lines(Path(skill_dir)) if stars else []
+                cited = citations._skill_cited_files(Path(skill_dir), name, texts) if stars else set()
+                through = [s for f in sorted(cited) for s in stars.get(f, [])]
+            if through or mapped:
+                # the stars a map entry cites that no skill citation gives are named too: they, not a citation,
+                # are what lifts a fabricated name (#1070)
+                cited_path = _sibling("validate-inventory.py")._cited_path
+                given = {(cited_path(s["file"]), s["statement"]) for s in through}
+                records.append(_unchecked_star_gap(
+                    name, through, doc, [s for s in mapped if (cited_path(s["file"]), s["statement"]) not in given]))
                 continue
         records.append(_gap(
             "Medium", "stale-documentation", f"Stale documentation: {name}", doc or "SKILL.md",
@@ -1890,6 +2116,23 @@ def _aliased_items(stale: object) -> dict[str, dict]:
             and i["defined_at"].rpartition(":")[2].isdigit()}
 
 
+def _star_lines(stale: object) -> dict[tuple[str, str, int | None], str]:
+    """(name, an entry's file as citations compare it, its line, `_entry_line`) -> the module of the `export *`
+    or `export type *` at that line, for each entry of a classify-stale item (`--stale`) with a `star`
+    (`_star_entries`, #1070) that names another package: a module that is no relative or absolute path. A
+    missing or malformed result gives none (`_aliased_items` refuses one that is no list)."""
+    found: dict[tuple[str, str, int | None], str] = {}
+    for item in stale if isinstance(stale, list) else []:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            continue
+        for entry in _star_entries(item):
+            if not entry["star"].startswith((".", "/")):
+                cited_path = _sibling("validate-inventory.py")._cited_path
+                key = (item["name"], cited_path(entry["source_file"]), _entry_line(entry.get("source_line")))
+                found.setdefault(key, entry["star"])
+    return found
+
+
 def _alias_fix(name: str, file: str, item: dict) -> str:
     """The remediation of an unverified provenance line of a name classify-stale found `aliased` (`item`): record
     the rename if no other entry already has its `export_name`, else cite the alias. The map keys on
@@ -1917,9 +2160,12 @@ def from_provenance_line(result: object, stale: object = None) -> list[dict]:
     """verify's `stale[]` items: provenance line gaps, one per citation that does not resolve or is not the
     definition line. `stale` (classify-stale's result, `--stale`, or None) gives the names a rename declares: an
     unverified line of one names the alias and, unless the name it renames is `default`, how to record the rename
-    (#911)."""
+    (#911). It also gives the entries at another package's `export *` line (`_star_lines`): an unverified line
+    of one says the line passes on that package's names and asks no change unless it lacks the name, as the
+    coverage call's observation of it does (#1070)."""
     result = _object(result, "--input (skf-verify-provenance-completeness.py verify)", "stale")
     aliased = _aliased_items(stale)
+    starred = _star_lines(stale)
     records: list[dict] = []
     for item in _list(result, "stale", "--input"):
         if not isinstance(item, dict):
@@ -1975,11 +2221,19 @@ def from_provenance_line(result: object, stale: object = None) -> list[dict]:
                 export=name))
         else:
             alias = aliased[name] if isinstance(name, str) and name in aliased else None
+            # an entry at another package's `export *` line: no line of its file can define the name (#1070)
+            star = None if alias or not starred or not isinstance(file, str) else starred.get(
+                (name, _sibling("validate-inventory.py")._cited_path(file), _entry_line(line)))
             fix = _alias_fix(name, file, alias) if alias else (
+                f"No change unless `{star}` does not export `{name}`: line {line} of `{file}` is an `export *` "
+                f"from that package, which passes on its names, so no line of `{file}` defines `{name}`, and no "
+                f"script reads them; check by hand that `{star}` exports `{name}`." if star else
                 f"Open `{file}` and confirm that line {line} defines `{base or name}`; if another line does, set "
                 "the provenance `source_line` to it.")
             issue = (f"no line of `{file}` defines `{name}`: the source declares it only as the alias at "
                      f"`{alias['defined_at']}`" if alias else
+                     f"line {line} of `{file}` is an `export *` from `{star}`, another package whose names no "
+                     f"script reads, so no line of `{file}` defines `{name}`; check by hand" if star else
                      f"the line-check rules found no definition line for `{name}` in `{file}`; check by hand")
             records.append(_gap(
                 "Info", "provenance-unverified", f"Provenance line not verified for {name}", where, fix,
@@ -2375,11 +2629,13 @@ def _build_parser() -> argparse.ArgumentParser:
                                      "the names outside scope)")
     p.add_argument("--signatures", help="coverage: score-signatures.py score's result (missingTypes)")
     p.add_argument("--numerator", help="coverage: verify-declared-numerator.py's result (absent names)")
-    p.add_argument("--stale", help="coverage: classify-stale's result (fabricated signatures, documented extras); "
-                                   "provenance-line: the same (the names a rename declares)")
+    p.add_argument("--stale", help="coverage: classify-stale's result (fabricated signatures, documented extras, "
+                                   "map entries at an `export *` line); provenance-line: the same (the names a "
+                                   "rename declares, the entries at another package's `export *` line)")
     p.add_argument("--provenance", help="coverage: the provenance map (an absent name's Source)")
     p.add_argument("--inventory", help="coverage: validate-inventory.py's inventory (the `at` of a stale name no "
-                                       "line documents)")
+                                       "line documents, and of each of a homonym's forms, whose own citations pick "
+                                       "its declaring file)")
     p.add_argument("--skill-dir", help="coverage: the skill package (a stale name's documenting line)")
     p.add_argument("--metadata", help="the metadata.json path a record cites as its Source (not read)")
     p.add_argument("--served", action="append", choices=FAMILIES,

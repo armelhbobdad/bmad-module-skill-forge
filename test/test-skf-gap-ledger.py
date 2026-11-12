@@ -35,11 +35,21 @@ counts and the Gap Report is rendered from:
     name stays Critical, a malformed `excluded` is invalid input, the
     `defined_at` extensions are pinned to the verifier's, and the
     coverage-check §5b call records one; a homonym (no `defined_at`,
-    several `declared_in` files) is one when the skill's `[AST:]`/`[SRC:]`
-    citations on a line naming it cite exactly one of those files, or
+    several `declared_in` files) is one when its forms' own citations at
+    their inventory `at` (#1077, every form counted and each reading the
+    name's other places in its file, read before a line that names it only
+    as another export's type argument, on the #969 path too), else the
+    skill's `[AST:]`/`[SRC:]`
+    citations on a line naming it (a table row's in its own cells, never
+    in the next row, #1066), cite exactly one of those files, or
     only a package's `__init__.py` and a module of its name in that
-    folder (#1012, at the package), and
-    stays Medium when they cite any other two or none, without --skill-dir, or with
+    folder (#1012, at the package), its issue naming the reading that
+    picked it, and
+    stays Medium when they cite any other two or none (forms that cite
+    two between them keep it Medium, a citation the skill's lines miss
+    counted; a form that cites none, or no usable `at`, leaves the skill's
+    lines to decide),
+    without --skill-dir, or with
     a `declared_in` that is not a list of several `file:line` items
   - a name cited at another package's `export *` (#1005): a stale name
     with no `defined_at` whose skill citations cite a file the surface's
@@ -47,9 +57,16 @@ counts and the Gap Report is rendered from:
     script: {name} (another package's export *)` at the documenting line,
     naming each star and asking no change, beside the Deep tier's `Not
     checked by script: {name}` score-signatures.py records (#1084);
-    another cited file, no --skill-dir, a
-    missing or malformed list, a `defined_at`, a rescope or a fabricated
-    name keeps its gap
+    another cited file, a file only the next table row cites (#1066), no
+    --skill-dir, a missing or malformed list, a `defined_at`, a rescope or
+    a fabricated name keeps its gap; a map entry at the star's own line
+    (#1070, classify-stale's `star`, matched by file and module) makes
+    that observation, fabricated or not, with or without --skill-dir,
+    naming the entry's file and line, unless the skill's citations give
+    the star (#1005's record, naming beside it a star the entry cites
+    that they do not give) or the brief scopes the name out (its Medium);
+    an entry at another line, a module or file no star lists, or a
+    missing or malformed `entries`, `star` or list keeps the name Critical
   - an inflated `scope.include` union (#795): when the inflation guard
     fires on the set the barrel branch counts, its undocumented names are
     one Medium `denominator-inflation` gap at the brief listing at most 50
@@ -89,6 +106,14 @@ counts and the Gap Report is rendered from:
     as c`, `import * as ns from`), so a type's method row, a receiver's
     call or an attribute access (`Client.connect()`, `client.connect(url)`,
     `store.state`) never outranks the line that documents the name
+  - a not-covered sentence (#1080): a sentence of a heading or a prose
+    block that says the skill does not cover a name (`out of scope for
+    this skill`, `not covered here`, any case, outside its code spans)
+    keys nothing, so a later line that writes the name documents it, and
+    a name written only there is documented nowhere; a sentence ends at
+    `.`, `!` or `?` before whitespace or at a table row's unescaped `|`,
+    never inside a code span, so the line's other sentences and the row's
+    other cells still document theirs
   - a name no line documents (#1006): the first `at` the --inventory
     result gives an entry of the name that is no `method` (SKILL.md's,
     then by path, then the lowest line) is its Source, its Issue's line
@@ -99,7 +124,9 @@ counts and the Gap Report is rendered from:
     line of a name classify-stale marks `aliased` names the alias and asks
     to record the rename if no other entry already has its `export_name`,
     the renamed name else a phrase standing for it, else to cite the
-    alias; an alias of `default` only cites the alias line; any other
+    alias; an alias of `default` only cites the alias line; an entry at
+    another package's `export *` line (#1070) asks no change unless that
+    package lacks the name; any other
     record keeps its text, and a --stale that is not a list is refused
 """
 
@@ -1263,13 +1290,13 @@ class TestCoverageAdapter:
     MODULE_AT = "pkg/api/visualize/start_server.py:1"
 
     def _collision(self, *rows: dict, defined_at: str | None = MODULE_AT, declared_in: list[str] | None = None,
-                   skill_dir: str | None = None) -> tuple[dict, dict]:
+                   skill_dir: str | None = None, inventory: dict | None = None) -> tuple[dict, dict]:
         surface = self.BRIEFED_SURFACE | {"excluded": {"outsideScope": list(rows), "nestedEntries": []}}
         stale = [{"name": "start_server", "fabricated": False, "source": None}
                  | ({"defined_at": defined_at} if defined_at else {})
                  | ({"declared_in": declared_in} if declared_in else {})]
         [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["start_server"]},
-                                     surface=surface, stale=stale, skill_dir=skill_dir)
+                                     surface=surface, stale=stale, skill_dir=skill_dir, inventory=inventory)
         return record, surface
 
     def test_a_member_named_like_its_namespace_scopes_out_no_module(self):
@@ -1320,6 +1347,36 @@ class TestCoverageAdapter:
         else:
             assert brief([record]) == [("Info", "observation", "Documented extra: start_server", self.MODULE_AT,
                                         "start_server")]
+            assert "scopes out" not in record["issue"] + record["remediation"]
+
+    @pytest.mark.parametrize("cited, other, scoped_out", [
+        ("pkg/shared/utils.py", "pkg/api/visualize/start_server.py", True),
+        ("pkg/api/visualize/start_server.py", "pkg/shared/utils.py", False),
+    ], ids=["the-form-cites-the-members-file", "the-form-cites-the-module"])
+    def test_a_homonym_s_form_decides_whether_a_namespace_member_scopes_it_out(
+            self, tmp_path: Path, cited: str, other: str, scoped_out: bool):
+        """#1077 on the #969 path: the file its form at its inventory `at` cites decides, not the file another
+        export's row that mentions the name cites (on HEAD each read the row's file, the reverse)."""
+        skill = tmp_path / "skill"
+        (skill / "references").mkdir(parents=True)
+        (skill / "SKILL.md").write_bytes(
+            f"# demo\n\n| `Runner` | class | Calls `start_server`. | `[AST:{other}:L1]` |\n".encode("utf-8"))
+        (skill / "references" / "api.md").write_bytes(
+            f"# API\n\n```python\ndef start_server():\n    ...\n```\n[AST:{cited}:L1]\n".encode("utf-8"))
+        inventory = {"exports": [{"name": "start_server", "kind": "function", "description": "",
+                                  "at": "references/api.md:4"}]}
+        record, _ = self._collision(self.COLLISION, defined_at=None, skill_dir=str(skill), inventory=inventory,
+                                    declared_in=[self.MODULE_AT, "pkg/shared/utils.py:1"])
+        if scoped_out:
+            assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: start_server",
+                                        "SKILL.md:3", "start_server")]
+            assert "scopes out `pkg/shared/utils.py:1`, where it is defined" in record["remediation"]
+        else:
+            assert brief([record]) == [("Info", "observation", "Documented extra: start_server", self.MODULE_AT,
+                                        "start_server")]
+            assert record["issue"].endswith(
+                "the source still declares; of the 2 files that declare it, its form at `references/api.md:4` "
+                "cites only `pkg/api/visualize/start_server.py`")
             assert "scopes out" not in record["issue"] + record["remediation"]
 
     @pytest.mark.parametrize("namespace", ["tools", None, "", 3, "absent"],
@@ -1606,6 +1663,79 @@ class TestCoverageAdapter:
         assert record["remediation"].endswith(f"documentation at {expected}: the enumerated source surface does not "
                                               "export it.")
 
+    # #1080: oms-cognee's `setup_logging`, cited at a list item saying it is out of scope for this skill before the
+    # `cognee.logger` row that writes `logger = setup_logging()`. A table whose header names no exports, so the floor
+    # reads none of its cells and a row's cells are what tiers 2 to 4 read.
+    NOTE_TABLE = "| Option | Note |\n| --- | --- |\n"
+
+    @pytest.mark.parametrize("skill_md, name, expected", [
+        ("# demo\n\n- `load_env` and `setup_logging` are among them but out of scope for this skill.\n\n"
+         "| Export | Kind | Description |\n| --- | --- | --- |\n"
+         "| `pkg.logger` | logger | Bound as `logger = setup_logging()`. |\n", "setup_logging", "SKILL.md:7"),
+        # the second phrase, capitalised, before a usage form's call
+        ("# demo\n\n- Not covered here: `get`.\n\nCall `await pkg.get(key)`.\n", "get", "SKILL.md:5"),
+        # an earlier sentence of the line keeps its span; the disclaimer's does not
+        ("# demo\n\nUse `pkg.add` first. `drop` is out of scope for this skill.\n\nThe `drop` step.\n", "add",
+         "SKILL.md:3"),
+        ("# demo\n\nUse `pkg.add` first. `drop` is out of scope for this skill.\n\nThe `drop` step.\n", "drop",
+         "SKILL.md:5"),
+        # a sentence wrapped over two lines of its paragraph, the phrase too; a later sentence keeps its own line
+        ("# demo\n\nThe names `drop` and `purge` are\nout of scope for this skill.\n\nCall `drop(x)`.\n", "drop",
+         "SKILL.md:6"),
+        ("# demo\n\nThe `drop` flag is out of scope\nfor this skill.\n", "drop", None),
+        ("# demo\n\nThe names `drop` and `purge` are\nout of scope for this skill. Use `add` first.\n", "add",
+         "SKILL.md:4"),
+        # `?` and `!` end a sentence; a dot inside a word does not; an emphasis `_` hides no phrase
+        ("# demo\n\nIs `pkg.add` the entry? `drop` is not covered here.\n", "add", "SKILL.md:3"),
+        ("# demo\n\nCall `pkg.add` now! `drop` is not covered here.\n", "add", "SKILL.md:3"),
+        ("# demo\n\nThe `drop` flag (v1.2) is not covered here.\n", "drop", None),
+        ("# demo\n\n`drop` is _not covered here_.\n", "drop", None),
+        # a name written only in a disclaimer: no line documents it
+        ("# demo\n\n`drop` is not covered here.\n", "drop", None),
+        # a module path (tier 4), and a heading (tier 2)
+        ("# demo\n\n`pkg.exceptions` is not covered here.\n\nSee `pkg.exceptions` below.\n", "exceptions",
+         "SKILL.md:5"),
+        ("# demo\n\n## `drop` (out of scope for this skill)\n\nCall `drop(x)`.\n", "drop", "SKILL.md:5"),
+        # a row's cells: a Note cell disclaims, the first cell stays; a description cell's disclaimer keys nothing
+        ("# demo\n\n" + NOTE_TABLE + "| `drop` | Not covered here. |\n", "drop", "SKILL.md:5"),
+        ("# demo\n\n" + NOTE_TABLE + "| `keep` | Unlike `drop`, which is not covered here. |\n\nThe `drop` step.\n",
+         "drop", "SKILL.md:7"),
+        # the phrase inside a span says nothing, and a dot inside a span ends no sentence
+        ("# demo\n\nThe `drop` flag (`not covered here`).\n", "drop", "SKILL.md:3"),
+        ("# demo\n\nIn `drop` and `a. b`, not covered here.\n", "drop", None),
+        # a bar ends a sentence only in a table row, and an escaped bar never does
+        ("# demo\n\nThe `drop` | `purge` pair is not covered here.\n", "drop", None),
+        ("# demo\n\n" + NOTE_TABLE + "| `keep` | `drop` \\| B, not covered here. |\n", "drop", None),
+    ], ids=["issue-case", "second-phrase-capitalised", "earlier-sentence-kept", "disclaimer-sentence-skipped",
+            "wrapped-sentence", "wrapped-phrase", "sentence-after-wrap", "question-ends", "exclamation-ends",
+            "dot-in-word", "underscore-emphasis", "only-a-disclaimer", "module-path", "heading", "first-cell-kept",
+            "description-cell", "phrase-in-span", "dot-in-span", "bar-in-prose", "escaped-bar-in-row"])
+    def test_a_not_covered_sentence_documents_nothing(self, tmp_path: Path, skill_md: str, name: str,
+                                                       expected: str | None):
+        """#1080: a sentence of a heading or a prose block that says the skill does not cover a name (`out of scope
+        for this skill`, `not covered here`, any case, outside its code spans) keys nothing in tiers 2 to 4, so a
+        later line that documents the name is its Source, its Issue's line and the line its remediation names; a
+        sentence ends at `.`, `!` or `?` before whitespace or at a table row's unescaped `|`, never inside a code
+        span, and runs across its block's lines. A name written only in a disclaimer is documented nowhere."""
+        skill = self._skill_package(tmp_path / "skill", {"SKILL.md": skill_md + self.IMPORTS_PKG})
+        assert mod._documenting_line(skill, name) == expected
+        [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]}, skill_dir=str(skill))
+        doc = expected or "SKILL.md"
+        assert (record["source"], record["issue"]) == (
+            doc, f"{f'`{expected}`' if expected else 'the skill'} documents `{name}`, which the enumerated source "
+                 "API surface lacks")
+        assert record["remediation"].endswith(f"documentation at {doc}: the enumerated source surface does not "
+                                              "export it.")
+
+    def test_a_not_covered_export_cell_documents_nothing(self, tmp_path: Path):
+        """#1080: in a nested reference, which the floor does not read, an export table's first cell that says the
+        skill does not cover its name is no heading-tier key, so a later line that writes the name documents it."""
+        skill = self._skill_package(tmp_path / "skill", {
+            "SKILL.md": "# demo\n" + self.IMPORTS_PKG,
+            "references/sub/api.md": ("# API\n\n| Function | Note |\n| --- | --- |\n"
+                                      "| `drop` (not covered here) | x |\n\nThe `drop` step.\n")})
+        assert mod._documenting_line(skill, "drop") == "references/sub/api.md:7"
+
     def test_a_usage_form_documents_only_the_name_it_calls(self, tmp_path: Path):
         """#1041: a comparison, an assignment or `await` with no call, a space or type arguments before the `(`, a
         longer name and an array type in an export cell never document `add`; the name a call writes does."""
@@ -1836,7 +1966,7 @@ class TestCoverageAdapter:
                "declared_in": ["pkg/models/Task.py:9", "pkg/tasks/task.py:24"], "reason": "no-entry"}
 
     def _homonym(self, tmp_path: Path, skill_md: str, refs: str | None = None, item: dict | None = None,
-                 name: str = "Task", skill: bool = True) -> dict:
+                 name: str = "Task", skill: bool = True, inventory: dict | None = None) -> dict:
         skill_dir = tmp_path / "skill"
         (skill_dir / "references").mkdir(parents=True, exist_ok=True)
         (skill_dir / "SKILL.md").write_bytes(skill_md.encode("utf-8"))
@@ -1844,7 +1974,7 @@ class TestCoverageAdapter:
             (skill_dir / "references" / "api.md").write_bytes(refs.encode("utf-8"))
         [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": [name]},
                                      surface=self.EXCLUDED_SURFACE, stale=[(item or self.HOMONYM) | {"name": name}],
-                                     skill_dir=str(skill_dir) if skill else None)
+                                     skill_dir=str(skill_dir) if skill else None, inventory=inventory)
         return record
 
     @pytest.mark.parametrize("skill_md, refs", [
@@ -1855,8 +1985,10 @@ class TestCoverageAdapter:
          None),
         ("# demo\n\n### `Task`\n\n`[AST:pkg/tasks/task.py:L24]`\n", None),
         ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]` `[AST:pkg/models/Task.py]`\n", None),
+        ("# demo\n\n| `Task` | class | `[AST:pkg/tasks/task.py:L24]` |\n"
+         "| `Other` | class | `[AST:pkg/models/Task.py:L9]` |\n", None),
     ], ids=["skill-md", "references-src-range", "a-cited-file-that-declares-nothing", "the-other-on-a-line-without-it",
-            "a-heading-then-its-citation", "a-citation-with-no-line-is-ignored"])
+            "a-heading-then-its-citation", "a-citation-with-no-line-is-ignored", "a-row-then-another-export-s-row"])
     def test_a_homonym_the_skill_cites_once_is_a_documented_extra(self, tmp_path: Path, skill_md: str,
                                                                  refs: str | None):
         record = self._homonym(tmp_path, skill_md, refs)
@@ -1904,6 +2036,7 @@ class TestCoverageAdapter:
         ("# demo\n\n`Task` `[AST:pkg/tasks/__init__.py:L1]`\n", {}),
         ("# demo\n\n`Task`\nPlain text.\nSee `[AST:pkg/tasks/task.py:L24]`\n", {}),
         ("# demo\n\n### `Task`\n\n`[AST:pkg/tasks/task.py:L24]` `[AST:pkg/models/Task.py:L9]`\n", {}),
+        ("# demo\n\n| `Task` | class |\n| `Other` | class | `[AST:pkg/tasks/task.py:L24]` |\n", {}),
         ("# demo\n\nSee `[AST:pkg/tasks/Task.py:L3]` and `[AST:pkg/models/Task.py:L9]`\n", {}),
         ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\n", {"skill": False}),
         ("# demo\n\n`Task` `[AST:pkg/tasks/task.py:L24]`\n", {"item": HOMONYM | {"declared_in": ["pkg/tasks/task.py:24"]}}),
@@ -1926,14 +2059,151 @@ class TestCoverageAdapter:
         ("# demo\n\n`errors` `[AST:pkg/a/errors/__init__.py:L1]` `[AST:pkg/b/errors/__init__.py:L1]`\n",
          {"name": "errors", "item": HOMONYM | {"declared_in": [
              "pkg/a/errors/__init__.py:1", "pkg/b/errors/__init__.py:1"]}}),
-    ], ids=["both-cited", "neither-cited", "cited-two-lines-on", "both-on-the-next-line", "named-only-in-a-citation",
-            "no-skill-dir",
+    ], ids=["both-cited", "neither-cited", "cited-two-lines-on", "both-on-the-next-line",
+            "an-uncited-row-then-another-export-s-row", "named-only-in-a-citation", "no-skill-dir",
             "one-file", "not-a-list", "an-item-without-a-line", "no-declared-in", "rescoped",
             "a-package-and-a-module-of-another-package", "a-package-its-module-and-another-file",
             "a-package-not-named-like-it", "a-module-below-the-package-folder", "two-packages"])
     def test_any_other_homonym_stays_medium(self, tmp_path: Path, skill_md: str, kwargs: dict):
         record = self._homonym(tmp_path, skill_md, **kwargs)
         assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
+
+    # #1077: oms-cocoindex documents `R = TypeVar("R")` in a fence its citation follows, and SKILL.md's export
+    # rows write `R` only as a type argument of other exports (type mentions, no entry), each row citing its own
+    # export's file. The inventory's `at` for `R` is that fence line.
+    R_ITEM = HOMONYM | {"name": "R", "declared_in": ["pkg/app.py:20", "pkg/query.py:39"]}
+    R_FORM = ('# API\n\n```python\nR = TypeVar("R", default=Any)\n\nclass QueryOutput(Generic[R]):\n'
+              '    results: list[R]\n```\n[AST:pkg/query.py:L43]\n')
+    R_ROW = "| `App[P, R]` | class | Runs a pipeline. `update() -> R`. | [AST:pkg/app.py:L208] |\n"
+    R_ROWS = R_ROW + "| `QueryOutput[R]` | dataclass | `(results: list[R])`. | [AST:pkg/query.py:L43] |\n"
+    R_AT = {"exports": [{"name": "R", "kind": "type", "description": "", "at": "references/api.md:4"}]}
+    ERRORS_ITEM = HOMONYM | {"declared_in": ["pkg/errors/__init__.py:1", "pkg/errors/errors.py:1",
+                                             "pkg/legacy/errors.py:3"]}
+
+    @pytest.mark.parametrize("name, skill_md, refs, item, inventory, source, picked", [
+        ("R", "# demo\n\n" + R_ROWS, R_FORM, R_ITEM, R_AT, "pkg/query.py:39",
+         "its form at `references/api.md:4` cites only `pkg/query.py`"),
+        ("R", "# demo\n\n" + R_ROW, R_FORM, R_ITEM, R_AT, "pkg/query.py:39",
+         "its form at `references/api.md:4` cites only `pkg/query.py`"),
+        ("errors", ("# demo\n\n`errors` `[AST:pkg/errors/errors.py:L10]` `[SRC:pkg/errors/__init__.py:L15]`\n\n"
+                    "Legacy `errors` stay importable. `[AST:pkg/legacy/errors.py:L3]`\n"), None, ERRORS_ITEM,
+         {"exports": [{"name": "errors", "kind": "module", "description": "", "at": "SKILL.md:3"}]},
+         "pkg/errors/__init__.py:1",
+         "its form at `SKILL.md:3` cites only the package `pkg/errors/__init__.py` and its same-named module "
+         "`pkg/errors/errors.py`, so the gap is at the package"),
+        ("R", "# demo\n\n" + R_ROW, R_FORM.replace("[AST:pkg/query.py:L43]", "[AST:pkg/query.py]"), R_ITEM, R_AT,
+         "pkg/query.py:39", "its form at `references/api.md:4` cites only `pkg/query.py`"),
+    ], ids=["type-arguments-cite-both-files", "a-type-argument-cites-another-file", "a-package-and-its-module",
+            "a-form-citation-with-no-line"])
+    def test_a_homonym_s_form_cites_its_declaring_file(self, tmp_path: Path, name: str, skill_md: str,
+                                                       refs: str | None, item: dict, inventory: dict, source: str,
+                                                       picked: str):
+        """Its form's own citations at its inventory `at` pick the declaring file, before the lines that name it
+        only as another export's type argument (or any other line), which cite those exports' files; a form's
+        citation with no `:L<n>` part counts, though the skill's lines ignore one: on HEAD the first and third
+        were Medium and the second and fourth Info at `pkg/app.py:20`."""
+        record = self._homonym(tmp_path, skill_md, refs, item=item, name=name, inventory=inventory)
+        among = len(item["declared_in"])
+        assert brief([record]) == [("Info", "observation", f"Documented extra: {name}", source, name)]
+        assert record["issue"].endswith(f"the source still declares; of the {among} files that declare it, {picked}")
+
+    @pytest.mark.parametrize("skill_md, refs, item, inventory, expected", [
+        ("# demo\n\n`R` stands for a result. `[AST:pkg/app.py:L20]`\n", R_FORM.replace("[AST:pkg/query.py:L43]", ""),
+         R_ITEM, R_AT, ("Info", "pkg/app.py:20")),
+        ("# demo\n\n" + R_ROW, R_FORM.replace("L43]", "L43] [AST:pkg/app.py:L20]"), R_ITEM, R_AT, ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM.replace("L43]", "L43] [AST:pkg/app.py:L20]"), R_ITEM, R_AT, ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM, None, ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM, {"exports": [{"name": "R", "kind": "type", "description": ""}]},
+         ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM,
+         {"exports": [{"name": "R", "kind": "type", "description": "", "at": "references/api.md"}]}, ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM,
+         {"exports": [{"name": "R", "kind": "type", "description": "", "at": "references/gone.md:4"}]},
+         ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM,
+         {"exports": [{"name": "R", "kind": "type", "description": "", "at": "references/api.md:40"}]},
+         ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM,
+         {"exports": [{"name": "R", "kind": "method", "description": "", "at": "references/api.md:4"}]},
+         ("Medium", None)),
+        ("# demo\n\n" + R_ROWS, R_FORM, R_ITEM | {"defined_at": "pkg/app.py:20"}, R_AT, ("Info", "pkg/app.py:20")),
+    ], ids=["the-form-cites-none", "the-form-cites-two-the-skill-one", "the-form-cites-two-the-skill-two",
+            "no-inventory", "no-at", "a-malformed-at", "an-at-in-no-skill-file", "an-at-past-the-file-end",
+            "a-method-s-at", "a-defined-at-wins"])
+    def test_a_homonym_s_form_that_cites_no_single_file_reads_the_skill_s_lines(
+            self, tmp_path: Path, skill_md: str, refs: str, item: dict, inventory: dict | None, expected: tuple):
+        """With no usable `at`, or a form whose own citations cite none of its declaring files, the skill's
+        citations on lines naming it decide, worded as before. A form citing two keeps the Medium whatever those
+        cite: the #1077 review found the second case an Info at `pkg/app.py`, from the row alone, since the line
+        scan misses the citations after the fence. A `defined_at` still wins first."""
+        record = self._homonym(tmp_path, skill_md, refs, item=item, name="R", inventory=inventory)
+        severity, source = expected
+        assert record["severity"] == severity, record
+        if severity == "Medium":
+            assert record["category"] == "stale-documentation"
+            return
+        assert brief([record]) == [("Info", "observation", "Documented extra: R", source, "R")]
+        assert "its form" not in record["issue"]
+        if item.get("defined_at"):
+            assert record["issue"].endswith("the source still declares")
+        else:
+            assert record["issue"].endswith("of the 2 files that declare it, the skill cites only `pkg/app.py`")
+
+    # #1077 review: the inventory gives `Task` one entry per form, a row in SKILL.md and a fenced class in
+    # references/api.md, each read with its own citations.
+    TASK_ROW = "# demo\n\n| `Task` | class | `[AST:pkg/tasks/task.py:L24]` |\n"
+    TWO_FORMS = {"exports": [{"name": "Task", "kind": "class", "description": "", "at": "SKILL.md:3"},
+                             {"name": "Task", "kind": "class", "description": "", "params": "fn, size",
+                              "at": "references/api.md:4"}]}
+
+    @pytest.mark.parametrize("refs, expected", [
+        ("# API\n\n```python\nclass Task(fn, size): ...  # [AST:pkg/models/Task.py:L9]\n```\n", None),
+        ("# API\n\n```python\nclass Task(fn, size): ...  # [AST:pkg/tasks/task.py:L24]\n```\n",
+         "its forms at `SKILL.md:3` and `references/api.md:4` cite only `pkg/tasks/task.py`"),
+        ("# API\n\n```python\nclass Task(fn, size): ...\n```\n",
+         "its form at `SKILL.md:3` cites only `pkg/tasks/task.py`"),
+    ], ids=["each-form-cites-another-file", "both-forms-cite-one-file", "one-form-cites-none"])
+    def test_every_form_of_a_homonym_counts(self, tmp_path: Path, refs: str, expected: str | None):
+        """Forms that cite two declaring files between them keep a Medium, as before #1077 (on its first fix,
+        SKILL.md's form alone made it an Info at `pkg/tasks/task.py`), whatever the skill's lines cite. Forms that
+        cite one name each form that cites it."""
+        record = self._homonym(tmp_path, self.TASK_ROW, refs, inventory=self.TWO_FORMS)
+        if expected is None:
+            assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
+            return
+        assert brief([record]) == [("Info", "observation", "Documented extra: Task", "pkg/tasks/task.py:24", "Task")]
+        assert record["issue"].endswith(f"of the 2 files that declare it, {expected}")
+
+    @pytest.mark.parametrize("refs, at", [
+        ("# API\n\n```python\n# [SRC:pkg/models/Task.py:L9]\nclass Task(fn, size): ...\n```\n", "references/api.md:5"),
+        ("# API\n\n```python\nclass Task(fn, size): ...\n```\n[AST:pkg/models/Task.py:L9]\n", "references/api.md:4"),
+        ("# API\n\n`Task(fn, size)` `[AST:pkg/models/Task.py]`\n", "references/api.md:3"),
+    ], ids=["on-a-comment-line-above-in-a-fence", "after-the-closing-fence", "with-no-line"])
+    def test_a_form_citation_the_skill_s_lines_miss_still_counts(self, tmp_path: Path, refs: str, at: str):
+        """#1077 review: forms citing two declaring files between them fell back to the skill's lines alone,
+        whose scan misses a citation on a comment line above the declaration in a fence, after a closing fence or
+        with no `:L<n>`. It found SKILL.md's row only and recorded an Info "the skill cites only
+        `pkg/tasks/task.py`", though the reference file's form cites `pkg/models/Task.py`. The forms' own
+        citations now count with the skill's lines: a Medium."""
+        inventory = {"exports": [self.TWO_FORMS["exports"][0], dict(self.TWO_FORMS["exports"][1], at=at)]}
+        record = self._homonym(tmp_path, self.TASK_ROW, refs, inventory=inventory)
+        assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
+
+    def test_a_fenced_block_holding_two_forms_shares_no_block_citation(self, tmp_path: Path):
+        """#1077 review: as score-signatures.py's plan reads them, each form reads the name's other places in its
+        file, so a fenced block that holds two gives neither the citation after its closing fence. Neither cites a
+        declaring file, and the skill's lines, which cite none, leave a Medium (on the first fix the first form
+        took the block's citation and made it an Info at `pkg/tasks/task.py`)."""
+        refs = "# API\n\n```python\nclass Task(fn)\n\nclass Task(fn, size)\n```\n[AST:pkg/tasks/task.py:L24]\n"
+        inventory = {"exports": [
+            {"name": "Task", "kind": "class", "description": "", "params": "fn", "at": "references/api.md:4"},
+            {"name": "Task", "kind": "class", "description": "", "params": "fn, size", "at": "references/api.md:6"}]}
+        record = self._homonym(tmp_path, "# demo\n\nSee references.\n", refs, inventory=inventory)
+        assert (record["severity"], record["category"]) == ("Medium", "stale-documentation"), record
+        # one place in the block keeps the block's citation
+        record = self._homonym(tmp_path, "# demo\n\nSee references.\n", refs,
+                               inventory={"exports": inventory["exports"][:1]})
+        assert brief([record]) == [("Info", "observation", "Documented extra: Task", "pkg/tasks/task.py:24", "Task")]
 
     # #1005: oms-storybook documents @vitest/spy's `Mock`, cited at spy.ts's `export type * from '@vitest/spy'`,
     # which no script resolves, so the enumerated surface never holds the names it passes on.
@@ -1966,8 +2236,11 @@ class TestCoverageAdapter:
         ({"skill_md": "# demo\n\nSee references.\n",
           "refs": "# API\n\n- `Mock` `[SRC:./code/core/src/test/spy.ts:L15-L15]`\n"}, "references/api.md:3"),
         ({"skill_md": "# demo\n\n### `Mock`\n\n`[AST:code/core/src/test/spy.ts:L15]`\n"}, "SKILL.md:3"),
+        ({"skill_md": "# demo\n\n| `Mock` | type | `[AST:code/core/src/test/spy.ts:L15]` |\n"
+                      "| `Spy` | type | `[AST:code/core/src/test/other.ts:L3]` |\n"}, "SKILL.md:3"),
     ], ids=["classify-stale-placed-it-nowhere", "no-classify-stale", "a-surface-with-no-extraction",
-            "a-homonym-cited-at-neither-file", "a-reference-file-and-a-range", "a-heading-then-its-citation"])
+            "a-homonym-cited-at-neither-file", "a-reference-file-and-a-range", "a-heading-then-its-citation",
+            "a-row-then-another-export-s-row"])
     def test_a_name_cited_at_another_packages_star_is_not_checked_by_script(self, tmp_path: Path, kwargs: dict,
                                                                            where: str):
         """An Info `observation` at the documenting line, naming the star statement and its file and asking no
@@ -2012,13 +2285,15 @@ class TestCoverageAdapter:
         {"skill_md": "# demo\n\n`Mock` mocks. `[AST:code/core/src/test/other.ts:L15]`\n"},
         {"skill_md": "# demo\n\n`Mock` mocks. `[AST:code/core/src/test/spy.ts]`\n"},
         {"skill_md": "# demo\n\n`Mock` mocks.\nPlain text.\nSee `[AST:code/core/src/test/spy.ts:L15]`\n"},
+        {"skill_md": "# demo\n\n| `Mock` | type | Mocks. |\n| `Spy` | type | `[AST:code/core/src/test/spy.ts:L15]` |\n"},
         {"skill": False},
         {"stars": None},
         {"stars": "code/core/src/test/spy.ts"},
         {"stars": ({"file": "code/core/src/test/spy.ts", "line": 15},
                    {"file": 3, "statement": "export * from 'x'"}, "code/core/src/test/spy.ts")},
         {"item": UNPLACED | {"defined_at": "code/core/src/test/mock.ts:3"}, "surface": SURFACE | {"extraction": None}},
-    ], ids=["another-file-cited", "a-citation-with-no-line", "cited-on-a-line-without-it", "no-skill-dir",
+    ], ids=["another-file-cited", "a-citation-with-no-line", "cited-on-a-line-without-it",
+            "an-uncited-row-then-another-export-s-row", "no-skill-dir",
             "no-unresolved-stars", "not-a-list", "malformed-items", "a-declaration-no-extraction-can-place"])
     def test_any_other_unplaced_name_stays_medium(self, tmp_path: Path, kwargs: dict):
         record = self._starred(tmp_path, **kwargs)
@@ -2028,7 +2303,8 @@ class TestCoverageAdapter:
 
     def test_a_scoped_out_or_fabricated_name_keeps_its_gap(self, tmp_path: Path):
         """A row that says the brief scopes the name's file out keeps the scoped-out Medium, and a fabricated
-        name stays Critical, whatever star the cited file holds."""
+        name with no map entry at a star's own line (an older classify-stale, #1070) stays Critical, whatever
+        star the file the skill cites holds."""
         rescoped = {"name": "Mock", "file": "code/core/src/old.ts", "line": 2, "entry": "code/core/src/index.ts",
                     "excludeGlob": "code/core/src/old.ts", "outsideInclude": False}
         surface = self.SURFACE | {"extraction": {"status": "ok"},
@@ -2041,13 +2317,168 @@ class TestCoverageAdapter:
         assert brief([record]) == [("Critical", "fabricated-signature", "Fabricated signature: Mock",
                                     "code/core/src/test/spy.ts:15", "Mock")]
 
+    # #1070: the map cites `Mock` at spy.ts:4, `export type * from '@vitest/spy';` itself, which classify-stale
+    # keeps fabricated (no definition there) and reads as the entry's `star`.
+    RUNNER = {"file": "code/core/src/test/spy.ts", "line": None, "statement": "export * from '@vitest/spy'"}
+    PER_FILE = {"file": "code/core/src/test/spy.ts", "line": 4, "statement": "export type * from '@vitest/spy';"}
+    AT_STAR = {"source_file": "code/core/src/test/spy.ts", "source_line": 4, "line_check": "checked",
+               "definition_lines": [], "star": "@vitest/spy"}
+    MAPPED = {"name": "Mock", "fabricated": True, "source": "code/core/src/test/spy.ts:4", "defined_at": None,
+              "declared_in": None, "reason": "not-defined", "entries": [AT_STAR]}
+    UNCITED_MD = "# demo\n\n`Mock` mocks a function.\n"
+
+    @staticmethod
+    def _mapped_wording(star: str, where: str | None) -> tuple[str, str]:
+        """The remediation and issue of a name whose map entry cites the star's own line."""
+        doc = f"`{where}`" if where else "the skill"
+        return (f"No change unless the other package does not export `Mock`: its provenance map cites it at {star}, "
+                "which passes on that package's names, and no script reads them, so check by hand that the package "
+                "exports `Mock`.",
+                f"{doc} documents `Mock`, which the enumerated source API surface lacks; its provenance map cites it "
+                f"at {star}, which passes on another package's names and which no script resolves")
+
+    @pytest.mark.parametrize("skill", [True, False], ids=["skill-dir", "no-skill-dir"])
+    @pytest.mark.parametrize("star, statement", [
+        (RUNNER, "export * from '@vitest/spy'"), (PER_FILE, "export type * from '@vitest/spy';")],
+        ids=["the-runner-s-star", "a-per-file-star"])
+    def test_a_map_entry_at_the_star_s_line_is_not_checked_by_script(self, tmp_path: Path, skill: bool,
+                                                                     star: dict, statement: str):
+        """A fabricated name whose map entry cites the line of a star the surface lists, matched by file and
+        module (the runner's star has no line), reads like that star: the Info observation at the documenting
+        line, else SKILL.md, naming the statement at the entry's file and line, never blocking."""
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, stars=(star,), item=self.MAPPED, skill=skill)
+        where = "SKILL.md:3" if skill else None
+        assert brief([record]) == [("Info", "observation", self.STARRED_TITLE, where or "SKILL.md", "Mock")]
+        remediation, issue = self._mapped_wording(f"`{statement}` (`code/core/src/test/spy.ts:4`)", where)
+        assert (record["remediation"], record["issue"]) == (remediation, issue)
+        assert record["severity"] not in mod.BLOCKING
+
+    @pytest.mark.parametrize("item", [
+        MAPPED | {"fabricated": False, "reason": "unchecked", "declared_in": [], "entries": [
+            {"source_file": None, "source_line": None, "line_check": "no-file", "definition_lines": None}, AT_STAR]},
+        MAPPED | {"entries": [{"source_file": "code/core/src/test/gone.ts", "source_line": 2,
+                               "line_check": "file-missing", "definition_lines": None}, AT_STAR, AT_STAR]},
+        MAPPED | {"entries": [AT_STAR | {"source_file": ".\\code\\core\\src\\test\\spy.ts", "source_line": "4"}]},
+        MAPPED | {"entries": [AT_STAR | {"source_line": "+4"}]},
+    ], ids=["not-fabricated", "one-entry-of-several-and-a-repeat", "a-path-and-line-as-recorded",
+            "a-line-int-reads"])
+    def test_any_entry_at_the_star_s_line_reads_like_it(self, tmp_path: Path, item: dict):
+        """An `unchecked` name (another entry has no file), a Medium before #1070, reads the same with no
+        --skill-dir; one matching entry of several lifts a fabricated name, a repeat named once; the entry's file
+        compares as citations do and is named as recorded."""
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, stars=(self.RUNNER,), item=item, skill=False)
+        assert brief([record]) == [("Info", "observation", self.STARRED_TITLE, "SKILL.md", "Mock")]
+        file = item["entries"][-1]["source_file"]
+        remediation, issue = self._mapped_wording(f"`export * from '@vitest/spy'` (`{file}:4`)", None)
+        assert (record["remediation"], record["issue"]) == (remediation, issue)
+
+    def test_two_stars_cited_by_the_map_are_both_named(self, tmp_path: Path):
+        other = {"source_file": "code/core/src/index.ts", "source_line": 2, "line_check": "checked",
+                 "definition_lines": [], "star": "tinyspy"}
+        stars = (self.RUNNER, {"file": "code/core/src/index.ts", "line": 2, "statement": "export * from 'tinyspy';"})
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, stars=stars, skill=False,
+                               item=self.MAPPED | {"entries": [self.AT_STAR, other]})
+        assert record["title"] == self.STARRED_TITLE
+        assert ("its provenance map cites it at `export * from '@vitest/spy'` (`code/core/src/test/spy.ts:4`) and "
+                "`export * from 'tinyspy';` (`code/core/src/index.ts:2`), which pass on that package's names"
+                ) in record["remediation"]
+
+    def test_a_skill_citation_of_the_star_s_file_keeps_1005_s_record(self, tmp_path: Path):
+        """When the skill's citations give the star too, the record is #1005's, byte for byte."""
+        cited = "# demo\n\n`Mock` mocks a function. `[AST:code/core/src/test/spy.ts:L4]`\n"
+        record = self._starred(tmp_path, skill_md=cited, stars=(self.RUNNER,), item=self.MAPPED)
+        assert record == self._starred(tmp_path, skill_md=cited, stars=(self.RUNNER,))
+        assert "a file the skill cites passes on that package's names through" in record["remediation"]
+
+    @pytest.mark.parametrize("item", [MAPPED, MAPPED | {"fabricated": False, "reason": "unchecked"}],
+                             ids=["fabricated", "not-fabricated"])
+    def test_a_map_entry_s_star_the_skill_cites_no_file_of_is_named_too(self, tmp_path: Path, item: dict):
+        """#1070 review: the skill cites `Mock` at other.ts, whose star passes on tinyspy, but the map entry at
+        spy.ts's star is what lifts a fabricated name, so the record names that star too, at the entry's file
+        and line (on the first fix it named only other.ts's)."""
+        cited = "# demo\n\n`Mock` mocks a function. `[AST:code/other.ts:L2]`\n"
+        other = {"file": "code/other.ts", "line": 2, "statement": "export * from 'tinyspy';"}
+        record = self._starred(tmp_path, skill_md=cited, stars=(self.PER_FILE, other), item=item)
+        assert brief([record]) == [("Info", "observation", self.STARRED_TITLE, "SKILL.md:3", "Mock")]
+        theirs = "`export * from 'tinyspy';` (`code/other.ts:2`)"
+        entry = "`export type * from '@vitest/spy';` (`code/core/src/test/spy.ts:4`)"
+        assert record["remediation"] == (
+            f"No change unless the other package does not export `Mock`: a file the skill cites passes on that "
+            f"package's names through {theirs}, its provenance map cites it at {entry}, which passes on that "
+            "package's names, and no script reads them, so check by hand that the package exports `Mock`.")
+        assert record["issue"] == (
+            f"`SKILL.md:3` documents `Mock`, which the enumerated source API surface lacks; a file the skill cites "
+            f"passes on another package's names through {theirs}, which no script resolves, and its provenance map "
+            f"cites it at {entry}, which passes on another package's names and which no script resolves")
+
+    def test_a_map_entry_at_the_star_s_line_the_brief_scopes_out_keeps_its_medium(self, tmp_path: Path):
+        rescoped = {"name": "Mock", "file": "code/core/src/old.ts", "line": 2, "entry": "code/core/src/index.ts",
+                    "excludeGlob": "code/core/src/old.ts", "outsideInclude": False}
+        surface = self.SURFACE | {"extraction": {"status": "ok"},
+                                  "excluded": {"outsideScope": [rescoped], "nestedEntries": []}}
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, stars=(self.RUNNER,), item=self.MAPPED,
+                               surface=surface, skill=False)
+        assert (record["severity"], record["title"]) == ("Medium", "Stale documentation: Mock")
+        assert "scopes out `code/core/src/old.ts:2`, where it is defined" in record["remediation"]
+
+    @pytest.mark.parametrize("kwargs", [
+        {"item": MAPPED | {"source": "code/core/src/test/spy.ts:5",
+                           "entries": [AT_STAR | {"source_line": 5, "star": "./local"}]}},
+        {"item": MAPPED | {"source": "code/core/src/test/spy.ts:6",
+                           "entries": [{k: v for k, v in AT_STAR.items() if k != "star"} | {"source_line": 6}]}},
+        {"item": MAPPED | {"entries": [AT_STAR | {"star": "tinyspy"}]}},
+        {"stars": ({"file": "code/core/src/index.ts", "line": None, "statement": "export * from '@vitest/spy'"},)},
+        {"stars": None},
+        {"stars": "code/core/src/test/spy.ts"},
+        {"stars": ({"file": "code/core/src/test/spy.ts", "line": None},)},
+        {"item": MAPPED | {"entries": "code/core/src/test/spy.ts:4"}},
+        {"item": MAPPED | {"entries": [3, None]}},
+        {"item": MAPPED | {"entries": [AT_STAR | {"star": 3}]}},
+        {"item": MAPPED | {"entries": [AT_STAR | {"star": ""}]}},
+        {"item": MAPPED | {"entries": [AT_STAR | {"source_file": None}]}},
+        {"item": MAPPED | {"entries": [AT_STAR | {"source_file": " "}]}},
+    ], ids=["a-relative-star-line", "a-const-line", "a-module-no-star-lists", "a-star-of-another-file",
+            "no-unresolved-stars", "stars-not-a-list", "a-star-with-no-statement", "entries-not-a-list",
+            "entries-not-objects", "a-star-not-a-string", "an-empty-star", "no-source-file", "a-blank-source-file"])
+    @pytest.mark.parametrize("skill", [True, False], ids=["skill-dir", "no-skill-dir"])
+    def test_any_other_map_entry_keeps_the_name_fabricated(self, tmp_path: Path, kwargs: dict, skill: bool):
+        kwargs = {"stars": (self.RUNNER,), "item": self.MAPPED} | kwargs
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, skill=skill, **kwargs)
+        assert brief([record]) == [("Critical", "fabricated-signature", "Fabricated signature: Mock",
+                                    kwargs["item"]["source"], "Mock")], record
+
+    @pytest.mark.parametrize("skill", [True, False], ids=["skill-dir", "no-skill-dir"])
+    def test_a_declared_name_with_a_map_entry_at_the_star_s_line_stays_medium(self, tmp_path: Path, skill: bool):
+        """A name the source declares (`defined_at`) that the run cannot confirm as a documented extra (no
+        `extraction`) keeps its Medium, though another of its entries cites the star's own line."""
+        item = self.MAPPED | {"fabricated": False, "reason": "defined", "defined_at": "code/core/src/test/mock.ts:3",
+                              "entries": [self.AT_STAR, {"source_file": "code/core/src/test/mock.ts", "source_line": 3,
+                                                         "line_check": "checked", "definition_lines": [3]}]}
+        record = self._starred(tmp_path, skill_md=self.UNCITED_MD, stars=(self.RUNNER,), item=item,
+                               surface=self.SURFACE | {"extraction": None}, skill=skill)
+        assert brief([record]) == [("Medium", "stale-documentation", "Stale documentation: Mock",
+                                    "SKILL.md:3" if skill else "SKILL.md", "Mock")], record
+
+    def test_a_name_with_no_map_entry_at_a_star_reads_no_star(self, monkeypatch):
+        """Without --skill-dir, a stale name none of whose entries has a `star` reads no `unresolvedStars`
+        (and loads no script beside this one for it), as before #1070."""
+        monkeypatch.setattr(mod, "_star_files", lambda surface: pytest.fail("read unresolvedStars"))
+        surface = self.EXCLUDED_SURFACE | {"unresolvedStars": [self.RUNNER]}
+        stale = [self.MAPPED | {"entries": [{k: v for k, v in self.AT_STAR.items() if k != "star"}]},
+                 {"name": "Spy", "fabricated": False, "source": None, "defined_at": None, "declared_in": [],
+                  "reason": "no-entry", "entries": []}]
+        records = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Mock", "Spy"]},
+                                    surface=surface, stale=stale)
+        assert [(r["severity"], r["title"]) for r in records] == [
+            ("Critical", "Fabricated signature: Mock"), ("Medium", "Stale documentation: Spy")]
+
     @pytest.mark.parametrize("excluded, message", [
         (["Rescoped"], "'excluded' must be an object"),
         ({"outsideScope": "Rescoped"}, "'excluded.outsideScope' must be a list"),
     ])
     def test_a_malformed_excluded_is_invalid_input(self, excluded, message):
-        """Read once a stale name that is not fabricated needs it: no stale name, or a fabricated one alone,
-        never reads it."""
+        """Read once a stale name that is not fabricated (one a map entry's star lifts included, #1070) needs it:
+        no stale name, or a fabricated one alone, never reads it."""
         ghost = {"name": "ghost", "fabricated": True, "source": "src/a.py:3"}
         for extraction in ({"status": "ok"}, None):
             surface = self.SURFACE | {"extraction": extraction, "excluded": excluded}
@@ -2059,6 +2490,9 @@ class TestCoverageAdapter:
             [record] = mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["ghost"]},
                                          surface=surface, stale=[ghost])
             assert record["category"] == "fabricated-signature"
+            with pytest.raises(mod.AdapterError, match=re.escape(message)):
+                mod.from_coverage({"branch": "enumerated", "missing": [], "stale": ["Mock"]},
+                                  surface=surface | {"unresolvedStars": [self.RUNNER]}, stale=[self.MAPPED])
 
     def test_the_defined_at_extensions_are_the_verifiers(self):
         """`_DEFINED_AT_RE` takes the files classify-stale reads a `defined_at` in, and no other."""
@@ -2783,6 +3217,55 @@ class TestProvenanceAndCoherenceAdapters:
     def test_a_stale_result_that_is_not_a_list_is_refused(self):
         with pytest.raises(mod.AdapterError, match=r"^--stale is not classify-stale JSON \(a list\)$"):
             mod.from_provenance_line(self.ALIAS_VERIFY, {})
+
+    # #1070 review: the map cites `Mock` at spy.ts:4, `export type * from '@vitest/spy';`, which classify-stale
+    # reads as the entry's `star`; the coverage call records it as not checked by script.
+    STAR_VERIFY = {"stale": [{"export_name": "Mock", "source_file": "code/core/src/test/spy.ts", "source_line": 4,
+                              "reason": "line-not-definition", "definition_lines": []}]}
+    AT_STAR = {"source_file": "code/core/src/test/spy.ts", "source_line": 4, "line_check": "checked",
+               "definition_lines": [], "star": "@vitest/spy"}
+    STARRED = {"name": "Mock", "fabricated": True, "source": "code/core/src/test/spy.ts:4", "defined_at": None,
+               "declared_in": None, "reason": "not-defined", "entries": [AT_STAR]}
+
+    @pytest.mark.parametrize("entry", [AT_STAR, AT_STAR | {"source_file": "./code/core/src/test/spy.ts",
+                                                           "source_line": "4"}],
+                             ids=["as-verify-records-it", "a-path-and-line-as-recorded"])
+    def test_an_unverified_line_at_another_package_s_star_asks_no_change(self, entry: dict):
+        """No line of spy.ts can define `Mock`, so the gap kept beside the coverage call's observation says the
+        line passes on that package's names and asks no change unless it lacks the name, as the observation does,
+        never to confirm that the line defines it."""
+        [record] = mod.from_provenance_line(self.STAR_VERIFY, [self.STARRED | {"entries": [entry]}])
+        assert brief([record]) == [("Info", "provenance-unverified", "Provenance line not verified for Mock",
+                                    "code/core/src/test/spy.ts:4", "Mock")]
+        assert record["remediation"] == (
+            "No change unless `@vitest/spy` does not export `Mock`: line 4 of `code/core/src/test/spy.ts` is an "
+            "`export *` from that package, which passes on its names, so no line of `code/core/src/test/spy.ts` "
+            "defines `Mock`, and no script reads them; check by hand that `@vitest/spy` exports `Mock`.")
+        assert record["issue"] == (
+            "line 4 of `code/core/src/test/spy.ts` is an `export *` from `@vitest/spy`, another package whose names "
+            "no script reads, so no line of `code/core/src/test/spy.ts` defines `Mock`; check by hand")
+
+    @pytest.mark.parametrize("stale", [
+        [STARRED | {"entries": [AT_STAR | {"star": "./local"}]}],
+        [STARRED | {"entries": [AT_STAR | {"star": "/abs/spy"}]}],
+        [STARRED | {"entries": [AT_STAR | {"source_line": 5}]}],
+        [STARRED | {"entries": [AT_STAR | {"source_file": "code/other.ts"}]}],
+        [STARRED | {"name": "Spy"}],
+        [STARRED | {"entries": [{k: v for k, v in AT_STAR.items() if k != "star"}]}],
+        [STARRED | {"entries": "code/core/src/test/spy.ts:4"}],
+        [],
+    ], ids=["a-relative-star", "an-absolute-star", "another-line", "another-file", "another-name", "no-star",
+            "entries-not-a-list", "empty"])
+    def test_any_other_unverified_line_keeps_todays_text(self, stale: list):
+        assert mod.from_provenance_line(self.STAR_VERIFY, stale) == mod.from_provenance_line(self.STAR_VERIFY)
+
+    def test_an_alias_wins_over_a_star(self):
+        """An `aliased` name names its alias first, though an entry of it sits at a star line."""
+        aliased = {"name": "Mock", "fabricated": False, "source": "code/core/src/test/spy.ts:4",
+                   "defined_at": "code/core/src/test/index.ts:2", "declared_in": ["code/core/src/test/index.ts:2"],
+                   "reason": "aliased", "entries": [self.AT_STAR], "renames": "MockInstance"}
+        [record] = mod.from_provenance_line(self.STAR_VERIFY, [aliased])
+        assert record["remediation"].startswith("`Mock` is an alias of `MockInstance`")
 
     def test_the_append_reads_stale(self, ledger: Path, tmp_path: Path):
         """`--from provenance-line --stale` records the alias's remediation; a --stale file that is not

@@ -469,7 +469,9 @@ Subcommands:
                                     | "skipped-export-type"
                                     | "skipped-language" | "unreadable"
                                     | "no-file",
-                      "definition_lines": [<int>, ...] | null}, ...],
+                      "definition_lines": [<int>, ...] | null,
+                      "star": "<module>"},  # an `export *` line only
+                     ...],
          "renames": "<L>"},             # an `aliased` item only
         ...
       ]
@@ -592,6 +594,15 @@ Subcommands:
     unless another entry defines it. `source` is the citation of the first
     entry with a `source_file` (the file alone when its line is not a
     number), null when no entry has one.
+    A `checked` entry with an empty `definition_lines` whose line, in a
+    TS/JS file, is an `export * from` or `export type * from` statement
+    gains `star`, the module that statement names: the line written at
+    column 0 (a comment may open it), and the whole statement on the line
+    once its comments are removed (`export * as NS from`, an indented
+    star and a star split over lines get none). Such a line passes on
+    another module's names, which no rule here reads, so test-skill can
+    read the entry like the star (#1070). It changes no verdict: the item
+    and its other keys stay as they are.
 
     `defined_at` is where the source declares a name that is not
     fabricated, so test-skill can tell a documented extra (a name outside
@@ -2576,6 +2587,36 @@ def _stale_line_check(
     return report["line_check"], report["definition_lines"]
 
 
+# A TS/JS `export * from` or `export type * from` statement, comments removed
+# and stripped, the module it names in group 2 (#1070).
+_JS_STAR_LINE_RE = re.compile(
+    r"""export\s*(?:type\s*)?\*\s*from\s*(['"])([^'"]+)\1\s*;?"""
+)
+
+
+def _star_line(entry: dict, source_root: Path) -> str | None:
+    """The module the `export *` or `export type *` statement at an entry's
+    cited TS/JS line names, else None (#1070): the line as written at
+    column 0, and the whole statement on that line once its comments are
+    removed. Read for a `checked` entry with no definition line, whose file
+    `definition_lines_report` resolved the same way."""
+    source_file = _entry_file(entry)
+    line = _coerce_line(entry.get("source_line"))
+    if source_file is None or not isinstance(line, int):
+        return None
+    rel = source_file.strip().replace("\\", "/")
+    if Path(rel).suffix.lower() not in TSJS_EXTENSIONS:
+        return None
+    lines = _read_lines(source_root / rel)
+    if lines is None or not 1 <= line <= len(lines):
+        return None
+    if not _is_column_0(lines[line - 1]):
+        return None
+    code = _js_code_lines(lines)[line - 1].strip()
+    match = _JS_STAR_LINE_RE.fullmatch(code)
+    return match.group(2) if match else None
+
+
 # The folders and files the `defined_at` walk leaves out, judged
 # case-insensitively on the path below its walk root: generated, built and
 # installed output, a vendored copy of another package, and tests and their
@@ -4132,7 +4173,10 @@ def classify_stale(
     a default export of any other expression stay fabricated.
     The classify-stale section of the module docstring gives each reason,
     what a `no-file` entry means, which entry gives `source` and how
-    `defined_at` and `declared_in` are found. `kinds` (`inventory_kinds`,
+    `defined_at` and `declared_in` are found. A `checked` entry with no
+    definition line at an `export *` or `export type *` line gains `star`,
+    the module it names (`_star_line`, #1070), and no verdict changes for
+    it. `kinds` (`inventory_kinds`,
     None without `--inventory`) keeps a name of a `NO_MODULE_KINDS` kind
     from a module or package so named, unless an entry of the name is a
     `module` or `package` one. `scope` (`read_brief_scope`, None without
@@ -4154,14 +4198,18 @@ def classify_stale(
         checks: list[dict] = []
         for entry in mine:
             line_check, defs = _stale_line_check(entry, name, source_root)
-            checks.append(
-                {
-                    "source_file": entry.get("source_file"),
-                    "source_line": entry.get("source_line"),
-                    "line_check": line_check,
-                    "definition_lines": defs,
-                }
-            )
+            check = {
+                "source_file": entry.get("source_file"),
+                "source_line": entry.get("source_line"),
+                "line_check": line_check,
+                "definition_lines": defs,
+            }
+            if line_check == "checked" and not defs:
+                # what the line is, for test-skill to read: never a verdict
+                star = _star_line(entry, source_root)
+                if star is not None:
+                    check["star"] = star
+            checks.append(check)
         if not checks:
             reason = STALE_NO_ENTRY
         elif all(

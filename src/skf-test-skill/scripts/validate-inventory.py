@@ -226,8 +226,11 @@ The skill-citation scan is shared too: `_skill_cited_files` (with
 `_cited_path`, `skill_markdown_files` and `_SKILL_CITATION_RE`) gives the
 files the skill's `[AST:]` and `[SRC:]` citations name on a line of SKILL.md
 or references/**/*.md that writes a name with the match above, or on the
-next non-blank line. gap-ledger.py reads it to pick the declaration of a
-stale homonym, score-signatures.py to plan a signature check at the
+next non-blank line, but never after a table row outside a fenced block,
+whose own citations are in its cells (the next row documents another
+export, #1066). gap-ledger.py reads it to pick the declaration of a
+stale homonym whose forms' own citations (below) cite none of its
+declaring files, score-signatures.py to plan a signature check at the
 declaration the skill cites. A form's own citations are shared the same way
 (#918): `form_citations` gives the citations of the form an `at` places, on
 its line; on the next non-blank line, unless that line writes the name (it
@@ -250,7 +253,9 @@ binds a form to the one declaration of its name they name (with
 name declared more than once, never by the citations of a place where the
 inventory gives the name two forms that differ (a row that quotes another
 declaration's form as a contrast): there each form is bound only by its
-other places, if any.
+other places, if any. gap-ledger.py reads them, with the same other
+places, to pick a stale homonym's declaring file from every form of the
+name before the lines that name it (#1077).
 
 CLI usage (mirrors reconcile-coverage.py):
   uv run validate-inventory.py --input <response file> [--output <inventory file>]
@@ -617,15 +622,20 @@ def _skill_cited_files(skill_dir: Path, name: str, texts: list[list[str]] | None
     """The files the skill's `[AST:]` and `[SRC:]` citations name on a line of
     SKILL.md or references/**/*.md that writes `name` outside its citations
     (the documented-name match), or on the next non-blank line (a heading,
-    then its citation). `texts`, skill_markdown_lines(skill_dir) read once,
-    spares a caller that looks up many names reading the files again."""
+    then its citation), but never after a table row outside a fenced block
+    (locate-export-segments.py's TABLE_ROW_RE, as form_citations reads a
+    row), whose own citations are in its cells: the next row documents
+    another export (#1066). `texts`, skill_markdown_lines(skill_dir) read
+    once, spares a caller that looks up many names reading the files
+    again."""
     pattern = name_pattern(name)
     cited: set[str] = set()
     for lines in skill_markdown_lines(skill_dir) if texts is None else texts:
         for number, line in enumerate(lines):
             if not pattern.search(_ANY_CITATION_RE.sub(" ", line)):
                 continue
-            following = next((ln for ln in lines[number + 1:] if ln.strip()), "")
+            row = _segments().TABLE_ROW_RE.match(line) and _fence_holding(lines, number) is None
+            following = "" if row else _first_filled(lines, number + 1)
             for cited_line in (line, following):
                 cited.update(_cited_path(m.group(2)) for m in _SKILL_CITATION_RE.finditer(cited_line))
     return cited
