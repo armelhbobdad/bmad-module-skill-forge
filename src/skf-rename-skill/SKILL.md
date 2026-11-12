@@ -11,7 +11,7 @@ Renames a skill across all its versions with transactional safety — copy to th
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` names a file beside it.
 - `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.

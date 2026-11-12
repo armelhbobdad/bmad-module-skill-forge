@@ -11,7 +11,7 @@ Checks a completed skill against the agentskills.io export gate, writes its cont
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` names a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; for example `knowledge/version-paths.md` and `shared/health-check.md`.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
 - `references/` holds the workflow stages, chained by frontmatter `nextStepFile`; the files a stage loads when it needs them (`load-skill.md` loads `multi-skill-mode.md` and `preflight-snippet-root-probe.md`, `update-context.md` loads `orphan-context-detection.md`, `orphan-row-detection.md` and `manifest-rebuild.md`); and the headless contract (`invocation-contract.md`, `result-envelope.md`). `assets/` holds the snippet and managed-section templates.

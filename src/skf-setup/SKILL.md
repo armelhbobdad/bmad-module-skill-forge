@@ -11,7 +11,7 @@ Detects the available tools, sets the capability tier (Quick/Forge/Forge+/Deep) 
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` names a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
 - `references/` holds the workflow stages (chained by frontmatter `nextStepFile`), the invocation contract and `tier-rules.md`, the tier table `report.md` passes to the emitter's banner.

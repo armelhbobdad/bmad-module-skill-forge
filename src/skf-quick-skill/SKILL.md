@@ -11,7 +11,7 @@ The fastest path to a skill — accept a GitHub URL or package name, resolve to 
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, `{skill-root}`: this skill's installed directory, where `customize.toml` lives.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, `{skill-root}`: this skill's installed directory, where `customize.toml` lives. That holds inside a `references/` file too: only a stage's frontmatter `nextStepFile` and batch-mode.md's `healthCheckStepFile` name a file beside it.
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `shared/health-check.md`, which the terminal step chains to.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.

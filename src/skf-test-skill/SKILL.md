@@ -11,7 +11,7 @@ Verifies that a skill is complete enough to be useful to an AI agent by checking
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` and `blockedStepFile` name a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `shared/references/output-contract-schema.md` and `shared/health-check.md`.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one. The coherence and migration rules cite `skf-create-skill/assets/skill-sections.md` and `skf-create-stack-skill/references/compose-mode-rules.md`.
 - `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` holds deterministic helpers, `assets/` the output section formats and `templates/` the test report template.

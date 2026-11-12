@@ -827,6 +827,13 @@ def test_a_new_language_hint_at_a_retry_gate_is_a_hint(path, option):
             "`detected_languages` to `[]`") in line
 
 
+def test_the_rescope_option_loads_quick_extract_by_its_references_path():
+    """#1112 (quick-skill architecture-1): only a stage's frontmatter keys name a file beside it, and every other
+    bare path resolves from the skill root, so `[S]` at the compile review loads quick-extract.md by that path."""
+    [line] = [line for line in _read(COMPILE).splitlines() if line.startswith("- **IF S**")]
+    assert "then load `references/quick-extract.md` to re-extract" in line
+
+
 def test_a_package_id_on_another_host_tries_the_web_search_first():
     """W3 re-check enhancement-5: a Go module path or a Maven coordinate is searched before the redirect."""
     route = _section(_read(RESOLVE_TARGET), "### 2. Route by Kind", "### 3. ")

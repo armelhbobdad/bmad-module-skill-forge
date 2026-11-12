@@ -15,7 +15,7 @@ A good skill brief sets a tight, cohesive boundary: one capability with 3-8 prim
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile`, `reviseStepFile`, `analyzeStepFile`, `ratifyTargetFile` and `writeBriefFile` name a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `knowledge/tool-resolution.md` and `shared/health-check.md`.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
 - `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `assets/` holds the brief schema, the scope templates and the description voice examples.

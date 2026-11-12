@@ -222,8 +222,10 @@ def test_skill_md_stays_under_its_token_budget():
     the Headless row, to about 2,650 tokens. 10,740 characters holds it there without a tokenizer, so nothing else
     grows it. #965 grows the resolver sentence every SKILL.md carries word for word by 40 characters, to name the
     missing SKF helper, so the ceiling was 10,761. #1037 grows the foreground rule by 108 characters, to have every
-    Agent call pass `run_in_background: false`, so the ceiling is 10,869."""
-    assert len(_read(SKILL_MD)) < 10_869, len(_read(SKILL_MD))
+    Agent call pass `run_in_background: false`, so the ceiling was 10,869. #1112 adds 286 characters: the bare-path
+    rule names the `nextStepFile` exception and a `references/` line names the files the stages load, so the
+    ceiling is 11,155 until #1179 moves section 5's pre-flight into init.md."""
+    assert len(_read(SKILL_MD)) < 11_155, len(_read(SKILL_MD))
 
 # --- Every HALT names a known reason, its code and its phase ------------------------------
 

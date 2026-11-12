@@ -34,6 +34,9 @@ file it ratified, so no step pins its version by hand (determinism-3);
 the module pick stays step 2's judgment, and the prose says why
 (determinism-1, a written exception).
 
+#1112 (brief part): no brief prose names the dev-only `src/shared/` outside
+a probe order, which writes it as `{project-root}/src/shared/...`.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the emitter and validate what it prints
 against the schema.
@@ -329,6 +332,17 @@ def test_step_one_halts_emit_in_headless_and_auto_mode_alike():
         assert len(valid) == 1 and "workflow_warnings[]" in valid[0], (path.name, valid)
         assert f"`{OBJECT_WARNING}`" in valid[0], path.name
     assert "- **`valid: true`**" not in _read(GATHER_INTENT)
+
+
+def test_no_brief_prose_names_a_dev_only_shared_path():
+    """#1112 (brief-skill architecture-5): `src/shared/` exists only in dev. A probe order names it after the
+    installed path, always as `{project-root}/src/shared/...` (the frontmatter `*ProbeOrder` lists and SKILL.md's
+    resolver and emitter bindings); every other pointer, such as a schema's, is `shared/...`, which resolves
+    from the SKF module root installed and in dev."""
+    stray = [f"{path.relative_to(SKILL_DIR).as_posix()}:{number}" for path in sorted(SKILL_DIR.rglob("*.md"))
+             for number, line in enumerate(_read(path).splitlines(), 1)
+             if re.search(r"(?<!\{project-root\}/)src/shared/", line)]
+    assert not stray, f"brief prose names the dev-only src/shared/ outside a probe order: {stray}"
 
 
 # --------------------------------------------------------------------------

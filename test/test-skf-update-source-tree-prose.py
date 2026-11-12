@@ -3107,7 +3107,7 @@ def test_gap_driven_dry_run_stops_before_merge():
     assert yaml.safe_load(_frontmatter(text))["reportFile"] == "report.md"
     assert "Skip all remaining sections of step 3" not in text and "Skip sections 1" not in text
     six = _slice(_read(RE_EXTRACT), "### 6. Route to Next Step", "\n- **Otherwise**")
-    assert "load `report.md` (NOT `{nextStepFile}`)" in six
+    assert "load `references/report.md` (NOT `{nextStepFile}`)" in six
     assert "Proceeding to merge" not in _slice(text, '"**Gap-driven re-extraction.**', "\n")  # §5's branch says it
     halt = "a gap-driven.md halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it"
     assert halt in _slice(_read(CONTRACT), "| **Flags** |", "\n")
@@ -6023,8 +6023,9 @@ def test_the_invocation_contract_is_lifted_from_skill_md():
     skill = _read(SKILL)
     pointer = _slice(skill, "## Invocation Contract", "## On Activation")
     assert "`references/invocation-contract.md`" in pointer and "| **" not in pointer
-    # cl100k_base reads about four characters a token in this prose: 10,000 keeps SKILL.md under 2,500 tokens
-    assert len(skill) < 10_000, len(skill)
+    # cl100k_base reads about four characters a token in this prose: #1112's bare-path rule took SKILL.md to
+    # 10,131 characters, which measured 2,467 cl100k tokens, so 10,200 keeps it under 2,500 tokens
+    assert len(skill) < 10_200, len(skill)
     contract = _read(CONTRACT)
     rows = re.findall(r"^\| \*\*(\w+)\*\* \|", contract, re.M)
     assert rows == ["Inputs", "Flags", "Gates", "Outputs", "Concurrency", "Headless"]

@@ -147,6 +147,6 @@ Display one line from §4's results: "**Re-extracted** {exports} exports from {f
 
 This step auto-proceeds — no user choices. Once all changed files are extracted and results compiled, load and fully read the next file, then execute it, per the branch that applies:
 
-- **`dry_run_mode == true`** → display "**Dry-run mode: skipping merge and write.** Loading report..." and load `report.md` (NOT `{nextStepFile}`); it emits status `dry-run` describing what merge+write would have done. Every route out of this step comes here, the docs-only one (§1) included, so no artifact is modified on disk by this run.
+- **`dry_run_mode == true`** → display "**Dry-run mode: skipping merge and write.** Loading report..." and load `references/report.md` (NOT `{nextStepFile}`); it emits status `dry-run` describing what merge+write would have done. Every route out of this step comes here, the docs-only one (§1) included, so no artifact is modified on disk by this run.
 - **Otherwise** → display "**Proceeding to merge...**" and load `{nextStepFile}` (merge.md) to begin the merge operation.
 

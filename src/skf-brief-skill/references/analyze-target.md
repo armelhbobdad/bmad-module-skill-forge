@@ -124,7 +124,7 @@ uv run {detectWorkspacesHelper} --tree-file "{run_dir}/tree.json" --manifest-dir
 
 For a local source (or the `[L]` clone), drop the first two lines and pass the folder itself: `--manifest-dir "{source_path}"`. The manifest folder of this section is the one §2 and §4 pass again.
 
-The script returns a JSON envelope: `{is_monorepo, manifest_kind, workspaces[], warnings[]}`. Apply the result deterministically — see `src/shared/scripts/schemas/workspace-detection.v1.json` for the full contract.
+The script returns a JSON envelope: `{is_monorepo, manifest_kind, workspaces[], warnings[]}`. Apply the result deterministically. `shared/scripts/schemas/workspace-detection.v1.json` holds the full contract.
 
 **If `is_monorepo: false`** — skip this section silently and continue to §2.
 

@@ -597,8 +597,13 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
 
 def test_conventions_say_how_module_and_sibling_paths_resolve():
     """#601: drop reads `shared/` scripts and export-skill's managed-section
-    format, so its Conventions say where both resolve from."""
+    format, so its Conventions say where both resolve from. #1112: a stage's
+    `nextStepFile: 'execute.md'` sits beside `dropRosterHelper:
+    'scripts/drop-roster.py'`, so the bare-path rule says which of the two
+    names a file beside the stage."""
     conventions = _section(_read(SKILL), "## Conventions", "## Role")
+    assert ("- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: "
+            "only a stage's frontmatter `nextStepFile` names a file beside it.") in conventions
     assert ("- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the "
             "SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root.") in conventions
     assert ("- **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the "
