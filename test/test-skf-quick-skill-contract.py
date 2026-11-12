@@ -2106,20 +2106,24 @@ def test_the_on_complete_comment_is_the_call_finalize_makes():
     emitter wrote the result file, so it never reads a missing file or an earlier run's -latest copy."""
     comment = _comment_before("on_complete")
     assert "a shell command, not an instruction" in comment
-    assert "<on_complete> --result-path=<skill package>/quick-skill-result-latest.json" in comment
+    assert '<on_complete> --result-path="<skill package>/quick-skill-result-latest.json"' in comment
     assert "--skill-package" not in _read(CUSTOMIZE) and "--skill-package" not in _read(FINALIZE)
     for needle in ("is skipped when the emitter wrote no result file", "once per target that finishes",
                    "a HARD HALT never runs it", "never fails the workflow"):
         assert needle in comment, needle
     hook = _section(_read(FINALIZE), "**Post-completion hook (optional).**", "In a single-target run")
     assert _bash_block(hook, "{onCompleteCommand}") == (
-        "{onCompleteCommand} --result-path={skill_package}/quick-skill-result-latest.json\n")
+        '{onCompleteCommand} --result-path="{skill_package}/quick-skill-result-latest.json"\n')
     assert ("and the emitter wrote the result contract (the line it printed has a non-null `result_path` and no "
             "`result_file_write_failed` warning naming `quick-skill-result-latest.json`)") in hook
     assert ("When the emitter failed twice, no path resolved for `{emitEnvelopeHelper}`, `result_path` is null, or a "
             "`result_file_write_failed` warning names `quick-skill-result-latest.json` (the copy alone failed), "
             "skip the hook and say so") in hook
     assert "Under `--batch` it runs once per target that reaches this section." in hook
+    # #1109: the hook runs from the project root with a 60s timeout, and a timeout is a logged failure.
+    assert ("Run it from `{project-root}` with a 60s timeout. Log success or failure, a timeout counting as a "
+            "failure, but never fail the workflow on a hook error") in hook
+    assert "Step 6 runs it from {project-root}, with a 60s timeout, once the success envelope is printed" in comment
 
 
 def test_the_hook_finds_the_skill_package_from_its_result_path(tmp_path):

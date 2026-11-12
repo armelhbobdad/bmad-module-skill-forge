@@ -851,7 +851,7 @@ def test_hook_comments_match_when_the_hooks_run():
             < activation.index("then run `workflow.activation_steps_append` after")
             < activation.index("**Pre-flight: helpers"))
     on_complete = _comment(toml, "# Optional post-drop hook", 'on_complete = ""')
-    assert "`<command> --result-path=<path>`" in on_complete
+    assert '`<command> --result-path="<path>"`' in on_complete
     assert "a dry run, a HALT or a failed record write never calls it" in on_complete
     hook = _section(_read(REPORT), "### Post-drop hook", "### 3. ")
     assert "`{result_json_path}` is not null" in hook

@@ -60,7 +60,7 @@ On exit 3, HALT (exit code 3, `invalid-state`) with its `errors[]`.
 
 ### §4: Post-Completion Hook
 
-Skip this section when `{onComplete}` (resolved in On Activation) is empty. Otherwise run it now, after the final state write, so a hook that archives or commits the workspace captures the finished campaign. When §2 wrote the report, run `{onComplete} --report-path={reportFile}`; when §2 degraded, run `{onComplete}` without `--report-path`, since there is no report to read. Log the outcome (type `event`): a hook failure is recorded but never fails the campaign.
+Skip this section when `{onComplete}` (resolved in On Activation) is empty. Otherwise run it now, after the final state write, so a hook that archives or commits the workspace captures the finished campaign. When §2 wrote the report, run `{onComplete} --report-path="{reportFile}"`; when §2 degraded, run `{onComplete}` without `--report-path`, since there is no report to read. Either way, run it from `{project-root}`. Log the outcome (type `event`): a hook failure is recorded but never fails the campaign.
 
 ### §5: Result Envelope
 

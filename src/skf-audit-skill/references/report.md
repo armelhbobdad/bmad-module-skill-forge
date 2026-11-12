@@ -214,7 +214,7 @@ uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project
 If `{onCompleteCommand}` is non-empty, invoke it from `{project-root}` as:
 
 ```bash
-{onCompleteCommand} --result-path={result_json_path}
+{onCompleteCommand} --result-path="{result_json_path}"
 ```
 
 where `{result_json_path}` is the envelope's `result_path`, the per-run record the emitter wrote (skip the hook when it is null). When the hook fails, tell the user it failed and why, and go on: never fail the workflow on a hook error. The hook runs after the result contract is finalized so notifiers, ticket-tracker integrations, or downstream pipelines see a complete record. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.

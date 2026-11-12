@@ -56,6 +56,8 @@ persistent_facts = [
 # Useful for downstream distribution, notification, or pipeline chaining. A
 # failure shows as a warning line in the run's output and never fails the
 # workflow.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 # Empty = no-op (default).
 
 on_complete = ""

@@ -76,8 +76,12 @@ test_report_template_path = "templates/test-report-template.md"
 # run a cap forced to FAIL stays FAIL at any threshold.
 default_threshold = 80
 
-# Optional post-finalization hook. When non-empty, the workflow invokes:
-#   <on_complete> --result-path=<the per-run skf-test-skill-result-<YYYYMMDD-HHmmss>.json>
+# Optional post-finalization hook: a shell command, not an instruction. When
+# non-empty, the report step runs it from {project-root} as:
+#   <on_complete> --result-path="<the per-run skf-test-skill-result-<YYYYMMDD-HHmmss>.json>"
 # after the result JSON is finalized. A failure is shown to the user but
-# never fails the workflow. Empty = no-op.
+# never fails the workflow.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
+# Empty = no-op.
 on_complete = ""

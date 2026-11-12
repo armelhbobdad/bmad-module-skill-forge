@@ -143,10 +143,10 @@ uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project
 If `{onCompleteCommand}` is non-empty and `{result_json_path}` is not null, invoke it once the emitter has written the record:
 
 ```bash
-{onCompleteCommand} --result-path={result_json_path}
+{onCompleteCommand} --result-path="{result_json_path}"
 ```
 
-When it exits non-zero, display "on_complete hook failed (exit {code}): {its first stderr line}" as a line of its own, and never fail the workflow on a hook error: the drop has already completed and may be irreversible. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
+Run it from `{project-root}`. When it exits non-zero, display "on_complete hook failed (exit {code}): {its first stderr line}" as a line of its own, and never fail the workflow on a hook error: the drop has already completed and may be irreversible. When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely.
 
 Whether or not a hook ran, then delete the run folder, whose payload the emitter has read: `rm -rf "{run_dir}"`.
 

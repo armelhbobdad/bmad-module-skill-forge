@@ -754,7 +754,7 @@ def test_the_customization_surface_is_what_the_stages_read():
                  "unitDetectionHeuristicsPath"):
         assert gone not in every, gone
     comments = _read(CUSTOMIZE)
-    assert "--result-path=<forge_data_folder>/analyze-source-result-latest.json" in comments
+    assert '--result-path="<forge_data_folder>/analyze-source-result-latest.json"' in comments
     assert "workflow_warnings" not in comments and "never fails the run" in comments
     assert "right after the customization resolve" in comments
     assert "before the standard activation (uv probe, config load)" not in comments

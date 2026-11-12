@@ -129,10 +129,10 @@ uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project
 When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's result contract (its `emit` exited 0, the line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` entry naming `create-skill-result-latest.json`), run it as a shell command from `{project-root}`, for this brief:
 
 ```bash
-{onCompleteCommand} --result-path={forge_version}/create-skill-result-latest.json
+{onCompleteCommand} --result-path="{forge_version}/create-skill-result-latest.json"
 ```
 
-The hook runs after the contract, so a git-add, registry registration or notifier sees a complete package. A hook failure never fails the brief, since the skill is written and its result contract is final: display "on_complete failed for `{name}`: {its exit code and first stderr line}" and go on. When `{onCompleteCommand}` is non-empty but the hook does not run, `--result-path` would name a missing file or an earlier compile's: skip the hook and display the line for its case:
+The hook runs after the contract, so a git-add, registry registration or notifier sees a complete package. A hook failure never fails the brief, since the skill is written and its result contract is final: display "on_complete failed for `{name}`: {its exit code and first stderr line}", and when it exited 127 (the shell found no such command) end that line with "; on_complete is a shell command in this workflow, not an instruction", then go on. When `{onCompleteCommand}` is non-empty but the hook does not run, `--result-path` would name a missing file or an earlier compile's: skip the hook and display the line for its case:
 
 - No `emit` succeeded (no path in `{emitEnvelopeProbeOrder}` exists, or `emit` failed twice): "on_complete skipped for `{name}`: no result contract was written ({the reason})".
 - `emit` exited 0, but the line's `result_path` is null (the per-run record was not written) or a `result_file_write_failed` warning names `create-skill-result-latest.json` (the copy alone failed): "on_complete skipped for `{name}`: `create-skill-result-latest.json` was not written".

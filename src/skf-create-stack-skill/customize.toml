@@ -46,12 +46,18 @@ persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# Command invoked once a run finishes (step 9, report.md §2c): after the
+# Optional post-completion hook: a shell command, not an instruction. Step 9
+# (report.md §2c) runs it from {project-root} once a run finishes: after the
 # stack package is committed, the report is shown and the result files are
-# written, before the health-check chain. A run that halts never invokes it.
-# Override wins. Use for a terminal action such as catalog registration or
-# notifying a downstream pipeline. Empty string = no terminal action. The
+# written, before the health-check chain, as:
+#   <on_complete> --result-path="<{forge_version}/create-stack-skill-result-latest.json>"
+# It is skipped, with a report line saying so, when the emitter wrote no
+# result file or not that -latest copy, and a run that halts never invokes
+# it. Override wins. Use for a terminal action such as catalog registration
+# or notifying a downstream pipeline. Empty string = no terminal action. The
 # hook never fails the run: a failure prints one report line.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 
 on_complete = ""
 

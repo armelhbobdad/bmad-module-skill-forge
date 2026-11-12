@@ -253,10 +253,10 @@ uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project
 If `{onCompleteCommand}` is non-empty and `{result_path}` is not null, invoke it as:
 
 ```bash
-{onCompleteCommand} --result-path={result_path}
+{onCompleteCommand} --result-path="{result_path}"
 ```
 
-Run it with a bounded timeout (default 60s). On success: log Info note "on_complete: invoked {command}" and continue. On non-zero exit, timeout, or any failure: keep the reason (for example `on_complete failed (exit {N}): {stderr_first_line}`) for a line of its own in §6, and continue. **The hook must never fail the workflow**: its purpose is integration glue (notify a CI router, post to a queue, archive the result) and any failure there is orthogonal to the test verdict, which the result files already hold. If `{onCompleteCommand}` is empty, this hook is a no-op (no log entry needed).
+Run it from `{project-root}` with a bounded timeout (default 60s). On success: log Info note "on_complete: invoked {command}" and continue. On non-zero exit, timeout, or any failure: keep the reason (for example `on_complete failed (exit {N}): {stderr_first_line}`) for a line of its own in §6, and continue. **The hook must never fail the workflow**: its purpose is integration glue (notify a CI router, post to a queue, archive the result) and any failure there is orthogonal to the test verdict, which the result files already hold. If `{onCompleteCommand}` is empty, this hook is a no-op (no log entry needed).
 
 ### 5. Finalize Output Document
 

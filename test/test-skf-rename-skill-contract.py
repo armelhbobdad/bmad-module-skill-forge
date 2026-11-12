@@ -416,7 +416,7 @@ def test_hook_comments_match_activation_and_the_report():
     assert "after activation completes" not in step3
     hook = _section(toml, "# Optional post-completion hook", "on_complete =")
     for needle in ("a shell command, run from {project-root}", "report step 3",
-                   "--result-path=<the per-run result file the shared", "skipped when the emitter wrote no result",
+                   '--result-path="<the per-run result file the shared', "skipped when the emitter wrote no result",
                    "a --dry-run never", "never fails the rename"):
         assert needle in hook, needle
     report = _section(_read(REPORT), "### 3. Post-Completion Hook (optional)", "### 4. ")

@@ -198,13 +198,13 @@ After compilation, you can:
 
 ### 6b. On-Complete Hook (pipeline integration)
 
-If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it now, after the brief has been written (§3) and, in a headless run, the result envelope built and bound to `{result_envelope_line}` (§4b):
+If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it now from `{project-root}`, after the brief has been written (§3) and, in a headless run, the result envelope built and bound to `{result_envelope_line}` (§4b):
 
 ```bash
-{onCompleteCommand} --result-path={brief_path}
+{onCompleteCommand} --result-path="{brief_path}"
 ```
 
-where `{brief_path}` is the absolute path captured from the §3 response envelope (the freshly written `skill-brief.yaml`, the stable artifact a downstream consumer chains from).
+where `{brief_path}` is the absolute path captured from the §3 response envelope (the freshly written `skill-brief.yaml`, the stable artifact a downstream consumer chains from). If §3 could not write the brief, the run halted there, so the hook never names a missing file.
 
 - **Never fail the workflow on hook errors:** the hook is for pipeline integration (chaining into create-skill, Slack, dashboards, CI), not for gating brief production. On a non-zero exit or a process error, display one line, `on_complete hook failed (exit {code}): {first line of its stderr}`, and continue. A headless run bound its envelope at §4b, so the envelope does not carry this line.
 - On success, add nothing: the hook's own output is its report.

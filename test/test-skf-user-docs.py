@@ -1906,10 +1906,12 @@ RESOLVER_WARNING = "`[activation/warn] customization_resolver_unavailable: <reas
 # The workflows whose on_complete is not called with --result-path, and what their customize.toml says instead.
 HOOK_FORMS = {
     "skf-campaign": "<on_complete> --report-path=",
-    "skf-create-stack-skill": "Command invoked once a run finishes",
     "skf-setup": "An instruction the agent carries out",
     "skf-verify-stack": "Instruction executed at the end of step 6, before the health check",
 }
+# #1109: the sentence the docs add, that the shell meaning departs from BMad core's.
+DOCS_HOOK_CONTRAST = ("Unlike BMad core, where `on_complete` is an instruction, these workflows hand the value to the "
+                      'shell, so an instruction such as "run Test Skill" fails.')
 CHAIN_HALT = "`<CODE> needs <input> before the pipeline can start: give it as <CODE>[<input>]`"
 CHAIN_HALT_EXAMPLE = "`QS needs a target before the pipeline can start: give it as QS[<target>]`"
 
@@ -2023,24 +2025,29 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
         else:
             assert "--result-path=" in hook, skill
     quick = _comment_above(_read(QUICK / "customize.toml"), "on_complete")
-    assert "<on_complete> --result-path=<skill package>/quick-skill-result-latest.json" in quick
+    assert '<on_complete> --result-path="<skill package>/quick-skill-result-latest.json"' in quick
     assert "skipped when the emitter wrote no result file, or not that -latest copy" in quick
     assert "skipped when the emitter wrote no result file" in _comment_above(
         _read(SRC / "skf-rename-skill" / "customize.toml"), "on_complete")
     [on_complete] = [line for line in settings.splitlines() if line.startswith("- `on_complete`:")]
-    for token in ("Every workflow except Campaign, Stack Skill, Verify Stack and Setup Forge (Quick Skill included)",
+    for token in ("`on_complete`: a shell command to run after", DOCS_HOOK_CONTRAST,
+                  "Every workflow except Campaign, Verify Stack and Setup Forge (Quick Skill and Stack Skill "
+                  "included) calls it from your project root with",
                   "`--result-path=<result file>`", "the hook is skipped when the emitter wrote no result file",
                   "`--result-path=<skill package>/quick-skill-result-latest.json`",
                   "the skill package is that file's folder", "or did not write that `-latest` copy",
-                  "Analyze Source, Create Skill and Update Skill pass their `-latest` copy too "
+                  "Analyze Source, Create Skill, Stack Skill and Update Skill pass their `-latest` copy too "
                   "(`<forge_data_folder>/analyze-source-result-latest.json`, "
-                  "`<version folder>/create-skill-result-latest.json` and "
+                  "`<version folder>/create-skill-result-latest.json`, "
+                  "`<version folder>/create-stack-skill-result-latest.json` and "
                   "`<version folder>/update-skill-result-latest.json`), and skip the hook, with a line that says so, "
                   "when the run did not write it.",
-                  "Campaign passes `--report-path=<report>`", "Stack Skill runs the command with no argument",
-                  "Setup Forge and Verify Stack carry it out as an instruction",
+                  "Campaign runs it from your project root too, with `--report-path=<report>` when it wrote its report",
+                  "Setup Forge and Verify Stack carry it out as an instruction once they finish (Verify Stack at the "
+                  "end of step 6, once its run folder is deleted, before the health check).",
                   "A failing command never fails the workflow"):
         assert token in on_complete, token
+    assert "no argument" not in on_complete
 
     aliases = _paragraph(_read(AGENTS), "Ferris can run several workflows in one command.")
     for token in ("such as `QS[cocoindex] TS EX`", "every step runs in headless mode",

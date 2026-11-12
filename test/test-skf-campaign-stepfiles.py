@@ -475,7 +475,7 @@ def test_maintenance_terminal_sequence() -> None:
     assert order == sorted(order)
     hook = _section(text, 4)
     assert "after the final state write" in hook
-    assert "When §2 wrote the report, run `{onComplete} --report-path={reportFile}`" in hook
+    assert 'When §2 wrote the report, run `{onComplete} --report-path="{reportFile}"`' in hook
     assert "run `{onComplete}` without `--report-path`" in hook
     envelope = _section(text, 5)
     assert "Bind `{result_envelope_line}` to the `SKF_CAMPAIGN_RESULT_JSON:` line it prints" in envelope

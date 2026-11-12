@@ -50,8 +50,8 @@ persistent_facts = [
 # contract (the per-run record plus update-skill-result-latest.json) of a
 # finished run: an update that wrote a version, or a run that found no
 # change (its result files go in the current version's forge folder). The
-# command is called as:
-#   <on_complete> --result-path=<{forge_version}/update-skill-result-latest.json>
+# shell command, run from {project-root}, is called as:
+#   <on_complete> --result-path="<{forge_version}/update-skill-result-latest.json>"
 # It is not called for --detect-only or --dry-run, which write no result
 # file, nor when a run halts or did not write its -latest copy.
 # Useful for Slack notifications, dashboard ingest, CI hooks, or chaining a
@@ -59,6 +59,8 @@ persistent_facts = [
 # in one line and never fails the workflow; it does not reach the result
 # files or the SKF_UPDATE_RESULT_JSON line, which are written before the
 # hook runs.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 #
 # Empty string = no-op (default).
 

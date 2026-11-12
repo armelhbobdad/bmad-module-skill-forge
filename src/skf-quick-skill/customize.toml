@@ -73,15 +73,17 @@ skill_template_path = "assets/skill-template.md"
 batch_output_path = "{skills_output_folder}/_batch/"
 
 # Optional post-completion hook: a shell command, not an instruction. Step 6
-# runs it once the success envelope is printed and the result contract
-# written, as:
-#   <on_complete> --result-path=<skill package>/quick-skill-result-latest.json
+# runs it from {project-root}, with a 60s timeout, once the success envelope
+# is printed and the result contract written, as:
+#   <on_complete> --result-path="<skill package>/quick-skill-result-latest.json"
 # The result file sits in the skill package, which then holds SKILL.md,
 # metadata.json and context-snippet.md (unless --skip-snippet); its
 # `outputs` list those paths. It is skipped when the emitter wrote no result
 # file, or not that -latest copy. Under --batch it runs once per target
 # that finishes; a HARD HALT never runs it. A failure is logged and never
 # fails the workflow, and the envelope, already printed, does not carry it.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 # Use for git-add, skill-registry registration, or a notifier on the
 # freshly compiled skill. Empty string = no hook (default).
 

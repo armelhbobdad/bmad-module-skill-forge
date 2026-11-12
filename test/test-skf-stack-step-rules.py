@@ -2916,3 +2916,35 @@ def test_the_contract_pointers_are_current():
     assert "(the `init:emitter` halt, with no emitter, only displays its message)" in _read(STACK_SKILL)
     description = _schema()["description"]
     assert "lists each halt with its step; each halting step file shows the emit-halt command" in description
+
+
+# --- #1109 (create-stack part): the hook gets the -latest record, or is skipped ----
+
+
+def test_the_hook_gets_the_latest_record_and_is_skipped_without_one():
+    """#1109: §2c passes the `-latest` record §2b wrote, quoted and from the project root, and skips the hook
+    with one report line when the emitter wrote no line, no `-latest` record or no per-run record, so the hook
+    never reads a missing file or an earlier forge's record. A missing atomic writer or a failed group-root
+    copy leaves the version folder's `-latest` record in place, so neither skips it. The comment shows the
+    same call."""
+    two_c = _sections(_body(_read(REPORT)))["2c"]
+    assert "invoke it now from `{project-root}`, after §2b and before chaining to health-check" in two_c
+    assert ('```bash\n{onCompleteCommand} --result-path="{forge_version}/create-stack-skill-result-latest.json"\n'
+            '```') in two_c
+    skip = _from(two_c, "Skip it when").split("\n\n")[0]
+    for token in ("Skip it when the emitter printed no line, a `result_file_write_failed` warning names "
+                  "`create-stack-skill-result-latest.json` or `{forge_version}` itself, or the line's `result_path` "
+                  "is null",
+                  '"on_complete skipped: no result contract was written ({reason})"',
+                  "the hook never gets a missing file or an earlier forge's record"):
+        assert token in skip, token
+    assert "group-root" not in skip, skip
+    assert two_c.index("Skip it when") < two_c.index("Run it with a bounded timeout (default 60s)")
+    assert "The hook runs even when" not in _read(REPORT)
+    assert "**The hook must never fail the workflow**" in two_c
+    comment = " ".join(line.lstrip("#").strip() for line in _customize_comment("on_complete").splitlines())
+    for token in ("a shell command, not an instruction", "runs it from {project-root}",
+                  '<on_complete> --result-path="<{forge_version}/create-stack-skill-result-latest.json>"',
+                  "It is skipped, with a report line saying so, when the emitter wrote no result file or not that "
+                  "-latest copy"):
+        assert token in comment, token

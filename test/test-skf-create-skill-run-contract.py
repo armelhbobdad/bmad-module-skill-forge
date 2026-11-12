@@ -444,7 +444,7 @@ def test_report_orders_contract_then_batch_then_health_check():
     assert "each brief of a `--batch` run included" in five
     assert ('uv run {emitEnvelopeHelper} emit --workflow skf-create-skill --run-dir "{run_dir}" '
             '--result-dir "{forge_version}" < "{run_dir}/result-context.json"') in five
-    assert "{onCompleteCommand} --result-path={forge_version}/create-skill-result-latest.json" in five
+    assert '{onCompleteCommand} --result-path="{forge_version}/create-skill-result-latest.json"' in five
     assert five.index("emit --workflow") < five.index("{onCompleteCommand} --result-path")
     assert 'rm -rf "{run_dir}"' in five
     # under --batch the batch helper reads the staged payload, then removes the folder itself
@@ -521,6 +521,10 @@ def test_on_complete_is_a_shell_command_run_only_after_a_result_contract():
     # the batch's state is the batch helper's, in its run folder: no sidecar checkpoint is written
     assert "batch-state.yaml" not in load_rules
     assert "Write nothing but the brief's run folder (§0) and the decisions recorded in it" in load_rules
+    # #1109: a BMad-style instruction makes the shell exit 127, and the failure line then names the key's meaning.
+    assert ('display "on_complete failed for `{name}`: {its exit code and first stderr line}", and when it exited '
+            '127 (the shell found no such command) end that line with "; on_complete is a shell command in this '
+            'workflow, not an instruction", then go on.') in five
 
 
 def test_the_documented_result_payload_is_schema_valid(tmp_path):

@@ -46,12 +46,14 @@ persistent_facts = [
 ]
 
 # Optional post-completion hook: a shell command, run from {project-root}
-# in report step 3 with `--result-path=<the per-run result file the shared
-# emitter wrote>` appended, before the terminal health-check step. It is
+# in report step 3 with `--result-path="<the per-run result file the shared
+# emitter wrote>"` appended, before the terminal health-check step. It is
 # skipped when the emitter wrote no result file, and a --dry-run never
 # reaches it. A hook failure is logged and never fails the rename, which is
 # already committed. Use for an audit-log emit, a skill-registry re-index or
 # a post-rename notifier.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 
 on_complete = ""
 

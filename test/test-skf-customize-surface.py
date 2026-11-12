@@ -13,8 +13,13 @@ that owns its rule, or it changes nothing, so:
   reads that variable: a helper command passes it on for a scalar a script
   owns, and campaign's quality gate scalars, passed the way step-01 passes
   them, change the state campaign-state.py writes;
-- each on_complete comment says whether the value is a command (named, or
-  shown with the arguments the run appends) or an instruction;
+- each on_complete comment (#1109) takes one of the two documented forms:
+  a shell command, whose comment says so, says that unlike BMad core this
+  workflow hands the value to the shell, and quotes any path it shows; or
+  an instruction (Setup Forge and Verify Stack only), whose comment opens
+  by saying so. Every command-style terminal stage passes its path quoted,
+  runs the hook from `{project-root}`, states when it skips the hook, and
+  never fails the run on a hook failure;
 - the `!` persistent_facts rule (the maintainer's 2026-10-02 decision): for
   every workflow that ships a non-empty persistent_facts, the On Activation
   persistent_facts sentence drops a `!` entry and each earlier entry it
@@ -47,6 +52,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tomllib
@@ -229,12 +235,92 @@ def test_each_scalar_reaches_a_stage(skill, key):
         assert commands, f"{skill}: {placeholder} reaches no helper command"
 
 
-@pytest.mark.parametrize("skill", WORKFLOWS)
-def test_each_on_complete_comment_says_what_it_runs(skill):
-    """A command, shown or named, or an instruction the agent carries out."""
-    comment = _comment_above(skill, "on_complete")
-    assert re.search(r"(?i)\bcommand\b|\binstruction\b", comment) or "<on_complete> --" in comment, (
-        f"{skill}: the on_complete comment does not say whether the value is a command or an instruction")
+# #1109: in BMad core on_complete is an instruction; a command-style comment says
+# this workflow departs from that.
+HOOK_CONTRAST = ('Unlike BMad core, where on_complete is an instruction, this workflow hands the value to the shell, '
+                 'so an instruction such as "run Test Skill" fails.')
+INSTRUCTION_HOOKS = {"skf-setup", "skf-verify-stack"}
+# Each command-style terminal stage, by workflow: (file under references/, the
+# heading or lead that opens it, what follows it, the skip it states).
+HOOK_STAGES = {
+    "skf-analyze-source": [
+        ("generate-briefs.md", "### 9b.", "### 10.", "skip the hook and say so"),
+        ("step-auto-scope.md", "If `{onCompleteCommand}` is non-empty, the line's", "Then delete the run folder",
+         "skip the hook and say so"),
+        ("auto-docs-only.md", "If `{onCompleteCommand}` is non-empty, the line's", "### 6.",
+         "skip the hook and say so"),
+    ],
+    "skf-audit-skill": [("report.md", "**Post-audit hook (optional).**", "### 6.", "skip the hook when it is null")],
+    "skf-brief-skill": [
+        ("write-brief.md", "### 6b.", "### 7.", "the hook never names a missing file"),
+        ("step-auto-validate.md", "**On-complete hook.**", "**Remove the run folder.**",
+         "the hook never names a missing file"),
+    ],
+    # Campaign's skip is its call without --report-path when no report was written.
+    "skf-campaign": [("step-11-maintenance.md", "### §4: Post-Completion Hook", "### §5",
+                      "without `--report-path`, since there is no report to read")],
+    "skf-create-skill": [("report.md", "**Post-completion hook.**", "**Remove the run folder.**",
+                          "skip the hook and display the line for its case")],
+    "skf-create-stack-skill": [("report.md", "### 2c.", "### 3.",
+                                '"on_complete skipped: no result contract was written ({reason})"')],
+    "skf-drop-skill": [("report.md", "### Post-drop hook (optional)", "### 3.", "`{result_json_path}` is not null")],
+    "skf-export-skill": [("summary.md", "### 6b.", "### 7.", "when `{result_path}` is null")],
+    "skf-quick-skill": [("finalize.md", "**Post-completion hook (optional).**", "In a single-target run",
+                         "skip the hook and say so")],
+    "skf-refine-architecture": [("report.md", "### 5. Post-Completion Hook", "### 6.",
+                                 "When `{result_path}` is null, skip it too")],
+    "skf-rename-skill": [("report.md", "### 3. Post-Completion Hook", "### 4.",
+                          "when `{result_path}` is null, skip it")],
+    "skf-test-skill": [("report.md", "**Post-finalization hook.**", "### 5.", "`{result_path}` is not null")],
+    "skf-update-skill": [("report.md", "**Post-finalization hook.**", "### 6.", "skip it and say why")],
+}
+HOOK_STAGE_CASES = [(skill, *stage) for skill, stages in HOOK_STAGES.items() for stage in stages]
+UNQUOTED_PATH = re.compile(r"--(?:result|report)-path=(?!\")")
+
+
+def test_each_on_complete_comment_is_a_shell_command_or_an_instruction():
+    """#1109: a command-style comment says it is a shell command, gives the
+    BMad core contrast and quotes the path it shows; an instruction-style
+    comment opens by saying it is one. Setup Forge and Verify Stack alone are
+    instructions, and every other workflow has a stage in HOOK_STAGES."""
+    command, instruction = set(), set()
+    for skill in WORKFLOWS:
+        comment = _flat(_flat_comment(skill, "on_complete"))
+        if "shell command" in comment and HOOK_CONTRAST in comment:
+            assert not UNQUOTED_PATH.search(comment), f"{skill}: customize.toml shows an unquoted path"
+            command.add(skill)
+        elif re.match(r"(An instruction|Instruction)\b", comment) and "hands the value to the shell" not in comment:
+            instruction.add(skill)
+        else:
+            pytest.fail(f"{skill}: customize.toml describes on_complete in neither documented form: {comment[:120]}")
+    assert instruction == INSTRUCTION_HOOKS, sorted(instruction ^ INSTRUCTION_HOOKS)
+    assert command == set(HOOK_STAGES), sorted(command ^ set(HOOK_STAGES))
+
+
+@pytest.mark.parametrize("skill,name,start,end,skip", HOOK_STAGE_CASES,
+                         ids=[f"{case[0]}:{case[1]}" for case in HOOK_STAGE_CASES])
+def test_every_command_style_stage_runs_the_hook_the_same_way(skill, name, start, end, skip):
+    """#1109: the quoted path, the `{project-root}` working directory, a
+    failure that never fails the run, and the skip when there is no file."""
+    text = _read(SRC / skill / "references" / name)
+    assert start in text, f"{skill} {name}: no {start!r}"
+    stage = text.split(start, 1)[1]
+    assert end in stage, f"{skill} {name}: no {end!r} after {start!r}"
+    stage = stage.split(end, 1)[0]
+    campaign = skill == "skf-campaign"
+    hook = "{onComplete}" if campaign else "{onCompleteCommand}"
+    flag = "--report-path" if campaign else "--result-path"
+    assert f'{hook} {flag}="' in stage, f"{skill} {name}: the hook's path is not quoted"
+    # The call as the shell reads it in a project whose path holds a space: the path stays one argument.
+    call = re.search(re.escape(f"{hook} {flag}=") + r'"[^"\n]*"', stage)
+    assert call, f"{skill} {name}: the hook's quoted path does not close on its line"
+    words = shlex.split(re.sub(r"\{[^}]+\}", "/a b", call.group(0).replace(hook, "hook", 1)))
+    assert len(words) == 2 and words[1].startswith(f"{flag}=/a b"), (
+        f"{skill} {name}: {call.group(0)} splits into {words}")
+    assert not UNQUOTED_PATH.search(stage), f"{skill} {name}: an unquoted path"
+    assert "from `{project-root}`" in stage, f"{skill} {name}: no working directory for the hook"
+    assert re.search(r"(?i)\bnever fails? the\b", stage), f"{skill} {name}: a hook failure may fail the run"
+    assert skip in stage, f"{skill} {name}: no skip when there is no result file"
 
 
 def _step_01_init_args(**values: str) -> list[str]:

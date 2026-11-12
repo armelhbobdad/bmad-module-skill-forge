@@ -95,11 +95,15 @@ report_template_path = ""
 kickoff_template_path = ""
 brief_template_path = ""
 
-# Optional post-completion hook. When non-empty, step-11 invokes it once
-# the campaign is finished: after the report and the final state write
-# (current_stage 10), before the headless result envelope:
-#   <on_complete> --report-path=<path-to-campaign-report.md>
+# Optional post-completion hook: a shell command, not an instruction. When
+# non-empty, step-11 runs it from {project-root} once the campaign is
+# finished: after the report and the final state write (current_stage 10),
+# before the headless result envelope:
+#   <on_complete> --report-path="<path-to-campaign-report.md>"
 # --report-path is passed only when the report was written; a report that
 # could not be generated leaves the hook called without it. Failures are
-# logged to the decision log but never fail the campaign. Empty = no-op.
+# logged to the decision log but never fail the campaign.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
+# Empty = no-op.
 on_complete = ""

@@ -67,9 +67,11 @@ drift_report_template_path = "assets/drift-report-template.md"
 # agent instruction. Step 6 (references/report.md) runs it on a finished
 # audit, after the emitter wrote the per-run record (`result_path` not null),
 # as:
-#   <on_complete> --result-path=<{forge_version}/audit-skill-result-<YYYYMMDD-HHmmss>.json>
+#   <on_complete> --result-path="<{forge_version}/audit-skill-result-<YYYYMMDD-HHmmss>.json>"
 # It never runs on a halt, nor when the per-run record could not be written.
 # A failure is shown to the user and never fails the audit.
+# Unlike BMad core, where on_complete is an instruction, this workflow hands
+# the value to the shell, so an instruction such as "run Test Skill" fails.
 #
 # Empty string = no-op (default).
 

@@ -47,7 +47,12 @@ and pin the prose around them:
   reads the step 3 summaries, never a SKILL.md;
 - the integration rules, the coverage patterns and the report folder are no
   customize.toml settings, the report template's comment names what the
-  schema fixes, and a path a flag gave is never asked for again.
+  schema fixes, and a path a flag gave is never asked for again;
+- report.md §5 deletes the run folder, then carries out the on_complete
+  instruction, shows its failure on one line and goes on, then chains to
+  the health check even when the instruction started another workflow,
+  and SKILL.md and customize.toml say it runs at the end of step 6, before
+  the health check (#1109).
 """
 
 from __future__ import annotations
@@ -1078,3 +1083,25 @@ def test_step_1_asks_only_for_what_no_flag_answered():
     assert "| **Architecture Doc** | {architecture_doc_path} |" in summary
     assert "| **PRD Document** | {prd_path or 'Not provided: requirements pass will be skipped'} |" in summary
     assert "{prd_doc" not in init and "{architecture_doc}" not in init
+
+
+def test_the_hook_runs_after_the_run_folder_is_deleted_and_never_ends_the_run():
+    """#1109: §5 deletes `{run_dir}` first, so an instruction that starts another workflow leaves no run folder
+    behind; then it carries out the instruction, displays a failure on one line and continues, and chains to the
+    health check even when the instruction started another workflow."""
+    report = _read(REFERENCES / "report.md")
+    finish = _section(report, "### 5. Finish", "the health-check step is the true terminal step")
+    order = ['rm -rf "{run_dir}"', "If `{workflow.on_complete}` is non-empty, carry out that instruction now",
+             "When it fails, display `on_complete failed: {reason}` on a line of its own and continue",
+             "execute `{nextStepFile}`, even when the instruction started another workflow"]
+    at = [finish.index(token) for token in order]
+    assert at == sorted(at), order
+    assert "the hook never fails the run, whose report and result files are written" in finish
+    assert "in headless, display one line naming what it did" in finish and "log the action" not in finish
+    [line] = [line for line in _read(SKILL / "SKILL.md").splitlines() if "`workflow.on_complete`" in line]
+    assert "report.md §5 executes it, if non-empty, at the end of step 6, before the health check." in line
+    toml = _read(SKILL / "customize.toml")
+    comment = " ".join(line.lstrip("#").strip() for line in
+                       toml[: toml.index("\non_complete =")].rsplit("\n\n", 1)[-1].splitlines())
+    assert comment.startswith("Instruction executed at the end of step 6, before the health check"), comment
+    assert "terminal stage" not in comment

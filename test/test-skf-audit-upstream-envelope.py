@@ -612,7 +612,7 @@ def test_the_customize_surface_reaches_what_it_overrides():
     assert "the bundled defaults are an empty string" not in activation
     report = _flow(_slice(_read(REPORT), "**Post-audit hook (optional).**", "### 6."))
     assert "invoke it from `{project-root}` as:" in report
-    assert "{onCompleteCommand} --result-path={result_json_path}" in report
+    assert '{onCompleteCommand} --result-path="{result_json_path}"' in report
 
 
 # The shared #595 resolver block every workflow's On Activation carries, and
