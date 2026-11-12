@@ -24,8 +24,8 @@ and risked paraphrasing or cutting the operator's directive.
   - {{persistent_facts}}: one bullet per persistent fact, or "None". An entry
     `file:<path-or-glob>` adds the content of each file it names, with
     `{project-root}` replaced by --project-root; an entry `!<entry>` adds
-    nothing and drops every earlier entry equal to `<entry>`, so a team or
-    personal override drops a bundled default
+    nothing and drops every earlier entry equal to `<entry>`, so a personal
+    override drops an entry the team override adds
     (`!file:{project-root}/**/project-context.md`); any other entry is a fact
     sentence. The drop and the glob are the customization helper's own code
     (shared/scripts/skf-resolve-customization.py, the one every activation

@@ -27,8 +27,8 @@ activation_steps_append = []
 
 # Persistent facts the workflow keeps in mind for the whole campaign
 # (house style, naming conventions, quality guardrails). These are injected
-# into every per-skill kickoff, so project-scoped house facts propagate to
-# the whole campaign. Overrides append.
+# into every per-skill kickoff, so a campaign-wide fact reaches every skill.
+# Overrides append.
 #
 # Each entry is one of:
 #   - a literal sentence, e.g. "All skills must cite their upstream source."
@@ -38,17 +38,16 @@ activation_steps_append = []
 #   - an entry prefixed with `!`, which loads nothing and drops each earlier
 #     entry it names.
 #
-# The kickoff script expands each `file:` entry when it renders a Tier A
-# kickoff (a `**` glob recursively, so the default below takes every
-# project-context.md under {project-root}) and inlines each matching file in
-# full into every kickoff. Overrides append, and the script drops a `!`
-# entry and each earlier entry it names, so to keep those files out of every
-# Tier A kickoff, set in {project-root}/_bmad/custom/skf-campaign.toml:
-#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
+# Ships empty: these facts are campaign-scoped. Brief, Create and Test
+# Skill each load their own persistent_facts, every project-context.md
+# under {project-root} by default, and the kickoff script inlines each file
+# listed here in full into every Tier A kickoff, so listing those files
+# here puts them in each skill's context twice. To add them anyway, set in
+# {project-root}/_bmad/custom/skf-campaign.toml:
+#   [workflow]
+#   persistent_facts = ["file:{project-root}/**/project-context.md"]
 
-persistent_facts = [
-  "file:{project-root}/**/project-context.md",
-]
+persistent_facts = []
 
 # --- Workspace path ---
 #

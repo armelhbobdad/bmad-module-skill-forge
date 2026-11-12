@@ -809,8 +809,9 @@ def test_campaign_setup_asks_one_question_and_drafts_the_table():
 def test_campaign_persistent_facts_line_follows_the_kickoff_loader(tmp_path):
     """A `file:` path that names no file stops the kickoff; a glob that matches nothing adds nothing.
 
-    The line also says how an override drops the bundled default (#596, the maintainer's 2026-10-02 decision): a
-    `!` entry naming the default exactly as customize.toml's persistent_facts array holds it.
+    The line also says that the list ships empty and how a team override adds the project-context.md entry
+    (#1107, the maintainer's 2026-11-12 decision), and how a personal override's `!` entry, naming that entry
+    exactly as the team override holds it, drops it again (#596).
     """
     kickoff = _kickoff()
     with pytest.raises(FileNotFoundError):
@@ -822,12 +823,23 @@ def test_campaign_persistent_facts_line_follows_the_kickoff_loader(tmp_path):
     for token in ("A `file:` path with no glob character that names no file stops the campaign at its first Tier A "
                   "kickoff with exit code 2", "a glob that matches nothing adds nothing"):
         assert token in line, token
-    default = "file:{project-root}/**/project-context.md"
-    assert tomllib.loads(_read(SRC / "skf-campaign" / "customize.toml"))["workflow"]["persistent_facts"] == [default]
-    for token in (f'`persistent_facts = ["!{default}"]`', "a team or personal override",
-                  "an entry that starts with `!` adds nothing and removes every earlier entry it names",
-                  "those files stay out of every Tier A kickoff"):
+    entry = "file:{project-root}/**/project-context.md"
+    assert tomllib.loads(_read(SRC / "skf-campaign" / "customize.toml"))["workflow"]["persistent_facts"] == []
+    for token in ("It ships empty: Brief, Create and Test Skill already load every `project-context.md` in your "
+                  "project in their own runs, so listing those files here would put them in each skill's context "
+                  "twice.",
+                  # Into the list already there: a second persistent_facts line is a TOML duplicate key.
+                  f'add `"{entry}"` to the `persistent_facts` list under `[workflow]` in `_bmad/custom/skf-campaign.toml` '
+                  f'(`persistent_facts = ["{entry}"]` when the file has no such list)',
+                  "An entry that starts with `!` adds nothing and removes every earlier entry it names",
+                  f'`persistent_facts = ["!{entry}"]` under `[workflow]` in `_bmad/custom/skf-campaign.user.toml` '
+                  "keeps those files out of your Tier A kickoffs when the team override adds that same entry"):
         assert token in line, token
+    assert "By default it loads" not in line and "To drop the default" not in line
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "project-context.md").write_bytes(b"rule\n")
+    assert len(kickoff.load_facts([entry], str(tmp_path))) == 1
+    assert kickoff.load_facts([entry, f"!{entry}"], str(tmp_path)) == []
 
 
 # --------------------------------------------------------------------------
@@ -1982,11 +1994,18 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
 
     settings = _slice(doc, "Settings every workflow has:", "Useful settings in specific workflows:")
     [facts] = [line for line in settings.splitlines() if line.startswith("- `persistent_facts`:")]
-    assert _settings("skf-setup")["persistent_facts"] == []
-    for token in ("Every workflow except Setup Forge loads any `project-context.md`",
-                  "an entry that starts with `!` drops each earlier entry it names and loads nothing itself",
-                  f'add `persistent_facts = ["!{DEFAULT_FACT}"]` under `[workflow]` in '
-                  "`_bmad/custom/<skill-name>.toml`",
+    for skill in ("skf-setup", "skf-drop-skill", "skf-campaign"):
+        assert _settings(skill)["persistent_facts"] == [], skill
+    for token in ("Every workflow except Setup Forge, Drop Skill and Campaign loads any `project-context.md` in your "
+                  "project by default. In a team or personal override, an entry that starts with `!` drops each "
+                  "earlier entry it names and loads nothing itself. To turn that default off for one workflow, add "
+                  f'`persistent_facts = ["!{DEFAULT_FACT}"]` under `[workflow]` in `_bmad/custom/<skill-name>.toml`. '
+                  "Drop Skill and Campaign ship no default: Drop Skill never reads the project context, and each "
+                  "Brief, Create and Test Skill run a campaign starts loads it on its own.",
+                  # Into the list already there: a second persistent_facts line is a TOML duplicate key.
+                  f'To load it in Drop Skill or Campaign anyway, add `"{DEFAULT_FACT}"` to the `persistent_facts` '
+                  "list under `[workflow]` in `_bmad/custom/skf-drop-skill.toml` or `_bmad/custom/skf-campaign.toml` "
+                  f'(`persistent_facts = ["{DEFAULT_FACT}"]` when the file has no such list).',
                   "SKF's customization helper applies each such entry and expands each glob before a workflow "
                   "reads the list", "a `**` never enters a hidden folder or a folder reached through a link",
                   "never loads a file under `_bmad-output/.skf-run/`",

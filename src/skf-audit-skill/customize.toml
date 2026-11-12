@@ -36,9 +36,11 @@ activation_steps_append = []
 #   - an entry prefixed with `!`, which loads nothing and drops each earlier
 #     entry it names.
 #
-# The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-audit-skill.toml:
+# The default below loads every project-context.md under {project-root}
+# and is kept on purpose: this workflow reads the project context (Drop
+# Skill and Campaign, which do not need it, ship none). A `!` entry in an
+# override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-audit-skill.toml:
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [

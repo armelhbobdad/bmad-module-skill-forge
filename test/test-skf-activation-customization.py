@@ -20,7 +20,8 @@ block across all sixteen activations.
   drops the bundled project-context.md default; SKILL.md says so and each
   customize.toml shows the override, with no "cannot remove it" left. Since
   #1106 the helper applies the drop and expands each glob (`--facts`), and
-  SKILL.md points at that instead of asking the model to do it.
+  SKILL.md points at that instead of asking the model to do it. Since #1107
+  Campaign ships no default, so its step names none.
 - #601: each Conventions block states the module-level path exception, and
   the sibling-skill rule wherever the skill names another skill's folder.
 - #603: headless_mode is read from `{sidecar_path}/preferences.yaml`.
@@ -64,7 +65,8 @@ WORKFLOWS = sorted(STEPS)
 HELPER = "skf-resolve-customization.py"
 COMMAND = ("uv run {resolveCustomizationHelper} --skill {skill-root} "
            "--project-root {project-root} --key workflow --facts")
-# What the resolved list holds, in every activation's step (Setup and Ferris carry it alone, in parentheses).
+# What the resolved list holds, in every activation's step (a skill whose bundled list is empty, Setup, Drop Skill,
+# Campaign and Ferris since #1107, carries it alone, in parentheses).
 FACTS_POINTER = ("`--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each "
                  "glob, so a `file:` entry names one file to load, never one under "
                  "`{project-root}/_bmad-output/.skf-run/`")
@@ -103,6 +105,8 @@ ROUTES = {
 
 CUSTOMIZE_CHANGED = ("skf-analyze-source", "skf-campaign", "skf-create-stack-skill", "skf-quick-skill",
                      "skf-refine-architecture", "skf-rename-skill", "skf-test-skill", "skf-verify-stack")
+# #1107: Campaign ships no project-context default, so only the others show how to drop it.
+DEFAULT_SHIPPED = tuple(skill for skill in CUSTOMIZE_CHANGED if skill != "skf-campaign")
 DEFAULT_FACT = "file:{project-root}/**/project-context.md"
 
 MODULE_RULE = ("- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve "
@@ -139,6 +143,10 @@ def _step(skill: str) -> str:
 
 def _flat(text: str) -> str:
     return re.sub(r"\s+", " ", text)
+
+
+def _bundled_facts(skill: str) -> list:
+    return tomllib.loads(_read(SRC / skill / "customize.toml"))["workflow"]["persistent_facts"]
 
 
 # --------------------------------------------------------------------------
@@ -350,13 +358,18 @@ def test_create_stack_records_the_reason_in_its_pre_flight():
 
 @pytest.mark.parametrize("skill", WORKFLOWS)
 def test_activation_reads_the_list_the_helper_resolved(skill):
-    """#1106: the helper applies the `!` drop and expands each glob, so the step only says what the list holds."""
+    """#1106: the helper applies the `!` drop and expands each glob, so the step only says what the list holds.
+    #1107: a workflow whose bundled list is empty (Campaign) names no default and carries the pointer alone."""
     activation = _flat(_activation(skill))
-    assert activation.count(FACTS_NOTE) == 1, skill
+    if _bundled_facts(skill):
+        assert activation.count(FACTS_NOTE) == 1, skill
+    else:
+        assert activation.count(f"({FACTS_POINTER})") == 1, skill
+        assert "the bundled default loads" not in activation, skill
     assert "loads nothing itself" not in activation and "turns that default off" not in activation, skill
 
 
-@pytest.mark.parametrize("skill", CUSTOMIZE_CHANGED)
+@pytest.mark.parametrize("skill", DEFAULT_SHIPPED)
 def test_customize_toml_shows_how_to_drop_the_default(skill):
     text = _read(SRC / skill / "customize.toml")
     assert tomllib.loads(text)["workflow"]["persistent_facts"] == [DEFAULT_FACT]

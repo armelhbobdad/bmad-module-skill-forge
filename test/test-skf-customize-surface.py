@@ -16,13 +16,18 @@ that owns its rule, or it changes nothing, so:
 - each on_complete comment says whether the value is a command (named, or
   shown with the arguments the run appends) or an instruction;
 - the `!` persistent_facts rule (the maintainer's 2026-10-02 decision): for
-  every workflow that ships a non-empty persistent_facts (all but skf-setup),
-  the On Activation persistent_facts sentence drops a `!` entry and each
-  earlier entry it names, the customize.toml comment above persistent_facts
-  shows `persistent_facts = ["!file:{project-root}/**/project-context.md"]`
-  and never says an override cannot remove the default or suggests a
-  counter-fact, and campaign's kickoff loader drops the default for that
-  override.
+  every workflow that ships a non-empty persistent_facts, the On Activation
+  persistent_facts sentence drops a `!` entry and each earlier entry it
+  names, and the customize.toml comment above persistent_facts shows
+  `persistent_facts = ["!file:{project-root}/**/project-context.md"]` and
+  never says an override cannot remove the default or suggests a
+  counter-fact;
+- the project-context default (the maintainer's 2026-11-12 decision, #1107):
+  the twelve workflows that read the project context ship it, and Audit,
+  Brief and Test Skill say it is kept on purpose; skf-setup, skf-drop-skill
+  and skf-campaign ship `[]`, and the comment of the last two shows the
+  two-line `[workflow]` override that loads those files anyway; campaign's
+  kickoff loader applies it, and a later `!` entry drops it again.
 
 skf-forger is not a workflow: its customize.toml holds an [agent] block.
 """
@@ -272,15 +277,31 @@ def test_campaign_quality_gate_overrides_change_the_state(tmp_path):
 
 
 FACT_SKILLS = [skill for skill in WORKFLOWS if _workflow_table(skill)["persistent_facts"]]
+# #1107 (the maintainer's 2026-11-12 decision): no Drop Skill stage reads the project context, and Brief, Create
+# and Test Skill load it in each run a campaign starts, so these two ship no default and show the override that
+# loads it anyway.
+NO_DEFAULT = ("skf-campaign", "skf-drop-skill")
+OPT_IN = f'#   [workflow]\n#   persistent_facts = ["{DEFAULT_FACT}"]\n'
+# Workflows that read the project context and say the default is kept on purpose.
+KEPT_ON_PURPOSE = ("skf-audit-skill", "skf-brief-skill", "skf-test-skill")
 
 
-def test_every_workflow_but_setup_ships_the_project_context_default():
-    assert sorted(set(WORKFLOWS) - set(FACT_SKILLS)) == ["skf-setup"]
+def _opt_in(skill: str) -> dict:
+    """The override the persistent_facts comment shows, `#` markers dropped, read as the override file it is."""
+    example = _comment_above(skill, "persistent_facts").split(f"{{project-root}}/_bmad/custom/{skill}.toml:\n", 1)[1]
+    return tomllib.loads("\n".join(line.removeprefix("#").strip() for line in example.splitlines()))
+
+
+def test_only_setup_drop_and_campaign_ship_no_project_context_default():
+    assert sorted(set(WORKFLOWS) - set(FACT_SKILLS)) == sorted(("skf-setup", *NO_DEFAULT))
+    assert len(FACT_SKILLS) == 12, FACT_SKILLS
     for skill in FACT_SKILLS:
         assert _workflow_table(skill)["persistent_facts"] == [DEFAULT_FACT], skill
+    for skill in ("skf-setup", *NO_DEFAULT):
+        assert _workflow_table(skill)["persistent_facts"] == [], skill
 
 
-@pytest.mark.parametrize("skill", FACT_SKILLS)
+@pytest.mark.parametrize("skill", FACT_SKILLS + list(NO_DEFAULT))
 def test_activation_drops_a_bang_entry_and_the_entry_it_names(skill):
     sentences = [s for s in re.split(r"(?<=[.;])\s+(?=[A-Z])", _flat(_activation(skill)))
                  if "workflow.persistent_facts" in s]
@@ -299,6 +320,30 @@ def test_customize_toml_shows_the_drop_override(skill):
     assert not stale, f"{skill}: the persistent_facts comment still says {stale}"
 
 
+@pytest.mark.parametrize("skill", NO_DEFAULT)
+def test_customize_toml_shows_the_override_that_loads_the_project_context(skill):
+    comment = _comment_above(skill, "persistent_facts")
+    assert "# Ships empty: " in comment, skill
+    assert f"{{project-root}}/_bmad/custom/{skill}.toml:\n{OPT_IN}" in comment, (
+        f"{skill}: the persistent_facts comment does not end with the two-line opt-in")
+    assert _opt_in(skill) == {"workflow": {"persistent_facts": [DEFAULT_FACT]}}, skill
+    assert "!file:" not in comment and "The default below" not in comment, skill
+    # A personal override can still drop an entry the team override adds, so the `!` bullet stays.
+    assert "an entry prefixed with `!`, which loads nothing and drops each earlier" in comment, skill
+    for stale in ("cannot remove it", "add a literal fact", "Each entry is either", "kickoff_template_path"):
+        assert stale not in comment, (skill, stale)
+
+
+@pytest.mark.parametrize("skill", KEPT_ON_PURPOSE)
+def test_a_workflow_that_reads_the_project_context_keeps_the_default_on_purpose(skill):
+    comment = " ".join(line.lstrip("#").strip() for line in _comment_above(skill, "persistent_facts").splitlines())
+    assert ("The default below loads every project-context.md under {project-root} and is kept on purpose: this "
+            "workflow reads the project context (Drop Skill and Campaign, which do not need it, ship none). A `!` "
+            "entry in an override drops it; to stop loading those files, set in "
+            f"{{project-root}}/_bmad/custom/{skill}.toml:") in comment, skill
+    assert "cannot delete it" not in comment, skill
+
+
 def _kickoff_module():
     path = SRC / "skf-campaign" / "scripts" / "campaign-render-kickoff.py"
     spec = importlib.util.spec_from_file_location("campaign_render_kickoff_surface", path)
@@ -307,16 +352,21 @@ def _kickoff_module():
     return module
 
 
-def test_campaign_kickoff_drops_the_default_for_the_documented_override(tmp_path):
+def test_campaign_kickoff_loads_the_project_context_only_when_an_override_adds_it(tmp_path):
     """Campaign's facts reach each Tier A kickoff through load_facts, not
-    activation prose: the override the comment shows, appended to the
-    bundled default as BMad's resolver appends arrays, leaves no fact."""
+    activation prose: the bundled list loads nothing (#1107), the team
+    override the comment shows, appended as BMad's resolver appends arrays,
+    loads the project-context.md, and a later `!` entry in the personal
+    override drops it again."""
     (tmp_path / "docs").mkdir()
     (tmp_path / "docs" / "project-context.md").write_bytes(b"House rule.\n")
     load_facts = _kickoff_module().load_facts
     bundled = _workflow_table("skf-campaign")["persistent_facts"]
-    assert len(load_facts(bundled, str(tmp_path))) == 1
-    override = tomllib.loads(DROP_OVERRIDE.lstrip("# "))["persistent_facts"]
-    assert override == [f"!{DEFAULT_FACT}"]
-    assert load_facts(bundled + override, str(tmp_path)) == []
-    assert load_facts([*bundled, "Cite sources.", *override], str(tmp_path)) == ["Cite sources."]
+    assert bundled == [] and load_facts(bundled, str(tmp_path)) == []
+    team = _opt_in("skf-campaign")["workflow"]["persistent_facts"]
+    [fact] = load_facts(bundled + team, str(tmp_path))
+    assert "House rule." in fact
+    user = tomllib.loads(DROP_OVERRIDE.lstrip("# "))["persistent_facts"]
+    assert user == [f"!{DEFAULT_FACT}"]
+    assert load_facts(bundled + team + user, str(tmp_path)) == []
+    assert load_facts([*bundled, *team, "Cite sources.", *user], str(tmp_path)) == ["Cite sources."]

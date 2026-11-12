@@ -37,15 +37,13 @@ activation_steps_append = []
 #   - an entry prefixed with `!`, which loads nothing and drops each earlier
 #     entry it names.
 #
-# The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-drop-skill.toml:
+# Ships empty: no Drop Skill stage reads the project context. To load
+# every project-context.md under {project-root} anyway, set in
+# {project-root}/_bmad/custom/skf-drop-skill.toml:
 #   [workflow]
-#   persistent_facts = ["!file:{project-root}/**/project-context.md"]
+#   persistent_facts = ["file:{project-root}/**/project-context.md"]
 
-persistent_facts = [
-  "file:{project-root}/**/project-context.md",
-]
+persistent_facts = []
 
 # Optional post-drop hook: a shell command, run as
 # `<command> --result-path=<path>` once step 3 (references/report.md) has

@@ -49,7 +49,7 @@ Run these steps once, in order, before dispatching to Mode Routing.
    - `{onComplete}` ← `workflow.on_complete` (empty = no-op)
    - `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (the first that exists)
 
-   Load `workflow.persistent_facts` (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`) and keep them in mind for the whole campaign: they are injected into every per-skill kickoff, whose loader runs the same drop and glob code. Run any `activation_steps_prepend` now, right after the resolve: the config and preferences of steps 1 and 2 are already loaded, so a prepend step can read them but cannot run before them. `activation_steps_append` runs at step 5, once the CLI overrides are parsed.
+   Load `workflow.persistent_facts` (`--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`) and keep them in mind for the whole campaign: they are injected into every per-skill kickoff, whose loader runs the same drop and glob code. Run any `activation_steps_prepend` now, right after the resolve: the config and preferences of steps 1 and 2 are already loaded, so a prepend step can read them but cannot run before them. `activation_steps_append` runs at step 5, once the CLI overrides are parsed.
 
 4. **Parse CLI overrides** into the workflow context:
 
