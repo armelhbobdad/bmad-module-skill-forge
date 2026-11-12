@@ -91,7 +91,7 @@ Headless callers: the full argument set (`Inputs`), the outputs, the exit codes 
 
    Apply the scalar fallbacks now so stage files don't have to repeat the conditional logic. For each scalar, if the merged value is empty or absent, use the bundled default:
 
-   - `{testReportTemplatePath}` ← `workflow.test_report_template_path` if non-empty, else `templates/test-report-template.md`
+   - `{testReportTemplatePath}` ← `workflow.test_report_template_path` if non-empty, else `templates/test-report-template.md`, bound as the file it names (`{project-root}` replaced, a bare path taken from `{skill-root}`); a copy keeps the title line, each heading `assets/report-headings.txt` lists and the `<!-- Populated by` comment under it, which init.md §6c checks before it creates the report
    - `{defaultThreshold}` ← `workflow.default_threshold` if non-empty/non-null, else `80`. init.md §1b resolves the precedence (CLI, then per-pipeline default, then this scalar) once and writes `threshold` and `thresholdSource` into the report frontmatter, which score.md §1 reads.
    - `{onCompleteCommand}` ← `workflow.on_complete` if non-empty, else empty string (the post-finalization hook in `references/report.md` is then a no-op).
 

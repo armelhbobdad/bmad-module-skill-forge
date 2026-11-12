@@ -454,6 +454,10 @@ def test_the_copied_force_setting_reaches_the_gate(tmp_path):
 
 FILLED_DEFAULTS = (
     ("skf-test-skill", "test_report_template_path", "testReportTemplatePath"),
+    # #1110: Campaign's three template scalars ship their bundled files too.
+    ("skf-campaign", "report_template_path", "reportTemplatePath"),
+    ("skf-campaign", "kickoff_template_path", "kickoffTemplatePath"),
+    ("skf-campaign", "brief_template_path", "briefTemplatePath"),
     ("skf-create-stack-skill", "stack_skill_template_path", "stackSkillTemplatePath"),
     ("skf-create-stack-skill", "integration_patterns_path", "integrationPatternsPath"),
 )

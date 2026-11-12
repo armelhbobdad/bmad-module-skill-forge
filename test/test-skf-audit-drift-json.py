@@ -64,6 +64,11 @@ public surface, so the exports off it that the map lacks leave added[] for
 not_public[]: they grade nothing, count in no Total Drift Items and read as
 one note in step 3's tables.
 
+#1110 (audit part): On Activation step 3 binds the drift report template as
+the file it names, and step 4 halts (`template-missing`, exit 3) before the
+run folder and the first question when it names no readable file, so a bad
+override no longer has an undefined outcome in step 1.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -76,6 +81,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -1548,3 +1554,88 @@ def test_a_docs_only_skill_is_graded_by_its_documents(tmp_path, changed, unreach
     classified = audit.classify()
     assert classified["drift_score"] == score
     assert _next_workflow(classified) == ("update-skill" if changed else None)
+
+
+# --------------------------------------------------------------------------
+# #1110: a drift report template that names no readable file halts first
+# --------------------------------------------------------------------------
+
+TEMPLATE_CHECK = 'test -f "{driftReportTemplatePath}" && test -r "{driftReportTemplatePath}"'
+TEMPLATE_HALT = 'HALT (exit code 3, `halt_reason: "template-missing"`) at phase `on-activation:template`'
+
+
+def _bind_template(value: str, project_root: Path) -> str:
+    """Step 3's binding: `{project-root}` replaced, a bare path from the skill root."""
+    value = value.replace("{project-root}", project_root.as_posix())
+    return value if os.path.isabs(value) else (AUDIT / value).as_posix()
+
+
+def test_step_4_halts_on_a_template_that_names_no_readable_file():
+    """The step 3 bullet binds the path as the file it names, and step 4
+    checks it after the helpers and before the run folder, naming the key,
+    the path and where the override lives."""
+    skill = _read(SKILL)
+    bullet = _flow(_slice(skill, "- `{driftReportTemplatePath}` ←", "\n"))
+    assert bullet.startswith("- `{driftReportTemplatePath}` ← `workflow.drift_report_template_path`, else "
+                             "`assets/drift-report-template.md`")
+    assert ("bound as the file it names (`{project-root}` replaced by the project root, a bare path taken from "
+            "`{skill-root}`); step 4 checks that it is a readable file") in bullet
+    step_4 = _flow(_slice(skill, "4. **Pre-flight", "5. Load, read the full file"))
+    assert step_4.count(TEMPLATE_HALT) == 1
+    helpers = step_4.index('`halt_reason: "helper-missing"`) at phase `on-activation:helpers`')
+    check = step_4.index(TEMPLATE_CHECK)
+    halt = step_4.index(TEMPLATE_HALT)
+    mkdir = step_4.index('mkdir -p "{project-root}/_bmad-output/.skf-run" && mkdir "{run_dir}"')
+    assert helpers < check < halt < mkdir
+    message = step_4[halt:mkdir]
+    assert 'with `"path"` that path' in message
+    assert "`drift_report_template_path` names `{driftReportTemplatePath}`, which is not a readable file." in message
+    assert ("Point it at your copy in `{project-root}/_bmad/custom/skf-audit-skill.toml` or `.user.toml`, or "
+            "re-install SKF when it is the bundled `assets/drift-report-template.md`.") in message
+    assert 'passes its payload to the emitter directly, with `"path"` added when the halt names one' in step_4
+
+
+def test_the_template_halt_is_in_the_contract_and_the_schema():
+    contract = _read(HEADLESS)
+    [row_3] = [line for line in _slice(contract, "## Exit Codes", "## Result Contract").splitlines()
+               if line.startswith("| 3 ")]
+    assert "the drift report template names no readable file → `template-missing`" in row_3
+    listed = _slice(contract, "`halt_reason` is one of:", "\n")
+    assert '`"template-missing"`' in listed
+    schema = _load(AUDIT_SCHEMA)
+    assert schema["$defs"]["skf-envelope"]["const"]["exit_codes"]["template-missing"] == 3
+    assert "template-missing" in schema["properties"]["halt_reason"]["enum"]
+    comment = _flow(re.sub(r"(?m)^# ?", "", _read(AUDIT / "customize.toml")))
+    assert ("On Activation step 4 halts the run (`template-missing`, exit 3) before the first question when the "
+            "path names no readable file.") in comment
+    # Before the run folder, the payload goes to the emitter directly, with the path.
+    payload = {"phase": "on-activation:template", "reason": "`drift_report_template_path` names /p/house/drift.md, "
+               "which is not a readable file.", "halt_reason": "template-missing", "path": "/p/house/drift.md"}
+    proc = subprocess.run([sys.executable, str(EMITTER), "emit-halt", "--workflow", "skf-audit-skill", "--target",
+                           "stderr"], input=json.dumps(payload), capture_output=True, text=True, encoding="utf-8",
+                          check=False)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    envelope = json.loads((proc.stdout + proc.stderr).strip().partition(": ")[2])
+    assert (envelope["exit_code"], envelope["halt_reason"], envelope["run_id"]) == (3, "template-missing", None)
+    assert envelope["error"] == {"phase": "on-activation:template", "reason": payload["reason"],
+                                 "path": "/p/house/drift.md"}
+
+
+@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="runs the check through bash")
+@pytest.mark.parametrize("value,readable", [
+    ("assets/drift-report-template.md", True),
+    ("{project-root}/house/drift.md", False),
+    ("house/drift.md", False),
+], ids=["bundled-default", "missing-copy", "bare-override"])
+def test_the_check_passes_the_default_and_fails_a_missing_copy(tmp_path, value, readable):
+    """The bundled default passes the step 4 check; a copy that is not there,
+    named from the project root or as a bare path from the skill root, fails."""
+    path = _bind_template(value, tmp_path)
+    assert path.startswith((tmp_path.as_posix(), AUDIT.as_posix()))
+    # The check as step 4 writes it.
+    written = re.search(r"if `([^`]*\{driftReportTemplatePath\}[^`]*)` fails, HALT", _read(SKILL))
+    assert written, "step 4 shows no template check"
+    assert written.group(1) == TEMPLATE_CHECK
+    command = written.group(1).replace('"{driftReportTemplatePath}"', shlex.quote(path))
+    proc = subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=False)
+    assert (proc.returncode == 0) is readable, (value, path)

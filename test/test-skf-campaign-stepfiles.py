@@ -11,6 +11,11 @@ findings of Epic 4 both lived in this layer:
 
 This linter encodes those lessons as deterministic assertions so the class of
 bug is caught by `npm test`, not only by adversarial review.
+
+#1110: On Activation step 3 checks the three template paths it binds, before
+Mode Routing and unless the invocation is `campaign status`, and halts with
+exit code 2 (`invalid-input`) on one that names no readable file, so a bad
+report template no longer surfaces only at stage 10.
 """
 
 from __future__ import annotations
@@ -18,6 +23,9 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import subprocess
+import sys
+import tomllib
 
 import pytest
 import yaml
@@ -698,3 +706,82 @@ def test_overwrite_archives_through_the_helper() -> None:
     assert "{name}-{timestamp}" not in skill
     archive = _state_parser().parse_args(call.split()[3:])
     assert archive.op == "archive"
+
+
+# ---------------------------------------------------------------------------
+# #1110: the template overrides are checked as the campaign starts
+# ---------------------------------------------------------------------------
+
+TEMPLATE_KEYS = {"reportTemplatePath": "report_template_path", "kickoffTemplatePath": "kickoff_template_path",
+                 "briefTemplatePath": "brief_template_path"}
+
+
+def test_activation_checks_the_templates_before_mode_routing() -> None:
+    skill = (CAMPAIGN_DIR / "SKILL.md").read_text(encoding="utf-8")
+    step_3 = skill[skill.index("3. **Resolve workflow customization.**"):skill.index("4. **Parse CLI overrides**")]
+    flat = " ".join(step_3.split())
+    check = flat.index("Unless the invocation is `campaign status`, check now that")
+    halt = flat.index("HALT (exit code 2, `invalid-input`) before Mode Routing")
+    emitter = flat.index("- `{emitEnvelopeHelper}` ←")
+    facts = flat.index("Load `workflow.persistent_facts`")
+    assert emitter < check < halt < facts
+    assert skill.index("4. **Parse CLI overrides**") < skill.index("## Mode Routing")
+    for variable, key in TEMPLATE_KEYS.items():
+        binding = f"- `{{{variable}}}` ← `workflow.{key}` if non-empty, else `templates/"
+        assert binding in flat and flat.index(binding) < check, key
+        assert f"`{{{variable}}}`" in flat[check:halt], variable
+    assert ("Bind each path as the path it names: `{forge_data_folder}` and `{project-root}` replaced by their "
+            "values, a bare path") in flat
+    assert "taken from `{skill-root}`" in flat
+    assert "are readable files (`test -f`, `test -r`)" in flat[check:halt]
+    assert ("\"`<key>` names `<path>`, which is not a readable file. Point it at your copy in "
+            "`{project-root}/_bmad/custom/skf-campaign.toml` or `.user.toml`, or re-install SKF when it is a bundled "
+            "template.\"") in flat
+    assert ("with the error envelope of `references/campaign-contracts.md` at phase `activation` and with every "
+            "message displayed as its halt message: nothing is written") in flat
+    # A seeded run is headless from step 4 on, so its activation halt still prints the envelope line.
+    assert "A run given `--brief` or `--manifest` is headless for this HALT, since step 4 makes it so." in flat
+    assert "If `--brief` or `--manifest` is set, force `{headless_mode} = true`" in skill
+    events = " ".join(_step("campaign-contracts.md").split())
+    assert ("For the non-numbered routing/terminal steps (`resume`, `health-check`), and for a HARD HALT in SKILL.md "
+            "On Activation (slug `activation`), emit `\"stage\":null` with the slug.") in events
+    assert ("`activation_steps_append` runs at step 5, after step 3's template check has passed and step 4 has "
+            "parsed the CLI overrides.") in flat
+    row = next(m.group(3) for m in EXIT_ROW_RE.finditer(_step("campaign-contracts.md")) if m.group(1) == "2")
+    assert row.startswith("SKILL.md On Activation step 3 (a template path that names no readable file); ")
+
+
+def test_each_bundled_template_passes_the_activation_check() -> None:
+    """The defaults customize.toml ships name the files the check finds."""
+    workflow = tomllib.loads((CAMPAIGN_DIR / "customize.toml").read_text(encoding="utf-8"))["workflow"]
+    for key in TEMPLATE_KEYS.values():
+        assert (CAMPAIGN_DIR / workflow[key]).is_file(), key
+
+
+def test_the_activation_halt_prints_an_exit_2_line_and_writes_nothing(tmp_path: pathlib.Path) -> None:
+    """Before Setup there is no workspace: the contract's halt-payload and emitter commands, at the phase step 3
+    names, print a valid exit-2 line, and nothing is created."""
+    skill = (CAMPAIGN_DIR / "SKILL.md").read_text(encoding="utf-8")
+    step_3 = " ".join(skill[skill.index("3. **Resolve workflow customization.**"):
+                            skill.index("4. **Parse CLI overrides**")].split())
+    phase = re.search(r"HALT \(exit code 2, `invalid-input`\) before Mode Routing, with the error envelope of "
+                      r"`references/campaign-contracts.md` at phase `([a-z-]+)`", step_3)
+    assert phase, "step 3 names no phase for its template halt"
+    workspace = tmp_path / "forge-data" / "_campaign"
+    message = "`kickoff_template_path` names `/srv/house/kickoff.md`, which is not a readable file."
+    payload = subprocess.run(
+        [sys.executable, str(STATE_SCRIPT), "halt-payload", "--state-file", str(workspace / "_campaign-state.yaml"),
+         "--phase", phase.group(1), "--halt-reason", "invalid-input"],
+        input=message + "\n", capture_output=True, text=True, encoding="utf-8", timeout=60)
+    assert payload.returncode == 0, payload.stderr
+    emitter = CAMPAIGN_DIR.parent / "shared" / "scripts" / "skf-emit-result-envelope.py"
+    line = subprocess.run([sys.executable, str(emitter), "emit-halt", "--workflow", "skf-campaign", "--target",
+                           "stderr"], input=payload.stdout, capture_output=True, text=True, encoding="utf-8",
+                          timeout=60)
+    assert line.returncode == 0, line.stdout + line.stderr
+    prefix, _, body = (line.stdout + line.stderr).strip().partition(": ")
+    assert prefix == "SKF_CAMPAIGN_RESULT_JSON"
+    envelope = json.loads(body)
+    assert (envelope["exit_code"], envelope["halt_reason"], envelope["phase"]) == (2, "invalid-input", "activation")
+    assert envelope["error"]["message"] == message
+    assert not (tmp_path / "forge-data").exists()

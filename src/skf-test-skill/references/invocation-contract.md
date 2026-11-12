@@ -37,7 +37,7 @@ The emitter prints a finished run's line on stdout and a halt's or a blocked run
 | `halt_reason` | Raised by |
 | --- | --- |
 | `input-missing` | init.md §1: a headless run given no skill name |
-| `input-invalid` | init.md §1: a `--tier` value that names no tier |
+| `input-invalid` | init.md §1: a `--tier` value that names no tier; init.md §6c: a report template that is missing or lacks an anchor the stages write in |
 | `runtime-missing` | SKILL.md On Activation step 1: `uv` is not on `PATH`; init.md §0b: `python3` or `uv` is not on `PATH` |
 | `helper-missing` | an SKF helper the run needs is not installed: SKILL.md On Activation step 1 (`skf-preflight.py`), init.md §1, §2, §3a, §4 (`skf-forge-tier-rw.py`, unless `--tier` was passed), §5b and §6a, coherence-check.md §1 |
 | `helper-failed` | a helper or a script that exits with an error the step cannot correct: SKILL.md On Activation step 1 (a config `skf-preflight.py` cannot load, its `code` such as `CONFIG_MISSING` in the message), init.md §2, §4 and §6b, the coverage and coherence steps' scripts, external-validators.md §4 and §5b, step 4c §2, score.md §3c, report.md §4b and §4c, the lock renewals of SKILL.md Workflow Rules |

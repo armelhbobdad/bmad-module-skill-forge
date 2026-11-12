@@ -842,6 +842,30 @@ def test_campaign_persistent_facts_line_follows_the_kickoff_loader(tmp_path):
     assert kickoff.load_facts([entry, f"!{entry}"], str(tmp_path)) == []
 
 
+def test_campaign_path_settings_name_their_defaults_and_the_start_check():
+    """#1110: the workspace and template lines say what each ships, how a path resolves, and that a template
+    that names no file stops the campaign as it starts; workflows.md says which workflows check a template."""
+    lines = _read(CAMPAIGN_DOC).splitlines()
+    [workspace] = [line for line in lines if line.startswith("- **`campaign_workspace_path`**")]
+    workflow = _settings("skf-campaign")
+    assert workflow["campaign_workspace_path"] == "{forge_data_folder}/_campaign"
+    assert ("It ships `{forge_data_folder}/_campaign`, and an empty value means the same; name another folder as "
+            "`{project-root}/<folder>` or an absolute path, since a bare path resolves from the installed skill's "
+            "folder.") in workspace
+    [templates] = [line for line in lines if line.startswith("- **Template overrides**")]
+    for key in ("report_template_path", "kickoff_template_path", "brief_template_path"):
+        assert f"`{key}`" in templates and workflow[key].startswith("templates/"), key
+    for token in ("Each ships its bundled file under `templates/`, in the installed skill's folder, which every "
+                  "update overwrites: keep your copy outside it and name it as `{project-root}/<path to the copy>`.",
+                  "When one names no readable file, the campaign stops as it starts, before Setup or a resume, with "
+                  "exit code 2 (`invalid-input`), naming the setting and the path; `campaign status` does not check "
+                  "them."):
+        assert token in templates, token
+    assert ("Audit Skill, Test Skill, Verify Stack and Campaign stop at the start of a run when the path names no "
+            "readable file, naming the setting and the path, and Test Skill and Verify Stack also when the copy lacks "
+            "a section heading their steps fill in.") in _read(WORKFLOWS)
+
+
 # --------------------------------------------------------------------------
 # Provenance labels follow the tool (the #556 pre-release docs drift fix):
 # the label rule, the tier text, the receipts and the oms-cognee example

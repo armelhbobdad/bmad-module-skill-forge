@@ -5,6 +5,9 @@ nextStepFile: 'detect-mode.md'
 # once its checks pass, a blocked run's included.
 outputFile: '{forge_version}/.skf-test-report-{skill_name}-{run_id}.md'
 templateFile: '{testReportTemplatePath}'
+# The six section headings, one per line, that §6c checks the template for
+# and report.md §4c checks the report for.
+reportHeadingsFile: 'assets/report-headings.txt'
 sidecarFile: '{sidecar_path}/forge-tier.yaml'
 skillsOutputFolder: '{skills_output_folder}'
 # Resolve `{emitEnvelopeHelper}` to the first existing path at §0, before
@@ -314,7 +317,17 @@ The owner names no run id, so the helper adds one. Bind `{run_id}` ← `run_id` 
 - `acquired` is false (exit 3): another run holds a lock that has not gone stale. HALT (`halt_reason: "another-run-active"`, phase `init:run-lock`) with "**Another test-skill run is active for {skill_name}.** {message}": the helper's `message` names that run, the lock file to delete when no run is active, and the time the lock goes stale. This run holds no lock, so nothing is released.
 - The helper exits 1 or 2, or prints no JSON: HALT (`halt_reason: "helper-failed"`, phase `init:run-lock`) with its stderr message (exit 2: the lock file could not be written, so check that `{forge_version}` is writable). This run holds no lock, so nothing is released.
 
-**6c. Create `{outputFile}` from `{templateFile}`**, under the in-progress name `{forge_version}/.skf-test-report-{skill_name}-{run_id}.md` beside the run lock, and bind `{report_file}` ← that path: every later step writes the report there, and report.md §4c gives it its public name `test-report-{skill_name}-{run_id}.md` once its checks pass, a blocked run's included. Until then no consumer can mistake it for a finished report: export-skill and update-skill read only the public name, and `skf-skill-inventory.py` counts a `.skf-` name as SKF's, so a halted run's leftover never turns the version folder foreign. If the file cannot be written, HALT (`halt_reason: "write-failed"`, phase `init:report`, `"path": "{report_file}"`). Initial frontmatter:
+**6c. Create `{outputFile}` from `{templateFile}`**, once the template holds what the stages write in. Check it first: `{templateFile}` must be a readable file (`test -f`, `test -r`); then, from `{project-root}` (`{reportHeadingsFile}` resolves from the skill root):
+
+```bash
+while IFS= read -r heading; do printf '%s: ' "$heading"; grep -cxF "$heading" "{templateFile}"; done < "{reportHeadingsFile}"
+printf 'placeholders: '; grep -c '^<!-- Populated by' "{templateFile}"
+printf 'title: '; grep -cxF '# Test Report: {{skillName}}' "{templateFile}"
+```
+
+Each of the six headings and `title` must print 1 and `placeholders` 6. Otherwise HALT (`halt_reason: "input-invalid"`, phase `init:report`, `"path": "{templateFile}"`) with "`test_report_template_path` names `{templateFile}`, which is not a readable file" or "`test_report_template_path` names `{templateFile}`, which lacks: {each heading or `title` whose count is not 1, and a `placeholders` count other than 6, with its count}; a copy keeps the title line, each heading `assets/report-headings.txt` lists, once, and the `<!-- Populated by` comment under it, with LF line endings (a copy saved with CRLF endings counts 0 for every heading and the title)", each followed by "Point it at your copy in `{project-root}/_bmad/custom/skf-test-skill.toml` or `.user.toml`, or re-install SKF when it is the bundled `templates/test-report-template.md`." The run lock is held and the run folder exists, so the HALT releases the lock and stages `{run_dir}/halt.json` as the **Halt envelope** paragraph says; no stage has run.
+
+Then create it under the in-progress name `{forge_version}/.skf-test-report-{skill_name}-{run_id}.md` beside the run lock, and bind `{report_file}` ← that path: every later step writes the report there, and report.md §4c gives it its public name `test-report-{skill_name}-{run_id}.md` once its checks pass, a blocked run's included. Until then no consumer can mistake it for a finished report: export-skill and update-skill read only the public name, and `skf-skill-inventory.py` counts a `.skf-` name as SKF's, so a halted run's leftover never turns the version folder foreign. If the file cannot be written, HALT (`halt_reason: "write-failed"`, phase `init:report`, `"path": "{report_file}"`). Initial frontmatter:
 
 ```yaml
 ---

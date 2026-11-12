@@ -37,6 +37,9 @@ that owns its rule, or it changes nothing, so:
   template comments of Audit, Test, Stack, Quick and Export say to keep a
   house-style copy outside the skill folder and name it from
   {project-root}, since a bare path resolves from the skill root;
+- Campaign (#1110) ships its real defaults: `{forge_data_folder}/_campaign`
+  for its workspace and the bundled `templates/` files for its three template
+  scalars, and its comments say a bare path resolves from the skill root;
 - the project-context default (the maintainer's 2026-11-12 decision, #1107):
   the twelve workflows that read the project context ship it, and Audit,
   Brief and Test Skill say it is kept on purpose; skf-setup, skf-drop-skill
@@ -467,9 +470,6 @@ FILE_SCALARS = [(skill, key) for skill, key in SCALARS if ALLOWED[skill][key][1]
 # The file scalars that ship an empty string today. The test never requires them to stay empty: one that gains
 # a bundled default leaves this set, and the check below then holds it to a file the skill bundles.
 STILL_EMPTY = {
-    ("skf-campaign", "report_template_path"),
-    ("skf-campaign", "kickoff_template_path"),
-    ("skf-campaign", "brief_template_path"),
     ("skf-refine-architecture", "refinement_rules_path"),
     ("skf-verify-stack", "report_template_path"),
 }
@@ -511,6 +511,28 @@ def test_a_template_comment_keeps_the_house_copy_outside_the_skill(skill, key):
     value = _workflow_table(skill)[key]
     assert f"Default: {value}, a path from the skill root." in comment, (skill, key)
     assert OUTSIDE_THE_SKILL in comment, (skill, key)
+
+
+def test_campaign_ships_its_real_path_defaults():
+    """#1110: the workspace and the three templates name their defaults, and the comments say how a path
+    resolves, so an org copy starts with {project-root}/."""
+    workflow = _workflow_table("skf-campaign")
+    assert workflow["campaign_workspace_path"] == "{forge_data_folder}/_campaign"
+    workspace = _flat_comment("skf-campaign", "campaign_workspace_path")
+    assert "Default: {forge_data_folder}/_campaign (an empty string means the same)." in workspace
+    assert ("a bare path resolves from the skill root, which every update overwrites, so name the folder as "
+            "{project-root}/<folder> or an absolute path.") in workspace
+    assert workflow["report_template_path"] == "templates/campaign-report-template.md"
+    assert workflow["kickoff_template_path"] == "templates/kickoff-template.md"
+    assert workflow["brief_template_path"] == "templates/campaign-brief-template.yaml"
+    text = _customize("skf-campaign")
+    assert "# --- Optional template overrides. An empty string means the default named below. ---\n" in text
+    comment = _flat_comment("skf-campaign", "report_template_path")
+    assert "Each defaults to its bundled file under templates/, a path from the skill root." in comment
+    assert OUTSIDE_THE_SKILL in comment
+    assert ("On Activation step 3 halts the campaign (exit 2, `invalid-input`) on one that names no readable file, "
+            "before Setup or a resume (`campaign status` skips it).") in comment
+    assert "Empty string = use the bundled default" not in text
 
 
 @pytest.mark.parametrize("skill", ("skf-test-skill", "skf-create-stack-skill"))

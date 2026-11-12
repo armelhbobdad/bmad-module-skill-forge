@@ -698,8 +698,9 @@ def test_skill_md_names_every_stage_and_folder_it_uses():
 
 
 @pytest.mark.parametrize("reason,phase", [("helper-missing", "on-activation:helpers"),
+                                          ("template-missing", "on-activation:template"),
                                           ("no-baseline", "init:provenance")],
-                         ids=["helper-missing", "no-baseline"])
+                         ids=["helper-missing", "template-missing", "no-baseline"])
 def test_a_halt_before_the_run_folder_prints_a_valid_envelope(reason, phase):
     """The activation halts pass their payload to the emitter directly, through
     python3 when uv is what is missing; the new reasons exit 3."""

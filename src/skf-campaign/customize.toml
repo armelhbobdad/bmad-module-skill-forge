@@ -52,12 +52,14 @@ persistent_facts = []
 # --- Workspace path ---
 #
 # Where the campaign keeps its state, backup, brief, batch input, archive,
-# and decision log. Empty string = use the bundled default
-# `{forge_data_folder}/_campaign`. Override to relocate campaign artifacts
-# (e.g. a shared volume) without editing every step file. Resolved once in
-# On Activation as {campaignWorkspacePath}.
+# and decision log. Default: {forge_data_folder}/_campaign (an empty string
+# means the same). Override to relocate campaign artifacts (e.g. a shared
+# volume) without editing every step file. Resolved once in On Activation
+# as {campaignWorkspacePath}: a bare path resolves from the skill root,
+# which every update overwrites, so name the folder as
+# {project-root}/<folder> or an absolute path.
 
-campaign_workspace_path = ""
+campaign_workspace_path = "{forge_data_folder}/_campaign"
 
 # --- Quality gate ---
 #
@@ -85,15 +87,19 @@ quality_gate_hard = "zero-critical-high"
 quality_gate_soft_target = 90
 quality_gate_soft_fallback = 80
 
-# --- Optional template overrides ---
-#
-# Lift the canonical template paths so orgs can substitute house-style copies
-# without forking the skill. Empty string = use the bundled default under
-# `templates/`.
+# --- Optional template overrides. An empty string means the default named below. ---
 
-report_template_path = ""
-kickoff_template_path = ""
-brief_template_path = ""
+# Lift the canonical template paths so orgs can substitute house-style copies
+# without forking the skill. Each defaults to its bundled file under
+# templates/, a path from the skill root. Keep a house-style copy outside the
+# skill folder, which every update overwrites, and name it as
+# {project-root}/<path to the copy>. On Activation step 3 halts the campaign
+# (exit 2, `invalid-input`) on one that names no readable file, before Setup
+# or a resume (`campaign status` skips it).
+
+report_template_path = "templates/campaign-report-template.md"
+kickoff_template_path = "templates/kickoff-template.md"
+brief_template_path = "templates/campaign-brief-template.yaml"
 
 # Optional post-completion hook: a shell command, not an instruction. When
 # non-empty, step-11 runs it from {project-root} once the campaign is

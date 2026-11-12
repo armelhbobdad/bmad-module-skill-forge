@@ -60,6 +60,8 @@ persistent_facts = [
 #     builds the Provenance table from them;
 #   - the `## Audit Summary` section with its severity count table, which
 #     step 6 fills in. The stages write every drift section themselves.
+# On Activation step 4 halts the run (`template-missing`, exit 3) before the
+# first question when the path names no readable file.
 
 drift_report_template_path = "assets/drift-report-template.md"
 

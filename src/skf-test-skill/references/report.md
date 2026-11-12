@@ -13,6 +13,9 @@ gapLedgerScript: 'scripts/gap-ledger.py'
 resultContextScript: 'scripts/build-result-context.py'
 scoringRulesFile: 'references/scoring-rules.md'
 outputFormatsFile: 'assets/output-section-formats.md'
+# The six section headings, one per line, that §4c checks the report for and
+# init.md §6c checked the template for.
+reportHeadingsFile: 'assets/report-headings.txt'
 # outputContractSchema and healthCheck resolve relative to the SKF module root
 # (`{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during
 # development), NOT relative to this step file. §4c probes both health-check
@@ -183,17 +186,15 @@ Bind `{gap_counts}` ← `counts`, `{total_gaps}` ← `total` and `{blocking_gaps
 
 A run the hard gate blocked was never scored: its expected set ends at `'hard-gate'`. If any expected entry is missing, HALT (`halt_reason: "step-completeness-violation"`, phase `report:steps`) with "step completeness violation: missing {list}; workflow state is inconsistent, do not finalize the report".
 
-**Check the report sections.** Each stage wrote its section in place of its heading and the placeholder comment under it in the template, so a stage that skipped its section left the placeholder behind, and one that appended its section instead left its heading twice. Count them with grep, not by eye, and read the counts it prints (a count of 0 also makes grep exit 1):
+**Check the report sections.** Each stage wrote its section in place of its heading and the placeholder comment under it in the template, so a stage that skipped its section left the placeholder behind, and one that appended its section instead left its heading twice. Count them with grep, not by eye, and read the counts it prints (a count of 0 also makes grep exit 1; `{reportHeadingsFile}` resolves relative to the skill root and lists the six headings):
 
 ```bash
-for heading in '## Test Summary' '## Coverage Analysis' '## Coherence Analysis' '## External Validation' '## Completeness Score' '## Gap Report'; do
-  printf '%s: ' "$heading"; grep -cxF "$heading" "{outputFile}"
-done
+while IFS= read -r heading; do printf '%s: ' "$heading"; grep -cxF "$heading" "{outputFile}"; done < "{reportHeadingsFile}"
 printf 'placeholders: '; grep -c '^<!-- Populated by' "{outputFile}"
 printf 'title: '; grep -cxF '# Test Report: {skill_name}' "{outputFile}"
 ```
 
-Each heading must print 1, standing alone on exactly one line, `placeholders` must print 0, and `title` must print 1 (the H1 init.md §6c filled). A run the hard gate blocked has all six: step 4c §3 wrote the Completeness Score section in scoring's place. On a heading whose count is not 1, a placeholder left, or a `title` count other than 1, HALT (`halt_reason: "report-anchor-missing"`, phase `report:anchors`) with "report anchor missing: {each heading whose count is not 1, with its count}, {placeholder_count} placeholder comments left, or a `title` count of {title_count} (the report does not hold `# Test Report: {skill_name}` once); the section or title was not written once by its owning step".
+Each of the six headings must print 1, standing alone on exactly one line, `placeholders` must print 0, and `title` must print 1 (the H1 init.md §6c filled). A run the hard gate blocked has all six: step 4c §3 wrote the Completeness Score section in scoring's place. On a heading whose count is not 1, a placeholder left, or a `title` count other than 1, HALT (`halt_reason: "report-anchor-missing"`, phase `report:anchors`) with "report anchor missing: {each heading whose count is not 1, with its count}, {placeholder_count} placeholder comments left, or a `title` count of {title_count} (the report does not hold `# Test Report: {skill_name}` once); the section or title was not written once by its owning step".
 
 **Find the health check** unless `no_health_check` is true (the `--no-health-check` flag): resolve `{healthCheckFile}` ← first existing path in `{healthCheckProbeOrder}`. It ends the run (§7), so check it now, while a HALT still leaves the previous run's report and result files in place. If neither candidate exists, HALT (`halt_reason: "health-check-missing"`, phase `report:health-check`):
 
