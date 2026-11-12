@@ -252,9 +252,10 @@ def test_the_report_step_binds_the_emitter_and_the_hook_itself():
                            "when the resolver cannot run:\n")
     [activation_call] = [line.strip() for line in _section(_read(SKILL), "## On Activation", None).splitlines()
                          if "{resolveCustomizationHelper}" in line and line.strip().startswith("uv run ")]
-    assert activation_call.endswith(" --key workflow")
+    # The activation resolves persistent_facts too (#1106); the hook reads one key and takes no --facts.
+    assert activation_call.endswith(" --key workflow --facts")
     [hook_call] = re.findall(r"```bash\n(uv run \{resolveCustomizationHelper\}[^\n]*)\n```", hook)
-    assert hook_call == f"{activation_call}.on_complete"
+    assert hook_call == activation_call.removesuffix(" --facts") + ".on_complete"
     assert "on_complete" in tomllib.loads(_read(CS / "customize.toml"))["workflow"]
     assert ("When `{onCompleteCommand}` is non-empty and the emitter wrote this brief's result contract (its `emit` "
             "exited 0, the line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` "
@@ -1006,8 +1007,9 @@ def test_customize_names_its_override_files_and_how_to_drop_the_default():
     assert tomllib.loads(text)["workflow"]["persistent_facts"] == [default]
     assert f'#   persistent_facts = ["!{default}"]' in text
     activation = _section(_read(SKILL), "## On Activation", None)
-    assert f"except a `!` entry and the entry it names (`!{default}` drops the bundled project-context default)" \
-        in activation
+    assert ("(the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied "
+            "each `!` entry, which drops each earlier entry it names") in activation
+    assert "except a `!` entry and the entry it names" not in activation
     assert "`{project-root}/_bmad/custom/skf-create-skill.toml` (team overrides, committed)" in activation
     assert "`_bmad/custom/skf-create-skill.toml` under `{project-root}`" not in activation
 

@@ -616,9 +616,9 @@ def test_the_customize_surface_reaches_what_it_overrides():
 
 
 # The shared #595 resolver block every workflow's On Activation carries, and
-# the #596 `!` persistent_facts clause (W6 handoffs).
+# the #596 `!` persistent_facts clause (W6 handoffs), which the helper applies since #1106.
 RESOLVER_CALL = ("uv run {resolveCustomizationHelper} --skill {skill-root} "
-                 "--project-root {project-root} --key workflow")
+                 "--project-root {project-root} --key workflow --facts")
 RESOLVER_LAYERS = ("It merges the bundled `{skill-root}/customize.toml` with "
                    "`{project-root}/_bmad/custom/skf-audit-skill.toml` (team overrides, committed) and `.user.toml` "
                    "(personal overrides, gitignored).")
@@ -628,9 +628,9 @@ RESOLVER_WARNING = ("When it exits non-zero, prints no JSON or is missing, print
                     "script is missing, `no JSON` when it printed none).")
 RESOLVER_FALLBACK = ("If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
                      "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.")
-DROP_CLAUSE = ("the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` "
-               "drops each earlier entry it names and loads nothing itself, so an override's "
-               '`"!file:{project-root}/**/project-context.md"` turns that default off')
+DROP_CLAUSE = ("(the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied "
+               "each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry "
+               "names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`)")
 
 
 def test_activation_runs_the_resolver_through_uv_and_honours_a_dropped_fact():

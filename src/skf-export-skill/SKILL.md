@@ -62,7 +62,7 @@ Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-export-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. Keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran): a headless run records it once step 4 creates its run folder, and an interactive run only prints it.
@@ -72,7 +72,7 @@ Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes
    - `{snippetFormatPath}` ← `workflow.snippet_format_path`, else `assets/snippet-format.md`
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 6 then runs no hook)
 
-   Then apply the array surfaces: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries are paths or globs whose contents load as facts: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off); then, after activation completes and before the first stage runs, execute each entry in `workflow.activation_steps_append` in order.
+   Then apply the array surfaces: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`); then, after activation completes and before the first stage runs, execute each entry in `workflow.activation_steps_append` in order.
 
 4. **Resolve the helpers and create the run folder.** Resolve each helper to the first of its two paths that exists, the installed module first, all in parallel:
 

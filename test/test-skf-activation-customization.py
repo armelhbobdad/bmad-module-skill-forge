@@ -18,7 +18,9 @@ block across all sixteen activations.
   that carries it keeps a reason that holds quotes or `$( )` as plain text.
 - #596 (the maintainer's 2026-10-02 decision): a `!` persistent_facts entry
   drops the bundled project-context.md default; SKILL.md says so and each
-  customize.toml shows the override, with no "cannot remove it" left.
+  customize.toml shows the override, with no "cannot remove it" left. Since
+  #1106 the helper applies the drop and expands each glob (`--facts`), and
+  SKILL.md points at that instead of asking the model to do it.
 - #601: each Conventions block states the module-level path exception, and
   the sibling-skill rule wherever the skill names another skill's folder.
 - #603: headless_mode is read from `{sidecar_path}/preferences.yaml`.
@@ -58,9 +60,15 @@ WORKFLOWS = sorted(STEPS)
 
 # #770: SKF's helper runs core's resolver, so a core before 6.11.0, which rejects --project-root, still applies
 # the overrides when it would read this project; the step binds the helper on one line before the fence.
+# #1106: `--facts`, last, has the helper apply each `!` entry and expand each glob of persistent_facts.
 HELPER = "skf-resolve-customization.py"
 COMMAND = ("uv run {resolveCustomizationHelper} --skill {skill-root} "
-           "--project-root {project-root} --key workflow")
+           "--project-root {project-root} --key workflow --facts")
+# What the resolved list holds, in every activation's step (Setup and Ferris carry it alone, in parentheses).
+FACTS_POINTER = ("`--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each "
+                 "glob, so a `file:` entry names one file to load, never one under "
+                 "`{project-root}/_bmad-output/.skf-run/`")
+FACTS_NOTE = f"(the bundled default loads every `project-context.md` under `{{project-root}}`; {FACTS_POINTER})"
 BINDING = (f"Bind `{{resolveCustomizationHelper}}` ← `{{project-root}}/_bmad/skf/shared/scripts/{HELPER}`, "
            f"else `{{project-root}}/src/shared/scripts/{HELPER}` (the first that exists)")
 CORE_RESOLVER = "{project-root}/_bmad/scripts/resolve_customization.py"
@@ -93,12 +101,6 @@ ROUTES = {
     "skf-verify-stack": ("for init.md to record once it has created `{run_dir}`",),
 }
 
-FACTS_CLAUSE = ("the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed "
-                "`!` drops each earlier entry it names and loads nothing itself, so an override's "
-                "`\"!file:{project-root}/**/project-context.md\"` turns that default off")
-# The workflows whose SKILL.md gains the clause here; brief, create and rename shipped their own wording.
-FACTS_CLAUSE_SKILLS = ("skf-analyze-source", "skf-campaign", "skf-create-stack-skill", "skf-quick-skill",
-                       "skf-refine-architecture", "skf-test-skill", "skf-verify-stack")
 CUSTOMIZE_CHANGED = ("skf-analyze-source", "skf-campaign", "skf-create-stack-skill", "skf-quick-skill",
                      "skf-refine-architecture", "skf-rename-skill", "skf-test-skill", "skf-verify-stack")
 DEFAULT_FACT = "file:{project-root}/**/project-context.md"
@@ -346,9 +348,12 @@ def test_create_stack_records_the_reason_in_its_pre_flight():
 # --------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("skill", FACTS_CLAUSE_SKILLS)
-def test_activation_honours_a_drop_entry(skill):
-    assert FACTS_CLAUSE in _flat(_activation(skill)), skill
+@pytest.mark.parametrize("skill", WORKFLOWS)
+def test_activation_reads_the_list_the_helper_resolved(skill):
+    """#1106: the helper applies the `!` drop and expands each glob, so the step only says what the list holds."""
+    activation = _flat(_activation(skill))
+    assert activation.count(FACTS_NOTE) == 1, skill
+    assert "loads nothing itself" not in activation and "turns that default off" not in activation, skill
 
 
 @pytest.mark.parametrize("skill", CUSTOMIZE_CHANGED)

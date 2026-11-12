@@ -76,7 +76,7 @@ Stage 1b returns to init.md at §5b's **Record for report**, then §6. Step 1 §
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-audit-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. Then keep the reason as `{customization_resolver_unavailable}`, which step 6 hands to the emitter as a warning.
@@ -86,7 +86,7 @@ Stage 1b returns to init.md at §5b's **Record for report**, then §6. Step 1 §
    - `{driftReportTemplatePath}` ← `workflow.drift_report_template_path`, else `assets/drift-report-template.md`
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 6 then runs no hook)
 
-   Run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (a `file:` entry loads its file or glob contents as facts: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off), then run `workflow.activation_steps_append` once step 4 below has passed.
+   Run `workflow.activation_steps_prepend` now, treat `workflow.persistent_facts` as standing context for the run (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`), then run `workflow.activation_steps_append` once step 4 below has passed.
 
 4. **Pre-flight: `uv`, the helpers and the run folder.** Before the first prompt, resolve `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. If neither exists, HALT (exit code 3, `halt_reason: "helper-missing"`) and display only: "Audit Skill cannot run without `skf-emit-result-envelope.py`, which is not installed. Re-install SKF."
 

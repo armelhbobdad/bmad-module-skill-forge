@@ -5,7 +5,6 @@ stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 briefFile: '{campaignWorkspacePath}/campaign-brief.yaml'
 decisionLogFile: '{campaignWorkspacePath}/_campaign-decision-log.md'
 preapplyLogFile: '{campaignWorkspacePath}/preapply-log.json'
-factsFile: '{campaignWorkspacePath}/_facts.json'
 depsScript: 'scripts/campaign-deps.py'
 kickoffTemplate: '{kickoffTemplatePath}'
 kickoffScript: 'scripts/campaign-render-kickoff.py'
@@ -93,7 +92,7 @@ For each ready Tier A skill:
      uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow.persistent_facts | uv run {kickoffScript} --state-file {stateFile} --brief-file {briefFile} --skill {skill_name} --template {kickoffTemplate} [--workarounds-file {preapplyLogFile}] --facts-json - --project-root {project-root} [--directive-file <campaign.directive_path>]
      ```
      - `{resolveCustomizationHelper}` is resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
-     - `--facts-json -` takes `workflow.persistent_facts` from the resolver unchanged. When the resolver is missing or fails, write the `persistent_facts` list of `{skill-root}/customize.toml`, as written, to `{factsFile}` as a JSON list with your file-writing tool, and replace the pipe with `< {factsFile}`: no fact or workaround ever passes through shell quoting.
+     - `--facts-json -` takes `workflow.persistent_facts` from the resolver unchanged, and the script drops each `!` entry and expands each glob with the resolver's own code. When the resolver is missing or fails, run the call without the pipe, with `--facts-toml {skill-root}/customize.toml` in place of `--facts-json -`: the script reads the bundled list itself, so no fact or workaround ever passes through shell quoting.
      - `--workarounds-file` is passed when pre-apply exited 0 for this skill; the script lists each workaround it applied (the file, the fingerprint and its fix, the severity).
      - `--directive-file` is passed when state sets `campaign.directive_path`.
 

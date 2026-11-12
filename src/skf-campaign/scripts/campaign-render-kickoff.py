@@ -27,16 +27,23 @@ and risked paraphrasing or cutting the operator's directive.
     nothing and drops every earlier entry equal to `<entry>`, so a team or
     personal override drops a bundled default
     (`!file:{project-root}/**/project-context.md`); any other entry is a fact
-    sentence.
+    sentence. The drop and the glob are the customization helper's own code
+    (shared/scripts/skf-resolve-customization.py, the one every activation
+    runs with `--facts`), so a `**` never enters a hidden folder or a folder
+    reached through a directory link, each file is read once, and no file
+    under `<project-root>/_bmad-output/.skf-run/` is read.
 
 CLI:
   uv run campaign-render-kickoff.py --state-file <p> --brief-file <p> \
       --skill <name> --template <p> [--workarounds-file <preapply-log.json>] \
-      [--facts-json '<json-list>' | --facts-json -] [--project-root <p>] \
-      [--directive-file <p>]
+      [--facts-json '<json-list>' | --facts-json - | --facts-toml <p>] \
+      [--project-root <p>] [--directive-file <p>]
 
   `--facts-json -` reads the facts from stdin: a JSON list, or the object the
   customization resolver prints for `--key workflow.persistent_facts`.
+  `--facts-toml <customize.toml>` reads the `[workflow]` table's
+  `persistent_facts` list itself (none: no facts), for step-05's call when
+  the resolver is missing or fails, so no list is retyped as JSON.
 
 Output: the rendered kickoff markdown on stdout, as UTF-8 bytes. The template
 is filled in one pass, so a `{{...}}` inside the directive or a fact is kept
@@ -54,8 +61,11 @@ Exit codes:
        BAD_WORKAROUNDS       --workarounds-file cannot be read, or holds no
                              applied[] list of workarounds
        BAD_FACTS             --facts-json is not a list of strings (nor the
-                             resolver's object), --project-root is not a
-                             directory, or a `file:` entry keeps a placeholder
+                             resolver's object), --facts-toml cannot be read,
+                             is not TOML or holds a persistent_facts that is
+                             not a list of strings, both are given,
+                             --project-root is not a directory, or a `file:`
+                             entry keeps a placeholder
        FACTS_FILE_NOT_FOUND  a `file:` path with no glob character names no
                              file (a glob that matches nothing adds no fact)
        FACTS_UNREADABLE      a facts file cannot be read
@@ -65,10 +75,12 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
-import glob
+import functools
+import importlib.util
 import json
 import re
 import sys
+import tomllib
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -76,19 +88,17 @@ import yaml
 
 NO_DIRECTIVE = "No directive configured"
 NO_FACTS = "None"
-FILE_PREFIX = "file:"
-DROP_PREFIX = "!"
-PROJECT_ROOT = "{project-root}"
 # The key the customization resolver prints for --key workflow.persistent_facts
 # (it prints {} when no layer sets it).
 RESOLVER_KEY = "workflow.persistent_facts"
-GLOB_CHARS = ("*", "?", "[")
+# The customization helper, whose `!` drop and `file:` expansion load_facts runs.
+RESOLVE_CUSTOMIZATION_SCRIPT = (
+    Path(__file__).resolve().parent.parent.parent / "shared" / "scripts" / "skf-resolve-customization.py"
+)
 # Target fields shown first, in this order; any other field of the entry
 # follows in the entry's own order.
 BRIEF_FIELDS = ("name", "repo_url", "tier", "pin", "depends_on")
 SLOT_RE = re.compile(r"\{\{[a-z_]+\}\}")
-# A placeholder left in a `file:` entry would match no file.
-UNRESOLVED_RE = re.compile(r"\{[A-Za-z][\w-]*\}")
 
 
 def _err(message: str, code: str) -> int:
@@ -182,54 +192,36 @@ def _facts_list(facts: List[str]) -> str:
     return "\n".join(bullets) if bullets else NO_FACTS
 
 
-def _fact_files(entry: str, pattern: str, root: str) -> List[Path]:
-    """The files a `file:` entry names: the path itself, else every file its glob matches.
-
-    `{project-root}` in the pattern becomes root, escaped where it joins a glob.
-    A path with no glob character that names no file raises FileNotFoundError,
-    so a mistyped path stops the kickoff instead of dropping its facts; a glob
-    that matches nothing adds no file.
-    """
-    path = Path(pattern.replace(PROJECT_ROOT, root))
-    if path.is_file():
-        return [path]
-    if not any(c in pattern for c in GLOB_CHARS):
-        raise FileNotFoundError(f"`{entry}` names no file ({path.as_posix()})")
-    matches = glob.glob(pattern.replace(PROJECT_ROOT, glob.escape(root)), recursive=True)
-    return [Path(p) for p in sorted(matches) if Path(p).is_file()]
+@functools.cache
+def _resolve_customization() -> Any:
+    """The customization helper as a module, loaded on first use."""
+    spec = importlib.util.spec_from_file_location("skf_resolve_customization", RESOLVE_CUSTOMIZATION_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def load_facts(entries: List[str], project_root: Optional[str] = None) -> List[str]:
     """Turn persistent-facts entries into the facts the kickoff lists.
 
-    A `!` entry adds nothing and drops every earlier entry equal to what
-    follows the `!`, before any `file:` entry is read, so a dropped file is
-    never opened. A `file:` entry adds one fact per file it names, headed by
-    the file's path. Raises ValueError on an entry that keeps a placeholder
-    (as `{project-root}` does when project_root is None), FileNotFoundError
-    on a path that names no file, OSError on a file that cannot be read.
+    The customization helper's resolve_facts applies each `!` entry, which
+    adds nothing and drops every earlier entry equal to what follows the `!`,
+    before any `file:` entry is read, so a dropped file is never opened, and
+    turns each `file:` entry into one entry per file it names. Each file then
+    adds one fact, headed by its path. Raises ValueError on an entry that
+    keeps a placeholder (as `{project-root}` does when project_root is None),
+    FileNotFoundError on a path that names no file, OSError on a file that
+    cannot be read.
     """
-    kept: List[str] = []
-    for entry in entries:
-        if entry.startswith(DROP_PREFIX):
-            dropped = entry[len(DROP_PREFIX):]
-            kept = [earlier for earlier in kept if earlier != dropped]
-        else:
-            kept.append(entry)
+    resolver = _resolve_customization()
     facts: List[str] = []
-    for entry in kept:
-        if not entry.startswith(FILE_PREFIX):
+    for entry in resolver.resolve_facts(entries, project_root):
+        if not entry.startswith(resolver.FILE_PREFIX):
             facts.append(entry)
             continue
-        pattern = entry[len(FILE_PREFIX):].strip()
-        left = pattern if project_root is None else pattern.replace(PROJECT_ROOT, "")
-        placeholder = UNRESOLVED_RE.search(left)
-        if placeholder:
-            hint = "; pass --project-root" if placeholder.group(0) == PROJECT_ROOT else ""
-            raise ValueError(f"`{entry}` holds the unresolved placeholder `{placeholder.group(0)}`{hint}")
-        for path in _fact_files(entry, pattern, project_root or ""):
-            text = path.read_bytes().decode("utf-8", errors="replace")
-            facts.append(f"From `{path.as_posix()}`:\n\n{text}")
+        path = Path(entry[len(resolver.FILE_PREFIX):])
+        text = path.read_bytes().decode("utf-8", errors="replace")
+        facts.append(f"From `{path.as_posix()}`:\n\n{text}")
     return facts
 
 
@@ -298,6 +290,25 @@ def _facts_entries(raw: str) -> List[Any]:
     return value
 
 
+def read_facts_toml(path: str) -> List[str]:
+    """The `[workflow]` table's persistent_facts list of a customize.toml, as written; none is an empty list.
+
+    Raises ValueError on a file that cannot be read or is not TOML, and on a
+    value that is not a list of strings.
+    """
+    try:
+        data = tomllib.loads(Path(path).read_bytes().decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        raise ValueError(f"cannot read {path}: {exc}") from exc
+    workflow = data.get("workflow", {})
+    if not isinstance(workflow, dict):
+        raise ValueError(f"{path}: `workflow` is not a table")
+    entries = workflow.get("persistent_facts", [])
+    if not isinstance(entries, list) or not all(isinstance(e, str) for e in entries):
+        raise ValueError(f"{path}: `workflow.persistent_facts` is not a list of strings")
+    return entries
+
+
 def _read_stdin() -> str:
     """stdin as UTF-8, the encoding the resolver writes; a byte-order mark is dropped."""
     buffer = getattr(sys.stdin, "buffer", None)
@@ -329,6 +340,7 @@ def run(
     facts_json: Optional[str] = None,
     directive_file: Optional[str] = None,
     project_root: Optional[str] = None,
+    facts_toml: Optional[str] = None,
 ) -> int:
     texts: Dict[str, str] = {}
     for label, p in (("State", state_file), ("Brief", brief_file), ("Template", template_file)):
@@ -355,6 +367,13 @@ def run(
             return _err(f"--workarounds-file: {exc}", "BAD_WORKAROUNDS")
 
     entries: List[Any] = []
+    if facts_json and facts_toml:
+        return _err("--facts-json and --facts-toml cannot both be given: pass one", "BAD_FACTS")
+    if facts_toml:
+        try:
+            entries = read_facts_toml(facts_toml)
+        except ValueError as exc:
+            return _err(f"--facts-toml: {exc}", "BAD_FACTS")
     if facts_json:
         try:
             entries = _facts_entries(_read_stdin() if facts_json == "-" else facts_json)
@@ -367,7 +386,7 @@ def run(
     try:
         facts = load_facts(entries, project_root)
     except ValueError as exc:
-        return _err(f"--facts-json: {exc}", "BAD_FACTS")
+        return _err(f"{'--facts-toml' if facts_toml else '--facts-json'}: {exc}", "BAD_FACTS")
     except FileNotFoundError as exc:
         return _err(f"Persistent facts file not found: {exc}", "FACTS_FILE_NOT_FOUND")
     except OSError as exc:
@@ -400,11 +419,17 @@ def build_parser() -> argparse.ArgumentParser:
         "--workarounds-file",
         help="the pre-apply log (preapply-log.json) whose applied[] workarounds the kickoff lists",
     )
-    parser.add_argument(
+    facts = parser.add_mutually_exclusive_group()
+    facts.add_argument(
         "--facts-json",
         help="persistent facts as a JSON list of sentences, file:<path-or-glob> entries and !<entry> "
         "entries (each drops the earlier entries equal to <entry>), or - to read them from stdin "
         "(a list, or the resolver's output for --key workflow.persistent_facts)",
+    )
+    facts.add_argument(
+        "--facts-toml",
+        help="a customize.toml whose [workflow] persistent_facts list holds the persistent facts, read "
+        "as --facts-json reads its list (for when the customization resolver cannot run)",
     )
     parser.add_argument(
         "--project-root",
@@ -428,6 +453,7 @@ def main(argv: list[str] | None = None) -> int:
         args.facts_json,
         args.directive_file,
         args.project_root,
+        args.facts_toml,
     )
 
 

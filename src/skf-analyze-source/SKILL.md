@@ -84,7 +84,7 @@ These rules apply to every step in this workflow:
 4. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-analyze-source.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran) for step 5 to record in the run sink.
@@ -94,7 +94,7 @@ These rules apply to every step in this workflow:
    - `{analysisReportTemplatePath}` ← `workflow.analysis_report_template_path` (the bundled `templates/analysis-report-template.md` when an override leaves it empty)
    - `{onCompleteCommand}` ← `workflow.on_complete` (empty: no hook)
 
-   Run `workflow.activation_steps_prepend` now, and treat `workflow.persistent_facts` as standing context for the run (`file:`-prefixed entries load their file/glob contents as facts: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off).
+   Run `workflow.activation_steps_prepend` now, and treat `workflow.persistent_facts` as standing context for the run (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`).
 
 5. **Create the run folder.** It holds what the run stages for its helpers (the tree listing, each brief's context, the subagents' unit records, the halt and result payloads) and the sink of its auto-decisions:
 

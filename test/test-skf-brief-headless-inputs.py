@@ -762,10 +762,10 @@ def test_customize_toml_header_and_hook_comments_match_activation():
     flat = " ".join(line.lstrip("#").strip() for line in prepend.splitlines())
     assert "uv probe" not in flat and "On Activation step 3" in flat
     assert "after config.yaml is loaded" in flat
-    # The bundled persistent fact can be dropped, and SKILL.md honours the drop.
+    # The bundled persistent fact can be dropped, and the customization helper applies the drop (#1106).
     facts = text[:text.index("\npersistent_facts = [")].rstrip().rsplit("\n#\n", 1)[-1]
     assert '"!file:{project-root}/**/project-context.md"' in facts
-    assert "an entry prefixed `!` loads nothing and drops each earlier entry it names" in _read(SKILL_MD)
+    assert "`--facts` has applied each `!` entry, which drops each earlier entry it names" in _read(SKILL_MD)
 
 
 @pytest.mark.parametrize("path", [pytest.param(path, id=path.name) for path in (GATHER_INTENT, HEADLESS_ARGS, RATIFY)])

@@ -34,7 +34,7 @@ Run these steps once, in order, before dispatching to Mode Routing.
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
    ```bash
-   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
+   uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow --facts
    ```
 
    It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-campaign.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case, unless the invocation is `campaign status` (which writes nothing), log `customization_resolver_unavailable: <reason>` as an `event` in the decision log once `{campaignWorkspacePath}` is bound below (`references/campaign-contracts.md`, Decision Log).
@@ -49,7 +49,7 @@ Run these steps once, in order, before dispatching to Mode Routing.
    - `{onComplete}` ← `workflow.on_complete` (empty = no-op)
    - `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (the first that exists)
 
-   Load `workflow.persistent_facts` (literal sentences and `file:` references, globs expanded: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off) and keep them in mind for the whole campaign: they are injected into every per-skill kickoff, whose loader drops a `!` entry the same way. Run any `activation_steps_prepend` now, right after the resolve: the config and preferences of steps 1 and 2 are already loaded, so a prepend step can read them but cannot run before them. `activation_steps_append` runs at step 5, once the CLI overrides are parsed.
+   Load `workflow.persistent_facts` (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`) and keep them in mind for the whole campaign: they are injected into every per-skill kickoff, whose loader runs the same drop and glob code. Run any `activation_steps_prepend` now, right after the resolve: the config and preferences of steps 1 and 2 are already loaded, so a prepend step can read them but cannot run before them. `activation_steps_append` runs at step 5, once the CLI overrides are parsed.
 
 4. **Parse CLI overrides** into the workflow context:
 

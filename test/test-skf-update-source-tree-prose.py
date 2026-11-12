@@ -6214,8 +6214,8 @@ def test_persistent_facts_default_can_be_dropped():
     assert '#   persistent_facts = ["!file:{project-root}/**/project-context.md"]' in toml_text
     assert "(uv probe, config load)" not in toml_text
     activation = _slice(_read(SKILL), "4. **Resolve workflow customization.**", "5. Load")
-    assert ("an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's "
-            '`"!file:{project-root}/**/project-context.md"` turns that default off') in activation
+    assert ("(the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied "
+            "each `!` entry, which drops each earlier entry it names, and expanded each glob") in activation
 
 
 def test_activation_runs_the_resolver_through_uv_and_records_its_failure():

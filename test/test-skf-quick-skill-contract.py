@@ -2081,7 +2081,7 @@ def test_the_hook_comments_match_when_skill_md_runs_them():
 
 
 def test_the_persistent_facts_default_says_how_to_drop_it():
-    """#596 decision: a `!` entry in an override drops the default, and SKILL.md honours it."""
+    """#596 decision: a `!` entry in an override drops the default, which the customization helper applies (#1106)."""
     assert _customize()["persistent_facts"] == ["file:{project-root}/**/project-context.md"]
     comment = _comment_before("persistent_facts")
     for needle in ("loads every project-context.md under {project-root}",
@@ -2091,7 +2091,7 @@ def test_the_persistent_facts_default_says_how_to_drop_it():
     for stale in ("cannot remove it", "add a literal fact"):
         assert stale not in comment, stale
     step3 = _section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ")
-    assert "an entry prefixed `!` drops each earlier entry it names and loads nothing itself" in step3
+    assert "`--facts` has applied each `!` entry, which drops each earlier entry it names" in step3
 
 
 def test_the_on_complete_comment_is_the_call_finalize_makes():

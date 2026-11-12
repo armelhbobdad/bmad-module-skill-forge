@@ -393,8 +393,9 @@ def test_the_project_context_default_stays_and_says_how_to_drop_it():
     comment = _section(toml, "# Persistent facts the workflow keeps in mind", "\npersistent_facts =")
     assert "{project-root}/_bmad/custom/skf-rename-skill.toml" in comment and drop in comment
     activation = _section(_read(SKILL), "3. **Resolve workflow customization.**", "4. Load, read the full file")
-    assert "an entry prefixed `!` drops each earlier entry it names and loads nothing itself" in activation
-    assert f"`{drop}` turns that default off" in activation
+    # The customization helper applies the drop (#1106), and the step says so.
+    assert "`--facts` has applied each `!` entry, which drops each earlier entry it names" in activation
+    assert "the bundled default loads every `project-context.md` under `{project-root}`" in activation
 
 
 def test_the_manifest_backup_is_a_file_in_the_run_folder():

@@ -626,9 +626,9 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
                   "If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled "
                   "defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run.",
                   "Keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran)",
-                  "the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed "
-                  "`!` drops each earlier entry it names and loads nothing itself, so an override's "
-                  '`"!file:{project-root}/**/project-context.md"` turns that default off'):
+                  "(the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each "
+                  "`!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry "
+                  "names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`)"):
         assert token in resolve, token
     # #601: no bare `_bmad/` path is left for the path-standards scan to flag.
     assert re.search(r"(?<!\{project-root\}/)_bmad/", resolve) is None

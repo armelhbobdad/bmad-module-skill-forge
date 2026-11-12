@@ -1987,7 +1987,10 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
                   "an entry that starts with `!` drops each earlier entry it names and loads nothing itself",
                   f'add `persistent_facts = ["!{DEFAULT_FACT}"]` under `[workflow]` in '
                   "`_bmad/custom/<skill-name>.toml`",
-                  "Every workflow that loads the default honours such an entry", "Campaign's kickoff loader"):
+                  "SKF's customization helper applies each such entry and expands each glob before a workflow "
+                  "reads the list", "a `**` never enters a hidden folder or a folder reached through a link",
+                  "never loads a file under `_bmad-output/.skf-run/`",
+                  "Campaign's kickoff loader runs the same code"):
         assert token in facts, token
     assert "Brief, Create, Update and Rename Skill" not in facts
 
