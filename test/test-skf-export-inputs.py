@@ -365,18 +365,36 @@ def _comment_above(toml: str, key: str) -> str:
     return "\n".join(reversed(block))
 
 
+def _flat_comment(toml: str, key: str) -> str:
+    return " ".join(line.lstrip("#").strip() for line in _comment_above(toml, key).splitlines())
+
+
 def test_on_complete_says_it_runs_a_shell_command():
+    """#1108: the hook runs from {project-root}, so the comment says so, its example names the script from there,
+    and step 6b invokes it from there."""
     toml = (EXPORT / "customize.toml").read_text(encoding="utf-8")
     comment = _comment_above(toml, "on_complete")
-    assert "a shell command, not an instruction" in comment
     assert '`<value> --result-path="<per-run result JSON>"`' in comment
+    flat = _flat_comment(toml, "on_complete")
+    assert "Optional post-export hook: a shell command run from {project-root}, not an instruction." in flat
+    # The example is the override file it names: `[workflow]` first, or the key is ignored without a warning.
+    example = comment.split("Example, in {project-root}/_bmad/custom/skf-export-skill.toml:\n", 1)[1]
+    example = "\n".join(line.removeprefix("#").strip() for line in example.splitlines() if line.startswith("#   "))
+    assert tomllib.loads(example) == {"workflow": {"on_complete": "{project-root}/scripts/publish-skill.sh"}}
+    assert 'on_complete = "scripts/publish-skill.sh"' not in flat
     hook = _section(_read("references/summary.md"), "### 6b. Post-Export Hook (Optional)", "### 7. ")
     assert '{onCompleteCommand} --result-path="{result_path}"' in hook
+    assert "Otherwise invoke it now from `{project-root}`, after the emitter wrote the per-run record:" in hook
 
 
 def test_snippet_format_path_names_the_lines_scripts_parse():
     toml = (EXPORT / "customize.toml").read_text(encoding="utf-8")
-    assert tomllib.loads(toml)["workflow"]["snippet_format_path"] == ""
+    # #1108: the bundled default is named, and a house copy lives outside the skill folder.
+    assert tomllib.loads(toml)["workflow"]["snippet_format_path"] == "assets/snippet-format.md"
+    assert "# --- Optional override. An empty string means the default named below. ---\n" in toml
+    assert ("Default: assets/snippet-format.md, a path from the skill root. Keep a house-style copy outside the "
+            "skill folder, which every update overwrites, and name it as {project-root}/<path to the copy>."
+            ) in _flat_comment(toml, "snippet_format_path")
     comment = _comment_above(toml, "snippet_format_path")
     for fixed in ("assets/snippet-format.md", "`[{skill-name} v{version}]|root: {skill_root}{skill-name}/`",
                   "skipped_malformed_snippet", "`|IMPORTANT:`", "`writing {skill-name} code`",

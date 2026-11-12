@@ -2697,6 +2697,71 @@ def test_contract_settings_are_off_the_override_surface():
     assert "`assets/provenance-map-schema.md`" in _sections(_body(_read(GENERATE)))["7"]
 
 
+# --- #1108 (create-stack part): what a house copy of the template must keep ---------
+
+
+def _customize_comment(key: str) -> str:
+    """The comment block right above `key = ...` in customize.toml (the lines after the last blank line)."""
+    text = CUSTOMIZE.read_text(encoding="utf-8")
+    return text[: text.index(f"\n{key} =")].rsplit("\n\n", 1)[-1]
+
+
+def _template_top_headings() -> list[str]:
+    """The template's `## ` headings outside its code fences: the structures the steps find by name."""
+    found, fenced = [], False
+    for line in _read(TEMPLATE).splitlines():
+        if line.lstrip().startswith("```"):
+            fenced = not fenced
+        elif not fenced and line.startswith("## "):
+            found.append(line)
+    return found
+
+
+def test_the_template_comment_names_what_a_copy_must_keep():
+    """#1108: the comment names the steps that read the template, its real default, and each heading the
+    steps and skf-validate-output.py find by name; every heading it names is one the bundled template holds."""
+    import tomllib
+
+    assert tomllib.loads(CUSTOMIZE.read_text(encoding="utf-8"))["workflow"]["stack_skill_template_path"] == (
+        "assets/stack-skill-template.md")
+    comment = _customize_comment("stack_skill_template_path")
+    flat = " ".join(line.lstrip("#").strip() for line in comment.splitlines())
+    assert ("The template steps 6 (references/compile-stack.md sections 1, 2, 4 and 6), 7 "
+            "(references/generate-output.md sections 3 to 5) and 8 (the body split of references/validate.md "
+            "section 3) build the stack from. Default: assets/stack-skill-template.md, a path from the skill "
+            "root.") in flat
+    lines = {line.strip() for line in _read(TEMPLATE).splitlines()}
+    named = re.findall(r"`(#{2,3} [^`]+)`", comment)
+    assert named, "the comment names no heading"
+    for heading in named:
+        assert heading in lines, f"the template comment names `{heading}`, which the bundled template lacks"
+    top = _template_top_headings()
+    assert len(top) == 6, top
+    for heading in top:
+        assert f"`{heading}`" in comment, f"the template comment leaves out `{heading}`"
+    validator = _load(VALIDATOR, "skf_validate_output_template_comment")
+    for name in (validator._INTEGRATION_PATTERNS, validator._REFERENCE_INDEX, validator._PER_LIBRARY,
+                 validator._CATALOG_POINTER, validator._CONVENTIONS, *validator._LIBRARY_FILE_HEADINGS,
+                 *validator._PAIR_FILE_HEADINGS):
+        assert f"`## {name}`" in comment, f"the template comment leaves out `## {name}`, which step 8 checks"
+    assert f"`### {validator._PAIR_INTEGRATIONS}`" in comment
+    assert "`### Cross-Cutting Patterns`" in comment, "Test Skill's coherence check counts it"
+
+
+def test_the_integration_patterns_comment_says_what_step_5_does_with_it():
+    import tomllib
+
+    assert tomllib.loads(CUSTOMIZE.read_text(encoding="utf-8"))["workflow"]["integration_patterns_path"] == (
+        "references/integration-patterns.md")
+    flat = " ".join(line.lstrip("#").strip() for line in _customize_comment("integration_patterns_path").splitlines())
+    for token in ("The integration types step 5 (references/detect-integrations.md section 3) classifies every pair "
+                  "against, in both modes.",
+                  "name a copy kept outside the skill folder as {project-root}/<path to the copy>.",
+                  "step 5 writes each type name verbatim to the pair's `type` in the stack bundle"):
+        assert token in flat, token
+    assert "Load `{integrationPatternsPath}` for classification rules." in _sections(_body(_read(DETECT)))["3"]
+
+
 # --- #600 (create-stack part): one home per rule -----------------------------------
 
 

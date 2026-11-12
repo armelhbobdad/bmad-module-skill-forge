@@ -36,8 +36,9 @@ activation_steps_append = []
 #     entry it names.
 #
 # The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-rename-skill.toml:
+# A `!` entry in an override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-rename-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
@@ -63,6 +64,11 @@ on_complete = ""
 # answer: a local rename diverges from any registry-published name. Set it
 # to "true" (or the TOML boolean true) in a team or personal override to
 # let every headless rename of an official skill proceed; each run still
-# records the decision in its headless_decisions.
+# records the decision in its headless_decisions. In
+# {project-root}/_bmad/custom/skf-rename-skill.toml (or .user.toml) write it
+# under the table, as two lines: `[workflow]` then
+# `force_source_authority_in_headless = "true"`. A key above the
+# `[workflow]` line is ignored without a warning, and headless renames of an
+# official skill keep halting.
 
 force_source_authority_in_headless = ""

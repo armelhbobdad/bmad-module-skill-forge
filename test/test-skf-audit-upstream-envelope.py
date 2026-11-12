@@ -652,7 +652,7 @@ def test_activation_runs_the_resolver_through_uv_and_honours_a_dropped_fact():
     assert tomllib.loads(raw)["workflow"]["persistent_facts"] == ["file:{project-root}/**/project-context.md"]
     comments = _flow(re.sub(r"(?m)^# ?", "", raw))
     assert ('to stop loading those files, set in {project-root}/_bmad/custom/skf-audit-skill.toml: '
-            'persistent_facts = ["!file:{project-root}/**/project-context.md"]') in comments
+            '[workflow] persistent_facts = ["!file:{project-root}/**/project-context.md"]') in comments
     for gone in ("cannot remove it", "add a literal fact", "(under {project-root})", "Each entry is either:"):
         assert gone not in comments, gone
     assert ("Each entry is one of: - a literal sentence" in comments

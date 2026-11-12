@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-analyze-source, skf-audit-skill, skf-brief-skill, skf-create-skill, skf-create-stack-skill, skf-export-skill, skf-quick-skill, skf-refine-architecture, skf-rename-skill, skf-test-skill, skf-update-skill, skf-verify-stack
+summary: |
+  The override examples in each workflow's `customize.toml` now work when you copy them: the `persistent_facts` example that stops loading `project-context.md` starts with the `[workflow]` line it needs, since a setting above that line is ignored without a warning, and Rename Skill's `force_source_authority_in_headless` comment, its headless halt message and the docs say to write it under `[workflow]`. The template and folder settings of Test Skill, Stack Skill, Quick Skill, Export Skill and Refine Architecture say to keep your copy outside the skill folder, which every update replaces, and to name it as `{project-root}/<path to the copy>`; Test Skill, Stack Skill and Export Skill show their bundled default instead of an empty string. Export Skill runs its `on_complete` command from your project root.
+issues: [1108]

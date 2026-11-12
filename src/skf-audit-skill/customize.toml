@@ -41,6 +41,7 @@ activation_steps_append = []
 # Skill and Campaign, which do not need it, ship none). A `!` entry in an
 # override drops it; to stop loading those files, set in
 # {project-root}/_bmad/custom/skf-audit-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [

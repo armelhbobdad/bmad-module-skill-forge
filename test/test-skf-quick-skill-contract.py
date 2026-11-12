@@ -2064,6 +2064,10 @@ def test_the_template_comment_names_what_a_copy_must_keep():
         assert f"`{anchor}`" in comment and f"SKILL.md{anchor}" in template, anchor
     assert "metadata.json is read from a copy only when skf-render-quick-metadata.py is missing or fails twice" \
         in comment
+    # #1108: a bare path resolves from the skill root, which every update overwrites.
+    assert ("Default: assets/skill-template.md, a path from the skill root. Keep a house-style copy outside the "
+            "skill folder, which every update overwrites, and name it as {project-root}/<path to the copy>."
+            ) in " ".join(comment.split())
     validator = _load(SCRIPTS / "skf-validate-output.py", "skf_validate_output_for_quick_contract")
     body = validator.validate_body_structure(f"---\nname: x\n---\n{template}")
     assert body == [], "the bundled template carries every section the validator requires"

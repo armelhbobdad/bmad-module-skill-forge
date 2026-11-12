@@ -40,20 +40,20 @@ activation_steps_append = []
 # Skill and Campaign, which do not need it, ship none). A `!` entry in an
 # override drops it; to stop loading those files, set in
 # {project-root}/_bmad/custom/skf-test-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# --- Optional asset overrides ---
-#
-# Lift the canonical asset paths so orgs can substitute house-style copies
-# without forking the skill. Empty string = use the bundled default.
-#
+# --- Optional overrides. An empty string means the default named below. ---
+
 # The test report template init copies to the run's report. Default:
-# templates/test-report-template.md. A house-style copy may reword the prose,
-# and must keep:
+# templates/test-report-template.md, a path from the skill root. Keep a
+# house-style copy outside the skill folder, which every update overwrites,
+# and name it as {project-root}/<path to the copy>. The copy may reword the
+# prose, and must keep:
 #   - the title line `# Test Report: {{skillName}}`, which init fills with
 #     the skill name;
 #   - the six `## ...` section headings, each with the `<!-- Populated by`
@@ -61,7 +61,7 @@ persistent_facts = [
 # The report check halts the run (`report-anchor-missing`) on a report
 # without them.
 
-test_report_template_path = ""
+test_report_template_path = "templates/test-report-template.md"
 
 # The scoring rules and the output formats are not overridable: scripts own
 # the weights and the verdict rules, and the hard gate reads the Gap Severity

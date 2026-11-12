@@ -789,3 +789,28 @@ def test_the_documented_rules_and_verdicts_calls_run(tmp_path):
     values["vs_generated_at"] = "2026-09-30T09:00:00Z"
     stale = _run([PRESERVATION, *_bind(_call(_read(ISSUES), "verdicts"), values)])
     assert stale.returncode == 1 and json.loads(stale.stdout)["status"] == "stale"
+
+
+def _customize_comment(key: str) -> str:
+    """The comment above `key = ...` in customize.toml, `#` markers dropped, as one line."""
+    text = _read(SKILL / "customize.toml")
+    block = text[: text.index(f"\n{key} =")].rsplit("\n\n", 1)[-1]
+    return " ".join(line.lstrip("#").strip() for line in block.splitlines())
+
+
+def test_the_path_settings_are_named_from_the_project_root():
+    """#1108: a bare path resolves from the installed skill's folder, which every update replaces, so both path
+    comments and the docs name a copy or a folder from {project-root} and show one."""
+    rules = _customize_comment("refinement_rules_path")
+    assert ("Keep the copy outside the skill folder, which every update overwrites, and name it as "
+            "{project-root}/<path to the copy>, e.g. {project-root}/_bmad/custom/refinement-rules.md.") in rules
+    folder = _customize_comment("output_folder_path")
+    assert ("Name it as {project-root}/<folder>, e.g. {project-root}/docs/architecture; a bare path resolves from "
+            "the skill folder, which every update deletes.") in folder
+    docs = _read(REPO / "docs" / "workflows.md").splitlines()
+    [output] = [line for line in docs if line.startswith("- Refine Architecture `output_folder_path`:")]
+    assert ("Name it as `{project-root}/<folder>`, such as `{project-root}/docs/architecture`: a bare path "
+            "resolves from the installed skill's folder, which every update deletes.") in output
+    [copy] = [line for line in docs if line.startswith("- Refine Architecture `refinement_rules_path`:")]
+    assert ("Keep it outside the skill folder, which every update overwrites, and name it as "
+            "`{project-root}/<path to the copy>`, such as `{project-root}/_bmad/custom/refinement-rules.md`.") in copy

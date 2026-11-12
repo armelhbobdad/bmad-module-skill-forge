@@ -20,8 +20,18 @@ that owns its rule, or it changes nothing, so:
   persistent_facts sentence drops a `!` entry and each earlier entry it
   names, and the customize.toml comment above persistent_facts shows
   `persistent_facts = ["!file:{project-root}/**/project-context.md"]` and
-  never says an override cannot remove the default or suggests a
+  never says an override cannot remove or delete the default or suggests a
   counter-fact;
+- every persistent_facts example (#1108) is the override file it names:
+  `#   [workflow]` is the line before the `persistent_facts = [...]` line, so
+  the two lines, `#` markers dropped, parse to the `workflow` table the
+  resolver's `--key workflow` reads, where a key above that line is ignored
+  without a warning;
+- each `file` scalar's bundled default (#1108) names a file the skill
+  bundles, and only the scalars STILL_EMPTY lists ship an empty string; the
+  template comments of Audit, Test, Stack, Quick and Export say to keep a
+  house-style copy outside the skill folder and name it from
+  {project-root}, since a bare path resolves from the skill root;
 - the project-context default (the maintainer's 2026-11-12 decision, #1107):
   the twelve workflows that read the project context ship it, and Audit,
   Brief and Test Skill say it is kept on purpose; skf-setup, skf-drop-skill
@@ -133,7 +143,8 @@ DEFAULT_FACT = "file:{project-root}/**/project-context.md"
 DROP_OVERRIDE = f'#   persistent_facts = ["!{DEFAULT_FACT}"]'
 # A sentence that tells a team the default cannot be dropped, or to answer
 # it with a contradicting fact instead.
-STALE_FACT_ADVICE = ("cannot remove it", "add a literal fact", "counter-fact", "counter fact")
+STALE_FACT_ADVICE = ("cannot remove it", "cannot delete it", "no override can delete it", "add a literal fact",
+                     "counter-fact", "counter fact")
 
 
 def _read(path: Path) -> str:
@@ -286,10 +297,14 @@ OPT_IN = f'#   [workflow]\n#   persistent_facts = ["{DEFAULT_FACT}"]\n'
 KEPT_ON_PURPOSE = ("skf-audit-skill", "skf-brief-skill", "skf-test-skill")
 
 
+def _example(skill: str) -> str:
+    """The override lines the persistent_facts comment shows after naming the override file, `#` markers kept."""
+    return _comment_above(skill, "persistent_facts").split(f"{{project-root}}/_bmad/custom/{skill}.toml:\n", 1)[1]
+
+
 def _opt_in(skill: str) -> dict:
     """The override the persistent_facts comment shows, `#` markers dropped, read as the override file it is."""
-    example = _comment_above(skill, "persistent_facts").split(f"{{project-root}}/_bmad/custom/{skill}.toml:\n", 1)[1]
-    return tomllib.loads("\n".join(line.removeprefix("#").strip() for line in example.splitlines()))
+    return tomllib.loads("\n".join(line.removeprefix("#").strip() for line in _example(skill).splitlines()))
 
 
 def test_only_setup_drop_and_campaign_ship_no_project_context_default():
@@ -320,6 +335,19 @@ def test_customize_toml_shows_the_drop_override(skill):
     assert not stale, f"{skill}: the persistent_facts comment still says {stale}"
 
 
+@pytest.mark.parametrize("skill", FACT_SKILLS + list(NO_DEFAULT))
+def test_the_persistent_facts_example_is_written_under_the_workflow_table(skill):
+    """#1108: the resolver reads `--key workflow`, so the example a team copies opens with the `[workflow]` line;
+    without it the key lands at the file's root, and the default stays loaded with no warning."""
+    entry = DEFAULT_FACT if skill in NO_DEFAULT else f"!{DEFAULT_FACT}"
+    assert _example(skill) == f'#   [workflow]\n#   persistent_facts = ["{entry}"]\n', (
+        f"{skill}: the persistent_facts example is not the two lines `[workflow]` then `persistent_facts = [...]`")
+    assert _opt_in(skill) == {"workflow": {"persistent_facts": [entry]}}, skill
+    comment = _comment_above(skill, "persistent_facts").lower()
+    stale = [phrase for phrase in STALE_FACT_ADVICE if phrase in comment]
+    assert not stale, f"{skill}: the persistent_facts comment still says {stale}"
+
+
 @pytest.mark.parametrize("skill", NO_DEFAULT)
 def test_customize_toml_shows_the_override_that_loads_the_project_context(skill):
     comment = _comment_above(skill, "persistent_facts")
@@ -342,6 +370,69 @@ def test_a_workflow_that_reads_the_project_context_keeps_the_default_on_purpose(
             "entry in an override drops it; to stop loading those files, set in "
             f"{{project-root}}/_bmad/custom/{skill}.toml:") in comment, skill
     assert "cannot delete it" not in comment, skill
+
+
+# --------------------------------------------------------------------------
+# The file scalars' defaults (#1108)
+# --------------------------------------------------------------------------
+
+
+FILE_SCALARS = [(skill, key) for skill, key in SCALARS if ALLOWED[skill][key][1] == "file"]
+# The file scalars that ship an empty string today. The test never requires them to stay empty: one that gains
+# a bundled default leaves this set, and the check below then holds it to a file the skill bundles.
+STILL_EMPTY = {
+    ("skf-campaign", "report_template_path"),
+    ("skf-campaign", "kickoff_template_path"),
+    ("skf-campaign", "brief_template_path"),
+    ("skf-refine-architecture", "refinement_rules_path"),
+    ("skf-verify-stack", "report_template_path"),
+}
+# The sentence a template comment gives for a house-style copy: a bare path resolves from the skill root, which
+# every update overwrites.
+OUTSIDE_THE_SKILL = ("Keep a house-style copy outside the skill folder, which every update overwrites, and name it "
+                     "as {project-root}/<path to the copy>.")
+EMPTY_MEANS_DEFAULT = "# --- Optional overrides. An empty string means the default named below. ---\n"
+
+
+def _flat_comment(skill: str, key: str) -> str:
+    return " ".join(line.lstrip("#").strip() for line in _comment_above(skill, key).splitlines())
+
+
+def test_still_empty_names_file_scalars():
+    assert STILL_EMPTY <= set(FILE_SCALARS), STILL_EMPTY - set(FILE_SCALARS)
+
+
+@pytest.mark.parametrize("skill,key", FILE_SCALARS, ids=[f"{s}:{k}" for s, k in FILE_SCALARS])
+def test_each_file_scalar_default_names_a_bundled_file(skill, key):
+    value = _workflow_table(skill)[key]
+    assert isinstance(value, str), (skill, key, value)
+    if (skill, key) not in STILL_EMPTY:
+        assert value, f"{skill}: {key} ships an empty string instead of naming its bundled default"
+    if value:
+        assert not value.startswith(("/", "{")) and (SRC / skill / value).is_file(), (
+            f"{skill}: {key} = {value!r} names no file under src/{skill}/")
+
+
+@pytest.mark.parametrize("skill,key", [
+    ("skf-audit-skill", "drift_report_template_path"),
+    ("skf-test-skill", "test_report_template_path"),
+    ("skf-create-stack-skill", "stack_skill_template_path"),
+    ("skf-quick-skill", "skill_template_path"),
+    ("skf-export-skill", "snippet_format_path"),
+])
+def test_a_template_comment_keeps_the_house_copy_outside_the_skill(skill, key):
+    comment = _flat_comment(skill, key)
+    value = _workflow_table(skill)[key]
+    assert f"Default: {value}, a path from the skill root." in comment, (skill, key)
+    assert OUTSIDE_THE_SKILL in comment, (skill, key)
+
+
+@pytest.mark.parametrize("skill", ("skf-test-skill", "skf-create-stack-skill"))
+def test_the_overrides_header_says_what_an_empty_string_means(skill):
+    text = _customize(skill)
+    assert EMPTY_MEANS_DEFAULT in text, skill
+    for gone in ("Optional asset overrides", "Empty string = use the bundled default"):
+        assert gone not in text, (skill, gone)
 
 
 def _kickoff_module():

@@ -38,8 +38,9 @@ activation_steps_append = []
 #     entry it names.
 #
 # The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-quick-skill.toml:
+# A `!` entry in an override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-quick-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
@@ -48,9 +49,11 @@ persistent_facts = [
 
 # --- Optional overrides. An empty string means the default named below. ---
 
-# The template step 4 assembles SKILL.md and context-snippet.md from, a path
-# from the skill root. Default: assets/skill-template.md. A house-style copy
-# may reword it and add optional sections, and must keep:
+# The template step 4 assembles SKILL.md and context-snippet.md from.
+# Default: assets/skill-template.md, a path from the skill root. Keep a
+# house-style copy outside the skill folder, which every update overwrites,
+# and name it as {project-root}/<path to the copy>. The copy may reword the
+# prose and add optional sections, and must keep:
 #   - its `## SKILL.md Section Structure` and `## context-snippet.md Format`
 #     headings, which step 4 reads;
 #   - the `## Overview`, `## Description`, `## Key Exports` and

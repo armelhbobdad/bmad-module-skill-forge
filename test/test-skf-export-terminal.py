@@ -543,7 +543,7 @@ def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
     assert ("Steps SKILL.md On Activation step 3 runs once this file resolves: after the config load (step 1) and "
             "the headless flag (step 2), before step 4 resolves the helpers and creates the run folder") in toml
     assert ('to stop loading those files, set in {project-root}/_bmad/custom/skf-export-skill.toml: '
-            'persistent_facts = ["!file:{project-root}/**/project-context.md"]') in toml
+            '[workflow] persistent_facts = ["!file:{project-root}/**/project-context.md"]') in toml
     assert "Team overrides: {project-root}/_bmad/custom/skf-export-skill.toml" in toml
     assert "Each entry is either:" not in toml
     assert ("Each entry is one of: - a literal sentence" in toml

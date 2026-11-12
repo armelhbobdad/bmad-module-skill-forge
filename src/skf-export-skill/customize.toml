@@ -37,29 +37,35 @@ activation_steps_append = []
 #     entry it names.
 #
 # The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-export-skill.toml:
+# A `!` entry in an override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-export-skill.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
   "file:{project-root}/**/project-context.md",
 ]
 
-# Optional post-export hook: a shell command, not an instruction. When
-# non-empty, step 6 runs `<value> --result-path="<per-run result JSON>"`
-# after it writes that file (before the terminal health-check step); a
-# --dry-run writes none and never invokes it. Example:
-# on_complete = "scripts/publish-skill.sh". Useful for downstream
-# distribution, notification, or pipeline chaining. A failure shows as a
-# warning line in the run's output and never fails the workflow.
+# Optional post-export hook: a shell command run from {project-root}, not an
+# instruction. When non-empty, step 6 runs
+# `<value> --result-path="<per-run result JSON>"` after it writes that file
+# (before the terminal health-check step); a --dry-run writes none and never
+# invokes it. Example, in {project-root}/_bmad/custom/skf-export-skill.toml:
+#   [workflow]
+#   on_complete = "{project-root}/scripts/publish-skill.sh"
+# Useful for downstream distribution, notification, or pipeline chaining. A
+# failure shows as a warning line in the run's output and never fails the
+# workflow.
 # Empty = no-op (default).
 
 on_complete = ""
 
-# --- Optional asset override ---
-#
-# The snippet template step 3 fills for each skill. Empty string = the
-# bundled default, assets/snippet-format.md. Override it to restyle the free
+# --- Optional override. An empty string means the default named below. ---
+
+# The snippet template step 3 fills for each skill. Default:
+# assets/snippet-format.md, a path from the skill root. Keep a house-style
+# copy outside the skill folder, which every update overwrites, and name it
+# as {project-root}/<path to the copy>. Override it to restyle the free
 # lines or add one (an owner or license line, for example). Scripts parse
 # the rest, so a copy keeps these as they are:
 #   - line 1, `[{skill-name} v{version}]|root: {skill_root}{skill-name}/`
@@ -79,4 +85,4 @@ on_complete = ""
 # through the shared helper, so a copy only export read would put them out
 # of step.
 
-snippet_format_path = ""
+snippet_format_path = "assets/snippet-format.md"

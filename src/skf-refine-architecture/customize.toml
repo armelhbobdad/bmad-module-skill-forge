@@ -39,8 +39,9 @@ activation_steps_append = []
 #     workflow reads the list.
 #
 # The default below loads every project-context.md under {project-root}.
-# Overrides append, so they cannot delete it; to stop loading those files,
-# set in {project-root}/_bmad/custom/skf-refine-architecture.toml:
+# A `!` entry in an override drops it; to stop loading those files, set in
+# {project-root}/_bmad/custom/skf-refine-architecture.toml:
+#   [workflow]
 #   persistent_facts = ["!file:{project-root}/**/project-context.md"]
 
 persistent_facts = [
@@ -65,7 +66,9 @@ persistent_facts = [
 # skills and pairs are analyzed (the document scope), how findings are
 # stored for recovery (references/finding-storage.md), and how the refined
 # document is built, marked and checked (headings, callouts, RA markers,
-# preservation).
+# preservation). Keep the copy outside the skill folder, which every update
+# overwrites, and name it as {project-root}/<path to the copy>, e.g.
+# {project-root}/_bmad/custom/refinement-rules.md.
 
 refinement_rules_path = ""
 
@@ -75,7 +78,9 @@ refinement_rules_path = ""
 # -latest.json copy, the record of the last run whose emitter wrote it) and the record of
 # findings a review dropped (.ra-dismissed-<project>.json). Empty = use
 # {output_folder} from config.yaml. Useful for orgs that want
-# refined-architecture artifacts to land under a curated docs tree.
+# refined-architecture artifacts to land under a curated docs tree. Name it
+# as {project-root}/<folder>, e.g. {project-root}/docs/architecture; a bare
+# path resolves from the skill folder, which every update deletes.
 
 output_folder_path = ""
 

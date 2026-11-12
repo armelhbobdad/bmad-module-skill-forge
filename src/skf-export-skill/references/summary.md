@@ -182,7 +182,7 @@ Other workflow choices that diverge from the strict spec path may add their own 
 
 ### 6b. Post-Export Hook (Optional)
 
-Skip this section on a dry run (a dry run fires no hook), when `{onCompleteCommand}` (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) is empty, the bundled default, and when `{result_path}` is null (§6 wrote no per-run record). Otherwise invoke it now, after the emitter wrote the per-run record:
+Skip this section on a dry run (a dry run fires no hook), when `{onCompleteCommand}` (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) is empty, the bundled default, and when `{result_path}` is null (§6 wrote no per-run record). Otherwise invoke it now from `{project-root}`, after the emitter wrote the per-run record:
 
 ```bash
 {onCompleteCommand} --result-path="{result_path}"
