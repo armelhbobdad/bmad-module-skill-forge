@@ -27,7 +27,7 @@ nextStepFile: 'health-check.md'
 
 ## STEP GOAL:
 
-Present the complete feasibility report to the user. Display the overall verdict prominently, walk through key findings from each analysis pass, present actionable next steps based on the verdict, write the result contract, and finish.
+Present the complete feasibility report to the user. Display the overall verdict prominently, walk through key findings from each analysis pass, present actionable next steps based on the verdict, write the result contract, then chain to the health check.
 
 ## Rules
 
@@ -149,8 +149,6 @@ It writes `{forge_data_folder}/verify-stack-result-{timestamp}.json`, named afte
 
 "**Feasibility report saved to:** `{outputFile}` (a copy at `{outputFileLatest}`). Ask me to walk through any section of it.
 
-Re-run **[VS] Verify Stack** anytime after making changes to your skills or architecture document.
-
-**Verification workflow complete.**"
+Re-run **[VS] Verify Stack** anytime after making changes to your skills or architecture document."
 
 If `{workflow.on_complete}` is non-empty, execute it now (e.g. route the verdict onward or trigger a downstream step); in headless, log the action. Then delete the run folder, whose inventory, summaries and payloads the run no longer needs: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`: the health-check step is the true terminal step of this workflow.

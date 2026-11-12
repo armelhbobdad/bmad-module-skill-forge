@@ -53,7 +53,7 @@ When the emitter exits non-zero and its `message` names the payload, fix `{run_d
 
 ### 2. Render the Report
 
-Open with "**Rename complete.**", then show, each from what step 2 recorded:
+Open with "**Rename summary**", then show, each from what step 2 recorded:
 
 - From `{old_name}` to `{new_name}`, and the versions renamed: the number and the list of `renamed_versions`.
 - The references updated, each with its count from `rewrite_counts`: SKILL.md frontmatter, metadata.json, context-snippet.md and, when `{forge_move}` or `{same_folder}` is true, provenance-map.json.
@@ -117,5 +117,5 @@ When that fails, tell the user in one line that `{run_dir}` stays and can be del
 
 ### 5. Chain to Health Check
 
-The report reads as final, but the workflow ends at step 4: load, read the full file, and then execute `{nextStepFile}`.
+Load, read the full file, and then execute `{nextStepFile}`: the workflow ends at step 4.
 

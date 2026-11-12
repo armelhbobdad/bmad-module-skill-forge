@@ -51,7 +51,7 @@ Read {outputFile} completely to obtain:
 Load {schemaFile} for validation reference.
 
 **No confirmed unit:** If `confirmed_units` is empty, present:
-"**No confirmed units to generate briefs for.** The analysis is complete with no skill briefs produced. Run analyze-source again with different scope or parameters if needed."
+"**No confirmed units to generate briefs for.** The analysis produced no skill briefs. Run analyze-source again with different scope or parameters if needed."
 The run still ends through the same sequence as one that wrote briefs: skip §2 to §6 and continue at §7, which appends the Generation Results with no brief and adds `generate-briefs` to `stepsCompleted` (so a re-run starts a fresh analysis instead of resuming into this guard), then §8, §9 (an envelope and result contract with `brief_paths: []` and `unit_counts.confirmed: 0`), §9b and §10.
 
 ### 2. Build Each Brief's Context

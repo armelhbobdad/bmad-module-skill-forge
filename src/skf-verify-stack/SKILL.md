@@ -95,7 +95,7 @@ When `{headless_mode}` is true, step 6 prints one `SKF_VERIFY_STACK_RESULT_JSON:
 
    Apply the path-scalar fallback now so stage files don't repeat it: `{reportTemplatePath}` ← `workflow.report_template_path` if non-empty, else `assets/feasibility-report-template.md`. An empty or absent value falls through to that default, and init.md §4 loads the variable as it is. Bind `{outputFolderPath}` ← `{forge_data_folder}`, always (no setting moves it): the report and its `-latest` copy go where create-stack-skill and refine-architecture look for them, and step 1 finds the earlier reports there.
 
-   The same merge resolves `workflow.on_complete` (default empty = no-op); report.md §5 executes it, if non-empty, at the terminal stage.
+   The same merge resolves `workflow.on_complete` (default empty = no-op); report.md §5 executes it, if non-empty, at the end of step 6, before the health check.
 
    Also apply the array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (`file:`-prefixed entries load their file/glob contents as facts: the bundled default loads every `project-context.md` under `{project-root}`; an entry prefixed `!` drops each earlier entry it names and loads nothing itself, so an override's `"!file:{project-root}/**/project-context.md"` turns that default off); then execute each entry in `workflow.activation_steps_append` after activation completes.
 

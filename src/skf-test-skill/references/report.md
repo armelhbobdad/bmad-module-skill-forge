@@ -266,7 +266,7 @@ The report is final once §4c published it and wrote the result files: no later 
 
 ### 6. Present Final Report
 
-"**Test complete for {skill_name}.**
+"**Test summary for {skill_name}**
 
 ---
 
@@ -310,9 +310,7 @@ The report is final once §4c published it and wrote the result files: no later 
 
 ---
 
-**See Discovery Quality section in the report for description optimization and realistic prompt testing recommendations.**
-
-**Test report finalized.**"
+**See Discovery Quality section in the report for description optimization and realistic prompt testing recommendations.**"
 
 ### 6b. Keep the Headless Result Envelope for the Last Line
 

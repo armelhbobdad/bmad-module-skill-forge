@@ -59,7 +59,7 @@ python3 {manifestOpsHelper} {skills_output_folder} affected-versions {target_ski
 Display the following block, filling in values from context:
 
 ```
-**Drop operation complete.**
+**Drop summary**
 
 Operation:     {Deprecate | Purge}
 Skill:         {target_skill}
@@ -152,5 +152,5 @@ Whether or not a hook ran, then delete the run folder, whose payload the emitter
 
 ### 3. Chain to Health Check
 
-ONLY WHEN the report has been rendered and the result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step — do not stop here even though the report reads as final, and do not re-run any earlier step after it completes (a fresh drop means re-invoking the workflow from the top).
+ONLY WHEN the report has been rendered and the result contract saved will you then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step: do not re-run any earlier step after it completes (a fresh drop means re-invoking the workflow from the top).
 

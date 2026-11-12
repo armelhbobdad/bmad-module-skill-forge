@@ -1862,7 +1862,7 @@ HOOK_FORMS = {
     "skf-campaign": "<on_complete> --report-path=",
     "skf-create-stack-skill": "Command invoked once a run finishes",
     "skf-setup": "An instruction the agent carries out",
-    "skf-verify-stack": "Instruction executed when the workflow reaches its terminal stage",
+    "skf-verify-stack": "Instruction executed at the end of step 6, before the health check",
 }
 CHAIN_HALT = "`<CODE> needs <input> before the pipeline can start: give it as <CODE>[<input>]`"
 CHAIN_HALT_EXAMPLE = "`QS needs a target before the pipeline can start: give it as QS[<target>]`"

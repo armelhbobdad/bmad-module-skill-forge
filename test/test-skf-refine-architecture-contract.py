@@ -647,7 +647,7 @@ def test_report_writes_the_contract_then_the_hook_then_finishes():
     text = _read(REPORT)
     contract = text.index("### 4. Result Contract")
     hook = text.index("### 5. Post-Completion Hook")
-    finish = text.index("### 6. Finish the Run")
+    finish = text.index("### 6. Hand Off to the Health Check")
     assert contract < hook < finish
     emit = ('uv run {emitEnvelopeHelper} emit --workflow skf-refine-architecture --run-dir "{run_dir}" '
             '--result-dir "{outputFolderPath}" < "{run_dir}/result-context.json"')
@@ -673,7 +673,7 @@ def test_the_hook_gets_the_emitters_result_path_and_its_failure_is_shown():
 def test_the_report_finishes_the_run_without_a_menu():
     # A menu after the approval could not act on the document, so step 6
     # asks nothing: the walkthrough is [R] at step 5's review gate.
-    finish = _section(_read(REPORT), "### 6. Finish the Run", "the true terminal step")
+    finish = _section(_read(REPORT), "### 6. Hand Off to the Health Check", "the true terminal step")
     assert "**Select:**" not in finish and "[X]" not in finish and "GATE" not in finish
     assert 'rm -rf "{run_dir}"' in finish
     assert "Headless auto-selects" not in _read(REPORT)
