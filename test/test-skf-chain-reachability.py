@@ -37,10 +37,14 @@ Every exit reaches its terminal sequence (#585):
    forbids every write ahead of a section that writes, unless it names the
    exception (folded in from test-skf-stack-step-rules.py, for every
    workflow).
+8. Every local health-check step but Update Skill's hands over to the
+   shared one with no Rules lines padding its one load: no heading below
+   the title (Setup keeps its headings, for the Rules its quiet mode reads)
+   and none of the old "only delegate" lines (#1114).
 
 The bare-path rule names the keys that point beside the stage (#1112):
 
-8. Each workflow's SKILL.md says bare paths resolve from the skill root and
+9. Each workflow's SKILL.md says bare paths resolve from the skill root and
    names, after "inside a `references/` file too: only a stage's
    frontmatter", exactly the frontmatter keys whose value names a stage
    file by its path from the stage's own folder (`nextStepFile` always
@@ -583,6 +587,30 @@ def test_no_step_file_ends_the_workflow_early(skill: str) -> None:
 def test_only_the_shared_health_check_ends_the_run():
     shared = (SRC / "shared" / "health-check.md").read_text(encoding="utf-8")
     assert EARLY_END_RE.search(shared), "the shared health check no longer says the workflow is done"
+
+
+# The local health-check step only hands over to the shared one (#1114): no
+# heading below its title, and none of the Rules lines that said "only
+# delegate" around its one load. Update Skill's step keeps its Steps (it first
+# releases its lock and removes its source tree and run folder), and Setup's
+# keeps its headings for the Rules its quiet mode reads before the load.
+RELAYS = sorted(path for path in SRC.glob("skf-*/references/health-check.md")
+                if path.parts[-3] != "skf-update-skill")
+RELAY_PADDING = ("Delegate directly", "additional commentary", "Do not attempt any other action")
+
+
+def test_every_relay_is_read():
+    assert len(RELAYS) == 14, [path.parts[-3] for path in RELAYS]
+
+
+@pytest.mark.parametrize("path", RELAYS, ids=lambda p: p.parts[-3])
+def test_relay_step_only_loads_the_shared_health_check(path: pathlib.Path) -> None:
+    body = path.read_text(encoding="utf-8").split("\n---\n", 1)[1]
+    if path.parts[-3] != "skf-setup":
+        assert not re.search(r"^## ", body, re.M), f"{path.parts[-3]}: a heading below the title"
+    assert "Load `{nextStepFile}`, read it fully, then execute it" in body, path.parts[-3]
+    padding = [phrase for phrase in RELAY_PADDING if phrase in body]
+    assert not padding, f"{path.parts[-3]}: the relay still pads its one load with {padding}"
 
 
 # Rules wording that forbids every write. "Do not modify the refined

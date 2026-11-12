@@ -9,17 +9,4 @@ nextStepFile: 'shared/health-check.md'
 
 # Step 9: Workflow Health Check
 
-## STEP GOAL:
-
-Chain to the shared workflow self-improvement health check at `{nextStepFile}`. This is the terminal step of create-skill — after the shared health check completes, the workflow is fully done.
-
-## Rules
-
-- No user-facing reports, file writes, or result contracts in this step — those belong in step 8
-- Delegate directly to `{nextStepFile}` with no additional commentary
-- Under `--batch`, `references/batch-mode.md` §4 loads this step once, after the batch summary; report.md §6 sends each brief back to batch-mode.md §3 instead of here
-- Do not attempt any other action between loading this step and executing `{nextStepFile}`
-
-## MANDATORY SEQUENCE
-
-Load `{nextStepFile}`, read it fully, then execute it.
+Load `{nextStepFile}`, read it fully, then execute it. Do nothing else here: user-facing reports, file writes and result contracts belong to step 8. This is the terminal step of create-skill: after the shared health check completes, the workflow is fully done. Under `--batch`, `references/batch-mode.md` §4 loads this step once, after the batch summary; report.md §6 sends each brief back to batch-mode.md §3 instead of here.

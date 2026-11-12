@@ -454,7 +454,7 @@ def test_report_orders_contract_then_batch_then_health_check():
     batch = _read(REFS / "batch-mode.md")
     assert "the health check runs once per batch, here" in batch
     # the health check step names the same loop: batch-mode.md §4, never a loop back to load-brief
-    health = _section(_read(REFS / "health-check.md"), "## Rules", "## MANDATORY SEQUENCE")
+    health = _read(REFS / "health-check.md")
     assert "Under `--batch`, `references/batch-mode.md` §4 loads this step once, after the batch summary" in health
     assert "loops back to load-brief" not in health
     toml = _read(CS / "customize.toml")

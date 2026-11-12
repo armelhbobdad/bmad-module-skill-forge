@@ -1956,14 +1956,17 @@ def test_a_failing_batch_helper_call_halts_the_batch():
 
 def test_every_way_out_of_a_step_prints_its_events():
     """Headless events: the [P] path out of an ecosystem match chains with its done and start events,
-    and the health check's rule leaves room for its own done event."""
+    and the health check's one paragraph leaves room for its own done event (#1114)."""
     eco = _read(QS / "references" / "ecosystem-check.md")
     [proceed] = [line for line in eco.splitlines() if line.startswith("- IF P:")]
     assert "print this step's `done` event and step 3's `start` event" in proceed
     [gate] = [line for line in eco.splitlines() if line.startswith("- **GATE [default: P]**")]
     assert gate.endswith("then go on as IF P does, its events included.")
-    rules = _section(_read(HEALTH_CHECK), "## Rules\n", "## Steps")
-    assert "except the headless `done` event below" in rules and "intervening action" not in rules
+    relay = _read(HEALTH_CHECK)
+    assert ("When `{headless_mode}` is true, print this step's `done` event (`references/halt-contract.md`) "
+            "first. Load `{nextStepFile}`, read it fully, then execute it. Apart from that event, do nothing "
+            "else here") in relay
+    assert "intervening action" not in relay
 
 
 def test_finalize_never_writes_the_result_contract_by_hand():

@@ -1728,10 +1728,12 @@ def test_rename_run_lock_goes_through_the_shared_helper():
 
 
 def test_rename_health_check_only_relays():
-    """#588: the lock release moved to step 3, so the local health-check step keeps only the relay."""
+    """#588: the lock release moved to step 3, so the local health-check step keeps only the relay,
+    with no heading below its title (#1114)."""
     text = _read(RENAME_HEALTH)
-    sequence = _section(text, "## MANDATORY SEQUENCE", None)
-    assert sequence.strip().splitlines()[1:] == ["", "1. Load `{nextStepFile}`, read it fully, then execute it."]
+    body = _section(text, "# Step 4: Workflow Health Check\n", None)
+    assert not re.search(r"^## ", body, re.M), "a heading below the title"
+    assert "Load `{nextStepFile}`, read it fully, then execute it. Do nothing else here" in body
     for stale in ("lock", "rm -f", "runLockHelper"):
         assert stale not in text, stale
     report = _read(RENAME_REPORT)
