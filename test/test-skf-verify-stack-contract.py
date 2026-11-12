@@ -472,6 +472,44 @@ def test_the_halt_after_publishing_names_the_latest_copy(tmp_path):
     assert (envelope["status"], envelope["exit_code"]) == ("error", 4)
 
 
+def test_a_headless_run_hands_its_line_to_the_health_check():
+    """#1113: §4b binds `{result_envelope_line}` to the emitter's line instead of displaying it, §5's closing
+    message is for interactive runs only, and the relay's fallback for a health check it cannot load displays the
+    bound line after its log line, so a headless run's last line is its envelope either way."""
+    report = _read(REFERENCES / "report.md")
+    contract = _section(report, "### 4b. Result Contract", "### 5. Finish")
+    bind = ("When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the "
+            "shared health check displays it verbatim as the run's last line (the line the retry below prints when the "
+            "first run printed none).")
+    assert bind in contract
+    assert contract.index("prints the `SKF_VERIFY_STACK_RESULT_JSON:` line on stdout") < contract.index(bind)
+    # An emitter that fails twice still halts here, on its own line, and never reaches the health check.
+    assert contract.index(bind) < contract.index(
+        'if it fails again, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:result-contract`')
+    assert "display the line verbatim" not in report and "before chaining to step 7" not in report
+    finish = _section(report, "### 5. Finish", "the health-check step is the true terminal step")
+    assert finish.startswith('### 5. Finish\n\nWhen `{headless_mode}` is false, display:\n\n"**Feasibility report '
+                             'saved to:**')
+    assert finish.index("When `{headless_mode}` is false, display:") < finish.index("If `{workflow.on_complete}`")
+    relay = _read(REFERENCES / "health-check.md")
+    handed = ("In a headless run report.md §4b bound `{result_envelope_line}` to the `SKF_VERIFY_STACK_RESULT_JSON` "
+              "line without displaying it: the shared health check displays that line verbatim as the run's last "
+              "line wherever it stops")
+    assert handed in relay
+    log = "log exactly `health-check unavailable at {path}`"
+    shown = ("then display `{result_envelope_line}` verbatim after it when it is bound and not empty, with no code "
+             "fence and nothing after it")
+    assert relay.index(handed) < relay.index(log) < relay.index(shown) < relay.index("exit cleanly")
+    skill = _read(SKILL / "SKILL.md")
+    result = _section(skill, "## Result Contract (Headless)", "## On Activation")
+    assert ("line on **stdout**, which the shared health check displays as the run's last line, and every HARD HALT "
+            "one on **stderr**") in result
+    envelope = _section(_read(EXIT_CODES), "## Result Envelope", "## Emitting a Halt")
+    assert ("line on **stdout**, which the shared health check (step 7) displays as the run's last line, and every "
+            "HARD HALT prints one on **stderr**") in envelope
+    assert "before chaining to step 7" not in envelope
+
+
 def test_the_circuit_breaker_halts_on_a_halt_line(tmp_path):
     run_dir = _run_dir(tmp_path)
     proc = _run([EMITTER, "emit-halt", "--workflow", "skf-verify-stack", "--run-dir", run_dir, "--target", "stderr"],

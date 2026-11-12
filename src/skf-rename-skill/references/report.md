@@ -73,7 +73,7 @@ Close with the next steps:
 - If you had QMD collections or external tooling registered under `{old_name}`, re-run `@Ferris SF` (or your registration command) to re-index under `{new_name}`.
 - If this skill was published to agentskills.io under `{old_name}`, the registry version is unchanged: this rename is a LOCAL operation only.
 
-When `{headless_mode}` is true, display `{result_line}` verbatim on its own line after the report, when §1 printed one: it is the run's envelope, on **stdout**.
+When `{headless_mode}` is true, bind `{result_envelope_line}` ← `{result_line}` (empty when §1's emitter printed no line, never the word `null`) and do not display it here: the shared health check displays it verbatim as the run's last line, after the hook, the run-lock release and everything else.
 
 ### 3. Post-Completion Hook (optional)
 

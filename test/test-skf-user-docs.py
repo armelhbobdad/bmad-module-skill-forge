@@ -1444,7 +1444,9 @@ def test_pipeline_docs_say_a_resume_comes_from_the_journal():
 def test_headless_docs_name_every_workflow_whose_line_is_the_last():
     """#593: Test Skill, Campaign, Export Skill, Audit Skill and Drop Skill (v4.0.0 quality gate run 1,
     skf-audit-skill and skf-drop-skill enhancement-1) bind the line the shared health check displays last, as
-    setup's envelope is; a Drop Skill dry run displays its own line last."""
+    setup's envelope is; a Drop Skill dry run displays its own line last. #1113: so do Analyze Source, Create
+    Skill, Stack Skill, Refine Architecture, Rename Skill and Verify Stack, and a Rename Skill dry run ends on its
+    own line."""
     assert "it displays that line verbatim as its very last line" in _read(SRC / "shared" / "health-check.md")
     assert "bind `{result_envelope_line}`" in _read(TEST_SKILL / "references" / "report.md")
     assert "bound `{result_envelope_line}`" in _read(SRC / "skf-campaign" / "references" / "health-check.md")
@@ -1464,14 +1466,46 @@ def test_headless_docs_name_every_workflow_whose_line_is_the_last():
     assert "report.md bound `{result_envelope_line}` to the `SKF_DROP_SKILL_RESULT_JSON` line" in (
         _read(drop / "health-check.md"))
     assert "after the delete and before the HALT, with nothing after it" in _read(drop / "select.md")
+    assert "after the delete and with nothing after it" in _read(SRC / "skf-rename-skill" / "references" / "select.md")
+    # #1113: each of these six binds the line at its ending and its relay says so.
+    bind = "bind `{result_envelope_line}` ← "
+    for skill, endings, line in (
+            ("skf-analyze-source", ("generate-briefs.md", "step-auto-scope.md", "auto-docs-only.md"),
+             "SKF_ANALYZE_RESULT_JSON"),
+            ("skf-create-skill", ("report.md",), "SKF_CREATE_SKILL_RESULT_JSON"),
+            ("skf-create-stack-skill", ("report.md",), "SKF_STACK_RESULT_JSON"),
+            ("skf-refine-architecture", ("report.md",), "SKF_REFINE_ARCHITECTURE_RESULT_JSON"),
+            ("skf-rename-skill", ("report.md",), "SKF_RENAME_SKILL_RESULT_JSON"),
+            ("skf-verify-stack", ("report.md",), "SKF_VERIFY_STACK_RESULT_JSON")):
+        refs = SRC / skill / "references"
+        for ending in endings:
+            text = _read(refs / ending)
+            assert bind in text and "do not display it here" in text, (skill, ending)
+        relay = _read(refs / "health-check.md")
+        assert "bound `{result_envelope_line}` to the " in relay, skill
+        assert f"`{line}` line without displaying it" in relay, skill
     setup = _slice(_read(WORKFLOWS), "**Exception: `/skf-setup` headless", "**Exception: `/skf-quick-skill` headless")
     final = _paragraph(setup, "Setup is not the only workflow whose result line is the run's final message")
     for token in ("`SKF_TEST_RESULT_JSON`", "`SKF_CAMPAIGN_RESULT_JSON`", "displays it last",
                   "Export Skill (a `--dry-run` too)", "`SKF_EXPORT_RESULT_JSON`",
                   "Audit Skill", "`SKF_AUDIT_RESULT_JSON`", "Drop Skill", "`SKF_DROP_SKILL_RESULT_JSON`",
                   "A Drop Skill `--dry-run` stops at its confirmation gate and displays its line itself, last.",
-                  "(under `--no-health-check`, Test Skill displays it itself as its last line)"):
+                  "(under `--no-health-check`, Test Skill displays it itself as its last line)",
+                  "So does a Rename Skill `--dry-run`."):
         assert token in final, token
+    # #1113: each list is pinned whole, so a name dropped from it or moved fails here, and "Rename Skill" is read
+    # in the list, not in the dry-run sentence after it.
+    workflows = ("a headless Analyze Source, Create Skill (one brief, not `--batch`), Stack Skill, Test Skill, Quick "
+                 "Skill (one target, not `--batch`), Brief Skill (also under `[auto]`), Update Skill, Audit Skill, "
+                 "Drop Skill, Export Skill (a `--dry-run` too), Refine Architecture, Rename Skill, Verify Stack or "
+                 "campaign run hands its")
+    lines = ("its `SKF_ANALYZE_RESULT_JSON`, `SKF_CREATE_SKILL_RESULT_JSON`, `SKF_STACK_RESULT_JSON`, "
+             "`SKF_TEST_RESULT_JSON`, `SKF_QUICK_SKILL_RESULT_JSON`, `SKF_BRIEF_RESULT_JSON`, "
+             "`SKF_UPDATE_RESULT_JSON`, `SKF_AUDIT_RESULT_JSON`, `SKF_DROP_SKILL_RESULT_JSON`, "
+             "`SKF_EXPORT_RESULT_JSON`, `SKF_REFINE_ARCHITECTURE_RESULT_JSON`, `SKF_RENAME_SKILL_RESULT_JSON`, "
+             "`SKF_VERIFY_STACK_RESULT_JSON` or `SKF_CAMPAIGN_RESULT_JSON` line to the shared health check")
+    assert workflows in final and lines in final
+    assert final.index(workflows) < final.index(lines) < final.index("So does a Rename Skill `--dry-run`.")
     bypass = _paragraph(_read(TEST_SKILL / "references" / "report.md"), "**`--no-health-check` flag bypass.**")
     assert "display `{result_envelope_line}` verbatim as the run's last line" in bypass
 

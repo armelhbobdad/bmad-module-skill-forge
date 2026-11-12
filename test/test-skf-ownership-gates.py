@@ -2189,6 +2189,14 @@ def test_rename_dry_run_restates_its_complete_envelope(tmp_path):
     keep = dry.index("keep `{run_dir}` and say in one line that it holds the run's decisions, its warnings and "
                      "the payload the emitter refused")
     assert keep < dry.index("Otherwise, in both modes, delete the run folder") < dry.index("rmdir")
+    # #1113: a headless dry run ends on its line, displayed after the delete, so `claude -p` prints it last. The
+    # end of the run stays its own sentence, so an interactive dry run and one whose emit failed end there too.
+    last = ("Then, in a headless run, display the line the emitter printed verbatim, after the delete and with "
+            "nothing after it, so a `claude -p` caller reads it as the final message.")
+    end = ("In both modes, and whether or not the emitter printed a line, the dry run then ends with exit code 0: "
+           "no copy, no manifest re-key, no delete.")
+    assert dry.index("rmdir") < dry.index(last) < dry.index(end)
+    assert "display it verbatim" not in dry and "and end the run" not in dry
 
 
 def test_rename_report_writes_its_result_files_through_the_emitter(tmp_path):
@@ -2235,7 +2243,24 @@ def test_rename_report_runs_one_terminal_sequence():
              "### 3. Post-Completion Hook (optional)", "### 4. Release the Run Lock and the Run Folder",
              "### 5. Chain to Health Check"]
     assert [report.index(heading) for heading in order] == sorted(report.index(heading) for heading in order)
-    assert "When `{headless_mode}` is true, display `{result_line}` verbatim" in report
+    # #1113: the envelope comes last, after the hook and the lock release: §2 hands it to the shared health check.
+    render = _section(report, order[1], order[2])
+    assert ("When `{headless_mode}` is true, bind `{result_envelope_line}` ← `{result_line}` (empty when §1's "
+            "emitter printed no line, never the word `null`) and do not display it here: the shared health check "
+            "displays it verbatim as the run's last line, after the hook, the run-lock release and everything "
+            "else.") in render
+    assert "display `{result_line}`" not in report and "(null when" not in report
+    assert ("In a headless run report.md §2 bound `{result_envelope_line}` to the `SKF_RENAME_SKILL_RESULT_JSON` line "
+            "without displaying it: the shared health check displays that line verbatim as the run's last line") in (
+        _read(RENAME_HEALTH))
+    contract = _read(RENAME_CONTRACT)
+    sites = ("When `{headless_mode}` is true, step 3 emits a single-line JSON envelope on **stdout**, and the shared "
+             "health check (step 4) displays it as the run's last line.",
+             "The `--dry-run` exit (step 1 §8) emits it on **stdout** with `status: \"dry-run\"` and displays it "
+             "itself, last, after it deletes its run folder.",
+             "Every HARD HALT emits the same envelope shape on **stderr** with `status: \"error\"`.")
+    assert [contract.index(site) for site in sites] == sorted(contract.index(site) for site in sites)
+    assert "before chaining to step 4" not in contract
     release = _section(report, order[3], order[4])
     assert _fenced_calls(release, "rmdir") == [
         'rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" '

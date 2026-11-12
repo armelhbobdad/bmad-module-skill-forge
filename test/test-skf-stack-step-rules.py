@@ -2606,6 +2606,33 @@ def test_the_success_envelope_and_result_files_come_from_the_emitter(tmp_path):
     assert "--target {forge_data_folder}/{stack_name}/create-stack-skill-result-latest.json" in copy
 
 
+def test_a_headless_run_hands_its_line_to_the_health_check():
+    """#1113: step 9 §2b binds `{result_envelope_line}` to the success line instead of displaying it, so the shared
+    health check (step 10) displays it as the run's last line; an emit that fails twice binds it empty, so no line an
+    earlier workflow of the session left there is shown as this run's result."""
+    two_b = _sections(_body(_read(REPORT)))["2b"]
+    bind = ("and prints the success line on stdout. When `{headless_mode}` is true, bind `{result_envelope_line}` ← "
+            "the line and do not display it here: the shared health check displays it verbatim as the run's last "
+            "line (the line the retry below prints when the first run printed none).")
+    assert bind in two_b
+    assert "if it fails again, print its error, bind `{result_envelope_line}` empty and continue:" in two_b
+    assert two_b.index(bind) < two_b.index("bind `{result_envelope_line}` empty")
+    contract = _read(CONTRACT)
+    row = _slice(contract, "| **Headless** |", "\n")
+    assert ("A caller reads the run's own `SKF_STACK_RESULT_JSON` line. It is the run's last line: the shared health "
+            "check displays it after everything else.") in row
+    result = _from(contract, "## Result Contract (Headless)")
+    assert ("step 9 prints the success line on **stdout** and, when `{headless_mode}` is true, binds "
+            "`{result_envelope_line}` to it instead of displaying it, so the shared health check (step 10) displays "
+            "it as the run's last line:") in result
+    for stale in ("displays it when `{headless_mode}` is true", "before chaining to step 10"):
+        assert stale not in contract, stale
+    assert "display it when `{headless_mode}` is true" not in _read(REPORT)
+    relay = _read(REFS / "health-check.md")
+    assert ("In a headless run report.md §2b bound `{result_envelope_line}` to the `SKF_STACK_RESULT_JSON` line "
+            "without displaying it: the shared health check displays that line verbatim as the run's last line") in relay
+
+
 def test_the_security_scan_outcome_reaches_the_envelope(tmp_path):
     """#902: step 8 §9 binds `{security_result}` from the branch its scan took, and step 9 stages it beside
     `quality_score` and in the contract's summary; a value outside the schema's three stops the emitter."""

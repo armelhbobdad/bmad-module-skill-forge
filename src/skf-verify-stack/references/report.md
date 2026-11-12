@@ -143,9 +143,11 @@ mkdir -p "{forge_data_folder}" || uv run {emitEnvelopeHelper} record --run-dir "
 uv run {emitEnvelopeHelper} emit --workflow skf-verify-stack --run-dir "{run_dir}" --result-dir "{forge_data_folder}" < "{run_dir}/result-context.json"
 ```
 
-It writes `{forge_data_folder}/verify-stack-result-{timestamp}.json`, named after the run's own `{timestamp}` (the one the timestamped report carries), and its `verify-stack-result-latest.json` copy, and prints the `SKF_VERIFY_STACK_RESULT_JSON:` line on stdout. When `{headless_mode}` is true, display the line verbatim before chaining to step 7. A per-run record that could not be written leaves `result_path` null, and a `-latest` copy that could not be written leaves it set; either adds a `result_file_write_failed` warning to the line, and the run still finishes. If the emitter exits non-zero, correct `result-context.json` from the message on its stderr and run it once more; if it fails again, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:result-contract`, adding `"report_latest_path": "{outputFileLatest}"` to the halt payload: the run's result contract could not be written.
+It writes `{forge_data_folder}/verify-stack-result-{timestamp}.json`, named after the run's own `{timestamp}` (the one the timestamped report carries), and its `verify-stack-result-latest.json` copy, and prints the `SKF_VERIFY_STACK_RESULT_JSON:` line on stdout. When `{headless_mode}` is true, bind `{result_envelope_line}` ← the line and do not display it here: the shared health check displays it verbatim as the run's last line (the line the retry below prints when the first run printed none). A per-run record that could not be written leaves `result_path` null, and a `-latest` copy that could not be written leaves it set; either adds a `result_file_write_failed` warning to the line, and the run still finishes. If the emitter exits non-zero, correct `result-context.json` from the message on its stderr and run it once more; if it fails again, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:result-contract`, adding `"report_latest_path": "{outputFileLatest}"` to the halt payload: the run's result contract could not be written.
 
 ### 5. Finish
+
+When `{headless_mode}` is false, display:
 
 "**Feasibility report saved to:** `{outputFile}` (a copy at `{outputFileLatest}`). Ask me to walk through any section of it.
 

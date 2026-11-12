@@ -67,7 +67,7 @@ These rules apply to every step in this workflow:
 
 ## Result Contract (Headless)
 
-When `{headless_mode}` is true, step 6 prints one `SKF_VERIFY_STACK_RESULT_JSON: {...}` line on **stdout** and every HARD HALT one on **stderr**, built by the shared emitter: `references/exit-codes.md` gives its fields, the `halt_reason` values and the halt command.
+When `{headless_mode}` is true, step 6 prints one `SKF_VERIFY_STACK_RESULT_JSON: {...}` line on **stdout**, which the shared health check displays as the run's last line, and every HARD HALT one on **stderr**, built by the shared emitter: `references/exit-codes.md` gives its fields, the `halt_reason` values and the halt command.
 
 ## On Activation
 

@@ -4,7 +4,7 @@ Canonical headless/pipeline contract for skf-analyze-source. The shared emitter,
 
 ## Result Envelope
 
-The step that ends a run (step 6 §9, step 1a §9, or the docs-only branch §5) prints the envelope on **stdout** before chaining to step 7, and displays it when `{headless_mode}` is true. Every HARD HALT of a headless run prints it on **stderr** with `status: "error"`, so an automator branches on the failure class without grepping message text. A caller reads the run's own `SKF_ANALYZE_RESULT_JSON` line. A run that printed no envelope line has no result to read, whatever the process exit code: it was cut off, or could not write its result, and `analyze-source-result-latest.json` may then describe an earlier run, so it is never read in its place.
+The step that ends a run (step 6 §9, step 1a §9, or the docs-only branch §5) prints the envelope on **stdout**; when `{headless_mode}` is true it binds `{result_envelope_line}` to it instead of displaying it, and the shared health check (step 7) displays it as the run's last line. Every HARD HALT of a headless run prints it on **stderr** with `status: "error"`, so an automator branches on the failure class without grepping message text. A caller reads the run's own `SKF_ANALYZE_RESULT_JSON` line. A run that printed no envelope line has no result to read, whatever the process exit code: it was cut off, or could not write its result, and `analyze-source-result-latest.json` may then describe an earlier run, so it is never read in its place.
 
 ```
 SKF_ANALYZE_RESULT_JSON: {"status":"success|error|redirect|skipped","report_path":"…|null","brief_paths":["…"],"unit_counts":{"confirmed":N,"skipped":N,"maybe":N},"exit_code":0,"halt_reason":null,"mode":"interactive|auto","result_path":"…|null"}
