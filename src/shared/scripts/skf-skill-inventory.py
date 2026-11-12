@@ -1864,7 +1864,10 @@ def _migrate_version(group):
 
     A `version` that is missing, null or "" gives `1.0.0`; any other value
     is reduced by `normalize_version` (build metadata stripped), as the
-    `version normalize` command does.
+    `version normalize` command does, and refused unless that folder name
+    is the value as written, build metadata aside: export records the
+    metadata.json `version` in the manifest, so a `1.0.0` folder for `1.0`
+    (or `1.2.3` for `v1.2.3`) would never match the manifest's version.
     """
     data, err = read_json_file(group / "metadata.json")
     if err is not None:
@@ -1879,6 +1882,10 @@ def _migrate_version(group):
     if normalized is None or not _safe_segment(normalized) or ".skf-" in normalized:
         return None, (f"metadata.json's version {raw!r} names no version "
                       f"({result['reason'] or 'not a folder name'})")
+    if normalized != str(raw).partition("+")[0]:
+        return None, (f"metadata.json's version {raw!r} is not written as its version folder name "
+                      f"{normalized!r}, so the export manifest would never match the folder; set "
+                      f"`version` to {normalized!r} in {group / 'metadata.json'}, then re-run")
     return normalized, None
 
 
@@ -1964,8 +1971,9 @@ def migrate_skill(skills_folder, skill_name, forge_data_folder):
     steps 1 to 6 (the workflow runs step 0, the gate). Refuses, before
     anything moves: `NOT_FLAT_SKF` (classify_ownership's `flat_skf` is
     false; its `errors` kept), `NOT_A_VERSION` (metadata.json's `version`
-    names none; see `_migrate_version`), `TARGET_EXISTS` (`{group}/{version}`
-    or its staging name exists, or `active` is there and is not a link),
+    names none, or is not written as its folder name; see `_migrate_version`),
+    `TARGET_EXISTS` (`{group}/{version}` exists, its staging name exists,
+    which a killed run leaves, or `active` is there and is not a link),
     `PACKAGE_LINK` (a flat package entry is a link) and `MIGRATE_FAILED`
     (skf-update-active-symlink.py cannot be loaded). Then it moves the
     `FLAT_PACKAGE_ENTRIES` there are into `{group}/{version}.skf-migrate/{name}/`,
@@ -2011,10 +2019,13 @@ def migrate_skill(skills_folder, skill_name, forge_data_folder):
     target = group / version
     staging = group / (version + MIGRATE_STAGING_SUFFIX)
     active = group / "active"
-    for path in (target, staging):
-        if os.path.lexists(path):
-            return _migrate_error("TARGET_EXISTS",
-                                  f"{path} already exists; SKF never writes over another version", version)
+    if os.path.lexists(target):
+        return _migrate_error("TARGET_EXISTS",
+                              f"{target} already exists; SKF never writes over another version", version)
+    if os.path.lexists(staging):
+        return _migrate_error("TARGET_EXISTS",
+                              f"{staging} is left from a migration that was cut off: move what its "
+                              f"{skill_name}/ folder holds back into {group}, delete it, then re-run", version)
     if os.path.lexists(active) and not _is_link_or_junction(active):
         return _migrate_error("TARGET_EXISTS", f"`active` is not a link: {active}", version)
     entries = sorted(e for e in FLAT_PACKAGE_ENTRIES if os.path.lexists(group / e))

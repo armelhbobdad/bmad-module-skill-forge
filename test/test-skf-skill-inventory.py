@@ -2241,6 +2241,19 @@ class TestMigrate:
         assert out["version"] is None
         assert _tree(skills, forge) == before
 
+    @pytest.mark.parametrize("version,folder", [("1.0", "1.0.0"), ("v1.2.3", "1.2.3"), ("^2.1.0", "2.1.0"),
+                                                ("v1.2.3+b.1", "1.2.3"), (2, "2.0.0")])
+    def test_a_version_not_written_as_its_folder_name_is_refused(self, tmp_path, version, folder):
+        """Export records metadata.json's `version` in the manifest unchanged, so a folder named by another
+        spelling of it never matches the manifest, and `resolve` reads `manifest-lags-link` on every run."""
+        skills, forge, group = _flat_lib(tmp_path, version=version)
+        before = _tree(skills, forge)
+        out = mod.migrate_skill(skills, "lib", forge)
+        _assert_refused(out, "NOT_A_VERSION")
+        assert out["version"] is None and f"set `version` to {folder!r}" in out["error"], out
+        assert str(group / "metadata.json") in out["error"]
+        assert _tree(skills, forge) == before
+
     def test_a_skill_that_is_not_flat_skf_is_refused(self, tmp_path):
         skills, forge, _group = _flat_lib(tmp_path, metadata=NOT_MARKERS["module-own"])
         _make_version(skills, "cognee", "0.5.0", metadata=MARKED)
@@ -2259,6 +2272,20 @@ class TestMigrate:
         out = mod.migrate_skill(skills, "lib", forge)
         _assert_refused(out, "TARGET_EXISTS")
         assert out["version"] == "1.0.0" and str(group / taken) in out["error"]
+        assert _tree(skills, forge) == before
+
+    def test_a_staging_folder_a_killed_run_left_is_named_as_one(self, tmp_path):
+        """A kill mid-move leaves part of the package in `{version}.skf-migrate/{name}/`: the refusal says so
+        and how to put it back, never that another version is there."""
+        skills, forge, group = _flat_lib(tmp_path)
+        (group / "1.0.0.skf-migrate" / "lib").mkdir(parents=True)
+        os.rename(group / "assets", group / "1.0.0.skf-migrate" / "lib" / "assets")
+        before = _tree(skills, forge)
+        out = mod.migrate_skill(skills, "lib", forge)
+        _assert_refused(out, "TARGET_EXISTS")
+        assert "another version" not in out["error"], out
+        assert out["error"] == (f"{group / '1.0.0.skf-migrate'} is left from a migration that was cut off: "
+                                f"move what its lib/ folder holds back into {group}, delete it, then re-run")
         assert _tree(skills, forge) == before
 
     def test_a_linked_package_entry_is_refused(self, tmp_path, links_ok):

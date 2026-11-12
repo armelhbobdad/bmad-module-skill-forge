@@ -312,7 +312,7 @@ When US, AS, TS or EX encounters a skill at the flat path (`{skills_output_folde
    - Create `{forge_version}`
    - Move provenance-map.json, evidence-report.md, extraction-rules.yaml, test-report into `{forge_version}`, with the drift reports and test-skill's gap ledgers (`test-findings-*.json`). A link, or a name `{forge_version}` already holds, stays where it is
    - Leave skill-brief.yaml at `{forge_group}` (it is already version-independent)
-6. Report the migration to the user: the helper's `message` says "Migrated {skill-name} from flat to versioned layout ({version})" and names what it left in place. It prints `{status, version, moved[], left_in_place[]}`, refuses before anything moves when a step cannot run as written (a version folder already there, a linked package entry, a `version` that names none), and puts everything back when a move or the `active` flip fails
+6. Report the migration to the user: the helper's `message` says "Migrated {skill-name} from flat to versioned layout ({version})" and names what it left in place. It prints `{status, version, moved[], left_in_place[]}`, refuses before anything moves when a step cannot run as written (a version folder already there, or the `{version}.skf-migrate` folder a migration that was cut off left, a linked package entry, a `version` that names none or is not written as its folder name, as `1.0` is not `1.0.0`), and puts everything back when a move or the `active` flip fails
 
 The migration leaves `.export-manifest.json` alone: skf-manifest-ops.py writes a v1 manifest back as v2 the next time it writes the manifest, and `resolve` reads either.
 

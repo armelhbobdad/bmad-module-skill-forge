@@ -116,6 +116,19 @@ MIGRATE_HALT_RUNGS = {
     "src/skf-audit-skill/references/init.md": (6, "skill-not-found"),
     "src/skf-test-skill/references/init.md": (6, "helper-failed"),
 }
+# The halt maps that name what each exit code or halt_reason covers, and the
+# reason a refused migrate halts with there (#1121 review): a pipeline that
+# reads `skill-not-found` learns it can also mean a flat skill SKF could not move.
+MIGRATE_HALT_MAPS = {
+    "src/skf-export-skill/references/result-envelope.md": (
+        "or its `migrate` refuses to move a flat SKF skill into the versioned layout", "`resolution-failure`"),
+    "src/skf-audit-skill/references/headless-contract.md": (
+        "or `skf-skill-inventory.py migrate` refuses to move a flat SKF skill into the versioned layout",
+        "`skill-not-found`"),
+}
+TROUBLESHOOTING = "docs/troubleshooting.md"
+# Every refusal `migrate` prints, each with the code the troubleshooting entry names it by.
+MIGRATE_REFUSALS = ("TARGET_EXISTS", "PACKAGE_LINK", "NOT_A_VERSION", "MIGRATE_FAILED", "VERIFY_FAILED")
 
 
 def _read(rel: str) -> str:
@@ -198,6 +211,29 @@ def test_migrate_site_gates_before_migrating(rel):
     assert "in place of the marker sentence" in rung
     assert "`skills_output_folder`" in rung and "/skf-setup" in rung
     assert f"will not move or {MIGRATE_SITES[rel]} it" in rung
+
+
+@pytest.mark.parametrize("rel", sorted(MIGRATE_HALT_MAPS))
+def test_the_halt_map_names_a_refused_migration(rel):
+    clause, reason = MIGRATE_HALT_MAPS[rel]
+    [row] = [line for line in _read(rel).splitlines() if clause in line]
+    assert row.index(clause) < row.index(reason, row.index(clause)), (rel, reason)
+
+
+def test_troubleshooting_names_each_migrate_refusal_and_how_each_workflow_stops():
+    """A user who sees "... already exists; SKF never writes over another version" finds the reason and the fix,
+    and a pipeline finds the status, exit code and halt_reason each workflow stops with (#1121 review)."""
+    heading = "\n### A flat skill cannot be moved into the versioned layout\n"
+    entry = _section(_read(TROUBLESHOOTING).split(heading, 1)[1], "", "\n### ")
+    for code in MIGRATE_REFUSALS:
+        assert f"(`{code}`)" in entry, code
+    for word in ("`init:migrate`", "`resolution-failure`", "`skill-not-found`", "`helper-failed`",
+                 "already exists; SKF never writes over another version", "is left from a migration that was cut off",
+                 "`<name>/<version>.skf-migrate/<name>/` back into `<name>/`"):
+        assert word in entry, word
+    inventory = INVENTORY_PY.read_text(encoding="utf-8")
+    for code in MIGRATE_REFUSALS:
+        assert f'_migrate_error("{code}"' in inventory, code
 
 
 def _filled_argv(call: str, values: dict) -> list[str]:
