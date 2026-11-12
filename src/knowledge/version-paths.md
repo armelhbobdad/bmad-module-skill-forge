@@ -301,21 +301,20 @@ Comparing, bumping and naming versions has one answer, so no workflow does it by
 
 ## Migration: Flat to Versioned
 
-When US, AS, TS or EX encounters a skill at the flat path (`{skills_output_folder}/{skill-name}/SKILL.md` exists directly — no version subdirectory), it auto-migrates:
+When US, AS, TS or EX encounters a skill at the flat path (`{skills_output_folder}/{skill-name}/SKILL.md` exists directly, with no version subdirectory), it migrates the skill in one call: `uv run skf-skill-inventory.py migrate {skills_output_folder} --skill {skill-name} --forge-data-folder {forge_data_folder}`. The workflow runs step 0, the helper runs the rest and checks the result, and the workflow then runs `resolve` again, which now names the version folder:
 
 0. **Ownership gate.** Run `uv run skf-skill-inventory.py {skills_output_folder} --skill {skill-name}` and migrate only when `skills[0].flat_skf` is true: the root `metadata.json` carries an SKF marker (`generated_by`, `tool_versions.skf`, or `skill_type` with `forge_tier` or `confidence_tier` — see Ownership). Otherwise, or when the helper is missing, stop with `not-skf-output` before anything moves. The message says a shared skills folder is supported and SKF leaves the skills it did not generate alone, so the user manages that skill; it points to `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` only for a folder that holds a module's own source. Read-only modes never migrate. Export-skill `--dry-run` reads the flat package in place. Update-skill `--dry-run` and `--detect-only` stop instead (`blocked`, phase `init:read-only-flat-layout`), because its later steps need the versioned forge workspace: run US, AS, TS or EX once without a read-only flag to migrate, then re-run.
 1. Read `metadata.json` from the flat path to get the `version` field. If it has none, use `1.0.0`. Either way, name the directory by the Version Sanitization rules above
 2. Create the versioned directory: `{skill_group}/{version}/{skill-name}/`
 3. Move the package files (SKILL.md, metadata.json, context-snippet.md, references/, scripts/, assets/) into the versioned location. Any other entry in the folder stays where it is
 4. Create the `active` symlink: `{skill_group}/active -> {version}`
-5. If `{forge_data_folder}/{skill-name}/` contains provenance artifacts at the flat level (not in a version subdirectory):
+5. If `{forge_data_folder}/{skill-name}/` contains provenance artifacts at the flat level (not in a version subdirectory), and SKF wrote that folder (its ownership is `skf` or `mixed`; when both settings name one folder, the gate of step 0 covers them and they go into `{skill_group}/{version}/` beside the package):
    - Create `{forge_version}`
-   - Move provenance-map.json, evidence-report.md, extraction-rules.yaml, test-report into `{forge_version}`
+   - Move provenance-map.json, evidence-report.md, extraction-rules.yaml, test-report into `{forge_version}`, with the drift reports and test-skill's gap ledgers (`test-findings-*.json`). A link, or a name `{forge_version}` already holds, stays where it is
    - Leave skill-brief.yaml at `{forge_group}` (it is already version-independent)
-6. If `.export-manifest.json` exists and lacks `schema_version`:
-   - Migrate to v2 schema: wrap existing entries with `active_version` and `versions` structure
-   - Set `schema_version: "2"`
-7. Report migration to user: "Migrated {skill-name} from flat to versioned layout ({version})"
+6. Report the migration to the user: the helper's `message` says "Migrated {skill-name} from flat to versioned layout ({version})" and names what it left in place. It prints `{status, version, moved[], left_in_place[]}`, refuses before anything moves when a step cannot run as written (a version folder already there, a linked package entry, a `version` that names none), and puts everything back when a move or the `active` flip fails
+
+The migration leaves `.export-manifest.json` alone: skf-manifest-ops.py writes a v1 manifest back as v2 the next time it writes the manifest, and `resolve` reads either.
 
 **Migration preserves all content** — [MANUAL] sections, provenance, evidence reports, and scripts/assets are moved, not re-generated.
 

@@ -12,8 +12,8 @@ create-skill, quick-skill and create-stack-skill (the write check before a
 version is written), analyze-source (coexistence matches and the name of
 every unit and brief), the flat-layout
 fallback of update-skill, export-skill, audit-skill and test-skill (the
-ownership gate before a flat skill is migrated), and test-skill's report
-(the discovery catalog).
+ownership gate before a flat skill is migrated, and the `migrate` action
+that moves it), and test-skill's report (the discovery catalog).
 
 CLI: uv run skf-skill-inventory.py <skills-output-folder>
      uv run skf-skill-inventory.py <skills-output-folder> --skill <name>
@@ -33,6 +33,8 @@ CLI: uv run skf-skill-inventory.py <skills-output-folder>
      uv run skf-skill-inventory.py guarded-delete --root <folder> [--root <folder>] [<path>...]
      uv run skf-skill-inventory.py resolve <skills-output-folder> --skill <name>
          --forge-data-folder <path> [--version <version>]
+     uv run skf-skill-inventory.py migrate <skills-output-folder> --skill <name>
+         --forge-data-folder <path>
      uv run skf-skill-inventory.py version normalize <version>
      uv run skf-skill-inventory.py version order <a> <b>
      uv run skf-skill-inventory.py version next-patch <version>
@@ -42,11 +44,13 @@ CLI: uv run skf-skill-inventory.py <skills-output-folder>
 
 Exit 0 when `status` is "ok" (a write, purge or rename check exits 0
 whatever its verdict, and a guarded delete whatever its `purge_status`);
-exit 1 on an error (`DIR_NOT_FOUND`, `SKILL_NOT_FOUND` for `--skill` or
-`resolve`, `USAGE` for a flag used wrongly, two check flags in one call,
-`--forge-data-folder` without a value or missing from a purge or rename
-check, for `version`: `NOT_A_VERSION`, `NOT_INCREASING` or `BAD_INPUT`,
-and for `derive-name`: `BAD_INPUT`, or `NO_NAME` for one --target).
+exit 1 on an error (`DIR_NOT_FOUND`, `SKILL_NOT_FOUND` for `--skill`,
+`resolve` or `migrate`, `USAGE` for a flag used wrongly, two check flags in
+one call, `--forge-data-folder` without a value or missing from a purge or
+rename check, for `version`: `NOT_A_VERSION`, `NOT_INCREASING` or
+`BAD_INPUT`, for `derive-name`: `BAD_INPUT`, or `NO_NAME` for one --target,
+and for `migrate`: `NOT_FLAT_SKF`, `NOT_A_VERSION`, `TARGET_EXISTS`,
+`PACKAGE_LINK`, `MIGRATE_FAILED` or `VERIFY_FAILED`).
 
 Ownership. The skills folder can hold skills SKF did not generate (a module's
 own skills, skills installed from elsewhere). Only a `metadata.json` carrying
@@ -119,6 +123,17 @@ evidence-report.md paths (versioned first, flat as the fallback), and every
 version newest first with its manifest status and the counts drop-skill and
 rename-skill read. `--version` names the version instead (an operator's
 choice). It reads, never writes, and does not decide ownership.
+
+Migrate. `migrate` moves one flat SKF skill into the versioned layout in
+one checked step (see `migrate_skill`), by the Migration: Flat to
+Versioned rules of knowledge/version-paths.md: it refuses unless
+`flat_skf` is true, names the version folder by the `version` rules
+(default `1.0.0`), moves the flat package into `{group}/{version}/{name}/`
+through a `.skf-` staging folder, points `active` at it through
+skf-update-active-symlink.py, moves the flat forge artifacts into
+`{forge_version}`, checks the result and prints `{status, version,
+moved[], left_in_place[]}`. A failed move or flip puts everything back.
+It never writes the export manifest. The workflows then run `resolve`.
 
 Version. `version` turns version strings into one answer: `normalize`
 reduces a version or range to one folder name (`^18.2.0` gives `18.2.0`,
@@ -207,6 +222,7 @@ by hand (identical (target, inventory) always yields the same match set).
 from __future__ import annotations
 
 import difflib
+import importlib.util
 import json
 import os
 import re
@@ -407,6 +423,15 @@ def _is_forge_version_name(entry):
             or entry.endswith("-tmp"))
 
 
+def _is_flat_forge_artifact(entry):
+    """True for a legacy flat artifact: a provenance map, evidence report,
+    extraction rules or test or drift report, or a test-skill gap ledger,
+    named as SKF writes it at a forge group's root. `migrate` moves these
+    into the version folder."""
+    return (entry in FORGE_VERSION_ANCHORS or bool(FORGE_REPORT_RE.match(entry))
+            or bool(TEST_FINDINGS_RE.match(entry)))
+
+
 def _is_forge_root_name(entry, evidence):
     """True for a file SKF writes directly into a forge group.
 
@@ -418,8 +443,7 @@ def _is_forge_root_name(entry, evidence):
     if (entry.startswith("skill-brief.yaml") or entry == ".brief-draft.json"
             or RESULT_JSON_RE.match(entry)):
         return True
-    return evidence and (entry in FORGE_VERSION_ANCHORS or bool(FORGE_REPORT_RE.match(entry))
-                         or bool(TEST_FINDINGS_RE.match(entry)))
+    return evidence and _is_flat_forge_artifact(entry)
 
 
 def _holds_no_file(folder):
@@ -1796,6 +1820,291 @@ def resolve_skill(skills_folder, skill_name, forge_data_folder, version=None):
     }
 
 
+# --------------------------------------------------------------------------
+# Migrate: a flat SKF skill into the versioned layout
+# --------------------------------------------------------------------------
+
+ACTIVE_SYMLINK_HELPER = Path(__file__).resolve().parent / "skf-update-active-symlink.py"
+# The package folder is assembled under `{version}.skf-migrate/` and renamed
+# to `{version}/` once whole: a `.skf-` name a crash leaves reads as SKF
+# staging, never as a version or as an entry SKF did not write.
+MIGRATE_STAGING_SUFFIX = ".skf-migrate"
+NOT_A_PACKAGE_ENTRY = "not part of the flat package"
+
+
+def _load_active_symlink():
+    """Load skf-update-active-symlink.py, which installs into the same folder as this script."""
+    try:
+        spec = importlib.util.spec_from_file_location("skf_update_active_symlink", ACTIVE_SYMLINK_HELPER)
+        if spec is None or spec.loader is None:
+            raise ImportError("no import spec")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+    except (OSError, ImportError, SyntaxError) as e:
+        raise OSError(f"cannot load the active-link helper {ACTIVE_SYMLINK_HELPER}: {e}") from e
+    return module
+
+
+def _move(src, dst):
+    """Move one entry. Every move `migrate` makes, and every one it puts back, goes through here."""
+    os.rename(src, dst)
+
+
+def _migrate_result(status, version=None, moved=None, left_in_place=None, **extra):
+    return {"status": status, "command": "migrate", "version": version,
+            "moved": moved or [], "left_in_place": left_in_place or [], **extra}
+
+
+def _migrate_error(code, error, version=None, **extra):
+    return _migrate_result("error", version, code=code, error=error, **extra)
+
+
+def _migrate_version(group):
+    """(folder name, None) for the version of the flat package at `group`, else (None, reason).
+
+    A `version` that is missing, null or "" gives `1.0.0`; any other value
+    is reduced by `normalize_version` (build metadata stripped), as the
+    `version normalize` command does.
+    """
+    data, err = read_json_file(group / "metadata.json")
+    if err is not None:
+        return None, err
+    if not isinstance(data, dict):
+        return None, f"{group / 'metadata.json'} is not a JSON object"
+    raw = data.get("version")
+    if raw is None or raw == "":
+        return "1.0.0", None
+    result = normalize_version(raw)
+    normalized = result["normalized"]
+    if normalized is None or not _safe_segment(normalized) or ".skf-" in normalized:
+        return None, (f"metadata.json's version {raw!r} names no version "
+                      f"({result['reason'] or 'not a folder name'})")
+    return normalized, None
+
+
+def _remove_empty(*folders):
+    """Remove each folder that is empty, in order; a folder that is not stays."""
+    for folder in folders:
+        try:
+            os.rmdir(folder)
+        except OSError:
+            pass
+
+
+def _put_back(group, base, entries):
+    """Move `entries` from `base` back into `group`, last moved first, then remove
+    `base` and its parent once empty. Returns the entries it could not move back."""
+    stuck = []
+    for entry in reversed(entries):
+        try:
+            _move(base / entry, group / entry)
+        except OSError:
+            stuck.append(entry)
+    if not stuck:
+        _remove_empty(base, base.parent)
+    return sorted(stuck)
+
+
+def _flat_forge_candidates(root):
+    """The entries at `root` named as flat forge artifacts that are files or links, by name.
+
+    A linked `root` is never listed: SKF does not follow it.
+    """
+    if _is_link_or_junction(root):
+        return []
+    try:
+        children = sorted(root.iterdir(), key=lambda p: p.name)
+    except OSError:
+        return []
+    return [child for child in children if _is_flat_forge_artifact(child.name)
+            and (_is_link_or_junction(child) or child.is_file())]
+
+
+def _move_forge_artifacts(root, dest, refusal, moved, left):
+    """Move the flat forge artifacts at `root` into `dest`, creating it only when one moves.
+
+    `refusal` (a reason, or None) leaves every artifact in place. A link, a
+    name `dest` already holds, or a move that fails stays too; each is added
+    to `left` ({path: reason}) and each move to `moved`.
+    """
+    created = False
+    count = 0
+    for child in _flat_forge_candidates(root):
+        path, target = str(child), dest / child.name
+        if refusal:
+            left[path] = refusal
+            continue
+        if _is_link_or_junction(child):
+            left[path] = "a link; SKF never moves a link"
+            continue
+        if os.path.lexists(dest) and (_is_link_or_junction(dest) or not dest.is_dir()):
+            left[path] = f"{dest} is not a folder SKF can move it into"
+            continue
+        if os.path.lexists(target):
+            left[path] = f"{target} already exists; SKF never writes over a file"
+            continue
+        try:
+            if not os.path.lexists(dest):
+                os.mkdir(dest)
+                created = True
+            _move(child, target)
+        except OSError as e:
+            left[path] = f"cannot move it: {e}"
+            continue
+        moved.append({"from": path, "to": str(target)})
+        count += 1
+    if created and not count:
+        _remove_empty(dest)
+
+
+def migrate_skill(skills_folder, skill_name, forge_data_folder):
+    """Move the flat SKF skill `skill_name` into the versioned layout, in one checked step.
+
+    Implements Migration: Flat to Versioned in knowledge/version-paths.md,
+    steps 1 to 6 (the workflow runs step 0, the gate). Refuses, before
+    anything moves: `NOT_FLAT_SKF` (classify_ownership's `flat_skf` is
+    false; its `errors` kept), `NOT_A_VERSION` (metadata.json's `version`
+    names none; see `_migrate_version`), `TARGET_EXISTS` (`{group}/{version}`
+    or its staging name exists, or `active` is there and is not a link),
+    `PACKAGE_LINK` (a flat package entry is a link) and `MIGRATE_FAILED`
+    (skf-update-active-symlink.py cannot be loaded). Then it moves the
+    `FLAT_PACKAGE_ENTRIES` there are into `{group}/{version}.skf-migrate/{name}/`,
+    renames that folder to `{group}/{version}`, and points `active` at it
+    through skf-update-active-symlink.py's `update`. When a move or the flip
+    fails it puts everything back, removes the staging folder, and returns
+    `MIGRATE_FAILED` with `moved` empty; an entry it cannot move back is
+    named in `error` and listed in `moved` where it now is. A Ctrl-C there
+    puts everything back too, then stops the run.
+
+    Then the flat forge artifacts (`_is_flat_forge_artifact`) at the root
+    of `{forge_data_folder}/{name}` move into `{forge_version}`, created only
+    when one moves, when `classify_forge_group` says "skf" or "mixed"; when
+    both settings name one folder the gate covers them, and they move into
+    `{group}/{version}/` beside the package. An artifact that does not move
+    stays, and the skills side stays migrated. Last it checks that `active`
+    names the version (a junction reads as the folder it resolves to), that
+    the package is marked, that no SKILL.md is left at the root and that
+    every moved entry is where it went; else `VERIFY_FAILED`, nothing put
+    back. It never writes `.export-manifest.json`, never writes over a
+    file, and never moves or follows a link.
+
+    Every result holds `status`, `command`, `version` (null before it is
+    known), `moved[]` ({from, to}) and `left_in_place[]` ({path, reason}):
+    every entry left at `{group}` (not the version folder or an `active`
+    pointer name) and every flat forge artifact that did not move (the
+    forge folder itself when it is a link, which SKF does not look in). "ok"
+    adds `skill_package`, `forge_version` and `message`; an error adds
+    `code` and `error`.
+    """
+    skills_dir, forge_dir = Path(skills_folder), Path(forge_data_folder)
+    group = skills_dir / skill_name
+    same = _same_folder(skills_dir, forge_dir)
+    ownership = classify_ownership(group, skill_name, also_forge=same)
+    if not ownership["flat_skf"]:
+        reason = "; ".join(ownership["errors"]) or (
+            "it has no SKILL.md beside a metadata.json that carries an SKF marker at its root")
+        return _migrate_error("NOT_FLAT_SKF", f"{group} is not a flat SKF skill: {reason}",
+                              errors=ownership["errors"])
+    version, reason = _migrate_version(group)
+    if version is None:
+        return _migrate_error("NOT_A_VERSION", reason)
+    target = group / version
+    staging = group / (version + MIGRATE_STAGING_SUFFIX)
+    active = group / "active"
+    for path in (target, staging):
+        if os.path.lexists(path):
+            return _migrate_error("TARGET_EXISTS",
+                                  f"{path} already exists; SKF never writes over another version", version)
+    if os.path.lexists(active) and not _is_link_or_junction(active):
+        return _migrate_error("TARGET_EXISTS", f"`active` is not a link: {active}", version)
+    entries = sorted(e for e in FLAT_PACKAGE_ENTRIES if os.path.lexists(group / e))
+    linked = [e for e in entries if _is_link_or_junction(group / e)]
+    if linked:
+        return _migrate_error("PACKAGE_LINK", "a flat package entry is a link, which SKF never moves: "
+                              + ", ".join(str(group / e) for e in linked), version)
+    try:
+        flipper = _load_active_symlink()
+    except OSError as e:
+        return _migrate_error("MIGRATE_FAILED", str(e), version)
+
+    staged, package = staging / skill_name, target / skill_name
+    try:
+        os.mkdir(staging)
+        os.mkdir(staged)
+    except OSError as e:
+        _remove_empty(staged, staging)
+        return _migrate_error("MIGRATE_FAILED", f"cannot create {staged}: {e}", version)
+    done, base = [], staged
+    try:
+        for entry in entries:
+            _move(group / entry, staged / entry)
+            done.append(entry)
+        _move(staging, target)
+        base = package
+        flip = flipper.update(group, version)
+        if not isinstance(flip, dict) or flip.get("status") not in ("ok", "flipped"):
+            status = flip.get("status") if isinstance(flip, dict) else flip
+            detail = (flip.get("halt_message") or flip.get("log_message")) if isinstance(flip, dict) else None
+            raise OSError(f"the `active` flip returned {status!r}" + (f": {detail}" if detail else ""))
+    except BaseException as e:  # any failure, Ctrl-C included, puts the package back
+        stuck = _put_back(group, base, done)
+        if not isinstance(e, Exception):
+            raise
+        error = f"cannot migrate {skill_name}: {e}"
+        if stuck:
+            error += f"; could not move back from {base}: {', '.join(stuck)}"
+        else:
+            error += "; everything was put back"
+        return _migrate_error("MIGRATE_FAILED", error, version,
+                              moved=[{"from": str(group / e), "to": str(base / e)} for e in stuck])
+
+    moved = [{"from": str(group / e), "to": str(package / e)} for e in entries]
+    left = {}
+    forge_version = forge_dir / skill_name / version
+    if same:
+        _move_forge_artifacts(group, target, None, moved, left)
+    else:
+        forge_group = forge_dir / skill_name
+        refusal = None
+        if _is_link_or_junction(forge_group):
+            left[str(forge_group)] = "a link; SKF never follows a link, so any flat artifacts in it stay"
+        elif _flat_forge_candidates(forge_group):
+            verdict = classify_forge_group(forge_group, skill_name)["ownership"]
+            if verdict not in ("skf", "mixed"):
+                refusal = (f"the forge folder {forge_group} is {verdict!r}; SKF moves only "
+                           "artifacts from a forge folder it wrote")
+        _move_forge_artifacts(forge_group, forge_version, refusal, moved, left)
+    try:
+        rest = sorted(os.listdir(group))
+    except OSError:
+        rest = []
+    for name in rest:
+        if name != version and not _is_active_pointer(name):
+            left.setdefault(str(group / name), NOT_A_PACKAGE_ENTRY)
+    left_in_place = [{"path": p, "reason": left[p]} for p in sorted(left)]
+
+    link = _active_link_version(group)
+    problem = None
+    if link != (version, None):
+        problem = f"`active` does not name {version}: {link[1] or link[0]}"
+    elif not _is_marked_version(target, skill_name):
+        problem = f"{package}/metadata.json carries no SKF marker"
+    elif os.path.lexists(group / "SKILL.md"):
+        problem = f"{group / 'SKILL.md'} is still at the skill folder root"
+    else:
+        missing = [m["to"] for m in moved if not os.path.lexists(m["to"])]
+        if missing:
+            problem = "moved entries are missing: " + ", ".join(missing)
+    if problem:
+        return _migrate_error("VERIFY_FAILED", f"the migration of {skill_name} did not check out: {problem}",
+                              version, moved=moved, left_in_place=left_in_place)
+    message = f"Migrated {skill_name} from flat to versioned layout ({version})"
+    if left_in_place:
+        message += "; left in place: " + ", ".join(Path(e["path"]).name for e in left_in_place)
+    return _migrate_result("ok", version, moved, left_in_place, skill_package=str(package),
+                           forge_version=str(forge_version), message=message)
+
+
 def normalize_url(value):
     """Normalize a URL / path / source_repo for case-insensitive comparison.
 
@@ -2336,6 +2645,8 @@ USAGE = ("Usage: uv run skf-skill-inventory.py <skills-output-folder> "
          "[<path>...]\n"
          "       uv run skf-skill-inventory.py resolve <skills-output-folder> --skill <name> "
          "--forge-data-folder <path> [--version <version>]\n"
+         "       uv run skf-skill-inventory.py migrate <skills-output-folder> --skill <name> "
+         "--forge-data-folder <path>\n"
          "       uv run skf-skill-inventory.py version normalize <version>\n"
          "       uv run skf-skill-inventory.py version order <a> <b>\n"
          "       uv run skf-skill-inventory.py version next-patch <version>\n"
@@ -2411,6 +2722,37 @@ def _main_resolve(argv):
         else:
             result = {"status": "ok", "skills_folder": str(skills_dir),
                       "forge_data_folder": forge_data_folder, "resolve": resolved}
+    print(json.dumps(result, indent=2))
+    return 0 if result["status"] == "ok" else 1
+
+
+def _main_migrate(argv):
+    """`migrate <skills-output-folder> --skill <name> --forge-data-folder <path>`; exit 0
+    only when `status` is "ok", else 1 (`USAGE`, `DIR_NOT_FOUND`, `SKILL_NOT_FOUND`, or a
+    code of `migrate_skill`)."""
+    try:
+        if not argv or argv[0].startswith("--"):
+            raise ValueError("migrate needs <skills-output-folder> first")
+        skill = _flag_value(argv, "--skill", required=True)
+        forge_data_folder = _flag_value(argv, "--forge-data-folder", required=True)
+        _check_flag_pairs(argv[1:], ("--skill", "--forge-data-folder"))
+        if not skill:
+            raise ValueError("migrate needs --skill <name>")
+        if not forge_data_folder:
+            raise ValueError("migrate needs --forge-data-folder <path>")
+        if not _safe_segment(skill):
+            raise ValueError(f"--skill must be one folder name: {skill!r}")
+    except ValueError as e:
+        print(json.dumps(_migrate_error("USAGE", str(e)), indent=2))
+        print(USAGE, file=sys.stderr)
+        return 1
+    skills_dir = Path(argv[0])
+    if not skills_dir.is_dir():
+        result = _migrate_error("DIR_NOT_FOUND", f"Skills directory not found: {skills_dir}")
+    elif not os.path.lexists(skills_dir / skill):
+        result = _migrate_error("SKILL_NOT_FOUND", f"Skill '{skill}' is not in {skills_dir}")
+    else:
+        result = migrate_skill(skills_dir, skill, forge_data_folder)
     print(json.dumps(result, indent=2))
     return 0 if result["status"] == "ok" else 1
 
@@ -2599,6 +2941,8 @@ def main(argv):
         return 1
     if argv[0] == "resolve":
         return _main_resolve(argv[1:])
+    if argv[0] == "migrate":
+        return _main_migrate(argv[1:])
     if argv[0] == "version":
         return _main_version(argv[1:])
     if argv[0] == "guarded-delete":

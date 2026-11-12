@@ -101,6 +101,21 @@ PROBE_ORDER = (
 # A migrate site whose SKILL.md resolves the inventory helper On Activation,
 # which halts before any prompt when it is missing.
 ACTIVATION_INVENTORY = {"src/skf-export-skill/references/load-skill.md": "src/skf-export-skill/SKILL.md"}
+# The call every migrate site makes, and the halt each takes when it exits 1:
+# Export, Audit and Test name the rung of their own resolve failure (with its
+# number and halt_reason), Update its own blocked halt.
+MIGRATE_CALL = "{skillInventoryHelper} migrate"
+MIGRATE_HALTS = {
+    "src/skf-update-skill/references/init.md": 'The halt procedure takes `status: "blocked"`, `phase: "init:migrate"`',
+    "src/skf-export-skill/references/load-skill.md": "When `migrate` exits 1, HALT as item 5 says, with its `error`.",
+    "src/skf-audit-skill/references/init.md": "When `migrate` exits 1, HALT as item 6 says, with its `error`.",
+    "src/skf-test-skill/references/init.md": "When `migrate` exits 1, HALT as step 6 says, with its `error`.",
+}
+MIGRATE_HALT_RUNGS = {
+    "src/skf-export-skill/references/load-skill.md": (5, "resolution-failure"),
+    "src/skf-audit-skill/references/init.md": (6, "skill-not-found"),
+    "src/skf-test-skill/references/init.md": (6, "helper-failed"),
+}
 
 
 def _read(rel: str) -> str:
@@ -139,15 +154,20 @@ def _flat_rung(text: str) -> str:
     return rest[:nxt.start()]
 
 
-def test_auto_migrate_sites_are_exactly_the_four():
-    found = {
-        str(p.relative_to(REPO)).replace("\\", "/")
-        for p in SRC.glob("skf-*/references/**/*.md")
-        if "auto-migrate" in p.read_text(encoding="utf-8")
-    }
+def test_migrate_sites_are_exactly_the_four():
+    found, stale = set(), []
+    for p in SRC.glob("skf-*/references/**/*.md"):
+        rel = str(p.relative_to(REPO)).replace("\\", "/")
+        text = p.read_text(encoding="utf-8")
+        if MIGRATE_CALL in text:
+            found.add(rel)
+        # #1121: the helper moves the files; no step file follows the rules by hand.
+        stale.extend((rel, word) for word in ("migration rules", "{versionPathsKnowledge}", "auto-migrate")
+                     if word in text)
     assert found == set(MIGRATE_SITES), (
-        "a step file that auto-migrates a flat skill must run the ownership gate first; "
+        "a step file that migrates a flat skill must run the ownership gate first; "
         f"update MIGRATE_SITES and gate the new site: {sorted(found ^ set(MIGRATE_SITES))}")
+    assert stale == [], stale
 
 
 @pytest.mark.parametrize("rel", sorted(MIGRATE_SITES))
@@ -165,12 +185,73 @@ def test_migrate_site_gates_before_migrating(rel):
     binding = "`{group_flat_skf}` ← `skills[0].flat_skf`"
     assert binding in rung
     assert "--skill" in rung
-    assert rung.index(binding) < rung.index("migration rules"), "the gate must come before migrating"
+    assert rung.index(binding) < rung.index(MIGRATE_CALL), "the gate must come before migrating"
+    # A failed migrate takes a halt the stage already has (#1121): no new reason or exit code.
+    halt = MIGRATE_HALTS[rel]
+    assert halt in rung and rung.index(MIGRATE_CALL) < rung.index(halt)
+    assert "show its `message` as an Info note" in rung
+    if rel in MIGRATE_HALT_RUNGS:
+        number, reason = MIGRATE_HALT_RUNGS[rel]
+        assert re.search(rf"\n{number}\. Any other error[^\n]*`halt_reason: \"{reason}\"`", text), (number, reason)
     assert 'halt_reason: "not-skf-output"' in rung or '"halt_reason":"not-skf-output"' in rung
     assert "`{group_errors}` ← `skills[0].errors`" in rung, "a link is not a missing marker"
     assert "in place of the marker sentence" in rung
     assert "`skills_output_folder`" in rung and "/skf-setup" in rung
     assert f"will not move or {MIGRATE_SITES[rel]} it" in rung
+
+
+def _filled_argv(call: str, values: dict) -> list[str]:
+    """A documented `uv run {skillInventoryHelper} ...` call as argv after `uv run`, placeholders filled.
+
+    Placeholders (`{skill-name}` included) become sentinels before the words are split, so a
+    path keeps its spaces and backslashes.
+    """
+    words = shlex.split(re.sub(r"\{([\w-]+)\}", r"@@\1@@", call))
+    assert words[:3] == ["uv", "run", "@@skillInventoryHelper@@"], words
+    return [re.sub(r"@@([\w-]+)@@", lambda m: values[m.group(1)], w) for w in words[2:]]
+
+
+def _inline_calls(text: str, verb: str) -> list[str]:
+    return re.findall(rf"`(uv run \{{skillInventoryHelper\}} {verb} [^`]+)`", text)
+
+
+@pytest.mark.parametrize("rel", sorted(MIGRATE_SITES))
+def test_migrate_site_calls_run_and_resolve_names_the_version(rel, tmp_path):
+    """#1121: each site's `migrate` call, then its `resolve` call, run through the real helper."""
+    text = _read(rel)
+    rung = _flat_rung(text)
+    [migrate] = _inline_calls(rung, "migrate")
+    if rel == "src/skf-update-skill/references/init.md":
+        [resolve] = _inline_calls(rung, "resolve")
+        assert "bind from its `resolve` object `{active_version}` ← `chosen_version` and " \
+            "`{skill_package}` ← `skill_package`" in rung
+        assert rung.index(migrate) < rung.index(resolve)
+    else:
+        [resolve] = _fenced_calls(text, "{skillInventoryHelper} resolve")
+        assert "run the `resolve` command above again and bind its values anew" in rung
+        assert rung.index(migrate) < rung.index("run the `resolve` command above again")
+    skills, forge = tmp_path / "skills folder", tmp_path / "forge data"
+    group = skills / "lib"
+    _write_bytes(group / "SKILL.md", "---\nname: lib\n---\n")
+    _write_bytes(group / "metadata.json", json.dumps({"name": "lib", "version": "2.1.0",
+                                                      "generated_by": "create-skill"}))
+    _write_bytes(group / "references" / "api.md", "api\n")
+    _write_bytes(forge / "lib" / "skill-brief.yaml", "name: lib\n")
+    _write_bytes(forge / "lib" / "provenance-map.json", "{}")
+    values = {"skillInventoryHelper": str(INVENTORY_PY), "skills_output_folder": str(skills),
+              "skillsOutputFolder": str(skills), "forge_data_folder": str(forge),
+              "skill-name": "lib", "skill_name": "lib"}
+    proc = subprocess.run([sys.executable, *_filled_argv(migrate, values)], stdin=subprocess.DEVNULL,
+                          capture_output=True, timeout=60)
+    out = json.loads(proc.stdout.decode("utf-8"))
+    assert (proc.returncode, out["status"], out["version"]) == (0, "ok", "2.1.0"), out
+    assert out["message"].startswith("Migrated lib from flat to versioned layout (2.1.0)")
+    proc = subprocess.run([sys.executable, *_filled_argv(resolve, values)], stdin=subprocess.DEVNULL,
+                          capture_output=True, timeout=60)
+    resolved = json.loads(proc.stdout.decode("utf-8"))["resolve"]
+    assert (proc.returncode, resolved["chosen_version"], resolved["layout"]) == (0, out["version"], "versioned")
+    assert resolved["skill_package"] == out["skill_package"] == str(group / "2.1.0" / "lib")
+    assert resolved["paths"]["provenance_map"]["source"] == "versioned"
 
 
 @pytest.mark.parametrize("rel, flags", [
@@ -199,7 +280,7 @@ def test_update_read_only_modes_halt_on_a_flat_skill():
     assert "use the flat folder as the resolved path" not in rung
     assert 'status: "blocked"' in rung and 'phase: "init:read-only-flat-layout"' in rung
     assert "run once without --detect-only or --dry-run" in rung
-    assert rung.index("do not migrate and HALT") < rung.index("migration rules")
+    assert rung.index("do not migrate and HALT") < rung.index(MIGRATE_CALL)
     assert text.index(rung) < text.index("### 1b. Concurrency Guard")
 
 
@@ -543,8 +624,11 @@ def test_version_paths_migration_names_the_gate():
     migration = _section(text, "## Migration: Flat to Versioned", "## Anti-Patterns")
     for needle in ("Ownership gate", "flat_skf", "generated_by", "tool_versions", "skill_type",
                    "not-skf-output", "--dry-run", "--detect-only", "`1.0.0`", "stays where it is",
-                   "init:read-only-flat-layout"):
+                   "init:read-only-flat-layout", "skf-skill-inventory.py migrate", "moved[]",
+                   "left_in_place[]"):
         assert needle in migration, needle
+    # #1121: only skf-manifest-ops.py writes the export manifest; the migration leaves it alone.
+    assert "schema_version" not in migration
     assert "update-skill `--dry-run` or `--detect-only`, or export-skill `--dry-run`, the workflow " \
         "reads the flat package in place" not in migration
     ownership = _section(text, "## Ownership", "## Skill Management Operations")

@@ -4134,7 +4134,8 @@ def test_the_test_report_is_found_by_the_shared_helper(tmp_path):
                   "`{test_report_run_id}` ← `run_id` and `update_mode: gap-driven`",
                   "with its `testResult`, `score` and `source`", "(`skipped[]`)",
                   "`found` with `report_exists` false, a result file naming a report that is gone",
-                  "Pass `--version` only when steps 1-3 above bound `{active_version}`"):
+                  "Pass `--version` whenever `{active_version}` is bound: steps 1-3 above bind it, and step 4 "
+                  "binds it after migrating a flat skill."):
         assert token in lookup, token
     forge = tmp_path / "forge data"
     newest = _report_fixture(forge / "lib" / "1.0.0", "20260930T101010Z-2-bbbb", "fail", "2026-09-30T10:10:10Z")
@@ -4150,6 +4151,27 @@ def test_the_test_report_is_found_by_the_shared_helper(tmp_path):
     code, out = _run_script(FIND_TEST_REPORT, _call_args(call, "findTestReportHelper", {**values,
                                                                                          "forge_data_folder": str(gone)}))
     assert code == 0 and out["status"] == "found" and out["report_exists"] is False, out
+
+
+def test_a_migrated_flat_skill_binds_the_version_folder():
+    """#1121: step 4 runs `migrate`, then `resolve`, and binds the version the migration made, so the
+    test-report lookup passes `--version` and finds the report the migration moved into the version folder."""
+    init = _read(INIT)
+    paths = _slice(init, "**Version-Aware Path Resolution:**", "\n5. Store the resolved path")
+    step4 = paths[paths.index("\n4. If neither:"):]
+    migrate = ('`uv run {skillInventoryHelper} migrate "{skills_output_folder}" --skill {skill-name} '
+               '--forge-data-folder "{forge_data_folder}"`')
+    resolve = ('`uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} '
+               '--forge-data-folder "{forge_data_folder}"`')
+    bind = "bind from its `resolve` object `{active_version}` ← `chosen_version` and `{skill_package}` ← `skill_package`"
+    for token in (migrate, resolve, bind, 'phase: "init:migrate"', 'reason: "migrate: {its error}"'):
+        assert token in step4, token
+    assert step4.index(migrate) < step4.index(resolve) < step4.index(bind) < step4.index('phase: "init:migrate"')
+    assert "migration rules" not in init and "auto-migrate" not in init
+    step6 = _slice(init, "\n6. Bind `{baseline_version}`", "\n")
+    assert "the `{active_version}` steps 1–3 resolved, or the one step 4 bound after migrating" in step6
+    assert "has no version" not in step6 and "\u2014" not in step6
+    assert "init:migrate" in _halt_sites()[1]
 
 
 REPORT_RUN = "20260930T101010Z-2-bbbb"
