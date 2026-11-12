@@ -46,7 +46,7 @@ The target stays whole, its version included (`cognee@0.5.0`, `requests==2.31.0`
 
 ## Execution
 
-Resolve `{quickBatchHelper}` from `{quickBatchProbeOrder}`; first existing path wins. `{batch_dir}` is the run folder SKILL.md On Activation step 1 created (`{run_dir}` until the first target), and `{batch_file}` the file given to `--batch`. After a compaction, `{batch_dir}` is the parent folder of the target's `{run_dir}`: the `{project-root}/_bmad-output/.skf-run/skf-quick-skill-*` folder that holds `batch.jsonl`.
+`{batch_dir}` is the run folder SKILL.md On Activation step 1 created (`{run_dir}` until the first target), and `{batch_file}` the file given to `--batch`. After a compaction, `{batch_dir}` is the parent folder of the target's `{run_dir}`: the `{project-root}/_bmad-output/.skf-run/skf-quick-skill-*` folder that holds `batch.jsonl`. Bind `{quickBatchHelper}` ← `helpers.quickBatch` in `{batch_dir}/helpers.json`, which SKILL.md On Activation step 1 wrote; take the first existing path in `{quickBatchProbeOrder}` only when that file holds no `quickBatch`.
 
 ### 1. Start the Batch
 
@@ -182,4 +182,4 @@ When the per-batch summary file cannot be written, `summary_path` is null and `b
 
 Without `--fail-fast`, the batch runs every target, whatever an earlier target's outcome, and exits with the batch summary's `exit_code`: `0` when `failed == 0`, otherwise the highest exit code among the failed targets. Automators that branch on the single-target exit-code map read each target's own code in `results[]`. With `--fail-fast`, the batch stops at the first failed target and exits with that target's code.
 
-A batch refused before its first target writes no batch summary. It exits with code `2` when `--description` or `--exports` was passed with `--batch` (or `--language-hint` or `--scope-hint`), §1 cannot read the batch file or `skf-quick-batch.py` is missing, and with code `4` when §1 cannot write the batch run folder. A batch that stops because `next`, a second `record` or `summarize` fails (§2 to §4) exits with code `4` and writes no batch summary then; a `batch_summary` event an earlier `summarize` already printed stays the batch's result.
+A batch refused before its first target writes no batch summary. It exits with code `2` when `--description` or `--exports` was passed with `--batch` (or `--language-hint` or `--scope-hint`), §1 cannot read the batch file or `skf-quick-batch.py` has gone missing since activation, and with code `4` when §1 cannot write the batch run folder. A run that starts without `skf-quick-batch.py` stops at SKILL.md On Activation step 1 with code `3` (`helpers-missing`), before this file loads. A batch that stops because `next`, a second `record` or `summarize` fails (§2 to §4) exits with code `4` and writes no batch summary then; a `batch_summary` event an earlier `summarize` already printed stays the batch's result.

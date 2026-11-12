@@ -1162,6 +1162,8 @@ def _schema() -> dict:
     return json.loads(_read(ENVELOPE_SCHEMA))
 
 
+# SKILL.md On Activation step 1: the runtime check, the config, the run folder and the helpers.
+STEP_1 = "1. **Check the runtime, then load the config and the helpers.**"
 # A HARD HALT that names its exit code, in either of the two forms the steps use.
 HALT_RE = re.compile(r"HARD HALT(?:(?: the workflow)? with \*\*exit code (\d+) \(([a-z-]+)\)\*\*"
                      r"| \(exit code (\d+), ([a-z-]+)\))")
@@ -1220,10 +1222,11 @@ def test_the_scan_finds_every_hard_halt():
         per_file[name] = per_file.get(name, 0) + 1
     # resolve-target.md gained the step 1 §4 halt for a file listing no probe could read, and the
     # halts for a missing resolver (§1b) and language detector (§4) in place of a by-hand walk;
-    # SKILL.md gained the runtime halt for a missing python3 or uv.
+    # SKILL.md gained the runtime halt for a missing python3 or uv, then the halts for a config the
+    # preflight cannot load and for a missing helper of any stage (#1117).
     # quick-extract.md and write-and-validate.md gained the halts for a missing shipped helper (#599).
     # batch-mode.md gained the halts for a failing next, a second failing record and a failing summarize (#903).
-    assert per_file == {"SKILL.md": 3, "batch-mode.md": 6, "compile.md": 1, "ecosystem-check.md": 2,
+    assert per_file == {"SKILL.md": 5, "batch-mode.md": 6, "compile.md": 1, "ecosystem-check.md": 2,
                         "finalize.md": 1, "quick-extract.md": 5, "resolve-target.md": 12,
                         "write-and-validate.md": 6}
     assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES)
@@ -1238,18 +1241,18 @@ def test_a_missing_runtime_halts_before_the_run_folder():
     """W4 hand-off (W3 re-check enhancement-4): without uv no helper and no emitter can run,
     so activation checks for python3 and uv before anything else and halts with exit 3."""
     text = _read(SKILL)
-    step1 = _section(text, "1. Read `{project-root}/_bmad/skf/config.yaml`", "\n2. ")
+    step1 = _section(text, STEP_1, "\n2. ")
     for needle in ("`command -v python3` and `command -v uv`", "HARD HALT with **exit code 3 (resolution-failure)**",
                    "<https://docs.astral.sh/uv/getting-started/installation/>",
                    "No envelope is printed: the emitter needs `uv` too."):
         assert needle in step1, needle
-    assert step1.index("command -v uv") < step1.index("mktemp -d") < step1.index("emit-halt")
+    assert step1.index("command -v uv") < step1.index("emit-halt") < step1.index("mktemp -d")
     [site] = [s for s in _halt_sites() if s[0] == "SKILL.md" and _runtime_halt(s[3])]
     assert site[1:3] == (3, "resolution-failure")
     assert EMIT_HALT not in site[3][:site[3].index("Then resolve `{emitEnvelopeHelper}`")]
     codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
     [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
-    assert row3.split("|")[3].strip().startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing)")
+    assert row3.split("|")[3].strip().startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing, ")
     assert ("except SKILL.md On Activation's halt for a missing `python3` or `uv`, which the emitter needs"
             in _read(HALT_CONTRACT))
     [exit_row] = [line for line in text.splitlines() if line.startswith("| **Exit codes** |")]
@@ -1266,12 +1269,12 @@ def test_no_stage_halts_without_an_exit_code():
     assert '"reason": "Headless mode requires a target argument."' in gate
 
 
-@pytest.mark.parametrize("site", range(36), ids=lambda i: f"halt-{i}")
+@pytest.mark.parametrize("site", range(38), ids=lambda i: f"halt-{i}")
 def test_every_hard_halt_emits_through_the_emitter(site):
     """#593: each HARD HALT carries the inline emit command, and its payload builds the envelope it names,
     except the runtime halt, which no emitter can serve (test_a_missing_runtime_halts_before_the_run_folder)."""
     sites = _halt_sites()
-    assert len(sites) == 36
+    assert len(sites) == 38
     name, code, reason, segment = sites[site]
     if _runtime_halt(segment):
         assert name == "SKILL.md"
@@ -1340,7 +1343,9 @@ def test_the_helper_halts_follow_the_runtime_halt_in_the_contract():
     codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
     [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
     raised_by = row3.split("|")[3].strip()
-    assert raised_by.startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing); a shipped helper missing, "
+    assert raised_by.startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing, a config `skf-preflight.py` "
+                                "cannot load, or a helper of any stage missing, `details.cause` `helpers-missing`); "
+                                "a shipped helper missing, "
                                 "named in the message and in `details.cause` (step 3: `skf-github-fetch.py`, "
                                 "`skf-skills-module.py` §1, `skf-extract-public-api.py` §2; step 5: "
                                 "`skf-atomic-write.py` §2, `skf-validate-frontmatter.py` §4 when skill-check is "
@@ -1357,13 +1362,195 @@ def test_the_output_validator_runs_through_uv():
 
 def test_the_emitter_is_resolved_and_the_run_folder_made_before_the_first_halt():
     text = _read(SKILL)
-    step1 = _section(text, "1. Read `{project-root}/_bmad/skf/config.yaml`", "\n2. ")
+    step1 = _section(text, STEP_1, "\n2. ")
     for needle in ("`{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`",
                    "`{project-root}/src/shared/scripts/skf-emit-result-envelope.py`",
                    'mktemp -d "{project-root}/_bmad-output/.skf-run/skf-quick-skill-XXXXXXXX"',
                    "Bind `{run_dir}` ← the path it prints"):
         assert needle in step1, needle
     assert text.index("Bind `{run_dir}`") < text.index("5. **If `--batch` is set**")
+
+
+# --------------------------------------------------------------------------
+# #1117: activation loads the config through skf-preflight.py and resolves
+# every stage's helpers once, into {run_dir}/helpers.json, before any stage loads
+# --------------------------------------------------------------------------
+
+PREFLIGHT = SCRIPTS / "skf-preflight.py"
+CONFIG_CALL = 'uv run {preflightHelper} "{project-root}" --allow-missing-sidecar\n'
+HELPERS_CALL = ('uv run {preflightHelper} "{project-root}" --allow-missing-sidecar --helpers "{skill-root}" '
+                '> "{run_dir}/helpers.json"\n')
+HELPERS_RULE = ("- Bind each `{<stem>}` or `{<stem>Helper}` this step runs ← `helpers.<stem>` in the `helpers.json` "
+                "SKILL.md On Activation step 1 wrote: in `{run_dir}`, or under `--batch` in the batch folder that holds "
+                "it, the parent folder of `{run_dir}`. Take the first existing path in the `<stem>ProbeOrder` array "
+                "above only when that file holds no `<stem>`; every halt or fallback below for a helper with no path "
+                "still applies.")
+
+
+def _probe_stems() -> dict[str, set[str]]:
+    """Each stage file's `<stem>ProbeOrder` stems."""
+    return {md.name: set(re.findall(r"^([A-Za-z]+)ProbeOrder:", _read(md), re.M))
+            for md in sorted((QS / "references").glob("*.md"))}
+
+
+def _run_call(block: str, project: Path, run_dir: Path, config: Path) -> subprocess.CompletedProcess:
+    """A documented preflight call, run by bash with this repository's script and a config path."""
+    command = (block.strip().replace("uv run {preflightHelper}", f'"{sys.executable}" "{PREFLIGHT.as_posix()}"')
+               .replace("{project-root}", project.as_posix()).replace("{skill-root}", QS.as_posix())
+               .replace("{run_dir}", run_dir.as_posix()))
+    command = command.replace(" --allow-missing-sidecar", f' --allow-missing-sidecar --config-path "{config.as_posix()}"')
+    return subprocess.run(["bash", "-c", command], capture_output=True, text=True, timeout=60)
+
+
+def test_activation_runs_both_pre_passes_before_a_stage_loads():
+    """The config pre-pass comes before the run folder, the helpers pre-pass after it, and both
+    before batch-mode.md or resolve-target.md loads; no config file is read by hand."""
+    text = _read(SKILL)
+    step1 = _section(text, STEP_1, "\n2. ")
+    assert _nested_bash_block(step1, "--allow-missing-sidecar\n") == CONFIG_CALL
+    assert _nested_bash_block(step1, "--helpers") == HELPERS_CALL
+    assert ("`{preflightHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-preflight.py`, else "
+            "`{project-root}/src/shared/scripts/skf-preflight.py` (the first that exists)") in step1
+    config, helpers = text.index(CONFIG_CALL), text.index(HELPERS_CALL)
+    assert text.index("command -v uv") < config < text.index("mktemp -d") < text.index("Bind `{run_dir}`") < helpers
+    assert helpers < text.index("5. **If `--batch` is set**") < text.index("6. Load, read the full file, and then "
+                                                                           "execute `references/resolve-target.md`")
+    assert "Read `{project-root}/_bmad/skf/config.yaml`" not in text
+    assert ("bind `project_name`, `user_name`, `communication_language` and `document_output_language` from its "
+            "`config`, and `output_folder`, `skills_output_folder`, `forge_data_folder` and `sidecar_path` from "
+            "`config.<name>_resolved`") in step1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_the_config_pre_pass_gives_every_value_step_1_and_2_bind(tmp_path):
+    step1 = _section(_read(SKILL), STEP_1, "\n2. ")
+    config = tmp_path / "config.yaml"
+    config.write_text("project_name: demo\nuser_name: Ada\nskills_output_folder: skills\nforge_data_folder: fd\n"
+                      "output_folder: out\nsidecar_path: sc\n", encoding="utf-8")
+    (tmp_path / "sc").mkdir()
+    (tmp_path / "sc" / "preferences.yaml").write_text("headless_mode: true\n", encoding="utf-8")
+    done = _run_call(_nested_bash_block(step1, "--allow-missing-sidecar\n"), tmp_path, tmp_path, config)
+    assert done.returncode == 0, done.stdout + done.stderr
+    out = json.loads(done.stdout)
+    for name in ("project_name", "user_name", "communication_language", "document_output_language"):
+        assert f"`{name}`" in step1 and name in out["config"], name
+    for name in ("output_folder", "skills_output_folder", "forge_data_folder", "sidecar_path"):
+        assert Path(out["config"][f"{name}_resolved"]).is_absolute(), name
+    assert out["config"]["skills_output_folder_resolved"] == str(tmp_path.resolve() / "skills")
+    assert out["derived"]["headless_mode"] is True
+    step2 = _section(_read(SKILL), "2. **Resolve `{headless_mode}`**", "\n\n3. ")
+    assert "`derived.headless_mode`" in step2 and "`--headless` or `-H`" in step2
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_a_preferences_file_that_does_not_load_is_named_and_the_run_goes_on(tmp_path):
+    """#1117 review 1: a preferences.yaml that is there but does not parse gives `status` `ok` with
+    `sidecar.preferences_error`; step 1 names it in one line, as Setup item 4 and Ferris do, and
+    goes on with the defaults, so `derived.headless_mode` is false."""
+    step1 = _section(_read(SKILL), STEP_1, "\n2. ")
+    assert ("With `sidecar.preferences_error` (a `preferences.yaml` that is there but does not load), go on with "
+            "the defaults and display that error in one line; `derived.headless_mode` is then false, so only "
+            "`--headless` or `-H` makes the run headless.") in step1
+    # The sentence sits with the config bindings, before the config halt and the run folder.
+    assert (step1.index("from `config.<name>_resolved`") < step1.index("`sidecar.preferences_error`")
+            < step1.index("**Quick Skill cannot load its config.**") < step1.index("mktemp -d"))
+    config = tmp_path / "config.yaml"
+    config.write_text("project_name: demo\nsidecar_path: sc\n", encoding="utf-8")
+    (tmp_path / "sc").mkdir()
+    (tmp_path / "sc" / "preferences.yaml").write_text("headless_mode: [true\n", encoding="utf-8")
+    done = _run_call(_nested_bash_block(step1, "--allow-missing-sidecar\n"), tmp_path, tmp_path, config)
+    assert done.returncode == 0, done.stdout + done.stderr
+    out = json.loads(done.stdout)
+    assert out["status"] == "ok"
+    assert out["sidecar"]["preferences_error"] and "preferences.yaml" in out["sidecar"]["preferences_error"]
+    assert out["derived"]["headless_mode"] is False
+
+
+def test_a_missing_batch_helper_stops_at_activation_with_exit_3():
+    """#1117 review 1: `skf-quick-batch.py` is in the activation's helpers map, so a run that starts
+    without it stops at SKILL.md On Activation step 1 with exit 3; batch mode's exit 2 stays only for
+    a batch helper gone after activation."""
+    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
+    [row2] = [line for line in codes.splitlines() if line.startswith("| 2 ")]
+    assert ("`skf-quick-batch.py` missing after activation, since a run that starts without it stops at SKILL.md "
+            "On Activation step 1 with exit `3`, `helpers-missing`)") in row2
+    exit_code = _read(BATCH_MODE)[_read(BATCH_MODE).index("## Exit code"):]
+    assert "§1 cannot read the batch file or `skf-quick-batch.py` has gone missing since activation" in exit_code
+    assert ("A run that starts without `skf-quick-batch.py` stops at SKILL.md On Activation step 1 with code `3` "
+            "(`helpers-missing`), before this file loads.") in exit_code
+    assert "or `skf-quick-batch.py` is missing, and with code `4`" not in exit_code
+    assert "quickBatch" in _probe_stems()["batch-mode.md"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_the_helpers_pre_pass_maps_every_stage_helper(tmp_path):
+    """Run as written against this repository, the pre-pass writes one key for every stem the stages
+    declare, plus the customization resolver step 3 runs, each an existing file."""
+    config = tmp_path / "config.yaml"
+    config.write_text(f"sidecar_path: {(tmp_path / 'sc').as_posix()}\n", encoding="utf-8")
+    done = _run_call(HELPERS_CALL, REPO, tmp_path, config)
+    assert done.returncode == 0, done.stderr
+    helpers = json.loads(_read(tmp_path / "helpers.json"))["helpers"]
+    stems = set().union(*_probe_stems().values())
+    # No fixed count: a stage that gains a probe order (#1120) needs no edit here.
+    assert stems and "resolveCustomization" not in stems
+    assert sorted(helpers) == sorted(stems | {"resolveCustomization"})
+    for stem, path in helpers.items():
+        assert path and Path(path).is_file(), stem
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_a_missing_helper_halts_at_activation_with_exit_3(tmp_path):
+    """The pre-pass exits 1 naming each missing helper, and the halt it stages builds an exit-3
+    envelope whose details name them, before any stage loads."""
+    [site] = [segment for file, code, reason, segment in _halt_sites()
+              if file == "SKILL.md" and '"cause": "helpers-missing"' in segment]
+    assert site.startswith("HARD HALT with **exit code 3 (resolution-failure)**")
+    assert '`"details": {"cause": "preflight-error"}` when the file holds no JSON' in site
+    assert "{the `error` in `{run_dir}/helpers.json`, which names each missing helper" in site
+    payload = _filled(_staged(site, "halt.json"))
+    assert payload == {"phase": "on-activation", "halt_reason": "resolution-failure",
+                       "reason": "Quick Skill cannot start: SKF helpers are missing.", "skill_package": None,
+                       "details": {"cause": "helpers-missing", "missing": []}}
+    # A project with no SKF scripts: every helper is missing.
+    config = tmp_path / "config.yaml"
+    config.write_text(f"sidecar_path: {(tmp_path / 'sc').as_posix()}\n", encoding="utf-8")
+    done = _run_call(HELPERS_CALL, tmp_path, tmp_path, config)
+    assert done.returncode == 1
+    out = json.loads(_read(tmp_path / "helpers.json"))
+    assert out["code"] == "HELPERS_MISSING" and "skf-resolve-package.py" in out["helpers_missing"]
+    payload["details"]["missing"] = out["helpers_missing"]
+    schema = _schema()
+    envelope = _emitter().build_envelope(schema, payload, halt=True, decisions=[], warnings=[], stamps={
+        "timestamp": "2026-11-12T00:00:00Z", "run_id": "ab12cd34", "result_path": None})
+    assert _emitter().contract_errors(schema, envelope) == []
+    assert (envelope["status"], envelope["exit_code"]) == ("error", 3)
+    assert envelope["error"]["details"]["missing"] == out["helpers_missing"]
+
+
+def test_a_config_the_preflight_cannot_load_halts_before_the_run_folder():
+    [site] = [segment for file, code, reason, segment in _halt_sites()
+              if file == "SKILL.md" and "**Quick Skill cannot load its config.**" in segment]
+    assert site.startswith("HARD HALT with **exit code 3 (resolution-failure)**")
+    assert "{its `error`, else its first stderr line, else: SKF's preflight (`skf-preflight.py`) is missing" in site
+    assert "--run-dir" not in site[:site.index("Then create the run folder")]
+    payload = _filled(_staged(site, "halt.json"))
+    assert payload["details"]["cause"].startswith("<its code, preflight-missing with no path, or preflight-error")
+
+
+def test_every_stage_binds_its_helpers_from_helpers_json():
+    """Each stage that declares a probe order reads the activation's map first; its own halts stay."""
+    declaring = {name for name, stems in _probe_stems().items() if stems}
+    assert declaring == {"resolve-target.md", "quick-extract.md", "compile.md", "write-and-validate.md",
+                         "finalize.md", "batch-mode.md"}
+    for name in sorted(declaring - {"batch-mode.md"}):
+        rules = _section(_read(QS / "references" / name), "## Rules\n", "## Steps")
+        assert rules.count(HELPERS_RULE) == 1, name
+    execution = _section(_read(BATCH_MODE), "## Execution", "### 1. Start the Batch")
+    assert ("Bind `{quickBatchHelper}` ← `helpers.quickBatch` in `{batch_dir}/helpers.json`, which SKILL.md On "
+            "Activation step 1 wrote; take the first existing path in `{quickBatchProbeOrder}` only when that file "
+            "holds no `quickBatch`.") in execution
+    assert "Resolve `{quickBatchHelper}` from `{quickBatchProbeOrder}`" not in execution
 
 
 def test_the_halt_contract_defines_the_payload_and_the_batch_rule():
@@ -1382,7 +1569,7 @@ def test_the_halt_contract_defines_the_payload_and_the_batch_rule():
     contract = _section(text, "## Result Contract on HARD HALT", "```bash")
     paths = re.findall(r"`(\{project-root\}/[^`]+/skf-emit-result-envelope\.py)`", contract)
     assert paths == re.findall(r"`(\{project-root\}/[^`]+/skf-emit-result-envelope\.py)`",
-                               _section(_read(SKILL), "1. Read `{project-root}/_bmad/skf/config.yaml`", "\n2. "))
+                               _section(_read(SKILL), STEP_1, "\n2. "))
     assert paths == ["{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py",
                      "{project-root}/src/shared/scripts/skf-emit-result-envelope.py"]
 
@@ -2082,7 +2269,9 @@ def test_skill_md_keeps_one_home_per_rule():
     # "step 5" alone names write-and-validate in this table (`--skip-snippet`'s "step 5 §2").
     [batch] = [line for line in text.splitlines() if line.startswith("   | `--batch <file>` |")]
     assert "headless (On Activation step 5);" in batch
-    assert "or if `{sidecar_path}/preferences.yaml` sets `headless_mode: true`" in text
+    assert ("or if step 1's preflight gave `derived.headless_mode` true (`headless_mode: true` in "
+            "`{sidecar_path}/preferences.yaml`)") in text
+    assert "or if `{sidecar_path}/preferences.yaml` sets `headless_mode: true`" not in text
     step5 = _section(text, "5. **If `--batch` is set**", "\n\n6. ")
     assert step5.strip() == "5. **If `--batch` is set**, load and read `references/batch-mode.md` in full before " \
                             "anything else and follow it."

@@ -95,6 +95,8 @@ ROUTE_EXCEPTIONS = {
                   "print the warning only when `{quiet_mode}` is false"),
     "skf-forger": ("Ferris keeps no run log of his own, so that line opens the greeting",),
 }
+# The activations that bind the helper from skf-preflight.py --helpers instead of probing for it.
+ITEM_4_BINDS = {"skf-setup": "With `{resolveCustomizationHelper}` bound in item 4, run:"}
 CREATE_STACK_INIT = SRC / "skf-create-stack-skill" / "references" / "init.md"
 PIPELINE_MODE = SRC / "skf-forger" / "references" / "pipeline-mode.md"
 
@@ -139,9 +141,17 @@ def test_the_resolver_runs_through_uv_with_the_project_root(skill):
     step = _step(skill)
     fences = re.findall(r"```bash\n(.*?)```", step, re.S)
     assert [line.strip() for fence in fences for line in fence.splitlines() if line.strip()] == [_command(skill)]
-    # #770: the installed-else-src binding, on one line, before the fence.
-    [binding] = [line for line in step.splitlines() if AC.BINDING in line]
-    assert step.index(binding) < step.index("```bash"), skill
+    # #770: the installed-else-src binding, on one line, before the fence. Setup binds the
+    # helper with the rest of its helpers from item 4's one preflight call (#1117).
+    if skill in ITEM_4_BINDS:
+        assert AC.BINDING not in step, skill
+        binding = ITEM_4_BINDS[skill]
+        assert step.index(binding) < step.index("```bash"), skill
+        ok = next(line for line in _skill_md(skill).splitlines() if "`status` `ok`" in line)
+        assert "`{resolveCustomizationHelper}` from `helpers.<stem>`" in ok
+    else:
+        [binding] = [line for line in step.splitlines() if AC.BINDING in line]
+        assert step.index(binding) < step.index("```bash"), skill
     assert AC.CORE_RESOLVER not in _skill_md(skill)
 
 

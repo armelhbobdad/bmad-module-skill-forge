@@ -171,10 +171,13 @@ def test_every_setup_step_declares_envelope_probe_order_and_helper_missing_halt(
 
 
 def test_skill_md_routes_unresolved_helpers_through_halt_contract():
+    """#1117: activation resolves every step's probe order at once, so a
+    missing helper halts before any step runs; the step halts stay as a backstop."""
     conventions = _section(_read(SKILL_MD), "## Conventions")
     probe_line = next(line for line in conventions.splitlines() if "ProbeOrder" in line)
-    assert "halt contract" in probe_line
-    assert "helper-missing" in probe_line
+    assert ("On Activation item 4 resolves every array at once and halts through the halt contract, "
+            "phase `on-activation:helper-missing`, on any helper with neither path.") in probe_line
+    assert "Run the first that exists" not in probe_line
 
 
 def test_conventions_say_where_each_path_resolves():
@@ -235,19 +238,36 @@ def test_halt_contract_falls_back_to_the_reason_when_the_helper_fails():
     assert "If the helper exits non-zero or prints no line, display the reason alone." in fallback
 
 
+def _runner_loop() -> str:
+    """The fenced runner loop right after the halt-contract paragraph (#1117)."""
+    text = _read(SKILL_MD)
+    halt_contract = next(line for line in text.splitlines() if "Halt contract" in line)
+    m = re.match(r"\n\n```bash\n(.*?\n)```\n", text[text.index(halt_contract) + len(halt_contract):], re.S)
+    assert m, "no runner loop right after the halt contract"
+    return m.group(1)
+
+
 def test_halt_contract_names_a_runner_chain_for_the_activation_halts():
     """The activation halts can fire before uv is proven present, and Windows
     often has `python` or `py` but only a store alias for `python3`; by the
-    time a step file runs, activation has proven uv present."""
+    time a step file runs, activation has proven uv present. The chain is one
+    loop the halts run as written (#1117)."""
     halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
     assert "`<runner>` is `uv run` in the step files" in halt_contract
-    assert "try the runners `uv run`, `python3`, `python` and `py -3` in that order" in halt_contract
+    assert ("so they run the loop below as written, dropping `--path` or the `--stderr-from -` heredoc, or adding "
+            "`--customization-resolver-unavailable`, as the halt needs") in halt_contract
     prefix = re.search(r'^ENVELOPE_PREFIX = "(.+)"$', _read(EMIT_HELPER), re.M).group(1)
-    assert f"stop at the first that exits 0 and prints a line starting `{prefix.strip()}`" in halt_contract
-    assert "`python3` for the halts in this list" not in halt_contract
+    assert f"it stops at the first runner that exits 0 and prints a line starting `{prefix.strip()}`" in halt_contract
+    assert ("`<helper>` is `{emitEnvelopeHelper}` once item 4 bound it, and for the halts of items 1 to 4 "
+            "`skf-emit-result-envelope.py` at its installed path, else its dev path (Conventions)") in halt_contract
+    assert "try the runners" not in halt_contract and "`python3` for the halts in this list" not in halt_contract
+    loop = _runner_loop()
+    assert f'case "$line" in "{prefix}"*) printf' in loop
+    assert loop.count("<<'SKF_TEXT'") == 1 and "\nSKF_TEXT\n) && " in loop
+    assert loop.endswith("done\n")
 
 
-ACTIVATION_RUNNERS = re.compile(r"try the runners ((?:`[^`]+`(?:, | and ))+`[^`]+`) in that order")
+ACTIVATION_RUNNERS = re.compile(r"^for r in (.+); do$", re.M)
 UV_MISSING = {"phase": "on-activation:uv-missing",
               "reason": "Setup cannot proceed: uv is not installed."}
 # Every module the envelope helper may import. Each is in the standard library
@@ -266,9 +286,9 @@ def test_activation_halt_runners_can_run_the_envelope_helper():
     """Every runner the halt contract names for the activation halts is a bare
     interpreter except `uv run`, so the helper must stay stdlib-only."""
     halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
-    chain = ACTIVATION_RUNNERS.search(halt_contract)
+    chain = ACTIVATION_RUNNERS.search(_runner_loop())
     assert chain, "no runner chain for the activation halts"
-    assert re.findall(r"`([^`]+)`", chain.group(1)) == ["uv run", "python3", "python", "py -3"]
+    assert shlex.split(chain.group(1)) == ["uv run", "python3", "python", "py -3"]
     assert "stdlib-only" in halt_contract
     src = _read(EMIT_HELPER)
     header = re.search(r"^# /// script$(.*?)^# ///$", src, re.M | re.S)
@@ -298,6 +318,60 @@ def test_activation_halt_runners_can_run_the_envelope_helper():
     # A payload the helper rejects prints no line, so the contract falls back to the reason.
     rejected = _emit_blocked({"phase": "on-activation:uv-missing"})
     assert rejected.returncode == 1 and rejected.stdout == b""
+
+
+def _filled_loop(phase: str, reason: str, path: str | None, text: str | None) -> str:
+    """The runner loop as an activation halt runs it: no `--path` for a halt
+    without one, and no heredoc for a halt with no text from the user or a helper."""
+    loop = _runner_loop()
+    if path is None:
+        loop = loop.replace(' --path "<path>"', "", 1)
+    if text is None:
+        loop = loop.replace(" --stderr-from - <<'SKF_TEXT'\n<text>\nSKF_TEXT\n", "\n", 1)
+        assert "SKF_TEXT" not in loop
+    return (loop.replace("<helper>", EMIT_HELPER.as_posix()).replace("<phase>", phase)
+            .replace("<reason>", reason).replace("<path>", path or "").replace("<text>", text or ""))
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+def test_the_runner_loop_prints_one_envelope_with_only_python3_on_path(tmp_path):
+    """#1117: before uv is proven, the first runner that works prints the line;
+    the quoted heredoc keeps every quote, `$( )`, backtick and backslash literal.
+    A `uv` that exits 0 but prints no envelope line is skipped, not displayed."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "python3").symlink_to(sys.executable)
+    env = {"PATH": str(bindir), "HOME": str(tmp_path)}
+    message = "it's \"read-only\" $(touch pwned) `touch pwned2` C:\\x ( unbalanced"
+    loop = _filled_loop("on-activation:helper-missing", "Setup cannot proceed: <message>",
+                        "/project/_bmad/skf/shared/scripts", message)
+    expected = {"phase": "on-activation:helper-missing", "reason": "Setup cannot proceed: " + message,
+                "path": "/project/_bmad/skf/shared/scripts"}
+    # Only python3 on PATH: `uv run` is not found, and python3 prints the line.
+    done = subprocess.run([shutil.which("bash"), "-c", loop], capture_output=True, timeout=30, cwd=tmp_path, env=env)
+    assert _blocked_error(done) == expected
+    # A `uv` that exits 0 with a line that is no envelope: the guard skips it and python3 still prints.
+    uv = bindir / "uv"
+    uv.write_text("#!/bin/sh\n: > \"$HOME/uv-ran\"\nprintf '%s\\n' 'uv: not an envelope line'\nexit 0\n",
+                  encoding="utf-8")
+    uv.chmod(0o755)
+    done = subprocess.run([shutil.which("bash"), "-c", loop], capture_output=True, timeout=30, cwd=tmp_path, env=env)
+    assert _blocked_error(done) == expected
+    assert (tmp_path / "uv-ran").exists(), "the uv stub never ran, so the prefix guard was not exercised"
+    assert b"not an envelope line" not in done.stdout
+    assert not (tmp_path / "pwned").exists() and not (tmp_path / "pwned2").exists()
+    # A halt with no path and no text drops both, and still prints one line.
+    error = _blocked_error(subprocess.run([shutil.which("bash"), "-c", _filled_loop(
+        UV_MISSING["phase"], UV_MISSING["reason"], None, None)], capture_output=True, timeout=30, cwd=tmp_path,
+        env=env))
+    assert error == {**UV_MISSING, "path": "<n/a>"}
+    # No runner prints the line (only the stray uv is left): nothing is printed, so the
+    # contract displays the reason alone.
+    (bindir / "python3").unlink()
+    nothing = subprocess.run([shutil.which("bash"), "-c", _filled_loop(
+        UV_MISSING["phase"], UV_MISSING["reason"], None, None)], capture_output=True, timeout=30, cwd=tmp_path,
+        env=env)
+    assert nothing.stdout == b""
 
 
 # The emit-blocked call each step's halt rule names: the emitter builds the payload.
@@ -1577,6 +1651,64 @@ def test_preflight_gives_every_value_activation_binds(tmp_path):
     assert "`{tier_override}` from `sidecar.preferences.tier_override`" in load
     assert out["sidecar"]["preferences"]["tier_override"] is None
     assert out["derived"]["headless_mode"] is True
+
+
+def _item_4() -> str:
+    return _section(_on_activation(_read(SKILL_MD)), "4. **Load config and preferences.**")
+
+
+def test_item_4_resolves_every_helper_the_step_files_run(tmp_path):
+    """#1117: item 4's one preflight call, run as written against this repository,
+    binds every `{...Helper}` the step files and item 6 run, none of them null."""
+    item = _item_4()
+    [call] = re.findall(r'Run `(uv run "<preflight>" [^`]+)`', item)
+    assert call == 'uv run "<preflight>" "{project-root}" --allow-missing-sidecar --helpers "{skill-root}"'
+    argv = shlex.split(call.replace('uv run "<preflight>"', "").replace("{project-root}", REPO_ROOT.as_posix())
+                       .replace("{skill-root}", SETUP_DIR.as_posix()))
+    config = tmp_path / "config.yaml"
+    config.write_text(f"sidecar_path: {(tmp_path / 'sidecar').as_posix()}\n", encoding="utf-8")
+    done = subprocess.run([sys.executable, str(PREFLIGHT), *argv, "--config-path", str(config)],
+                          capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stdout + done.stderr
+    helpers = json.loads(done.stdout)["helpers"]
+    ok = next(line for line in item.splitlines() if "`status` `ok`" in line)
+    bind = ok[ok.index("Bind `{detectToolsHelper}`"):]
+    bound = re.findall(r"`\{([A-Za-z]+)Helper\}`", bind[:bind.index("from `helpers.<stem>`")])
+    used = set()
+    for name in STEP_FILES:
+        used |= set(re.findall(r"\{([A-Za-z]+)Helper\}", _read(REFS / name)))
+    used |= set(re.findall(r"\{([A-Za-z]+)Helper\}", _section(_on_activation(_read(SKILL_MD)),
+                                                               "6. **Resolve workflow customization.**")))
+    assert sorted(bound) == sorted(used) == sorted(helpers)
+    for stem in bound:
+        assert helpers[stem] and pathlib.Path(helpers[stem]).is_file(), stem
+    assert "`helpers.detectTools` for `{detectToolsHelper}`" in ok
+
+
+def test_a_missing_helper_halts_at_item_4_naming_it(tmp_path):
+    """#1117: a missing helper ends the run at activation, before any step
+    file loads, with the error that names it as the reason."""
+    item = _item_4()
+    [bullet] = [line for line in item.splitlines() if "`code` starting `HELPERS_`" in line]
+    for needle in ("halt with phase `on-activation:helper-missing`", "`path` `{project-root}/_bmad/skf/shared/scripts`",
+                   "reason `Setup cannot proceed: <message>`: its `error` without the leading `Cannot initialize. `",
+                   "passed as the halt contract says", "No step file loads."):
+        assert needle in bullet, needle
+    assert item.index(bullet) < item.index("`code` `CONFIG_MISSING`")
+    project = _project(tmp_path, f"sidecar_path: {(tmp_path / 'sidecar').as_posix()}\n")
+    proc = subprocess.run([sys.executable, str(PREFLIGHT), str(project), "--allow-missing-sidecar", "--helpers",
+                           str(SETUP_DIR)], capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 1
+    out = json.loads(proc.stdout)
+    assert out["code"] == "HELPERS_MISSING" and out["code"].startswith("HELPERS_")
+    assert "skf-detect-tools.py" in out["helpers_missing"] and "skf-detect-tools.py" in out["error"]
+    message = out["error"].removeprefix("Cannot initialize. ")
+    assert message != out["error"]
+    path = (project / "_bmad" / "skf" / "shared" / "scripts").as_posix()
+    error = _blocked_error(_stdin_blocked("on-activation:helper-missing", "Setup cannot proceed: <message>", message,
+                                          path))
+    assert error == {"phase": "on-activation:helper-missing", "reason": "Setup cannot proceed: " + message,
+                     "path": path}
 
 
 @pytest.mark.parametrize("config,code", [

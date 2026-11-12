@@ -28,6 +28,7 @@ To accept a GitHub URL or package name from the user, resolve it to a GitHub rep
 - Focus only on resolving the target to a GitHub repository — do not begin extraction or compilation
 - If resolution fails, hard halt with actionable guidance
 - A HARD HALT prints, after its envelope, this step's `halt` event when `{headless_mode}` is true. Under `--batch` it ends only this target: then return to `references/batch-mode.md` §3, even when the halt reads as the end of the run (`references/halt-contract.md`).
+- Bind each `{<stem>}` or `{<stem>Helper}` this step runs ← `helpers.<stem>` in the `helpers.json` SKILL.md On Activation step 1 wrote: in `{run_dir}`, or under `--batch` in the batch folder that holds it, the parent folder of `{run_dir}`. Take the first existing path in the `<stem>ProbeOrder` array above only when that file holds no `<stem>`; every halt or fallback below for a helper with no path still applies.
 
 ## Steps
 

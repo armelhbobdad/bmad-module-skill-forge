@@ -1913,7 +1913,13 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
                   "`customization_resolver_unavailable: not found`",
                   # #965: a missing SKF helper names itself, so it never reads as a missing core resolver.
                   "`customization_resolver_unavailable: SKF helper skf-resolve-customization.py not found`",
-                  "reinstall SKF"):
+                  "reinstall SKF",
+                  # #1117: these two resolve every helper at activation and stop there instead of warning.
+                  "Setup Forge and Quick Skill never reach that warning: they look for that helper, with every "
+                  "other helper their stage files declare, when they start, and stop there when one is missing, "
+                  "naming each",
+                  "Setup Forge at phase `on-activation:helper-missing`",
+                  "Quick Skill with exit `3` and `details.cause` `helpers-missing`"):
         assert token in resolver, token
     forger = _paragraph(customizing, "Ferris reads `_bmad/custom/skf-forger.toml`")
     # Ferris resolves `--key agent`: his override opens with `[agent]`, not the `[workflow]` the opening names.
