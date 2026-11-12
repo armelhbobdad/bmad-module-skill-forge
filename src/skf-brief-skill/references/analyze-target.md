@@ -231,7 +231,7 @@ The number of modules picked is `module_count`, which step 3 §2c passes the sco
 
 **Remote source guard:** If the target source was resolved via GitHub API (remote URL, not a local file path), skip this CCC subsection — CCC requires a local source index and cannot operate on remote-only sources. Note: "CCC semantic discovery skipped — target is remote. CCC discovery will run automatically during create-skill after the source is cloned."
 
-If `tools.ccc` is true in forge-tier.yaml, supplement the module listing with a semantic discovery pass:
+If `tools.ccc` is true in the `tools` step 1 §1 bound, supplement the module listing with a semantic discovery pass:
 
 **CCC Semantic Discovery:**
 - **Claude Code:** Use `/ccc search "{repo_name} public API exports modules"` from `{source_path}` — the query is variadic, so a trailing path is swallowed into the search string rather than selecting a project

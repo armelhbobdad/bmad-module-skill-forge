@@ -37,6 +37,15 @@ the module pick stays step 2's judgment, and the prose says why
 #1112 (brief part): no brief prose names the dev-only `src/shared/` outside
 a probe order, which writes it as `{project-root}/src/shared/...`.
 
+#1118: step 1 reads the forge tier, the tool flags and `tier_override`
+with one `skf-forge-tier-rw.py effective` call, resolved from the probe
+order step 5 uses, never by eye: a forge-tier.yaml it finds binds `tier`,
+`detected_tier`, `tier_source` and `tools`, an ignored override or an
+unreadable preferences.yaml is a warning, a missing file halts
+`forge-tier-missing`, and one it cannot use, a truncated one included,
+takes the Quick fallback. The steps that read `tools.qmd` or `tools.ccc`
+read the `tools` step 1 bound.
+
 No test runs the step prose, so these checks pin it, and they run the
 commands it documents against the emitter and validate what it prints
 against the schema.
@@ -46,12 +55,14 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 from jsonschema import Draft202012Validator
 
 REPO = Path(__file__).resolve().parent.parent
@@ -587,3 +598,133 @@ def test_the_module_pick_stays_step_2s_judgment():
     output = _section(_read(ANALYZE_TARGET), "#### 4.3 Output format (both paths)")
     assert ("The snapshot lists candidates and names no module on purpose: a folder-name rule misreads `LICENSES`, "
             "`ci`, `web` or lodash's `lib/`.") in output
+
+
+# --------------------------------------------------------------------------
+# #1118: step 1 reads the forge tier through skf-forge-tier-rw.py effective
+# --------------------------------------------------------------------------
+
+
+EFFECTIVE_CALL = "uv run {forgeTierRwHelper} effective "
+# The step files that read a tool flag, and the binding each one names.
+TOOL_READERS = ((GATHER_INTENT, "`tools.qmd` is true in the `tools` §1 bound"),
+                (PORTFOLIO_CHECK, "`tools.qmd` is true in the `tools` step 1 §1 bound"),
+                (ANALYZE_TARGET, "`tools.ccc` is true in the `tools` step 1 §1 bound"))
+
+
+def _flow(text: str) -> str:
+    """The text with each run of whitespace folded to one space."""
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def _frontmatter(path: Path) -> dict:
+    match = re.match(r"\A---\n(.*?)\n---\n", _read(path), re.S)
+    assert match, f"{path.name} has no frontmatter"
+    return yaml.safe_load(match.group(1))
+
+
+def _forge_tier_section() -> str:
+    return _section(_read(GATHER_INTENT), "### 1. Discover Forge Tier")
+
+
+def _branch(label: str) -> str:
+    """The paragraph, or the list it introduces, of one outcome of the effective call."""
+    section = _forge_tier_section()
+    start = section.index(f"\n{label} (")
+    end = section.find("\n\n", start + 1)
+    return section[start:end if end != -1 else len(section)]
+
+
+def _run_documented_effective(sidecar: Path) -> subprocess.CompletedProcess:
+    """§1's documented call, its paths filled in, run against the real helper."""
+    blocks = [m.group(1).strip() for m in re.finditer(r"```bash\n(.*?)```", _forge_tier_section(), re.S)
+              if EFFECTIVE_CALL in m.group(1)]
+    assert len(blocks) == 1, blocks
+    command = blocks[0].replace("{forgeTierFile}", _frontmatter(GATHER_INTENT)["forgeTierFile"])
+    command = command.replace("{sidecar_path}", sidecar.as_posix())
+    assert command.startswith(EFFECTIVE_CALL) and "{" not in command[len(EFFECTIVE_CALL):], command
+    argv = shlex.split(command[len("uv run {forgeTierRwHelper} "):])
+    return subprocess.run([sys.executable, str(FORGE_TIER_RW), *argv], capture_output=True, text=True,
+                          encoding="utf-8", timeout=30, check=False)
+
+
+def test_step_one_resolves_the_forge_tier_helper_as_step_five_does():
+    front = _frontmatter(GATHER_INTENT)
+    assert front["forgeTierRwProbeOrder"] == _frontmatter(WRITE_BRIEF)["forgeTierRwProbeOrder"] == [
+        "{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py",
+        "{project-root}/src/shared/scripts/skf-forge-tier-rw.py",
+    ]
+    assert front["forgeTierFile"] == "{sidecar_path}/forge-tier.yaml"
+    section = _flow(_forge_tier_section())
+    assert ("`{forgeTierRwHelper}`, resolved from `{forgeTierRwProbeOrder}` (first existing path wins; HALT if no "
+            "candidate exists)") in section
+
+
+def test_step_one_binds_the_tier_and_the_tools_the_documented_call_prints(tmp_path):
+    (tmp_path / "forge-tier.yaml").write_text(
+        "tools:\n  ast_grep: true\n  qmd: true\n  ccc: false\ntier: Forge\n", encoding="utf-8")
+    (tmp_path / "preferences.yaml").write_text("tier_override: Deep\n", encoding="utf-8")
+    done = _run_documented_effective(tmp_path)
+    assert done.returncode == 0, done.stderr
+    payload = json.loads(done.stdout)
+    assert (payload["exists"], payload["tier"], payload["detected_tier"], payload["tier_source"]) == (
+        True, "Deep", "Forge", "override")
+    assert payload["tools"]["qmd"] is True and payload["tools"]["ccc"] is False
+    found = _flow(_branch("**If found**"))
+    assert "(exit 0 with `exists` true): bind `tier`, `detected_tier`, `tier_source` and `tools` from its JSON" in found
+    assert "`tier_source` `override` is §2's \"tier override was applied\"" in found
+    # Each key the branch reads is one the helper prints.
+    for key in ("override_rejected", "tier_override", "preferences_error", "detected_tier"):
+        assert re.search(rf"[`{{]{key}[`}}]", found) and key in payload, key
+    # An ignored override and an unreadable preferences.yaml each reach the envelope as one warning.
+    assert found.count("to `workflow_warnings[]`") == 1 and "add that line the same way" in found
+    assert "`warn: tier_override {tier_override} is not one of Quick, Forge, Forge+, Deep" in found
+
+
+def test_step_one_warns_on_an_override_that_names_no_tier(tmp_path):
+    (tmp_path / "forge-tier.yaml").write_text("tools: {}\ntier: Forge\n", encoding="utf-8")
+    (tmp_path / "preferences.yaml").write_text("tier_override: deep\n", encoding="utf-8")
+    payload = json.loads(_run_documented_effective(tmp_path).stdout)
+    assert payload["tier"] == "Forge" and payload["tier_source"] == "detected"
+    assert payload["override_rejected"] is True and payload["tier_override"] == "deep"
+
+
+def test_step_one_halts_forge_tier_missing_when_the_documented_call_finds_no_file(tmp_path):
+    (tmp_path / "preferences.yaml").write_text("tier_override: Deep\n", encoding="utf-8")
+    done = _run_documented_effective(tmp_path)
+    assert done.returncode == 0 and json.loads(done.stdout)["exists"] is False
+    missing = _branch("**If not found**")
+    assert missing.strip().startswith("**If not found** (exit 0 with `exists` false): emit the halt envelope first")
+    assert '`halt_reason: "forge-tier-missing"`' in missing and "then HALT (exit code 3)" in missing
+
+
+@pytest.mark.parametrize("content", ["tools:\n  ast_grep: true\n  qmd: tr", "tools:\n  qmd: true\ntier: De",
+                                     "tier: [\n"], ids=["cut-before-tier", "cut-inside-tier", "unparseable"])
+def test_step_one_falls_back_to_quick_when_the_documented_call_exits_2(tmp_path, content):
+    """A forge-tier.yaml cut short or not YAML holds no tier it can use: exit 2, and the run goes on at Quick."""
+    (tmp_path / "forge-tier.yaml").write_text(content, encoding="utf-8")
+    done = _run_documented_effective(tmp_path)
+    assert done.returncode == 2 and done.stdout == ""
+    assert "forge-tier.yaml" in json.loads(done.stderr)["message"]
+    fallback = _flow(_branch("**If found but not usable**"))
+    assert fallback.startswith("**If found but not usable** (exit 2, any other non-zero exit, or no JSON")
+    for needle in ('`tier = "Quick"`, `tools = {}` and `tier_source: "fallback-corrupted-config"`',
+                   "Do not HALT.", "`{message}` is the helper's stderr `message`, else its first stderr line",
+                   "to `workflow_warnings[]`"):
+        assert needle in fallback, needle
+    assert "halt_reason" not in fallback
+
+
+def test_no_step_reads_the_forge_tier_or_its_tools_by_eye():
+    section = _forge_tier_section()
+    for stale in ("Attempt to load", "Read `{sidecar_path}/preferences.yaml`", "Read the tier level",
+                  "cannot be parsed"):
+        assert stale not in section, stale
+    for path, binding in TOOL_READERS:
+        text = _flow(_read(path))
+        assert binding in text, path.name
+        assert "in forge-tier.yaml" not in text and "in `forge-tier.yaml`" not in text, path.name
+    confirm = _read(REFERENCES / "confirm-brief.md")
+    assert ('{If `tier_source` is `fallback-corrupted-config`:}\n'
+            '"**Note:** Forge tier defaulted to Quick (forge-tier.yaml could not be read)."') in confirm
+    assert "no forge-tier.yaml found" not in confirm

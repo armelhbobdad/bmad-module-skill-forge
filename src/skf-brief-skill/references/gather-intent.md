@@ -6,6 +6,9 @@ ratifyFile: 'references/gather-intent-ratify.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 portfolioSimilarityCheckFile: 'references/portfolio-similarity-check.md'
 draftCheckpointFile: 'references/draft-checkpoint.md'
+forgeTierRwProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
+  - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 githubProbeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-github-probe.py'
   - '{project-root}/src/shared/scripts/skf-github-probe.py'
@@ -46,19 +49,20 @@ Bind `{run_dir}` ← the path the last command prints. Step 5, or step-auto-vali
 
 `mkdir -p` succeeds on a pre-existing read-only mount, but the `printf > file` redirect actually attempts a write, which catches read-only, disk-full, and permissions-denied uniformly. **On any non-zero exit:** emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "write-failed"` (SKILL.md Halt Contract), then HALT (exit code 4): `"**Error:** {forge_data_folder} or the run folder under {project-root}/_bmad-output/.skf-run/ is not writable: {captured stderr}. Verify the path exists, the mount is writable, and there is free disk space, then re-run."` On success, continue silently to the forge-tier load below.
 
-Attempt to load `{forgeTierFile}`:
+Read the forge tier with `{forgeTierRwHelper}`, resolved from `{forgeTierRwProbeOrder}` (first existing path wins; HALT if no candidate exists). It reads `{forgeTierFile}` and applies the `tier_override` of `{sidecar_path}/preferences.yaml` only when it names Quick, Forge, Forge+ or Deep, capital letters included. Run it from `{project-root}`:
 
-**If found:**
-- Read the tier level (quick, forge, forge+, or deep)
-- Note available tools for scoping guidance later
+```bash
+uv run {forgeTierRwHelper} effective --target "{forgeTierFile}" --preferences "{sidecar_path}/preferences.yaml"
+```
 
-**Apply tier override:** Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), use it instead of the detected tier.
+**If found** (exit 0 with `exists` true): bind `tier`, `detected_tier`, `tier_source` and `tools` from its JSON. `tier` is the tier this run works at. `tier_source` `override` is §2's "tier override was applied", and `detected_tier` is then the tier it replaced. Later sections read the tool flags from `tools` (`tools.qmd`, `tools.ccc`), never from the file. When `override_rejected` is true, display `warn: tier_override {tier_override} is not one of Quick, Forge, Forge+, Deep and was ignored: using the detected tier {detected_tier}` and add that line to `workflow_warnings[]`. When `preferences_error` is set, display `warn: preferences.yaml not read, so no tier_override applies: {preferences_error}` and add that line the same way. Join the lines of a multi-line message with spaces, so each warning is one line.
 
-**If found but the YAML cannot be parsed (corrupted or truncated):**
-- Display: "**Cannot read forge-tier.yaml** at `{forgeTierFile}` — the file exists but failed to parse: `{parser error message}`. The setup workflow can rewrite it cleanly. Until then, the brief workflow falls back to **Quick** tier (no extra tools assumed)."
-- Continue with `tier = "Quick"` and `tools = {}` — do not HALT. Record `tier_source: "fallback-corrupted-config"` for later diagnostics.
+**If found but not usable** (exit 2, any other non-zero exit, or no JSON: a forge-tier.yaml that is corrupted or truncated, or holds no `tier` it can use):
+- Display: "**Cannot read forge-tier.yaml** at `{forgeTierFile}`: `{message}`. The setup workflow can rewrite it cleanly. Until then, the brief workflow falls back to **Quick** tier (no extra tools assumed)." `{message}` is the helper's stderr `message`, else its first stderr line.
+- Add `warn: cannot read forge-tier.yaml at {forgeTierFile}, so the run falls back to Quick tier: {message}` to `workflow_warnings[]`, its lines joined the same way.
+- Continue with `tier = "Quick"`, `tools = {}` and `tier_source: "fallback-corrupted-config"`, which later steps read for diagnostics. Do not HALT.
 
-**If not found:** emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "forge-tier-missing"` (SKILL.md Halt Contract), then HALT (exit code 3): "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
+**If not found** (exit 0 with `exists` false): emit the halt envelope first, `uv run {emitBriefEnvelopeHelper} emit --target stderr` with `halt_reason: "forge-tier-missing"` (SKILL.md Halt Contract), then HALT (exit code 3): "**Cannot proceed.** forge-tier.yaml not found at `{forgeTierFile}`. Run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep)."
 
 ### 1b. Route by Mode
 
@@ -282,7 +286,7 @@ Wait for confirmation or alternative.
 
 **Collision check.** If `{forge_data_folder}/{name}/skill-brief.yaml` already exists, say so and offer up to three alternates that do not collide, numbered: `{name}-v{N}` with the smallest free `N`, `{name}-{target_version}` when `target_version` is set, and `{name}-{source_authority}` when the authority is not `community`. A number takes that name; a typed name is checked the same way; Enter keeps `{name}` and leaves the overwrite question to step 5 §2b.
 
-**Portfolio-similarity check.** When forge tier is `Deep` AND `tools.qmd` is true in `forge-tier.yaml`, load `{portfolioSimilarityCheckFile}` and follow the procedure there to catch semantic near-duplicates that exact-name collision misses. Otherwise skip the load: the check does not run.
+**Portfolio-similarity check.** When forge tier is `Deep` AND `tools.qmd` is true in the `tools` §1 bound, load `{portfolioSimilarityCheckFile}` and follow the procedure there to catch semantic near-duplicates that exact-name collision misses. Otherwise skip the load: the check does not run.
 
 ### 7. Summarize Gathered Intent
 

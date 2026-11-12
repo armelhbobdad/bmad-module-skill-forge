@@ -3,7 +3,7 @@
 Loaded by step 1 §6 only when **all three** preconditions hold:
 
 1. Forge tier is `Deep`
-2. `tools.qmd` is true in `forge-tier.yaml`
+2. `tools.qmd` is true in the `tools` step 1 §1 bound
 3. The flow is interactive (the headless path skips this check entirely — it would either need to HALT on duplicates [over-aggressive for an automator] or silently log [no operator to act on it]; either choice has a side effect on the QMD index that is best avoided headlessly)
 
 This check catches **semantic near-duplicates** that exact-name collision misses (e.g. `markdown-renderer` proposed when `marked` already exists, or `auth-gateway` when `auth-middleware` already exists). Exact-name collision is handled separately at §6 before this check runs.

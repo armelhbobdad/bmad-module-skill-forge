@@ -20,6 +20,30 @@ Subcommands:
                 on stdout. Missing-file is not an error — emits null
                 payload with status=ok so first-run callers can branch.
 
+  effective     The tier a run works at, read-only: the `tier` and
+                `tools` of forge-tier.yaml (--target) with the
+                `tier_override` of preferences.yaml (--preferences)
+                applied. Prints `exists`, `tier` (the effective tier),
+                `detected_tier` (the file's own), `tier_source`
+                ("override" or "detected"), `tier_override` (the
+                preferences value, null when unset), `override_rejected`
+                (true for a value that is not one of Quick, Forge,
+                Forge+, Deep, case-sensitive, which is ignored), `tools`
+                (the file's `tools` mapping, {} when absent) and
+                `preferences_error`. No forge-tier.yaml: `exists` false,
+                the three tier keys null and `tools` {}. A forge-tier.yaml
+                that cannot be read or parsed, is not a mapping, holds no
+                `tier` or one that is not one of the four, holds a
+                `tools` that is not a mapping, or ends on its `tier` line
+                with no newline after it (a cut inside `tier: Forge+`
+                reads as Forge) exits 2, so a file cut before the end of
+                its `tier` line never reads as a tier. A preferences.yaml
+                that is not there means no override; one that cannot be
+                read or is not a mapping sets `preferences_error` to why
+                and applies no override. Takes no lock: it writes
+                nothing. Used by skf-brief-skill step 1 §1 and
+                skf-test-skill init.md §4.
+
   write-tools   Write a fresh forge-tier.yaml from a JSON context payload
                 on stdin, or, with --detect-from, from the outputs a
                 setup run staged in its run folder (below). Preserves
@@ -92,7 +116,8 @@ Subcommands:
                     entries whose `path` no longer exists on disk.
                 Both kinds of cleanup can run in the same invocation.
 
-Output schema (the read subcommand and the response from every write):
+Output schema (the read and effective subcommands and the response from every
+write):
 
   {"status": "ok", "version": "v1", ...subcommand-specific fields...}
 
@@ -130,6 +155,8 @@ on a fresh interpreter where pyyaml has not been pip-installed
 system-wide:
 
   uv run skf-forge-tier-rw.py read --target /path/forge-tier.yaml
+  uv run skf-forge-tier-rw.py effective --target /path/forge-tier.yaml \\
+      --preferences /path/preferences.yaml
   echo '{...}' | uv run skf-forge-tier-rw.py write-tools --target /path/forge-tier.yaml
   uv run skf-forge-tier-rw.py write-tools --target /path/forge-tier.yaml \\
       --detect-from /run/detect-tools.json --ccc-from /run/ccc-exclusions.json
@@ -175,6 +202,9 @@ _REPLACE_WAIT_SECONDS = 5.0
 _REPLACE_POLL_SECONDS = 0.02
 # The tool keys write-tools records, in forge-tier.yaml order.
 TOOL_KEYS = ("ast_grep", "gh_cli", "qmd", "ccc")
+# The tiers forge-tier.yaml and a `tier_override` may name, case-sensitive,
+# as in skf-detect-tools.py.
+VALID_TIERS = ("Quick", "Forge", "Forge+", "Deep")
 
 
 def _die(code: int, message: str) -> None:
@@ -421,6 +451,94 @@ def cmd_read(target: Path) -> None:
         _ok({"exists": False, "data": None})
         return
     _ok({"exists": True, "data": data})
+
+
+def _load_mapping(path: Path) -> tuple[dict | None, str | None, str]:
+    """(the YAML mapping at `path`, None, its text) or (None, why it is not usable, its text).
+
+    An empty file reads as {}. A file that is not there raises
+    FileNotFoundError, which each caller reads its own way. Unlike
+    _read_yaml it never exits, and it also reports a file that cannot be
+    read (a folder in its place, no permission, bytes that are not UTF-8),
+    whose text is then "".
+    """
+    text = ""
+    try:
+        with path.open("r", encoding="utf-8") as f:
+            text = f.read()
+        data = yaml.safe_load(text)
+    except FileNotFoundError:
+        raise
+    except yaml.YAMLError as e:
+        return None, f"failed to parse {path}: {e}", text
+    except (OSError, ValueError) as e:
+        return None, f"cannot read {path}: {e}", text
+    if data is None:
+        return {}, None, text
+    if not isinstance(data, dict):
+        return None, f"expected mapping at top of {path}, got {type(data).__name__}", text
+    return data, None, text
+
+
+def effective_tier(target: Path, preferences: Path) -> dict:
+    """The `effective` payload, or exit 2 for a forge-tier.yaml it cannot use.
+
+    A preferences.yaml that cannot be read or is not a mapping never exits:
+    it sets `preferences_error` and applies no override.
+    """
+    tier_override, preferences_error = None, None
+    try:
+        prefs, preferences_error, _ = _load_mapping(preferences)
+    except FileNotFoundError:
+        prefs = {}
+    if prefs is not None:
+        tier_override = prefs.get("tier_override")
+    override_rejected = tier_override is not None and tier_override not in VALID_TIERS
+    payload = {
+        "exists": True,
+        "tier": None,
+        "detected_tier": None,
+        "tier_source": None,
+        "override_rejected": override_rejected,
+        "tier_override": tier_override,
+        "tools": {},
+        "preferences_error": preferences_error,
+    }
+    try:
+        data, error, text = _load_mapping(target)
+    except FileNotFoundError:
+        payload["exists"] = False
+        return payload
+    if error is not None:
+        _die(2, f"effective: {error}")
+    allowed = ", ".join(VALID_TIERS)
+    detected = data.get("tier")
+    if detected is None:
+        _die(2, f"effective: {target} holds no `tier` (expected one of {allowed})")
+    if detected not in VALID_TIERS:
+        _die(2, f"effective: {target} has tier {detected!r}, which is not one of {allowed}")
+    # write-tools ends the `tier` line with a newline and writes more keys
+    # after it, so a file that stops on that line was cut short, and a cut
+    # inside `tier: Forge+` still reads as Forge.
+    if not text.endswith("\n") and text.rsplit("\n", 1)[-1].startswith("tier:"):
+        _die(2, f"effective: {target} ends on its `tier` line with no newline after it, "
+                "so it may be cut short")
+    tools = data.get("tools", {})
+    if not isinstance(tools, dict):
+        _die(2, f"effective: {target} has a `tools` that is not a mapping "
+                f"(got {type(tools).__name__})")
+    overridden = tier_override is not None and not override_rejected
+    payload.update({
+        "tier": tier_override if overridden else detected,
+        "detected_tier": detected,
+        "tier_source": "override" if overridden else "detected",
+        "tools": tools,
+    })
+    return payload
+
+
+def cmd_effective(target: Path, preferences: Path) -> None:
+    _ok(effective_tier(target, preferences))
 
 
 def _staged_object(path: Path):
@@ -736,6 +854,13 @@ def main() -> None:
     p_read = sub.add_parser("read", help="Read a forge-tier.yaml and emit JSON")
     p_read.add_argument("--target", type=Path, required=True)
 
+    p_effective = sub.add_parser("effective",
+                                 help="Print the effective tier, its source and the tool flags "
+                                      "(read-only, no lock)")
+    p_effective.add_argument("--target", type=Path, required=True, help="the forge-tier.yaml to read")
+    p_effective.add_argument("--preferences", type=Path, required=True,
+                             help="the preferences.yaml whose tier_override applies")
+
     def add_lock_timeout(p: argparse.ArgumentParser) -> None:
         p.add_argument("--lock-timeout", type=float, default=REGISTRY_LOCK_WAIT_SEC,
                        help="seconds to wait while another call holds forge-tier.yaml.lock "
@@ -793,6 +918,8 @@ def main() -> None:
 
     if args.cmd == "read":
         cmd_read(args.target)
+    elif args.cmd == "effective":
+        cmd_effective(args.target, args.preferences)
     elif args.cmd == "write-tools":
         cmd_write_tools(args.target, lock_timeout, args.detect_from, args.ccc_from)
     elif args.cmd == "clean-stale":

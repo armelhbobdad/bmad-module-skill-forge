@@ -6,7 +6,7 @@ The full argument set, gate map, outputs, exit codes and `SKF_TEST_RESULT_JSON` 
 
 | Aspect | Detail |
 |--------|--------|
-| **Inputs** | `skill_name` [required: an interactive run asks for it, a headless run without it halts `input-missing`; a path inside `{skills_output_folder}` names the skill folder it lies in]; optional flags: `--headless` / `-H` (or `headless_mode: true` in preferences.yaml), `--allow-workspace-drift`, `--no-discovery` (skip the report step's Discovery Testing block), `--no-health-check` (skip the health check that ends the run), `--tier=<Quick\|Forge\|Forge+\|Deep>` (bypass the forge-tier.yaml sidecar requirement; any other value halts `input-invalid`), `--threshold=<N>` (override the pass threshold; CLI wins over per-pipeline defaults and the `workflow.default_threshold` scalar), `--discovery-catalog=all` (widen the discovery catalog to the skills in `{project-root}/.claude/skills/` and `{project-root}/_bmad/agents/`) |
+| **Inputs** | `skill_name` [required: an interactive run asks for it, a headless run without it halts `input-missing`; a path inside `{skills_output_folder}` names the skill folder it lies in]; optional flags: `--headless` / `-H` (or `headless_mode: true` in preferences.yaml), `--allow-workspace-drift`, `--no-discovery` (skip the report step's Discovery Testing block), `--no-health-check` (skip the health check that ends the run), `--tier=<Quick\|Forge\|Forge+\|Deep>` (test at this tier, bypassing the forge-tier.yaml sidecar requirement; it wins over `tier_override`; any other value halts `input-invalid`), `--threshold=<N>` (override the pass threshold; CLI wins over per-pipeline defaults and the `workflow.default_threshold` scalar), `--discovery-catalog=all` (widen the discovery catalog to the skills in `{project-root}/.claude/skills/` and `{project-root}/_bmad/agents/`) |
 | **Gates** | none: every stage auto-proceeds, and the shared health check ends the run (its review gate defaults to [Q] in headless mode) |
 | **Outputs** | the test report `test-report-{skill_name}-{run_id}.md` in `{forge_version}/`, written as `.skf-test-report-{skill_name}-{run_id}.md` until report.md §4c's checks pass (a run the hard gate blocked included), so a halted run never leaves a partial report under the name export-skill and update-skill read; the result contract `skf-test-skill-result-{YYYYMMDD-HHmmss}.json` and its `skf-test-skill-result-latest.json` copy in `{forge_version}/`, written by the shared emitter; `evidence-report-fallback.md` in `{forge_version}/` when the threshold fallback fires (a score between 80% and the target threshold, no cap fired); the gap ledger `test-findings-{run_id}.json` in `{forge_version}/`; for the run itself, a run folder `{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}/` holding the files the scripts hand each other, which report.md §7 removes (a HALT keeps it) |
 | **Concurrency** | init.md §6a takes the run lock `{forge_version}/.test-skill.lock` through `skf-run-lock.py`, SKILL.md Workflow Rules renew it each time a subagent dispatch returns or, without subagents, the main thread finishes the work a step gives a subagent, each time the main thread finishes reading source files by eye, as each stage from detect-mode.md to report.md starts, and right before each subagent dispatch (report.md §4b.2's discovery subagents among them) or, without subagents, before the main thread starts the work a step gives a subagent, since it goes stale 60 minutes after it was taken or last renewed (a renewal right before a dispatch or that work passes `--stale-after 180`, a window the helper keeps in the lock, so no other run takes it over for 180 minutes while one dispatch runs, and the next renewal sets it back to 60), and report.md §4c renews it before it publishes the report and writes the result files; while another run holds a fresh lock, the run halts with `halt_reason: "another-run-active"` (exit 1). |
@@ -38,14 +38,14 @@ The emitter prints a finished run's line on stdout and a halt's or a blocked run
 | --- | --- |
 | `input-missing` | init.md §1: a headless run given no skill name |
 | `input-invalid` | init.md §1: a `--tier` value that names no tier |
-| `runtime-missing` | init.md §0b: `python3` or `uv` is not on `PATH` |
-| `helper-missing` | an SKF helper the run needs is not installed: init.md §1, §2, §3a, §5b and §6a, coherence-check.md §1 |
-| `helper-failed` | a helper or a script that exits with an error the step cannot correct: init.md §2 and §6b, the coverage and coherence steps' scripts, external-validators.md §5b, step 4c §2, score.md §3c, report.md §4b and §4c, the lock renewals of SKILL.md Workflow Rules |
+| `runtime-missing` | SKILL.md On Activation step 1: `uv` is not on `PATH`; init.md §0b: `python3` or `uv` is not on `PATH` |
+| `helper-missing` | an SKF helper the run needs is not installed: SKILL.md On Activation step 1 (`skf-preflight.py`), init.md §1, §2, §3a, §4 (`skf-forge-tier-rw.py`, unless `--tier` was passed), §5b and §6a, coherence-check.md §1 |
+| `helper-failed` | a helper or a script that exits with an error the step cannot correct: SKILL.md On Activation step 1 (a config `skf-preflight.py` cannot load, its `code` such as `CONFIG_MISSING` in the message), init.md §2, §4 and §6b, the coverage and coherence steps' scripts, external-validators.md §5b, step 4c §2, score.md §3c, report.md §4b and §4c, the lock renewals of SKILL.md Workflow Rules |
 | `write-failed` | init.md §6b and §6c (the run folder or the report), report.md §4c (the report's public name, or the result contract the emitter refused twice) |
 | `target-inaccessible` | init.md §2: no version of the skill to test |
 | `not-skf-output` | init.md §2: a flat skill SKF did not generate |
 | `frontmatter-invalid` | init.md §3b |
-| `forge-tier-missing` | init.md §4 |
+| `forge-tier-missing` | init.md §4: forge-tier.yaml is not there, or `skf-forge-tier-rw.py` cannot read a tier from it (a truncated or corrupted file) |
 | `workspace-drift` | init.md §5b |
 | `another-run-active` | init.md §6b, the lock renewals of SKILL.md Workflow Rules, and the lock renewal in report.md §4c |
 | `inventory-invalid` | coverage-check.md §1a: the documented inventory failed its schema check, spot-check or floor check twice |
@@ -55,7 +55,7 @@ The emitter prints a finished run's line on stdout and a halt's or a blocked run
 | `health-check-missing` | report.md §4c, before anything is published |
 | `hard-gate-blocked` | step 4c §3: not a halt, the run ends through report.md and publishes its FAIL |
 
-When the emitter itself is not installed (init.md §0), no line can be printed: that HALT displays its message alone.
+When the emitter itself is not installed (init.md §0), no line can be printed: that HALT displays its message alone. A HALT at SKILL.md On Activation step 1 prints its line only under `--headless` or `-H`: that step runs the preflight that reads `headless_mode` from preferences.yaml, so a run made headless by that setting alone displays the message alone there.
 
 ## Result Files
 

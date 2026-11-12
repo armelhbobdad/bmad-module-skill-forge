@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-brief-skill, skf-test-skill
+summary: |
+  Brief Skill and Test Skill now read the forge tier, the tool flags and the `tier_override` in `preferences.yaml` with `skf-forge-tier-rw.py` instead of reading the files by hand, so an override applies only when it names `Quick`, `Forge`, `Forge+` or `Deep`, capital letters included. Brief Skill now stops at its first step, with no result envelope, when that helper is missing. It takes its Quick fallback and warning for a `forge-tier.yaml` that holds no usable `tier`, a truncated one included, as it did for one that does not parse, and it names an ignored `tier_override` or a `preferences.yaml` it cannot read in the envelope's `warnings`. Test Skill now stops with `forge-tier-missing` on a `forge-tier.yaml` it cannot read a tier from, where it used to go on, and with `helper-missing` when the helper is missing, unless `--tier` is passed. `--tier` now wins over `tier_override`: a Test Skill run given `--tier` tests at that tier.
+migration: |
+  Reinstall SKF (`npx bmad-module-skill-forge install`) so the installed `skf-forge-tier-rw.py` is the current one: an older copy makes Brief Skill fall back to Quick and Test Skill stop with `helper-failed`. If a run now stops on, or falls back to Quick from, a damaged `forge-tier.yaml`, re-run Setup Forge to rewrite it, or pass `--tier` to Test Skill.
+issues: [1118]

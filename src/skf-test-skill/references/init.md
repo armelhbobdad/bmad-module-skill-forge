@@ -27,6 +27,13 @@ frontmatterScriptProbeOrder:
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+# Resolve `{forgeTierRwHelper}` to the first existing path; §4 HALTs if
+# neither exists, unless `--tier` was passed. §4 runs its `effective`
+# command once: it reads the tier and the tool flags from forge-tier.yaml
+# and applies a valid `tier_override` from preferences.yaml.
+forgeTierRwProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
+  - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 # Resolve `{checkWorkspaceDriftHelper}` to the first existing path; §5b HALTs
 # if neither exists. It runs the workspace drift guard, once per repository
 # of a stack skill.
@@ -82,7 +89,7 @@ Bind `{skill_name}` from the workflow argument: a skill name, or a path inside `
 - `--allow-workspace-drift`: bypass the section 5b pre-flight guard that halts when local workspace HEAD does not match `metadata.source_commit`. Store `allow_workspace_drift: true` in workflow context when present; §5b decides whether drift was overridden and records it in the report frontmatter (`workspaceDrift`), which the later steps read. No effect when `source_commit` is unpinned or the source is not a git working tree.
 - `--no-discovery` — skip the §4b Discovery Testing block in step 6 (report). Store `no_discovery: true` in workflow context when present.
 - `--no-health-check` — skip the §7 health-check dispatch in step 6 (report). Store `no_health_check: true` in workflow context when present.
-- `--tier=<Quick|Forge|Forge+|Deep>`: bypass the §4 forge-tier.yaml sidecar HALT. Store `tier_flag: '<value>'` in workflow context when present; §4 will set `detected_tier` directly from this value and skip the sidecar probe. A value that is not one of the four (case-sensitive) HALTs here, before anything runs (`halt_reason: "input-invalid"`, phase `init:flags`): "Error: --tier=<value> is not one of Quick, Forge, Forge+, Deep".
+- `--tier=<Quick|Forge|Forge+|Deep>`: test at this tier, bypassing the §4 forge-tier.yaml sidecar HALT. Store `tier_flag: '<value>'` in workflow context when present; §4 will set `detected_tier` directly from this value and read neither forge-tier.yaml nor `tier_override`, so the flag wins over `tier_override`. A value that is not one of the four (case-sensitive) HALTs here, before anything runs (`halt_reason: "input-invalid"`, phase `init:flags`): "Error: --tier=<value> is not one of Quick, Forge, Forge+, Deep".
 - `--threshold=<N>`: override the pass threshold for this run. §1b resolves it: CLI wins over per-pipeline defaults and the `workflow.default_threshold` scalar.
 - `--discovery-catalog=all`: widen the discovery catalog of step 6 §4b.0. Store `discovery_catalog_all: true` in workflow context when present.
 
@@ -225,19 +232,22 @@ This skill will fail `npx skills add` and `npx skill-check check`. {If warn:} Co
 
 ### 4. Load Forge Tier State
 
-**`--tier=<...>` flag bypass (precedes the sidecar probe).** If `tier_flag` is set in workflow context (from §1's `--tier=<Quick|Forge|Forge+|Deep>` flag, which §1 checked): set `detected_tier` directly to the flag's value, leave `ast_grep`/`gh_cli`/`qmd` availability flags unset (downstream steps treat unset as "unknown": analysis proceeds without tool-specific enrichment), log Info note "tier: supplied via --tier flag, sidecar bypassed", and SKIP the sidecar probe and HALT below (jump straight to §4b "Apply Tier Override").
+**`--tier=<...>` flag bypass (precedes the forge-tier call).** If `tier_flag` is set in workflow context (from §1's `--tier=<Quick|Forge|Forge+|Deep>` flag, which §1 checked): set `detected_tier` directly to the flag's value, leave `ast_grep`/`gh_cli`/`qmd` availability flags unset (downstream steps treat unset as "unknown": analysis proceeds without tool-specific enrichment), log Info note "tier: supplied via --tier flag, sidecar bypassed", and skip the call below, its HALTs and §4b: the flag's tier is the run's tier, and `tier_override` does not change it. Continue at §5.
 
-**Otherwise (no `--tier` flag):** Read `{sidecarFile}` to determine available analysis depth.
+**Otherwise (no `--tier` flag):** resolve `{forgeTierRwHelper}` ← first existing path in `{forgeTierRwProbeOrder}`. If neither path exists, HALT (`halt_reason: "helper-missing"`, phase `init:forge-tier`) with "Error: cannot locate skf-forge-tier-rw.py at `{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py` or `{project-root}/src/shared/scripts/skf-forge-tier-rw.py`. Install the SKF module or run from a development checkout with src/ present." From `{project-root}`, run it once. It reads the tier and the tool flags from `{sidecarFile}` and applies the `tier_override` of `{sidecar_path}/preferences.yaml` only when it names Quick, Forge, Forge+ or Deep, capital letters included:
 
-**If forge-tier.yaml exists:**
-- Read `tier` value (Quick, Forge, Forge+, or Deep)
-- Read tool availability flags (ast_grep, gh_cli, qmd)
+```bash
+uv run {forgeTierRwHelper} effective --target "{sidecarFile}" --preferences "{sidecar_path}/preferences.yaml"
+```
 
-**If forge-tier.yaml missing:** HALT (`halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecarFile}"`) with "**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep), or re-run with `--tier=<Quick|Forge|Forge+|Deep>` to bypass the sidecar."
+- **Exit 0 with `exists` true:** bind `{detected_tier}` ← its `tier`, the tier after a valid override (the JSON's own `detected_tier` is the file's tier), and the tool availability flags (`ast_grep`, `gh_cli`, `qmd`) ← its `tools`. This step reads neither file itself.
+- **Exit 0 with `exists` false** (forge-tier.yaml missing): HALT (`halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecarFile}"`) with "**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep), or re-run with `--tier=<Quick|Forge|Forge+|Deep>` to bypass the sidecar."
+- **Exit 2 with the helper's JSON error on stderr** (a forge-tier.yaml that cannot be read or parsed, or holds no `tier` it can use, a truncated one included): HALT (`halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecarFile}"`) with "**Cannot proceed.** forge-tier.yaml at `{sidecarFile}` cannot be read: {its `message`}. Re-run the **setup** workflow to rewrite it, or re-run with `--tier=<Quick|Forge|Forge+|Deep>` to bypass the sidecar."
+- **Any other exit, or no JSON:** HALT (`halt_reason: "helper-failed"`, phase `init:forge-tier`) with its stderr message. An exit 2 with no JSON on stderr counts here: an older `skf-forge-tier-rw.py`, which has no `effective` command, exits 2 that way.
 
 ### 4b. Apply Tier Override (if set)
 
-Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), update `detected_tier` to the override value for use in subsequent steps and output documents.
+This section reads no file: §4's call applied a valid `tier_override` already (its `tier_source` is then `override`), so `{detected_tier}` is the tier the later steps and output documents use. When its `override_rejected` is true, log an Info note: "tier_override: `{tier_override}` is not one of Quick, Forge, Forge+, Deep and was ignored; testing at the detected tier {detected_tier}."
 
 ### 5. Load Skill Metadata
 
