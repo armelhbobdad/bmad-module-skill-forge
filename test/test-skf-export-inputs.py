@@ -19,6 +19,8 @@ commands it documents:
   behind a one-line pointer, package.md renders the export-gate verdict
   without restating it, and the description names its object.
 - The export-gate halt names the Section 7b heading the gate matched.
+- #1111: the `activation_steps_append` entries run in step 6, after the
+  exit-4 checks of steps 4 and 5, not in step 3.
 """
 
 from __future__ import annotations
@@ -58,6 +60,9 @@ ACTIVATION_HELPERS = {
     "countTokensHelper": "skf-count-tokens.py",
 }
 FENCE_RE = re.compile(r"^\s*```")
+# #1111: the step that loads the first stage runs the append entries, after every step that can halt.
+LOAD_STEP = ("6. Execute each entry in `workflow.activation_steps_append` in order, then load, read the full file, "
+             "and execute `references/load-skill.md` to begin the workflow.")
 
 
 def _read(rel: str) -> str:
@@ -160,8 +165,24 @@ def test_activation_resolves_every_helper_the_steps_cannot_run_without():
     assert "before any prompt or write" in resolve
     assert 'HALT (exit code 4, `halt_reason: "context-rebuild-failed"`)' in resolve
     # Activation hands over to step 1 only after it: the first prompt is in step 1.
-    assert skill.index("4. **Resolve the helpers") < skill.index("Load, read the full file, and then execute "
-                                                                 "`references/load-skill.md`")
+    assert skill.index("4. **Resolve the helpers") < skill.index(LOAD_STEP)
+
+
+def test_the_append_entries_run_after_the_pre_flight_halts():
+    """#1111: On Activation step 3 runs only the prepend entries; step 6, after the exit-4 checks of steps 4 and 5,
+    runs the append entries and then loads load-skill.md, as customize.toml says."""
+    skill = _read(SKILL_MD)
+    customization = _section(skill, "3. **Resolve workflow customization.**",
+                             "4. **Resolve the helpers and create the run folder.**")
+    assert "activation_steps_append" not in customization
+    assert "activation_steps_prepend" in customization
+    assert skill.count(LOAD_STEP) == 1
+    assert skill.index("5. **Pre-flight write check.**") < skill.index(LOAD_STEP)
+    assert skill.index("on-activation §5") < skill.index(LOAD_STEP)
+    after = skill[skill.index(LOAD_STEP):].split("\n## ", 1)[0]
+    assert "HALT" not in after and after.count("activation_steps_append") == 1
+    comment = _comment_above((EXPORT / "customize.toml").read_text(encoding="utf-8"), "activation_steps_append")
+    assert "once activation completes successfully" in comment
 
 
 def test_no_step_resolves_an_activation_helper_again():

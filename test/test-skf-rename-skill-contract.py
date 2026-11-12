@@ -375,6 +375,11 @@ def test_hook_comments_match_activation_and_the_report():
     assert "after config load and headless" in prepend and "uv probe" not in toml
     append = _section(toml, "# Steps to run at the end of On Activation", "activation_steps_append =")
     assert "just before select.md loads" in append
+    # #1111: SKILL.md names the step the entries precede, as the comment does.
+    step3 = " ".join(_section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ").split())
+    assert step3.endswith("then, before step 4 loads select.md, execute each entry in "
+                          "`workflow.activation_steps_append` in order."), step3[-160:]
+    assert "after activation completes" not in step3
     hook = _section(toml, "# Optional post-completion hook", "on_complete =")
     for needle in ("a shell command, run from {project-root}", "report step 3",
                    "--result-path=<the per-run result file the shared", "skipped when the emitter wrote no result",

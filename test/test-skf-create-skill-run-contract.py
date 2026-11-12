@@ -1014,6 +1014,35 @@ def test_customize_names_its_override_files_and_how_to_drop_the_default():
     assert "`_bmad/custom/skf-create-skill.toml` under `{project-root}`" not in activation
 
 
+def _hook_comment(key: str) -> str:
+    """The comment block directly above `key = ...` in customize.toml, as one line."""
+    lines = _read(CS / "customize.toml").splitlines()
+    [at] = [i for i, line in enumerate(lines) if line.startswith(f"{key} = ")]
+    block = []
+    for line in reversed(lines[:at]):
+        if line.startswith("#"):
+            block.append(line.lstrip("# "))
+        elif block:
+            break
+    return " ".join(reversed(block))
+
+
+def test_the_hook_comments_name_the_steps_that_run_them():
+    """#1111: prepend runs in step 3, with no uv probe to precede; the append entries run once, after step 4
+    resolves the emitter and before step 5 loads the first stage, and SKILL.md says so."""
+    prepend = _hook_comment("activation_steps_prepend")
+    assert "uv probe" not in prepend
+    assert "SKILL.md On Activation step 3" in prepend
+    assert "after the config load (step 1) and the headless flag (step 2)" in prepend
+    step3 = " ".join(_section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ").split())
+    assert ("After step 4 and before step 5 loads load-brief.md or batch-mode.md, execute each entry in "
+            "`workflow.activation_steps_append` in order; a --batch run executes them once, not per brief.") in step3
+    assert "After activation completes" not in step3
+    append = _hook_comment("activation_steps_append")
+    assert "after step 4 and before step 5 loads load-brief.md or batch-mode.md" in append
+    assert "once, not per brief" in append
+
+
 # --------------------------------------------------------------------------
 # Version Reconciliation reads the source's version through the extractor
 # (v4.0.0 quality gate run 2, determinism-2)

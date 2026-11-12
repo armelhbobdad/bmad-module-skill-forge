@@ -2075,9 +2075,12 @@ def test_the_hook_comments_match_when_skill_md_runs_them():
     assert "uv probe" not in prepend
     step3 = _section(_read(SKILL), "3. **Resolve workflow customization.**", "\n4. ")
     assert "Run each `workflow.activation_steps_prepend` entry now, in order." in step3
-    assert "Once step 4 has parsed the flags, before step 5 or 6 starts the run, run each " \
-           "`workflow.activation_steps_append` entry in order." in step3
-    assert "step 4 has parsed the CLI flags" in _comment_before("activation_steps_append")
+    # #1111: every step number says whether it is an On Activation step or a stage.
+    assert "Once On Activation step 4 has parsed the flags, before On Activation step 5 or 6 starts the run, " \
+           "run each `workflow.activation_steps_append` entry in order." in step3
+    append = _comment_before("activation_steps_append")
+    assert "SKILL.md On Activation step 4 has parsed the CLI flags" in append
+    assert "before stage 1 (references/resolve-target.md)" in append
 
 
 def test_the_persistent_facts_default_says_how_to_drop_it():

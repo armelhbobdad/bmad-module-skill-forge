@@ -98,6 +98,6 @@ The sink, `{run_dir}/warnings.jsonl`, is the list: step 7 §8b lists it in `evid
 
    Stash both paths plus `{onCompleteCommand}` as workflow-context variables. Stage files reference `{stackSkillTemplatePath}` and `{integrationPatternsPath}` directly; empty-string overrides fall through to the bundled default.
 
-   Also apply the array surfaces: run `workflow.activation_steps_prepend` now, keep `workflow.persistent_facts` as standing context (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`), then run `workflow.activation_steps_append` after.
+   Run `workflow.activation_steps_prepend` now and keep `workflow.persistent_facts` as standing context (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`).
 
-4. Load, read the full file, and then execute `references/init.md` to begin the workflow.
+4. Run each entry in `workflow.activation_steps_append` in order, then load, read the full file, and execute `references/init.md` to begin the workflow.

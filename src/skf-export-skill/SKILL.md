@@ -72,7 +72,7 @@ Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes
    - `{snippetFormatPath}` ← `workflow.snippet_format_path`, else `assets/snippet-format.md`
    - `{onCompleteCommand}` ← `workflow.on_complete`, else empty (step 6 then runs no hook)
 
-   Then apply the array surfaces: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`); then, after activation completes and before the first stage runs, execute each entry in `workflow.activation_steps_append` in order.
+   Then apply the array surfaces: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`).
 
 4. **Resolve the helpers and create the run folder.** Resolve each helper to the first of its two paths that exists, the installed module first, all in parallel:
 
@@ -105,4 +105,4 @@ Headless callers and pipelines: the inputs, flags, gates, outputs and exit codes
 
    On any non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `on-activation §5`.
 
-6. Load, read the full file, and then execute `references/load-skill.md` to begin the workflow.
+6. Execute each entry in `workflow.activation_steps_append` in order, then load, read the full file, and execute `references/load-skill.md` to begin the workflow.

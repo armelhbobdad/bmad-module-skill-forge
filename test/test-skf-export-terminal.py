@@ -592,7 +592,7 @@ def test_the_dry_run_shows_the_manifest_line_where_it_runs():
 
 
 def test_activation_checks_the_skills_folder_without_writing_under_dry_run():
-    probe = _section(_read(SKILL_MD), "5. **Pre-flight write check.**", "6. Load, read the full file")
+    probe = _section(_read(SKILL_MD), "5. **Pre-flight write check.**", "6. Execute each entry")
     assert "Without `--dry-run`, probe it with a write:" in probe
     dry = next(line for line in probe.splitlines() if "With `--dry-run`, check without writing" in line)
     assert '`test -w "{skills_output_folder}"`' in dry

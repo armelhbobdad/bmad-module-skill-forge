@@ -79,6 +79,6 @@ Headless callers: the inputs, flags, gate map, outputs, concurrency rule and `SK
 
    Stash both as workflow-context variables. Stage files reference them directly, with no conditional at the usage site.
 
-   Then apply the resolved array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`); and after activation completes, execute each entry in `workflow.activation_steps_append` in order.
+   Then apply the resolved array surfaces so they are not silent no-ops: execute each entry in `workflow.activation_steps_prepend` in order now; treat every entry in `workflow.persistent_facts` as standing context for the whole run (the bundled default loads every `project-context.md` under `{project-root}`; `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file to load, never one under `{project-root}/_bmad-output/.skf-run/`); then, before step 4 loads select.md, execute each entry in `workflow.activation_steps_append` in order.
 
 4. Load, read the full file, and then execute `references/select.md` to begin the workflow.

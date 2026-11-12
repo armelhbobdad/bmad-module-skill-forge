@@ -10,15 +10,17 @@
 #   scalars: override wins • arrays (persistent_facts, activation_steps_*): append
 #   arrays-of-tables with `code`/`id`: replace matching items, append new ones.
 
-# Steps to run before the standard activation (uv probe, config load).
-# Overrides append. Use for org-wide pre-flight checks (auth, network,
-# compliance) that must precede any skill compilation work.
+# Steps SKILL.md On Activation step 3 runs once this file resolves: after
+# the config load (step 1) and the headless flag (step 2), before step 4
+# resolves the emitter, and before any stage. Overrides append. Use for
+# org-wide pre-flight checks (auth, network, compliance) that must precede
+# any skill compilation work.
 
 activation_steps_prepend = []
 
-# Steps to run after activation but before the first stage executes.
-# Overrides append. Use for context loads or banner customization that
-# should run once activation completes successfully.
+# Steps SKILL.md On Activation runs after step 4 and before step 5 loads
+# load-brief.md or batch-mode.md; a --batch run executes them once, not per
+# brief. Overrides append. Use for context loads or banner customization.
 
 activation_steps_append = []
 

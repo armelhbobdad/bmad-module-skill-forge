@@ -25,6 +25,12 @@ block across all sixteen activations.
 - #601: each Conventions block states the module-level path exception, and
   the sibling-skill rule wherever the skill names another skill's folder.
 - #603: headless_mode is read from `{sidecar_path}/preferences.yaml`.
+- #1111: every workflow but Drop Skill (which documents its earlier run
+  point) runs `activation_steps_append` at the On Activation step that loads
+  its first stage, after every On Activation step that can halt: inside that
+  step, before the file it loads, or in a clause that runs them before or at
+  that step and names each step that can halt in between as passed. Ferris
+  is an agent with no first stage.
 """
 
 from __future__ import annotations
@@ -50,11 +56,11 @@ STEPS = {
     "skf-brief-skill": ("3. **Resolve workflow customization.**", "4. **Resolve the envelope emitter**"),
     "skf-campaign": ("3. **Resolve workflow customization.**", "4. **Parse CLI overrides**"),
     "skf-create-skill": ("3. **Resolve workflow customization.**", "4. Resolve `{emitEnvelopeHelper}`"),
-    "skf-create-stack-skill": ("3. **Resolve workflow customization.**", "4. Load, read the full file"),
+    "skf-create-stack-skill": ("3. **Resolve workflow customization.**", "4. Run each entry"),
     "skf-quick-skill": ("3. **Resolve workflow customization.**", "4. **Parse CLI overrides**"),
     "skf-refine-architecture": ("4. **Resolve workflow customization.**", "5. **Pre-flight"),
     "skf-rename-skill": ("3. **Resolve workflow customization.**", "4. Load, read the full file"),
-    "skf-test-skill": ("3. **Resolve workflow customization.**", "4. Load, read the full file"),
+    "skf-test-skill": ("3. **Resolve workflow customization.**", "4. Run each entry"),
     "skf-verify-stack": ("4. **Resolve workflow customization.**", "5. **Pre-flight: the emitter.**"),
 }
 WORKFLOWS = sorted(STEPS)
@@ -441,3 +447,80 @@ def test_headless_mode_reads_the_sidecar_preferences(skill):
     activation = _activation(skill)
     assert "`{sidecar_path}/preferences.yaml`" in activation, skill
     assert "in preferences.yaml." not in activation, skill
+
+
+# --------------------------------------------------------------------------
+# #1111: activation_steps_append runs at the step that loads the first stage
+# --------------------------------------------------------------------------
+
+# The On Activation step that starts each workflow's first stage, and what it names: the stage file, or Campaign's
+# dispatch. Drop Skill runs the entries before its pre-flight on purpose (test-skf-drop-skill-contract.py pins
+# that), and Ferris has no first stage (test-skf-resolver-block.py pins his run point).
+FIRST_STAGE = {
+    "skf-analyze-source": (6, "references/init.md"),
+    "skf-audit-skill": (5, "references/init.md"),
+    "skf-brief-skill": (5, "references/gather-intent.md"),
+    "skf-campaign": (5, "**dispatch**"),
+    "skf-create-skill": (5, "references/load-brief.md"),
+    "skf-create-stack-skill": (4, "references/init.md"),
+    "skf-export-skill": (6, "references/load-skill.md"),
+    "skf-quick-skill": (5, "references/batch-mode.md"),
+    "skf-refine-architecture": (6, "references/init.md"),
+    "skf-rename-skill": (4, "references/select.md"),
+    "skf-setup": (7, "references/detect-and-tier.md"),
+    "skf-test-skill": (4, "references/init.md"),
+    "skf-update-skill": (5, "references/init.md"),
+    "skf-verify-stack": (6, "references/init.md"),
+}
+APPEND = "activation_steps_append"
+
+
+def _numbered_steps(skill: str) -> dict[int, str]:
+    """On Activation split at its column-0 `N. ` items, each flattened to one line."""
+    parts = re.split(r"(?m)^(\d+)\. ", _activation(skill))
+    return {int(parts[i]): _flat(parts[i + 1]).strip() for i in range(1, len(parts), 2)}
+
+
+def _append_clauses(text: str) -> list[tuple[int, str]]:
+    """Each `; ` or `. ` delimited clause of `text` that mentions the append surface, with its offset."""
+    found, start = [], 0
+    for clause in re.split(r"; |\. ", text):
+        at = text.index(clause, start)
+        start = at + len(clause)
+        if APPEND in clause:
+            found.append((at, clause))
+    return found
+
+
+def test_first_stage_names_every_workflow_but_drop_skill_and_ferris():
+    skills = {path.parent.name for path in SRC.glob("skf-*/SKILL.md")}
+    assert set(FIRST_STAGE) | {"skf-drop-skill", "skf-forger"} == skills
+    assert not set(FIRST_STAGE) & {"skf-drop-skill", "skf-forger"}
+
+
+@pytest.mark.parametrize("skill", sorted(FIRST_STAGE))
+def test_the_append_steps_run_where_the_first_stage_starts(skill):
+    """The entries run after every On Activation step that can halt: inside the step that loads the first stage,
+    before the file it loads, or, outside that step, in a clause that runs them before or at it (`before step N`,
+    `before On Activation step N`, `before item N`, `before §N`, `at step N`). A clause that runs them after
+    step N's file, such as "once step 6 has loaded init.md" or "at step 6, once load-skill.md has finished", fails.
+    A clause outside that step also names each step that can halt in between as passed (`after step M`,
+    `once step M ... passed`), as Audit's "once step 4 below has passed" and Refine's "once §5's pre-flight has
+    passed" do."""
+    n, stage = FIRST_STAGE[skill]
+    steps = _numbered_steps(skill)
+    assert stage in steps[n], (skill, n, stage)
+    halting = sorted(k for k, text in steps.items() if re.search(r"HALT|halt with phase", text))
+    assert all(k < n for k in halting), (skill, n, halting)
+    runs_by_step = re.compile(rf"\b(?:before|at) (?:On Activation )?(?:(?:step|item) |§){n}(?!\w)")
+    clauses = [(k, at, clause) for k, text in sorted(steps.items()) for at, clause in _append_clauses(text)]
+    assert clauses, skill
+    for k, at, clause in clauses:
+        if k == n:
+            assert at + clause.index(APPEND) < steps[n].index(stage), (skill, k, clause)
+        else:
+            assert runs_by_step.search(clause), (skill, k, clause)
+        for m in (m for m in halting if k <= m < n):
+            step_m = rf"(?:On Activation )?(?:(?:step|item) |§){m}(?!\w)"
+            passed = rf"\bafter {step_m}|\bonce {step_m}[^,;]*\bpassed\b"
+            assert re.search(passed, clause), (skill, k, m, clause)

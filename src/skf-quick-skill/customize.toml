@@ -18,9 +18,10 @@
 
 activation_steps_prepend = []
 
-# Steps to run once activation completes (step 4 has parsed the CLI flags),
-# before step 1 or a --batch run starts; a batch runs them once, not per
-# target. Overrides append. Use for context loads or banner customization.
+# Steps to run once activation completes (SKILL.md On Activation step 4 has
+# parsed the CLI flags), before stage 1 (references/resolve-target.md) or a
+# --batch run starts; a batch runs them once, not per target. Overrides
+# append. Use for context loads or banner customization.
 
 activation_steps_append = []
 
