@@ -1,0 +1,5 @@
+type: fixed
+scope: all workflows
+summary: |
+  At a matching open issue, the health check's `[R]` and `[C]` choices now react and comment on that issue in the health-check repository. Both calls named no repository: the reaction's path left out the owner, so it failed with a 404, and the comment went to an issue of your own project. Each choice was still recorded in the seen-issue cache (`~/.skf/health-check-seen.json`), which kept later sightings of the defect from being reported while the issue stayed open. Now a choice is recorded only when every call of it posted, and one with a call that fails is saved to the local queue with the reason "Posting these to GitHub failed." A `[C]` whose comment fails keeps the reaction it already added.
+issues: [1202]

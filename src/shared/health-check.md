@@ -236,12 +236,14 @@ Only the user decides a possible match. A headless run never reaches this choice
 
 Execute the chosen action:
 
-- **R:** `gh api -X POST /repos/{repo}/issues/{N}/reactions -f content='+1'`
-- **C:** Same reaction call, then `gh issue comment {N} --body "{minimal env+delta body}"`. The delta body is the Environment table plus ONE sentence describing what's different from the original. No session narrative.
+- **R:** `gh api -X POST repos/{healthCheckRepo}/issues/{N}/reactions -f content='+1'`
+- **C:** Same reaction call, then `gh issue comment {N} --repo {healthCheckRepo} --body "{minimal env+delta body}"`. The delta body is the Environment table plus ONE sentence describing what's different from the original. No session narrative.
 - **N:** After a match found by `{fp}`: the open issue carries this same fingerprint, so a new issue under it would be closed as its duplicate. Choose a more specific defect key that names what sets this defect apart (the more specific name the fix edits, or the case it covers, still in the source's words), recompute `{fp}` with it, then proceed to step 5a-ii. After a possible match, proceed to step 5a-ii as is: that issue's `fp-*` label differs from `{fp}`.
 - **S:** Record nothing.
 
-After **R** or **C**, record the outcome under `{fp}`, also when the match was found by `{legacy_fp}`: `reacted` after **R** and `commented` after **C**, with the matched issue's `url` and today's date as YYYY-MM-DD:
+The **R** and **C** calls name `{healthCheckRepo}`, as the step's other issue calls do: without it, `gh` reacts or comments on the repository of the folder the workflow ran in, usually the user's own project. If one of them exits non-zero, log its stderr message and make no further call for this finding: **C** posts no comment after a failed reaction, and a reaction it already added stays. Record nothing (run neither record call below) and write the finding to the local queue (§5c) with the failed-submission reason.
+
+When every call of **R** or **C** succeeded, record the outcome under `{fp}`, also when the match was found by `{legacy_fp}`: `reacted` after **R** and `commented` after **C**, with the matched issue's `url` and today's date as YYYY-MM-DD:
 
 ```
 uv run {seenCacheHelper} record --fp "{fp}" --action {reacted|commented} --issue-url "{url}" --date "{today}"
@@ -398,7 +400,7 @@ It prints `{"written": ..., "fp": ..., "record": ..., "set_aside": ...}`, `recor
 
 ### 5c. Local-Queue Path (gh unavailable, friction/gap default, or Queue locally)
 
-For findings that didn't go live (gh unavailable, SKF's health-check helper missing, user declined the friction/gap opt-in, user chose **\[S]** at the dedup gate, a run with no user to ask took **\[S]** at a possible match, or the §4 review gate resolved to **\[Q]**), write a local file to `{localFallbackFolder}/`:
+For findings that didn't go live (gh unavailable, SKF's health-check helper missing, user declined the friction/gap opt-in, user chose **\[S]** at the dedup gate, a run with no user to ask took **\[S]** at a possible match, a reaction or comment at the dedup gate failed, or the §4 review gate resolved to **\[Q]**), write a local file to `{localFallbackFolder}/`:
 
 **Filename:** `hc-{workflow}-{timestamp}.md` (one file per finding, timestamp as YYYYMMDD-HHmmss; when findings share a timestamp, append `-2`, `-3`, … to the later names so no file is overwritten)
 
@@ -417,7 +419,7 @@ date: {ISO date}
 
 When SKF's health-check helper is missing (§5a sub-step 1), write `N/A` as the `fingerprint` here and in the body's `## Fingerprint` and `Section fingerprint:` lines.
 
-After writing all files, if `{quiet_mode}` is true, display only `{setup_envelope_line}` (§0) and stop. Otherwise display the block below. `{reason}` is the sentence that says why the findings stayed local: "GitHub CLI is not available.", "SKF's health-check helper is missing; re-install SKF to submit these.", "Friction and gap findings stay local unless you opt in.", "You skipped these at the dedup gate.", "These may match an open issue from the same section; review them before submitting." (the possible-match reason) or "The review gate queued these locally."
+After writing all files, if `{quiet_mode}` is true, display only `{setup_envelope_line}` (§0) and stop. Otherwise display the block below. `{reason}` is the sentence that says why the findings stayed local: "GitHub CLI is not available.", "SKF's health-check helper is missing; re-install SKF to submit these.", "Friction and gap findings stay local unless you opt in.", "You skipped these at the dedup gate.", "These may match an open issue from the same section; review them before submitting." (the possible-match reason), "Posting these to GitHub failed." (the failed-submission reason) or "The review gate queued these locally."
 
 "**{N} finding(s) saved locally:**
 {list each file path}

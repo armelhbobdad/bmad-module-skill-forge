@@ -270,8 +270,9 @@ def test_a_legacy_match_goes_to_the_users_choice():
     assert "A headless run never reaches this choice, because §4 queues its findings locally" in choice
     assert ("A run that reaches it with no user to ask takes **\\[S]**, so the finding goes to the local queue (§5c) "
             "with the possible-match reason") in choice
-    assert ("After **R** or **C**, record the outcome under `{fp}`, also when the match was found by `{legacy_fp}`: "
-            "`reacted` after **R** and `commented` after **C**") in choice
+    # #1202: only a reaction or comment that posted is recorded (test-skf-health-check-gh-calls.py pins the rest).
+    assert ("When every call of **R** or **C** succeeded, record the outcome under `{fp}`, also when the match was "
+            "found by `{legacy_fp}`: `reacted` after **R** and `commented` after **C**") in choice
     raw = _slice(_read(SHARED_HEALTH_CHECK), "**5a-i. If a matching open issue exists:**", SUB_STEP_5A_II)
     reaction = ('uv run {seenCacheHelper} record --fp "{fp}" --action {reacted|commented} --issue-url "{url}" '
                 '--date "{today}"')
