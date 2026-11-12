@@ -37,7 +37,7 @@ Every exit reaches its terminal sequence (#585):
    forbids every write ahead of a section that writes, unless it names the
    exception (folded in from test-skf-stack-step-rules.py, for every
    workflow). The step that hands over to the local health check prints
-   no bold or heading banner that calls the run complete (#1115).
+   no bold, heading or quoted line that calls the run complete (#1115).
 8. Every local health-check step but Update Skill's hands over to the
    shared one with no Rules lines padding its one load: no heading below
    the title (Setup keeps its headings, for the Rules its quiet mode reads)
@@ -590,12 +590,14 @@ def test_only_the_shared_health_check_ends_the_run():
     assert EARLY_END_RE.search(shared), "the shared health check no longer says the workflow is done"
 
 
-# A bold line or a displayed heading that calls the run complete. The shared
-# health check's "Workflow complete." is the only completion line a run
-# prints: an agent that reads one in the step before it stops there and skips
-# the health check (#107, #1115). "On-complete hook" names the hook, not the run.
+# A bold line, a displayed heading or a quoted line to display that calls the
+# run complete. The shared health check's "Workflow complete." is the only
+# completion line a run prints: an agent that reads one in the step before it
+# stops there and skips the health check (#107, #1115). "On-complete hook"
+# names the hook, not the run.
 COMPLETE_BANNER_RE = re.compile(
-    r"\*\*[^*\n]*(?<![\w-])complete\b[^*\n]*\*\*|^\"#+ [^\n]*(?<![\w-])complete\b",
+    r"\*\*[^*\n]*(?<![\w-])complete\b[^*\n]*\*\*|^\"#+ [^\n]*(?<![\w-])complete\b"
+    r"|\"(?=[^\"\s])[^\"\n]*(?<![\w-])complete\b[^\"\n]*\"",
     re.IGNORECASE | re.MULTILINE,
 )
 HANDS_OVER_RE = re.compile(r"^\w+:\s*['\"]?health-check\.md['\"]?\s*$", re.MULTILINE)
@@ -615,10 +617,13 @@ def test_no_step_before_the_health_check_prints_a_completion_banner(path: pathli
 
 def test_banner_pattern_matches_a_completion_banner_and_not_the_hook():
     for banner in ("**Brief-skill workflow complete.**", "**Export Complete{if dry-run: ' (Dry Run)'}**",
-                   '"### Dry Run Complete', "**Test complete for {skill_name}.**"):
+                   '"### Dry Run Complete', "**Test complete for {skill_name}.**",
+                   '"Batch complete: {succeeded} of {targets_total} briefs compiled."'):
         assert COMPLETE_BANNER_RE.search(banner), banner
     for line in ("**On-complete hook.**", "### 1. Load Complete Report", "**Steps Completed:**",
-                 "**Export summary{if dry-run: ' (Dry Run)'}**"):
+                 "**Export summary{if dry-run: ' (Dry Run)'}**",
+                 '"Batch summary: {succeeded} of {targets_total} briefs compiled."', '`"on_complete"`',
+                 '"**Campaign summary:** {skills_completed} completed, {skills_failed} failed"'):
         assert not COMPLETE_BANNER_RE.search(line), line
     shared = (SRC / "shared" / "health-check.md").read_text(encoding="utf-8")
     assert "Workflow complete." in shared, "the shared health check no longer prints the run's completion line"
