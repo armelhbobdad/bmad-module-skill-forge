@@ -5,3 +5,4 @@ summary: |
 migration: |
   Follow the reason the workflow gives, then re-run: delete or move out of the way the version folder already in `<skills folder>/<name>/`, or move what `<name>/<version>.skf-migrate/<name>/` holds back into `<name>/` and delete that folder; replace a linked package entry, such as `references`, with the folder or file it points to; or set `version` in `<name>/metadata.json` to a full version written as its folder name, such as `1.0.0`. The troubleshooting guide's "A flat skill cannot be moved into the versioned layout" entry covers each reason. Skills already in the versioned layout are not affected.
 issues: [1121]
+prs: [1204]
