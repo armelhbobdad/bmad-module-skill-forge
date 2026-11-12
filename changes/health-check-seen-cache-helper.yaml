@@ -1,0 +1,5 @@
+type: fixed
+scope: all workflows
+summary: |
+  On macOS, the health check that ends every workflow now reports a defect whose issue was closed as completed as a regression when it comes back: it checked the issue with `timeout 10 gh issue view`, and stock macOS has no `timeout`, so the check always failed and counted as handled. The health check now computes a finding's fingerprint, looks it up in the seen-issue cache (`~/.skf/health-check-seen.json`) and records it there through one shared helper, `skf-health-check-seen.py`, instead of having the model hash the fingerprint with `sha1sum`, run the issue check and merge the file by hand: the helper limits `gh issue view` to 10 seconds itself, and the fingerprint no longer needs `sha1sum` or `shasum`. Recording a finding keeps every other fingerprint in the cache, never turns a `resolved` record back into one that suppresses, holds a lock so parallel sessions keep each other's records, and renames a cache that does not parse to `health-check-seen.json.corrupt-<UTC time>` instead of discarding it. When the helper is missing, the findings are saved to the local queue with the fingerprint `N/A`.
+issues: [1122]

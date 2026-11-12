@@ -455,7 +455,8 @@ def _resolve_outside_cwd(command: str) -> str | None:
 # for parse_remote, _run, _resolve_outside_cwd, _rmtree and
 # _is_link_or_junction, skf-detect-registry.py and
 # skf-disqualify-candidates.py for _git, skf-extract-public-api.py for _git
-# and _resolve_outside_cwd, and skf-security-scan.py for _run and
+# and _resolve_outside_cwd, skf-health-check-seen.py for _run and
+# _resolve_outside_cwd, and skf-security-scan.py for _run and
 # _resolve_outside_cwd (its test reads KILL_WAIT_SEC): keep those names and
 # what they take and return. test/test-skf-source-tree.py checks that this
 # comment names every script that loads this file.

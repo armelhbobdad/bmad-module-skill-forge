@@ -1011,17 +1011,22 @@ def test_shared_health_check_gate_has_listed_headless_default_q():
 
 def test_queue_fingerprint_has_a_portable_form():
     """[Q] is the default for every headless run with findings, so its
-    fingerprint cannot depend on `sha1sum`, which stock macOS and Windows lack."""
+    fingerprint cannot depend on `sha1sum`, which stock macOS and Windows lack:
+    the shared helper hashes it in Python (#1122)."""
     section = _section(_read(SHARED_HEALTH_CHECK), "### 5a.")
-    assert "`shasum -a 1`" in section
-    m = re.search(r'^uv run python -c "(.+?)" '
-                  r'"\{severity\}\|\{workflow\}\|\{step_file\}\|\{section-slug\}\|\{defect-key\}"$',
-                  section, re.MULTILINE)
-    assert m, "portable fingerprint snippet not found"
+    assert "sha1sum" not in section and "shasum" not in section
+    call = ('uv run {seenCacheHelper} fingerprint --severity "{severity}" --workflow "{workflow}" '
+            '--step-file "{step_file}" --section "{section-slug}" --defect-key "{defect-key}"')
+    assert call in section.splitlines()
+    helper = SRC / "shared" / "scripts" / "skf-health-check-seen.py"
+    values = {"{severity}": "bug", "{workflow}": "skf-setup", "{step_file}": "references/report.md",
+              "{section-slug}": "emit-headless-json-envelope", "{defect-key}": "result-envelope"}
+    for placeholder, value in values.items():
+        call = call.replace(placeholder, value)
+    out = subprocess.run([sys.executable, str(helper), *shlex.split(call)[3:]], capture_output=True, text=True,
+                         encoding="utf-8", check=True).stdout
     key = "bug|skf-setup|references/report.md|emit-headless-json-envelope|result-envelope"
-    out = subprocess.run([sys.executable, "-c", m.group(1), key], capture_output=True, text=True,
-                         encoding="utf-8", check=True).stdout.strip()
-    assert out == hashlib.sha1(key.encode("utf-8")).hexdigest()[:7]
+    assert json.loads(out)["fp"] == "fp-" + hashlib.sha1(key.encode("utf-8")).hexdigest()[:7]
 
 
 def test_campaign_relay_carries_no_routing_consent():
