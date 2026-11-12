@@ -385,9 +385,10 @@ cites (never read; default `metadata.json`):
             `tesslValidationFindings[]` entry a Low `external-validator` gap
             `Tessl Review: {name}` at `SKILL.md`, its message the issue; each
             description suggestion a Low `description` gap titled with it at
-            `SKILL.md frontmatter description`, fixed in the skill brief; and
-            each content suggestion no mark names an Info
-            `external-validator` gap titled with it at `SKILL.md`.
+            `SKILL.md frontmatter description`, fixed there (and in the brief,
+            when the skill has one); and each content suggestion no mark
+            names an Info `external-validator` gap titled with it at
+            `SKILL.md`.
 
   render --ledger <path> [--heading]
       Print the Gap Report body in Markdown on stdout: the totals, the
@@ -2363,8 +2364,8 @@ def from_external(result: object, marks: list[str] | None = None) -> list[dict]:
     for suggestion in _suggestions(result, "tesslDescriptionSuggestions"):
         records.append(_gap(
             "Low", "description", suggestion, "SKILL.md frontmatter description",
-            "Edit the description in the skill brief as this suggestion says, then re-run Create Skill: the "
-            "description is compiled from the brief."))
+            "Edit the SKILL.md frontmatter description as this suggestion says, then re-run Test Skill. When "
+            "the skill has a brief, edit the description there too, so the next Create Skill run keeps it."))
     for index, suggestion in enumerate(content):
         if index not in skipped:
             records.append(_gap(

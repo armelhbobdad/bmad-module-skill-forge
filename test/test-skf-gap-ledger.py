@@ -3536,8 +3536,9 @@ class TestExternalAdapter:
         assert records[3]["issue"] == "unknown key `x`"
         assert records[3]["remediation"] == ("Fix what Tessl Review's `frontmatter_unknown_keys` check reports in "
                                              "SKILL.md, then re-run Test Skill.")
-        assert records[4]["remediation"] == ("Edit the description in the skill brief as this suggestion says, then "
-                                             "re-run Create Skill: the description is compiled from the brief.")
+        assert records[4]["remediation"] == ("Edit the SKILL.md frontmatter description as this suggestion says, "
+                                             "then re-run Test Skill. When the skill has a brief, edit the "
+                                             "description there too, so the next Create Skill run keeps it.")
         assert records[5]["remediation"] == ("Apply this Tessl Review suggestion to SKILL.md only if you agree: it "
                                              "is advisory.")
         again = json.loads(from_file(ledger, "external-validators", "external", result,
