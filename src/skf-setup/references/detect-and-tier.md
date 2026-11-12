@@ -22,32 +22,18 @@ Through `{detectToolsHelper}`, verify the four forge tools (ast-grep, gh, qmd, c
 
 ## Rules
 
-- Focus only on tool detection and tier calculation: write nothing but this run's folder and the detector's output and stderr in it (step 2 writes the configuration)
+- Focus only on tool detection and tier calculation: write nothing but the detector's output and stderr, in the run folder On Activation made (step 2 writes the configuration)
 - Never reimplement tool probes or the tier rules in prose: the script is authoritative
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
 - If no path in `detectToolsProbeOrder` exists, halt with phase `step 1:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-detect-tools.py was not found. Reinstall SKF, then re-run /skf-setup.`
-- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, `--stderr-from` where the halt names it, and `--customization-resolver-unavailable "<reason>"` once SKILL.md On Activation item 6 bound `{customization_resolver_unavailable}` to a reason, escaped as the halt contract says), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
+- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, `--stderr-from` where the halt names it, and `--customization-resolver-unavailable-from "{run_dir}/resolver.err"` once SKILL.md On Activation item 6 bound `{customization_resolver_unavailable}` to a reason), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 
 ## MANDATORY SEQUENCE
 
 ### 1. Run Detection Helper
 
-Create this run's folder:
-
-```bash
-mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-setup-XXXXXXXX"
-```
-
-Bind `{run_dir}` ← the path it prints. If the folder cannot be created, halt with phase `step 1:run-folder`, `path` `{project-root}/_bmad-output/.skf-run`, and reason `Setup cannot proceed: the run folder could not be created: <message>`, where `<message>` is the command's first stderr line. With no run folder to hold that stderr, a quiet run repeats the command with its stderr piped to the emitter, which fills `<message>`; a repeat that succeeds removes the folder it made, and its reason then ends `(no error message)`:
-
-```bash
-{ mkdir -p "{project-root}/_bmad-output/.skf-run" && rmdir "$(mktemp -d "{project-root}/_bmad-output/.skf-run/skf-setup-XXXXXXXX")"; } 2>&1 >/dev/null | uv run {emitEnvelopeHelper} emit-blocked --phase "step 1:run-folder" --path "{project-root}/_bmad-output/.skf-run" --reason "Setup cannot proceed: the run folder could not be created: <message>" --stderr-from - [--customization-resolver-unavailable "{customization_resolver_unavailable}"]
-```
-
-In each `emit-blocked` call of this step, keep the bracketed `--customization-resolver-unavailable` only when On Activation item 6 bound `{customization_resolver_unavailable}` to a reason, escaped as the halt contract says; otherwise leave it out.
-
-Then run the detector into the folder:
+Run the detector into `{run_dir}`, the run folder SKILL.md On Activation item 5b made:
 
 ```bash
 uv run {detectToolsHelper} --project-root "{project-root}" \
@@ -65,8 +51,10 @@ Output is one JSON document on stdout; `DETECT_OUTPUT_SCHEMA` in the helper's do
 ```bash
 uv run {emitEnvelopeHelper} emit-blocked --phase "step 1:detect-tools" --path "{project-root}" \
     --reason "Setup cannot proceed: tool detection failed: <message>" --stderr-from "{run_dir}/detect-tools.err" \
-    [--customization-resolver-unavailable "{customization_resolver_unavailable}"]
+    [--customization-resolver-unavailable-from "{run_dir}/resolver.err"]
 ```
+
+In each `emit-blocked` call of this step, keep the bracketed `--customization-resolver-unavailable-from` only when On Activation item 6 bound `{customization_resolver_unavailable}` to a reason; otherwise leave it out.
 
 ### 2. Parse Output and Set Context Flags
 

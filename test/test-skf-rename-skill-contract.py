@@ -400,7 +400,8 @@ def test_the_project_context_default_stays_and_says_how_to_drop_it():
 def test_the_manifest_backup_is_a_file_in_the_run_folder():
     """w3 determinism-2: the backup is copied, never held in context, and the restore reads it back."""
     manifest = _section(_read(EXECUTE), "### 6. Update Export Manifest", "### 7. ")
-    assert 'cp "{skills_output_folder}/.export-manifest.json" "{run_dir}/export-manifest.backup.json"' in manifest
+    assert ('cp "{skills_output_folder}/.export-manifest.json" "{run_dir}/export-manifest.backup.json" '
+            '2> "{run_dir}/call.err"') in manifest
     assert ('uv run {atomicWriteHelper} write --target "{skills_output_folder}/.export-manifest.json" '
             '< "{run_dir}/export-manifest.backup.json"') in manifest
     for stale in ("manifest_backup", "hold its exact text", "SKF_MANIFEST_BACKUP", "Read the manifest again"):
@@ -409,7 +410,8 @@ def test_the_manifest_backup_is_a_file_in_the_run_folder():
                  "uv run {manifestOpsHelper} {skills_output_folder} get {old_name}"):
         assert call in manifest, call
     report = _read(REPORT)
-    assert '"{run_dir}/rename-rewrite.json" "{run_dir}/export-manifest.backup.json" && rmdir "{run_dir}"' in report
+    assert ('"{run_dir}/rename-rewrite.json" "{run_dir}/export-manifest.backup.json" "{run_dir}/call.err" '
+            '&& rmdir "{run_dir}"') in report
 
 
 def test_the_report_lists_what_it_shows():

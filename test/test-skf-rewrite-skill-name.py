@@ -1178,6 +1178,9 @@ def test_rename_section_2_runs_the_batch_it_documents(tmp_path, forge_move):
               "skills_output_folder": str(skills), "forge_data_folder": str(forge), "run_dir": str(run_dir)}
     words = shlex.split(re.sub(r"\{([^{}]+)\}", lambda m: "@@" + str(list(values).index(m.group(1))) + "@@", call))
     argv = [re.sub(r"@@(\d+)@@", lambda m: values[list(values)[int(m.group(1))]], w) for w in words]
+    # #1119: the call saves its stderr where the halt that quotes it reads it.
+    assert argv[-2:] == ["2>", f"{run_dir}/call.err"], argv
+    argv = argv[:-2]
     assert argv[:3] == ["uv", "run", str(SCRIPT)]
     assert mod._build_parser().parse_args(argv[3:]).skill_group == group
     proc = subprocess.run([sys.executable, *argv[2:]], capture_output=True, encoding="utf-8")

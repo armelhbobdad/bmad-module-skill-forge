@@ -97,6 +97,8 @@ ROUTE_EXCEPTIONS = {
 }
 # The activations that bind the helper from skf-preflight.py --helpers instead of probing for it.
 ITEM_4_BINDS = {"skf-setup": "With `{resolveCustomizationHelper}` bound in item 4, run:"}
+# The activations that save the resolver's stderr for the emitter to read the reason from (#1119).
+STDERR_FILES = {"skf-setup": ' 2> "{run_dir}/resolver.err"'}
 CREATE_STACK_INIT = SRC / "skf-create-stack-skill" / "references" / "init.md"
 PIPELINE_MODE = SRC / "skf-forger" / "references" / "pipeline-mode.md"
 
@@ -120,7 +122,7 @@ def _step(skill: str) -> str:
 
 def _command(skill: str) -> str:
     assert AC.COMMAND.endswith(" --key workflow")
-    return AC.COMMAND.removesuffix("workflow") + KEY[skill]
+    return AC.COMMAND.removesuffix("workflow") + KEY[skill] + STDERR_FILES.get(skill, "")
 
 
 def _shared(skill: str) -> str:

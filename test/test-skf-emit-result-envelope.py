@@ -1721,8 +1721,8 @@ def _detect_output() -> dict:
     }
 
 
-# What report.md section 1 stages (only the values no helper output holds), with
-# the paths --project-root, --sidecar-path and --forge-data-folder give.
+# The paths --project-root, --sidecar-path and --forge-data-folder give, as a payload: report.md
+# passes no payload since #1119, and these tests give the paths without the options.
 REPORT_CONTEXT = {
     "project_root": "/p", "config_path": "/p/_bmad/_memory/forger-sidecar/forge-tier.yaml",
     "forge_data_folder": "/p/forge-data", "orphan_auto_resolution": None, "error": None,
@@ -1739,14 +1739,13 @@ CCC_RESULT = {"status": "ok", "version": "v2", "written": True, "patterns_added"
 
 
 def _stage(run_dir: Path, detect=None, classify=None, clean_stale=None, ccc=None, remove=None) -> Path:
-    """A setup run folder: each helper output given (a string is written as it is) and the payload."""
+    """A setup run folder: each helper output given (a string is written as it is)."""
     run_dir.mkdir(parents=True, exist_ok=True)
     for name, value in ((mod.STAGED_DETECT, detect), (mod.STAGED_CLASSIFY, classify),
                         (mod.STAGED_CLEAN_STALE, clean_stale), (mod.STAGED_CCC, ccc),
                         (mod.STAGED_REMOVE, remove)):
         if value is not None:
             (run_dir / name).write_text(value if isinstance(value, str) else json.dumps(value), encoding="utf-8")
-    (run_dir / "report-context.json").write_text(json.dumps(REPORT_CONTEXT), encoding="utf-8")
     return run_dir
 
 
@@ -1904,7 +1903,7 @@ def test_emit_from_staged_files_matches_the_hand_built_payload(tmp_path):
     detect = _detect_output()
     run_dir = _stage(tmp_path / "skf-setup-RUN", detect=detect, classify=CLASSIFIED,
                      clean_stale={"qmd_removed": [], "ccc_removed": ["/gone"], "wrote": True})
-    staged = _cli_in(["emit", "--run-dir", str(run_dir)], (run_dir / "report-context.json").read_text(encoding="utf-8"))
+    staged = _cli_in(["emit", "--run-dir", str(run_dir)], json.dumps(REPORT_CONTEXT))
     assert staged.returncode == 0, staged.stderr
     full = {**REPORT_CONTEXT, "tier": "Forge", "previous_tier": "Forge", "tools": detect["tools"],
             "ccc_index": {"status": "none", "indexed_path": None, "file_count": None},
@@ -2441,7 +2440,7 @@ def test_a_tier_tool_below_its_minimum_reads_false_in_the_envelope(tmp_path):
     detect["tier"].update(calculated="Quick", detected="Quick")
     detect["require_tier"] = {"requested": "Forge", "satisfied": False, "missing_tools": ["ast-grep"]}
     run_dir = _stage(tmp_path / "skf-setup-RUN", detect=detect)
-    proc = _cli_in(["emit", "--run-dir", str(run_dir)], (run_dir / "report-context.json").read_text(encoding="utf-8"))
+    proc = _cli_in(["emit", "--run-dir", str(run_dir)], json.dumps(REPORT_CONTEXT))
     assert proc.returncode == 0, proc.stderr
     env = _envelope_of(proc.stdout)
     assert mod._validate_against_schema(env, _schema()) == []
@@ -2512,7 +2511,7 @@ def test_the_required_tier_block_ends_the_banner():
 def test_the_required_tier_comes_from_the_staged_detector_output(tmp_path):
     run_dir = _stage(tmp_path / "skf-setup-RUN", detect=_detect_output())
     proc = _cli_in(["render-report", "--run-dir", str(run_dir), "--tier-rules", str(TIER_RULES)],
-                   (run_dir / "report-context.json").read_text(encoding="utf-8"))
+                   json.dumps(REPORT_CONTEXT))
     assert proc.returncode == 0, proc.stderr
     lines = proc.stdout.splitlines()
     for line in ("  Tool upgrades:", "  Required:  Forge+", "  Detected:  Forge", "  Missing:   ccc"):
@@ -2580,7 +2579,7 @@ def test_cli_render_report_reads_the_run_folder(tmp_path):
     run_dir = _stage(tmp_path / "skf-setup-RUN", detect=_detect_output(), classify=CLASSIFIED,
                      clean_stale={"qmd_removed": ["x-docs"], "ccc_removed": [], "wrote": True})
     proc = _cli_in(["render-report", "--run-dir", str(run_dir), "--tier-rules", str(TIER_RULES)],
-                   (run_dir / "report-context.json").read_text(encoding="utf-8"))
+                   json.dumps(REPORT_CONTEXT))
     assert proc.returncode == 0, proc.stderr
     lines = proc.stdout.splitlines()
     for line in ("  - gh 2.91.0 (2026-04-22)", '        Did you mean "Deep"?', "  1 collection(s) healthy",
@@ -2663,10 +2662,10 @@ def test_stderr_from_takes_the_message_on_one_line(tmp_path, raw, message):
 
 
 def test_stderr_from_dash_reads_the_pipe():
-    env = _blocked_envelope(_blocked("--phase", "step 1:run-folder", "--reason",
+    env = _blocked_envelope(_blocked("--phase", "on-activation:run-folder", "--reason",
                                      "Setup cannot proceed: the run folder could not be created: <message>",
                                      "--stderr-from", "-", stdin=b"mkdir: /p/_bmad-output: Not a directory\n"))
-    assert env["error"] == {"phase": "step 1:run-folder", "path": "<n/a>",
+    assert env["error"] == {"phase": "on-activation:run-folder", "path": "<n/a>",
                             "reason": "Setup cannot proceed: the run folder could not be created: "
                                       "mkdir: /p/_bmad-output: Not a directory"}
 
@@ -2872,3 +2871,321 @@ def test_a_deferred_index_build_reads_as_skipped_and_says_why(tmp_path):
     env = _envelope_of(done.stdout)["skf_setup"]
     assert (env["status"], env["ccc_index"]["status"]) == ("tier_failure", "skipped")
     assert "ccc_index" not in env["files_written"]
+
+
+# ─── emit-halt: the payload from options, the reason from stdin or stderr ────
+
+
+RENAME_RUN = "skf-rename-skill-20261001T000000Z-0123abcd"
+
+
+def _halt(tmp_path: Path, *args: str, stdin: bytes = b"") -> subprocess.CompletedProcess:
+    """emit-halt for skf-rename-skill, its line on stderr, as Rename's halt procedure runs it."""
+    return subprocess.run([sys.executable, str(SCRIPT_PATH), "emit-halt", "--workflow", "skf-rename-skill",
+                           "--run-dir", str(tmp_path / RENAME_RUN), "--target", "stderr", *args],
+                          input=stdin, capture_output=True, timeout=10)
+
+
+def _rename_line(done: subprocess.CompletedProcess) -> dict:
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    assert done.stdout == b""
+    [line] = done.stderr.decode("utf-8").splitlines()
+    assert line.startswith("SKF_RENAME_SKILL_RESULT_JSON: ")
+    envelope = json.loads(line.removeprefix("SKF_RENAME_SKILL_RESULT_JSON: "))
+    schema, _ = mod.load_workflow_schema("skf-rename-skill")
+    assert mod.contract_errors(schema, envelope) == []
+    return envelope
+
+
+# A failed call's stderr as Rename's `2> "{run_dir}/call.err"` saves it.
+TRACEBACK = (b'Traceback (most recent call last):\n  File "C:\\Users\\x\\skf-manifest-ops.py", line 9\n'
+             b"    raise OSError('it\\'s \"locked\"')\nOSError: it's \"locked\" at C:\\Users\\x\\.export-manifest.json\n")
+UV_THEN_JSON = (b'Installed 1 package in 3ms\n'
+                b'{"status":"error","message":"cannot write \\"C:\\\\x\\":\\nPermission denied"}\n')
+# Text a halt displays, with every character a shell or a hand-typed JSON string trips on.
+FREE_TEXT = "**`demo` is SKF's own** \"quoted\" $(touch pwned) `id` C:\\Users\\x\\ back\\slash"
+
+
+@pytest.mark.parametrize("raw,diagnostic", [
+    (UV_THEN_JSON, 'cannot write "C:\\x": Permission denied'),
+    (TRACEBACK, "Traceback (most recent call last):"),
+    (b'error: failed to spawn "C:\\Users\\x\\it\'s.py": $(touch pwned) `id`\n  Caused by: gone\n',
+     'error: failed to spawn "C:\\Users\\x\\it\'s.py": $(touch pwned) `id`'),
+], ids=["json-error-after-uv", "traceback", "quoted-first-line"])
+def test_emit_halt_takes_the_message_from_the_stderr_file(tmp_path, raw, diagnostic):
+    """#1119: --stderr-from fills `<message>` in the --reason stdin carries, folded to one line."""
+    err = tmp_path / "call.err"
+    err.write_bytes(raw)
+    env = _rename_line(_halt(tmp_path, "--phase", "execute:manifest", "--halt-reason", "manifest-write-failed",
+                             "--old-name", "demo", "--new-name", "demo-kit", "--stderr-from", str(err),
+                             "--reason", "-", stdin=b"**Manifest update failed:** <message>.\nRolled back.\n"))
+    assert env["error"] == {"phase": "execute:manifest", "reason": f"**Manifest update failed:** {diagnostic}. "
+                                                                  "Rolled back."}
+    assert (env["exit_code"], env["halt_reason"], env["status"]) == (4, "manifest-write-failed", "error")
+    assert (env["old_name"], env["new_name"], env["run_id"]) == ("demo", "demo-kit", "20261001T000000Z-0123abcd")
+
+
+def test_emit_halt_reads_its_reason_on_stdin_unchanged(tmp_path):
+    """`--reason -`: the text arrives as written, a byte-order mark dropped and a bad byte replaced."""
+    env = _rename_line(_halt(tmp_path, "--phase", "select:source-authority", "--halt-reason",
+                             "source-authority-blocked", "--old-name", "demo", "--reason", "-",
+                             stdin=FREE_TEXT.encode("utf-8") + b"\n"))
+    assert env["error"]["reason"] == FREE_TEXT
+    assert (env["exit_code"], env["new_name"]) == (5, None)
+    odd = _rename_line(_halt(tmp_path, "--phase", "select:confirm", "--halt-reason", "user-cancelled",
+                             "--reason", "-", stdin=b"\xef\xbb\xbfCancelled \xff here\n"))
+    assert odd["error"]["reason"] == "Cancelled \ufffd here"
+
+
+def test_emit_halt_options_build_the_envelope_a_typed_payload_builds(tmp_path):
+    """Without --phase the payload is stdin's, as before: both forms give one envelope."""
+    payload = {"phase": "select:concurrency-guard", "halt_reason": "halted-for-concurrent-run",
+               "reason": "Another rename of demo is in progress.", "path": "/p/forge/.skf-rename-demo.lock",
+               "old_name": "demo"}
+    typed = _rename_line(_halt(tmp_path, stdin=json.dumps(payload).encode("utf-8")))
+    options = _rename_line(_halt(tmp_path, "--phase", payload["phase"], "--halt-reason", payload["halt_reason"],
+                                 "--path", payload["path"], "--old-name", "demo", "--reason", payload["reason"]))
+    assert typed == options
+    assert options["error"]["path"] == "/p/forge/.skf-rename-demo.lock"
+    # An option given empty is left out, as a key the halt does not know.
+    blank = _rename_line(_halt(tmp_path, "--phase", payload["phase"], "--halt-reason", payload["halt_reason"],
+                               "--path", "", "--old-name", "", "--reason", payload["reason"]))
+    assert "path" not in blank["error"] and blank["old_name"] is None
+
+
+@pytest.mark.parametrize("args,stdin,needle", [
+    (("--reason", "x"), b"", "--reason needs --phase"),
+    (("--old-name", "demo", "--stderr-from", "-"), b"", "--stderr-from and --old-name need --phase"),
+    (("--phase", "p", "--halt-reason", "write-failed"), b"", "must be non-empty"),
+    (("--phase", "p", "--halt-reason", "write-failed", "--reason", "-"), b"  \n", "must be non-empty"),
+    (("--phase", "p", "--halt-reason", "write-failed", "--reason", "failed: <message>"), b"", "needs --stderr-from"),
+    (("--phase", "p", "--halt-reason", "write-failed", "--reason", "no placeholder", "--stderr-from", "f"), b"",
+     "<message>"),
+    (("--phase", "p", "--halt-reason", "write-failed", "--reason", "-", "--stderr-from", "-"), b"x <message>",
+     "would both read stdin"),
+], ids=["reason-alone", "options-alone", "no-reason", "blank-stdin-reason", "placeholder-unfilled",
+        "no-placeholder", "both-on-stdin"])
+def test_emit_halt_refuses_options_it_cannot_use(tmp_path, args, stdin, needle):
+    done = _halt(tmp_path, *args, stdin=stdin)
+    assert done.returncode == 1 and done.stdout == b""
+    [line] = done.stderr.decode("utf-8").splitlines()
+    assert needle in json.loads(line)["message"], line
+    assert "SKF_RENAME_SKILL_RESULT_JSON" not in line
+
+
+def _folded_doc() -> str:
+    """The module docstring with its whitespace folded, so a rewrap breaks no pin."""
+    return " ".join(mod.__doc__.split())
+
+
+@pytest.mark.parametrize("reason,stderr,outcome", [
+    ("failed: <message>", None, "<message> in --reason needs --stderr-from to fill it"),
+    ("no placeholder", b"anything\n", "--stderr-from fills <message> in --reason, which has none"),
+    ("x:\n  <message>", b'Installed 1 package\n{"message": "a\\n  b"}\n', "x: a b"),
+    ("y: <message> (end)", b"", "y: (no error message) (end)"),
+], ids=["placeholder-unfilled", "no-placeholder", "json-message-folded", "empty-stderr"])
+def test_emit_halt_and_emit_blocked_share_the_reason_rule(tmp_path, reason, stderr, outcome):
+    """#1119: both subcommands refuse the same reasons with the same words and fill and
+    fold the same `<message>`, checked by what they do, not by their source text."""
+    stderr_args = []
+    if stderr is not None:
+        (tmp_path / "call.err").write_bytes(stderr)
+        stderr_args = ["--stderr-from", str(tmp_path / "call.err")]
+    halt = _halt(tmp_path, "--phase", "execute:copy", "--halt-reason", "copy-failed", "--reason", reason,
+                 *stderr_args)
+    blocked = _blocked("--phase", "step 2:write-tools", "--reason", reason, *stderr_args)
+    if halt.returncode:
+        assert (halt.returncode, blocked.returncode) == (1, 1)
+        assert json.loads(halt.stderr)["message"] == f"emit-halt: {outcome}"
+        assert json.loads(blocked.stderr)["message"] == f"emit-blocked: {outcome}"
+    else:
+        assert _rename_line(halt)["error"]["reason"] == outcome
+        assert _blocked_envelope(blocked)["error"]["reason"] == outcome
+
+
+def test_emit_halt_options_are_documented():
+    doc = _folded_doc()
+    for token in ("--halt-reason, --path, --old-name and --new-name", "--reason takes the text, or `-` to read it on",
+                  "`-` for both --reason and --stderr-from is refused", "<<'SKF_REASON'"):
+        assert token in doc, token
+
+
+# ─── the resolver reason from a file: emit, render-report and emit-blocked ───
+
+
+# What setup's item 6 saves with `2> "{run_dir}/resolver.err"`, every character a typed
+# argument or JSON string would need escaped: backticks, `$( )`, quotes, backslashes.
+RESOLVER_ERR = (b"error: Python 3.11+ is required (stdlib `tomllib` not found) in \"C:\\py\" $(touch pwned) "
+                b"it's `id`\n  hint: second line\n")
+RESOLVER_REASON = ("error: Python 3.11+ is required (stdlib `tomllib` not found) in \"C:\\py\" $(touch pwned) "
+                   "it's `id`")
+RESOLVER_WARNING = f"customization_resolver_unavailable: {RESOLVER_REASON}"
+
+
+def test_emit_blocked_reads_the_resolver_reason_from_its_file(tmp_path):
+    err = tmp_path / "resolver.err"
+    err.write_bytes(RESOLVER_ERR)
+    env = _blocked_envelope(_blocked("--phase", "step 2:write-tools", "--reason", "Setup cannot proceed: x",
+                                     "--customization-resolver-unavailable-from", str(err)))
+    assert env["warnings"] == [RESOLVER_WARNING]
+    gone = _blocked_envelope(_blocked("--phase", "step 2:write-tools", "--reason", "Setup cannot proceed: x",
+                                      "--customization-resolver-unavailable-from", str(tmp_path / "missing.err")))
+    assert gone["warnings"] == [f"customization_resolver_unavailable: {mod.NO_STDERR_MESSAGE}"]
+    (tmp_path / "empty.err").write_bytes(b"")
+    empty = _blocked_envelope(_blocked("--phase", "step 2:write-tools", "--reason", "Setup cannot proceed: x",
+                                       "--customization-resolver-unavailable-from", str(tmp_path / "empty.err")))
+    assert empty["warnings"] == gone["warnings"]
+
+
+@pytest.mark.parametrize("args,needle", [
+    (("--customization-resolver-unavailable-from", "f"), "need --phase"),
+    (("--phase", "p", "--reason", "r", "--customization-resolver-unavailable", "x",
+      "--customization-resolver-unavailable-from", "f"), "not both"),
+], ids=["without-phase", "with-the-text-option"])
+def test_emit_blocked_refuses_the_resolver_file_it_cannot_use(args, needle):
+    done = _blocked(*args)
+    assert done.returncode == 1 and done.stdout == b""
+    assert needle in json.loads(done.stderr)["message"]
+
+
+def test_emit_and_render_report_read_the_resolver_reason_from_its_file(tmp_path):
+    """The file's reason replaces the payload's own, and the banner and the envelope agree."""
+    run_dir = _stage(tmp_path / "skf-setup-RUN", detect=_detect_output())
+    (run_dir / "resolver.err").write_bytes(RESOLVER_ERR)
+    payload = json.dumps({**REPORT_CONTEXT, "customization_resolver_unavailable": "typed by hand"})
+    option = ["--customization-resolver-unavailable-from", str(run_dir / "resolver.err")]
+    done = _cli_in(["emit", "--run-dir", str(run_dir), *option], payload)
+    assert done.returncode == 0, done.stderr
+    warnings = _envelope_of(done.stdout)["skf_setup"]["warnings"]
+    assert warnings[0] == RESOLVER_WARNING and "typed by hand" not in " ".join(warnings)
+    banner = _cli_in(["render-report", "--run-dir", str(run_dir), "--tier-rules", str(TIER_RULES), *option], payload)
+    assert banner.returncode == 0, banner.stderr
+    assert "typed by hand" not in banner.stdout
+    assert not (tmp_path / "pwned").exists()
+    # Any workflow's emit takes it: the payload key is every envelope's.
+    rename = subprocess.run([sys.executable, str(SCRIPT_PATH), "emit", "--workflow", "skf-rename-skill", *option],
+                            input=json.dumps({"status": "dry-run", "old_name": "a", "new_name": "b",
+                                              "versions_renamed": [], "manifest_rekeyed": False,
+                                              "context_files_updated": [], "halt_reason": None}),
+                            capture_output=True, text=True, encoding="utf-8", timeout=10)
+    assert rename.returncode == 0, rename.stderr
+    assert RESOLVER_WARNING in json.loads(rename.stdout.split(": ", 1)[1])["warnings"]
+
+
+def test_the_resolver_file_option_is_documented():
+    doc = _folded_doc()
+    for token in ("--customization-resolver-unavailable-from FILE", "(emit, render-report and emit-blocked)",
+                  "`(no error message)` for a missing or empty file"):
+        assert token in doc, token
+
+
+# ─── setup's orphan decision from the flags that made it ────────────────────
+
+
+TWO_ORPHANS = {**CLASSIFIED, "orphaned": ["a-docs", "b-brief"]}
+
+
+@pytest.mark.parametrize("flags,expected", [
+    ((None, False, True), {"action": "keep", "source": "quiet-default"}),
+    ((None, True, True), {"action": "keep", "source": "headless-default"}),
+    ((None, True, False), {"action": "keep", "source": "headless-default"}),
+    (("remove", True, True), {"action": "remove", "source": "orphan-action-flag"}),
+    (("keep", False, False), {"action": "keep", "source": "orphan-action-flag"}),
+], ids=["quiet", "headless-quiet", "headless", "orphan-action-wins", "orphan-action-interactive"])
+def test_orphan_decision_follows_the_flags(flags, expected):
+    assert mod.orphan_decision({mod.STAGED_CLASSIFY: TWO_ORPHANS}, *flags) == expected
+    # No orphan, a failed classifier or no classification at all: no gate fired.
+    for staged in ({mod.STAGED_CLASSIFY: CLASSIFIED}, {mod.STAGED_CLASSIFY: None}, {}):
+        assert mod.orphan_decision(staged, *flags) is None
+
+
+@pytest.mark.parametrize("flags,staged,trail", [
+    (["--quiet"], {}, ["orphan_auto_resolution: keep 2 orphaned collection(s) (non-interactive, quiet-default)"]),
+    (["--headless", "--quiet"], {},
+     ["orphan_auto_resolution: keep 2 orphaned collection(s) (non-interactive, headless-default)"]),
+    (["--orphan-action", "remove", "--quiet"],
+     {"remove": {"status": "ok", "removed": ["a-docs", "b-brief"], "failed": [], "errors": {}}},
+     ["orphan_auto_resolution: remove 2 orphaned collection(s) (non-interactive, orphan-action-flag)",
+      "orphan_removed: a-docs", "orphan_removed: b-brief"]),
+    ([], {}, []),
+    (["--quiet"], {"classify": CLASSIFIED}, []),
+], ids=["quiet", "headless", "orphan-action-remove", "no-flag", "no-orphans"])
+def test_emit_derives_the_orphan_decision_from_the_flags(tmp_path, flags, staged, trail):
+    """#1119: the emitter sets orphan_auto_resolution itself, in place of the payload's, and
+    fold_staged adds the count and the names; with no flag the payload's value stands."""
+    run_dir = _stage(tmp_path / "skf-setup-RUN", detect=_detect_output(), classify=staged.get("classify", TWO_ORPHANS),
+                     remove=staged.get("remove"))
+    typed = {**REPORT_CONTEXT, "orphan_auto_resolution": {"action": "remove", "source": "typed"}} if flags else \
+        REPORT_CONTEXT
+    done = _cli_in(["emit", "--run-dir", str(run_dir), *flags], json.dumps(typed))
+    assert done.returncode == 0, done.stderr
+    env = _envelope_of(done.stdout)
+    assert mod._validate_against_schema(env, _schema()) == []
+    assert [w for w in env["skf_setup"]["warnings"] if w.startswith("orphan_")] == trail
+    banner = _cli_in(["render-report", "--run-dir", str(run_dir), "--tier-rules", str(TIER_RULES), *flags],
+                     json.dumps(typed))
+    assert banner.returncode == 0, banner.stderr
+
+
+def test_a_typed_orphan_decision_stands_without_the_flags():
+    payload = {"orphan_auto_resolution": {"action": "keep", "source": "quiet-default"}}
+    folded = mod.setup_payload(payload, {mod.STAGED_CLASSIFY: TWO_ORPHANS}, None, None, None, None)
+    assert folded["orphan_auto_resolution"] == {"action": "keep", "source": "quiet-default", "count": 2}
+    flagged = mod.setup_payload(payload, {mod.STAGED_CLASSIFY: CLASSIFIED}, (None, False, True), None, None, None)
+    assert flagged["orphan_auto_resolution"] is None
+
+
+@pytest.mark.parametrize("args", [["--quiet"], ["--headless"], ["--orphan-action", "keep"]],
+                         ids=["quiet", "headless", "orphan-action"])
+def test_the_orphan_flags_are_setups_alone(args):
+    done = _cli_in(["emit", "--workflow", "skf-update-skill", *args], json.dumps(_baseline_payload()))
+    assert done.returncode == 1 and done.stdout == ""
+    assert "--orphan-action, --headless and --quiet" in json.loads(done.stderr)["message"]
+
+
+# ─── setup's emit and render-report need no payload ──────────────────────────
+
+
+def test_setup_reads_an_empty_stdin_as_an_empty_payload(tmp_path):
+    """#1119: report.md passes no payload; an empty stdin, or a terminal, is `{}`."""
+    project = _project(tmp_path, CONFIGS[0][0])
+    detect = _detect_output()
+    detect["require_tier"] = {"requested": None, "satisfied": None, "missing_tools": []}
+    run_dir = _stage(project / "run" / "skf-setup-RUN", detect=detect)
+    paths = _path_options(project)
+    empty = _cli_in(["emit", "--run-dir", str(run_dir), *paths], "")
+    braces = _cli_in(["emit", "--run-dir", str(run_dir), *paths], "{}")
+    assert empty.returncode == 0, empty.stderr
+    assert empty.stdout == braces.stdout
+    env = _envelope_of(empty.stdout)
+    assert mod._validate_against_schema(env, _schema()) == []
+    assert (env["skf_setup"]["status"], env["skf_setup"]["error"]) == ("success", None)
+    nothing = subprocess.run([sys.executable, str(SCRIPT_PATH), "render-report", "--run-dir", str(run_dir), *paths],
+                             stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", timeout=10)
+    assert nothing.returncode == 0, nothing.stderr
+    assert nothing.stdout.splitlines()[0] == RULE
+    # Every other emit still needs its payload, and so does a setup halt.
+    for args in (["emit", "--workflow", "skf-update-skill"], ["emit-halt", "--workflow", "skf-setup"]):
+        done = _cli_in(args, "")
+        assert done.returncode == 1 and "empty stdin" in json.loads(done.stderr)["message"], args
+
+
+def test_setup_never_reads_a_terminal(monkeypatch):
+    class Terminal:
+        def isatty(self):
+            return True
+
+        def read(self):
+            raise AssertionError("a terminal is never read")
+
+    monkeypatch.setattr(mod.sys, "stdin", Terminal())
+    assert mod._read_setup_payload("emit") == {}
+
+
+def test_the_setup_payload_rules_are_documented():
+    doc = _folded_doc()
+    assert "report-context" not in doc
+    for token in ("an empty stdin, or a terminal, which it never reads, is the payload {}",
+                  "setup's step 4 passes `< /dev/null`, so an open stdin the host left is never read",
+                  "step 4 passes no payload at all", '"source": "headless-default"} with --headless'):
+        assert token in doc, token

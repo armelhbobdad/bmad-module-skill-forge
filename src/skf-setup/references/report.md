@@ -16,7 +16,7 @@ emitEnvelopeProbeOrder:
 
 ## STEP GOAL:
 
-Stage the run's report payload, display the FORGE STATUS banner that `{emitEnvelopeHelper}` renders from it (tier, tools, an upgrade for each tool below its minimum version, tier changes and tool-set deltas on re-runs, and a REQUIRED TIER NOT MET block on a required-tier miss), and (when headless or quiet) emit the schema-locked `SKF_SETUP_RESULT_JSON` envelope from the same payload.
+Display the FORGE STATUS banner that `{emitEnvelopeHelper}` renders from the run folder and the run's options (tier, tools, an upgrade for each tool below its minimum version, tier changes and tool-set deltas on re-runs, and a REQUIRED TIER NOT MET block on a required-tier miss), and (when headless or quiet) emit the schema-locked `SKF_SETUP_RESULT_JSON` envelope from the same inputs.
 
 ## Rules
 
@@ -30,30 +30,24 @@ Stage the run's report payload, display the FORGE STATUS banner that `{emitEnvel
 
 ## MANDATORY SEQUENCE
 
-### 1. Stage the Report Payload
+### 1. The Report Options
 
-Sections 2 and 4 read the helper outputs the run folder holds (`detect-tools.json`, `ccc-exclusions.json`, `qmd-classify.json`, `qmd-remove.json` and `clean-stale.json`, each when its step ran the helper), take the run's paths from `--project-root`, `--sidecar-path` and `--forge-data-folder` (the folders On Activation bound from preflight), and read one payload file with what neither gives, staged here on every run through a quoted heredoc:
+Sections 2 and 4 read the helper outputs the run folder holds (`detect-tools.json`, `ccc-exclusions.json`, `qmd-classify.json`, `qmd-remove.json` and `clean-stale.json`, each when its step ran the helper) and take the run's paths from `--project-root`, `--sidecar-path` and `--forge-data-folder` (the folders On Activation bound from preflight). No step types a payload: both calls end with the same option group, `[--orphan-action {orphan_action}] [--headless] [--quiet] [--customization-resolver-unavailable-from "{run_dir}/resolver.err"]`, each bracket kept only when its value holds, and then with `< /dev/null`, which the emitter reads as the empty payload `{}`, so neither call reads or waits on a stdin the host left open:
 
-```bash
-cat > "{run_dir}/report-context.json" <<'SKF_JSON'
-{
-  "orphan_auto_resolution": {orphan_auto_resolution_or_null},
-  "customization_resolver_unavailable": {customization_resolver_unavailable},
-  "error": null
-}
-SKF_JSON
-```
+- `--orphan-action {orphan_action}` when `{orphan_action}` is non-null, `--headless` when `{headless_mode}` is true, and `--quiet` when `{quiet_mode}` is true: from these flags and the staged classification the emitter records the step 3 orphan decision, with its `source`, its count and, after a removal, the collections removed and not removed.
+- `--customization-resolver-unavailable-from "{run_dir}/resolver.err"` when SKILL.md On Activation item 6 bound `{customization_resolver_unavailable}` to a reason: the emitter reads the reason from that file, folds it to one line and escapes it, and the envelope warns that the `{project-root}/_bmad/custom/` overrides were not applied.
 
-Write `{orphan_auto_resolution}` as the JSON object step 3 set (`{"action": "...", "source": "..."}`), or `null` when step 3 set none. `{customization_resolver_unavailable}` is JSON `null` unless SKILL.md On Activation bound it to the resolver's one-line failure reason; it is then that reason as a JSON string, its `"` and `\` escaped, and the envelope warns that the `{project-root}/_bmad/custom/` overrides were not applied. `error` stays `null`: a halt that names a phase never reaches this step, because it displays its own blocked envelope.
+`error` stays `null`: a halt that names a phase never reaches this step, because it displays its own blocked envelope.
 
 ### 2. Display Forge Status Report (skip when `{quiet_mode}` is true)
 
-Render the banner from the payload and the run folder:
+Render the banner from the run folder and section 1's options:
 
 ```bash
 uv run {emitEnvelopeHelper} render-report --run-dir "{run_dir}" --project-root "{project-root}" \
     --sidecar-path "{sidecar_path}" --forge-data-folder "{forge_data_folder}" \
-    --tier-rules "{skill-root}/references/tier-rules.md" < "{run_dir}/report-context.json"
+    --tier-rules "{skill-root}/references/tier-rules.md" \
+    [--orphan-action {orphan_action}] [--headless] [--quiet] [--customization-resolver-unavailable-from "{run_dir}/resolver.err"] < /dev/null
 ```
 
 Display its stdout as one code block, so its alignment holds, keeping every line in its order. When `{document_output_language}` is not English, translate the prose and keep paths, commands, flags, tool names and tier names as they are. If the script exits non-zero, or no path in `emitEnvelopeProbeOrder` exists, display one line instead, `FORGE STATUS could not be rendered: <message>`, where `<message>` is the `message` of its stderr JSON, or `skf-emit-result-envelope.py was not found`, and continue: the forge is configured either way.
@@ -64,21 +58,22 @@ If section 2 displayed `FORGE STATUS could not be rendered` and `{require_tier_s
 
 ### 4. Emit Headless JSON Envelope
 
-When `{quiet_mode}` is `true`, run `{emitEnvelopeHelper}` on the payload section 1 staged; `--run-dir` makes it read the staged helper outputs too, and the three path options give it the run's paths. It emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout. Bind `{setup_envelope_line}` ← that stdout line, and do not display it here. It is the only line a headless or quiet run displays, and in a standalone run it must be the run's final message: `claude -p` prints only the final message, and the health check still runs after this step. Section 5 displays it on a tier miss; otherwise the shared health check displays it when it stops (its §0). Either way it is displayed verbatim as its own line (no code fence, no preface, no commentary), with nothing of setup's after it. When `{pipeline_mode}` is true, control then returns to the forger, which keeps chaining.
+When `{quiet_mode}` is `true`, run `{emitEnvelopeHelper}` with section 1's options; `--run-dir` makes it read the staged helper outputs, and the three path options give it the run's paths. It emits the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` on stdout. Bind `{setup_envelope_line}` ← that stdout line, and do not display it here. It is the only line a headless or quiet run displays, and in a standalone run it must be the run's final message: `claude -p` prints only the final message, and the health check still runs after this step. Section 5 displays it on a tier miss; otherwise the shared health check displays it when it stops (its §0). Either way it is displayed verbatim as its own line (no code fence, no preface, no commentary), with nothing of setup's after it. When `{pipeline_mode}` is true, control then returns to the forger, which keeps chaining.
 
 ```bash
 uv run {emitEnvelopeHelper} emit --run-dir "{run_dir}" --project-root "{project-root}" \
-    --sidecar-path "{sidecar_path}" --forge-data-folder "{forge_data_folder}" < "{run_dir}/report-context.json"
+    --sidecar-path "{sidecar_path}" --forge-data-folder "{forge_data_folder}" \
+    [--orphan-action {orphan_action}] [--headless] [--quiet] [--customization-resolver-unavailable-from "{run_dir}/resolver.err"] < /dev/null
 ```
 
-**If the script exits non-zero:** a value in the payload or in a staged helper output is malformed: set `{setup_envelope_line}` to the empty string. Display nothing and continue (a missing JSON envelope on a headless or quiet run is a degraded but non-fatal state: the pipeline observer sees no envelope and treats the run as not completed cleanly).
+**If the script exits non-zero:** a value in a staged helper output is malformed: set `{setup_envelope_line}` to the empty string. Display nothing and continue (a missing JSON envelope on a headless or quiet run is a degraded but non-fatal state: the pipeline observer sees no envelope and treats the run as not completed cleanly).
 
 ### 5. Chain to Health Check
 
 After the forge status report and any failure block have been displayed (under headless or quiet, once `{setup_envelope_line}` is bound), delete the run folder:
 
 ```bash
-rm -f "{run_dir}/detect-tools.json" "{run_dir}/detect-tools.err" "{run_dir}/ccc-exclusions.json" "{run_dir}/write-tools.err" "{run_dir}/forge-data-dir.err" "{run_dir}/qmd-classify.json" "{run_dir}/qmd-remove.json" "{run_dir}/clean-stale.json" "{run_dir}/report-context.json" && rmdir "{run_dir}"
+rm -f "{run_dir}/detect-tools.json" "{run_dir}/detect-tools.err" "{run_dir}/ccc-exclusions.json" "{run_dir}/write-tools.err" "{run_dir}/forge-data-dir.err" "{run_dir}/qmd-classify.json" "{run_dir}/qmd-remove.json" "{run_dir}/clean-stale.json" "{run_dir}/resolver.err" && rmdir "{run_dir}"
 ```
 
 Then:

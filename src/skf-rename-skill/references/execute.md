@@ -59,17 +59,21 @@ Execute the rename decisions recorded in step 1 as a transaction. Copy the old `
    uv run {runLockHelper} release --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" --owner "{lock_owner}"
    ```
 
-   When it exits non-zero or prints no JSON, tell the user in one line that the lock file stays, and add `"warnings": ["run-lock-not-released: {forge_data_folder}/.skf-rename-{old_name}.lock"]` to the payload below.
-
-2. In `{headless_mode}`, pass the halt to the shared emitter, which prints its envelope on **stderr** with the decisions and warnings the run recorded, step 1's included. Write each string as JSON (escape `"`, `\` and control characters, and write every path with `/`):
+   When it exits non-zero or prints no JSON, tell the user in one line that the lock file stays. In `{headless_mode}`, also record that in the run sink, where the emitter reads it for the halt's envelope; when `record` exits non-zero, show its message in one line and go on with the halt:
 
    ```bash
-   uv run {emitEnvelopeHelper} emit-halt --workflow skf-rename-skill --run-dir "{run_dir}" --target stderr <<'SKF_HALT'
-   {"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the message the halt displays>", "path": "<the path the halt names; leave the key out when it names none>", "old_name": "{old_name}", "new_name": "{new_name}"}
-   SKF_HALT
+   uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "run-lock-not-released: {forge_data_folder}/.skf-rename-{old_name}.lock"
    ```
 
-   Display the `SKF_RENAME_SKILL_RESULT_JSON:` line it prints verbatim. When it exits non-zero and its `message` names the payload, fix the payload once and run it again. Only when `{emitEnvelopeHelper}` is missing, or the emitter still fails or prints no line, display the halt's message alone.
+2. In `{headless_mode}`, pass the halt to the shared emitter, which builds the payload from the options and prints its envelope on **stderr** with the decisions and warnings the run recorded, step 1's included. The heredoc holds the message the halt displays, as displayed and unescaped: helper JSON values, the lists it printed and paths included. Where that message quotes the stderr of the call that just failed, write `<message>` in its place: the emitter takes the diagnostic from `--stderr-from "{run_dir}/call.err"` and folds it to one line. Leave out `--stderr-from` for a halt that quotes no stderr, and `--path` for a halt that names none (`<path>` written with `/`):
+
+   ```bash
+   uv run {emitEnvelopeHelper} emit-halt --workflow skf-rename-skill --run-dir "{run_dir}" --target stderr --phase '<phase>' --halt-reason '<halt_reason>' --path "<path>" --old-name "{old_name}" --new-name "{new_name}" --stderr-from "{run_dir}/call.err" --reason - <<'SKF_REASON'
+   <the message the halt displays>
+   SKF_REASON
+   ```
+
+   Display the `SKF_RENAME_SKILL_RESULT_JSON:` line it prints verbatim. When it exits 1 and its `message` names an option, a field or `<message>`, fix the call once and run it again. Only when `{emitEnvelopeHelper}` is missing, or the emitter still fails or prints no line, display the halt's message alone, reading any stderr it quotes from `{run_dir}/call.err`.
 
 The halt leaves `{run_dir}` in place.
 
@@ -99,21 +103,21 @@ If any helper has no existing candidate, HALT (exit code 4, `halt_reason: "write
 uv run {runLockHelper} acquire \
     --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" \
     --owner "{lock_owner}" \
-    --stale-after 60
+    --stale-after 60 2> "{run_dir}/call.err"
 ```
 
 - **Exit 0 with `refreshed` true:** the lock is still this run's, now renewed; continue.
 - **Exit 0 with `refreshed` false, or exit 3:** this run's lock lapsed while it waited, so another rename of `{old_name}` may have run since step 1 checked the names. Display "**This rename of `{old_name}` lost its run lock while it waited.** Nothing was changed. Run the rename again{on exit 3: ' once the other run ends. {message}', with the helper's `message`}." and HALT (exit code 5, `halt_reason: "halted-for-concurrent-run"`, `emit-halt` phase `execute:run-lock`, with the lock file as `path`) before anything is copied.
-- **Any other exit, or no JSON:** HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:run-lock`, with the lock file as `path`) before anything is copied: "**The run lock could not be renewed:** {the `message` the helper printed on stderr}. Nothing was changed."
+- **Any other exit, or no JSON:** HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:run-lock`, with the lock file as `path`) before anything is copied: "**The run lock could not be renewed:** {the `message` the helper printed on stderr}. Nothing was changed." An interactive run reads that stderr in `{run_dir}/call.err`.
 
 **Precondition:** Both `{new_skill_group}` and `{new_forge_group}` must NOT exist (step 1 validated this in the collision check, but verify again before copying).
 
 1. If `{new_skill_group}` or `{new_forge_group}` exists on disk (a file or link counts): halt with "**Collision detected at execution time.** `{new_skill_group}` or `{new_forge_group}` now exists on disk; it did not exist during step 1 selection. Aborting before any files are touched." HALT (exit code 4, `halt_reason: "copy-failed"`, `emit-halt` phase `execute:copy`).
 
-2. Copy `{old_skill_group}` to `{new_skill_group}`, naming both without a trailing `/`, as `cp -a {old_skill_group} {new_skill_group}` does. §4a refused a linked skill folder and one holding a linked version, so the only link the copy can meet is `active`. The copy carries it as a link, or as a copy of the folder it points to in a shell that cannot create links; §4 creates `{new_skill_group}/active` again either way.
-   - If the copy fails: halt with "**Copy failed:** `{old_skill_group}` → `{new_skill_group}`: {error}. No files were modified. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`, `emit-halt` phase `execute:copy`).
+2. Copy `{old_skill_group}` to `{new_skill_group}`, naming both without a trailing `/`, as `cp -a {old_skill_group} {new_skill_group}` does, its stderr saved in the run folder (`2> "{run_dir}/call.err"`). §4a refused a linked skill folder and one holding a linked version, so the only link the copy can meet is `active`. The copy carries it as a link, or as a copy of the folder it points to in a shell that cannot create links; §4 creates `{new_skill_group}/active` again either way.
+   - If the copy fails: halt with "**Copy failed:** `{old_skill_group}` → `{new_skill_group}`: {error}. No files were modified. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`, `emit-halt` phase `execute:copy`). `{error}` is the copy's stderr, which an interactive run reads in `{run_dir}/call.err`.
 
-3. Only when `{forge_move}` is true, copy `{old_forge_group}` to `{new_forge_group}` the same way. If the copy fails: **rollback** by deleting `{new_skill_group}` and whatever the copy created at `{new_forge_group}` (§1.1 confirmed nothing was there), then halt with "**Copy failed:** `{old_forge_group}` → `{new_forge_group}`: {error}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`, `emit-halt` phase `execute:copy`). When `{forge_move}` is false, skip this copy: the forge folder is absent, left in place (`{forge_left_in_place}`), or, with `{same_folder}`, already copied with the skill folder.
+3. Only when `{forge_move}` is true, copy `{old_forge_group}` to `{new_forge_group}` the same way, its stderr in `{run_dir}/call.err`. If the copy fails: **rollback** by deleting `{new_skill_group}` and whatever the copy created at `{new_forge_group}` (§1.1 confirmed nothing was there), then halt with "**Copy failed:** `{old_forge_group}` → `{new_forge_group}`: {error}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "copy-failed"`, `emit-halt` phase `execute:copy`), `{error}` being the copy's stderr, as above. When `{forge_move}` is false, skip this copy: the forge folder is absent, left in place (`{forge_left_in_place}`), or, with `{same_folder}`, already copied with the skill folder.
 
 **Rollback procedure for this section:** `rm -rf {new_skill_group}`, plus `rm -rf {new_forge_group}` when `{forge_move}` is true (this run created it), each without a trailing `/`. Old skill is untouched.
 
@@ -128,7 +132,7 @@ uv run {rewriteSkillNameHelper} --skill-group "{new_skill_group}" \
   --versions {comma-separated affected_versions} \
   --old-name {old_name} --new-name {new_name} --moved-folder "{skills_output_folder}" \
   [--forge-group "{new_forge_group}" --moved-folder "{forge_data_folder}"] \
-  --result-to "{run_dir}/rename-rewrite.json"
+  --result-to "{run_dir}/rename-rewrite.json" 2> "{run_dir}/call.err"
 ```
 
 Pass the bracketed group only when `{forge_move}` or `{same_folder}` is true: then this rename moves `{old_name}/` out of `{forge_data_folder}` too, and the helper also rewrites each version's provenance map. A forge folder left in place keeps its name, so paths into it stay as they are.
@@ -148,7 +152,7 @@ It prints its result as JSON on stdout and writes the same to `{run_dir}/rename-
 - When `error.stage` is `inner-rename`, halt with: "**Inner directory rename failed** at `{error.path}`: {error.message}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:inner-rename`).
 - Otherwise halt with: "**File update failed** at `{error.path}`: {error.message}. Rolled back the new directories. Old skill is intact." HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `execute:rewrite`).
 
-When stdout holds no JSON (a usage error or a traceback), `{error.path}` is `{new_skill_group}` and `{error.message}` the helper's stderr.
+When stdout holds no JSON (a usage error or a traceback), `{error.path}` is `{new_skill_group}` and `{error.message}` the helper's stderr, which an interactive run reads in `{run_dir}/call.err`.
 
 ### 3. Record the Rewrite
 
@@ -184,10 +188,10 @@ The §1 copy carries `{old_skill_group}/active` into `{new_skill_group}` as it f
    ```bash
    uv run {atomicWriteHelper} flip-link \
      --link "{new_skill_group}/active" \
-     --target "{target_version}"
+     --target "{target_version}" 2> "{run_dir}/call.err"
    ```
 
-   On exit 0, bind `{active_link_kind}` ← `kind` (`symlink` or `junction`) from the JSON it prints on stdout. On any other exit, bind `{flip_error}` ← `message` from the `{"status": "error", "message": …}` line it prints on stderr, or set it to the helper's whole stderr when there is no such line, and take the rollback below with `{flip_error}` as the reason.
+   On exit 0, bind `{active_link_kind}` ← `kind` (`symlink` or `junction`) from the JSON it prints on stdout. On any other exit, bind `{flip_error}` ← `message` from the `{"status": "error", "message": …}` line it prints on stderr, or set it to the helper's whole stderr when there is no such line, reading both from `{run_dir}/call.err`, and take the rollback below with `{flip_error}` as the reason.
 
 **Rollback on a failure in step 2, 4 or 6:**
 
@@ -231,17 +235,17 @@ Report: "**Manifest update skipped:** the export manifest has no entries. The re
 1. **Back up the manifest file** into the run folder, byte for byte, for the rollback below. A halt keeps the run folder, so the backup stays with the user too:
 
    ```bash
-   cp "{skills_output_folder}/.export-manifest.json" "{run_dir}/export-manifest.backup.json"
+   cp "{skills_output_folder}/.export-manifest.json" "{run_dir}/export-manifest.backup.json" 2> "{run_dir}/call.err"
    ```
 
-   When the copy fails, take the rollback below with the copy's first stderr line as `{manifest_error}`: this run has not changed the manifest yet.
+   When the copy fails, take the rollback below with the copy's first stderr line, read from `{run_dir}/call.err`, as `{manifest_error}`: this run has not changed the manifest yet.
 2. **Re-key via the helper:**
 
    ```bash
-   uv run {manifestOpsHelper} {skills_output_folder} rename {old_name} {new_name}
+   uv run {manifestOpsHelper} {skills_output_folder} rename {old_name} {new_name} 2> "{run_dir}/call.err"
    ```
 
-   The helper preserves `active_version`, `versions` map, and all fields, then writes the manifest atomically via temp + rename. It prints its result as JSON on stdout, errors included, and exits 0 only when `status` is `"ok"`. On a non-zero exit, bind `{manifest_error}` ← `error` and `{manifest_status}` ← `status`. A `not_found` result carries no `error`, because `exports.{old_name}` left the manifest after the check above: when `{manifest_status}` is `not_found`, set `{manifest_error}` to "`exports.{old_name}` is no longer in the manifest". When stdout holds no JSON (a Python traceback), set `{manifest_error}` to the helper's stderr.
+   The helper preserves `active_version`, `versions` map, and all fields, then writes the manifest atomically via temp + rename. It prints its result as JSON on stdout, errors included, and exits 0 only when `status` is `"ok"`. On a non-zero exit, bind `{manifest_error}` ← `error` and `{manifest_status}` ← `status`. A `not_found` result carries no `error`, because `exports.{old_name}` left the manifest after the check above: when `{manifest_status}` is `not_found`, set `{manifest_error}` to "`exports.{old_name}` is no longer in the manifest". When stdout holds no JSON (a Python traceback), set `{manifest_error}` to the helper's stderr, read from `{run_dir}/call.err`. The rollback's `get` and restore calls below leave that file alone, so the halt still finds the failed call's stderr there.
 
 **Rollback on a failed backup or a helper non-zero exit:**
 

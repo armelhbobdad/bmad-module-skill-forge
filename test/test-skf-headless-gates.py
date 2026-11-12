@@ -114,7 +114,7 @@ NO_RECORD = {
     ("skf-analyze-source", "references/step-auto-scope-coexistence.md"):
         "The envelope's `coexistence` field carries the choice",
     ("skf-setup", "references/auto-index.md"):
-        "Set `{orphan_auto_resolution: {action: <keep|remove>, source: <as above>}}`",
+        "step 4 passes the flags that decided it, and the emitter records the decision with its `source`",
     # Update's §4b test-report offer: headless keeps normal mode and warns.
     ("skf-update-skill", "references/init.md"):
         "add `unconsumed-test-report: {unconsumed_test_report}` to `warnings[]`. The warning is the notice",

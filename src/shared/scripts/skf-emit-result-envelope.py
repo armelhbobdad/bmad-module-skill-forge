@@ -14,18 +14,37 @@ prints the line:
 
   uv run {helper} emit --workflow <name> --run-dir <run_dir> --result-dir <dir> < <run_dir>/result-context.json
   uv run {helper} emit-halt --workflow <name> --run-dir <run_dir> < <run_dir>/halt.json
+  uv run {helper} emit-halt --workflow <name> --run-dir <run_dir> --phase '<phase>' --reason - <<'SKF_REASON'
 
 Subcommands:
 
   emit       Build the envelope that ends a run from the context payload
              on stdin. Without --workflow it builds skf-setup's, from
-             setup's own payload (see "skf-setup" below). Default
-             subcommand.
+             setup's own payload (see "skf-setup" below), and an empty
+             stdin, or a terminal, which it never reads, is the payload
+             {} (setup's step 4 passes `< /dev/null`, so an open stdin
+             the host left is never read); every other workflow's
+             payload must be given. With
+             --customization-resolver-unavailable-from FILE the payload's
+             `customization_resolver_unavailable` is the reason that file
+             holds (see "skf-setup"). Default subcommand.
 
   emit-halt  Build the envelope of a HARD HALT from the halt payload on
              stdin: {"phase", "reason", "halt_reason"?, "exit_code"?,
              "path"?, "status"?} plus any envelope field the halt already
-             knows (a skill name, a version). Needs --workflow.
+             knows (a skill name, a version). Needs --workflow. With
+             --phase the emitter builds the payload from options instead,
+             so a step types no JSON: {"phase", "reason"} plus
+             `halt_reason`, `path`, `old_name` and `new_name` for each of
+             --halt-reason, --path, --old-name and --new-name given
+             non-empty. --reason takes the text, or `-` to read it on
+             stdin (UTF-8, a byte-order mark dropped, bytes that are not
+             UTF-8 replaced), so a halt passes text that holds quotes,
+             backticks or `$( )` through a quoted heredoc and never as a
+             shell argument. --stderr-from fills `<message>` in it as
+             emit-blocked's does, and the reason is folded to one line.
+             `-` for both --reason and --stderr-from is refused, and so
+             is any of these options without --phase.
 
   emit-blocked
              skf-setup's halt: `emit-halt --workflow skf-setup` under its
@@ -42,7 +61,9 @@ Subcommands:
              `<message>` with no --stderr-from is refused. A non-empty
              --customization-resolver-unavailable is the payload key of
              that name: the envelope warns that the `_bmad/custom/`
-             overrides were not applied.
+             overrides were not applied. Or
+             --customization-resolver-unavailable-from names the file that
+             holds that reason (not both); each needs --phase.
 
   record     Append to the run's sink: --decision reads one auto-decision
              (a JSON object) on stdin; --warning takes one warning's text,
@@ -64,9 +85,12 @@ Subcommands:
 
   render-report
              skf-setup's interactive FORGE STATUS banner: reads the same
-             payload as `emit` on stdin (plus the banner keys below),
-             folds in the helper outputs --run-dir holds and the paths
-             --project-root, --sidecar-path and --forge-data-folder give,
+             payload as `emit` on stdin (plus the banner keys below; `{}`
+             when stdin is empty or a terminal), takes the same
+             --customization-resolver-unavailable-from, --orphan-action,
+             --headless and --quiet, folds in the helper outputs --run-dir
+             holds and the paths --project-root, --sidecar-path and
+             --forge-data-folder give,
              and prints the banner's lines in English, one per line,
              ending with the REQUIRED TIER NOT MET block when
              --require-tier was not met. --tier-rules names skf-setup's
@@ -249,16 +273,24 @@ Context payload shape (consumed by `emit` for skf-setup):
   ccc_index status of "created" say so (none when `error` is set).
 
   When the step-3 orphan-removal gate is resolved non-interactively
-  (headless or quiet default Keep, or an explicit --orphan-action), pass
-  `orphan_auto_resolution` so the audit trail lands in `warnings`: most
-  importantly when the destructive `remove` ran headlessly, which a
-  pipeline otherwise could not distinguish from a no-op by reading the
-  envelope alone. Its `removed` and `failed` lists name the collections
-  the removal deleted and the ones it could not, and each becomes its own
-  warning (`orphan_removed: <name>`, `orphan_remove_failed: <name>`).
-  With --run-dir, the staged classification supplies `count` and the
-  staged removal supplies `removed` and `failed`, so setup's payload
-  carries only `action` and `source`.
+  (headless or quiet default Keep, or an explicit --orphan-action), the
+  audit trail lands in `warnings`: most importantly when the destructive
+  `remove` ran headlessly, which a pipeline otherwise could not
+  distinguish from a no-op by reading the envelope alone. `emit` and
+  `render-report` take the flags that decided it, --orphan-action
+  keep|remove, --headless and --quiet (skf-setup's alone), and with any
+  of them set `orphan_auto_resolution` themselves, in place of the
+  payload's, before the staged outputs fold in: when the staged
+  classification lists orphans, {"action": <--orphan-action>, "source":
+  "orphan-action-flag"} with --orphan-action, else {"action": "keep",
+  "source": "headless-default"} with --headless, else {"action": "keep",
+  "source": "quiet-default"}; null when it lists none. With none of them
+  the payload's own value stands. Its `removed` and `failed` lists name
+  the collections the removal deleted and the ones it could not, and each
+  becomes its own warning
+  (`orphan_removed: <name>`, `orphan_remove_failed: <name>`). With
+  --run-dir, the staged classification supplies `count` and the staged
+  removal supplies `removed` and `failed`.
 
   `tools_below_minimum` is skf-detect-tools.py's list of the tools below
   their minimum version, which detect-tools.json supplies. Each becomes the
@@ -267,10 +299,16 @@ Context payload shape (consumed by `emit` for skf-setup):
   false under `tools`, so no envelope field changes.
 
   When the On Activation customization resolver was missing or failed,
-  pass its one-line reason as `customization_resolver_unavailable`: the
-  run then used only the skill's own customize.toml, and the warning tells
-  a pipeline that the `_bmad/custom/` overrides were not applied. The
-  emit-blocked payload takes the same key.
+  pass its one-line reason as `customization_resolver_unavailable`, or
+  name the file that holds it with
+  --customization-resolver-unavailable-from (emit, render-report and
+  emit-blocked): the emitter takes that file's diagnostic as --stderr-from
+  does, folded to one line (`(no error message)` for a missing or empty
+  file), in place of the payload's own, so no step escapes the reason
+  into JSON or a shell argument. The run then used only the skill's own
+  customize.toml, and the warning tells a pipeline that the
+  `_bmad/custom/` overrides were not applied. The emit-blocked payload
+  takes the same key.
 
   The banner keys, which `render-report` reads (`emit` reads only
   "settings_yml_written", from which it derives files_written):
@@ -284,13 +322,13 @@ Context payload shape (consumed by `emit` for skf-setup):
   and "require_tier" (the tier --require-tier named, or null). The staged
   helper outputs supply every one of them but the two resolved paths,
   which the path options give with `config_path`: setup's
-  step 4 stages only the orphan decision, the resolver reason and a null
-  `error`.
+  step 4 passes no payload at all, and the orphan decision and the
+  resolver reason come from the options above.
 
 Caller does NOT need to compute warnings, tools_added/removed, or
 tier_changed: the script derives them from the inputs above.
 
-Setup's step 4 always passes `"error": null`: every halt that names a
+Setup's step 4 passes no `error`, so it is null: every halt that names a
 phase emits through `emit-blocked` instead. A non-null error still
 yields status 'blocked'.
 
@@ -301,10 +339,11 @@ Activation halts, which can fire before `uv` is proven present, under
 the first of `uv run`, `python3`, `python` and `py -3` that works.
 
   echo '{...context payload...}' | uv run skf-emit-result-envelope.py emit
-  uv run skf-emit-result-envelope.py emit --run-dir "{run_dir}" --project-root "{project-root}" --sidecar-path "{sidecar_path}" --forge-data-folder "{forge_data_folder}" < "{run_dir}/report-context.json"
-  uv run skf-emit-result-envelope.py render-report --run-dir "{run_dir}" --project-root "{project-root}" --sidecar-path "{sidecar_path}" --forge-data-folder "{forge_data_folder}" --tier-rules "<skill>/references/tier-rules.md" < "{run_dir}/report-context.json"
+  uv run skf-emit-result-envelope.py emit --run-dir "{run_dir}" --project-root "{project-root}" --sidecar-path "{sidecar_path}" --forge-data-folder "{forge_data_folder}" --orphan-action remove --headless --customization-resolver-unavailable-from "{run_dir}/resolver.err" < /dev/null
+  uv run skf-emit-result-envelope.py render-report --run-dir "{run_dir}" --project-root "{project-root}" --sidecar-path "{sidecar_path}" --forge-data-folder "{forge_data_folder}" --tier-rules "<skill>/references/tier-rules.md" --quiet < /dev/null
   echo '{"phase":"...","reason":"...","path":"..."}' | uv run skf-emit-result-envelope.py emit-blocked
-  uv run skf-emit-result-envelope.py emit-blocked --phase "step 2:write-tools" --path "<path>" --reason "<message>" --stderr-from "{run_dir}/write-tools.err"
+  uv run skf-emit-result-envelope.py emit-blocked --phase "step 2:write-tools" --path "<path>" --reason "<message>" --stderr-from "{run_dir}/write-tools.err" --customization-resolver-unavailable-from "{run_dir}/resolver.err"
+  uv run skf-emit-result-envelope.py emit-halt --workflow skf-rename-skill --run-dir "{run_dir}" --target stderr --phase 'execute:copy' --halt-reason 'copy-failed' --old-name "{old_name}" --stderr-from "{run_dir}/call.err" --reason - <<'SKF_REASON'
   echo '{"skf_setup":{...}}' | uv run skf-emit-result-envelope.py validate
   uv run skf-emit-result-envelope.py record --run-dir "{run_dir}" --warning "customization_resolver_unavailable: <reason>"
   uv run skf-emit-result-envelope.py record --run-dir "{run_dir}" --warnings-file "{run_dir}/translate.json"
@@ -386,6 +425,28 @@ def _read_stdin_json(label: str) -> dict:
     raw = sys.stdin.read()
     if not raw.strip():
         _die(1, f"{label}: empty stdin (expected JSON payload)")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as e:
+        _die(1, f"{label}: invalid JSON on stdin: {e}")
+
+
+def _read_setup_payload(label: str):
+    """skf-setup's `emit` and `render-report` payload: `{}` for an empty stdin or a terminal.
+
+    The staged helper outputs and the options carry every value a setup
+    run reports, so report.md passes no payload; a terminal is never read,
+    so a call with nothing redirected does not wait for input.
+    """
+    try:
+        terminal = sys.stdin is None or sys.stdin.isatty()
+    except (OSError, ValueError):
+        terminal = True
+    if terminal:
+        return {}
+    raw = sys.stdin.read()
+    if not raw.strip():
+        return {}
     try:
         return json.loads(raw)
     except json.JSONDecodeError as e:
@@ -833,6 +894,39 @@ def setup_paths(project_root: str | None, sidecar_path: str | None, forge_data_f
     if forge_data_folder and forge_data_folder.strip():
         paths["forge_data_folder"] = folder(forge_data_folder).as_posix()
     return paths
+
+
+# The orphan decision's `source` for each non-interactive case (auto-index.md §3).
+ORPHAN_FLAG_SOURCE, HEADLESS_SOURCE, QUIET_SOURCE = "orphan-action-flag", "headless-default", "quiet-default"
+
+
+def orphan_decision(staged: dict, orphan_action: str | None, headless: bool, quiet: bool) -> dict | None:
+    """The step 3 orphan decision, from the flags that resolved it without a prompt.
+
+    Null when the staged classification lists no orphan: no gate fired.
+    Otherwise --orphan-action's value, else the default keep of a headless
+    run, else that of a --quiet run. fold_staged adds the count, and after
+    a removal the collections removed and not removed.
+    """
+    if not _strings(_dict(staged.get(STAGED_CLASSIFY)).get("orphaned")):
+        return None
+    if orphan_action:
+        return {"action": orphan_action, "source": ORPHAN_FLAG_SOURCE}
+    return {"action": "keep", "source": HEADLESS_SOURCE if headless else QUIET_SOURCE}
+
+
+def setup_payload(payload: dict, staged: dict, orphan: tuple | None, project_root: str | None,
+                  sidecar_path: str | None, forge_data_folder: str | None) -> dict:
+    """A finished setup run's payload, as `emit` and `render-report` fold it.
+
+    `orphan` is (--orphan-action, --headless, --quiet) when any of them was
+    given: the decision they make replaces the payload's own
+    orphan_auto_resolution before fold_staged adds its count and names.
+    Then the staged helper outputs, then the paths the options give.
+    """
+    if orphan is not None:
+        payload = {**payload, "orphan_auto_resolution": orphan_decision(staged, *orphan)}
+    return {**fold_staged(payload, staged), **setup_paths(project_root, sidecar_path, forge_data_folder)}
 
 
 # ─── skf-setup: FORGE STATUS banner ─────────────────────────────────────────
@@ -1688,26 +1782,36 @@ def _result_record(payload: dict, envelope: dict, timestamp, run_id, decisions: 
 def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | None = None,
              result_dir: str | None = None, target: str = "stdout", tolerant: bool = False,
              payload: dict | None = None, project_root: str | None = None,
-             sidecar_path: str | None = None, forge_data_folder: str | None = None) -> None:
+             sidecar_path: str | None = None, forge_data_folder: str | None = None,
+             resolver_from: str | None = None, orphan_action: str | None = None,
+             headless: bool = False, quiet: bool = False) -> None:
     """Read the payload on stdin, build, check and print the envelope, write the result files.
 
     `tolerant` passes the payload through tolerant_payload() first, for a
     caller that keeps an older helper's tolerance. A `payload` given here
-    is used instead of stdin (emit-blocked's options). `project_root`,
-    `sidecar_path` and `forge_data_folder` give skf-setup's paths
-    (setup_paths()).
+    is used instead of stdin (emit-blocked's and emit-halt's options).
+    `project_root`, `sidecar_path` and `forge_data_folder` give skf-setup's
+    paths (setup_paths()); `orphan_action`, `headless` and `quiet` its
+    orphan decision (orphan_decision()). `resolver_from` names the file
+    that holds the resolver's failure reason (resolver_reason_from()).
     """
     schema, schema_path = load_workflow_schema(workflow or SETUP_WORKFLOW)
     meta = _meta_of(schema)
     workflow = meta["workflow"]
-    if (project_root, sidecar_path, forge_data_folder) != (None, None, None) and (
-            workflow != SETUP_WORKFLOW or halt):
+    finished_setup = workflow == SETUP_WORKFLOW and not halt
+    if (project_root, sidecar_path, forge_data_folder) != (None, None, None) and not finished_setup:
         _die(1, f"{label}: --project-root, --sidecar-path and --forge-data-folder give the paths of a "
                 "finished skf-setup run")
+    orphan_flags = orphan_action is not None or headless or quiet
+    if orphan_flags and not finished_setup:
+        _die(1, f"{label}: --orphan-action, --headless and --quiet give the orphan decision of a finished "
+                "skf-setup run")
     if payload is None:
-        payload = _read_stdin_json(label)
+        payload = _read_setup_payload(label) if finished_setup else _read_stdin_json(label)
     if not isinstance(payload, dict):
         _die(1, f"{label}: the payload must be a JSON object")
+    if resolver_from is not None:
+        payload = {**payload, "customization_resolver_unavailable": resolver_reason_from(resolver_from)}
     if halt:
         _check_halt_payload(payload, label)
     contract = payload.get("result_contract")
@@ -1720,9 +1824,9 @@ def run_emit(workflow: str | None, *, halt: bool, label: str, run_dir: str | Non
     extra: list[str] = []
     stem = meta.get("result_file")
     run_path = Path(run_dir) if run_dir else None
-    if workflow == SETUP_WORKFLOW and not halt:
-        payload = {**fold_staged(payload, read_staged(run_path)),
-                   **setup_paths(project_root, sidecar_path, forge_data_folder)}
+    if finished_setup:
+        payload = setup_payload(payload, read_staged(run_path), (orphan_action, headless, quiet) if orphan_flags
+                                else None, project_root, sidecar_path, forge_data_folder)
     result_path_dir = Path(result_dir) if result_dir else None
     if result_path_dir is not None and not stem:
         # Refusing would leave a halt that passed the flag by mistake with no line.
@@ -1867,15 +1971,19 @@ def cmd_validate(workflow: str | None) -> None:
         _die(1, "; ".join(errors))
 
 
-def cmd_render_report(run_dir: str | None, tier_rules: str | None, project_root: str | None = None,
-                      sidecar_path: str | None = None, forge_data_folder: str | None = None) -> None:
-    """Print skf-setup's FORGE STATUS banner for the payload on stdin."""
-    payload = _read_stdin_json("render-report")
+def cmd_render_report(args) -> None:
+    """Print skf-setup's FORGE STATUS banner for the payload on stdin (`{}` when it is empty)."""
+    payload = _read_setup_payload("render-report")
     if not isinstance(payload, dict):
         _die(1, "render-report: the payload must be a JSON object")
-    payload = {**fold_staged(payload, read_staged(Path(run_dir) if run_dir else None)),
-               **setup_paths(project_root, sidecar_path, forge_data_folder)}
-    copy = load_tier_rules(Path(tier_rules) if tier_rules else TIER_RULES_FILE)
+    resolver_from = args.customization_resolver_unavailable_from
+    if resolver_from is not None:
+        payload = {**payload, "customization_resolver_unavailable": resolver_reason_from(resolver_from)}
+    orphan = ((args.orphan_action, args.headless, args.quiet)
+              if args.orphan_action is not None or args.headless or args.quiet else None)
+    payload = setup_payload(payload, read_staged(Path(args.run_dir) if args.run_dir else None), orphan,
+                            args.project_root, args.sidecar_path, args.forge_data_folder)
+    copy = load_tier_rules(Path(args.tier_rules) if args.tier_rules else TIER_RULES_FILE)
     print("\n".join(render_report(payload, copy)))
 
 
@@ -1947,27 +2055,48 @@ def _read_stderr(source: str) -> str:
     return raw.decode("utf-8", "replace").lstrip("\ufeff")
 
 
-def blocked_payload(phase: str | None, reason: str | None, path: str | None,
-                    stderr_from: str | None, resolver_reason: str | None = None) -> dict | None:
-    """emit-blocked's halt payload from its options; None without --phase (stdin carries it)."""
-    if phase is None:
-        if (reason, path, stderr_from, resolver_reason) != (None, None, None, None):
-            _die(1, "emit-blocked: --reason, --path, --stderr-from and --customization-resolver-unavailable "
-                    "need --phase")
-        return None
-    if not phase.strip() or not (reason or "").strip():
-        _die(1, "emit-blocked: --phase and --reason must be non-empty")
+def resolver_reason_from(source: str) -> str:
+    """The resolver's failure reason a file holds, as --customization-resolver-unavailable-from reads it:
+    the diagnostic stderr_message() takes from it, `(no error message)` for a missing or empty file."""
+    return stderr_message(_read_stderr(source))
+
+
+def filled_reason(label: str, reason: str, stderr_from: str | None) -> str:
+    """A halt's --reason with `<message>` filled from --stderr-from, folded to one line.
+
+    emit-blocked and emit-halt share the rule: a `<message>` with no
+    --stderr-from, or a --stderr-from with no `<message>` to fill, is refused.
+    """
     if stderr_from is None:
         if STDERR_MESSAGE in reason:
-            _die(1, f"emit-blocked: {STDERR_MESSAGE} in --reason needs --stderr-from to fill it")
+            _die(1, f"{label}: {STDERR_MESSAGE} in --reason needs --stderr-from to fill it")
     else:
         if STDERR_MESSAGE not in reason:
-            _die(1, f"emit-blocked: --stderr-from fills {STDERR_MESSAGE} in --reason, which has none")
+            _die(1, f"{label}: --stderr-from fills {STDERR_MESSAGE} in --reason, which has none")
         reason = reason.replace(STDERR_MESSAGE, stderr_message(_read_stderr(stderr_from)))
-    payload = {"phase": phase, "reason": " ".join(reason.split())}
+    return " ".join(reason.split())
+
+
+def blocked_payload(phase: str | None, reason: str | None, path: str | None,
+                    stderr_from: str | None, resolver_reason: str | None = None,
+                    resolver_from: str | None = None) -> dict | None:
+    """emit-blocked's halt payload from its options; None without --phase (stdin carries it)."""
+    if phase is None:
+        if (reason, path, stderr_from, resolver_reason, resolver_from) != (None, None, None, None, None):
+            _die(1, "emit-blocked: --reason, --path, --stderr-from, --customization-resolver-unavailable and "
+                    "--customization-resolver-unavailable-from need --phase")
+        return None
+    if resolver_reason is not None and resolver_from is not None:
+        _die(1, "emit-blocked: pass --customization-resolver-unavailable or "
+                "--customization-resolver-unavailable-from, not both")
+    if not phase.strip() or not (reason or "").strip():
+        _die(1, "emit-blocked: --phase and --reason must be non-empty")
+    payload = {"phase": phase, "reason": filled_reason("emit-blocked", reason, stderr_from)}
     if path:
         payload["path"] = path
-    if resolver_reason and resolver_reason.strip():
+    if resolver_from is not None:
+        payload["customization_resolver_unavailable"] = resolver_reason_from(resolver_from)
+    elif resolver_reason and resolver_reason.strip():
         payload["customization_resolver_unavailable"] = " ".join(resolver_reason.split())
     return payload
 
@@ -1981,8 +2110,43 @@ def cmd_emit_blocked(args) -> None:
     the options when --phase is given, else from stdin.
     """
     payload = blocked_payload(args.phase, args.reason, args.path, args.stderr_from,
-                              args.customization_resolver_unavailable)
+                              args.customization_resolver_unavailable,
+                              args.customization_resolver_unavailable_from)
     run_emit(SETUP_WORKFLOW, halt=True, label="emit-blocked", payload=payload)
+
+
+# emit-halt's options that name a payload key, each set only when given non-empty.
+HALT_OPTION_KEYS = (("--halt-reason", "halt_reason"), ("--path", "path"), ("--old-name", "old_name"),
+                    ("--new-name", "new_name"))
+
+
+def halt_payload(args) -> dict | None:
+    """emit-halt's halt payload from its options; None without --phase (stdin carries it).
+
+    `--reason -` reads the reason on stdin, as --stderr-from reads `-`, so
+    text that holds quotes, backticks or `$( )` goes in through a quoted
+    heredoc and is never typed into a shell argument.
+    """
+    given = {"--reason": args.reason, "--stderr-from": args.stderr_from,
+             **{flag: getattr(args, key) for flag, key in HALT_OPTION_KEYS}}
+    if args.phase is None:
+        named = [flag for flag, value in given.items() if value is not None]
+        if named:
+            listed = named[0] if len(named) == 1 else f"{', '.join(named[:-1])} and {named[-1]}"
+            verb = "needs" if len(named) == 1 else "need"
+            _die(1, f"emit-halt: {listed} {verb} --phase (without it the payload is read on stdin)")
+        return None
+    if args.reason == "-" and args.stderr_from == "-":
+        _die(1, "emit-halt: --reason - and --stderr-from - would both read stdin; pass the stderr as a file")
+    reason = _read_stderr("-") if args.reason == "-" else args.reason
+    if not args.phase.strip() or not (reason or "").strip():
+        _die(1, "emit-halt: --phase and --reason must be non-empty")
+    payload = {"phase": args.phase, "reason": filled_reason("emit-halt", reason, args.stderr_from)}
+    for flag, key in HALT_OPTION_KEYS:
+        value = getattr(args, key)
+        if value:
+            payload[key] = value
+    return payload
 
 
 def _force_utf8(*streams) -> None:
@@ -2048,6 +2212,29 @@ def main() -> None:
                             "config_path is the forge-tier.yaml in it.")
         p.add_argument("--forge-data-folder", default=None,
                        help="skf-setup: the forge data folder activation bound (needs --project-root).")
+        p.add_argument("--orphan-action", choices=["keep", "remove"], default=None,
+                       help="skf-setup: the --orphan-action the run was given; with --headless and --quiet it "
+                            "decides the orphan_auto_resolution the emitter records.")
+        p.add_argument("--headless", action="store_true",
+                       help="skf-setup: the run was headless (its orphan default is headless-default).")
+        p.add_argument("--quiet", action="store_true",
+                       help="skf-setup: the run was quiet (its orphan default is quiet-default).")
+    for p in (p_emit, p_render, p_blocked):
+        p.add_argument("--customization-resolver-unavailable-from", default=None, metavar="FILE",
+                       help="The file that holds the On Activation resolver's failure reason: the emitter takes "
+                            "its diagnostic, folded to one line, and the envelope warns that the _bmad/custom/ "
+                            "overrides were not applied.")
+    p_halt.add_argument("--phase", default=None,
+                        help="The halt's phase; with it the payload comes from these options, not stdin.")
+    p_halt.add_argument("--halt-reason", default=None, help="The halt's halt_reason (with --phase).")
+    p_halt.add_argument("--reason", default=None, metavar="TEXT|-",
+                        help="The halt's reason, or - to read it on stdin (with --phase).")
+    p_halt.add_argument("--path", default=None, help="The path the halt names (optional, with --phase).")
+    p_halt.add_argument("--stderr-from", default=None, metavar="FILE|-",
+                        help="The failed command's stderr, a file or - for stdin: its diagnostic fills "
+                             "<message> in --reason.")
+    p_halt.add_argument("--old-name", default=None, help="The envelope's old_name (optional, with --phase).")
+    p_halt.add_argument("--new-name", default=None, help="The envelope's new_name (optional, with --phase).")
     p_blocked.add_argument("--phase", default=None,
                            help="The halt's phase; with it the payload comes from these options, not stdin.")
     p_blocked.add_argument("--reason", default=None, help="The halt's reason (with --phase).")
@@ -2062,11 +2249,16 @@ def main() -> None:
 
     cmd = args.cmd or "emit"
     if cmd in ("emit", "emit-halt"):
-        run_emit(getattr(args, "workflow", None), halt=cmd == "emit-halt", label=cmd,
+        halt = cmd == "emit-halt"
+        run_emit(getattr(args, "workflow", None), halt=halt, label=cmd,
                  run_dir=getattr(args, "run_dir", None), result_dir=getattr(args, "result_dir", None),
-                 target=getattr(args, "target", "stdout"), project_root=getattr(args, "project_root", None),
+                 target=getattr(args, "target", "stdout"), payload=halt_payload(args) if halt else None,
+                 project_root=getattr(args, "project_root", None),
                  sidecar_path=getattr(args, "sidecar_path", None),
-                 forge_data_folder=getattr(args, "forge_data_folder", None))
+                 forge_data_folder=getattr(args, "forge_data_folder", None),
+                 resolver_from=getattr(args, "customization_resolver_unavailable_from", None),
+                 orphan_action=getattr(args, "orphan_action", None),
+                 headless=getattr(args, "headless", False), quiet=getattr(args, "quiet", False))
     elif cmd == "emit-blocked":
         cmd_emit_blocked(args)
     elif cmd == "record":
@@ -2074,8 +2266,7 @@ def main() -> None:
     elif cmd == "validate":
         cmd_validate(args.workflow)
     elif cmd == "render-report":
-        cmd_render_report(args.run_dir, args.tier_rules, args.project_root, args.sidecar_path,
-                          args.forge_data_folder)
+        cmd_render_report(args)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-setup
+summary: |
+  Setup Forge now creates its run folder when it starts, before it runs the customization resolver, instead of in its first step. When the folder cannot be created, the blocked envelope of a `--headless` or `--quiet` run now names phase `on-activation:run-folder` where it named `step 1:run-folder`; its reason and path are unchanged.
+migration: |
+  A pipeline that branched on `error.phase` `step 1:run-folder` branches on `on-activation:run-folder` instead.
+issues: [1119]
