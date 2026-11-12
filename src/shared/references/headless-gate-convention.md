@@ -89,7 +89,7 @@ uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warnings-file "{run_d
 
 With `--workflow`, a decision the workflow's envelope schema rejects fails here, at the gate; without it, the emitter leaves the decision out when the run ends and adds a `headless_decision_invalid` warning. Because the sink is on disk, the trail survives context compaction, and a HARD HALT reports every decision taken before it.
 
-When the On Activation customization resolver is missing or fails, the run applies only the skill's own `customize.toml`. Record `customization_resolver_unavailable: <reason>` as a warning, or pass the reason in the envelope payload as `customization_resolver_unavailable`, so a pipeline sees that the team and user overrides under `_bmad/custom/` were not applied. Campaign's run spans several sessions, so it logs `customization_resolver_unavailable: <reason>` as an `event` in its decision log instead, and its result envelope's `decision_log` names that file.
+When the On Activation customization resolver is missing or fails, the run applies only the skill's own `customize.toml`. Record `customization_resolver_unavailable: <reason>` as a warning, pass the reason in the envelope payload as `customization_resolver_unavailable`, or save the resolver's stderr in the run folder and name that file with `--customization-resolver-unavailable-from` on `emit` (skf-setup's `emit-blocked` and `render-report` take it too), which folds it to one line with no escaping by hand. Either way a pipeline sees that the team and user overrides under `_bmad/custom/` were not applied. Campaign's run spans several sessions, so it logs `customization_resolver_unavailable: <reason>` as an `event` in its decision log instead, and its result envelope's `decision_log` names that file.
 
 ## Emitting the Result Envelope
 
@@ -101,6 +101,14 @@ uv run {emitEnvelopeHelper} emit-halt --workflow <workflow> --run-dir "{run_dir}
 ```
 
 - `result-context.json` holds the envelope's fields, and optionally the `result_contract` object for the run's result files. `halt.json` holds the halt's `phase`, `reason`, `halt_reason`, `exit_code` and `path`, plus any envelope field the halt already knows, such as the skill name.
+- A halt whose message quotes a helper's error, or any text the model did not write, passes its fields as options instead, so no step types that text into JSON or a shell argument: `--phase`, `--halt-reason`, `--path` (and `--old-name`, `--new-name` where the schema has them), and `--reason -` with the message in a quoted heredoc. Save the failed call's stderr in the run folder and write `<message>` where the message quotes it: `--stderr-from` fills it with the error's diagnostic line, folded to one line. Rename Skill's halt procedures use this form:
+
+  ```bash
+  uv run {emitEnvelopeHelper} emit-halt --workflow <workflow> --run-dir "{run_dir}" --phase '<phase>' --halt-reason '<halt_reason>' --path "<path>" --stderr-from "{run_dir}/call.err" --reason - <<'SKF_REASON'
+  <the message the halt displays>
+  SKF_REASON
+  ```
+
 - The emitter stamps what the model must not type: the timestamp from the clock, the run id and the result file path. It folds the sink into `headless_decisions` and `warnings`, derives `exit_code` from `halt_reason`, checks the envelope against the workflow's schema, `shared/scripts/schemas/skf-<name>-result-envelope.v1.json`, and prints the line. Display that line verbatim.
 - With `--result-dir` naming a folder that exists (the version folder), it also writes the run's per-run and `-latest` result files, as `output-contract-schema.md` describes. A halt before that folder exists reports through the line alone.
 - Write the `emit-halt` command at each HARD HALT, naming its phase, `halt_reason` and exit code there, and resolve the helper once at activation, before the first halt can fire. The halt then emits the right line even when the step file that defines the run's success envelope was never loaded, or was compacted away.
