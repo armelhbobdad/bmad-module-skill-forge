@@ -223,10 +223,9 @@ def test_skill_md_stays_under_its_token_budget():
     grows it. #965 grows the resolver sentence every SKILL.md carries word for word by 40 characters, to name the
     missing SKF helper, so the ceiling was 10,761. #1037 grows the foreground rule by 108 characters, to have every
     Agent call pass `run_in_background: false`, so the ceiling was 10,869. #1112 adds 286 characters: the bare-path
-    rule names the `nextStepFile` exception and a `references/` line names the files the stages load. #1113 grows the
-    Result Contract by 63 characters, to say the shared health check displays the line as the run's last line. So the
-    ceiling is 11,218 until #1179 moves section 5's pre-flight into init.md."""
-    assert len(_read(SKILL_MD)) < 11_218, len(_read(SKILL_MD))
+    rule names the `nextStepFile` exception and a `references/` line names the files the stages load, so the
+    ceiling is 11,155 until #1179 moves section 5's pre-flight into init.md."""
+    assert len(_read(SKILL_MD)) < 11_155, len(_read(SKILL_MD))
 
 # --- Every HALT names a known reason, its code and its phase ------------------------------
 
@@ -691,8 +690,9 @@ def test_a_headless_run_hands_its_line_to_the_health_check():
             "`SKF_REFINE_ARCHITECTURE_RESULT_JSON` line without displaying it: the shared health check displays that "
             "line verbatim as the run's last line") in relay
     result = _section(_read(SKILL_MD), "## Result Contract (Headless)", "## On Activation")
-    assert ("line on **stdout**, which the shared health check displays as the run's last line, and every HARD HALT "
-            "one on **stderr**") in result
+    # Said at no cost to the SKILL.md budget: "a run ends on one" replaces "step 6 prints one".
+    assert ("When `{headless_mode}` is true, a run ends on one `SKF_REFINE_ARCHITECTURE_RESULT_JSON: {...}` line on "
+            "**stdout**, and every HARD HALT one on **stderr**") in result
     envelope = _section(_read(REFERENCES / "exit-codes.md"), "## Result Envelope", "## Emitting a Halt")
     assert ("line on **stdout** when it writes the result contract, which the shared health check (step 7) displays "
             "as the run's last line, and every HARD HALT prints one on **stderr**") in envelope
