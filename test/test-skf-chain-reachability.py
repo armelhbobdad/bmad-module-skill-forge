@@ -340,6 +340,26 @@ def test_the_rule_names_the_keys_after_its_anchor(rule: str, named: set[str] | N
     assert _named_keys(rule) == named
 
 
+# A reference file's prose that names a file beside itself, not from the skill root.
+BESIDE_THIS_FILE = re.compile(r"`([\w./-]+\.md)`, beside this file")
+BESIDE_RULE = 'a file the text calls "beside this file" sits beside the file that says so'
+
+
+@pytest.mark.parametrize("skill", WORKFLOW_SKILLS)
+def test_a_file_named_beside_this_file_is_there_and_the_rule_says_so(skill: str) -> None:
+    """Create Skill's extraction-patterns.md names `extraction-patterns-by-hand.md` and `relabel-rule.md` "beside
+    this file", and Audit's re-index.md and Update's write.md follow those lines from another skill's root, so the
+    names stay as written: each one is beside the file that names it, and the rule says such a file is there, since
+    "only a stage's frontmatter" keys would otherwise be the only names read from the stage's folder (#1112 review)."""
+    named = []
+    for path in sorted((SRC / skill / "references").rglob("*.md")):
+        for name in BESIDE_THIS_FILE.findall(path.read_text(encoding="utf-8")):
+            assert (path.parent / name).is_file(), f"{path.relative_to(SRC)}: no {name} beside it"
+            named.append(name)
+    if named:
+        assert BESIDE_RULE in _bare_path_rule(skill), f"{skill}: the rule does not cover {sorted(set(named))}"
+
+
 # ---------------------------------------------------------------------------
 # Every exit reaches the terminal sequence (#585)
 # ---------------------------------------------------------------------------
