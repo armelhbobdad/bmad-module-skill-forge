@@ -15,7 +15,7 @@ Detects the available tools, sets the capability tier (Quick/Forge/Forge+/Deep) 
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
 - `references/` holds the workflow stages (chained by frontmatter `nextStepFile`), the invocation contract and `tier-rules.md`, the tier table `report.md` passes to the emitter's banner.
-- Shared Python helpers do the deterministic work, with no prose fallback: each step's frontmatter `*ProbeOrder` array lists a helper's installed path (`{project-root}/_bmad/skf/shared/scripts/<name>`) then its dev path (`{project-root}/src/shared/scripts/<name>`). On Activation item 4 resolves every array at once and halts through the halt contract, phase `on-activation:helper-missing`, on any helper with neither path.
+- Shared Python helpers do the deterministic work, with no prose fallback: each step's frontmatter `*ProbeOrder` array lists a helper's installed path (`{project-root}/_bmad/skf/shared/scripts/<name>`) then its dev path (`{project-root}/src/shared/scripts/<name>`). On Activation item 4 resolves them all and halts (`on-activation:helper-missing`) on any helper with neither path.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.

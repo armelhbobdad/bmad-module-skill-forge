@@ -175,8 +175,10 @@ def test_skill_md_routes_unresolved_helpers_through_halt_contract():
     missing helper halts before any step runs; the step halts stay as a backstop."""
     conventions = _section(_read(SKILL_MD), "## Conventions")
     probe_line = next(line for line in conventions.splitlines() if "ProbeOrder" in line)
-    assert ("On Activation item 4 resolves every array at once and halts through the halt contract, "
-            "phase `on-activation:helper-missing`, on any helper with neither path.") in probe_line
+    assert ("On Activation item 4 resolves them all and halts (`on-activation:helper-missing`) on any helper "
+            "with neither path.") in probe_line
+    # The Done when shortens the bullet: shorter than its 389 bytes before #1117.
+    assert len(probe_line.encode("utf-8")) < 389
     assert "Run the first that exists" not in probe_line
 
 
