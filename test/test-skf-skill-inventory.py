@@ -2137,6 +2137,401 @@ def test_cli_resolve(tmp_path):
         assert "Usage:" in err, argv
 
 
+# ---------------------------------------------------------------------------
+# Migrate: a flat SKF skill moves into the versioned layout in one checked step (#1121)
+# ---------------------------------------------------------------------------
+
+PACKAGE_ENTRIES = ("SKILL.md", "assets", "context-snippet.md", "metadata.json", "references", "scripts")
+FLAT_FORGE = ("drift-report-t.md", "evidence-report.md", "extraction-rules.yaml", "provenance-map.json",
+              "test-findings-r1.json", "test-report-lib-r1.md")
+FORGE_STAYS = ("lib-result-latest.json", "skill-brief.yaml")
+_NO_VERSION = object()
+
+
+def _flat_lib(tmp_path: Path, version=_NO_VERSION, forge_files=FLAT_FORGE + FORGE_STAYS, metadata=None):
+    """skills/lib: a marked flat skill with every package entry and a `notes.md`; forge/lib: `forge_files`."""
+    skills, forge = tmp_path / "skills", tmp_path / "forge"
+    if metadata is None:
+        metadata = dict(MARKED) if version is _NO_VERSION else {**MARKED, "version": version}
+    group = _make_flat(skills, "lib", metadata=metadata, subdirs=("references", "scripts", "assets"),
+                       extra=("context-snippet.md", "notes.md"))
+    for name in forge_files:
+        _write(forge / "lib" / name, name)
+    forge.mkdir(exist_ok=True)
+    return skills, forge, group
+
+
+def _tree(*roots: Path) -> dict:
+    """Every entry under `roots`, sorted, relative to their parent: a file's bytes, a link's target."""
+    out = {}
+    for root in roots:
+        for dirpath, dirnames, filenames in os.walk(root):
+            for name in dirnames + filenames:
+                path = Path(dirpath) / name
+                rel = path.relative_to(root.parent).as_posix()
+                if path.is_symlink():
+                    out[rel] = ("link", os.readlink(path))
+                elif path.is_dir():
+                    out[rel] = ("dir",)
+                else:
+                    out[rel] = ("file", path.read_bytes())
+    return dict(sorted(out.items()))
+
+
+class _Flip:
+    """A stand-in for skf-update-active-symlink.py: `update` returns `status`, raises, or makes
+    `active` the absolute link a junction reads as."""
+
+    def __init__(self, status="flipped", raises=None, absolute=False):
+        self.status, self.raises, self.absolute = status, raises, absolute
+
+    def update(self, group, version):
+        if self.raises:
+            raise self.raises
+        if self.absolute:
+            os.symlink(str((group / version).resolve()), group / "active")
+        return {"status": self.status, "log_message": f"active_symlink_update: {self.status}"}
+
+
+def _assert_refused(out: dict, code: str) -> None:
+    assert (out["status"], out["command"], out["code"]) == ("error", "migrate", code), out
+    assert (out["moved"], out["left_in_place"]) == ([], [])
+    assert out["error"]
+
+
+class TestMigrate:
+    def test_moves_the_package_flips_active_and_moves_the_forge_artifacts(self, tmp_path):
+        skills, forge, group = _flat_lib(tmp_path, version="1.2.0+b.5")
+        skill_md = (group / "SKILL.md").read_bytes()
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert (out["status"], out["command"], out["version"]) == ("ok", "migrate", "1.2.0"), out
+        package, forge_version = group / "1.2.0" / "lib", forge / "lib" / "1.2.0"
+        assert sorted(os.listdir(package)) == list(PACKAGE_ENTRIES)
+        assert (package / "SKILL.md").read_bytes() == skill_md
+        assert (package / "references" / "file.md").is_file()
+        assert sorted(os.listdir(group)) == ["1.2.0", "active", "notes.md"]
+        assert mod._active_link_version(group) == ("1.2.0", None)
+        assert sorted(os.listdir(forge_version)) == list(FLAT_FORGE)
+        assert sorted(os.listdir(forge / "lib")) == ["1.2.0", *FORGE_STAYS]
+        assert out["moved"] == ([{"from": str(group / e), "to": str(package / e)} for e in PACKAGE_ENTRIES]
+                                + [{"from": str(forge / "lib" / a), "to": str(forge_version / a)}
+                                   for a in FLAT_FORGE])
+        assert out["left_in_place"] == [{"path": str(group / "notes.md"), "reason": mod.NOT_A_PACKAGE_ENTRY}]
+        assert (out["skill_package"], out["forge_version"]) == (str(package), str(forge_version))
+        assert out["message"] == "Migrated lib from flat to versioned layout (1.2.0); left in place: notes.md"
+        resolved = mod.resolve_skill(skills, "lib", forge)
+        assert (resolved["reason"], resolved["chosen_version"]) == ("link", "1.2.0")
+        assert resolved["paths"]["provenance_map"]["source"] == "versioned"
+        assert not [p for p in tmp_path.rglob("*") if ".skf-" in p.name], "no staging or lock left"
+
+    @pytest.mark.parametrize("metadata", [dict(MARKED), {**MARKED, "version": None}, {**MARKED, "version": ""}])
+    def test_a_missing_version_gives_1_0_0(self, tmp_path, metadata):
+        skills, forge, group = _flat_lib(tmp_path, metadata=metadata, forge_files=())
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert (out["status"], out["version"]) == ("ok", "1.0.0"), out
+        assert (group / "1.0.0" / "lib" / "SKILL.md").is_file()
+        assert out["message"] == "Migrated lib from flat to versioned layout (1.0.0); left in place: notes.md"
+
+    @pytest.mark.parametrize("version", ["latest", "*", "<2.0.0", True, ["1.0.0"]])
+    def test_a_version_that_names_none_is_refused(self, tmp_path, version):
+        skills, forge, _group = _flat_lib(tmp_path, version=version)
+        before = _tree(skills, forge)
+        out = mod.migrate_skill(skills, "lib", forge)
+        _assert_refused(out, "NOT_A_VERSION")
+        assert out["version"] is None
+        assert _tree(skills, forge) == before
+
+    @pytest.mark.parametrize("version,folder", [("1.0", "1.0.0"), ("v1.2.3", "1.2.3"), ("^2.1.0", "2.1.0"),
+                                                ("v1.2.3+b.1", "1.2.3"), (2, "2.0.0")])
+    def test_a_version_not_written_as_its_folder_name_is_refused(self, tmp_path, version, folder):
+        """Export records metadata.json's `version` in the manifest unchanged, so a folder named by another
+        spelling of it never matches the manifest, and `resolve` reads `manifest-lags-link` on every run."""
+        skills, forge, group = _flat_lib(tmp_path, version=version)
+        before = _tree(skills, forge)
+        out = mod.migrate_skill(skills, "lib", forge)
+        _assert_refused(out, "NOT_A_VERSION")
+        assert out["version"] is None and f"set `version` to {folder!r}" in out["error"], out
+        assert str(group / "metadata.json") in out["error"]
+        assert _tree(skills, forge) == before
+
+    def test_a_skill_that_is_not_flat_skf_is_refused(self, tmp_path):
+        skills, forge, _group = _flat_lib(tmp_path, metadata=NOT_MARKERS["module-own"])
+        _make_version(skills, "cognee", "0.5.0", metadata=MARKED)
+        before = _tree(skills, forge)
+        for name in ("lib", "cognee", "absent"):
+            out = mod.migrate_skill(skills, name, forge)
+            _assert_refused(out, "NOT_FLAT_SKF")
+            assert out["version"] is None and isinstance(out["errors"], list)
+        assert _tree(skills, forge) == before
+
+    @pytest.mark.parametrize("taken", ["1.0.0", "1.0.0.skf-migrate", "active"])
+    def test_a_version_folder_staging_name_or_active_folder_there_is_refused(self, tmp_path, taken):
+        skills, forge, group = _flat_lib(tmp_path)
+        (group / taken).mkdir()
+        before = _tree(skills, forge)
+        out = mod.migrate_skill(skills, "lib", forge)
+        _assert_refused(out, "TARGET_EXISTS")
+        assert out["version"] == "1.0.0" and str(group / taken) in out["error"]
+        assert _tree(skills, forge) == before
+
+    def test_a_staging_folder_a_killed_run_left_is_named_as_one(self, tmp_path):
+        """A kill mid-move leaves part of the package in `{version}.skf-migrate/{name}/`: the refusal says so
+        and how to put it back, never that another version is there."""
+        skills, forge, group = _flat_lib(tmp_path)
+        (group / "1.0.0.skf-migrate" / "lib").mkdir(parents=True)
+        os.rename(group / "assets", group / "1.0.0.skf-migrate" / "lib" / "assets")
+        before = _tree(skills, forge)
+        out = mod.migrate_skill(skills, "lib", forge)
+        _assert_refused(out, "TARGET_EXISTS")
+        assert "another version" not in out["error"], out
+        assert out["error"] == (f"{group / '1.0.0.skf-migrate'} is left from a migration that was cut off: "
+                                f"move what its lib/ folder holds back into {group}, delete it, then re-run")
+        assert _tree(skills, forge) == before
+
+    def test_a_linked_package_entry_is_refused(self, tmp_path, links_ok):
+        skills, forge, group = _flat_lib(tmp_path)
+        _write(tmp_path / "elsewhere" / "guide.md")
+        os.rename(group / "references", tmp_path / "old-references")
+        (group / "references").symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+        before = _tree(skills, forge)
+        out = mod.migrate_skill(skills, "lib", forge)
+        _assert_refused(out, "PACKAGE_LINK")
+        assert str(group / "references") in out["error"]
+        assert _tree(skills, forge) == before
+
+    @pytest.mark.parametrize("failing_call", [1, 3, 7])
+    def test_a_failed_move_puts_everything_back(self, tmp_path, monkeypatch, failing_call):
+        """Calls 1 to 6 move the package entries into staging, call 7 renames staging to the version."""
+        skills, forge, _group = _flat_lib(tmp_path)
+        before = _tree(skills, forge)
+        real, calls = mod._move, []
+
+        def flaky(src, dst):
+            calls.append((src, dst))
+            if len(calls) == failing_call:
+                raise OSError("no space left on device")
+            real(src, dst)
+
+        monkeypatch.setattr(mod, "_move", flaky)
+        out = mod.migrate_skill(skills, "lib", forge)
+        _assert_refused(out, "MIGRATE_FAILED")
+        assert "no space left on device" in out["error"] and "everything was put back" in out["error"]
+        assert _tree(skills, forge) == before, "the package is back at the root, with no staging folder"
+
+    @pytest.mark.parametrize("flip", [_Flip(status="busy"), _Flip(status="mismatch"),
+                                      _Flip(raises=OSError("cannot load the flip-lock helper"))])
+    def test_a_failed_flip_puts_the_package_back(self, tmp_path, monkeypatch, flip):
+        skills, forge, group = _flat_lib(tmp_path)
+        before = _tree(skills, forge)
+        monkeypatch.setattr(mod, "_load_active_symlink", lambda: flip)
+        out = mod.migrate_skill(skills, "lib", forge)
+        _assert_refused(out, "MIGRATE_FAILED")
+        assert (flip.status if not flip.raises else "flip-lock") in out["error"]
+        assert _tree(skills, forge) == before
+        assert (group / "SKILL.md").is_file() and not (group / "1.0.0").exists()
+
+    def test_a_flip_helper_that_cannot_be_loaded_refuses_before_anything_moves(self, tmp_path, monkeypatch):
+        skills, forge, _group = _flat_lib(tmp_path)
+        before = _tree(skills, forge)
+
+        def missing():
+            raise OSError("cannot load the active-link helper")
+
+        monkeypatch.setattr(mod, "_load_active_symlink", missing)
+        _assert_refused(mod.migrate_skill(skills, "lib", forge), "MIGRATE_FAILED")
+        assert _tree(skills, forge) == before
+
+    def test_an_absolute_link_the_flip_leaves_verifies(self, tmp_path, monkeypatch, links_ok):
+        """A junction reads as the folder it resolves to (test-skf-update-active-symlink.py `_junction`)."""
+        skills, forge, group = _flat_lib(tmp_path)
+        monkeypatch.setattr(mod, "_load_active_symlink", lambda: _Flip(absolute=True))
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert (out["status"], out["version"]) == ("ok", "1.0.0"), out
+        assert os.path.isabs(os.readlink(group / "active"))
+
+    def test_a_flip_that_leaves_no_link_fails_the_check_and_puts_nothing_back(self, tmp_path, monkeypatch):
+        skills, forge, group = _flat_lib(tmp_path)
+        monkeypatch.setattr(mod, "_load_active_symlink", lambda: _Flip(status="flipped"))
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert (out["status"], out["code"]) == ("error", "VERIFY_FAILED"), out
+        assert "`active` does not name 1.0.0" in out["error"]
+        assert len(out["moved"]) == len(PACKAGE_ENTRIES) + len(FLAT_FORGE)
+        assert (group / "1.0.0" / "lib" / "SKILL.md").is_file() and not (group / "SKILL.md").exists()
+
+    def test_a_name_the_forge_version_already_holds_stays(self, tmp_path):
+        skills, forge, _group = _flat_lib(tmp_path)
+        _write(forge / "lib" / "1.0.0" / "provenance-map.json", "versioned")
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert out["status"] == "ok", out
+        assert (forge / "lib" / "provenance-map.json").read_bytes() == b"provenance-map.json"
+        assert (forge / "lib" / "1.0.0" / "provenance-map.json").read_bytes() == b"versioned"
+        [left] = [e for e in out["left_in_place"] if e["path"] == str(forge / "lib" / "provenance-map.json")]
+        assert "already exists" in left["reason"]
+        assert (forge / "lib" / "1.0.0" / "evidence-report.md").is_file()
+
+    def test_a_forge_folder_skf_did_not_write_stays(self, tmp_path):
+        """A map and a stray file, and no brief or result file: no SKF evidence."""
+        skills, forge, group = _flat_lib(tmp_path, forge_files=("provenance-map.json", "NOTES.txt"))
+        assert mod.classify_forge_group(forge / "lib", "lib")["ownership"] == "foreign"
+        before = _tree(forge)
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert out["status"] == "ok", out
+        assert _tree(forge) == before
+        [left] = [e for e in out["left_in_place"] if e["path"].startswith(str(forge))]
+        assert left["path"] == str(forge / "lib" / "provenance-map.json") and "'foreign'" in left["reason"]
+        assert (group / "1.0.0" / "lib" / "SKILL.md").is_file(), "the skills side stays migrated"
+
+    def test_a_linked_forge_artifact_stays(self, tmp_path, links_ok):
+        skills, forge, _group = _flat_lib(tmp_path, forge_files=FORGE_STAYS)
+        _write(tmp_path / "elsewhere" / "map.json")
+        (forge / "lib" / "provenance-map.json").symlink_to(tmp_path / "elsewhere" / "map.json")
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert out["status"] == "ok", out
+        assert (forge / "lib" / "provenance-map.json").is_symlink() and not (forge / "lib" / "1.0.0").exists()
+        assert {"path": str(forge / "lib" / "provenance-map.json"),
+                "reason": "a link; SKF never moves a link"} in out["left_in_place"]
+
+    def test_a_linked_forge_folder_is_named_and_not_followed(self, tmp_path, links_ok):
+        skills, forge, _group = _flat_lib(tmp_path, forge_files=())
+        outside = tmp_path / "elsewhere" / "lib"
+        for name in FLAT_FORGE + FORGE_STAYS:
+            _write(outside / name, name)
+        (forge / "lib").symlink_to(outside, target_is_directory=True)
+        before = _tree(outside)
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert out["status"] == "ok", out
+        assert _tree(outside) == before, "nothing moves inside the linked forge folder"
+        [left] = [e for e in out["left_in_place"] if e["path"] == str(forge / "lib")]
+        assert "a link" in left["reason"]
+        assert out["message"].endswith("; left in place: lib, notes.md")
+
+    def test_a_linked_forge_version_folder_is_not_moved_into(self, tmp_path, links_ok):
+        skills, forge, _group = _flat_lib(tmp_path)
+        outside = tmp_path / "elsewhere"
+        outside.mkdir()
+        (forge / "lib" / "1.0.0").symlink_to(outside, target_is_directory=True)
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert out["status"] == "ok", out
+        assert os.listdir(outside) == []
+        for name in FLAT_FORGE:
+            assert (forge / "lib" / name).read_bytes() == name.encode()
+            [left] = [e for e in out["left_in_place"] if e["path"] == str(forge / "lib" / name)]
+            assert "is not a folder SKF can move it into" in left["reason"]
+
+    def test_a_forge_move_that_fails_leaves_the_artifact_and_the_skill_migrated(self, tmp_path, monkeypatch):
+        skills, forge, group = _flat_lib(tmp_path)
+        real = mod._move
+
+        def no_forge_moves(src, dst):
+            if Path(dst).is_relative_to(forge / "lib"):
+                raise OSError("permission denied")
+            real(src, dst)
+
+        monkeypatch.setattr(mod, "_move", no_forge_moves)
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert out["status"] == "ok", out
+        assert (group / "1.0.0" / "lib" / "SKILL.md").is_file()
+        assert not (forge / "lib" / "1.0.0").exists(), "a version folder nothing moved into is removed"
+        for name in FLAT_FORGE:
+            [left] = [e for e in out["left_in_place"] if e["path"] == str(forge / "lib" / name)]
+            assert left["reason"].startswith("cannot move it: ") and "permission denied" in left["reason"]
+
+    def test_an_active_link_already_there_is_replaced(self, tmp_path, links_ok):
+        """A flat skill beside a stale `active` link, as a flip that failed with `mismatch` leaves one."""
+        skills, forge, group = _flat_lib(tmp_path)
+        (group / "active").symlink_to("0.9.0")
+        assert mod.resolve_skill(skills, "lib", forge)["reason"] == "flat-layout"
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert out["status"] == "ok", out
+        assert mod._active_link_version(group) == ("1.0.0", None)
+        assert str(group / "active") not in [e["path"] for e in out["left_in_place"]]
+
+    def test_an_entry_that_cannot_move_back_is_named_and_listed(self, tmp_path, monkeypatch):
+        """Call 3 fails, and so does moving the first entry, SKILL.md, back."""
+        skills, forge, group = _flat_lib(tmp_path)
+        staged = group / "1.0.0.skf-migrate" / "lib"
+        real, calls = mod._move, []
+
+        def flaky(src, dst):
+            calls.append((src, dst))
+            if len(calls) == 3 or Path(src) == staged / "SKILL.md":
+                raise OSError("no space left on device")
+            real(src, dst)
+
+        monkeypatch.setattr(mod, "_move", flaky)
+        out = mod.migrate_skill(skills, "lib", forge)
+        assert (out["status"], out["code"]) == ("error", "MIGRATE_FAILED"), out
+        assert f"could not move back from {staged}: SKILL.md" in out["error"]
+        assert out["moved"] == [{"from": str(group / "SKILL.md"), "to": str(staged / "SKILL.md")}]
+        assert (staged / "SKILL.md").is_file() and (group / "assets").is_dir()
+
+    @pytest.mark.parametrize("where", ["move", "flip"])
+    def test_a_ctrl_c_puts_everything_back_then_stops(self, tmp_path, monkeypatch, where):
+        skills, forge, _group = _flat_lib(tmp_path)
+        before = _tree(skills, forge)
+        if where == "flip":
+            monkeypatch.setattr(mod, "_load_active_symlink", lambda: _Flip(raises=KeyboardInterrupt()))
+        else:
+            real, calls = mod._move, []
+
+            def interrupted(src, dst):
+                calls.append(src)
+                if len(calls) == 2:
+                    raise KeyboardInterrupt
+                real(src, dst)
+
+            monkeypatch.setattr(mod, "_move", interrupted)
+        with pytest.raises(KeyboardInterrupt):
+            mod.migrate_skill(skills, "lib", forge)
+        assert _tree(skills, forge) == before, "the package is back at the root, with no staging folder"
+
+    def test_one_folder_puts_the_forge_artifacts_beside_the_package(self, tmp_path):
+        skills, _forge, group = _flat_lib(tmp_path, forge_files=())
+        for name in FLAT_FORGE + FORGE_STAYS:
+            _write(group / name, name)
+        out = mod.migrate_skill(skills, "lib", skills)
+        assert out["status"] == "ok", out
+        assert sorted(os.listdir(group / "1.0.0")) == sorted(["lib", *FLAT_FORGE])
+        assert sorted(os.listdir(group)) == sorted(["1.0.0", "active", "notes.md", *FORGE_STAYS])
+        assert out["forge_version"] == str(group / "1.0.0")
+        assert [e["path"] for e in out["left_in_place"]] == sorted(
+            str(group / n) for n in ("notes.md", *FORGE_STAYS))
+        resolved = mod.resolve_skill(skills, "lib", skills)
+        assert resolved["paths"]["provenance_map"]["path"] == str(group / "1.0.0" / "provenance-map.json")
+
+
+def test_cli_migrate(tmp_path):
+    skills, forge, group = _flat_lib(tmp_path, version="2.0.0")
+    argv = ("migrate", str(skills), "--skill", "lib", "--forge-data-folder", str(forge))
+    code, out, _ = _run_inventory(*argv)
+    assert (code, out["status"], out["version"], out["skill_package"]) == (
+        0, "ok", "2.0.0", str(group / "2.0.0" / "lib"))
+    code, out, _ = _run_inventory(*argv)
+    assert (code, out["code"], out["command"], out["version"], out["moved"]) == (1, "NOT_FLAT_SKF", "migrate", None, [])
+    _make_flat(skills, "named", metadata={**MARKED, "version": "latest"})
+    code, out, _ = _run_inventory("migrate", str(skills), "--skill", "named", "--forge-data-folder", str(forge))
+    assert (code, out["code"]) == (1, "NOT_A_VERSION")
+    code, out, _ = _run_inventory("migrate", str(skills), "--skill", "absent", "--forge-data-folder", str(forge))
+    assert (code, out["code"]) == (1, "SKILL_NOT_FOUND")
+    code, out, _ = _run_inventory("migrate", str(tmp_path / "nope"), "--skill", "lib",
+                                  "--forge-data-folder", str(forge))
+    assert (code, out["code"]) == (1, "DIR_NOT_FOUND")
+    for argv in (
+        ["migrate"],
+        ["migrate", "--skill", "lib", "--forge-data-folder", str(forge)],
+        ["migrate", str(skills), "--forge-data-folder", str(forge)],
+        ["migrate", str(skills), "--skill", "lib"],
+        ["migrate", str(skills), "--skill", "lib", "--forge-data-folder"],
+        ["migrate", str(skills), "--skill", "../x", "--forge-data-folder", str(forge)],
+        ["migrate", str(skills), "--skill", "lib", "--forge-data-folder", str(forge), "--version", "1.0.0"],
+        ["migrate", str(skills), "--skill", "lib", "--forge-data-folder", str(forge), "extra"],
+    ):
+        code, out, err = _run_inventory(*argv)
+        assert (code, out["status"], out["code"], out["command"]) == (1, "error", "USAGE", "migrate"), argv
+        assert (out["moved"], out["left_in_place"]) == ([], []), argv
+        assert "Usage:" in err and "migrate <skills-output-folder>" in err, argv
+
+
 def test_cli_version(tmp_path):
     code, out, _ = _run_inventory("version", "normalize", "^18.2.0")
     assert (code, out["status"], out["command"], out["normalized"], out["rule"]) == (

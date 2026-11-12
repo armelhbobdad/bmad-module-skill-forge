@@ -127,6 +127,13 @@ And the #901 fix: write.md §7 hashes SKILL.md before and after the guarded
 `--fix` call and re-reads it when the two hashes differ, since skill-check
 1.2.0's JSON lists no fix.
 
+And the #1116 fix: every step file declares `emitEnvelopeProbeOrder` and
+`runStateProbeOrder` (merge.md and write.md, which renew the run lock, also
+`runLockProbeOrder`) and resolves a helper a compaction unbound from them,
+each halt procedure runs the `{runStateHelper}` `halt` call itself, and
+report.md §5b binds a lost `{onCompleteCommand}` through the customization
+helper before the hook.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -847,6 +854,112 @@ def test_skill_md_contract():
     coupling = _slice(text, "- **Cross-skill data coupling:**", "\n")
     assert "skf-source-tree.py" in coupling and "remote-source-resolution" not in coupling
     assert "four shared assets" not in coupling
+
+
+# #1116: the Rules line each step file carries, and the two report.md carries, for a binding a compaction dropped.
+LOST_BINDING_RULE = ("- When a helper is not bound, it resolves to the first existing path in its probe order: "
+                     "`{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}` and `{runStateHelper}` in "
+                     "`{runStateProbeOrder}`.")
+# merge.md §6b and write.md §2 renew the run lock init.md §1b took, so their line names `{runLockHelper}` too.
+RENEWING_STEPS = (MERGE, WRITE)
+RENEWING_LOST_BINDING_RULE = ("- When a helper is not bound, it resolves to the first existing path in its probe "
+                              "order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`, `{runStateHelper}` in "
+                              "`{runStateProbeOrder}` and `{runLockHelper}` in `{runLockProbeOrder}`.")
+REPORT_LOST_BINDING_RULES = (
+    "- When `{emitEnvelopeHelper}` is not bound, it resolves to the first existing path in `{emitEnvelopeProbeOrder}`.",
+    "- §5b's post-finalization hook runs `{resolveCustomizationHelper}`, resolved from "
+    "`{resolveCustomizationProbeOrder}` when it is not bound.")
+HOOK_BINDING = ("When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, "
+                "or to the one in `{skill-root}/customize.toml` when the resolver cannot run:")
+HOOK_RESOLVE = ("uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} "
+                "--key workflow.on_complete")
+# What a halt runs: the run-state helper and the scripts it calls beside it.
+HALT_SCRIPTS = ("skf-update-run-state.py", "skf-emit-result-envelope.py", "skf-run-lock.py", "skf-source-tree.py")
+
+
+def _first_existing(probe: list[str], root: Path) -> Path | None:
+    """A helper as a stage that lost its binding resolves it: the first path of its probe order that exists."""
+    paths = [Path(entry.replace("{project-root}", root.as_posix())) for entry in probe]
+    return next((path for path in paths if path.is_file()), None)
+
+
+def test_every_stage_resolves_its_helpers_and_the_hook_after_a_lost_binding():
+    """#1116: SKILL.md On Activation binds `{emitEnvelopeHelper}` and `{runStateHelper}` once, and a context
+    compaction can drop either before a later stage runs. Each step file declares both probe orders and its Rules
+    resolve a helper that is not bound from them; each halt procedure, init.md §1b's cleanup and merge.md §6b's
+    record run `{runStateHelper}` with no pointer back at SKILL.md. merge.md and write.md, whose renewals run the
+    `{runLockHelper}` init.md §1b bound, declare its probe order too. report.md, which runs no `{runStateHelper}`,
+    declares the emitter's and the customization helper's, and §5b binds a lost `{onCompleteCommand}` from the
+    resolver before it decides whether the hook runs, so a team's hook is never skipped as if it were empty."""
+    for path in STEP_FILES:
+        text = _read(path)
+        front = yaml.safe_load(_frontmatter(text))
+        assert front["emitEnvelopeProbeOrder"] == _probe("skf-emit-result-envelope.py"), path.name
+        assert front["runStateProbeOrder"] == _probe("skf-update-run-state.py"), path.name
+        rule = RENEWING_LOST_BINDING_RULE if path in RENEWING_STEPS else LOST_BINDING_RULE
+        assert _slice(text, "## Rules", "## Steps").splitlines().count(rule) == 1, path.name
+        if path in RENEWING_STEPS:
+            assert front["runLockProbeOrder"] == RUN_LOCK_PATHS, path.name
+            assert "{runLockHelper}` §1b resolved" not in text, path.name
+        procedure = _halt_procedure(path)
+        assert "and then runs, from `{project-root}`, the `{runStateHelper}` `halt` call below." in procedure, path.name
+        for gone in ("SKILL.md On Activation", "the halt helper", "On Activation resolved"):
+            assert gone not in procedure, (path.name, gone)
+        assert "SKILL.md On Activation resolved" not in text, path.name
+    cleanup = _slice(_read(INIT), "**Clean up an interrupted update.**",
+                     "\n```bash\nuv run {runStateHelper} rollback \\\n")
+    assert cleanup.rstrip().endswith("From `{project-root}`, run the `{runStateHelper}` `rollback` call below, with "
+                                     "that owner exactly as the acquire printed it:"), cleanup[-200:]
+    record = _slice(_read(MERGE), "**Record what this run writes**", "- **Gap-driven mode:**")
+    assert record.rstrip().endswith("From `{project-root}`, with `{runStateHelper}`:"), record
+    report = _read(REPORT)
+    front = yaml.safe_load(_frontmatter(report))
+    assert front["emitEnvelopeProbeOrder"] == _probe("skf-emit-result-envelope.py")
+    assert front["resolveCustomizationProbeOrder"] == _probe("skf-resolve-customization.py")
+    assert "runStateProbeOrder" not in front and "{runStateHelper}" not in report
+    rules = _slice(report, "## Rules", "## Steps").splitlines()
+    for rule in REPORT_LOST_BINDING_RULES:
+        assert rules.count(rule) == 1, rule
+    assert "SKILL.md On Activation" not in report
+    hook = _slice(_slice(report, "### 5b. Result Contract", "### 6."), "**Post-finalization hook.**",
+                  "{onCompleteCommand} --result-path=")
+    assert hook.startswith(f"**Post-finalization hook.** {HOOK_BINDING}\n\n```bash\n{HOOK_RESOLVE}\n```\n\n"), \
+        hook[:400]
+    assert hook.index(HOOK_RESOLVE) < hook.index("If `{onCompleteCommand}` is non-empty, the emitter exited 0")
+
+
+def test_a_halt_that_lost_its_helper_runs_it_from_the_probe_order(tmp_path):
+    """#1116: with `{runStateHelper}` unbound, each step file's probe order gives the installed copy when SKF is
+    installed and the development tree's otherwise; the copy merge.md's probe order finds runs that step's
+    documented halt call, which does the cleanup and prints the halt's line through the emitter beside it."""
+    installed, dev = tmp_path / "installed", tmp_path / "dev"
+    for root, folders in ((installed, ("_bmad/skf/shared/scripts", "src/shared/scripts")),
+                          (dev, ("src/shared/scripts",))):
+        for folder in folders:
+            target = root / folder
+            shutil.copytree(EMITTER.parent / "schemas", target / "schemas")
+            for name in HALT_SCRIPTS:
+                shutil.copyfile(EMITTER.parent / name, target / name)
+    for path in STEP_FILES:
+        probe = yaml.safe_load(_frontmatter(_read(path)))["runStateProbeOrder"]
+        assert _first_existing(probe, installed) == installed / "_bmad/skf/shared/scripts/skf-update-run-state.py"
+        assert _first_existing(probe, dev) == dev / "src/shared/scripts/skf-update-run-state.py", path.name
+        assert _first_existing(probe, tmp_path / "neither") is None
+    script = _first_existing(yaml.safe_load(_frontmatter(_read(MERGE)))["runStateProbeOrder"], dev)
+    block = _fence(_halt_procedure(MERGE), HALT_CALL)
+    run_dir = tmp_path / "skf-update-skill-a1B2c3D4"
+    run_dir.mkdir()
+    payload = {**_sample(_heredoc(block)), "status": "blocked", "phase": "merge:x", "reason": "r", "path": "a/b",
+               "skill_name": "lib", "version": "1.0.0", "previous_version": "1.0.0", "update_mode": "normal"}
+    argv = _cmd_args(block, "runStateHelper", {"run_dir": str(run_dir)}, keep=("--emit",))
+    proc = subprocess.run([sys.executable, str(script), *argv], input=json.dumps(payload), capture_output=True,
+                          encoding="utf-8", cwd=dev)
+    assert proc.returncode == 0, proc.stderr
+    summary, line = proc.stdout.splitlines()
+    # the rollback ran (this run recorded no writes) and nothing failed, then the line went out
+    assert {key: json.loads(summary)[key] for key in ("status", "rollback", "failed", "warnings", "emitted")} == \
+        {"status": "halted", "rollback": "nothing-to-roll-back", "failed": [], "warnings": [], "emitted": True}
+    assert json.loads(line.split("SKF_UPDATE_RESULT_JSON: ", 1)[1])["skf_update"]["error"]["phase"] == "merge:x"
 
 
 def test_schema_descriptions():
@@ -3107,7 +3220,7 @@ def test_gap_driven_dry_run_stops_before_merge():
     assert yaml.safe_load(_frontmatter(text))["reportFile"] == "report.md"
     assert "Skip all remaining sections of step 3" not in text and "Skip sections 1" not in text
     six = _slice(_read(RE_EXTRACT), "### 6. Route to Next Step", "\n- **Otherwise**")
-    assert "load `report.md` (NOT `{nextStepFile}`)" in six
+    assert "load `references/report.md` (NOT `{nextStepFile}`)" in six
     assert "Proceeding to merge" not in _slice(text, '"**Gap-driven re-extraction.**', "\n")  # §5's branch says it
     halt = "a gap-driven.md halt such as `halted-for-remediation-path` or `halted-for-workspace-drift` still stops it"
     assert halt in _slice(_read(CONTRACT), "| **Flags** |", "\n")
@@ -4021,7 +4134,8 @@ def test_the_test_report_is_found_by_the_shared_helper(tmp_path):
                   "`{test_report_run_id}` ← `run_id` and `update_mode: gap-driven`",
                   "with its `testResult`, `score` and `source`", "(`skipped[]`)",
                   "`found` with `report_exists` false, a result file naming a report that is gone",
-                  "Pass `--version` only when steps 1-3 above bound `{active_version}`"):
+                  "Pass `--version` whenever `{active_version}` is bound: steps 1-3 above bind it, and step 4 "
+                  "binds it after migrating a flat skill."):
         assert token in lookup, token
     forge = tmp_path / "forge data"
     newest = _report_fixture(forge / "lib" / "1.0.0", "20260930T101010Z-2-bbbb", "fail", "2026-09-30T10:10:10Z")
@@ -4037,6 +4151,27 @@ def test_the_test_report_is_found_by_the_shared_helper(tmp_path):
     code, out = _run_script(FIND_TEST_REPORT, _call_args(call, "findTestReportHelper", {**values,
                                                                                          "forge_data_folder": str(gone)}))
     assert code == 0 and out["status"] == "found" and out["report_exists"] is False, out
+
+
+def test_a_migrated_flat_skill_binds_the_version_folder():
+    """#1121: step 4 runs `migrate`, then `resolve`, and binds the version the migration made, so the
+    test-report lookup passes `--version` and finds the report the migration moved into the version folder."""
+    init = _read(INIT)
+    paths = _slice(init, "**Version-Aware Path Resolution:**", "\n5. Store the resolved path")
+    step4 = paths[paths.index("\n4. If neither:"):]
+    migrate = ('`uv run {skillInventoryHelper} migrate "{skills_output_folder}" --skill {skill-name} '
+               '--forge-data-folder "{forge_data_folder}"`')
+    resolve = ('`uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} '
+               '--forge-data-folder "{forge_data_folder}"`')
+    bind = "bind from its `resolve` object `{active_version}` ← `chosen_version` and `{skill_package}` ← `skill_package`"
+    for token in (migrate, resolve, bind, 'phase: "init:migrate"', 'reason: "migrate: {its error}"'):
+        assert token in step4, token
+    assert step4.index(migrate) < step4.index(resolve) < step4.index(bind) < step4.index('phase: "init:migrate"')
+    assert "migration rules" not in init and "auto-migrate" not in init
+    step6 = _slice(init, "\n6. Bind `{baseline_version}`", "\n")
+    assert "the `{active_version}` steps 1–3 resolved, or the one step 4 bound after migrating" in step6
+    assert "has no version" not in step6 and "\u2014" not in step6
+    assert "init:migrate" in _halt_sites()[1]
 
 
 REPORT_RUN = "20260930T101010Z-2-bbbb"
@@ -4670,10 +4805,12 @@ def test_a_halt_after_the_first_gap_driven_write_restores_the_package(tmp_path):
     """merge §6b snapshots before its first in-place write; a later halt's rollback restores it; write §10's finish
     closes the window (#587: a gap-driven halt after merge restores the package from its snapshot)."""
     merge, write = _read(MERGE), _read(WRITE)
-    # SKILL.md binds the helper once, at activation, so every step file and every halt reach it
+    # SKILL.md binds the helper at activation, and every step file names the same script for a binding a
+    # compaction dropped (#1116), so every halt reaches it
     assert _skill_binding("runStateHelper") == "src/shared/scripts/skf-update-run-state.py"
     for path in STEP_FILES:
-        assert "runStateProbeOrder" not in yaml.safe_load(_frontmatter(_read(path))), path.name
+        assert yaml.safe_load(_frontmatter(_read(path)))["runStateProbeOrder"] == \
+            _probe("skf-update-run-state.py"), path.name
     record = _slice(merge, "**Record what this run writes**", "**Create the version folder**")
     begin = _fence(record, "--mode in-place")
     # every step file's halt runs the same call; its rollback undoes the repair
@@ -6023,8 +6160,9 @@ def test_the_invocation_contract_is_lifted_from_skill_md():
     skill = _read(SKILL)
     pointer = _slice(skill, "## Invocation Contract", "## On Activation")
     assert "`references/invocation-contract.md`" in pointer and "| **" not in pointer
-    # cl100k_base reads about four characters a token in this prose: 10,000 keeps SKILL.md under 2,500 tokens
-    assert len(skill) < 10_000, len(skill)
+    # cl100k_base reads about four characters a token in this prose: #1112's bare-path rule took SKILL.md to
+    # 10,131 characters, which measured 2,467 cl100k tokens, so 10,200 keeps it under 2,500 tokens
+    assert len(skill) < 10_200, len(skill)
     contract = _read(CONTRACT)
     rows = re.findall(r"^\| \*\*(\w+)\*\* \|", contract, re.M)
     assert rows == ["Inputs", "Flags", "Gates", "Outputs", "Concurrency", "Headless"]

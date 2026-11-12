@@ -1,10 +1,17 @@
 ---
 nextStepFile: 'health-check.md'
-# SKILL.md On-Activation §4 binds `{manifestOpsHelper}`, which §1 reads the
-# skill's remaining versions through (`get` for the versions and their status,
-# `affected-versions` for the numeric semver-descending order), and
-# `{emitEnvelopeHelper}` with `{run_dir}`: the emitter stamps the time and the
-# result file names, so this step types neither.
+# {manifestOpsHelper}: the §1 remaining versions.
+manifestOpsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
+  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
+# {emitEnvelopeHelper}: the §2 result contract.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+# {resolveCustomizationHelper}: the §2 post-drop hook's `on_complete` value.
+resolveCustomizationProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
+  - '{project-root}/src/shared/scripts/skf-resolve-customization.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Render the report block in {document_output_language}. -->
@@ -19,6 +26,8 @@ Present a clear, final summary of what the drop workflow changed — manifest st
 
 - Focus only on reporting results stored in context by step 2 — do not re-execute any part of the drop
 - Do not hide verification errors, failed context file rebuilds or folders a purge could not delete
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{manifestOpsHelper}` in `{manifestOpsProbeOrder}` and `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`.
+- The post-drop hook runs `{resolveCustomizationHelper}`, resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
 
 ## MANDATORY SEQUENCE
 
@@ -30,7 +39,7 @@ Set `remaining_versions_display = "(skill fully removed)"`.
 
 **Otherwise** (one version, or a whole-skill deprecate, which keeps every version in the manifest as `deprecated`):
 
-Read the target skill's remaining versions through the `{manifestOpsHelper}` On-Activation §4 resolved, rather than re-parsing the manifest by hand:
+Read the target skill's remaining versions through `{manifestOpsHelper}`, rather than re-parsing the manifest by hand:
 
 ```bash
 python3 {manifestOpsHelper} {skills_output_folder} get {target_skill}
@@ -125,7 +134,13 @@ The emitter stamps the UTC time, the run id, the run's warnings and the auto-dec
 
 ### Post-drop hook (optional)
 
-If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) and `{result_json_path}` is not null, invoke it once the emitter has written the record:
+When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
+
+```bash
+uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow.on_complete
+```
+
+If `{onCompleteCommand}` is non-empty and `{result_json_path}` is not null, invoke it once the emitter has written the record:
 
 ```bash
 {onCompleteCommand} --result-path={result_json_path}

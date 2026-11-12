@@ -11,7 +11,7 @@ Compiles a verified agent skill from a skill-brief.yaml and the source code or d
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile`, `healthCheckStepFile`, `componentExtractionStepFile` and `returnToStep` name a file relative to the stage file, and a file the text calls "beside this file" sits beside the file that says so.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
 - `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs) and `references/sub/` the conditional sub-steps; a `nextStepFile` is relative to its own stage file (so a sub-step that returns to a main stage names it in the parent folder). `scripts/` and `assets/` hold deterministic helpers and templates.

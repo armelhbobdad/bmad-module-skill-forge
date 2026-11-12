@@ -26,6 +26,10 @@ healthCheckProbeOrder:
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+# The customization helper §4c's post-finalization hook runs.
+resolveCustomizationProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
+  - '{project-root}/src/shared/scripts/skf-resolve-customization.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Test report prose in {document_output_language}. -->
@@ -240,7 +244,13 @@ It writes `{forge_version}/skf-test-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; i
 
 Once the result files are written, append `'report'` to `stepsCompleted` in the `{outputFile}` frontmatter (it stays out of the expected set above).
 
-**Post-finalization hook.** If `{onCompleteCommand}` (resolved in SKILL.md On Activation §3 from `workflow.on_complete` scalar) is non-empty and `{result_path}` is not null, invoke it as:
+**Post-finalization hook.** When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run (`{resolveCustomizationHelper}` resolves from `{resolveCustomizationProbeOrder}` when it is not bound):
+
+```bash
+uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow.on_complete
+```
+
+If `{onCompleteCommand}` is non-empty and `{result_path}` is not null, invoke it as:
 
 ```bash
 {onCompleteCommand} --result-path={result_path}

@@ -1,0 +1,6 @@
+type: fixed
+scope: all workflows
+summary: |
+  Every workflow's SKILL.md but Create Stack Skill's said every bare path resolves from the skill root, while its stages hand off by a file name beside them (`nextStepFile: 'execute.md'`), so an agent that read the rule as written looked for the next stage at the skill root, where it is not. The rule now names, for each workflow, the frontmatter keys that point at a file beside the stage (`nextStepFile` everywhere, plus keys such as Test Skill's `blockedStepFile` and Update Skill's `gapDrivenStepFile`), and every other bare path resolves as before. Quick Skill's `[S]` option at the compile review and Update Skill's `--dry-run` route to the report now load their stage by its `references/` path, Brief Skill points at its JSON schemas under `shared/scripts/schemas/`, which an installed SKF holds, instead of the dev-only `src/shared/`, and Refine Architecture's SKILL.md names the files its stages load.
+issues: [1112]
+prs: [1204]

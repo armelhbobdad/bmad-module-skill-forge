@@ -241,7 +241,7 @@ def test_read_only_modes_never_reach_merge():
     route = text[text.index("### 5. Display Change Summary and Route"):]
     assert "Do not load `{nextStepFile}`" in _slice(route, "**`detect_only_mode == true`**", "\n")
     six = _slice(_read(RE_EXTRACT), "### 6. Route to Next Step", "- **Otherwise**")
-    assert "load `report.md` (NOT `{nextStepFile}`)" in _slice(six, "**`dry_run_mode == true`**", "\n")
+    assert "load `references/report.md` (NOT `{nextStepFile}`)" in _slice(six, "**`dry_run_mode == true`**", "\n")
     gap = _read(GAP_DRIVEN)
     two = _slice(gap, "### 2. Display the Gap Summary and Route", "### 3.")
     assert "then execute `{reportFile}` (report.md), which emits status `detect-only`" in \

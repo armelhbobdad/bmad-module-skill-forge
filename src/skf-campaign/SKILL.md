@@ -11,7 +11,7 @@ Orchestrates the production of 15+ skills across multiple sessions by driving th
 
 ## Conventions
 
-- Bare paths (e.g. `references/step-01-setup.md`) resolve from the skill root.
+- Bare paths (e.g. `references/step-01-setup.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` names a file beside it.
 - `references/` holds the stage-chained step files plus reference specs (e.g. the `_campaign-directive.md` contract at `references/campaign-directive-spec.md`); `templates/`, `scripts/`, and `assets/` hold templates, deterministic helpers, and the state schema.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives).
 - `{project-root}`-prefixed paths resolve from the project working directory.

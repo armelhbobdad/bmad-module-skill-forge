@@ -20,6 +20,21 @@ skillInventoryProbeOrder:
 hashContentProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py'
   - '{project-root}/src/shared/scripts/skf-hash-content.py'
+# SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
+# stage; resolve them again when a binding was lost: first existing path wins.
+# §8's gate decision goes to the run log through the first; the halt
+# procedure and §6b's record of what this run writes run the second.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+runStateProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-update-run-state.py'
+  - '{project-root}/src/shared/scripts/skf-update-run-state.py'
+# init.md §1b binds `{runLockHelper}`; §6b's renewal resolves it again when
+# the binding was lost: first existing path wins.
+runLockProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
+  - '{project-root}/src/shared/scripts/skf-run-lock.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -36,10 +51,11 @@ Merge freshly extracted export data into the existing SKILL.md and its reference
 - Never delete or modify [MANUAL] section content without the user's section 4 [R]/[E] decision
 - Write the merged files to disk at section 6b, once §6b has recorded what this run writes (`{runStateHelper}` `begin`), and verify the merged SKILL.md against the [MANUAL] inventory the user approved before it is published: in a staged version folder outside gap-driven mode, in `{run_dir}` in gap-driven mode. Later steps verify the files on disk
 - If [MANUAL] conflicts detected: halt and present to user (headless: HALT, nothing written). If clean merge: auto-proceed
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`, `{runStateHelper}` in `{runStateProbeOrder}` and `{runLockHelper}` in `{runLockProbeOrder}`.
 
 ## Steps
 
-**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the halt helper SKILL.md On Activation resolved.
+**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the `{runStateHelper}` `halt` call below.
 
 ```bash
 uv run {runStateHelper} halt --run-dir "{run_dir}" \
@@ -231,7 +247,7 @@ SKF_JSON
 
 Write the merged content produced by sections 3–4 to disk now. Later steps read these files from disk. The write must happen exactly once, here.
 
-**Renew the run lock** before anything below writes: this run may have waited at a gate past the time init.md §1b's lock goes stale. From `{project-root}`, run the acquire init.md §1b ran, with this run's own owner and the `{runLockHelper}` §1b resolved:
+**Renew the run lock** before anything below writes: this run may have waited at a gate past the time init.md §1b's lock goes stale. From `{project-root}`, run the acquire init.md §1b ran, with this run's own owner:
 
 ```bash
 uv run {runLockHelper} acquire \
@@ -249,7 +265,7 @@ uv run {runLockHelper} acquire \
 - **Gap-driven mode** (`update_mode` is `gap-driven`): a repair keeps the version it repairs — `{new_version}` is the metadata.json `version`, SKILL.md is written into the current `{skill_package}`, and the version folder below is skipped.
 - **Every other mode** (normal, degraded and docs-only): `{new_version}` is `{source_version_detected}` when step 1 §6c recorded one (a higher version than the previous metadata version), otherwise the previous version with its patch number incremented, as `{skillInventoryHelper}` computes it (resolve it ← first existing path in `{skillInventoryProbeOrder}`). From `{project-root}`, run `uv run {skillInventoryHelper} version next-patch "{version}"` with the metadata.json `version` and bind `{new_version}` ← `next_patch`: `1.2.3` gives `1.2.4`, and a pre-release gives its release (`1.2.3-rc.1` gives `1.2.3`). Never increment it by hand. Both values are version folder names already: the helper drops build metadata. When no candidate resolves, or the command exits 1 (`code` `NOT_A_VERSION`: the metadata.json `version` names no version) or prints no JSON, HALT with status `halted-for-write-failure` before writing anything: "**The next version of {skill_name} could not be computed:** {the helper's `error`, or 'skf-skill-inventory.py is missing; re-install SKF'}. Nothing was written. When the metadata.json `version` names no version, set the version the skill was forged at there, then re-run." The halt procedure takes `phase: "merge:new-version-folder"`, `path: "{skill_package}/metadata.json"`, `reason: "next-version-failed: {that message}"`.
 
-**Record what this run writes**, before its first write, so a later halt, or the next update after a crash, can undo it. From `{project-root}`, with the `{runStateHelper}` SKILL.md On Activation resolved:
+**Record what this run writes**, before its first write, so a later halt, or the next update after a crash, can undo it. From `{project-root}`, with `{runStateHelper}`:
 
 - **Gap-driven mode:** snapshot everything the repair may write in place:
 

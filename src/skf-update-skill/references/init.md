@@ -38,6 +38,16 @@ findTestReportProbeOrder:
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
+# SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
+# stage; resolve them again when a binding was lost: first existing path wins.
+# The warnings and gate decisions go to the run log through the first; the
+# halt procedure and §1b's cleanup run the second.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+runStateProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-update-run-state.py'
+  - '{project-root}/src/shared/scripts/skf-update-run-state.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -52,10 +62,11 @@ Load the existing skill and all its provenance data, detect whether this is an i
 
 - Focus only on loading existing artifacts and establishing the baseline: read-only operations, except the flat-to-versioned migration in §1, the cleanup of an interrupted update §1b finds, and the private source tree §6b prepares (a folder of this run's own, never the shared workspace clone)
 - Do not begin change detection (step 2)
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}` and `{runStateHelper}` in `{runStateProbeOrder}`.
 
 ## Steps
 
-**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the halt helper SKILL.md On Activation resolved.
+**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the `{runStateHelper}` `halt` call below.
 
 ```bash
 uv run {runStateHelper} halt --run-dir "{run_dir}" \
@@ -100,10 +111,10 @@ Provide either:
 3. If not in manifest: check for `active` symlink at `{skills_output_folder}/{skill-name}/active` — bind `{active_version}` to the version it names and resolve to `{skill_group}/active/{skill-name}/`
 4. If neither: fall back to the flat path `{skills_output_folder}/{skill-name}/`. If `SKILL.md` exists there, check that SKF generated it before anything moves:
    - Resolve `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
-   - **`{group_flat_skf}` is true:** if the invocation carries `--detect-only` or `--dry-run` (read them from the invocation here; the flag handling below comes later), do not migrate and HALT: those modes never move a skill, and every later step reads the versioned forge workspace, which a flat skill does not have yet. Display "**`{skill-name}` still uses the flat layout: nothing was moved.** `--detect-only` and `--dry-run` never migrate a skill, and they need the versioned layout. Run `@Ferris US {skill-name}` once without them, or AS, TS or EX, to move it into that layout, then re-run with the flag." This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:read-only-flat-layout"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "flat-layout: read-only modes never migrate a skill; run once without --detect-only or --dry-run"`, with `version` and `previous_version` `"unknown"`. Otherwise auto-migrate per `knowledge/version-paths.md` migration rules.
+   - **`{group_flat_skf}` is true:** if the invocation carries `--detect-only` or `--dry-run` (read them from the invocation here; the flag handling below comes later), do not migrate and HALT: those modes never move a skill, and every later step reads the versioned forge workspace, which a flat skill does not have yet. Display "**`{skill-name}` still uses the flat layout: nothing was moved.** `--detect-only` and `--dry-run` never migrate a skill, and they need the versioned layout. Run `@Ferris US {skill-name}` once without them, or AS, TS or EX, to move it into that layout, then re-run with the flag." This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:read-only-flat-layout"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "flat-layout: read-only modes never migrate a skill; run once without --detect-only or --dry-run"`, with `version` and `previous_version` `"unknown"`. Otherwise run `uv run {skillInventoryHelper} migrate "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"` and show its `message` as an Info note, then run `uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"` and bind from its `resolve` object `{active_version}` ← `chosen_version` and `{skill_package}` ← `skill_package`: they now name the version folder. When `migrate` exits 1, HALT with its `error`. This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:migrate"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "migrate: {its error}"`, with `version` and `previous_version` `"unknown"`.
    - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill-name}` is not SKF output: nothing was moved.** `{skills_output_folder}/{skill-name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or update it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill-name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF. This runs before the §1b lock, so there is no lock to release. The halt procedure takes `status: "blocked"`, `phase: "init:ownership-gate"`, `path: "{skills_output_folder}/{skill-name}/"`, `reason: "not-skf-output: {the reason the message shows}"`, with `version` and `previous_version` `"unknown"`.
 5. Store the resolved path as `{resolved_skill_package}` for all subsequent artifact loading
-6. Bind `{baseline_version}` to the pre-update version — for an update this is the version being updated, i.e. the `{active_version}` steps 1–3 resolved (the flat-path fallback in step 4 has no version, so use the package version read from metadata.json in §2). Step 2 §1c passes `{baseline_version}` to `skf-provenance-gap-dispatch.py` as a required argument; leaving it unbound makes the helper search a wrong/empty directory and silently return `no-report`, dropping the major-version off-ramp.
+6. Bind `{baseline_version}` to the pre-update version: for an update this is the version being updated, i.e. the `{active_version}` steps 1–3 resolved, or the one step 4 bound after migrating. Step 2 §1c passes `{baseline_version}` to `skf-provenance-gap-dispatch.py` as a required argument; leaving it unbound makes the helper search a wrong/empty directory and silently return `no-report`, dropping the major-version off-ramp.
 
 Resolve the path to an absolute skill folder location.
 
@@ -116,7 +127,7 @@ uv run {findTestReportHelper} find \
     [--version "{active_version}"]
 ```
 
-Pass `--version` only when steps 1-3 above bound `{active_version}` (the flat fallback in step 4 has none). Never glob, sort or read a report's frontmatter by hand.
+Pass `--version` whenever `{active_version}` is bound: steps 1-3 above bind it, and step 4 binds it after migrating a flat skill. Never glob, sort or read a report's frontmatter by hand.
 
 - **`status` is `found` and `report_exists` is true:** set `test_report_path` ← `path`, `{test_report_run_id}` ← `run_id` and `update_mode: gap-driven`. Name the report the helper picked (its file name, such as `test-report-{skill_name}-20260507T050917Z-487606-9b2f.md`, with its `testResult`, `score` and `source`) and each newer one it passed over as unfinished (`skipped[]`), so an operator can find them from the log, and add each of its `warnings[]` to `warnings[]` as `test-report: <entry>`.
 - **Otherwise** (`not-found`; `found` with `report_exists` false, a result file naming a report that is gone; no candidate resolves; or the command fails or prints no JSON): warn that no test report was found, with the cause, and continue in normal source drift mode.
@@ -154,7 +165,7 @@ It prints one JSON line. Dispatch on its exit code:
 - **3** (`acquired` false): another run holds a fresh lock. HALT (halt procedure: `status: "halted-for-concurrent-run"`, `phase: "init:concurrency-guard"`, `path: "{forge_data_folder}/{skill_name}/.skf-update.lock"`, `reason: "another update in progress: {message}"`, with `version` and `previous_version` `"unknown"`, since §2 reads metadata.json later) and display "**Another update of {skill_name} is in progress.** {message}", with the helper's `message`, which names that run, the lock file to delete when no update of the skill is running and when the lock goes stale. This run took no lock, so it releases none.
 - **No candidate resolves, any other exit, or no JSON:** HALT (halt procedure: `status: "blocked"`, `phase: "init:concurrency-guard"`, `path: "{forge_data_folder}/{skill_name}/.skf-update.lock"`, `reason: "run-lock-failed: {that message}"`) and display "**The run lock could not be taken:** {the `message` the helper printed on stderr, or 'skf-run-lock.py is missing; re-install SKF'}". No lock was taken, so none is released.
 
-**Clean up an interrupted update.** When `stale_replaced.held_by` is not null, the update that held the lock may have stopped without finishing (a crash, a killed session, or a wait at a gate past the stale time) and left what it was writing half done: a gap-driven repair's package edited in place, or a new version folder the `active` link never reached. Undo it now, rather than stopping later at "version already exists". From `{project-root}`, run the helper SKILL.md On Activation resolved, with that owner exactly as the acquire printed it:
+**Clean up an interrupted update.** When `stale_replaced.held_by` is not null, the update that held the lock may have stopped without finishing (a crash, a killed session, or a wait at a gate past the stale time) and left what it was writing half done: a gap-driven repair's package edited in place, or a new version folder the `active` link never reached. Undo it now, rather than stopping later at "version already exists". From `{project-root}`, run the `{runStateHelper}` `rollback` call below, with that owner exactly as the acquire printed it:
 
 ```bash
 uv run {runStateHelper} rollback \

@@ -21,9 +21,9 @@ fallback). These tests keep test-skill's step files on those bindings:
   flat folder, and only the §4c line check names the version folder's map;
 - the awk detection contract reads `{forge_evidence_report}`, and the
   command extracts the pinned count from a real evidence report;
-- `versionPathsKnowledge` is found by an installed-then-src probe order and
-  loaded only for the flat-layout migration, and the report's `skillDir`
-  is the package §2 bound.
+- init.md moves a flat skill with the helper's `migrate` command and keeps
+  no `versionPathsKnowledge` key or `{versionPathsKnowledge}` load (#1121),
+  and the report's `skillDir` is the package §2 bound.
 
 They keep test-skill's other helper adoptions on the commands the helpers
 take, and run each prose command against the real helper:
@@ -483,17 +483,15 @@ def test_awk_detection_contract_extracts_the_pinned_count(tmp_path, report, expe
     assert bool(re.fullmatch(r"[0-9]+", expected)) is (expected in ("3", "0", "4"))
 
 
-def test_version_paths_knowledge_is_probed_and_loaded_only_to_migrate():
+def test_init_migrates_through_the_helper_not_the_version_paths_knowledge():
+    """#1121: `migrate` moves a flat skill, so init.md no longer loads the migration rules."""
     frontmatter = _frontmatter(INIT)
-    assert "versionPathsKnowledge" not in frontmatter, "a bare module path does not resolve when installed"
-    assert frontmatter["versionPathsKnowledgeProbeOrder"] == [
-        "{project-root}/_bmad/skf/knowledge/version-paths.md",
-        "{project-root}/src/knowledge/version-paths.md",
-    ]
-    body = _read(INIT).split("\n---\n", 1)[1]
-    uses = [line for line in body.splitlines() if "{versionPathsKnowledge}" in line]
-    assert len(uses) == 1 and "auto-migrate" in uses[0]
-    assert 'load only its "Migration: Flat to Versioned" section' in uses[0]
+    assert not [key for key in frontmatter if key.startswith("versionPathsKnowledge")], frontmatter
+    text = _read(INIT)
+    assert "{versionPathsKnowledge}" not in text and "migration rules" not in text
+    migrate = ("`uv run {skillInventoryHelper} migrate {skillsOutputFolder} --skill {skill_name} "
+               "--forge-data-folder {forge_data_folder}`")
+    assert migrate in _init_2()
     assert "## Migration: Flat to Versioned" in _read(VERSION_PATHS)
 
 

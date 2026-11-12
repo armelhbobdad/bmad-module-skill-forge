@@ -11,7 +11,7 @@ Surgically updates existing skills when source code changes, preserving all [MAN
 
 ## Conventions
 
-- Bare paths (e.g. `references/<name>.md`) resolve from the skill root.
+- Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile`, `gapDrivenStepFile`, `noChangeReportFile` and `reportFile` name a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; stage files reference `knowledge/version-paths.md` and `knowledge/tool-resolution.md`, and the terminal step chains to `shared/health-check.md`.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
 - `references/` holds the workflow stages, chained by each file's frontmatter `nextStepFile` (init.md §8 loads `gap-driven.md` through `gapDrivenStepFile` instead when `update_mode` is `gap-driven`), the [MANUAL] rules file merge.md loads, and the invocation contract; `scripts/` holds this skill's own helper.

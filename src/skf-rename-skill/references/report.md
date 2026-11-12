@@ -10,6 +10,10 @@ emitEnvelopeProbeOrder:
 runLockProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
   - '{project-root}/src/shared/scripts/skf-run-lock.py'
+# The customization helper §3's post-completion hook runs.
+resolveCustomizationProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
+  - '{project-root}/src/shared/scripts/skf-resolve-customization.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Render the report block in {document_output_language}. -->
@@ -26,6 +30,7 @@ End the rename with one terminal sequence: write the result files and the envelo
 - Do not hide verification warnings, context file rebuild failures, or deletion errors
 - Present next-steps guidance so the user knows which downstream workflows to run
 - Run the sections in order: the rename is already committed, so nothing here halts or undoes it
+- §3's post-completion hook runs `{resolveCustomizationHelper}`, resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
 
 ## MANDATORY SEQUENCE
 
@@ -72,7 +77,13 @@ When `{headless_mode}` is true, display `{result_line}` verbatim on its own line
 
 ### 3. Post-Completion Hook (optional)
 
-If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`) and `{result_path}` is not null, run it as a shell command from `{project-root}` with the per-run result file §1 wrote:
+When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
+
+```bash
+uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow.on_complete
+```
+
+If `{onCompleteCommand}` is non-empty and `{result_path}` is not null, run it as a shell command from `{project-root}` with the per-run result file §1 wrote:
 
 ```bash
 {onCompleteCommand} --result-path="{result_path}"

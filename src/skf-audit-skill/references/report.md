@@ -12,6 +12,10 @@ sourceTreeProbeOrder:
   - '{project-root}/src/shared/scripts/skf-source-tree.py'
 # §2: this skill's renderer of the Out-of-Scope New Public API table, from the skill root.
 renderDriftTablesScript: 'scripts/render-drift-tables.py'
+# The customization helper the Result Contract's post-audit hook runs.
+resolveCustomizationProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
+  - '{project-root}/src/shared/scripts/skf-resolve-customization.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Drift report prose in {document_output_language}. -->
@@ -28,6 +32,7 @@ Finalize the drift report by completing the Audit Summary with calculated metric
 - Do not discover new drift items or reclassify severity
 - Remediation suggestions must be practical: what to change, where, and why
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is NOT the terminal step
+- The post-audit hook runs `{resolveCustomizationHelper}`, resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
 
 ## MANDATORY SEQUENCE
 
@@ -200,7 +205,13 @@ It writes `{forge_version}/audit-skill-result-{YYYYMMDD-HHmmss}.json` (UTC; it p
 
 **Hard-halt envelope (headless only).** Every hard halt prints its envelope through the emitter on **stderr** with `status: "error"` and the `exit_code` / `halt_reason` for its failure class, as each step's **Halt envelope** paragraph shows: it is the only failure signal a wrapping pipeline receives. `drift_score` carries its last known value (`null` if classification never ran); `report_path` is `null` when the report write failed.
 
-**Post-audit hook (optional).** If `{onCompleteCommand}` is non-empty (resolved at SKILL.md On Activation §3 from `workflow.on_complete`), invoke it from `{project-root}` as:
+**Post-audit hook (optional).** When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
+
+```bash
+uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow.on_complete
+```
+
+If `{onCompleteCommand}` is non-empty, invoke it from `{project-root}` as:
 
 ```bash
 {onCompleteCommand} --result-path={result_json_path}

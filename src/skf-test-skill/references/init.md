@@ -27,11 +27,6 @@ frontmatterScriptProbeOrder:
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
-# Resolve `{versionPathsKnowledge}` to the first existing path. §2 loads only
-# its "Migration: Flat to Versioned" section, and only to migrate a flat skill.
-versionPathsKnowledgeProbeOrder:
-  - '{project-root}/_bmad/skf/knowledge/version-paths.md'
-  - '{project-root}/src/knowledge/version-paths.md'
 # Resolve `{checkWorkspaceDriftHelper}` to the first existing path; §5b HALTs
 # if neither exists. It runs the workspace drift guard, once per repository
 # of a stack skill.
@@ -150,7 +145,7 @@ Log each entry of `resolve.errors` (a broken `active` link, for example), and `r
 2. `manifest-lags-link`: the `active` link names a version the manifest has not caught up with (the Manifest-lag guard). Continue, and emit the helper's `detail` as an Info note.
 3. If neither: fall back to the flat path `{skillsOutputFolder}/{skill_name}/` (`reason` is `flat-layout`: `SKILL.md` sits at the skill folder root, with no version folder yet). Check that SKF generated it before anything moves:
    - Run `uv run {skillInventoryHelper} {skillsOutputFolder} --skill {skill_name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
-   - **`{group_flat_skf}` is true:** auto-migrate per the migration rules of `{versionPathsKnowledge}` (resolve it ← first existing path in `{versionPathsKnowledgeProbeOrder}` and load only its "Migration: Flat to Versioned" section), then run the `resolve` command above again and bind its values anew: they now name the version folder.
+   - **`{group_flat_skf}` is true:** run `uv run {skillInventoryHelper} migrate {skillsOutputFolder} --skill {skill_name} --forge-data-folder {forge_data_folder}` and show its `message` as an Info note, then run the `resolve` command above again and bind its values anew: they now name the version folder. When `migrate` exits 1, HALT as step 6 says, with its `error`.
    - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, `skills[]` has no entry, or no helper candidate resolves): do not migrate. HALT before anything moves (`halt_reason: "not-skf-output"`, phase `init:ownership`) with this message: "**`{skill_name}` is not SKF output: nothing was moved.** `{skillsOutputFolder}/{skill_name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or test it. A shared `{skillsOutputFolder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill_name}` yourself. Only if `{skillsOutputFolder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), the helper's `error` when the status is not `ok`, and, when no helper candidate resolved, that SKF could not check the marker because `skf-skill-inventory.py` is missing, so re-install SKF.
 4. `missing`, or the helper stops with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`: no version of the skill is on disk, or the name names none. Take the not-found branch below.
 5. `newest-on-disk`: version folders exist, but neither the export manifest nor a working `active` link names one. The Reading Workflows rules test only a version one of them names, so take the SKILL.md error below.

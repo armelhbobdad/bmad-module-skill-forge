@@ -29,7 +29,7 @@ forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 
 **Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`; first existing path wins. HALT if no candidate exists.
 
-`assets/skill-brief-schema.md` and `{versionResolutionFile}` document the brief contract for human readers. The deterministic enforcement of that contract lives in `{writeSkillBriefHelper}` and its JSON Schema artifact at `src/shared/scripts/schemas/skill-brief.v1.json`. Load `assets/skill-brief-schema.md` only if you need to explain a specific field to the user during inline adjustments; otherwise skip the read: the script is the source of truth.
+`assets/skill-brief-schema.md` and `{versionResolutionFile}` document the brief contract for human readers. The deterministic enforcement of that contract lives in `{writeSkillBriefHelper}` and its JSON Schema artifact at `shared/scripts/schemas/skill-brief.v1.json`. Load `assets/skill-brief-schema.md` only if you need to explain a specific field to the user during inline adjustments; otherwise skip the read: the script is the source of truth.
 
 ### 2. Resolve Output Path
 
@@ -130,7 +130,7 @@ uv run {writeSkillBriefHelper} write --target {resolved-target-path} --base-brie
 ```
 
 Either way, the script:
-- Validates the context against `src/shared/scripts/schemas/skill-brief.v1.json`
+- Validates the context against `shared/scripts/schemas/skill-brief.v1.json`
 - Applies the version-precedence rule from `{versionResolutionFile}`
 - Enforces the `target_version == version` invariant (refuses to write a brief that violates it)
 - Renders YAML in canonical key order (byte-stable across runs)

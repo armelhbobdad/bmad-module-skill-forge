@@ -37,6 +37,14 @@ Every exit reaches its terminal sequence (#585):
    forbids every write ahead of a section that writes, unless it names the
    exception (folded in from test-skf-stack-step-rules.py, for every
    workflow).
+
+The bare-path rule names the keys that point beside the stage (#1112):
+
+8. Each workflow's SKILL.md says bare paths resolve from the skill root and
+   names, after "inside a `references/` file too: only a stage's
+   frontmatter", exactly the frontmatter keys whose value names a stage
+   file by its path from the stage's own folder (`nextStepFile` always
+   among them), so no hand-off reads as a file the skill root lacks.
 """
 
 from __future__ import annotations
@@ -47,6 +55,7 @@ import re
 from collections import deque
 
 import pytest
+import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 SRC = REPO_ROOT / "src"
@@ -222,6 +231,133 @@ def test_step_files_reachable_from_skill_md(
     assert not orphans, (
         f"{skill}: step files not reachable from SKILL.md entries: {orphans}"
     )
+
+
+# ---------------------------------------------------------------------------
+# The bare-path rule names the keys that point beside the stage (#1112)
+# ---------------------------------------------------------------------------
+
+
+# What every workflow's `- Bare paths` line says before it names those keys.
+SIBLING_KEYS_ANCHOR = "inside a `references/` file too: only a stage's frontmatter "
+
+
+def _strings(value) -> list[str]:
+    """Every string in a frontmatter value, nested maps and lists included."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        return [s for item in value.values() for s in _strings(item)]
+    if isinstance(value, list):
+        return [s for item in value for s in _strings(item)]
+    return []
+
+
+def _sibling_keys(skill_dir: pathlib.Path) -> set[str]:
+    """The frontmatter keys whose value names a `.md` file by its path from
+    the stage's own folder, one the skill root does not hold. A
+    `references/...`, `scripts/...`, `shared/...` or `{project-root}/...`
+    value, or a workspace file such as campaign's `_campaign-directive.md`,
+    names no file there."""
+    keys = set()
+    for path in sorted((skill_dir / "references").rglob("*.md")):
+        block = _read_frontmatter(path)
+        front = yaml.safe_load(block) if block else None
+        if not isinstance(front, dict):
+            continue
+        for key, value in front.items():
+            if any(s.endswith(".md") and not s.startswith("{") and (path.parent / s).is_file()
+                   and not (skill_dir / s).is_file() for s in _strings(value)):
+                keys.add(key)
+    return keys
+
+
+def _bare_path_rule(skill: str) -> str:
+    lines = [line for line in (SRC / skill / "SKILL.md").read_text(encoding="utf-8").splitlines()
+             if line.startswith("- Bare paths ")]
+    assert len(lines) == 1, f"{skill}: SKILL.md holds {len(lines)} `- Bare paths` lines"
+    return lines[0]
+
+
+def _named_keys(rule: str) -> set[str] | None:
+    """The backticked keys a bare-path rule names after the anchor, or None
+    when it names no file beside a stage."""
+    if SIBLING_KEYS_ANCHOR not in rule:
+        return None
+    return set(re.findall(r"`(\w+)`", rule.split(SIBLING_KEYS_ANCHOR, 1)[1]))
+
+
+@pytest.mark.parametrize("skill", WORKFLOW_SKILLS)
+def test_the_bare_path_rule_names_every_key_that_points_beside_the_stage(skill: str) -> None:
+    keys = _sibling_keys(SRC / skill)
+    assert "nextStepFile" in keys, f"{skill}: no stage chains to a file beside it"
+    rule = _bare_path_rule(skill)
+    named = _named_keys(rule)
+    assert "resolve from the skill root" in rule and named is not None, (
+        f"{skill}: the bare-path rule names no file beside a stage: {rule}")
+    assert named == keys, f"{skill}: the bare-path rule names {sorted(named)}, the stages use {sorted(keys)}"
+
+
+@pytest.mark.parametrize("value,counted", [
+    ("report.md", True),
+    ("sub/fetch-temporal.md", True),
+    ("references/finding-storage.md", False),
+    ("shared/health-check.md", False),
+    ("{project-root}/_bmad/skf/shared/health-check.md", False),
+    ("_campaign-directive.md", False),
+])
+def test_the_scan_counts_only_a_file_beside_the_stage(value: str, counted: bool, tmp_path: pathlib.Path) -> None:
+    """The derivation above, on a fixture skill: a sibling and a sub-step file count, nested in a map too, and so
+    does a sub-step's return to the parent folder; a skill-root, module or project path, or a file no stage folder
+    holds, does not."""
+    refs = tmp_path / "references"
+    (refs / "sub").mkdir(parents=True)
+    for name in ("report.md", "finding-storage.md"):
+        (refs / name).write_text("# stage\n", encoding="utf-8")
+    (refs / "sub" / "fetch-temporal.md").write_text("---\nreturnToStep: '../report.md'\n---\n# sub-step\n",
+                                                    encoding="utf-8")
+    (refs / "init.md").write_text(f"---\nnextStepFile: 'report.md'\nnextStepOptions:\n  step 2: '{value}'\n"
+                                  f"helper: 'scripts/x.py'\n---\n# init\n", encoding="utf-8")
+    expected = {"nextStepFile", "returnToStep"} | ({"nextStepOptions"} if counted else set())
+    assert _sibling_keys(tmp_path) == expected
+
+
+RULE_HEAD = "- Bare paths (e.g. `references/<name>.md`) resolve from the skill root"
+
+
+@pytest.mark.parametrize("rule,named", [
+    (f"{RULE_HEAD}.", None),
+    (f"{RULE_HEAD}, {SIBLING_KEYS_ANCHOR}`nextStepFile` names a file beside it.", {"nextStepFile"}),
+    (f"{RULE_HEAD}, {SIBLING_KEYS_ANCHOR}`nextStepFile` and `dropRosterHelper` name a file beside it.",
+     {"nextStepFile", "dropRosterHelper"}),
+    (f"{RULE_HEAD}, `{{skill-root}}`: this skill's installed directory. That holds {SIBLING_KEYS_ANCHOR}"
+     "`nextStepFile` and batch-mode.md's `healthCheckStepFile` name a file beside it.",
+     {"nextStepFile", "healthCheckStepFile"}),
+])
+def test_the_rule_names_the_keys_after_its_anchor(rule: str, named: set[str] | None) -> None:
+    """A rule with no exception names none, so the check above fails it; a rule that names a key no stage uses
+    (`dropRosterHelper`) or leaves one out reads as a different set; a file name outside backticks is no key."""
+    assert _named_keys(rule) == named
+
+
+# A reference file's prose that names a file beside itself, not from the skill root.
+BESIDE_THIS_FILE = re.compile(r"`([\w./-]+\.md)`, beside this file")
+BESIDE_RULE = 'a file the text calls "beside this file" sits beside the file that says so'
+
+
+@pytest.mark.parametrize("skill", WORKFLOW_SKILLS)
+def test_a_file_named_beside_this_file_is_there_and_the_rule_says_so(skill: str) -> None:
+    """Create Skill's extraction-patterns.md names `extraction-patterns-by-hand.md` and `relabel-rule.md` "beside
+    this file", and Audit's re-index.md and Update's write.md follow those lines from another skill's root, so the
+    names stay as written: each one is beside the file that names it, and the rule says such a file is there, since
+    "only a stage's frontmatter" keys would otherwise be the only names read from the stage's folder (#1112 review)."""
+    named = []
+    for path in sorted((SRC / skill / "references").rglob("*.md")):
+        for name in BESIDE_THIS_FILE.findall(path.read_text(encoding="utf-8")):
+            assert (path.parent / name).is_file(), f"{path.relative_to(SRC)}: no {name} beside it"
+            named.append(name)
+    if named:
+        assert BESIDE_RULE in _bare_path_rule(skill), f"{skill}: the rule does not cover {sorted(set(named))}"
 
 
 # ---------------------------------------------------------------------------
