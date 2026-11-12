@@ -6,6 +6,17 @@ nextStepFile: 'health-check.md'
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+# SKILL.md binds `{emitEnvelopeHelper}` for every stage; resolve it again
+# when the binding was lost: first existing path wins. §5b writes the result
+# files and prints the line through it, and the warnings go to the run log
+# through it.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+# The customization helper §5b's post-finalization hook runs.
+resolveCustomizationProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py'
+  - '{project-root}/src/shared/scripts/skf-resolve-customization.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -22,6 +33,8 @@ Present a comprehensive change summary showing what was updated, [MANUAL] sectio
 - Present clear, actionable summary with next step recommendations
 - Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing summary is NOT the terminal step
 - **Warnings go to the run log.** Record each warning this step adds to `warnings[]` the moment it is raised: write its text to `{run_dir}/warning.txt` with a file write (a warning can hold quotes, `$` or backticks), then, from `{project-root}`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`. The halt line and the result line read warnings only from `{run_dir}/warnings.jsonl`.
+- When `{emitEnvelopeHelper}` is not bound, it resolves to the first existing path in `{emitEnvelopeProbeOrder}`.
+- §5b's post-finalization hook runs `{resolveCustomizationHelper}`, resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
 
 ## Steps
 
@@ -286,7 +299,13 @@ Leave `files_written` out when the emitter's message names it (the line then hol
 - `error`: null on every exit this step prints except the failure line above, which carries `{phase: "report:result-contract", path, reason}`. A halt's line carries `{phase, path?, reason}`, and pipelines branch on `error !== null` for non-zero exit semantics.
 - `warnings[]`: every entry the run recorded, among them `source-tree:`, `source-not-fetched`, `file-diff-unavailable`, `no-baseline-time`, `moved-check-skipped` and `unknown-language` (detect-changes.md §2.1 Category A), `new-files-not-checked` (Category D: a skill with no brief, so no new script or asset was looked for), `source-version-lower`, `unconsumed-test-report` (init.md §4b), `interrupted-run-cleaned` and `interrupted-run-not-cleaned` (init.md §1b), `test-report:` entries (what the test report's helpers could not read, and `test-report: not routed: {id} ({category}): {reason}` for each gap gap-driven.md §1 did not route), `proposed-amendment:` (a read-only run's brief decisions, not written), `doc-fetch-failed`, `doc-not-hashed` and `doc-drift-not-checked` (a docs-only skill's documents), `workspace-clone-not-updated`, `target-ref-not-recorded`, `workspace_drift_overridden` (gap-driven.md §3), `run-state-not-finished`, `result_file_write_failed` (a result file the emitter could not write; the hook then does not run), `public-api-counted-by-hand:` (write.md §2: the recipe runner exited 2, so the public names were found without it; it quotes the runner's error line) and `provenance:` entries (write.md §3 and §6: provenance findings left for a person, and spot-check entries §3 left for a person to decide).
 
-**Post-finalization hook.** A finished run, this one or §1's no-change exit, fires the hook; `--detect-only`, `--dry-run` and a halt never do (customize.toml says so). If `{onCompleteCommand}` (resolved in SKILL.md On Activation §4 from `workflow.on_complete`) is non-empty, the emitter exited 0 and the line's `warnings[]` hold no entry that starts with `result_file_write_failed` (the emitter wrote both result files), invoke it:
+**Post-finalization hook.** When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
+
+```bash
+uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow.on_complete
+```
+
+A finished run, this one or §1's no-change exit, fires the hook; `--detect-only`, `--dry-run` and a halt never do (customize.toml says so). If `{onCompleteCommand}` is non-empty, the emitter exited 0 and the line's `warnings[]` hold no entry that starts with `result_file_write_failed` (the emitter wrote both result files), invoke it:
 
 ```bash
 {onCompleteCommand} --result-path={forge_version}/update-skill-result-latest.json

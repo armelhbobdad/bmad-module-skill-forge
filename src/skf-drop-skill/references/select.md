@@ -12,6 +12,14 @@ dirSizesHelper: 'scripts/dir-sizes.py'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# {emitEnvelopeHelper}: the §1 halt envelope, the §8 decision record and the §10 dry-run preview.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+# {rebuildManagedSectionsHelper}: the §9b context files step 2 rebuilds.
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -29,12 +37,13 @@ Identify exactly what the user wants to drop — which skill, which version(s), 
 - Do not drop an active version when other non-deprecated versions exist
 - Present selections clearly so the user can verify scope, mode, and blast radius
 - **Interactive cancel (every gate below):** at any prompt, `cancel` / `exit` / `[X]` / `q` / `:q` → display "Cancelled: no changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`). Stated once here; the §10 commit gate adds its own tip on top of this.
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}` and `{rebuildManagedSectionsHelper}` in `{rebuildManagedSectionsProbeOrder}`.
 
 ## MANDATORY SEQUENCE
 
 ### 1. Halt Envelope
 
-Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode it also prints its envelope through the shared emitter before it stops (`{emitEnvelopeHelper}` and `{run_dir}` come from SKILL.md On-Activation §4): stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "exit_code": <code>}` plus the envelope fields the site names (and `"path"` when the halt names one), then run
+Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode it also prints its envelope through the shared emitter before it stops (`{run_dir}` comes from SKILL.md On-Activation §4): stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "exit_code": <code>}` plus the envelope fields the site names (and `"path"` when the halt names one), then run
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-drop-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
@@ -256,7 +265,7 @@ Compute the three scalars §10's `Scope:` line shows:
 
    Read `total_human` (e.g. `"4.2 MB"`) as `bytes_total`; a path that does not exist adds nothing. If the helper is unavailable, fall back to `du -sb` per path: the display is best-effort.
 
-3. **`context_files_count`**: the number of context files step 2 rebuilds. Map the `ides` list of `config.yaml` (an absent key is an empty list) through the IDE mapping export-skill writes the section with, using the `{rebuildManagedSectionsHelper}` On-Activation §4 resolved:
+3. **`context_files_count`**: the number of context files step 2 rebuilds. Map the `ides` list of `config.yaml` (an absent key is an empty list) through the IDE mapping export-skill writes the section with, using `{rebuildManagedSectionsHelper}`:
 
    ```bash
    python3 {rebuildManagedSectionsHelper} resolve-targets --ides "{ides}"

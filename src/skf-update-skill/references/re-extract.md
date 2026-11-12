@@ -7,6 +7,16 @@ tierDegradationRulesData: 'skf-create-skill/references/tier-degradation-rules.md
 buildChangeManifestProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-build-change-manifest.py'
   - '{project-root}/src/shared/scripts/skf-build-change-manifest.py'
+# SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
+# stage; resolve them again when a binding was lost: first existing path wins.
+# The warnings go to the run log through the first, and the halt procedure
+# runs the second.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+runStateProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-update-run-state.py'
+  - '{project-root}/src/shared/scripts/skf-update-run-state.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -22,10 +32,11 @@ Perform tier-aware extraction on only the changed files identified in step 2, pr
 - Focus only on extracting changed exports — do not merge or modify existing skill
 - Only extract files in the change manifest: do not touch unchanged files
 - For each changed file, launch a subprocess (Pattern 2) that reads its exports at the lines step 2 recorded (§1b); if unavailable, extract sequentially
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}` and `{runStateHelper}` in `{runStateProbeOrder}`.
 
 ## Steps
 
-**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the halt helper SKILL.md On Activation resolved. This step writes nothing outside `{run_dir}`, so there is nothing to undo, `--dry-run` included.
+**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the `{runStateHelper}` `halt` call below. This step writes nothing outside `{run_dir}`, so there is nothing to undo, `--dry-run` included.
 
 ```bash
 uv run {runStateHelper} halt --run-dir "{run_dir}" \

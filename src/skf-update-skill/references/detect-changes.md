@@ -47,6 +47,16 @@ structuralDiffProbeOrder:
 compareDocHashesProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-docs.py'
   - '{project-root}/src/shared/scripts/skf-detect-docs.py'
+# SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
+# stage; resolve them again when a binding was lost: first existing path wins.
+# The warnings and gate decisions go to the run log through the first, and
+# the halt procedure runs the second.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+runStateProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-update-run-state.py'
+  - '{project-root}/src/shared/scripts/skf-update-run-state.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -61,12 +71,13 @@ Compare current source code state against the provenance map to produce a comple
 
 - Focus only on detecting and classifying changes: extract only what Category B's diff reads (step 3 reuses it), and merge nothing
 - Run §2.1's categories in order, A, then B, then C: each reads the one before. Fan Category B's reading out in parallel batches (Pattern 4) only when its file list is long
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}` and `{runStateHelper}` in `{runStateProbeOrder}`.
 
 ## Steps
 
 The helpers below and step 3 pass their JSON to each other through `{run_dir}`, the run folder SKILL.md On Activation created.
 
-**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the halt helper SKILL.md On Activation resolved. Nothing this step wrote is undone: it writes the skill brief only with a person's decision or a headless deferral (§1b, §1c), both of which stand, and the read-only modes write a copy in `{run_dir}` instead.
+**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the `{runStateHelper}` `halt` call below. Nothing this step wrote is undone: it writes the skill brief only with a person's decision or a headless deferral (§1b, §1c), both of which stand, and the read-only modes write a copy in `{run_dir}` instead.
 
 ```bash
 uv run {runStateHelper} halt --run-dir "{run_dir}" \

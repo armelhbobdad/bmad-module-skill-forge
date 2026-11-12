@@ -16,6 +16,18 @@ dirSizesHelper: 'scripts/dir-sizes.py'
 atomicWriteProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
   - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# {emitEnvelopeHelper}: the §1 halt envelope and the warnings the Rules record.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+# {rebuildManagedSectionsHelper}: the §3 context-file rebuild.
+rebuildManagedSectionsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rebuild-managed-sections.py'
+  - '{project-root}/src/shared/scripts/skf-rebuild-managed-sections.py'
+# {manifestOpsHelper}: the §2 manifest write and the §5 manifest check.
+manifestOpsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-manifest-ops.py'
+  - '{project-root}/src/shared/scripts/skf-manifest-ops.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -33,12 +45,13 @@ Execute the drop decisions recorded in step 1: update the export manifest, rebui
 - Do not delete files in deprecate mode; do not widen deletion scope beyond `affected_directories`
 - Report each stage's outcome as it completes
 - Record each degraded outcome as a warning the moment it happens, with the text the section names, so the envelope and the result record carry it: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '<the warning>'`, a single quote in it written as a backtick. If the command fails, go on: only that entry is lost.
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`, `{manifestOpsHelper}` in `{manifestOpsProbeOrder}` and `{rebuildManagedSectionsHelper}` in `{rebuildManagedSectionsProbeOrder}`.
 
 ## MANDATORY SEQUENCE
 
 ### 1. Halt Envelope
 
-Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode it also prints its envelope through the shared emitter before it stops (`{emitEnvelopeHelper}` and `{run_dir}` come from SKILL.md On-Activation §4): stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "exit_code": <code>}` plus the envelope fields the site names (and `"path"` when the halt names one), then run
+Every HALT in this step names its exit code, `halt_reason` and phase. In headless mode it also prints its envelope through the shared emitter before it stops (`{run_dir}` comes from SKILL.md On-Activation §4): stage `{run_dir}/halt.json` as `{"phase": "<phase>", "reason": "<the halt message>", "halt_reason": "<halt_reason>", "exit_code": <code>}` plus the envelope fields the site names (and `"path"` when the halt names one), then run
 
 ```bash
 uv run {emitEnvelopeHelper} emit-halt --workflow skf-drop-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"
@@ -52,7 +65,7 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 
 **If `target_in_manifest == true`:**
 
-Write through the `{manifestOpsHelper}` On-Activation §4 resolved: atomic manifest mutation always goes through the helper.
+Write through `{manifestOpsHelper}`: atomic manifest mutation always goes through the helper.
 
 **If `is_skill_level == false` (version-level drop):**
 
@@ -84,7 +97,7 @@ When the helper exits 0 (`status: "ok"`), set context flag `manifest_updated = t
 
 ### 3. Rebuild Context Files
 
-Rebuild the managed section of each context file step 1 resolved (`target_context_files`, from `resolve-targets` in select.md §9b) the way export-skill writes it, through the `{rebuildManagedSectionsHelper}` On-Activation §4 resolved.
+Rebuild the managed section of each context file step 1 resolved (`target_context_files`, from `resolve-targets` in select.md §9b) the way export-skill writes it, through `{rebuildManagedSectionsHelper}`.
 
 A target's file is `{context_path}`, its `{context_file}` in `{project-root}`, and `{target_paths}` is the `{context_path}` of every target, each quoted, space-separated, in the order of `target_context_files`. For each entry in `target_context_files`:
 

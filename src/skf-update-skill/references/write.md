@@ -110,6 +110,21 @@ extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
 entryPointsByHandData: 'skf-create-skill/references/entry-points-by-hand.md'
+# SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
+# stage; resolve them again when a binding was lost: first existing path wins.
+# The warnings go to the run log through the first; the halt procedure and
+# §10's finish run the second.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+runStateProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-update-run-state.py'
+  - '{project-root}/src/shared/scripts/skf-update-run-state.py'
+# init.md §1b binds `{runLockHelper}`; §2's renewal resolves it again when
+# the binding was lost: first existing path wins.
+runLockProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-run-lock.py'
+  - '{project-root}/src/shared/scripts/skf-run-lock.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -126,10 +141,11 @@ Verify the merged SKILL.md that step 4 section 6b wrote to disk, write the deriv
 - Do not modify merged SKILL.md or `references/` content, apart from §6's citation line and prefix fixes outside `[MANUAL]` blocks, and §7's `skill-check check --fix` edits and body split, which moves no section that holds a `[MANUAL]` block; §7 re-checks the [MANUAL] blocks after them. Any mismatch detected during verification triggers HALT, not repair
 - Do not skip provenance map update — critical for future audits
 - HALT immediately on verification failure: §1 halts before any derived artifact is written, and §8 points the `active` link at the new version only after §6 and §7, the last checks that can halt, so every halt in this step rolls back a version no reader sees yet. A partial-write skill package is worse than an unchanged one
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}`, `{runStateHelper}` in `{runStateProbeOrder}` and `{runLockHelper}` in `{runLockProbeOrder}`.
 
 ## Steps
 
-**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the halt helper SKILL.md On Activation resolved.
+**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the `{runStateHelper}` `halt` call below.
 
 ```bash
 uv run {runStateHelper} halt --run-dir "{run_dir}" \

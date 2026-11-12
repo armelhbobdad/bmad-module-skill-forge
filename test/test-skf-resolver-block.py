@@ -25,8 +25,10 @@ that reports 3.10 first on PATH, the bare form fails and the documented
 `--project-root` and from one before 6.11.0 that does not: the stub does not
 answer uv's interpreter query, so uv skips it and picks an interpreter that
 meets the helper's `requires-python`, which the helper runs core under. No
-step runs core's resolver directly, and the helper runs at all eighteen
-call sites. Ferris states the module-level and
+step runs core's resolver directly, and the helper runs at all twenty-three
+call sites. A report step that runs an `on_complete` hook binds a lost
+`{onCompleteCommand}` from the helper right before the hook (#1116), and
+that call returns a team's hook. Ferris states the module-level and
 sibling-skill path rules the workflows state, and pipeline-mode.md says how
 its paths resolve.
 """
@@ -40,6 +42,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tomllib
 from pathlib import Path
 
@@ -142,10 +145,16 @@ def test_the_resolver_runs_through_uv_with_the_project_root(skill):
     assert AC.CORE_RESOLVER not in _skill_md(skill)
 
 
-# The two calls outside an activation: create-skill's post-completion hook and Campaign's kickoff pipe, each
-# with the key it reads and a probe list for the helper, since a compaction may have lost the activation's binding.
+# The seven calls outside an activation: the on_complete hooks of the report steps of Create, Drop, Update, Audit,
+# Test and Rename Skill (#1116), and Campaign's kickoff pipe, each with the key it reads and a probe list for the
+# helper, since a compaction may have lost the activation's binding.
 STAGE_CALLS = {
     "src/skf-create-skill/references/report.md": "workflow.on_complete",
+    "src/skf-drop-skill/references/report.md": "workflow.on_complete",
+    "src/skf-update-skill/references/report.md": "workflow.on_complete",
+    "src/skf-audit-skill/references/report.md": "workflow.on_complete",
+    "src/skf-test-skill/references/report.md": "workflow.on_complete",
+    "src/skf-rename-skill/references/report.md": "workflow.on_complete",
     "src/skf-campaign/references/step-05-skill-loop.md": "workflow.persistent_facts",
 }
 PROBE_ORDER = [f"{{project-root}}/_bmad/skf/shared/scripts/{AC.HELPER}",
@@ -161,10 +170,66 @@ def test_the_stage_calls_run_the_helper_with_their_key(rel):
     assert text.count(AC.COMMAND.removesuffix("workflow") + STAGE_CALLS[rel]) == 1
 
 
+# #1116: the sentence each report step binds a lost `{onCompleteCommand}` with, create-skill's word for word, and
+# the line that skips an empty one, the bundled default (the steps not listed share the first wording).
+HOOK_BINDING = ("When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, "
+                "or to the one in `{skill-root}/customize.toml` when the resolver cannot run")
+EMPTY_HOOK = {
+    "src/skf-update-skill/references/report.md": "Empty `{onCompleteCommand}` = no-op, no log entry.",
+    "src/skf-test-skill/references/report.md": "If `{onCompleteCommand}` is empty, this hook is a no-op",
+}
+HOOK_STEPS = sorted(rel for rel, key in STAGE_CALLS.items() if key == "workflow.on_complete")
+
+
+@pytest.mark.parametrize("rel", HOOK_STEPS)
+def test_a_report_step_binds_a_lost_on_complete_before_its_hook(rel):
+    """#1116: a compaction that dropped `{onCompleteCommand}` never skips a team's hook as if it were the empty
+    default. The step binds an unbound one with activation's call narrowed to the hook's key, alone in a fence
+    right after the sentence and before the hook runs; a bound value, an empty one included, calls nothing, and
+    an empty one still skips the hook. No pointer to the activation's binding is left."""
+    text = _read(REPO / rel)
+    call = f"\n```bash\n{AC.COMMAND}.on_complete\n```\n"
+    assert text.count(HOOK_BINDING) == 1 and text.count(call) == 1, rel
+    sentence, fence, hook = text.index(HOOK_BINDING), text.index(call), text.index("{onCompleteCommand} --result-path")
+    assert sentence < fence < hook, rel
+    tail = text[sentence + len(HOOK_BINDING):fence]
+    assert tail.endswith(":\n") and "\n" not in tail[:-1], f"{rel}: the call follows the sentence: {tail!r}"
+    assert "from `workflow.on_complete`" not in text, rel
+    empty = EMPTY_HOOK.get(rel, "When `{onCompleteCommand}` is empty (bundled default), skip the invocation entirely")
+    assert text.count(empty) == 1 and text.index(empty) > hook, rel
+
+
+@pytest.mark.parametrize("rel", HOOK_STEPS)
+def test_the_hook_call_returns_a_team_on_complete(tmp_path, rel):
+    """#1116: run as written, the step's call returns the `on_complete` a team override sets, the hook a run that
+    lost the binding then fires; with no override it returns the bundled default, the empty string a run whose
+    resolver cannot run reads from customize.toml, so no hook runs."""
+    skill = rel.split("/")[1]
+    [line] = re.findall(r"```bash\n(uv run \{resolveCustomizationHelper\} [^\n]*)\n```", _read(REPO / rel))
+    root = tmp_path / "project"
+    (root / "_bmad" / "scripts").mkdir(parents=True)
+    (root / "_bmad" / "scripts" / "resolve_customization.py").write_bytes(RC.CORE_6_12.encode("utf-8"))
+    words = [w.replace("{resolveCustomizationHelper}", HELPER.as_posix()).replace("{project-root}", root.as_posix())
+             .replace("{skill-root}", (SRC / skill).as_posix()) for w in shlex.split(line)]
+    assert words[:3] == ["uv", "run", HELPER.as_posix()] and words[-2:] == ["--key", "workflow.on_complete"]
+
+    def resolve() -> dict:
+        proc = subprocess.run([sys.executable, *words[2:]], capture_output=True, encoding="utf-8", cwd=root,
+                              timeout=120)
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout)
+
+    assert tomllib.loads(_read(SRC / skill / "customize.toml"))["workflow"]["on_complete"] == ""
+    assert resolve() == {"workflow.on_complete": ""}
+    (root / "_bmad" / "custom").mkdir()
+    (root / "_bmad" / "custom" / f"{skill}.toml").write_bytes(b'[workflow]\non_complete = "scripts/notify-ci.sh"\n')
+    assert resolve() == {"workflow.on_complete": "scripts/notify-ci.sh"}
+
+
 def test_no_step_runs_core_s_resolver_directly():
     """Every customization call goes through the helper, which serves a core before 6.11.0 too: core's
     resolver is named in no src/ Markdown file, and the helper runs at the sixteen activations and the
-    two stage calls."""
+    seven stage calls."""
     direct, calls = [], 0
     for md in sorted(SRC.rglob("*.md")):
         text = _read(md)
@@ -174,7 +239,7 @@ def test_no_step_runs_core_s_resolver_directly():
         calls += len(re.findall(r"uv run \{resolveCustomizationHelper\} --skill \{skill-root\} "
                                 r"--project-root \{project-root\} --key [\w.]+", text))
     assert not direct, f"run core's resolver through {AC.HELPER}: {direct}"
-    assert calls == len(ACTIVATIONS) + len(STAGE_CALLS) == 18
+    assert calls == len(ACTIVATIONS) + len(STAGE_CALLS) == 23
 
 
 @pytest.mark.parametrize("skill", ACTIVATIONS)

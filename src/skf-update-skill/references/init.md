@@ -38,6 +38,16 @@ findTestReportProbeOrder:
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
+# SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
+# stage; resolve them again when a binding was lost: first existing path wins.
+# The warnings and gate decisions go to the run log through the first; the
+# halt procedure and §1b's cleanup run the second.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+runStateProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-update-run-state.py'
+  - '{project-root}/src/shared/scripts/skf-update-run-state.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -52,10 +62,11 @@ Load the existing skill and all its provenance data, detect whether this is an i
 
 - Focus only on loading existing artifacts and establishing the baseline: read-only operations, except the flat-to-versioned migration in §1, the cleanup of an interrupted update §1b finds, and the private source tree §6b prepares (a folder of this run's own, never the shared workspace clone)
 - Do not begin change detection (step 2)
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}` and `{runStateHelper}` in `{runStateProbeOrder}`.
 
 ## Steps
 
-**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the halt helper SKILL.md On Activation resolved.
+**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the `{runStateHelper}` `halt` call below.
 
 ```bash
 uv run {runStateHelper} halt --run-dir "{run_dir}" \
@@ -154,7 +165,7 @@ It prints one JSON line. Dispatch on its exit code:
 - **3** (`acquired` false): another run holds a fresh lock. HALT (halt procedure: `status: "halted-for-concurrent-run"`, `phase: "init:concurrency-guard"`, `path: "{forge_data_folder}/{skill_name}/.skf-update.lock"`, `reason: "another update in progress: {message}"`, with `version` and `previous_version` `"unknown"`, since §2 reads metadata.json later) and display "**Another update of {skill_name} is in progress.** {message}", with the helper's `message`, which names that run, the lock file to delete when no update of the skill is running and when the lock goes stale. This run took no lock, so it releases none.
 - **No candidate resolves, any other exit, or no JSON:** HALT (halt procedure: `status: "blocked"`, `phase: "init:concurrency-guard"`, `path: "{forge_data_folder}/{skill_name}/.skf-update.lock"`, `reason: "run-lock-failed: {that message}"`) and display "**The run lock could not be taken:** {the `message` the helper printed on stderr, or 'skf-run-lock.py is missing; re-install SKF'}". No lock was taken, so none is released.
 
-**Clean up an interrupted update.** When `stale_replaced.held_by` is not null, the update that held the lock may have stopped without finishing (a crash, a killed session, or a wait at a gate past the stale time) and left what it was writing half done: a gap-driven repair's package edited in place, or a new version folder the `active` link never reached. Undo it now, rather than stopping later at "version already exists". From `{project-root}`, run the helper SKILL.md On Activation resolved, with that owner exactly as the acquire printed it:
+**Clean up an interrupted update.** When `stale_replaced.held_by` is not null, the update that held the lock may have stopped without finishing (a crash, a killed session, or a wait at a gate past the stale time) and left what it was writing half done: a gap-driven repair's package edited in place, or a new version folder the `active` link never reached. Undo it now, rather than stopping later at "version already exists". From `{project-root}`, run the `{runStateHelper}` `rollback` call below, with that owner exactly as the acquire printed it:
 
 ```bash
 uv run {runStateHelper} rollback \

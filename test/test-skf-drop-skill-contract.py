@@ -32,9 +32,11 @@ drop steps document, filled in as an agent fills them, against fixtures:
   refused version, and the roster then lets the drop through.
 - The prose pins: a failed manifest write halts in every mode and never reaches
   the report; `skill_name` and `version` answer their gates in both modes; the
-  helpers resolve before the first prompt and no step keeps a fallback for
-  them; no stage reads version-paths.md, types an envelope or makes up a
-  timestamp; the mode comes only from the `mode` argument or the prompt.
+  helpers resolve before the first prompt, each stage declares the probe
+  order of every helper it runs for a binding a compaction dropped (#1116),
+  and no step keeps an in-prompt fallback for them; no stage reads
+  version-paths.md, types an envelope or makes up a timestamp; the mode comes
+  only from the `mode` argument or the prompt.
 - skf-manifest-ops.py runs the skill-level manifest calls execute.md documents:
   a whole-skill deprecate marks every version deprecated and keeps the entry,
   and only a purge removes it.
@@ -58,6 +60,7 @@ import tomllib
 from pathlib import Path
 
 import pytest
+import yaml
 from jsonschema import Draft202012Validator
 
 REPO = Path(__file__).resolve().parent.parent
@@ -503,7 +506,25 @@ def test_the_emitter_stamps_the_time_and_writes_the_result_files():
 # #594: helpers before the first prompt; arguments answer their gates
 # --------------------------------------------------------------------------
 
+# #1116: the helpers SKILL.md On-Activation §4 resolves, by probe-order stem, with the script each one runs.
+ACTIVATION_HELPERS = {"emitEnvelope": "skf-emit-result-envelope.py", "manifestOps": "skf-manifest-ops.py",
+                      "rebuildManagedSections": "skf-rebuild-managed-sections.py"}
+# The ones each stage runs, and so declares a probe order for.
+STAGE_HELPERS = {SELECT: ("emitEnvelope", "rebuildManagedSections"),
+                 EXECUTE: ("emitEnvelope", "manifestOps", "rebuildManagedSections"),
+                 REPORT: ("manifestOps", "emitEnvelope")}
+LOST_BINDING_RULE = "- When a helper is not bound, it resolves to the first existing path in its probe order: "
+
+
+def _probe_order(script: str) -> list[str]:
+    """The installed path, then the development tree's, as On Activation probes them."""
+    return [f"{{project-root}}/_bmad/skf/shared/scripts/{script}", f"{{project-root}}/src/shared/scripts/{script}"]
+
+
 def test_required_helpers_resolve_before_the_first_prompt():
+    """#594: On Activation resolves the helpers and halts on a missing one before the first prompt. #1116: each
+    stage still declares the probe order of every helper it runs, and its Rules resolve one from it when the
+    binding is lost, so a stage a context compaction reached finds its helpers again from its own file."""
     activation = _section(_read(SKILL), "## On Activation", None)
     preflight = _section(activation, "**Pre-flight: helpers", "and then execute `references/select.md`")
     resolve = next(line for line in preflight.splitlines() if line.startswith("   First, resolve "))
@@ -518,18 +539,26 @@ def test_required_helpers_resolve_before_the_first_prompt():
     missing = next(line for line in preflight.splitlines() if "resolved to no path" in line)
     assert 'HALT (exit code 4, `halt_reason: "write-failed"`, phase `on-activation:helpers`)' in missing
     assert preflight.index("resolved to no path") < preflight.index("check that `{skills_output_folder}` is writable")
-    # The steps use the resolved helpers: no step resolves one again, halts on a missing one after
-    # the manifest changed, or keeps an in-prompt fallback that no run can reach.
+    # A step finds a lost helper again from its own probe order, but never halts on a missing one after the
+    # manifest changed or keeps an in-prompt fallback that no run can reach.
     execute = _read(EXECUTE)
     assert "If no candidate exists, HALT" not in execute
     assert "HALT (exit code 4, `halt_reason: \"manifest-write-failed\"`) if no candidate exists" not in execute
-    for rel in (SELECT, EXECUTE, REPORT):
+    for rel, stems in STAGE_HELPERS.items():
         text = _read(rel)
-        for gone in ("manifestOpsProbeOrder", "rebuildManagedSectionsProbeOrder", "emitEnvelopeProbeOrder",
+        front, body = text.removeprefix("---\n").split("\n---\n", 1)
+        bindings = yaml.safe_load(front)
+        [rule] = [line for line in _section(text, "## Rules", "## MANDATORY SEQUENCE").splitlines()
+                  if line.startswith(LOST_BINDING_RULE)]
+        assert re.findall(r"`\{(\w+)Helper\}` in `\{\1ProbeOrder\}`", rule) == list(stems), rel
+        for stem, script in ACTIVATION_HELPERS.items():
+            # A stage declares the probe order of exactly the helpers its body runs.
+            assert (f"{{{stem}Helper}}" in body.replace(rule, "")) == (stem in stems), (rel, stem)
+            assert bindings.get(f"{stem}ProbeOrder") == (_probe_order(script) if stem in stems else None), (rel, stem)
+        for gone in ("On-Activation §4 resolved", "SKILL.md On Activation §3", "come from SKILL.md On-Activation",
                      "manifest file in-prompt", "the in-prompt computation", "manifest in-prompt",
                      "by comparing version components numerically"):
             assert gone not in text, f"{rel}: {gone}"
-    assert "the `{manifestOpsHelper}` On-Activation §4 resolved" in _read(REPORT)
     roster = _section(_read(SELECT), "### 3. List Available Skills", "### 4. ")
     assert ("When `{roster}.inventory` is false (the inventory helper could not run), the roster holds the manifest "
             "skills alone") in roster, "the inventory fallback stays: it changes what is offered"
@@ -538,6 +567,42 @@ def test_required_helpers_resolve_before_the_first_prompt():
     rule = next(line for line in _read(SKILL).splitlines()
                 if line.startswith("- If any instruction references a subprocess"))
     assert "never type an envelope or edit the manifest or a context file yourself" in rule
+
+
+def test_a_stage_that_lost_a_helper_runs_the_one_its_probe_order_finds(tmp_path):
+    """#1116, restated as code: a stage resolves a helper whose binding a compaction dropped to the first path of its
+    probe order that exists, the installed copy when SKF is installed and the development tree's otherwise, and to
+    none when neither exists (the helper's command then fails, and the step's own branch for that applies). The
+    copy execute.md's order finds runs §5's documented manifest check."""
+    installed, dev = tmp_path / "installed", tmp_path / "dev"
+    for root, folders in ((installed, ("_bmad/skf/shared/scripts", "src/shared/scripts")),
+                          (dev, ("src/shared/scripts",))):
+        for folder in folders:
+            (root / folder).mkdir(parents=True)
+            for script in ACTIVATION_HELPERS.values():
+                shutil.copyfile(SCRIPTS / script, root / folder / script)
+
+    def first(probe: list[str], root: Path) -> Path | None:
+        paths = [Path(entry.replace("{project-root}", root.as_posix())) for entry in probe]
+        return next((path for path in paths if path.is_file()), None)
+
+    for rel, stems in STAGE_HELPERS.items():
+        bindings = yaml.safe_load(_read(rel).removeprefix("---\n").split("\n---\n", 1)[0])
+        for stem in stems:
+            script, probe = ACTIVATION_HELPERS[stem], bindings[f"{stem}ProbeOrder"]
+            assert first(probe, installed) == installed / "_bmad" / "skf" / "shared" / "scripts" / script, (rel, stem)
+            assert first(probe, dev) == dev / "src" / "shared" / "scripts" / script, (rel, stem)
+            assert first(probe, tmp_path / "neither") is None, (rel, stem)
+    execute = _read(EXECUTE)
+    helper = first(yaml.safe_load(execute.removeprefix("---\n").split("\n---\n", 1)[0])["manifestOpsProbeOrder"], dev)
+    check = _one_command(_section(execute, "### 5. Verify Final State", "### 6. "), "{manifestOpsHelper}")
+    skills = tmp_path / "skills"
+    skills.mkdir()
+    _write_manifest(skills, "cognee", "0.6.0", {"0.6.0": "active", "0.5.0": "deprecated"})
+    proc = _run(check, {"manifestOpsHelper": str(helper), "skills_output_folder": str(skills),
+                        "target_skill": "cognee"})
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout)["entry"]["versions"]["0.5.0"]["status"] == "deprecated"
 
 
 def test_activation_runs_the_resolver_through_uv_and_records_its_failure():
@@ -1237,7 +1302,7 @@ def test_the_skill_name_convention_has_no_second_meaning():
         assert "{skill-name}" not in _read(rel), rel
 
 
-@pytest.mark.parametrize("rel", [SELECT, EXECUTE])
+@pytest.mark.parametrize("rel", [SELECT, EXECUTE, REPORT])
 def test_the_frontmatter_names_each_helper_in_one_line(rel):
     """leanness-4: the body wires each helper where it runs; the frontmatter only binds it."""
     front = _read(rel).split("\n---\n", 1)[0]

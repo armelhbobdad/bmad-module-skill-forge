@@ -28,6 +28,16 @@ extractPublicApiProbeOrder:
 buildChangeManifestProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-build-change-manifest.py'
   - '{project-root}/src/shared/scripts/skf-build-change-manifest.py'
+# SKILL.md binds `{emitEnvelopeHelper}` and `{runStateHelper}` for every
+# stage; resolve them again when a binding was lost: first existing path wins.
+# The warnings and §1's gate decisions go to the run log through the first,
+# and the halt procedure runs the second.
+emitEnvelopeProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
+  - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
+runStateProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-update-run-state.py'
+  - '{project-root}/src/shared/scripts/skf-update-run-state.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -42,12 +52,13 @@ Repair the gaps a test report found, at the commit the skill is pinned to. When 
 
 - Focus only on the gaps the report lists: merge nothing, and read only the source lines and files §4 and §4a name
 - Write nothing outside `{run_dir}`, in any mode
+- When a helper is not bound, it resolves to the first existing path in its probe order: `{emitEnvelopeHelper}` in `{emitEnvelopeProbeOrder}` and `{runStateHelper}` in `{runStateProbeOrder}`.
 
 ## Steps
 
 The helpers below pass their JSON to steps 4 and 5 through `{run_dir}`, the run folder SKILL.md On Activation created.
 
-**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the halt helper SKILL.md On Activation resolved. This step writes nothing outside `{run_dir}`, so there is nothing to undo, `--dry-run` included.
+**Halt procedure.** Every HALT in this step names its payload (`status`, `phase`, `path` when it has one, and `reason`), displays its message, and then runs, from `{project-root}`, the `{runStateHelper}` `halt` call below. This step writes nothing outside `{run_dir}`, so there is nothing to undo, `--dry-run` included.
 
 ```bash
 uv run {runStateHelper} halt --run-dir "{run_dir}" \
