@@ -269,13 +269,14 @@ def test_an_unusable_inventory_exits_1_and_writes_nothing(tmp_path, inventory, n
     assert not run.output.exists()
 
 
-def test_an_output_that_cannot_be_written_exits_1(tmp_path):
+def test_an_output_that_cannot_be_written_exits_3(tmp_path):
+    # A write failure has its own exit, which the stage halts on as write-failed, not resolution-failure.
     run = Run(tmp_path, ["zod"])
     run.write("zod", _reply("zod"))
     proc = run.merge(["zod"], ["zod"], output=tmp_path / "missing" / "skill-summaries.json")
-    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert proc.returncode == 3, proc.stdout + proc.stderr
     out = json.loads(proc.stdout)
-    assert out["code"] == "UNUSABLE_INPUT" and "cannot write" in out["error"]
+    assert out["code"] == "WRITE_FAILED" and "cannot write" in out["error"]
     assert not (tmp_path / "missing").exists()
 
 
@@ -396,6 +397,11 @@ def test_the_merge_failures_have_their_exits():
     assert "When it exits 2, its JSON `error` names a skill the call should not hold" in merge
     assert ('When it exits 1 or prints no JSON, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase '
             '`integrations:api-surfaces`') in merge
+    assert ('When it exits 3, it could not write `{run_dir}/skill-summaries.json`: HALT (exit code 4, '
+            '`halt_reason: "write-failed"`) at phase `integrations:api-surfaces`') in merge
+    assert "3  -o cannot be written (code WRITE_FAILED)" in mod.__doc__
+    row = next(line for line in _read(REFERENCES / "exit-codes.md").splitlines() if line.startswith("| 4 "))
+    assert "step 3 §3 (the API-surface merge cannot write `{run_dir}/skill-summaries.json`)" in row
 
 
 def test_the_budget_halt_names_a_read_failure():

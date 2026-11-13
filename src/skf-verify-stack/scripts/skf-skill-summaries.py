@@ -55,12 +55,13 @@ Errors (stdout, one object): {"error": "<why>", "code": "<code>"}.
 
 Exit codes:
   0  merged: -o written and the result printed (rejected skills included)
-  1  the inventory cannot be read, is not JSON or holds no `skills` list, or
-     -o cannot be written (code UNUSABLE_INPUT); nothing is written
+  1  the inventory cannot be read, is not JSON or holds no `skills` list
+     (code UNUSABLE_INPUT); nothing is written
   2  a bad call (code INVALID_INPUT): a --skills name the inventory does not
      list, or a --subagent-skills name --skills does not hold; nothing is
      written. argparse usage errors exit 2 too, with usage on stderr and no
      JSON
+  3  -o cannot be written (code WRITE_FAILED); nothing is written
 
 CLI usage:
   uv run skf-skill-summaries.py merge --dir run/summaries --inventory run/skill-inventory.json \\
@@ -250,7 +251,8 @@ def _build_parser():
             "language, exports and exports_documented, write the merged records "
             "and the unread skills to -o, and print the accepted and rejected "
             "skills with the 20% budget over the skills a subagent read. Exit 0 "
-            "when merged, 1 when the inventory or -o is unusable, 2 on a bad call."
+            "when merged, 1 when the inventory is unusable, 2 on a bad call, 3 "
+            "when -o cannot be written."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
@@ -287,16 +289,17 @@ def main(argv=None):
     try:
         inventory = load_inventory(args.inventory)
         result, document = merge(args.dir, inventory, skills, subagent_skills)
-        try:
-            _write_atomic(args.output, json.dumps(document, indent=2, ensure_ascii=False) + "\n")
-        except OSError as exc:
-            raise Unusable(f"cannot write {args.output}: {exc}") from exc
     except BadCall as exc:
         _error(str(exc), "INVALID_INPUT")
         return 2
     except Unusable as exc:
         _error(str(exc), "UNUSABLE_INPUT")
         return 1
+    try:
+        _write_atomic(args.output, json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+    except OSError as exc:
+        _error(f"cannot write {args.output}: {exc}", "WRITE_FAILED")
+        return 3
     print(json.dumps(result, indent=2))
     return 0
 

@@ -19,6 +19,7 @@ validateFeasibilityReportProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-feasibility-report.py'
   - '{project-root}/src/shared/scripts/skf-validate-feasibility-report.py'
 previousReportScript: 'scripts/skf-previous-report.py'
+reportUpdateScript: 'scripts/skf-report-update.py'
 ---
 
 <!-- Config: communicate in {communication_language}. Initialize the feasibility report skeleton in {document_output_language}. -->
@@ -180,6 +181,14 @@ uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_
 On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `init:report`, with `"path": "{outputFile}"` and no `report_path`: the report was not written.
 
 **Check the new report.** Run `uv run {validateFeasibilityReportHelper} "{outputFile}" -o "{run_dir}/template-check.json"`. On a non-zero exit, HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `init:report-template`, with `"report_path": "{outputFile}"`: name from the JSON what the template `{reportTemplatePath}` breaks (`missingHeadings`, `orderViolations`, `verdictTableFound` false or `duplicateVerdictTableLine`, `unknownTokens`, `schemaVersionFound`), and leave `{outputFileLatest}` as it is. The message opens "`report_template_path` names `{reportTemplatePath}`, whose report fails the feasibility-report check:" and ends with the fix sentence of the template check above. No stage has analysed anything yet.
+
+**Check the Evidence Sources table**, which that check does not read and synthesize fills in place:
+
+```bash
+uv run {reportUpdateScript} fill-table --report "{outputFile}" --heading 'Evidence Sources' < /dev/null
+```
+
+With no rows on stdin it leaves the template's empty table as it is. On exit 2, the copy keeps no such table: HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `init:report-template`, with `"report_path": "{outputFile}"`. The message opens "`report_template_path` names `{reportTemplatePath}`, whose report has no table under `## Evidence Sources`:", names its JSON `error` and ends with the fix sentence of the template check above. On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `init:report`. On exit 3, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `init:report`, with `"path": "{outputFile}"`.
 
 ### 5. Display Initialization Summary
 

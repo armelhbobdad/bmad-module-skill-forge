@@ -57,7 +57,7 @@ Record the skipped pass in `{outputFile}`:
 uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind requirements-skipped
 ```
 
-On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `requirements:report`. On any other non-zero exit, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `requirements:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
+On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `requirements:report`. On exit 2 with `INVALID_INPUT`, or with no JSON (a usage error), fix the file or the call its `error` or usage line names, then run that call and the ones after it again. On exit 2 with `INVALID_REPORT`, HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `requirements:report`, naming its `error`. On exit 3, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `requirements:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
 
 Load, read the full file and then execute `{nextStepFile}`. The no-PRD path ends here — sections 2-6 are the PRD-present branch and do not run.
 
@@ -128,7 +128,7 @@ uv run {reportUpdateScript} replace-section --report "{outputFile}" --heading 'R
 uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind requirements < "{run_dir}/requirement-tally.json"
 ```
 
-On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `requirements:report`. On any other non-zero exit, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `requirements:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
+On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `requirements:report`. On exit 2 with `INVALID_INPUT`, or with no JSON (a usage error), fix the file or the call its `error` or usage line names, then run that call and the ones after it again. On exit 2 with `INVALID_REPORT`, HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `requirements:report`, naming its `error`. On exit 3, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `requirements:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
 
 ### 6. Auto-Proceed to Next Step
 

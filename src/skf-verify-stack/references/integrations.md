@@ -106,7 +106,7 @@ For every skill step 2 matched to a Covered technology (the Skill Match column),
 uv run {skillSummariesScript} merge --dir "{run_dir}/summaries" --inventory "{inventoryFile}" --skills "<every name>" --subagent-skills "<names>" -o "{run_dir}/skill-summaries.json"
 ```
 
-It writes `{run_dir}/skill-summaries.json`, the file the requirements stage reads, and prints `accepted`, `rejected[]` (each `skill` with its `reason`), `malformed_ratio` and `over_budget` (run `uv run {skillSummariesScript} --help` for the contract). Each summary takes the skill's `language`, `exports_documented` and its inventory `exports` (as `inventory_exports`) from `{inventoryFile}`, which the enumerate helper read from `metadata.json`, so the parent never opens it. When it exits 2, its JSON `error` names a skill the call should not hold: fix the names and run it again. When it exits 1 or prints no JSON, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `integrations:api-surfaces`.
+It writes `{run_dir}/skill-summaries.json`, the file the requirements stage reads, and prints `accepted`, `rejected[]` (each `skill` with its `reason`), `malformed_ratio` and `over_budget` (run `uv run {skillSummariesScript} --help` for the contract). Each summary takes the skill's `language`, `exports_documented` and its inventory `exports` (as `inventory_exports`) from `{inventoryFile}`, which the enumerate helper read from `metadata.json`, so the parent never opens it. When it exits 2, its JSON `error` names a skill the call should not hold: fix the names and run it again. When it exits 3, it could not write `{run_dir}/skill-summaries.json`: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `integrations:api-surfaces`, with `"path": "{run_dir}/skill-summaries.json"`, naming its JSON `error`. When it exits 1 or prints no JSON, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `integrations:api-surfaces`.
 
 **Re-read each rejected skill once.** When `rejected[]` is not empty, read the SKILL.md of each skill it names yourself, one at a time as the fallback does, and overwrite its `{run_dir}/summaries/<skill>.json` (a SKILL.md you cannot open leaves its file as it was). Then run the same merge again and read only that second result. Apart from the fallback's reads and these re-reads, never load a full SKILL.md into the parent context.
 
@@ -221,7 +221,7 @@ uv run {reportUpdateScript} replace-section --report "{outputFile}" --heading 'I
 uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind integrations < "{run_dir}/verdict-tally.json"
 ```
 
-On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `integrations:report`. On any other non-zero exit, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `integrations:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
+On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `integrations:report`. On exit 2 with `INVALID_INPUT`, or with no JSON (a usage error), fix the file or the call its `error` or usage line names, then run that call and the ones after it again. On exit 2 with `INVALID_REPORT`, HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `integrations:report`, naming its `error`. On exit 3, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `integrations:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
 
 ### 7. Auto-Proceed to Next Step
 

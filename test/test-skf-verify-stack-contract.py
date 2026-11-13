@@ -611,10 +611,16 @@ def test_stages_1_to_5_write_only_the_timestamped_report(name):
             # would hide a refused call before it: the calls run one at a time.
             before = text[:block.start()].rstrip("\n").rsplit("\n", 1)[-1]
             assert before.endswith("Then run the calls in order, stopping at the first that exits non-zero:"), before
-        # The paragraph after each block of calls names both halts, at the stage's report phase.
+        # The paragraph after each block of calls maps each exit of the helper, at the stage's report phase:
+        # a refused file is fixed and the call run again, a refused report is a schema violation, and only
+        # WRITE_FAILED (exit 3) is a write failure.
         after = text[block.end():].lstrip("\n").split("\n\n", 1)[0]
         assert ("On exit 1, HALT (exit code 3, `halt_reason: \"resolution-failure\"`) at phase "
-                f"`{phase}`. On any other non-zero exit, HALT (exit code 4") in after, after
+                f"`{phase}`. On exit 2 with `INVALID_INPUT`, or with no JSON (a usage error), fix the file or the "
+                "call its `error` or usage line names, then run that call and the ones after it again. On exit 2 "
+                "with `INVALID_REPORT`, HALT (exit code 5, `halt_reason: \"schema-violation\"`) at phase "
+                f"`{phase}`, naming its `error`. On exit 3, HALT (exit code 4") in after, after
+        assert "On any other non-zero exit" not in after, after
         halt = WRITE_FAILED.search(after)
         assert halt and halt.group(1) == PHASE_PREFIX[name], after
         assert after.endswith('with `"path": "{outputFile}"`, naming its JSON `error`.'), after
@@ -1425,7 +1431,10 @@ def test_init_checks_the_template_and_the_report_it_creates():
                        "### 5. Display Initialization Summary")
     missing = 'HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `init:report-template`'
     broken = 'HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `init:report-template`'
-    assert section.count(missing) == 1 and section.count(broken) == 1
+    # The second schema-violation halt is the Evidence Sources table check, which the validator does not make.
+    assert section.count(missing) == 1 and section.count(broken) == 2
+    table_check = ("uv run {reportUpdateScript} fill-table --report \"{outputFile}\" --heading 'Evidence Sources' "
+                   "< /dev/null")
     order = [
         'test -f "{reportTemplatePath}" && test -r "{reportTemplatePath}"',
         missing,
@@ -1433,6 +1442,8 @@ def test_init_checks_the_template_and_the_report_it_creates():
         "python3 {atomicWriteHelper} write --target {outputFile}",
         'uv run {validateFeasibilityReportHelper} "{outputFile}" -o "{run_dir}/template-check.json"',
         broken,
+        "**Check the Evidence Sources table**",
+        table_check,
     ]
     positions = [section.index(needle) for needle in order]
     assert positions == sorted(positions), order
@@ -1450,16 +1461,33 @@ def test_init_checks_the_template_and_the_report_it_creates():
     assert "leave `{outputFileLatest}` as it is" in after
     assert "`report_template_path` names `{reportTemplatePath}`, whose report fails the feasibility-report check:" in (
         after)
+    assert "reportUpdateScript: 'scripts/skf-report-update.py'" in _frontmatter(_read(REFERENCES / "init.md"))
+    table = flat[flat.index("**Check the Evidence Sources table**"):]
+    assert table.index(broken) > table.index(table_check)
+    assert ("The message opens \"`report_template_path` names `{reportTemplatePath}`, whose report has no table "
+            "under `## Evidence Sources`:\", names its JSON `error` and ends with the fix sentence of the template "
+            "check above.") in table
+    assert 'HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `init:report`' in table
+    assert 'HALT (exit code 4, `halt_reason: "write-failed"`) at phase `init:report`' in table
     rows = _exit_code_rows()
     assert "step 1 §4 (the report template names no readable file, phase `init:report-template`)" in rows[3]
-    assert ("step 1 §4 (the report created from the template fails the feasibility-report check, phase "
-            "`init:report-template`) → `schema-violation`") in rows[5]
+    assert ("step 1 §4 (the report created from the template fails the feasibility-report check, or has no table "
+            "under `## Evidence Sources`, phase `init:report-template`) → `schema-violation`") in rows[5]
+    assert ("steps 2 to 5 (the report-update helper refuses the report, `INVALID_REPORT`: it lacks the section, "
+            "table or subsection a call names, or holds one twice) → `schema-violation`") in rows[5]
+    assert ("steps 1 to 5 (a write of `{outputFile}` that fails: the atomic write, or the report-update helper's "
+            "exit 3)") in rows[4]
+    workflows = " ".join(_read(REPO / "docs" / "workflows.md").split())
+    assert ("Verify Stack stops too when the copy has no table under `## Evidence Sources`, which its synthesis step "
+            "fills in.") in workflows
     comment = _section(_read(SKILL / "customize.toml"), "# The template step 1", "report_template_path =")
     flat_comment = " ".join(line.lstrip("#").strip() for line in comment.splitlines())
     for said in ("Step 1 halts (`resolution-failure`) when the path names no readable file",
                  "one verdict table, no unknown verdict token", "step 6 checks the finished report again",
-                 "Nothing checks the Evidence Sources table"):
+                 "a table under `## Evidence Sources`), halting (`schema-violation`)",
+                 "the stages replace all that sits under `## Executive Summary` and `## Coverage Analysis`"):
         assert said in flat_comment, said
+    assert "Nothing checks the Evidence Sources table" not in flat_comment
     skill = " ".join(_read(SKILL / "SKILL.md").split())
     assert ("`{reportTemplatePath}` ← `workflow.report_template_path` if non-empty, else "
             "`assets/feasibility-report-template.md`, bound as the file it names (`{project-root}` replaced, a bare "
@@ -1468,15 +1496,23 @@ def test_init_checks_the_template_and_the_report_it_creates():
             "before it loads it, and checks the report it creates from it.") in skill
 
 
-@pytest.mark.parametrize("case", ["bundled", "lost-heading"])
+@pytest.mark.parametrize("case", ["bundled", "lost-heading", "no-evidence-table"])
 def test_the_check_of_the_new_report_passes_the_default_and_fails_a_broken_copy(tmp_path, case):
-    """The bundled template passes the init.md §4 check, so the halt never
-    fires on the default; a copy without `## Recommendations` fails it, and
-    the JSON names the heading the halt reports."""
+    """The bundled template passes the init.md §4 checks, so the halts never
+    fire on the default; a copy without `## Recommendations` fails the
+    validator, and the JSON names the heading the halt reports. A copy without
+    the Evidence Sources table passes the validator but fails the table check,
+    which synthesize's fill of that table would otherwise reach after every
+    analysis stage ran."""
     template = _read(SKILL / "assets" / "feasibility-report-template.md")
     if case == "lost-heading":
         assert template.count("## Recommendations\n") == 1
         template = template.replace("## Recommendations\n", "")
+    if case == "no-evidence-table":
+        table = ("| skill | evidence_tier | confidence_tier | metadata_schema_version | skill_md |\n"
+                 "|-------|---------------|-----------------|-------------------------|----------|\n")
+        assert template.count(table) == 1
+        template = template.replace(table, "")
     report = tmp_path / "feasibility-report-app-20261001-101500.md"
     report.write_bytes(template.encode("utf-8"))
     run_dir = _run_dir(tmp_path)
@@ -1489,12 +1525,28 @@ def test_the_check_of_the_new_report_passes_the_default_and_fails_a_broken_copy(
     proc = _run([SCRIPTS / "skf-validate-feasibility-report.py", *filled])
     out = run_dir / "template-check.json"
     check = json.loads(out.read_text(encoding="utf-8"))
-    if case == "bundled":
-        assert proc.returncode == 0, proc.stderr
-        assert check["status"] == "ok" and check["violation"] is None
-    else:
+    if case == "lost-heading":
         assert proc.returncode == 1, proc.stderr
         assert check["missingHeadings"] == ["Recommendations"]
+        return
+    assert proc.returncode == 0, proc.stderr
+    assert check["status"] == "ok" and check["violation"] is None
+    # The table check as init.md §4 writes it: no rows on stdin.
+    block = re.search(r"```bash\n(uv run \{reportUpdateScript\} [^\n]+)\n```",
+                      section[section.index("**Check the Evidence Sources table**"):]).group(1)
+    command, _, source = block.partition(" < ")
+    assert source == "/dev/null", block
+    words = [w.replace("{outputFile}", report.as_posix()) for w in shlex.split(command)[3:]]
+    before = report.read_bytes()
+    table = _run([REPORT_UPDATE, *words], stdin="")
+    out = json.loads(table.stdout)
+    if case == "bundled":
+        assert table.returncode == 0, table.stdout
+        assert (out["changed"], out["rows"]) == (False, 0)
+    else:
+        assert table.returncode == 2, table.stdout
+        assert out["code"] == "INVALID_REPORT" and "no table under `## Evidence Sources`" in out["error"], out
+    assert report.read_bytes() == before
 
 
 @pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None, reason="runs the check through bash")

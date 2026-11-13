@@ -163,7 +163,7 @@ uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind delta < "{
 uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind synthesize < "{run_dir}/rollup.json"
 ```
 
-Skip the `--kind delta` call unless section 3 computed a delta. The last call records the §1 rollup's `overallVerdict` and `recommendationCount` verbatim. On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:report`. On any other non-zero exit, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `synthesize:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
+Skip the `--kind delta` call unless section 3 computed a delta. The last call records the §1 rollup's `overallVerdict` and `recommendationCount` verbatim. On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:report`. On exit 2 with `INVALID_INPUT`, or with no JSON (a usage error), fix the file or the call its `error` or usage line names, then run that call and the ones after it again. On exit 2 with `INVALID_REPORT`, HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `synthesize:report`, naming its `error`. On exit 3, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `synthesize:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
 
 ### 6. Auto-Proceed to Next Step
 
