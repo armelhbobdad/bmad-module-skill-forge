@@ -93,11 +93,13 @@ Subcommand:
           below 0), or from the file's modification time when the map has
           no usable `generated_at` (`age_source` says which; null when
           neither is known). `--now` fixes "now" for a reproducible run.
-        - `--age-from-last-update` (update-skill load-baseline.md §4, the days
-          since the last extraction): `age_days` counts from the map's
-          top-level `last_update` when it is an ISO-8601 date or
-          date-time (`age_source` `last_update`), else as above. The
-          other fields do not change.
+        - `--age-from-last-update` (update-skill load-baseline.md §4 and
+          audit-skill init.md §4, the days since the last extraction):
+          `age_days` counts from the map's top-level `last_update` when it
+          is an ISO-8601 date or date-time (`age_source` `last_update`),
+          else as above. Update Skill writes `last_update` and leaves
+          `generated_at` as Create Skill wrote it. The other fields do not
+          change.
 
   baseline --metadata <metadata.json> --current-tier <tier> [--brief <skill-brief.yaml>]
            [--provenance-map <map.json>] [--now <ISO-8601>]
@@ -132,9 +134,10 @@ Subcommand:
         `content_hash`; "no-provenance-map" for any other skill when
         --provenance-map is absent or empty; else null.
       - `compose_mode_stack` and `provenance_age_days` are the
-        `compose_mode_stack` and `age_days` that `normalize` gives for the
-        map; both are null when the map is not read: a docs-only skill never
-        reads it, and a skill without one has none.
+        `compose_mode_stack` and `age_days` that `normalize
+        --age-from-last-update` gives for the map; both are null when the
+        map is not read: a docs-only skill never reads it, and a skill
+        without one has none.
       - `tier_dropped`: the map was read, the skill is no compose-mode
         stack, `original_tier` is set, and --current-tier comes before it
         in the order Quick, Forge, Forge+, Deep.
@@ -558,7 +561,7 @@ def baseline(
             mtime = datetime.fromtimestamp(provenance_path.stat().st_mtime, timezone.utc)
         except OSError as exc:
             raise ValueError(f"failed to read provenance map {provenance_path}: {exc}") from exc
-        projection = normalize(data, mtime, now)
+        projection = normalize(data, mtime, now, from_last_update=True)
         compose, age_days = projection["compose_mode_stack"], projection["age_days"]
     tier_dropped = (compose is False and compiled is not None
                     and VALID_TIERS.index(current_tier) < VALID_TIERS.index(compiled))

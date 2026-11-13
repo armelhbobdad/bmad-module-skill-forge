@@ -298,8 +298,8 @@ class TestTier1Guard:
 
 
 # --------------------------------------------------------------------------
-# (5) The word budget and the [MANUAL] guard (update-skill write.md §7 runs
-#     the split on skill-check's body.max_tokens warning as well, #797)
+# (5) The word budget and the [MANUAL] guard (update-skill verify-publish.md
+#     §7 runs the split on skill-check's body.max_tokens warning as well, #797)
 # --------------------------------------------------------------------------
 
 

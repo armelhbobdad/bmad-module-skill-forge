@@ -165,7 +165,7 @@ The halt leaves `{run_dir}` in place, with the decisions the gates below recorde
        --brief "{brief_path}"
    ```
 
-   On exit 1 (a forge folder it cannot read, or a brief that exists but cannot be read), no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:scope-reconciliation"`, `path: "{brief_path}"`, `reason: "<its stderr>"`).
+   On exit 1 (a forge folder it cannot read, a brief that exists but cannot be read, or a helper beside it that cannot be loaded), no JSON, or no candidate resolves: HALT with status `blocked` (halt procedure: `phase: "detect-changes:scope-reconciliation"`, `path: "{brief_path}"` only when its stderr names the brief, `reason: "<its stderr>"`).
 
 2. **Dispatch on `status`:**
 

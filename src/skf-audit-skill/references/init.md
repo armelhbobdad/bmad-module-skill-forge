@@ -170,14 +170,14 @@ Load the provenance map at `{provenanceMap}`, the path §1 bound: the audited ve
 - Normalize the map's deterministic projections in one subprocess call, with the `{loadProvenanceHelper}` §3 resolved:
 
   ```bash
-  uv run {loadProvenanceHelper} normalize {provenanceMap}
+  uv run {loadProvenanceHelper} normalize {provenanceMap} --age-from-last-update
   ```
 
   Parse the emitted JSON and stash these fields in workflow context (downstream steps read them directly — no re-walk):
   - `{bounded_scan_files}` — sorted POSIX list, union of `entries[].source_file` and `file_entries[].source_file`. Step 2 `re-index.md` consumes this as the bounded scan list.
   - `{is_stack_skill}`, `{legacy_stack_provenance}` and `{compose_mode_stack}`: stack-skill flags (see Stack Skill Detection below for downstream branching). §6 records them in the drift report's frontmatter, and the later steps read them there.
   - `{source_root}`, `{baseline_commit}`, `{baseline_ref}` — used by §5 Resolve Source Path and §5b Detect Upstream Drift.
-  - `{export_count}` ← `export_count`, `{provenance_generated_at}` ← `generated_at` and `{provenance_age_days}` ← `age_days`: the baseline facts §7 shows and §6 records. `age_days` counts from the map's `generated_at`, or from the file's modification time when the map has none.
+  - `{export_count}` ← `export_count`, `{provenance_generated_at}` ← `generated_at` and `{provenance_age_days}` ← `age_days`: the baseline facts §7 shows and §6 records. `age_days` counts from the map's `last_update`, which each Update Skill run writes, else from its `generated_at`, which Create Skill writes, else from the file's modification time: the age §3's `baseline_old` reads and Update Skill's baseline shows.
 
   If the script exits non-zero, HALT with **exit 3**, `halt_reason: "provenance-invalid"`, phase `init:provenance`, `"path": "{provenanceMap}"`, showing its stderr: the map is structurally invalid and downstream steps cannot proceed.
 

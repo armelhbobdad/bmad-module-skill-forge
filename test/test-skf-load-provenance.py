@@ -10,8 +10,9 @@ Covers:
     absent)
   - audit baseline: export_count, generated_at in UTC, age_days from
     generated_at or the file mtime (--now pins the clock)
-  - --age-from-last-update (update-skill's baseline): age_days from
-    last_update first, the output unchanged without the flag
+  - --age-from-last-update (update-skill's baseline, and audit-skill's
+    since `baseline` counts the same way): age_days from last_update first,
+    the output unchanged without the flag
   - error paths: missing file, malformed JSON, non-object top-level
   - CLI smoke: exit 0 + JSON shape; exit 1 on malformed input
   - baseline (#1132): the compile tier, the scope type and its source
@@ -703,9 +704,19 @@ class TestBaselineCommand:
         facts = mod.baseline(json.loads(paths["metadata"].read_text(encoding="utf-8")), "Forge", None,
                              paths["provenance"], now)
         mtime = datetime.fromtimestamp(paths["provenance"].stat().st_mtime, timezone.utc)
-        normalized = mod.normalize(provenance, mtime, now)
+        normalized = mod.normalize(provenance, mtime, now, from_last_update=True)
         assert (facts["compose_mode_stack"], facts["provenance_age_days"]) == (
             normalized["compose_mode_stack"], normalized["age_days"]) == (compose, 30)
+
+    def test_the_age_counts_from_the_last_update(self, tmp_path: Path) -> None:
+        """An Update Skill run writes last_update and leaves generated_at as Create Skill wrote it: the
+        audit right after it reads the age Update Skill's baseline shows, and never asks to run it again."""
+        updated = {**FRESH_MAP, "last_update": "2026-11-12T00:00:00Z"}
+        payload = _baseline(_skill(tmp_path, {}, updated), "Forge", "2026-11-14T00:00:00Z")
+        assert (payload["provenance_age_days"], payload["baseline_old"]) == (2, False)
+        flagged = _run_cli("normalize", str(tmp_path / "provenance-map.json"), "--now", "2026-11-14T00:00:00Z",
+                           "--age-from-last-update")
+        assert json.loads(flagged.stdout)["age_days"] == 2
 
     @pytest.mark.parametrize("which, content, needle", [
         ("metadata", None, "metadata.json not found"),

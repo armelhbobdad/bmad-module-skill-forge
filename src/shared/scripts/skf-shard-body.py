@@ -23,8 +23,8 @@ What it does (single positional invocation):
      parts left after splitting the body on JavaScript's `\\s` whitespace
      (`/\\s+/`), empty parts dropped → `body_words_before`: the same split
      skill-check's `body.max_tokens` estimate makes
-     (`text.split(/\\s+/).filter(Boolean)`), which update-skill's write.md
-     §7 holds under a budget below skill-check's limit.
+     (`text.split(/\\s+/).filter(Boolean)`), which update-skill's
+     body-split.md holds under a budget below skill-check's limit.
   3. If `body_lines_before` <= `--budget` (default 400) and, when
      `--word-budget` is set (default 0, off), `body_words_before` <=
      `--word-budget`: emit `action: "skip"`, write nothing.

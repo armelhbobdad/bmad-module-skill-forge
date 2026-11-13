@@ -87,10 +87,10 @@ And how a run reads a test report and detects drift through scripts:
 And the leaner stage chain (#599, #600, #596 update parts):
 
 - there is no validate stage: merge chains to write, skill-check runs once,
-  in write.md §7, which re-checks the [MANUAL] blocks after its edits; the
-  active link moves to the new version only after §6 and §7, the last
-  checks that can halt, and §10 then closes the rollback window; the report
-  reads the Validation Summary write.md recorded;
+  in verify-publish.md §7, which re-checks the [MANUAL] blocks after its
+  edits; the active link moves to the new version only after §6 and §7, the
+  last checks that can halt, and §10 then closes the rollback window; the
+  report reads the Validation Summary write.md recorded;
 - the headless contract lives in references/invocation-contract.md, its
   Gates row lists the gates the stages raise, and every step and section
   the stage files cite exists under the Stages table's numbering;
@@ -119,13 +119,13 @@ brief's when metadata.json records none, for Category B's runner; under
 public-api, merge, write.md's `exports[]` and `apply` keep only the names
 `records` marks public; the manifest names the file a moved export left.
 
-And the #934 fix: write.md §7 captures skill-check's stdout, stderr and
-exit code in the run folder and records the `Security` row from them by
-Quick Skill's rule, the first that applies: SKIP, WARN, then PASS.
+And the #934 fix: verify-publish.md §7 captures skill-check's stdout,
+stderr and exit code in the run folder and records the `Security` row from
+them by Quick Skill's rule, the first that applies: SKIP, WARN, then PASS.
 
-And the #901 fix: write.md §7 hashes SKILL.md before and after the guarded
-`--fix` call and re-reads it when the two hashes differ, since skill-check
-1.2.0's JSON lists no fix.
+And the #901 fix: verify-publish.md §7 hashes SKILL.md before and after the
+guarded `--fix` call and re-reads it when the two hashes differ, since
+skill-check 1.2.0's JSON lists no fix.
 
 And the #1116 fix: every step file declares `emitEnvelopeProbeOrder` and
 `runStateProbeOrder` (merge.md, which renews the run lock, also
@@ -3866,8 +3866,8 @@ def test_merge_keeps_the_reference_files_in_step_with_the_body():
 
 def test_the_result_line_names_the_references_the_run_wrote():
     """report §5b lists `references` in `files_written` when the run wrote, added or removed a references/*.md file
-    (merge, write.md §6's provenance fixes, §7's body split), read from the files on disk and from this run's own
-    evidence-report section, and the payload names exactly the schema's values (#799)."""
+    (merge, verify-publish.md §6's provenance fixes, §7's body split), read from the files on disk and from this
+    run's own evidence-report section, and the payload names exactly the schema's values (#799)."""
     five_b = _slice(_read(REPORT), "### 5b. Result Contract", "### 6.")
     payload = _heredoc(_fence(five_b, 'cat > "{run_dir}/result-context.json"'))
     names = re.search(r'"files_written": \[<each artifact write\.md wrote and verified: ([^>]*)>\]', payload).group(1)
@@ -5337,7 +5337,10 @@ def test_scope_reconciliation_skips_a_skill_with_no_brief(tmp_path):
         assert f'Display `"{label}: skipped (no skill brief)."`' in skips[section], section
     one_c = _slice(detect, "### 1c.", "This step auto-proceeds")
     halt = _slice(one_c, "   On exit 1 (", "\n")
-    assert "a forge folder it cannot read, or a brief that exists but cannot be read" in halt
+    assert ("a forge folder it cannot read, a brief that exists but cannot be read, or a helper beside it that "
+            "cannot be loaded") in halt
+    # the brief is the halt's path only when it is at fault, never for a helper that cannot be loaded
+    assert '`path: "{brief_path}"` only when its stderr names the brief' in halt
     assert "If §1c was skipped entirely (a docs-only skill, no skill brief or no drift report): omit this line" \
         in one_c
     # the helper still refuses a missing brief, so the skip is what keeps a brief-less skill out of that halt
@@ -5536,9 +5539,9 @@ def test_the_hook_runs_only_when_this_run_wrote_the_latest_copy(tmp_path):
 
 
 def test_the_result_line_carries_the_security_row(tmp_path):
-    """#902: §5b reads `security_result` from the Validation Summary's Security row write.md §7 fills, maps it to the
-    schema's values and stages it in the payload and its summary; §1, §1a and §1b run no scan, so their lines leave
-    it out and still validate, and a value outside the three stops the emitter."""
+    """#902: §5b reads `security_result` from the Validation Summary's Security row verify-publish.md §7 fills,
+    maps it to the schema's values and stages it in the payload and its summary; §1, §1a and §1b run no scan, so
+    their lines leave it out and still validate, and a value outside the three stops the emitter."""
     report = _read(REPORT)
     five_b = _slice(report, "### 5b. Result Contract", "### 6.")
     assert ("the Validation Summary §3 read for `validation_status` and for `security_result`, the first word of its "
@@ -6837,7 +6840,8 @@ def test_every_stage_records_the_warnings_it_raises():
     run_log = _slice(_read(SKILL), "- **Run log.**", "\n")
     assert "with the `record` call that step names" in run_log
     assert "--warning" not in run_log and '--warning "<text>"' not in _read(SKILL)
-    # write.md §6 records its own provenance WARNs; §3 already recorded the spot-check warnings, so §6 adds none again
+    # verify-publish.md §6 records its own provenance WARNs; write.md §3 already recorded the spot-check warnings,
+    # so §6 adds none again
     six = _slice(_read(VERIFY), "### 6.", "### 7.")
     assert "write.md §3 recorded `{provenance_spot_check_warnings}` already." in six
     assert "each entry of `{provenance_spot_check_warnings}`" not in six and "the envelope's `warnings[]`" not in six
