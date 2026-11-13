@@ -1,0 +1,7 @@
+type: breaking
+scope: skf-forger
+summary: |
+  A pipeline chain now stops at Create Skill when it compiles a skill with no exports (its `partial` status, with `summary.warning` `zero-exports`), with the halt reason `zero-exports`, where it used to go on to Test Skill and Export Skill. The stop leaves the repair `fix-brief-scope`: fix the brief's `scope.include` or `target_version` so it reaches the package's public exports, then resume, and Create Skill runs again. A headless `resume` stops with `user-action-required` until you have done it.
+migration: |
+  When a chain stops with `zero-exports`, fix the brief's `scope.include` or `target_version` (or run Brief Skill again), then take Ferris's offer to resume the chain at Create Skill, or forge the package with `forge-quick <package>` instead.
+issues: [1168]

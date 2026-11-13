@@ -153,8 +153,8 @@ Every chained workflow's data context carries `pipeline_mode: true`, which marks
 
 At activation the forger runs `pipeline-journal.py resume`, which reads the newest journal a stopped chain left. It offers nothing when no journal is left, when a later chain recorded a result with a step in it (any pipeline result in the sidecar, the per-run records included: a record with no step, such as a parse halt's, supersedes nothing), or when the journal's skill was tested or exported after the journal's last write: a test result record or an export manifest entry, which WS reads too, dated after it. The manifest dates an export by its day only, so an export that same day counts when the manifest was written after the journal, whichever skill that write was for. Otherwise it offers one of two things:
 
-- **Resume** after an interruption (the journal is still `running`) or a halt that is no quality verdict, such as a workflow that hard-halted or a result the gate could not read: the chain re-runs the step it stopped on, then the rest of the plan, with the recorded alias, bracket values and arguments.
-- **Repair** after a quality halt: the repair the table below gives, then the chain picks up where the table says, still with the recorded alias and threshold.
+- **Resume** after an interruption (the journal is still `running`) or a halt the table below does not list, such as a workflow that hard-halted or a result the gate could not read: the chain re-runs the step it stopped on, then the rest of the plan, with the recorded alias, bracket values and arguments.
+- **Repair** after a halt the table lists (a quality verdict, a skill compiled with no exports, or a step that named no value to hand on, which running the step again does not change): the repair the table gives, then the chain picks up where the table says, still with the recorded alias and threshold.
 
 `finish` prints the same next action when the chain stops, and both print it with its `route`, the next action in one line (`US hono --from-test-report, then TS EX at the recorded threshold of 90`), and its `user_action`, what the user does before the chain picks up again (null when the chain does it all). `pipeline-journal.py reopen` applies the offer the user accepts (the Resume procedure in the forger's pipeline-mode.md), and `discard` deletes a stopped chain's run folder, so its offer is made no more.
 
@@ -169,8 +169,10 @@ At activation the forger runs `pipeline-journal.py resume`, which reads the newe
 | TS | `pass-with-drift`, `workspace-drift` | `retest-at-pinned-commit` | put the source back at the commit the skill pins | TS, without `--allow-workspace-drift` |
 | AS | `CRITICAL` | `review-drift-report` | review the drift report | the step after AS |
 | VS | `zero-coverage` | `create-missing-skills` | create skills for the architecture's technologies (for example `forge-quick <package>`) | VS |
+| CS | `zero-exports` | `fix-brief-scope` | fix the brief's `scope.include` or `target_version` so it reaches the package's public exports | CS |
 | AN | `no-skillable-units`, `units-below-min`, `skipped` | `new-target` | start a new chain with another target, or with a scope hint | no resume |
 | AN | `redirect` | `update-existing-skill` | run `US` on the skill the target already has | no resume |
+| CS, QS, SS, US, AN, BS, RA | `handoff-missing` | `start-rest-by-hand` | start the steps left as a new chain, with the value the step made in the first one's bracket (for example `TS[<skill>] EX`) | no resume |
 
 A halt with no resume leaves no journal behind: `finish` deletes its run folder, as it does after a chain that succeeded, and its `route` is `no resume:` and the `user_action`.
 

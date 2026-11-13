@@ -1471,14 +1471,58 @@ def test_create_skill_hands_its_skill_to_test_skill(chain):
 
 def test_a_skill_compiled_with_no_exports_halts_zero_exports(chain):
     """CS reports a zero-export run as `partial`: the chain stops before TS, with the skill recorded, and
-    offers to run CS again once the brief is fixed."""
+    offers to run CS again once the brief is fixed, never at once: the same brief compiles no exports again
+    (lane review finding 4), so a headless resume stops with `user-action-required`."""
     chain.start("CS[cognee] TS EX")
     out = chain.envelope("CS", envelope("CS", status="partial", summary={"skill_name": "cognee",
                                                                          "warning": "zero-exports"}))
     assert (out["recorded"]["status"], out["recorded"]["reason"], out["next"]) == ("halted", "zero-exports", None)
     assert out["data"] == {"skill_name": "cognee"}
     done = chain.finish()
-    assert (done["offer"], done["kind"], done["resume_at"]) == ("resume", "error", {"index": 0, "code": "CS"})
+    assert (done["offer"], done["kind"], done["repair"], done["resume_at"]) == (
+        "repair", "quality", "fix-brief-scope", {"index": 0, "code": "CS"})
+    assert done["user_action"] == mod.USER_ACTIONS["fix-brief-scope"]
+    assert done["route"] == f"{mod.USER_ACTIONS['fix-brief-scope']}, then CS TS EX"
+
+
+def _batch_line(skill: str, status: str = "success", **fields) -> str:
+    """One brief's line of a CS `--batch` run."""
+    return envelope("CS", status=status, summary={"skill_name": skill}, **fields)
+
+
+def test_a_batch_records_every_brief_and_hands_on_each_skill(chain):
+    """Lane review finding 1: a CS `--batch` prints one line per brief, and the step reads each one."""
+    chain.start("AN[/repo] CS TS EX")
+    chain.gate("AN", "continue", "--set", "brief_path=/fd/a/skill-brief.yaml",
+               "--set", "brief_path=/fd/b/skill-brief.yaml")
+    text = "\n".join([_batch_line("a"), '{"batch_summary": true, "succeeded": 2}', _batch_line("b")]) + "\n"
+    out = chain.envelope("CS", text)
+    assert (out["recorded"]["status"], out["data"]["skill_name"]) == ("completed", ["a", "b"])
+    assert [o["code"] for o in chain.data()["outputs"]] == ["CS"], "both lines name the same fixture path"
+    assert ("After a CS `--batch` run (a `batch` in its `inputs`), hand it every `SKF_CREATE_SKILL_RESULT_JSON` line "
+            "the batch printed, one per brief") in _step_d()
+
+
+def test_a_batch_with_a_failed_brief_halts_with_its_reason(chain):
+    """A failed brief before a compiled one is not hidden: the step halts with the failed brief's reason."""
+    chain.start("AN[/repo] CS TS EX")
+    chain.gate("AN", "continue", "--set", "brief_path=/fd/a/skill-brief.yaml",
+               "--set", "brief_path=/fd/b/skill-brief.yaml")
+    text = "\n".join([_batch_line("a", "failed", halt_reason="brief-invalid", exit_code=2), _batch_line("b")])
+    out = chain.envelope("CS", text)
+    assert (out["recorded"]["status"], out["recorded"]["reason"], out["next"]) == ("halted", "brief-invalid", None)
+    assert out["data"]["skill_name"] == ["a", "b"]
+    assert chain.finish()["pipeline_status"] == "partial"
+
+
+def test_only_a_batched_code_reads_each_line(chain):
+    """Any other code keeps reading its last own line, as the gate does."""
+    chain.start("QS[cognee] TS EX")
+    text = "\n".join([envelope("QS", status="error", halt_reason="resolution-failure", exit_code=3),
+                      envelope("QS", summary={"skill_name": "cognee"})])
+    out = chain.envelope("QS", text)
+    assert (out["recorded"]["status"], out["data"]) == ("completed", {"skill_name": "cognee"})
+    assert mod.BATCHED == {"CS"}
 
 
 @pytest.mark.parametrize("code", ["EX", "DS", "RS"])
@@ -1643,6 +1687,11 @@ def test_a_completed_step_whose_line_names_no_handoff_halts_handoff_missing(chai
     assert (out["recorded"]["status"], out["recorded"]["reason"], out["next"]) == ("halted", "handoff-missing", None)
     assert (out["gate"] or {}).get("decision") == (None if code == "QS" else "continue")
     assert chain.data()["status"] == "halted"
+    # Running the step again names no value either, so the stop leaves no resume (lane review finding 4).
+    done = chain.finish()
+    assert (done["offer"], done["repair"], done["route"]) == (
+        None, "start-rest-by-hand", f"no resume: {mod.USER_ACTIONS['start-rest-by-hand']}")
+    assert done["run_dir_kept"] is False and chain.resume()["status"] == "none"
 
 
 def test_the_envelopes_value_wins_over_a_typed_one(chain):
@@ -1790,6 +1839,10 @@ def test_every_quality_reason_is_one_a_halt_gives():
             assert reason in ts, reason
         elif code == "AS":
             assert reason.upper() in gate_mod.AS_SEVERITIES
+        elif reason == "handoff-missing":
+            assert code in mod.HANDOFFS, code  # `step --envelope`'s own halt
+        elif (code, reason) == ("CS", "zero-exports"):
+            assert mod.HALT_REASONS[("CS", "partial")] == reason
         else:
             assert f'"{reason}"' in gate, (code, reason)
     assert "workspace-drift" in json.loads(_read(TEST_SKILL_SCHEMA))["properties"]["halt_reason"]["enum"]
@@ -1805,13 +1858,14 @@ def test_the_gated_codes_and_decisions_are_the_gates():
 def test_the_repair_routes_table_is_the_scripts():
     rows = _table(_section(_read(CONTRACTS), "### Repair Routes"))
     table, actions = {}, {}
-    for code, reasons, repair, user_action, pickup in rows:
+    for codes, reasons, repair, user_action, pickup in rows:
         where = None if pickup == "no resume" else "next" if pickup.startswith("the step after") else "same"
         if where == "same":
-            assert pickup.startswith(code), pickup
+            assert pickup.startswith(codes), pickup
         repair = repair.strip("`")
-        for reason in re.findall(r"`([^`]+)`", reasons):
-            table[(code, reason.lower().replace("_", "-"))] = (repair, where)
+        for code in codes.split(", "):
+            for reason in re.findall(r"`([^`]+)`", reasons):
+                table[(code, reason.lower().replace("_", "-"))] = (repair, where)
         actions[repair] = None if user_action.startswith("none:") else user_action.replace("`", "")
     assert table == mod.REPAIRS
     assert actions == mod.USER_ACTIONS

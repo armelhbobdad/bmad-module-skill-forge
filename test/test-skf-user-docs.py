@@ -2479,7 +2479,8 @@ def test_a_first_run_pick_and_maintain_read_the_forge_state_the_docs_say():
     record = _slice(mode, "   - d. **Record the step**", "   - e. **")
     for token in ('--forge-data-folder "{forge_data_folder}" --skills-output-folder "{skills_output_folder}" '
                   '--sidecar "{sidecar_path}" --envelope',
-                  "after AS, also with the forge data folder, the skills folder, the sidecar and the journal's skill",
+                  "after AS, also with the forge data folder, the skills folder, the sidecar and the skill AS "
+                  "audited: its bracket, else the journal's skill",
                   "`skip` passes over the workflows the gate names and records each `skipped`",
                   "over TS and EX too where they come right after it when the skill is current",
                   "neither `forge-tier.yaml` nor `preferences.yaml` has changed since that test",

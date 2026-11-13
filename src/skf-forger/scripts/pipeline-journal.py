@@ -37,8 +37,11 @@ Subcommands:
   step     Record the step the chain just finished: the first pending step,
            whose code must be --code. --envelope reads the envelope line the
            workflow printed on stdin, as pipeline-gate.py reads a result: the
-           last line of the code's own envelope (ENVELOPES) wins and a
-           byte-order mark is dropped; an empty stdin halts the step
+           last line of the code's own envelope (ENVELOPES) wins, but every
+           line of a CS (BATCHED), which prints one per brief of a `--batch`
+           run, counts: the step completes only when every brief did, else it
+           halts with the first halted brief's reason, and it hands on each
+           brief's skill. A byte-order mark is dropped; an empty stdin halts the step
            `no-result`, only other workflows' lines `wrong-result`, and text
            it cannot read `result-unreadable`. After AN, TS, AS or VS it runs
            pipeline-gate.py's rules in process, with the next plan code and
@@ -140,9 +143,11 @@ workflow), `threshold` (TS's `min`), `auto` (mode `auto`) and `flags`,
 each only when it has a value.
 
 Next action. A chain interrupted mid-step (its journal still `running`),
-or halted by anything but a quality verdict, gets the offer `resume` at the
-step it stopped on. A quality halt gets a `repair` (REPAIRS below), which
-the user makes first unless it is a workflow of its own (USER_ACTIONS):
+or halted for a reason REPAIRS does not list, gets the offer `resume` at
+the step it stopped on. A halt REPAIRS lists (a quality verdict, a skill
+with no exports, or a step that named no value to hand on, which running
+it again does not change) gets a `repair`, which the user makes first
+unless it is a workflow of its own (USER_ACTIONS):
 
   halted on  reason                        repair                   picks up at
   TS         FAIL                          update-from-test-report  TS, after
@@ -153,9 +158,13 @@ the user makes first unless it is a workflow of its own (USER_ACTIONS):
   AS         CRITICAL                      review-drift-report      the step
                                                                     after AS
   VS         zero-coverage                 create-missing-skills    VS
+  CS         zero-exports                  fix-brief-scope          CS
   AN         no-skillable-units,
              units-below-min, skipped      new-target               no resume
   AN         redirect                      update-existing-skill    no resume
+  CS, QS,    handoff-missing               start-rest-by-hand       no resume
+  SS, US,
+  AN, BS, RA
 
 `finish` and `resume` print it in one shape: `offer` (`resume`, `repair`,
 or null when nothing is left to resume), `kind` (`interrupted`, `error` or
@@ -328,6 +337,9 @@ COMPLETED_STATUSES = {
 # and EX rows of the Circuit Breakers table in pipeline-contracts.md. Any
 # other status halts with the envelope's halt_reason, else the status.
 HALT_REASONS = {("CS", "partial"): "zero-exports", ("EX", "dry-run"): "dry-run"}
+# The codes whose step reads every envelope line of its own: CS takes several briefs as one `--batch` run
+# (resolve_inputs) and prints one line per brief, so a brief that failed is never hidden behind a later one.
+BATCHED = frozenset({"CS"})
 # An envelope line, as pipeline-gate.py finds one.
 _ENVELOPE_RE = re.compile(r"(SKF_[A-Z0-9_]+_RESULT_JSON):\s*(\{.*\})\s*$")
 # What a workflow takes from the one before it, keyed (from, to): one key per
@@ -362,10 +374,13 @@ REPAIRS = {
     ("TS", "workspace-drift"): ("retest-at-pinned-commit", "same"),
     ("AS", "critical"): ("review-drift-report", "next"),
     ("VS", "zero-coverage"): ("create-missing-skills", "same"),
+    ("CS", "zero-exports"): ("fix-brief-scope", "same"),
     ("AN", "no-skillable-units"): ("new-target", None),
     ("AN", "units-below-min"): ("new-target", None),
     ("AN", "skipped"): ("new-target", None),
     ("AN", "redirect"): ("update-existing-skill", None),
+    # A step that completed but named no value to hand on: running it again names none either.
+    **{(code, "handoff-missing"): ("start-rest-by-hand", None) for code in HANDOFFS},
 }
 # A repair that is a workflow of its own: it joins the plan right before the
 # step it repairs, with the journal's skill as its target.
@@ -379,8 +394,11 @@ USER_ACTIONS = {
     "retest-at-pinned-commit": "put the source back at the commit the skill pins",
     "review-drift-report": "review the drift report",
     "create-missing-skills": "create skills for the architecture's technologies (for example forge-quick <package>)",
+    "fix-brief-scope": "fix the brief's scope.include or target_version so it reaches the package's public exports",
     "new-target": "start a new chain with another target, or with a scope hint",
     "update-existing-skill": "run US on the skill the target already has",
+    "start-rest-by-hand": "start the steps left as a new chain, with the value the step made in the first one's "
+                          "bracket (for example TS[<skill>] EX)",
 }
 # The codes whose bracket target is a skill name (CS's names a brief, QS's a
 # package or URL).
@@ -976,27 +994,29 @@ def _at(value, keys: tuple):
     return value
 
 
-def read_envelope(code: str, text: str | None) -> tuple[dict | None, str | None]:
-    """(result, problem) for the text a step printed, as pipeline-gate.py's read_result reads it.
+def read_envelope(code: str, text: str | None) -> tuple[list[dict], str | None]:
+    """(results, problem) for the text a step printed, as pipeline-gate.py's read_result reads it.
 
-    The last envelope line of `code`'s own workflow wins. Envelope lines of
-    other workflows alone are `wrong-result`; with no envelope line at all,
-    the whole text must be one JSON object. Empty text is `no-result`, and
-    text that is not UTF-8 (None) or not that object `result-unreadable`.
+    The last envelope line of `code`'s own workflow wins, but a BATCHED
+    code's lines each count, in the order printed (one per brief). Envelope
+    lines of other workflows alone are `wrong-result`; with no envelope line
+    at all, the whole text must be one JSON object. Empty text is
+    `no-result`, and text that is not UTF-8 (None) or not those objects
+    `result-unreadable`.
     """
     if text is None:
-        return None, "result-unreadable"
+        return [], "result-unreadable"
     if not text.strip():
-        return None, "no-result"
+        return [], "no-result"
     found = [m for m in map(_ENVELOPE_RE.search, text.splitlines()) if m]
     own = [m.group(2) for m in found if m.group(1) == ENVELOPES.get(code)]
     if found and not own:
-        return None, "wrong-result"
+        return [], "wrong-result"
     try:
-        value = json.loads(own[-1] if own else text)
+        values = [json.loads(raw) for raw in (own if code in BATCHED else own[-1:]) or [text]]
     except ValueError:
-        return None, "result-unreadable"
-    return (value, None) if isinstance(value, dict) else (None, "result-unreadable")
+        return [], "result-unreadable"
+    return (values, None) if all(isinstance(v, dict) for v in values) else ([], "result-unreadable")
 
 
 def envelope_outcome(code: str, result: dict) -> tuple[str, str | None]:
@@ -1018,19 +1038,29 @@ def envelope_outcome(code: str, result: dict) -> tuple[str, str | None]:
     return "halted", f"{status}: {detail}" if detail else status
 
 
-def envelope_values(code: str, result: dict) -> tuple[dict, list[str]]:
-    """The handoff value the envelope names, by its HANDOFFS name, and its output paths."""
-    values: dict = {}
-    if code in HANDOFF_FIELDS:
-        value = _at(result, HANDOFF_FIELDS[code])
-        if isinstance(value, list):
-            items = [v.strip() for v in value if isinstance(v, str) and v.strip()]
-            value = items[0] if len(items) == 1 else items or None
-        else:
-            value = _text(value)
-        if value:
-            values[HANDOFFS[code]] = value
-    outputs = [p for p in (_text(result.get(name)) for name in OUTPUT_FIELDS) if p]
+def envelopes_outcome(code: str, results: list[dict]) -> tuple[str, str | None]:
+    """The status a step with no gate records from its envelope lines: the first that halts, else completed."""
+    for result in results:
+        status, reason = envelope_outcome(code, result)
+        if status == "halted":
+            return status, reason
+    return "completed", None
+
+
+def envelope_values(code: str, results: list[dict]) -> tuple[dict, list[str]]:
+    """The handoff value the envelope lines name, by its HANDOFFS name, and their output paths.
+
+    One value is a string and several a list, each once: AN's briefs, or the skill of each brief of a CS batch.
+    """
+    items: list[str] = []
+    outputs: list[str] = []
+    for result in results:
+        value = _at(result, HANDOFF_FIELDS[code]) if code in HANDOFF_FIELDS else None
+        for item in value if isinstance(value, list) else [value]:
+            if _text(item) and _text(item) not in items:
+                items.append(_text(item))
+        outputs += [p for p in (_text(result.get(name)) for name in OUTPUT_FIELDS) if p]
+    values = {HANDOFFS[code]: items[0] if len(items) == 1 else items} if items else {}
     return values, outputs
 
 
@@ -1089,7 +1119,7 @@ def cmd_step(args) -> dict:
     skill = gated.strip() if isinstance(gated, str) and gated.strip() else _skill_name(journal)
     if args.envelope:
         text = _read_result_text()
-        result, problem = read_envelope(args.code, text)
+        results, problem = read_envelope(args.code, text)
         if args.code in GATED:
             gate = _load_gate()  # before anything is recorded: a gate that cannot load records nothing
             plan_min = steps[index]["min"]
@@ -1100,9 +1130,8 @@ def cmd_step(args) -> dict:
             decision = _checked_decision(gate.gate(args.code, text, next_code=next_code, minimum=minimum, **on_disk),
                                          args.code)
         else:
-            status, reason = ("halted", problem) if problem else envelope_outcome(args.code, result)
-        if result is not None:
-            found, outputs = envelope_values(args.code, result)
+            status, reason = ("halted", problem) if problem else envelopes_outcome(args.code, results)
+        found, outputs = envelope_values(args.code, results)
     elif args.gate:
         decision = _gate_decision(_read_stdin(), args.code)
     else:
