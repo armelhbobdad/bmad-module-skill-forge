@@ -721,8 +721,11 @@ def test_without_facts_core_s_bytes_pass_unchanged(tmp_path, core):
     assert proc.returncode == 0, proc.stderr
     assert proc.stdout == _core(root, "--skill", str(skill), "--key", "workflow").stdout
     assert _facts(proc) == [DEFAULT_FACT, f"!{DEFAULT_FACT}"]
-    not_json = _run(skill, root, "workflow", env=_env(SKF_TEST_CORE_STDOUT=json.dumps("not json\n")))
-    assert (not_json.returncode, not_json.stdout) == (0, b"not json\n")
+    env = _env(SKF_TEST_CORE_STDOUT=json.dumps("not json\n"))
+    not_json = _run(skill, root, "workflow", env=env)
+    # Core's own bytes, whatever line ending its platform writes (CRLF on Windows).
+    assert (not_json.returncode, not_json.stdout) == (0, _core(root, "--skill", str(skill), "--key", "workflow",
+                                                                env=env).stdout)
 
 
 @pytest.mark.parametrize("core", sorted(CORES))
@@ -736,6 +739,17 @@ def test_facts_with_nothing_to_resolve_print_core_s_own_bytes(tmp_path, core):
         proc = _run(skill, root, *keys, facts=True)
         assert proc.returncode == 0, proc.stderr
         assert proc.stdout == _core(root, "--skill", str(skill), *(w for key in keys for w in ("--key", key))).stdout
+
+
+@pytest.mark.parametrize("core", sorted(CORES))
+def test_facts_with_nothing_to_resolve_keep_core_s_crlf_line_endings(tmp_path, core):
+    """Core on Windows prints CRLF: with nothing to resolve, `--facts` hands those bytes on, not a re-serialization."""
+    root = _project(tmp_path, core)
+    skill = _installed_skill(root)
+    crlf = '{\r\n  "workflow": {\r\n    "persistent_facts": [\r\n      "Cite sources."\r\n    ]\r\n  }\r\n}\r\n'
+    proc = _run(skill, root, "workflow", env=_env(SKF_TEST_CORE_STDOUT=json.dumps(crlf)), facts=True)
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == crlf.encode("utf-8")
 
 
 @pytest.mark.parametrize("core", sorted(CORES))

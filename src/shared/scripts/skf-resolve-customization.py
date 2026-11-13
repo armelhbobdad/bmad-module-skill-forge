@@ -410,7 +410,11 @@ def _resolved_stdout(stdout: bytes, root: Path, notes: list[str]) -> bytes | Non
         return None
     if not isinstance(data, dict):
         return None
+    original = json.loads(json.dumps(data))
     data = resolve_output(data, root.as_posix(), lambda reason: notes.append(f"persistent_facts: {reason}"))
+    if data == original:
+        # Nothing to resolve: core's own bytes, so its layout and line endings (CRLF on Windows) stay its own.
+        return stdout
     # A folder name that is not UTF-8 reaches a path as surrogates, which go back out as its own bytes.
     return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8", errors="surrogateescape")
 
