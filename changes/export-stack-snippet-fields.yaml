@@ -3,3 +3,4 @@ scope: skf-export-skill
 summary: |
   Export Skill now fills a stack skill's `|stack:` line from the `libraries` of its `metadata.json`, each with the version its `references/<library>.md` gives, and its `|integrations:` line from `integration_pairs`, the fields Stack Skill writes and the export gate counts. The snippet step named `components` and `integrations`, fields a stack's `metadata.json` does not have, so a re-export could drop both lines or copy them from the prior snippet by hand.
 issues: [1164]
+prs: [1209]

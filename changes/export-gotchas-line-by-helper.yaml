@@ -5,3 +5,4 @@ summary: |
 migration: |
   If Export Skill now stops with exit `4` (`context-rebuild-failed`), or Update Skill with `halted-for-write-failure`, on a skill's prior `context-snippet.md`, save that file as UTF-8 and run the workflow again. If Update Skill stops on the export manifest, fix or remove `.export-manifest.json` in your skills folder, as Export Skill's exit `3` already asks, then run it again.
 issues: [1164]
+prs: [1209]

@@ -5,3 +5,4 @@ summary: |
 migration: |
   To keep such a file current, choose (b) keep, then add its IDE back to `ides` in `config.yaml` and run the export again. To refresh it once, run the export with `--context-file CLAUDE.md`, which writes that one file with the skill root the IDE mapping gives it; a later export without that option asks about the file again. A script that matched `rewrite_orphan_context` in the result's `deviations` can drop that match.
 issues: [1165]
+prs: [1209]

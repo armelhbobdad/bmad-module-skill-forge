@@ -3,3 +3,4 @@ scope: skf-export-skill
 summary: |
   A headless Export Skill run now records each warning it displays in its run folder, so the `SKF_EXPORT_RESULT_JSON` line lists them in `warnings` as `<code>: <skill>: <detail>`: a test report that failed, passed only with drift, was inconclusive, records no verdict or is missing, the export gate's warnings, gotchas left off, carried or dropped, a trimmed snippet, a context file with malformed markers, and each skill the managed section leaves out. The run used to record only the customization resolver's warning, so such a run read as a clean success. The `load-skill.confirmation` decision in `headless_decisions` also gains `evidence.test_results`, one `{skill, verdict, score, report}` per skill. The headless run folder's steps move from SKILL.md to the Run Folder section of `references/result-envelope.md`, which lists every code, so SKILL.md stays under its token budget.
 issues: [1166]
+prs: [1209]

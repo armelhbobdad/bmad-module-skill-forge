@@ -3,3 +3,4 @@ scope: skf-export-skill
 summary: |
   Export Skill now clears an orphaned context file only after you confirm the writes. When a context file such as `CLAUDE.md` still holds an SKF managed section but no IDE in `config.yaml` maps to it, answering (a) clear used to remove that section at once, before the orphaned-rows question, the change preview and the [C] confirmation, so a cancel or a halt after it left the file changed while the run said no context file was written, and the result did not list the file. Now (a) only lists the file: the change preview and the confirmation name it as `CLAUDE.md` (clear), and the run clears it after it writes the target files. A cleared file is listed in `context_files_updated` and in a `clear_orphan_context` entry of the result's `deviations`. A clear that fails stops the run with exit `4` (`context-rebuild-failed`).
 issues: [1165]
+prs: [1209]

@@ -5,3 +5,4 @@ summary: |
 migration: |
   If `snippet_format_path` names your own copy, put back the `|api:` label and the gotchas line's `; ` separator where the copy changed them, as the bundled file writes them. Delete the copy's Skill Root Path, Format Rules and Rules sections and the line bullets under its single-skill template too: Export Skill now states each of those rules itself, and a copy's own can only disagree with them.
 issues: [1164]
+prs: [1209]

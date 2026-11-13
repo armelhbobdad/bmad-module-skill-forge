@@ -3,3 +3,4 @@ scope: skf-export-skill
 summary: |
   Export Skill's skill menu no longer offers a skill whose active version `.export-manifest.json` marks deprecated, as the docs say: a deprecated skill still on disk used to come back through the folder scan. The menu and `--all` now list the skills through one `skf-skill-inventory.py exportable` call, which leaves out deprecated skills and folders SKF did not generate, and the run names the skills each rule left out once, on a `Skipped (deprecated in the export manifest)` line and a `Skipped (not SKF output)` line. The list fails closed: when the helper cannot read the export manifest, including one that is not a JSON object or whose `exports` is not an object, the run stops with exit `3` (`resolution-failure`).
 issues: [1163]
+prs: [1209]

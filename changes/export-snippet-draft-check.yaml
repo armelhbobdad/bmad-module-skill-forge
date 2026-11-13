@@ -5,3 +5,4 @@ summary: |
 migration: |
   If an export now stops with exit `4` (`context-rebuild-failed`) on a snippet draft, read the checks it names. When `snippet_format_path` names your own copy of `snippet-format.md`, keep its line 1 as `[{skill-name} v{version}]|root: ...` and give its quick-start and key-types lines only anchors whose headings the package holds, then run the export again. Otherwise re-run Update Skill or Create Skill on the skill, so its `metadata.json` gives a version and its `SKILL.md` holds the headings, and export it again.
 issues: [1166]
+prs: [1209]
