@@ -932,6 +932,8 @@ def test_an_interactive_run_offers_to_resume_a_stopped_review():
     assert "Once §3c replaces the state file, that review can no longer be resumed." in branches[1]
     assert 'HALT (exit code 6, `halt_reason: "user-cancelled"`) at phase `init:resume`' in branches[2]
     assert "GATE [default:" not in resume, "headless never reaches it (test-skf-headless-gates INTERACTIVE_ONLY)"
+    [gates] = [line for line in _read(SKILL_MD).splitlines() if line.startswith("| **Gates** |")]
+    assert "| step 1: Input Gate [use args], Resume Gate [R]/[N] (interactive) | step 2:" in gates
     # Compile rebuilds the draft from the kept plan, after reading every binding back, then shows the review.
     base = _section(_read(COMPILE), "### 1. Prepare the Original as Base", "### 2.")
     resumed = _section(base, "**A resumed review.**", "\n\n")
