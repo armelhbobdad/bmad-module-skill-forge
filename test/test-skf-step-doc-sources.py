@@ -35,7 +35,7 @@ STEP_FILE = CS_DIR / "references" / "step-doc-sources.md"
 COMPILE_FILE = CS_DIR / "references" / "compile.md"
 SKILL_MD = CS_DIR / "SKILL.md"
 SECTIONS_FILE = CS_DIR / "assets" / "skill-sections.md"
-FETCH_DOCS_FILE = CS_DIR / "references" / "sub" / "fetch-docs.md"
+FETCH_DOCS_FILE = CS_DIR / "references" / "fetch-docs.md"
 DETECT_DOCS_SCRIPT = REPO_ROOT / "src" / "shared" / "scripts" / "skf-detect-docs.py"
 
 

@@ -13,7 +13,6 @@ import importlib.util
 import json
 import os
 import re
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -2015,10 +2014,10 @@ class TestFilterUrlsCli:
 
 
 # --------------------------------------------------------------------------
-# sub/fetch-docs.md reads the JSON instead of counting (#605 determinism-10)
+# fetch-docs.md reads the JSON instead of counting (#605 determinism-10)
 # --------------------------------------------------------------------------
 
-FETCH_DOCS = Path(__file__).parent.parent / "src" / "skf-create-skill" / "references" / "sub" / "fetch-docs.md"
+FETCH_DOCS = Path(__file__).parent.parent / "src" / "skf-create-skill" / "references" / "fetch-docs.md"
 
 
 def _fetch_docs_section_3() -> str:
@@ -2061,37 +2060,19 @@ class TestFetchDocsProse:
         assert "When it is false, the command exits non-zero, or no candidate resolves, keep the page" in section
         assert "When it exits non-zero, leave that input out." in section
 
-    @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None or shutil.which("xargs") is None,
-                        reason="POSIX shell")
-    def test_the_subpage_snippet_saves_only_fetched_pages(self, tmp_path):
-        """A failed fetch leaves no stub in the corpus §5b indexes and §5c keeps:
-        the snippet runs against a curl that fails for one URL."""
+    def test_a_subpage_is_saved_only_when_its_fetch_succeeded(self):
+        """A failed fetch leaves no stub in the corpus §5b indexes and §5c keeps (#1148: item 3 states the limits
+        and the save rule, and names no fetch pipeline)."""
         section = _fetch_docs_section_3()
-        assert "sha256sum" not in section and "subpage-{n}-{k}.md" in section
-        start = section.index("printf '%s\\n' \"${subpages[@]}\"")
-        snippet = section[start:section.index("```", start)]
-        staging = tmp_path / "docs"
-        staging.mkdir()
-        bin_dir = tmp_path / "bin"
-        bin_dir.mkdir()
-        fake = bin_dir / "curl"
-        fake.write_bytes(
-            b'#!/bin/sh\n'
-            b'url=""; out=""\n'
-            b'while [ $# -gt 0 ]; do case "$1" in -o) out="$2"; shift 2;; --max-time) shift 2;; -*) shift;;'
-            b' *) url="$1"; shift;; esac; done\n'
-            b'case "$url" in *missing*) printf "404" > "$out"; exit 22;; esac\n'
-            b'printf "# page %s\\n" "$url" > "$out"\n'
-        )
-        fake.chmod(0o755)
-        script = ("subpages=(https://docs.example.com/api https://docs.example.com/missing "
-                  "https://docs.example.com/guide)\n"
-                  + snippet.replace("{docs_staging}", staging.as_posix()).replace("{n}", "1"))
-        proc = subprocess.run(["bash", "-c", script], capture_output=True, text=True, timeout=60,
-                              env={**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"})
-        assert proc.returncode == 0, proc.stderr
-        assert sorted(p.name for p in staging.iterdir()) == ["subpage-1-1.md", "subpage-1-3.md"]
-        assert "fetch failed: https://docs.example.com/missing" in proc.stderr
+        three = section[section.index("3. **Fetch the top subpages:**"):section.index("4. **Rate limiting:**")]
+        assert "sha256sum" not in section and "xargs" not in section
+        for token in ("fetch up to 10 of the most relevant, at most 4 at a time",
+                      "Save each one whose fetch succeeded as `{docs_staging}/subpage-{n}-{k}.md`",
+                      "a failed fetch leaves no file", "Cite each one `[EXT:{subpage-url}]`."):
+            assert token in three, token
+        four = section[section.index("4. **Rate limiting:**"):]
+        assert ("on an HTTP 429, start no further subpage fetch for this root URL, keep what was saved, and log "
+                '"Subpage discovery stopped due to rate limiting."') in four
 
     def test_a_docs_only_corpus_is_kept(self):
         text = FETCH_DOCS.read_text(encoding="utf-8")

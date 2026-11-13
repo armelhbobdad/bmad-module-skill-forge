@@ -1,5 +1,5 @@
 ---
-nextStepFile: 'sub/fetch-temporal.md'
+nextStepFile: 'fetch-temporal.md'
 componentExtractionStepFile: 'component-extraction.md'
 extractionPatternsTracingData: 'references/extraction-patterns-tracing.md'
 tierDegradationRulesData: 'references/tier-degradation-rules.md'

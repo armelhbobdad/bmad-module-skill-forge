@@ -109,7 +109,7 @@ def test_the_remote_block_loads_only_for_a_remote_source_at_forge_tier():
     remote = _read(REFS / "remote-source-access.md")
     assert re.findall(r"^## (.+)$", remote, re.M) == ["Read the Source Into a Private Tree", "Deferred CCC Discovery"]
     # the deferred discovery builds its query by step 2b's rule, the one home of the 80-character cap
-    assert ("3. **Construct semantic query:** build it as `references/sub/ccc-discover.md` §3 says (read that "
+    assert ("3. **Construct semantic query:** build it as `references/ccc-discover.md` §3 says (read that "
             "section when it is not in context).") in remote
 
 
@@ -193,7 +193,7 @@ def test_validate_fills_the_evidence_report_blocks_by_name():
 @pytest.mark.parametrize("token, home", [
     ("Signature conflict for `{export_name}`", ASSETS / "compile-assembly-rules.md"),
     ("keep their angle brackets", ASSETS / "compile-assembly-rules.md"),
-    ("80 characters", REFS / "sub" / "ccc-discover.md"),
+    ("80 characters", REFS / "ccc-discover.md"),
     ("(`form_validation_rules.md`, not `doc2.md`)", ASSETS / "skill-sections.md"),
 ])
 def test_a_shared_rule_has_one_home(token, home):

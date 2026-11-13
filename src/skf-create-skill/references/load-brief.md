@@ -1,5 +1,5 @@
 ---
-nextStepFile: 'sub/ccc-discover.md'
+nextStepFile: 'ccc-discover.md'
 forgeTierFile: '{sidecar_path}/forge-tier.yaml'
 preferencesFile: '{sidecar_path}/preferences.yaml'
 validateBriefSchemaProbeOrder:
@@ -89,35 +89,17 @@ Step 5 §7 renders the sink into the evidence report's `## Auto-Decisions` table
 
 Resolve `{validateBriefSchemaHelper}` ← first existing path in `{validateBriefSchemaProbeOrder}`. If neither exists, **HARD HALT** (exit code 3, `helper-missing`, phase `load-brief`): "Cannot validate the brief: skf-validate-brief-schema.py is missing. Re-install SKF, then re-run create-skill."
 
-Run the deterministic schema validator — it checks required fields, regex patterns (`name`, `version`), enum membership (`source_type`, `source_authority`, `forge_tier`, `scope.type`), type correctness, the docs-only conditional rule (`doc_urls` ≥ 1 when `source_type == "docs-only"`), and the version-non-empty-or-whitespace rule:
+Run the schema validator:
 
 ```bash
 uv run {validateBriefSchemaHelper} "{brief_path}"
 ```
 
-The helper emits:
-
-```json
-{
-  "valid": <bool>,
-  "errors":   [{"field": "...", "message": "Brief validation failed: ..."}, ...],
-  "warnings": [{"field": "...", "message": "..."}, ...],
-  "halt_reason": "brief-missing" | "brief-malformed" | "brief-invalid" | null,
-  "brief": { ...parsed YAML when loadable... }
-}
-```
-
-**If `valid` is false:** **HARD HALT** (exit code 2, `{halt_reason}`, phase `load-brief`), with the helper's `halt_reason` and the first error's `message` as the halt message, and display that `message` verbatim: the helper already formats messages in the "Brief validation failed: ..." form the user expects. For halt-reasons:
-
-- `brief-missing` — the brief path doesn't exist. Display the helper's message (it includes the `Run [BS] Brief Skill` redirect).
-- `brief-malformed` — the YAML failed to parse. Display the helper's message.
-- `brief-invalid` — schema or conditional-rule violation. Display the first `errors[].message`. Multiple errors may appear; the user typically fixes one source and re-runs.
+**If `valid` is false:** **HARD HALT** (exit code 2, `{halt_reason}`, phase `load-brief`), with the helper's `halt_reason` and the first error's `message` as the halt message, and display that `message` verbatim: the helper already formats messages in the "Brief validation failed: ..." form the user expects.
 
 **If `valid` is true:** continue with `brief` (the parsed object) for downstream sections. Surface any `warnings[]` to the user but do not halt.
 
-**Field reference (for human readers):**
-
-The complete contract — required fields, optional fields, types, and rules — lives in `src/shared/scripts/schemas/skill-brief.v1.json` and the prose mirror at `src/skf-brief-skill/assets/skill-brief-schema.md`. Read those if you need to explain a specific field; do not restate the rules here.
+The brief's fields and rules: `shared/scripts/schemas/skill-brief.v1.json` and `skf-brief-skill/assets/skill-brief-schema.md`.
 
 ### 4. Resolve Source Code Location
 
@@ -160,5 +142,5 @@ Where tier_description follows positive capability framing:
 
 ### 6. Auto-Proceed
 
-No user interaction. After initialization completes and all data is loaded (including `target_version` if present), load `{nextStepFile}`, read it fully, then execute it. A failed prerequisite check above has already halted with an actionable error rather than reaching here.
+No user interaction. After initialization completes and all data is loaded (including `target_version` if present), load `{nextStepFile}`, read it fully, then execute it.
 

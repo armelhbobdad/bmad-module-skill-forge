@@ -106,7 +106,7 @@ To use this skill immediately, add the context snippet to your CLAUDE.md:
 
 Every brief that reaches this step gets its own result contract and `on_complete` call, each brief of a `--batch` run included. A HARD HALT in steps 1 to 7 never reaches this step: it emits its envelope where it fires, as its stage file's Rules say, and writes its result file there once step 7 has created `{forge_version}`.
 
-**Write the result contract through the emitter.** `{emitEnvelopeHelper}` writes `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and its `create-skill-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path: a copy, not a symlink; a caller reads its own run's `SKF_CREATE_SKILL_RESULT_JSON` line), stamps the timestamp, the run id and the run sink's decisions and warnings into them, checks the brief's `SKF_CREATE_SKILL_RESULT_JSON` line against `skf-create-skill-result-envelope.v1.json` and prints it.
+**Write the result contract through the emitter.** `{emitEnvelopeHelper}` writes `{forge_version}/create-skill-result-{YYYYMMDD-HHmmss}.json` and its `create-skill-result-latest.json` copy (the record of the last run whose emitter wrote this copy, at a stable path: a copy, not a symlink; a caller reads its own run's `SKF_CREATE_SKILL_RESULT_JSON` line) and prints the brief's `SKF_CREATE_SKILL_RESULT_JSON` line.
 
 **Find the run folder.** When `{run_dir}` is not bound, resolve `{extractionInventoryHelper}` ← first existing path in `{extractionInventoryProbeOrder}` and bind `{run_dir}` ← the `run.run_dir` this prints, from `{project-root}` (never `{source_tree}`: step 7 removed the tree):
 

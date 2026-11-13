@@ -5,7 +5,7 @@ over the scan's candidates (and campaign step 5's record of what it kept,
 read from the doc-rot-corrections.json §4 writes, #1141),
 CORRECTION block format, feeder artifact scan targets, graceful skip logic,
 step chain from step-auto-shard.md, and Stages table in SKILL.md.
-Also checks the temporal feeder: step 3b (sub/fetch-temporal.md) keeps the
+Also checks the temporal feeder: step 3b (fetch-temporal.md) keeps the
 files it fetched in the folder step 5c scans, a failed refresh keeps the last
 good copy, a correction drawn from it cites the QMD collection, and a missing
 feeder reaches the evidence report as a notice.
@@ -29,7 +29,7 @@ STEP_DOC_ROT = CS_DIR / "references" / "step-doc-rot.md"
 STEP_AUTO_SHARD = CS_DIR / "references" / "step-auto-shard.md"
 VALIDATE_FILE = CS_DIR / "references" / "validate.md"
 CS_SKILL_MD = CS_DIR / "SKILL.md"
-FETCH_TEMPORAL = CS_DIR / "references" / "sub" / "fetch-temporal.md"
+FETCH_TEMPORAL = CS_DIR / "references" / "fetch-temporal.md"
 GENERATE_ARTIFACTS = CS_DIR / "references" / "generate-artifacts.md"
 SKILL_SECTIONS = CS_DIR / "assets" / "skill-sections.md"
 SCAN_DOC_ROT_PY = CS_DIR / "scripts" / "scan-doc-rot.py"
@@ -1058,7 +1058,8 @@ class TestCitationRule:
     def test_overview_states_the_rule_in_provenance_terms(self) -> None:
         overview = _section(_read(CS_SKILL_MD), "## Overview", "\n## ")
         assert "must trace to source code" not in overview
-        assert "every statement in the output carries a provenance citation" in overview
+        # #1148: the rule is stated once, in the Workflow Rules below; the Overview no longer repeats it
+        assert "provenance citation" not in overview
         # The forms are listed once, in the Workflow Rules.
         assert not any(f"`{form}`" in overview for form in self.FORMS)
 

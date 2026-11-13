@@ -28,7 +28,7 @@ When `scope.type: "component-library"`, perform specialized extraction that trea
 
 ## MANDATORY SEQUENCE
 
-**Prerequisite: §2b already ran.** Step-03 executes `§2b Discovered Authoritative Files Protocol` before delegating to this file. Any promoted authoritative files (`llms.txt`, `AGENTS.md`, etc.) are tracked in the `promoted_docs[]` context list and will be written to `file_entries[]` with `file_type: "doc"` by step 5 §6. Phase 1 lists them with the brief's other files (a promotion adds each to `scope.include`), and no Phase 4 recipe reads a doc, so this file needs no special handling for them. See step 3 §2b for the full flow.
+**Prerequisite:** step 3 §2b has already run.
 
 ### Phase 1: Demo/Example Exclusion
 
@@ -98,7 +98,7 @@ Wait for user response (interactive only). On `Y`, the registry is `selected`: s
 - **[P]** Provide the registry file path
 - **[S]** Skip registry — proceed with standard props-first extraction only"
 
-**GATE [default: S]**: if `{headless_mode}` is true: auto-select [S] Skip (props-first extraction without registry), log "headless: no registry detected, auto-skip to props-first extraction (no usable path in brief.scope.registry_path)", and record it per the Workflow Rules: stage `{"step": "component-extraction", "gate": "provide-or-skip-registry", "decision": "S", "rationale": "headless mode: no human to provide registry path"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`. The default is `[S]` rather than `[P]` because providing a path requires user input that headless cannot supply; skipping degrades gracefully to a smaller but valid extraction.
+**GATE [default: S]**: if `{headless_mode}` is true: auto-select [S] Skip (props-first extraction without registry), log "headless: no registry detected, auto-skip to props-first extraction (no usable path in brief.scope.registry_path)", and record it per the Workflow Rules: stage `{"step": "component-extraction", "gate": "provide-or-skip-registry", "decision": "S", "rationale": "headless mode: no human to provide registry path"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
 
 Wait for user response (interactive only). On [P], run the `--path` command above with the path given: when its `selected` is null, show its `error` and ask again; otherwise use that file, with `registry_answer` ← the path and `registry_evidence` ← "given by the user, {count} entries".
 

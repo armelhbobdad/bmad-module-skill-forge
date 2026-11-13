@@ -118,7 +118,12 @@ def test_protocol_opening_follows_source_access() -> None:
     assert ("Loaded on demand when step 3's `### 2b. Discovered Authoritative Files Protocol` sub-step runs, after "
             "`### 2a. Resolve Source Access` has resolved the source to a local tree") in overview
     assert "Once §2a has resolved source access, scan the resolved source tree" in overview
-    assert "**Skip it too when `source_root` is still a remote URL**" in overview
+    # #1148: extract.md §2b, the protocol's only loader, applies both skips before it loads the protocol
+    assert "Skip this protocol entirely" not in overview and "Skip it too when" not in overview
+    two_b = _section(_read(EXTRACT), "### 2b. Discovered Authoritative Files Protocol", "### 2c.")
+    assert two_b.index("**Skip this section entirely if `source_type: \"docs-only\"`:**") < two_b.index(
+        "**Remote source guard:** if `source_root` is still a remote URL after §2a") < two_b.index(
+        "Load `{authoritativeFilesProtocol}` and execute it")
 
 
 def test_protocol_helper_gets_the_resolved_tree() -> None:

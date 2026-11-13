@@ -440,11 +440,14 @@ def test_conventions_state_the_sibling_rule(skill):
     assert _conventions(skill).count(SIBLING_RULE) == 1, (skill, _sibling_paths(skill))
 
 
-def test_create_skill_declares_its_sub_step_folder():
+def test_create_skill_keeps_every_stage_in_references():
+    """#1148: the three stages of every run's chain left `references/sub/`, so no `nextStepFile` climbs a folder
+    and the Conventions name no sub-step folder: the bare-path rule says a `nextStepFile` is relative to its stage."""
     conventions = _conventions("skf-create-skill")
-    assert "`references/sub/` the conditional sub-steps" in conventions
-    assert ("a `nextStepFile` is relative to its own stage file (so a sub-step that returns to a main stage "
-            "names it in the parent folder)") in conventions
+    assert "references/sub" not in conventions and "sub-step" not in conventions
+    assert ("only a stage's frontmatter `nextStepFile`, `healthCheckStepFile`, `componentExtractionStepFile` and "
+            "`returnToStep` name a file relative to the stage file") in conventions
+    assert not (SRC / "skf-create-skill" / "references" / "sub").exists()
 
 
 # --------------------------------------------------------------------------

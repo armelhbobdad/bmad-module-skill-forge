@@ -462,7 +462,8 @@ def test_create_skill_carries_the_hand_written_content_forward():
     assert "`{forge_version}/manual-backup/SKILL-<UTC time>.md`" in step7
     assert "or the earlier package cannot be read; nothing was written" in step7
     compile_step = _create_skill("references/compile.md")
-    assert "step 3d component-extraction gates, step 5 manual-carry-forward)" in compile_step
+    # #1148: §7 renders every line of the sink, the carry-forward decision among them, and lists no gate
+    assert "one row per line of the sink, in file order" in compile_step
 
     report = _create_skill("references/report.md")
     warnings = report[report.index("### 3. Display Warnings"):report.index("### 4. ")]

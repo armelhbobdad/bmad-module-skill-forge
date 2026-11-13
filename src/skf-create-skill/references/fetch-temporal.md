@@ -93,11 +93,9 @@ else
 fi
 ```
 
-**Rollback rule:** if the `qmd collection add` step fails (non-zero exit, network error, parse error) after the prior `remove` succeeded, the `remove-qmd-collection` call above removes the registry entry, to match QMD's actual state. A dangling registry entry that points at a non-existent QMD collection poisons subsequent cache-hit checks in §2. Emit a warning in evidence-report and skip the embed and the registration below: enrichment degrades to no-QMD for this run.
+**Rollback rule:** when that `add` fails, the block above has removed the registry entry and embedded nothing: warn in the evidence report and register nothing below; enrichment runs without QMD this run.
 
-**Scope the embed:** Always pass `--collection {skill-name}-temporal` to `qmd embed`. An unscoped `qmd embed` re-embeds every collection in the QMD store, which can take minutes per run in batch mode and generates wasteful GPU/API cost. If the installed `qmd` CLI does not accept `--collection` (older upstream versions), gate the embed behind a per-skill check: before the block above, run `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}" --fresh-within-hours 24 --name "{skill-name}-temporal"`, and when its `fresh` is true skip the embed entirely and warn "qmd embed skipped: upstream qmd lacks --collection scope; re-embedding all collections would be wasteful in batch mode". Log the skip in the evidence report.
-
-**Note:** `qmd embed` generates vector embeddings required for semantic (`type:'vec'`) and HyDE (`type:'hyde'`) sub-queries inside the QMD `query` tool. Without embeddings, only BM25 (`type:'lex'`) keyword search works. Run `qmd embed` after every `qmd collection add`.
+**Scope the embed:** always pass `--collection {skill-name}-temporal` to `qmd embed`: an unscoped embed re-embeds every collection. If the installed `qmd` CLI does not accept `--collection`, before the block above run `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}" --fresh-within-hours 24 --name "{skill-name}-temporal"`, and when its `fresh` is true skip the embed and log the skip in the evidence report.
 
 **Register the collection** only when `qmd collection add` succeeded. The helper replaces the entry with `name: "{skill-name}-temporal"` or appends it, stamps its `created_at` from the clock, and its lock keeps concurrent batch runs from losing each other's entries:
 

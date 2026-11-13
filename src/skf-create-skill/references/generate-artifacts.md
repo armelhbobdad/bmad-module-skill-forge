@@ -110,7 +110,7 @@ Bind `{promotion}` ← its JSON: `files[]` (each promoted file's `path`, `kind`,
 
 ### 4. Create Active Symlink (atomic flip)
 
-Create or update the `active` symlink at `{skill_group}/active` pointing to `{version}` using the shared atomic-flip helper. The helper holds an `flock` on `{skill_group}/active.skf-lock`, refuses to replace a non-symlink at `{skill_group}/active` (protecting against accidental rm-rf of a real directory), and uses a rename-over-symlink pattern so the update is atomic from a concurrent reader's perspective:
+Create or update the `active` symlink at `{skill_group}/active` pointing to `{version}` with the shared atomic-flip helper:
 
 ```bash
 python3 {atomicWriteHelper} flip-link \
@@ -120,7 +120,7 @@ python3 {atomicWriteHelper} flip-link \
 
 The helper exits 2, with a `{"status": "error", "message": …}` line on stderr, when `{skill_group}/active` already exists as a real directory or file rather than a symlink, or when it cannot take the flip lock on `{skill_group}/active.skf-lock`. In that case **HARD HALT** (exit code 5, `active-link-blocked`, phase `generate-artifacts`), with `"skill_package"`, `"outputs"` and `{skill_group}/active` as `"path"`: "Refusing to flip `{skill_group}/active`: {the `message` of the helper's stderr line, else its stderr}. Investigate manually; expected a symlink pointing at a version directory, with no other flip running."
 
-Do not `rm` + `ln -s` the active link by hand. The bare-rm pattern has two failure modes: (1) a concurrent reader sees a missing `active` mid-flip, and (2) a bug or typo that replaces `{skill_group}/active` with a plain directory turns the next manual `rm -rf {skill_group}/active` into data loss. The helper encapsulates both guards.
+Never `rm` and `ln -s` the link by hand: the helper's lock and its refusal to replace a non-symlink are the only guard.
 
 ### 5. Verify Write Completion
 
@@ -169,7 +169,7 @@ else
 fi
 ```
 
-`qmd embed` generates the vector embeddings for semantic (`vec`) and HyDE query sub-types; scope it to this collection to avoid re-embedding others. If the installed qmd CLI lacks `--collection`, gate the embed behind a per-skill freshness check: before the block above, run `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}" --fresh-within-hours 24 --name {name}-extraction`, skip the embed when its `fresh` is true, and warn in evidence-report. An unscoped embed re-runs over every collection, which in a populated QMD store can cost minutes of GPU time per create-skill run; a day is long enough to absorb rapid re-forges from the same brief without losing meaningful content freshness.
+Scope the embed to this collection: an unscoped `qmd embed` re-embeds every collection. If the installed qmd CLI lacks `--collection`, before the block above run `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}" --fresh-within-hours 24 --name {name}-extraction`, skip the embed when its `fresh` is true, and warn in evidence-report.
 
 **Registry update:** only when `qmd collection add` succeeded, register the collection. The helper replaces the entry with the same `name`, or appends one, and stamps its `created_at` from the clock:
 
@@ -208,7 +208,7 @@ Otherwise, `ccc index` requires the directory to be initialized first:
 - `{ccc_settings_owner}` `skf`: resolve `{mergeCccExclusionsHelper}` from `{mergeCccExclusionsProbeOrder}` and, from `{project-root}`, run `uv run {mergeCccExclusionsHelper} --clone-root "{ccc_root}"`. It runs `ccc init -f` in the clone when its `settings.yml` is missing and adds the standard build and dependency exclusions the file lacks, as step 3 §2a does, so it changes nothing once step 3 prepared the clone. When no candidate resolves, the command fails or `settings_ready` is false, log it and skip the rest of this section, including the registry update.
 - `{ccc_settings_owner}` `user`: run `cd "{ccc_root}" && ccc init` (idempotent: a no-op once initialized).
 
-Then run `cd "{ccc_root}" && ccc index` in the foreground with the shell's longest timeout (in an interactive run, an index that can outlast that timeout may run in the background instead, the step waiting for it to exit before it goes on; a headless run keeps it in the foreground), or use the ccc MCP tool; a call the shell stops at that timeout is ccc indexing that failed, which **Error handling** at the end of this section covers. `ccc_bridge.ensure_index` is a conceptual interface, not a callable function. Indexing is a no-op if the source was already indexed during setup, step 2b or step 3.
+Then run `cd "{ccc_root}" && ccc index` in the foreground with the shell's longest timeout (in an interactive run, an index that can outlast that timeout may run in the background instead, the step waiting for it to exit before it goes on; a headless run keeps it in the foreground), or use the ccc MCP tool; a call the shell stops at that timeout is ccc indexing that failed, which **Error handling** at the end of this section covers. Indexing is a no-op if the source was already indexed during setup, step 2b or step 3.
 
 **Nested project marker:** when `{ccc_root}` is a local source inside a git checkout whose `.git` is a folder, or inside a folder that holds `.cocoindex_code/settings.yml` (a local source such as `./packages/lib`, or a linked worktree or submodule inside such a checkout, whose `.git` file ccc does not count as a marker), `ccc init` exits non-zero with `A parent directory has a project marker`. This is expected: re-run as `cd "{ccc_root}" && ccc init -f` to initialize at the subtree anyway, then `ccc index`. Do not treat the parent-marker warning as fatal. ccc writes no `.gitignore` entry for such a project; **Keep the index out of git** below covers it.
 
@@ -217,7 +217,7 @@ Then run `cd "{ccc_root}" && ccc index` in the foreground with the shell's longe
 **Keep the index out of git:** once the ccc commands above are done (after the check, after "index unverified", or after a ccc command failed), return to `{project-root}` and resolve `{cccGitHygieneHelper}` from `{cccGitHygieneProbeOrder}`; first existing path wins. If no candidate exists, or the helper exits non-zero or prints no JSON, log "ccc git hygiene skipped" and continue to the registry update: this check never fails the workflow.
 
 - **Workspace clone** (`{ccc_settings_owner}` is `skf`): run `uv run {cccGitHygieneHelper} workspace --repo "{ccc_root}"`. It undoes the edit a `ccc init` or `ccc index` made to the clone's tracked `.gitignore` and keeps the index folder out of git through the clone's `.git/info/exclude`, so a later move of the clone to another ref is not blocked. Read nothing from its output.
-- **Local source** (`{ccc_settings_owner}` is `user`): run `uv run {cccGitHygieneHelper} nested --dir "{ccc_root}" --project-root "{project-root}"`. ccc gitignores its index only at the top of a git checkout whose `.git` is a folder, so for a project in a subfolder of a checkout (the `ccc init -f` case above), a linked worktree or a submodule, `git status` lists the index database and a `git add -A` would commit it. When git does not ignore `{ccc_root}/.cocoindex_code/`, the helper writes a `.gitignore` holding `*` inside that folder so the folder ignores itself; SKF never edits a project's own `.gitignore`. It also repairs a nested index an earlier run left, and does nothing for `{project-root}` itself, for a folder without `.cocoindex_code/settings.yml`, or outside a git work tree. Bind `{ccc_ignore_notice}` ← `notice` and display `{ccc_ignore_notice}` verbatim when it is not null: its remedy command is quoted for paths with spaces.
+- **Local source** (`{ccc_settings_owner}` is `user`): run `uv run {cccGitHygieneHelper} nested --dir "{ccc_root}" --project-root "{project-root}"`. Bind `{ccc_ignore_notice}` ← `notice` and display `{ccc_ignore_notice}` verbatim when it is not null: its remedy command is quoted for paths with spaces.
 
 **Registry update:**
 

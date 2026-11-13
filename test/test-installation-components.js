@@ -296,10 +296,10 @@ async function runTests() {
     'create-skill': {
       steps: [
         'load-brief.md',
-        'sub/ccc-discover.md',
+        'ccc-discover.md',
         'extract.md',
-        'sub/fetch-temporal.md',
-        'sub/fetch-docs.md',
+        'fetch-temporal.md',
+        'fetch-docs.md',
         'component-extraction.md',
         'enrich.md',
         'compile.md',
@@ -320,6 +320,7 @@ async function runTests() {
         'assembly-component-library.md',
         'assembly-reference-app.md',
         'assembly-whole-language.md',
+        'invocation-contract.md',
       ],
     },
     'quick-skill': {

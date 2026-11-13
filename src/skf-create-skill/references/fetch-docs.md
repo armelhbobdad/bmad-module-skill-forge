@@ -1,5 +1,5 @@
 ---
-nextStepFile: '../enrich.md'
+nextStepFile: 'enrich.md'
 forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
 # If neither path exists, §5b skips the registry change with a warning.
 forgeTierRwProbeOrder:
@@ -58,7 +58,7 @@ No tier gate — if `doc_urls` are present, this step runs at Quick, Forge, and 
 uv run {deriveAssemblyShapeHelper} {brief_path}
 ```
 
-If the result's `assembly_shape` is `whole-language-reference` (the brief carries ≥1 `doc_urls` entry with `source: language-registry` — a compiler/interpreter repo enriched with the language's canonical prose), set the in-context flag `whole_language_reference: true`. This changes ONLY how the registry-sourced corpora are handled below (§4a): their prose is retained as a **Language Guide** rather than shredded into per-export items. For every other brief the flag is false and this step behaves exactly as before — no change to ordinary skills.
+If the result's `assembly_shape` is `whole-language-reference` (the brief carries at least one `doc_urls` entry with `source: language-registry`), set the in-context flag `whole_language_reference: true`. It changes only how §4a handles the registry-sourced corpora: their prose is kept as a **Language Guide** rather than shredded into per-export items.
 
 ### 2. Security Notice
 
@@ -110,26 +110,9 @@ It prints `discover_subpages`, true when the page is a documentation root with l
 
    It lists in `kept[]` the URLs on the root page's own site that may hold API content, each with the API words its path or title holds (`terms`), and in `sitemaps[]` the sitemaps a sitemap index names: filter each of them the same way (`uv run {detectDocsHelper} filter-urls --help` gives the rules). When it exits non-zero, leave that input out. Never fetch a URL the helper did not keep. From `kept[]`, choose the subpages most relevant to the skill's API: `terms` points at them.
 
-3. **Fetch top subpages (in parallel):** Fetch up to **10** of the most relevant subpages **concurrently** — subpage fetches are independent and network-bound, so wall-clock benefits substantially from parallel execution. Bound concurrency to **4 in flight** at a time to stay polite to documentation hosts (Mintlify/Docusaurus typically allow more, but conservatism here protects against unrecognized rate limits).
+3. **Fetch the top subpages:** fetch up to 10 of the most relevant, at most 4 at a time, with the same fetch tool as the root URL. Save each one whose fetch succeeded as `{docs_staging}/subpage-{n}-{k}.md` (`{k}` counts this root's subpages from 1); a failed fetch leaves no file (delete any file it wrote), and the stage goes on with the rest. Cite each one `[EXT:{subpage-url}]`.
 
-   The parallel pattern depends on the fetch tool:
-
-   - **LLM-driven tools** (Firecrawl `firecrawl_scrape`, `WebFetch`, MCP fetch, browser tools): issue up to 4 tool calls **in a single message**. The agent runtime executes parallel tool calls concurrently; collect results from the batch before issuing the next set of up to 4. Repeat until all up-to-10 subpages have been attempted or rate limiting halts the batch.
-   - **Bash-driven tools** (`curl`, `wget`): use `xargs -P 4` to fan out from a newline-separated subpage list, numbering the subpages as it goes. Example, for the `{n}`th `doc_urls` entry:
-
-     ```bash
-     printf '%s\n' "${subpages[@]}" | awk '{ print NR, $0 }' | xargs -P 4 -L 1 sh -c '
-       f="{docs_staging}/subpage-{n}-$0.md"
-       curl -fsSL --max-time 30 "$1" -o "$f" || { rm -f "$f"; echo "fetch failed: $1" >&2; }
-     '
-     ```
-
-   For each subpage (regardless of tool):
-   - Use the same web fetching tool as the root URL, and save the page in `{docs_staging}` as `subpage-{n}-{k}.md`, `{k}` counting this root's subpages from 1, only when its fetch succeeded: a failed fetch leaves no file, as in the snippet
-   - Store with the subpage URL as provenance: `[EXT:{subpage-url}]`
-   - If a subpage fetch fails, skip it and continue with the rest of the batch — do not halt the whole stage
-
-4. **Rate limiting:** If rate limiting (HTTP 429) is encountered during subpage fetching, stop discovery for this root URL. Keep results collected so far. Log: "Subpage discovery stopped due to rate limiting." For the parallel-tool-call pattern, drop any not-yet-issued tool calls from subsequent batches; for the `xargs` pattern, interrupt the pipeline (set `--max-procs 0` is **not** a graceful stop — the simplest stop is to kill the xargs PID and let in-flight writers complete naturally).
+4. **Rate limiting:** on an HTTP 429, start no further subpage fetch for this root URL, keep what was saved, and log "Subpage discovery stopped due to rate limiting."
 
 **If ALL URLs fail (including any subpage fetches):** Log warning: "No documentation could be fetched." `{docs_staging}` holds no page of this run: continue at §5's **Zero-content check**, which halts a `docs-only` brief and lets a source brief go on without T3 content.
 
@@ -182,9 +165,7 @@ SKF_T3
 
 **Conflict rule:** T3 items never override existing T1, T1-low, or T2 items for the same export. The helper applies it: an item whose `export_name` names an export the inventory already holds is left out and listed in `dropped`. When it exits non-zero, fix the JSON and run it once more.
 
-**Language-Guide carve-out:** the `language_guide[]` from §4a (whole-language references) is not part of the export inventory and is therefore not subject to this conflict rule: it carries no export key, so it cannot collide with a T1 compiler export and can never be pruned. Step 5 reads it through `{language_guide_json}` and renders it as the foregrounded Language Guide section. Only the per-export T3 items participate in the T1/T2/T3 merge.
-
-**Edge case: T1-zero supplemental mode.** If T1 extraction produced zero results and `doc_urls` are present in supplemental mode, compile uses the T3 items as the primary inventory, since no T1 data exists to conflict with.
+**No T1 export (supplemental mode):** the conflict rule then drops no T3 item.
 
 **Aggregate totals for reporting:**
 - URLs fetched successfully vs. total

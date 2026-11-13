@@ -64,7 +64,7 @@ EXTRACT = SRC / "skf-create-skill" / "references" / "extract.md"
 REMOTE_ACCESS = SRC / "skf-create-skill" / "references" / "remote-source-access.md"
 GENERATE = SRC / "skf-create-skill" / "references" / "generate-artifacts.md"
 CCC_CHECK = SRC / "skf-create-skill" / "references" / "ccc-index-check.md"
-CCC_DISCOVER = SRC / "skf-create-skill" / "references" / "sub" / "ccc-discover.md"
+CCC_DISCOVER = SRC / "skf-create-skill" / "references" / "ccc-discover.md"
 CCC_BRIDGE = SRC / "knowledge" / "ccc-bridge.md"
 SOURCE_RESOLUTION = SRC / "skf-create-skill" / "references" / "source-resolution-protocols.md"
 TIER_DEGRADATION = SRC / "skf-create-skill" / "references" / "tier-degradation-rules.md"
@@ -728,8 +728,7 @@ def test_generate_6b_keeps_index_out_of_git():
     assert repair.index("load `{cccIndexCheckData}`") < repair.index(marker)
     keep = repair[repair.index(marker):]
     for token in ('uv run {cccGitHygieneHelper} workspace --repo "{ccc_root}"', GENERATE_NESTED_CMD,
-                  NOTICE_BINDING, NOTICE_DISPLAY, "SKF never edits a project's own `.gitignore`",
-                  "never fails the workflow", 'after "index unverified"'):
+                  NOTICE_BINDING, NOTICE_DISPLAY, "never fails the workflow", 'after "index unverified"'):
         assert token in keep, token
     assert "continue with **Keep the index out of git**" in repair
     assert "continue to the registry update." not in repair

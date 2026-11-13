@@ -1094,7 +1094,7 @@ def test_gate_2_sees_an_empty_map_when_every_export_is_off_the_surface(tmp_path)
     six = six[six.index("### 6. Present Extraction Summary"):six.index("### 7. ")]
     assert "the §5 summary counts no export the provenance map will hold (its `exports` is 0, or equals its " \
            "`not_public`)" in six
-    zero = next(line for line in (REPO / "src" / "skf-create-skill" / "references" / "sub" / "fetch-docs.md")
+    zero = next(line for line in (REPO / "src" / "skf-create-skill" / "references" / "fetch-docs.md")
                 .read_text(encoding="utf-8").splitlines() if line.startswith('- **`source_type: "source"`, `counts.exports`'))
     assert "`counts.exports` is 0 (or equals `counts.not_public`)" in zero
 
@@ -1305,7 +1305,7 @@ def test_the_yaml_writer_round_trips_nested_values():
 
 
 def test_the_temporal_fetch_reads_top_exports_from_the_inventory(tmp_path):
-    """sub/fetch-temporal.md passes `--exports "{extraction_inventory}"`: the fetch helper
+    """fetch-temporal.md passes `--exports "{extraction_inventory}"`: the fetch helper
     reads the inventory's top_exports from it, and an empty list for a docs-only brief."""
     spec_t = importlib.util.spec_from_file_location("skf_fetch_temporal_inventory", FETCH_TEMPORAL)
     fetch = importlib.util.module_from_spec(spec_t)
@@ -1313,7 +1313,7 @@ def test_the_temporal_fetch_reads_top_exports_from_the_inventory(tmp_path):
     assert fetch.read_exports(str(_write(tmp_path))) == ["parse", "Client"]
     empty = _write(tmp_path, {"extraction_mode": "docs-only", "exports": [], "top_exports": []})
     assert fetch.read_exports(str(empty)) == []
-    prose = (REPO / "src" / "skf-create-skill" / "references" / "sub" / "fetch-temporal.md").read_text(encoding="utf-8")
+    prose = (REPO / "src" / "skf-create-skill" / "references" / "fetch-temporal.md").read_text(encoding="utf-8")
     assert ('uv run {fetchTemporalHelper} fetch --repo "{temporal_repo}" --feeder "{temporal_feeder}" '
             '--exports "{extraction_inventory}"') in prose
     assert "SKF_TOP_EXPORTS" not in prose and "as a JSON list" not in prose

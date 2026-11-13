@@ -21,7 +21,7 @@ description: >
   - Uppercase placeholders are also acceptable: `NAME`, `COMPONENT_ID`.
   - For code-ish fragments, use curly braces in place of angle brackets inside the backticks: `` `Meta{typeof X}` ``, `` `Array{T}` ``.
 
-  Authors should not rely on remembering this: step 5 §2a enforces it with a sanitization pass, run on the SKILL.md it has just written, that unconditionally replaces every `<` with `{` and every `>` with `}` in the frontmatter `description`, and step 6 §6 checks the staged description and applies that pass again if a later tool rewrote it after §2a ran. The rule holds only for the `description`: the body, code examples and reference files keep their angle brackets, since they are read as Markdown, where backticks do protect content.
+  Step 5 §2a enforces it on the SKILL.md it writes, and step 6 §6 checks it again. The rule holds only for the `description`: the body, code examples and reference files keep their angle brackets, since they are read as Markdown, where backticks do protect content.
 - Only `name` and `description` in frontmatter — `version` and `author` go in metadata.json
 - No other frontmatter fields for standard skills (only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` are permitted by spec)
 
@@ -114,7 +114,7 @@ Assemble Sections 9-11 (Full API Reference, Full Type Definitions, Full Integrat
 - **Usage examples** from source tests or documentation (Tier 1 has signature-only references)
 - **Edge cases and constraints** — parameter validation rules, size limits, behavioral notes
 
-Do not repeat Tier 1's name/purpose/key-params table format in Tier 2. Tier 2 is a deep reference, not a reformatted summary. This distinction prevents conciseness scorers from flagging the two-tier design as redundancy.
+Do not repeat Tier 1's name/purpose/key-params table format in Tier 2. Tier 2 is a deep reference, not a reformatted summary.
 
 ### Assembly Rules
 
@@ -128,7 +128,7 @@ Do not repeat Tier 1's name/purpose/key-params table format in Tier 2. Tier 2 is
 
 ### Content Quality Rules
 
-These SKF-specific rules apply to all content assembled in SKILL.md and reference files. Generic authoring craft — matching instruction freedom to task fragility, consistent terminology, avoiding time-sensitive instructions, progress checklists for multi-step workflows, and the plan-validate-execute pattern for batch/destructive operations — is assumed and not re-taught here. Only the two rules below encode a non-obvious SKF constraint or downstream-validator quirk that an author would not otherwise infer.
+These SKF-specific rules apply to all content assembled in SKILL.md and reference files.
 
 **Zero-hallucination examples:** Include input/output or usage examples ONLY when concrete pairs exist in source tests or official docs — 2-3 such pairs convey the desired style and detail more clearly than a description alone. If no examples exist in source, note the gap rather than fabricating pairs — zero hallucination applies.
 

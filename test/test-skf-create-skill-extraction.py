@@ -434,7 +434,7 @@ def test_ccc_ranking_orders_the_files_read_one_at_a_time() -> None:
     assert ("rank the files extraction reads one at a time: those the recipe runner leaves to source reading (its "
             "`file_issues`, its extraction gaps and the files of a language no recipe reads), or the filtered file "
             "list when extraction runs without the runner") in ranking
-    describers = [EXTRACT, PATTERNS, REFS / "sub" / "ccc-discover.md", REFS / "load-brief.md",
+    describers = [EXTRACT, PATTERNS, REFS / "ccc-discover.md", REFS / "load-brief.md",
                   KNOWLEDGE / "ccc-bridge.md", KNOWLEDGE / "progressive-capability.md"]
     for path in describers:
         text = _read(path)
@@ -442,7 +442,7 @@ def test_ccc_ranking_orders_the_files_read_one_at_a_time() -> None:
             assert claim not in text, (path.name, claim)
     assert "the recipe runner reads every file in scope, so its result does not depend on it" in _read(
         KNOWLEDGE / "ccc-bridge.md")
-    assert "step 3 reads the files it reads one at a time in their order" in _read(REFS / "sub" / "ccc-discover.md")
+    assert "step 3 reads the files it reads one at a time in their order" in _read(REFS / "ccc-discover.md")
 
 
 def test_tool_resolution_names_the_runner_where_a_step_gives_it() -> None:
@@ -508,8 +508,13 @@ def test_entry_point_check_reads_the_runner_diff() -> None:
     assert "**Python:** `__init__.py`, its imports." in by_hand
     assert ("1. **The files in scope and the entry points**, unless a runner JSON gives them (its `no-ast-grep` "
             "result too):") in by_hand
-    assert "so public_api_coverage drops (only effective_denominator, for the curated-subset shapes" in by_hand
-    assert "**Multi-entry packages (`exports` map / declaration-file entry points).**" in by_hand
+    # #1148: one paragraph for a remote source with no local tree; `--mode denominator` resolves a local tree's
+    # `exports` subpaths, and the inventory helper writes `metadata.json`'s `exports[]`
+    assert ("**A remote source with no local tree** (step 1 gives no `entry_points.files`): when the in-scope "
+            "`package.json` declares an `exports` map, read each subpath target") in by_hand
+    assert ("Step 3's diff lists a name defined outside `scope.include` in `outside_scope`: widen `scope.include` to "
+            "document it.") in by_hand
+    assert "Multi-entry packages" not in by_hand and "authoritative source for `metadata.json`" not in by_hand
     assert "- **Python:** Read" not in four_b and "**Multi-entry packages" not in four_b
     assert "outside the coverage denominator" not in four_b and "excluded from the coverage denominator" not in four_b
 
@@ -1378,7 +1383,7 @@ def test_a_failed_scope_or_count_call_runs_once_more_then_halts(tmp_path: Path) 
     facts = json.loads((tmp_path / "_bmad-output" / ".skf-stage" / "demo.scope.json").read_text(encoding="utf-8"))
     assert facts["files_in_scope_list"] == ["src/pkg/__init__.py", "src/pkg/core.py"]
     step = _slice(" ".join(_read(REFS / "entry-points-by-hand.md").split()), "4. **When a call fails:**",
-                  "**Multi-entry")
+                  "**A remote source with no local tree**")
     for token in ("on exit 2, show the stderr line that holds `error:` and run the call once more",
                   "with the brief's scope as `--include`, `--exclude`, `--tier-a-include`, `--scope-type` and "
                   "`--language` in place of `--brief` when it names the brief",

@@ -61,7 +61,7 @@ printed no result line. So:
   names) says a run that printed no envelope line has no result to read,
   whatever the process exit code;
 - each `--batch` contract (the two skills BATCH_CONTRACTS names: the
-  Headless row of SKILL.md and the "Reading a batch" paragraph of
+  Headless row of the file HEADLESS_CONTRACTS names and the "Reading a batch" paragraph of
   references/batch-mode.md, and the user docs' "Reading the result lines"
   paragraph) says a batch's result is its `batch_summary` event and the
   file its `summary_path` names, a batch that printed no such event has no
@@ -575,7 +575,7 @@ HEADLESS_CONTRACTS = {
     "skf-audit-skill": "SKILL.md",
     "skf-brief-skill": "references/invocation-contract.md",
     "skf-campaign": "references/campaign-contracts.md",
-    "skf-create-skill": "SKILL.md",
+    "skf-create-skill": "references/invocation-contract.md",
     "skf-create-stack-skill": "references/invocation-contract.md",
     "skf-drop-skill": "references/invocation-contract.md",
     "skf-export-skill": "references/invocation-contract.md",
@@ -779,7 +779,8 @@ def test_batch_contracts_say_a_batch_with_no_summary_has_no_result(skill):
     rule = (BATCH_NO_RESULT, "`batch_summary` event and the summary file its `summary_path` names",
             f"that copy {BATCH_ANOTHER}", after, halt, "A target it printed a `done` or `fail` event for ended as "
             "that event says", "a target with a `start` event and no end event has no result", *no_event)
-    [row] = [line for line in _read(SRC / skill / "SKILL.md").splitlines() if line.startswith("| **Headless** |")]
+    [row] = [line for line in _read(SRC / skill / HEADLESS_CONTRACTS[skill]).splitlines()
+             if line.startswith("| **Headless** |")]
     assert NO_RESULT in row, f"{skill}: the run's own rule stays in the Headless row"
     for token in (*rule, f"never {row_copy} in its place"):
         assert token in row, f"{skill} Headless row: {token}"
@@ -814,7 +815,8 @@ def test_batch_contracts_say_a_batch_with_no_summary_has_no_result(skill):
 @pytest.mark.parametrize("skill", sorted(BATCH_CONTRACTS))
 def test_batch_contracts_list_the_batch_summary_among_their_outputs(skill):
     """#889: each Outputs row names the batch summary a --batch run writes (Quick Skill's names no file)."""
-    [outputs] = [line for line in _read(SRC / skill / "SKILL.md").splitlines() if line.startswith("| **Outputs** |")]
+    [outputs] = [line for line in _read(SRC / skill / HEADLESS_CONTRACTS[skill]).splitlines()
+                 if line.startswith("| **Outputs** |")]
     assert "under `--batch` the batch summary" in outputs, skill
     if skill == "skf-create-skill":
         assert ("; and under `--batch` the batch summary (`create-skill-batch-{YYYYMMDD-HHmmss}.json` and its "

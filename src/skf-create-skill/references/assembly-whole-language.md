@@ -2,7 +2,7 @@
 
 A **whole-language reference** is a compiler/interpreter repo (rustc, CPython, the Go toolchain, TypeScript) enriched with the language's canonical prose (the guide/Book and the standard/library docs). It maps to `scope.type: full-library`, but its value to a skill consumer is the **language**, not the compiler's internal exports. The standard library-export layout of `assets/compile-assembly-rules.md` would foreground compiler-internal signatures and bury the prose; these overrides invert that.
 
-**GATE: apply ONLY when this is a whole-language reference.** The brief carries ≥1 `doc_urls` entry with `source: language-registry` (equivalently, `skf-derive-assembly-shape.py` returns `assembly_shape: "whole-language-reference"`). This is a structured, schema-validated signal, not a `scope.notes` substring, so an ordinary `full-library` library, a parser *library* (pest/lalrpop: its code IS the product, so §6b seeds no corpora), a component-library, a reference-app (including the language/spec-reference DSL sub-shape, which stays `scope.type: reference-app` and is handled by `references/assembly-reference-app.md`), and a docs-only brief all fail the gate. When the gate does not fire, **skip this entire file**: the standard Tier 1 (sections 1–8) and Tier 2 (9–11) layout and the signature-fidelity rule run unchanged, so non-whole-language skills assemble byte-identically.
+**GATE: apply ONLY when this is a whole-language reference.** The brief carries ≥1 `doc_urls` entry with `source: language-registry` (equivalently, `skf-derive-assembly-shape.py` returns `assembly_shape: "whole-language-reference"`). When the gate does not fire, **skip this entire file**: the standard Tier 1 (sections 1–8) and Tier 2 (9–11) layout and the signature-fidelity rule run unchanged, so non-whole-language skills assemble byte-identically.
 
 When the gate fires, the assembler has a `language_guide[]` artifact, which step 5 §1 builds from the registry pages step 3c §4a kept (the retained corpora prose, carved out of the T3-vs-T1 conflict rule). Apply these overrides:
 
@@ -18,4 +18,4 @@ When the gate fires, the assembler has a `language_guide[]` artifact, which step
 
 **Signature fidelity is preserved (not relaxed):** any compiler signature that appears (in Compiler Internals) follows rule 7 (Signature fidelity) of `assets/compile-assembly-rules.md`'s Assembly Rules.
 
-**metadata.json:** the skill stays `scope.type: full-library`; export-count stats are still emitted. (A whole-language skill's low public-API coverage versus the full compiler surface is expected; coverage-gate semantics for this shape are tracked separately and out of scope here.)
+**metadata.json:** the skill stays `scope.type: full-library`; export-count stats are still emitted.

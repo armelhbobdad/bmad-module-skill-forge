@@ -44,7 +44,7 @@ Run:
 uv run {shardBodyHelper} <staging-skill-dir>/SKILL.md --budget 400
 ```
 
-The script counts the body between the frontmatter close and EOF. Over 400 lines, it extracts the Tier 2 sections, the ones whose heading starts `## Full` (`## Full API Reference` goes to `references/full-api-reference.md`, `## Full Type Definitions` to `references/full-type-definitions.md`, `## Full Integration Patterns` to `references/full-integration-patterns.md`), largest first, until the body fits. It writes the extracted files and the trimmed SKILL.md through the atomic-write helper, puts a cross-reference blockquote (`> See [Full API Reference](references/full-api-reference.md)`) in each extracted section's place, and checks that every Tier 1 section inline before is still inline (`tier1_preserved`, with any pulled heading in `tier1_missing`) and that each cross-reference resolves (`xref_ok`). Read its JSON and set context directly:
+Read its JSON and set context directly:
 
 - **`action: "skip"`** → the body was already within budget. Log `"auto-shard: skipped (body {body_lines_before} lines)"`, set `auto_shard_triggered: false`, `sections_extracted: []`, `body_lines_before`/`body_lines_after` from the report, then skip to §1.
 - **`action: "shard"`** → set `auto_shard_triggered: true` and copy `sections_extracted`, `body_lines_before`, `body_lines_after` straight from the report.

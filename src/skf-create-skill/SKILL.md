@@ -7,14 +7,14 @@ description: Compile a skill from a brief. Supports --batch for multiple briefs.
 
 ## Overview
 
-Compiles a verified agent skill from a skill-brief.yaml and the source code or documentation it names, producing an agentskills.io-compliant SKILL.md with provenance map, evidence report, and progressive disclosure references. The workflow is mostly autonomous: it stops for the user in step 1 when no brief is named and several exist, in step 3 when several tags match the brief's version, for each authoritative AI documentation file the brief's scope leaves out (step 3 §2b), after source extraction (to confirm findings), at step 3c when a source brief extracted no export and none of its `doc_urls` could be fetched, and, for a component library, at step 3d's demo-exclusion and registry prompts. When the user has opted in to Tessl Review, step 6 also records Tessl's review of the skill as advice; it never stops the run. Steps adapt behavior based on forge tier (Quick/Forge/Forge+/Deep). Zero hallucination tolerance: every statement in the output carries a provenance citation, and content that cannot be cited is left out. A single run is not resumable: if it is interrupted mid-compile, re-run from the brief (only `--batch` checkpoints progress across briefs).
+Compiles a verified agent skill from a skill-brief.yaml and the source code or documentation it names: an agentskills.io-compliant SKILL.md with its provenance map, evidence report and `references/`. The run is mostly autonomous: the Gates row of `references/invocation-contract.md` lists every stop. Steps adapt to the forge tier (Quick, Forge, Forge+ or Deep). A single run is not resumable: an interrupted run starts again from the brief (only `--batch` checkpoints progress across briefs).
 
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile`, `healthCheckStepFile`, `componentExtractionStepFile` and `returnToStep` name a file relative to the stage file, and a file the text calls "beside this file" sits beside the file that says so.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
-- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs) and `references/sub/` the conditional sub-steps; a `nextStepFile` is relative to its own stage file (so a sub-step that returns to a main stage names it in the parent folder). `scripts/` and `assets/` hold deterministic helpers and templates.
+- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs). `scripts/` and `assets/` hold deterministic helpers and templates.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
@@ -42,10 +42,10 @@ These rules apply to every step in this workflow:
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
 | 1 | Load Brief | references/load-brief.md | Conditional |
-| 2b | CCC Discover | references/sub/ccc-discover.md | Yes |
+| 2b | CCC Discover | references/ccc-discover.md | Yes |
 | 3 | Extract | references/extract.md | No (confirm) |
-| 3b | Fetch Temporal | references/sub/fetch-temporal.md | Yes |
-| 3c | Fetch Docs | references/sub/fetch-docs.md | Conditional |
+| 3b | Fetch Temporal | references/fetch-temporal.md | Yes |
+| 3c | Fetch Docs | references/fetch-docs.md | Conditional |
 | 3d | Component Extraction | references/component-extraction.md | Conditional |
 | 4 | Enrich | references/enrich.md | Yes |
 | 5 | Compile | references/compile.md | Yes |
@@ -57,17 +57,11 @@ These rules apply to every step in this workflow:
 | 8 | Report | references/report.md | Yes |
 | 9 | Workflow Health Check | references/health-check.md | Yes |
 
-*Sub-steps under `references/sub/` are conditional branches (CCC discovery, temporal and doc enrichment), lettered by the place they take in the run and kept out of the main-line step count. Step 3d (Component Extraction) is a branch inside step 3 for a `component-library` brief: extract §2c loads it in place of §4 to §4c and resumes at its §5, before Gate 2.*
+*Step 3d (Component Extraction) is a branch inside step 3 for a `component-library` brief: extract §2c loads it in place of §4 to §4c and resumes at its §5, before Gate 2.*
 
 ## Invocation Contract
 
-| Aspect | Detail |
-|--------|--------|
-| **Inputs** | brief_path (a skill-brief.yaml path or a skill name) [optional: without it, step 1 offers the briefs in `{forge_data_folder}`, and a headless run halts unless there is one], --batch [optional: the briefs or folders of briefs after it, `{forge_data_folder}` when none is given, each validated before the first compiles] |
-| **Gates** | step 1: Brief Selection (no brief named and several in `{forge_data_folder}`; headless: HARD HALT `brief-missing`, exit 2; one brief: picked and recorded as gate `brief-selection`) | step 3: Tag Choice Gate (several tags match the brief's version; headless: the first in priority order) | step 3 §2b: Authoritative-File Gate [P]/[S]/[U] (an authoritative AI documentation file outside the brief's scope; headless: deferred-headless, one auto-decision per path) | step 3: Review Gate [C]/[R] (with the zero-export warning when a source brief without `doc_urls` extracted no export; [R] with it or the head-cap warning) | step 3c: Zero-Export Gate [C]/[R] (a source brief with no export whose every `doc_urls` fetch failed) | step 3d: Demo-Exclusion Gate [Y], then Registry Gate [Y] (candidate found) or [S] (none found), component-library scope only, each skipped once the brief holds `scope.demo_patterns` or `scope.registry_path`, which step 3d writes when a user confirms or gives the patterns or the registry path |
-| **Outputs** | SKILL.md, context-snippet.md, metadata.json, provenance-map.json, evidence-report.md, extraction-rules.yaml, references/; per brief, the result contract (`create-skill-result-{YYYYMMDD-HHmmss}.json` and its `-latest.json` copy in `{forge_version}`) and one `SKF_CREATE_SKILL_RESULT_JSON` line on stdout, on stderr at a HARD HALT; and under `--batch` the batch summary (`create-skill-batch-{YYYYMMDD-HHmmss}.json` and its `-latest.json` copy in `{skills_output_folder}/_batch/`) |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true; each auto-decision reaches the envelope's and the result contract's `headless_decisions`. A caller reads the run's own `SKF_CREATE_SKILL_RESULT_JSON` line. Outside `--batch` it is the run's last line: the shared health check displays it after everything else. A run that printed no envelope line has no result to read, whatever the process exit code: it was cut off, or could not write its result, and `create-skill-result-latest.json` may then describe an earlier run, so it is never read in its place. Under `--batch`, a caller reads the batch's `batch_summary` event and the summary file its `summary_path` names, never `create-skill-batch-latest.json` in its place: that copy holds the last batch summary written, which may be another batch's. A printed `batch_summary` event stays the batch's result even if a halt line follows it. A batch that printed no `batch_summary` event has no batch result, whatever the process exit code: a halt line of its own (phase `batch-mode`) says why it stopped, and with no halt line it was cut off or could not print its halt line. A target it printed a `done` or `fail` event for ended as that event says, and a brief the plan listed as not compiled ended failed with its message; a target with a `start` event and no end event has no result, and any other target with no event did not run in this session. |
-| **Exit codes** | 0 for a finished brief; at a HARD HALT 2 (the brief is missing, malformed or invalid), 3 (no forge config, source, helper or documentation), 4 (a write failed), 5 (a refused or broken package), 6 (the user chose to refine the scope). A `--batch` run exits with the highest code among its briefs, 0 when every brief finished |
+Headless callers and pipelines: the inputs, gates, outputs, exit codes and the `SKF_CREATE_SKILL_RESULT_JSON` and batch reading rules live in `references/invocation-contract.md`. Interactive runs do not need it.
 
 ## On Activation
 

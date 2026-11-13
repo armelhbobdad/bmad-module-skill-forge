@@ -959,8 +959,15 @@ class TestWorkflowWiring:
         assert _shell_fallback(path) in section and MISSING_HELPER in section
         assert "record `Tessl Review:" not in section, "every recorded line goes through {tessl_summary}"
         assert "HALT" not in section
-        # Names the tessl command next to the reviewed folder (the staging-validate-promote memory note keys on it).
-        assert "(`tessl review run`, which the helper below runs on a copy of `" in section
+        # #1148: create-skill's §6b keeps only when the review runs; the helper's docstring names the command.
+        if path == VALIDATE:
+            assert ("Tessl Review runs only when the user opted in by setting `tessl_review_workspace` in "
+                    "`{preferencesFile}`. The helper applies that setting and every other condition, so run it on "
+                    "every pass and let it decide.") in section
+            assert "two AI judges" not in section
+        else:
+            # Names the tessl command next to the reviewed folder (the staging-validate-promote memory note keys on it).
+            assert "(`tessl review run`, which the helper below runs on a copy of `" in section
         assert bound_from in section
         assert "from the `submit` JSON and again from each `collect` JSON" in section
         bound = dict(BINDING_RE.findall(section))
@@ -1104,7 +1111,9 @@ class TestWorkflowWiring:
         skill = _read(CS / "SKILL.md")
         rows = re.findall(r"^\| (\w+) \| [^|]+ \| (references/[\w/.-]+\.md) \| ([^|]+) \|$", skill, re.M)
         assert len(rows) >= 10
-        gates_row = next(line for line in skill.splitlines() if line.startswith("| **Gates** |"))
+        # #1148: the Gates row lives in the lifted Invocation Contract; the Stages table stays in SKILL.md
+        gates_row = next(line for line in _read(CS / "references" / "invocation-contract.md").splitlines()
+                         if line.startswith("| **Gates** |"))
         for number, rel, auto in rows:
             has_gate = bool(re.search(r"\*\*GATE \[default: [^\]]+\]\*\*", _read(CS / rel)))
             assert has_gate == (auto.strip() != "Yes"), f"Stages row {number} ({rel}) says {auto.strip()!r}"

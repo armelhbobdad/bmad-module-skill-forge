@@ -11,20 +11,13 @@ Tag resolution maps a declared version in the brief onto a concrete git ref, so 
 | The brief sets | What resolve reads |
 |---|---|
 | `target_ref` (it takes priority) | that ref as given: a tag (a tag wins over a branch of the same name), a branch, `HEAD` or a full commit |
-| `target_version` | the first of seven tag forms that exists (Explicit Tag Resolution) |
-| only `version` | the first of two tag forms that exists (Implicit Tag Resolution) |
+| `target_version` | the first of seven tag forms that exists, in the order `match_tags` of `{sourceTreeHelper}` tries them (Explicit Tag Resolution) |
+| only `version` | the first of two tag forms that exists, the version as given, then with a `v` prefix (Implicit Tag Resolution) |
 | none of them | `HEAD`, the default branch |
 
 `target_ref` is the escape hatch for ref conventions the tag forms do not cover, notably monorepo crate tags whose prefix differs from the skill name (skill `livekit-rust` built from tag `livekit/v0.7.42`). When the brief sets it and a version too, resolve gets both: a `target_ref` the remote does not have adds the warning "target_ref ({target_ref}) does not resolve in {source_repo}; falling back to version matching", and resolve matches the version instead.
 
 ### Explicit Tag Resolution (when target_version is set)
-
-resolve tries these forms of `{target_version}` against the remote's tags, in priority order (every form but the first drops a leading `v` of the version):
-
-- **Exact match:** `{target_version}` (e.g., `0.5.0`)
-- **With `v` prefix:** `v{target_version}` (e.g., `v0.5.0`)
-- **With package scope (monorepos):** `{brief.name}@{target_version}` or `@{scope}/{brief.name}@{target_version}`
-- **With crate/package-directory prefix (monorepos):** `{brief.name}/v{target_version}`, `{brief.name}/{target_version}`, or `{brief.name}-v{target_version}` (e.g. `tokio/v1.0.0`). These cover monorepos whose tags are prefixed by the crate or package directory **when that directory equals the skill name**. When it differs (crate `livekit` for skill `livekit-rust`, tag `livekit/v0.7.42`), no form can infer it: set `target_ref` instead.
 
 Outcomes, from `tag_resolution.status`:
 
@@ -32,18 +25,9 @@ Outcomes, from `tag_resolution.status`:
 - **`ambiguous`:** several tags matched, and nothing was read yet: see Several Matching Tags below.
 - **`fallback-head`:** no tag matched, and resolve read `HEAD`; the warning it printed names the nearest tags. ⚠️ Add: "**Extracted code may not match target version {target_version}.**"
 
-`source_ref` is written to metadata.json and provenance-map.json for downstream workflows (update-skill, audit-skill) to read the same ref again.
-
 ### Implicit Tag Resolution (when only brief.version is set)
 
-When `brief.target_version` is absent but `brief.version` is present, `brief.version` is an **implicit** target version. This matches `brief-skill`'s behavior, which fills `brief.version` from the source's manifest or version files or, when they hold none, its latest release tag, so a tag matching `brief.version` is the common case, and silently reading HEAD would produce a skill labeled with `brief.version` but built from an unrelated default-branch commit.
-
-With `--implicit`, resolve tries only two forms, in this order:
-
-- **Exact match:** `{brief.version}` (e.g., `0.3.37`)
-- **With `v` prefix:** `v{brief.version}` (e.g., `v0.3.37`)
-
-Package-scoped monorepo forms are **not** tried: they need deliberate user intent through `target_version`, since implicit matching against a monorepo tag like `{brief.name}@{version}` could silently select a sibling package's ref.
+When `brief.target_version` is absent but `brief.version` is present, `brief.version` is an **implicit** target version.
 
 Outcomes, from `tag_resolution.status`:
 
@@ -57,7 +41,7 @@ Outcomes, from `tag_resolution.status`:
 
 ### Several Matching Tags
 
-When resolve prints `ambiguous`, it read nothing, and `tag_resolution.candidates` lists the matching tags in the priority order above. This is the one choice tag resolution leaves to you:
+When resolve prints `ambiguous`, it read nothing, and `tag_resolution.candidates` lists the matching tags in the order resolve tries the tag forms. This is the one choice tag resolution leaves to you:
 
 - Ask: "Multiple tags match version {tag_resolution.requested}: {candidates}. Which one should I use?", adding "or should I fall back to HEAD?" for an implicit version, and "Setting `target_ref` in the brief skips this question next time." Wait for the selection.
 - **GATE [default: first candidate]**: under `{headless_mode}`, take the first candidate, log "headless: tag {tag} chosen from {candidates} for version {tag_resolution.requested}", and record the auto-decision per the Workflow Rules (step `extract`, gate `tag-choice`, decision `{tag}`): stage `{"step": "extract", "gate": "tag-choice", "decision": "{tag}", "rationale": "headless mode: first matching tag in priority order"}` as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.

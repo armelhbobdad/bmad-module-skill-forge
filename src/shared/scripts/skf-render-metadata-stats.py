@@ -12,7 +12,7 @@ staging JSON, by hand, every run:
   1. **compile.md §4 (Build metadata.json)** bins each provenance entry by its
      `signature_source` tier into `confidence_distribution.{t1,t1_low,t2,t3}`,
      counts documented exports, and computes the coverage ratios. This is the
-     step that documents the LLM's recurring miscount — binning ~8 T2
+     step where the LLM made its recurring miscount, binning ~8 T2
      annotations + ~80 T3 doc items *on top of* 59 exports and getting a
      distribution that sums to 147 ≠ 59.
 

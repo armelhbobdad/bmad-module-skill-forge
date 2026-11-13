@@ -62,11 +62,12 @@ EXTRACT = REFS / "extract.md"
 REMOTE_ACCESS = REFS / "remote-source-access.md"
 PROTOCOLS = REFS / "source-resolution-protocols.md"
 GENERATE = REFS / "generate-artifacts.md"
-FETCH_TEMPORAL = REFS / "sub" / "fetch-temporal.md"
-FETCH_DOCS = REFS / "sub" / "fetch-docs.md"
+FETCH_TEMPORAL = REFS / "fetch-temporal.md"
+FETCH_DOCS = REFS / "fetch-docs.md"
 AUTH_PROTOCOL = REFS / "authoritative-files-protocol.md"
 REPORT = REFS / "report.md"
 CS_SKILL = CS / "SKILL.md"
+CS_CONTRACT = REFS / "invocation-contract.md"
 SKILL_SECTIONS = CS / "assets" / "skill-sections.md"
 SCRIPTS = SRC / "shared" / "scripts"
 SOURCE_TREE = SCRIPTS / "skf-source-tree.py"
@@ -235,7 +236,7 @@ def test_unavailable_degrades_to_source_reading():
 def test_only_the_tag_choice_stays_in_prose():
     protocols = _read(PROTOCOLS)
     several = _slice(protocols, "### Several Matching Tags", "### Local Source Warning")
-    assert "`tag_resolution.candidates` lists the matching tags in the priority order above" in several
+    assert "`tag_resolution.candidates` lists the matching tags in the order resolve tries the tag forms" in several
     assert "This is the one choice tag resolution leaves to you" in several
     headless = _slice(several, "- **GATE [default: first candidate]**", "\n")
     for token in ("under `{headless_mode}`, take the first candidate",
@@ -246,7 +247,7 @@ def test_only_the_tag_choice_stays_in_prose():
     ambiguous = _slice(_dispatch(), "- **`ambiguous`**", "\n")
     assert ('run the command again with `--target-ref "{chosen tag}"` (`HEAD` for the default branch) in '
             "place of `--version`, `--name`, `--implicit` and any `--target-ref` from the brief") in ambiguous
-    gates = next(line for line in _read(CS_SKILL).splitlines() if line.startswith("| **Gates** |"))
+    gates = next(line for line in _read(CS_CONTRACT).splitlines() if line.startswith("| **Gates** |"))
     assert "step 3: Tag Choice Gate" in gates
     for by_hand in ("--paginate", "ls-remote", "semver sort", "refs/tags/", "Closest available tags"):
         assert by_hand not in protocols, by_hand
@@ -265,28 +266,24 @@ def test_a_head_fallback_adds_to_the_warning_resolve_printed():
     assert "(nearest tags: " in helper
 
 
-def test_protocol_lists_the_tag_forms_resolve_tries_in_its_order():
+def test_protocol_lists_no_tag_form():
+    """#1148: resolve's `match_tags` is the one home of the tag forms and their order (test-skf-source-tree.py's
+    TestMatchTags pins them), so the protocol names no form: it keeps the outcomes, their warnings and the
+    `target_ref` advice."""
+    protocols = _read(PROTOCOLS)
+    forms = [span for line in protocols.splitlines() for span in re.findall(r"`([^`]+)`", line)
+             if re.search(r"\{(target_version|brief\.version|brief\.name|version|scope)\}", span)]
+    assert forms == []
+    for heading in ("- **Exact match:**", "- **With `v` prefix:**", "With package scope", "With crate/package-directory"):
+        assert heading not in protocols, heading
+    explicit = _slice(protocols, "### Explicit Tag Resolution", "### Implicit Tag Resolution")
+    implicit = _slice(protocols, "### Implicit Tag Resolution", "### Several Matching Tags")
+    for section in (explicit, implicit):
+        assert "Outcomes, from `tag_resolution.status`:" in section
+        assert "- **`fallback-head`:**" in section
+    assert "`target_ref` is the escape hatch for ref conventions the tag forms do not cover" in protocols
     helper = _module(SOURCE_TREE, "skf_source_tree_create_forms")
-    explicit = _slice(_read(PROTOCOLS), "### Explicit Tag Resolution", "Outcomes, from")
-    implicit = _slice(_read(PROTOCOLS), "### Implicit Tag Resolution", "Package-scoped monorepo forms")
-
-    def listed(section: str) -> list[str]:
-        forms = []
-        for line in section.splitlines():
-            if line.startswith("- **"):
-                forms += re.findall(r"`([^`]*\{[^`]*)`", line.split("(e.g", 1)[0])
-        return forms
-
-    fill = {"{target_version}": "1.0.0", "{brief.version}": "1.0.0", "{brief.name}": "lib", "{scope}": "acme"}
-    documented = []
-    for form in listed(explicit):
-        for key, value in fill.items():
-            form = form.replace(key, value)
-        documented.append(form)
-    tags = {tag: "0" * 40 for tag in documented}
-    assert helper.match_tags(tags, "1.0.0", "lib") == documented
-    documented_implicit = [form.replace("{brief.version}", "1.0.0") for form in listed(implicit)]
-    assert helper.match_tags(tags, "1.0.0", "lib", implicit=True) == documented_implicit == ["1.0.0", "v1.0.0"]
+    assert helper.match_tags(["v1.0.0", "1.0.0"], "1.0.0", "lib", implicit=True) == ["1.0.0", "v1.0.0"]
 
 
 def test_no_create_skill_step_resolves_or_locks_by_hand():

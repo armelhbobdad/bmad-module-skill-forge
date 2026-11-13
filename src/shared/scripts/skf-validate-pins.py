@@ -9,7 +9,7 @@ forge-auto --pin) and campaign workflows.  Validates that a user-supplied --pin
 resolves to an existing tag or branch, or auto-resolves the latest release tag
 when no --pin is provided.
 
-Tag matching priority mirrors source-resolution-protocols.md:
+Tag matching priority mirrors match_tags in skf-source-tree.py:
 
   1. Exact match:   {pin}
   2. v-prefixed:    v{pin}
@@ -153,7 +153,7 @@ def check_branch_exists(repo_url: str, branch: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Tag matching (mirrors source-resolution-protocols.md)
+# Tag matching (mirrors match_tags in skf-source-tree.py)
 # ---------------------------------------------------------------------------
 
 def _derive_name_from_url(owner: str, repo: str) -> str:

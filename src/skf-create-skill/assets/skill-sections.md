@@ -4,7 +4,7 @@
 
 ### Frontmatter
 
-The authoritative frontmatter contract — permitted fields, the `name`/`description` rules, the trigger-phrase/voice requirements, and the no-angle-brackets rule — is owned by `assets/compile-assembly-rules.md` (## Frontmatter). This catalog does not restate it (both files load together at compile.md §1).
+The authoritative frontmatter contract (permitted fields, the `name` and `description` rules, the trigger-phrase and voice requirements, and the no-angle-brackets rule) is owned by `assets/compile-assembly-rules.md` (## Frontmatter).
 
 ### Two-Tier Section Structure
 
@@ -42,7 +42,7 @@ Assembly ordering, the under-300-line Tier-1 budget, and split-body targeting ar
 
 ### Component Library Section Overrides
 
-The `component-library` section formats (Component Catalog (§4), Key Props (§5), the Props Reference Tier 2 layout and the component-library `context-snippet.md` format) are owned by `references/assembly-component-library.md`, and the `reference-app` and whole-language override sets by `references/assembly-reference-app.md` and `references/assembly-whole-language.md`. compile.md §2 loads the one whose gate matches; this catalog does not restate them.
+The `component-library` section formats (Component Catalog (§4), Key Props (§5), the Props Reference Tier 2 layout and the component-library `context-snippet.md` format) are owned by `references/assembly-component-library.md`, and the `reference-app` and whole-language override sets by `references/assembly-reference-app.md` and `references/assembly-whole-language.md`. compile.md §2 loads the one whose gate matches.
 
 ### Provenance Citation Format
 
