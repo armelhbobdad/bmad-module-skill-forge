@@ -1,6 +1,6 @@
 # Ferris Sidecar: User Preferences
 # Created by the SKF installer (setup reads it, and never writes it)
-# Edit this file to customize Ferris behavior
+# Edit this file to set the preferences SKF workflows read
 
 # Override detected tier (set to Quick, Forge, Forge+, or Deep to force a tier)
 tier_override: ~
@@ -10,9 +10,6 @@ passive_context: true
 
 # Headless mode (set to true to skip confirmation gates in all workflows)
 headless_mode: false
-
-# Compact greeting (set to true to skip the full capabilities table on session start)
-compact_greeting: false
 
 # Tessl Review (off unless set). Set to the name of your Tessl workspace to have
 # create-skill and test-skill send each skill's SKILL.md, references/, scripts/

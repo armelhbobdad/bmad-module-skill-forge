@@ -55,8 +55,8 @@ Output: JSON to stdout with all resolved config variables and sidecar state.
 not there yet, and `sidecar.preferences_error` or
 `sidecar.forge_tier_error` appears only for a file that is there but did not
 load. `derived` holds what a greeting needs: `tier`, `tier_source`,
-`compact_greeting`, `headless_mode` (true only for `headless_mode: true` in
-preferences.yaml) and `is_first_run`.
+`headless_mode` (true only for `headless_mode: true` in preferences.yaml)
+and `is_first_run`.
 Exit 0 on success, exit 1 on a hard halt, whose `code` is CONFIG_MISSING
 (no config.yaml: SKF is not installed, so the error names the installer),
 CONFIG_MALFORMED (config.yaml is there but cannot be read or is not a YAML
@@ -414,10 +414,6 @@ def load_config_and_sidecar(project_root, config_path=None, allow_missing_sideca
     if tier:
         tier_value = tier.get("tier")
 
-    compact_greeting = False
-    if prefs:
-        compact_greeting = prefs.get("compact_greeting", False) is True
-
     headless_mode = False
     if prefs:
         headless_mode = prefs.get("headless_mode", False) is True
@@ -433,7 +429,6 @@ def load_config_and_sidecar(project_root, config_path=None, allow_missing_sideca
         "derived": {
             "tier": tier_override or tier_value,
             "tier_source": "override" if tier_override else ("detected" if tier_value else None),
-            "compact_greeting": compact_greeting,
             "headless_mode": headless_mode,
             "is_first_run": tier_value is None,
         },

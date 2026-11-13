@@ -364,15 +364,48 @@ def test_agents_doc_says_what_ws_ends_with():
 
 
 def test_agents_doc_describes_the_second_workflow_offer():
-    """A single code picked after another workflow ran first offers a fresh session or a pipeline."""
+    """A single code picked after another workflow ran first recommends a fresh session carrying the rest of the
+    chain, says what each option trades and comes once per session (#1171)."""
     dispatch = _slice(_read(FORGER_SKILL), "- **Any other single code**", "\n")
     for token in ("When another workflow already ran in this session", "the command to paste into a fresh session",
-                  "the remaining steps chained now as a pipeline", "in place only when the user asks for that"):
+                  "(for example `@Ferris TS[cocoindex] EX`): it starts from a clean context",
+                  "keeps its own questions and a chain takes its workflows' default answers",
+                  "When the rest of the chain holds more than this pick (CA, RS and DS always run alone)",
+                  "the rest of the chain run now as a pipeline", "keeps this session's context and takes the default "
+                  "answers", "only when the user asks for that", "Give this advice once per session"):
         assert token in dispatch, token
     menu = _paragraph(_read(AGENTS), "Ferris shows his menu as a numbered table")
-    for token in ("after another workflow already ran in the same session", "the command to paste into a new session",
-                  "the remaining steps chained as a pipeline", "runs it in place only if you ask"):
+    for token in ("the first time you pick one after another workflow already ran in the same session",
+                  "recommends the command to paste into a new session", "`@Ferris TS[cocoindex] EX`",
+                  "starts from a clean context, where one workflow pasted alone keeps its own questions and a chain "
+                  "takes its workflows' default answers", "When more steps follow your pick, he also offers the "
+                  "remaining steps chained now as a pipeline, which keeps this session's context and takes the "
+                  "default answers.", "He runs your pick in place, with its own questions, only if you ask.",
+                  "He gives this advice once per session."):
         assert token in menu, token
+
+
+def test_agents_doc_describes_a_goal_ki_and_no_short_greeting():
+    """#1171: a described goal gets a recommendation (a headless start stops naming it), KI explains the fragment
+    you name, the QS highlight says what QS enables, and no compact greeting is left to set."""
+    forger = _read(FORGER_SKILL)
+    agents = _read(AGENTS)
+    goal = _slice(forger, "- **A described goal**", "\n")
+    assert "**No workflow named.**" in goal
+    menu = _paragraph(agents, "Ferris shows his menu as a numbered table")
+    assert ("Describe what you want done instead, such as \"I want skills for my whole monorepo\", and Ferris "
+            "answers with the code, alias or chain the skill lifecycle recommends for it, then waits for your pick "
+            "(a headless start stops with \"No workflow named\" and names the recommendation).") in menu
+    assert "then offer in one line to explain any fragment by name" in _slice(forger, "- **KI**:", "\n")
+    [row] = [line for line in agents.splitlines() if line.startswith("| 16 | KI |")]
+    assert "and explain the one you name" in row
+    qs = "a skill from a GitHub URL or package name in under a minute, its public API read from the source"
+    assert f"**QS** (fastest trial: {qs})" in forger
+    assert f"**QS** (the fastest trial: {qs})" in _paragraph(agents, "On your first run")
+    memory = _slice(agents, "**Memory:**", "[Getting Started")
+    assert "set `headless_mode: true` to make headless the default." in memory
+    assert "short greeting" not in memory
+    assert "greet you briefly" not in _read(GETTING_STARTED)
 
 
 # --------------------------------------------------------------------------

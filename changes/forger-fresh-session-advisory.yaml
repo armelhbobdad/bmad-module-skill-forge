@@ -1,0 +1,5 @@
+type: changed
+scope: skf-forger
+summary: |
+  When you pick a workflow after another one already ran in the same session, Ferris now recommends a fresh session and gives this advice once per session, where he used to offer a fresh session and an in-place chain as equal options, naming neither one's trade, on every such pick. The command he gives you to paste carries the rest of the chain, such as `@Ferris TS[cocoindex] EX`, and he says what each option trades: a fresh session starts from a clean context, where one workflow pasted alone keeps its own questions and a chain takes its workflows' default answers, while the rest of the chain run now as a pipeline, offered when more steps follow your pick, keeps this session's context and takes the default answers. He runs your pick in place, with its own questions, only when you ask, and every later pick in that session runs in place without the advice.
+issues: [1171]
