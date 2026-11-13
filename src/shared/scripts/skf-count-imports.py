@@ -322,15 +322,19 @@ Exit codes:
      a bad dependency or unit entry, both inputs on stdin, bad --threshold,
      a --relative-to that is not a folder holding <root>, a summary input
      that is not a `count --units` envelope or a manifest scan, bad
-     --max-files; a scope input it cannot use: a counts input with no
-     `dependencies` list or a dependency without an integer `file_count`
-     and a boolean `above_threshold`, both or neither of the counts file
-     and --names, --names that is not an array of names, --overrides that
-     is not an object of include or exclude, one --prior-* flag without
-     the other, an empty --prior-version, two inputs on stdin)
-  2  usage error: argparse's (an unknown flag or subcommand, a --module
-     that is not DIST=IMPORT), and a --module whose DIST names no --deps
-     dependency or names dependencies of several ecosystems
+     --max-files; a units-from input it cannot use: a units file with no
+     `units` list, a --project-path with no unit in it, a units-from
+     --module that is not NAME=IMPORT or names no listed unit; a scope
+     input it cannot use: a counts input with no `dependencies` list or a
+     dependency without an integer `file_count` and a boolean
+     `above_threshold`, both or neither of the counts file and --names,
+     --names that is not an array of names, --overrides that is not an
+     object of include or exclude, one --prior-* flag without the other,
+     an empty --prior-version, two inputs on stdin)
+  2  usage error: argparse's (an unknown flag or subcommand, a count
+     --module that is not DIST=IMPORT), and a count --module whose DIST
+     names no --deps dependency or names dependencies of several
+     ecosystems
 """
 
 from __future__ import annotations

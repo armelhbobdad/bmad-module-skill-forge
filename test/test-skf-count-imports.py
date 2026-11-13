@@ -31,10 +31,10 @@ Covers:
   - units-from: one project path's --units input from skf-analyze-source's
     units file, deferred units left out, --module import names, and a
     project path or --module that names nothing refused (#1126)
-  - --module: a known import name moves an unresolved dependency into the
-    ranked dependencies[] (PEP 503 names, several import names in order), a
-    value that is not DIST=IMPORT or names no dependency exits 2, and a
-    count without it is the counter's own output
+  - count --module: a known import name moves an unresolved dependency
+    into the ranked dependencies[] (PEP 503 names, several import names in
+    order), a value that is not DIST=IMPORT or names no dependency exits 2,
+    and a count without it is the counter's own output
   - scope: the recommended scope, the libraries left out with their
     reasons (a published library's led by `in v<V>: `), the published
     libraries kept and the unknown overrides, from a saved count envelope
