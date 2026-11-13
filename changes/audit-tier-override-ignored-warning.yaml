@@ -1,0 +1,5 @@
+type: changed
+scope: skf-audit-skill
+summary: |
+  A `tier_override` that names none of Quick, Forge, Forge+ and Deep, given as Audit Skill's input or in `preferences.yaml`, is now ignored with a `warn:` line and a `tier_override_ignored` entry in the result envelope's `warnings`, which names the value and where it came from; the preferences override, else the detected tier, applies instead. A valid input override still wins over the preferences one. `skf-forge-tier-rw.py effective` takes the input's value as `--tier-override` and reports it in `invocation_override` and `invocation_override_rejected`.
+issues: [1132]

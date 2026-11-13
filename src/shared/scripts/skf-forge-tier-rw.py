@@ -25,12 +25,18 @@ Subcommands:
                 `tier_override` of preferences.yaml (--preferences)
                 applied. Prints `exists`, `tier` (the effective tier),
                 `detected_tier` (the file's own), `tier_source`
-                ("override" or "detected"), `tier_override` (the
-                preferences value, null when unset), `override_rejected`
-                (true for a value that is not one of Quick, Forge,
-                Forge+, Deep, case-sensitive, which is ignored), `tools`
-                (the file's `tools` mapping, {} when absent) and
-                `preferences_error`. No forge-tier.yaml: `exists` false,
+                ("invocation", "override" or "detected"), `tier_override`
+                (the preferences value, null when unset),
+                `override_rejected` (true for a value that is not one of
+                Quick, Forge, Forge+, Deep, case-sensitive, which is
+                ignored), `invocation_override` (the --tier-override
+                value, null when unset or empty),
+                `invocation_override_rejected` (the same check on it),
+                `tools` (the file's `tools` mapping, {} when absent) and
+                `preferences_error`. A valid --tier-override wins over a
+                valid preferences override (`tier_source` "invocation");
+                a rejected one is ignored and the preferences override,
+                else the file's tier, applies. No forge-tier.yaml: `exists` false,
                 the three tier keys null and `tools` {}. A forge-tier.yaml
                 that cannot be read or parsed, is not a mapping, holds no
                 `tier` or one that is not one of the four, holds a
@@ -45,8 +51,8 @@ Subcommands:
                 that is not there means no override; one that cannot be
                 read or is not a mapping sets `preferences_error` to why
                 and applies no override. Takes no lock: it writes
-                nothing. Used by skf-brief-skill step 1 §1 and
-                skf-test-skill init.md §4.
+                nothing. Used by skf-brief-skill step 1 §1,
+                skf-test-skill init.md §4 and skf-audit-skill init.md §2.
 
   write-tools   Write a fresh forge-tier.yaml from a JSON context payload
                 on stdin, or, with --detect-from, from the outputs a
@@ -160,7 +166,7 @@ system-wide:
 
   uv run skf-forge-tier-rw.py read --target /path/forge-tier.yaml
   uv run skf-forge-tier-rw.py effective --target /path/forge-tier.yaml \\
-      --preferences /path/preferences.yaml
+      --preferences /path/preferences.yaml [--tier-override Deep]
   echo '{...}' | uv run skf-forge-tier-rw.py write-tools --target /path/forge-tier.yaml
   uv run skf-forge-tier-rw.py write-tools --target /path/forge-tier.yaml \\
       --detect-from /run/detect-tools.json --ccc-from /run/ccc-exclusions.json
@@ -484,11 +490,13 @@ def _load_mapping(path: Path) -> tuple[dict | None, str | None, str]:
     return data, None, text
 
 
-def effective_tier(target: Path, preferences: Path) -> dict:
+def effective_tier(target: Path, preferences: Path, invocation_override: str | None = None) -> dict:
     """The `effective` payload, or exit 2 for a forge-tier.yaml it cannot use.
 
     A preferences.yaml that cannot be read or is not a mapping never exits:
-    it sets `preferences_error` and applies no override.
+    it sets `preferences_error` and applies no override. `invocation_override`
+    is the run's own --tier-override: "" or None is unset, one of the four
+    tiers wins over the preferences override, any other value is rejected.
     """
     tier_override, preferences_error = None, None
     try:
@@ -498,6 +506,9 @@ def effective_tier(target: Path, preferences: Path) -> dict:
     if prefs is not None:
         tier_override = prefs.get("tier_override")
     override_rejected = tier_override is not None and tier_override not in VALID_TIERS
+    if invocation_override == "":
+        invocation_override = None
+    invocation_rejected = invocation_override is not None and invocation_override not in VALID_TIERS
     payload = {
         "exists": True,
         "tier": None,
@@ -505,6 +516,8 @@ def effective_tier(target: Path, preferences: Path) -> dict:
         "tier_source": None,
         "override_rejected": override_rejected,
         "tier_override": tier_override,
+        "invocation_override": invocation_override,
+        "invocation_override_rejected": invocation_rejected,
         "tools": {},
         "preferences_error": preferences_error,
     }
@@ -531,18 +544,23 @@ def effective_tier(target: Path, preferences: Path) -> dict:
     if not isinstance(tools, dict):
         _die(2, f"effective: {target} has a `tools` that is not a mapping "
                 f"(got {type(tools).__name__})")
-    overridden = tier_override is not None and not override_rejected
+    if invocation_override is not None and not invocation_rejected:
+        tier, source = invocation_override, "invocation"
+    elif tier_override is not None and not override_rejected:
+        tier, source = tier_override, "override"
+    else:
+        tier, source = detected, "detected"
     payload.update({
-        "tier": tier_override if overridden else detected,
+        "tier": tier,
         "detected_tier": detected,
-        "tier_source": "override" if overridden else "detected",
+        "tier_source": source,
         "tools": tools,
     })
     return payload
 
 
-def cmd_effective(target: Path, preferences: Path) -> None:
-    _ok(effective_tier(target, preferences))
+def cmd_effective(target: Path, preferences: Path, invocation_override: str | None = None) -> None:
+    _ok(effective_tier(target, preferences, invocation_override))
 
 
 def _staged_object(path: Path):
@@ -864,6 +882,10 @@ def main() -> None:
     p_effective.add_argument("--target", type=Path, required=True, help="the forge-tier.yaml to read")
     p_effective.add_argument("--preferences", type=Path, required=True,
                              help="the preferences.yaml whose tier_override applies")
+    p_effective.add_argument("--tier-override", default=None,
+                             help="the run's own tier override: one of Quick, Forge, Forge+, Deep wins "
+                                  "over the preferences override, any other value is rejected, an "
+                                  "empty value is unset")
 
     def add_lock_timeout(p: argparse.ArgumentParser) -> None:
         p.add_argument("--lock-timeout", type=float, default=REGISTRY_LOCK_WAIT_SEC,
@@ -923,7 +945,7 @@ def main() -> None:
     if args.cmd == "read":
         cmd_read(args.target)
     elif args.cmd == "effective":
-        cmd_effective(args.target, args.preferences)
+        cmd_effective(args.target, args.preferences, args.tier_override)
     elif args.cmd == "write-tools":
         cmd_write_tools(args.target, lock_timeout, args.detect_from, args.ccc_from)
     elif args.cmd == "clean-stale":

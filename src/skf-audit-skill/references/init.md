@@ -14,6 +14,11 @@ templateFile: '{driftReportTemplatePath}'
 loadProvenanceProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-load-provenance.py'
   - '{project-root}/src/shared/scripts/skf-load-provenance.py'
+# Resolve `{forgeTierRwHelper}` to the first existing path: §2 runs its
+# `effective` command for the run's tier and tool flags.
+forgeTierRwProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
+  - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 # Resolve `{skillInventoryHelper}` to the first existing path. §1 runs its
 # `resolve` command to choose the audited version and bind its paths, and
 # runs it with `--skill` before a flat skill moves: only a flat skill whose
@@ -79,7 +84,9 @@ uv run {skillInventoryHelper} resolve "{skills_output_folder}" --skill {skill_na
 Log each entry of `resolve.errors` (a broken `active` link, for example), and `resolve.manifest_error` when it is set (an export manifest that cannot be read), as an Info note, then act on `reason`:
 
 1. `manifest-and-link`, `manifest` or `link`: the export manifest or the `active` link names the version, and its package is on disk. Bind it (below).
-2. `manifest-lags-link`: the `active` link names a version the export manifest has not caught up with (a writing workflow, typically update-skill, flipped the link after the last export), and the helper chose the link's version. Present the manifest-vs-symlink gate, filled from the `resolve` object:
+2. `manifest-lags-link`: the `active` link names a version the export manifest has not caught up with (a writing workflow, typically update-skill, flipped the link after the last export), and the helper chose the link's version, as the Manifest-lag guard prescribes. Bind it (below) and print one Info note, filled from the `resolve` object: "Auditing `{symlink_target}`, the version the `active` link names; the export manifest still names `{active_version}`. Run `[EX] Export Skill` to reconcile the manifest, or set `skill_path` to `{skill_group}/{active_version}/{skill_name}` to audit `{active_version}` instead." No gate decides anything here, so nothing is recorded.
+
+   Only when `paths.provenance_map.path` is null and `candidates.manifest.provenance_map` is set (the link's version has no provenance map and the manifest's has one), present the manifest-vs-symlink gate instead of the note, filled from the same object:
 
    "**The export manifest lags behind the `active` link.**
 
@@ -88,13 +95,13 @@ Log each entry of `resolve.errors` (a broken `active` link, for example), and `r
    | Version | `{active_version}` | `{symlink_target}` |
    | Exported / forged | `{manifest_last_exported}` | `{candidates.symlink.generated_at}` |
 
-   Auditing the manifest's version would re-audit a version the skill no longer resolves to. Options:
+   `{symlink_target}` has no provenance map, so **[N]** stops at §4 with no baseline to audit against; **[M]** audits `{active_version}` against its map. Options:
 
-   - **[N] Audit the link's version ({symlink_target})**: recommended. The drift report describes the version the skill resolves to now.
-   - **[M] Audit the manifest's version ({active_version})**: only useful when investigating the older version specifically.
-   - **[X] Abort**: halt without producing a report (exit 6, `halt_reason: "user-cancelled"`, phase `init:manifest-gate`). Run `[EX] Export Skill` to reconcile the manifest before re-running audit-skill."
+   - **[N] Audit the link's version ({symlink_target})**: the version the skill resolves to now, which this run cannot audit.
+   - **[M] Audit the manifest's version ({active_version})**: the older version, against the provenance map it records.
+   - **[X] Abort**: halt without producing a report (exit 6, `halt_reason: "user-cancelled"`, phase `init:manifest-gate`). To audit `{active_version}`, set `skill_path` to `{skill_group}/{active_version}/{skill_name}` and re-run."
 
-   When `paths.provenance_map.path` is null but `candidates.manifest.provenance_map` is set (the link's version has no provenance map and the manifest's has one), the gate adds: "`{symlink_target}` has no provenance map, so **[N]** stops at §4 with no baseline to audit against; **[M]** audits `{active_version}` against its map." The headless log adds: `"{symlink_target} has no provenance map, so this run stops at step 1 (no-baseline): set skill_path to the {active_version} package to audit that version against its map."`
+   The headless log adds: `"{symlink_target} has no provenance map, so this run stops at step 1 (no-baseline): set skill_path to the {active_version} package to audit that version against its map."`
 
    **[N]**, the default, binds the helper's values. **[M]** runs the command above again with `--version {active_version}` and binds that run's values (its `reason` is `requested`). **GATE [default: N]**: headless mode auto-selects **[N]**, logs `"headless: the manifest names {active_version} but the active link names {symlink_target}; auditing the link's version. Run export-skill to reconcile."` and records the decision in the run sink: stage `{run_dir}/decision.json` as `{"gate": "init.manifest-lags-link", "default_action": "N", "taken_action": "N", "reason": "<the log line>", "evidence": {"manifest_version": "{active_version}", "link_version": "{symlink_target}"}}` and run `uv run {emitEnvelopeHelper} record --workflow skf-audit-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
 3. `flat-layout`: fall back to the flat path `{skills_output_folder}/{skill_name}/` (`SKILL.md` sits at the skill folder root, with no version folder yet). Check that SKF generated it before anything moves:
@@ -132,17 +139,23 @@ If no helper candidate resolves, SKF can neither choose the version nor check a 
 
 ### 2. Load Forge Tier
 
-Load `{sidecar_path}/forge-tier.yaml` to detect available tools.
+Resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}`; first existing path wins (On Activation checked that one exists). From `{project-root}`, run it once, with an unset `tier_override` input passed as an empty string:
 
-**If file missing:**
+```bash
+uv run {forgeTierRwHelper} effective --target "{sidecar_path}/forge-tier.yaml" --preferences "{sidecar_path}/preferences.yaml" --tier-override="{tier_override}"
+```
+
+**Apply tier override:** the helper reads `{sidecar_path}/forge-tier.yaml` and applies the override chain: the invocation's `tier_override` input wins, then `tier_override` in `{sidecar_path}/preferences.yaml`, then the detected tier, each only when it is one of Quick, Forge, Forge+ or Deep. Act on its result:
+
+**If found** (exit 0 with `exists` true): bind `{current_tier}` ← `tier` and the tool flags from `tools` (gh_bridge, ast_bridge, qmd_bridge: `knowledge/tool-resolution.md` gives each tool's resolution per IDE), and log the tier with its `tier_source` (`invocation`, `override` or `detected`). For each rejected value, `invocation_override_rejected` for the input (`{value}` its `invocation_override`, `{where}` `input`) and `override_rejected` for preferences.yaml (`{value}` its `tier_override`, `{where}` `preferences.yaml`), display `warn: tier_override {value} ({where}) is not one of Quick, Forge, Forge+, Deep and was ignored` and record it for the envelope: write `tier_override_ignored: {value} ({where})` to `{run_dir}/warning.txt` with a file write (the value can hold quotes), then, from `{project-root}`, run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/warning.txt")"`.
+
+**If file missing** (exit 0 with `exists` false):
 - "Setup-forge has not been run. Cannot determine tool availability. Run `[SF] Setup Forge` first."
 - HALT with **exit 3**, `halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecar_path}/forge-tier.yaml"`. When `{headless_mode}`, log: `"headless: forge-tier.yaml missing at {sidecar_path}; run setup-forge. Aborting."`
 
-**If found:**
-- Extract tier level: Quick / Forge / Forge+ / Deep
-- Extract available tools: gh_bridge, ast_bridge, qmd_bridge — see `knowledge/tool-resolution.md` for concrete tool resolution per IDE
+**If it cannot be read** (exit 2: it does not parse, is cut short, or names no valid tier): HALT with **exit 3**, `halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecar_path}/forge-tier.yaml"`: "`{sidecar_path}/forge-tier.yaml` cannot be read: {its `message`}. Run `[SF] Setup Forge` to write it again."
 
-**Apply tier override:** the invocation's `tier_override` input wins, then `tier_override` in `{sidecar_path}/preferences.yaml`, then the detected tier: use the first that is a valid tier value (Quick, Forge, Forge+ or Deep), log which one set the tier, and bind it as `{current_tier}`.
+**Any other exit, or no JSON:** HALT with **exit 3**, `halt_reason: "helper-missing"`, phase `init:forge-tier`, showing its first stderr line.
 
 ### 3. Load Skill Artifacts
 
@@ -153,21 +166,30 @@ Load the following from the skill directory:
 - `metadata.json` — Skill metadata (version, created date, export count)
 
 **Extract from metadata.json:**
-- `name`, `version` and `generation_date`, and `{original_tier}`, the tier the skill was compiled at: `forge_tier` when it holds Quick, Forge, Forge+ or Deep (a stack records it there), else `confidence_tier` when it does (a single skill records it there), else null
+- `name`, `version` and `generation_date`
 - `source_root` — Resolved source code path used during extraction
 - `source_repo`: the repository the skill was built from, which the [C] of `upstream-checkout.md` reads a newer ref of (`{source_repo}`, an empty string when the field is null or missing)
-- `scope_type`: bind `{scope_type}` ← the `scope_type` metadata.json records, else the `scope.type` of `{forge_data_folder}/{skill_name}/skill-brief.yaml` when that file exists and names one (a skill whose metadata.json records no scope type is audited under its brief's), else null. When it is `public-api`, step 2 passes `--scope-type public-api` to the recipe runner and the snapshot build (`re-index.md` §3), so step 3 does not report as added an export off the public surface that create-skill and update-skill keep the skill's map to. The docs-only rule below reads the `scope_type` and `source_type` metadata.json itself records, never this brief fallback
 
-**A docs-only skill** (its `scope_type`, or the `source_type` an older `metadata.json` records, is `docs-only`) has no source tree: create-skill recorded each document it was built from in `doc_sources`, with its content hash, and step 5a compares them. Set `{docs_only_skill}` to true. When `doc_sources` is missing or empty, or no entry of it has a `content_hash` (create-skill records null for a document it could not fetch), nothing records the documents' state: HALT with **exit 3**, `halt_reason: "no-baseline"`, phase `init:baseline`: "**`{skill_name}` records no documentation hashes, so there is no baseline to audit it against.** Re-create it with `[CS] Create Skill`, which records them." Otherwise skip §4, Stack Skill Detection and §5, take §5b's docs-only skip, and continue at §6. Every other skill sets `{docs_only_skill}` to false and continues at §4.
+**Baseline facts.** Resolve `{loadProvenanceHelper}` from `{loadProvenanceProbeOrder}`; first existing path wins (On Activation checked that one exists). From `{project-root}`, run it once, with a null `{provenanceMap}` passed as an empty string (on §1's `SKILL_NOT_FOUND` full-path branch, `{resolved_skill_package}` is the path as given):
+
+```bash
+uv run {loadProvenanceHelper} baseline --metadata "{resolved_skill_package}/metadata.json" --brief "{forge_data_folder}/{skill_name}/skill-brief.yaml" --provenance-map "{provenanceMap}" --current-tier "{current_tier}"
+```
+
+If it exits non-zero, HALT with **exit 3**, `halt_reason: "provenance-invalid"`, phase `init:baseline`, showing its stderr, with `"path"` the file it names (`{resolved_skill_package}/metadata.json` or `{provenanceMap}`): metadata.json or the provenance map cannot be read. Otherwise bind from its JSON:
+- `{original_tier}` ← `original_tier`: the tier the skill was compiled at, null when metadata.json records none
+- `{scope_type}` ← `scope_type`: the `scope_type` metadata.json records, else the `scope.type` of `{forge_data_folder}/{skill_name}/skill-brief.yaml` when that file exists and names one (a skill whose metadata.json records no scope type is audited under its brief's), else null. When it is `public-api`, step 2 passes `--scope-type public-api` to the recipe runner and the snapshot build (`re-index.md` §3), so step 3 does not report as added an export off the public surface that create-skill and update-skill keep the skill's map to. When `brief_error` is set (a brief that is there but cannot be read), show it as an Info note
+- `{docs_only_skill}` ← `docs_only_skill`: true when the `scope_type` metadata.json records, or the `source_type` an older one records, is `docs-only`, never from the brief
+- `{tier_dropped}` ← `tier_dropped` and `{baseline_old}` ← `baseline_old`: §7's two doubts
+
+Then route on `no_baseline`. **`no-doc-hashes`**: a docs-only skill has no source tree, so create-skill recorded each document it was built from in `doc_sources`, with its content hash, for step 5a to compare; here no entry of it has a `content_hash` (create-skill records null for a document it could not fetch), so nothing records the documents' state: HALT with **exit 3**, `halt_reason: "no-baseline"`, phase `init:baseline`: "**`{skill_name}` records no documentation hashes, so there is no baseline to audit it against.** Re-create it with `[CS] Create Skill`, which records them." **A docs-only skill** (`{docs_only_skill}` true) otherwise skips §4, Stack Skill Detection and §5, takes §5b's docs-only skip, and continues at §6. Every other skill continues at §4.
 
 ### 4. Load Provenance Map
 
 Load the provenance map at `{provenanceMap}`, the path §1 bound: the audited version's map, or the flat copy an older skill may still keep.
 
-**Resolve `{loadProvenanceHelper}`** from `{loadProvenanceProbeOrder}`; first existing path wins (On Activation checked that one exists).
-
 **If `{provenanceMap}` is set:**
-- Normalize the map's deterministic projections in one subprocess call:
+- Normalize the map's deterministic projections in one subprocess call, with the `{loadProvenanceHelper}` §3 resolved:
 
   ```bash
   uv run {loadProvenanceHelper} normalize {provenanceMap}
@@ -259,8 +281,8 @@ Show `n/a` for a value the run does not have (a docs-only skill reads no provena
 
 Display the summary and the plan. When neither doubt below holds, go straight on: load, read the entire file, and execute `{nextStepFile}`, or `{composeStepFile}` when `{compose_mode_stack}` is true, or `{docsOnlyStepFile}` when `{docs_only_skill}` is true (§6 already wrote the baseline and `stepsCompleted`). Either of these doubts stops the run here:
 
-- **The tier dropped:** the run takes steps 2 to 4 (neither a compose-mode stack nor a docs-only skill), and `{current_tier}` (§2) comes before `{original_tier}` (§3) in the order Quick, Forge, Forge+, Deep. A null `{original_tier}` never counts as a drop.
-- **The baseline is old:** `{provenance_age_days}` (§4) is above 90.
+- **The tier dropped:** `{tier_dropped}` (§3) is true: the run takes steps 2 to 4 (neither a compose-mode stack nor a docs-only skill), and `{current_tier}` (§2) comes before `{original_tier}` in the order Quick, Forge, Forge+, Deep.
+- **The baseline is old:** `{baseline_old}` (§3) is true: the provenance map is more than 90 days old.
 
 On a doubt, ask, keeping the line of each that holds:
 

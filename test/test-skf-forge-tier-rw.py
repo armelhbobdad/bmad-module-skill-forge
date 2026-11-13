@@ -20,7 +20,9 @@ applies a `tier_override` only when it names one of the four tiers, reports
 a missing forge-tier.yaml as `exists` false, and exits 2 with nothing on
 stdout for a file it cannot use, a truncated one included, while a
 preferences.yaml it cannot use is named in `preferences_error`. It takes no
-lock and writes nothing.
+lock and writes nothing. Its `--tier-override` (#1132) is the run's own
+override: a valid one wins over preferences.yaml, a rejected one is named in
+`invocation_override_rejected` and ignored, and an empty one is unset.
 """
 
 from __future__ import annotations
@@ -430,10 +432,10 @@ SIDECAR_TOOLS = {"ast_grep": True, "gh_cli": False, "qmd": True, "ccc": False,
                  "ccc_daemon": None, "security_scan": False}
 
 
-def _effective(target: Path, preferences: Path) -> subprocess.CompletedProcess:
+def _effective(target: Path, preferences: Path, *extra: str) -> subprocess.CompletedProcess:
     return subprocess.run(
         [sys.executable, str(SCRIPT_PATH), "effective", "--target", str(target),
-         "--preferences", str(preferences)],
+         "--preferences", str(preferences), *extra],
         capture_output=True, text=True, encoding="utf-8", timeout=10,
     )
 
@@ -455,19 +457,20 @@ def _sidecar(tmp_path: Path, forge_tier: str | bytes | None = None,
 FORGE = yaml.safe_dump({"tools": SIDECAR_TOOLS, "tier": "Forge"}, sort_keys=False)
 
 
-def _ok_effective(target: Path, prefs: Path) -> dict:
-    result = _effective(target, prefs)
+def _ok_effective(target: Path, prefs: Path, *extra: str) -> dict:
+    result = _effective(target, prefs, *extra)
     assert result.returncode == 0, result.stderr
     payload = json.loads(result.stdout)
     assert list(payload) == ["exists", "tier", "detected_tier", "tier_source", "override_rejected",
-                             "tier_override", "tools", "preferences_error", "status", "version"]
+                             "tier_override", "invocation_override", "invocation_override_rejected",
+                             "tools", "preferences_error", "status", "version"]
     assert payload["status"] == "ok" and payload["version"] == "v1"
     return payload
 
 
 DETECTED = {"exists": True, "tier": "Forge", "detected_tier": "Forge", "tier_source": "detected",
-            "override_rejected": False, "tier_override": None, "tools": SIDECAR_TOOLS,
-            "preferences_error": None}
+            "override_rejected": False, "tier_override": None, "invocation_override": None,
+            "invocation_override_rejected": False, "tools": SIDECAR_TOOLS, "preferences_error": None}
 
 
 def _fields(payload: dict) -> dict:
@@ -528,6 +531,59 @@ def test_effective_reports_a_missing_forge_tier_file(tmp_path):
     assert payload["exists"] is False
     assert payload["tier"] is None and payload["detected_tier"] is None and payload["tier_source"] is None
     assert payload["tools"] == {}
+
+
+# --tier-override (#1132): the run's own override, which Audit Skill passes from its input.
+
+
+@pytest.mark.parametrize("preferences, prefs_value", [(None, None), ("tier_override: Forge+\n", "Forge+"),
+                                                      ("tier_override: deep\n", "deep")],
+                         ids=["no-prefs", "valid-prefs", "rejected-prefs"])
+def test_effective_a_valid_invocation_override_wins(tmp_path, preferences, prefs_value):
+    target, prefs = _sidecar(tmp_path, FORGE, preferences)
+    assert _fields(_ok_effective(target, prefs, "--tier-override", "Deep")) == {
+        **DETECTED, "tier": "Deep", "tier_source": "invocation", "tier_override": prefs_value,
+        "override_rejected": prefs_value == "deep", "invocation_override": "Deep"}
+
+
+@pytest.mark.parametrize("value", ["deep", "Ultra", "FORGE+", " Deep"])
+def test_effective_a_rejected_invocation_override_falls_through_to_preferences(tmp_path, value):
+    target, prefs = _sidecar(tmp_path, FORGE, "tier_override: Forge+\n")
+    assert _fields(_ok_effective(target, prefs, "--tier-override", value)) == {
+        **DETECTED, "tier": "Forge+", "tier_source": "override", "tier_override": "Forge+",
+        "invocation_override": value, "invocation_override_rejected": True}
+
+
+def test_effective_a_rejected_invocation_override_falls_through_to_the_detected_tier(tmp_path):
+    target, prefs = _sidecar(tmp_path, FORGE)
+    assert _fields(_ok_effective(target, prefs, "--tier-override", "deep")) == {
+        **DETECTED, "invocation_override": "deep", "invocation_override_rejected": True}
+
+
+@pytest.mark.parametrize("preferences, expected", [(None, DETECTED), ("tier_override: Quick\n", {
+    **DETECTED, "tier": "Quick", "tier_source": "override", "tier_override": "Quick"})],
+                         ids=["detected", "prefs"])
+def test_effective_an_empty_invocation_override_is_unset(tmp_path, preferences, expected):
+    target, prefs = _sidecar(tmp_path, FORGE, preferences)
+    assert _fields(_ok_effective(target, prefs, "--tier-override", "")) == expected
+    assert mod.effective_tier(target, prefs, None) == mod.effective_tier(target, prefs, "")
+
+
+@pytest.mark.parametrize("value, rejected", [("Deep", False), ("deep", True)])
+def test_effective_a_missing_forge_tier_file_with_an_invocation_override(tmp_path, value, rejected):
+    target, prefs = _sidecar(tmp_path, None, "tier_override: Forge+\n")
+    payload = _fields(_ok_effective(target, prefs, "--tier-override", value))
+    assert payload["exists"] is False
+    assert payload["tier"] is None and payload["detected_tier"] is None and payload["tier_source"] is None
+    assert payload["invocation_override"] == value and payload["invocation_override_rejected"] is rejected
+    assert payload["tools"] == {}
+
+
+def test_effective_still_exits_2_on_a_forge_tier_file_it_cannot_use_with_an_invocation_override(tmp_path):
+    target, prefs = _sidecar(tmp_path, "tier: Ultra\n")
+    result = _effective(target, prefs, "--tier-override", "Deep")
+    assert result.returncode == 2 and result.stdout == ""
+    assert str(target) in json.loads(result.stderr)["message"]
 
 
 @pytest.mark.parametrize("content", [

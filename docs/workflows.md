@@ -202,7 +202,7 @@ Each workflow is also a skill you can run directly, without Ferris: `/skf-setup`
 
 **Key Steps:** Load skill → Re-index source → Structural diff (incl. script/asset drift) → Semantic diff (Deep) → Classify severity → Doc drift → Report
 
-**Version read:** An audit reads the version the skill's `active` link names, also when the export manifest still names an older one (after an update, before the next export). In that case an interactive run offers `[M]` to audit the manifest's version instead.
+**Version read:** An audit reads the version the skill's `active` link names, also when the export manifest still names an older one (after an update, before the next export). In that case it goes on with an Info note that names both versions, `@Ferris EX` to reconcile the manifest, and the `skill_path` that audits the manifest's version instead. Only when the link's version has no provenance map and the manifest's has one does an interactive run stop and offer `[M]` to audit the manifest's version; a headless run takes `[N]` and stops with `no-baseline`.
 
 **Upstream:** When the source repository has a newer ref than the one the skill was built from, an interactive audit asks: `[C]` audit the newer ref, read into a private tree of the run's own while SKF's clone stays as it is, `[S]` stay on the baseline and recommend `@Ferris US <name> --target-ref <ref>`, or `[X]` stop. A headless run takes `[C]` unless `upstream_drift_choice=S` or `X` is passed. The `dirty_worktree_choice` and `force` inputs are gone.
 

@@ -12,6 +12,11 @@ Covers:
     generated_at or the file mtime (--now pins the clock)
   - error paths: missing file, malformed JSON, non-object top-level
   - CLI smoke: exit 0 + JSON shape; exit 1 on malformed input
+  - baseline (#1132): the compile tier, the scope type and its source
+    (metadata.json, else the brief), docs-only from metadata.json alone, the
+    no-baseline reason, the tier drop and the 90-day age audit-skill init
+    routes on; a docs-only skill never reads its map, and the module still
+    loads with no PyYAML
 """
 
 from __future__ import annotations
@@ -488,3 +493,242 @@ class TestCli:
         result = _run_cli("normalize", str(path), "--now", "soon")
         assert result.returncode == 1
         assert "--now" in result.stderr
+
+
+# --------------------------------------------------------------------------
+# baseline (#1132): the facts audit-skill init.md §3 and §7 route on
+# --------------------------------------------------------------------------
+
+BASELINE_KEYS = ["original_tier", "scope_type", "scope_type_source", "brief_error", "docs_only_skill",
+                 "no_baseline", "compose_mode_stack", "provenance_age_days", "tier_dropped", "baseline_old"]
+BASELINE_NOW = "2026-05-01T00:00:00Z"
+# A map 30 days old at BASELINE_NOW.
+FRESH_MAP = {"generated_at": "2026-04-01T00:00:00Z", "entries": [{"source_file": "src/a.py"}]}
+COMPOSE_MAP = {"provenance_version": "2.0", "skill_type": "stack", "generated_at": "2026-04-01T00:00:00Z",
+               "constituents": [{"skill_name": "a"}], "entries": []}
+# A stack built from code: libraries, no constituents, so steps 2 to 4 run.
+CODE_STACK_MAP = {"provenance_version": "2.0", "skill_type": "stack", "generated_at": "2026-04-01T00:00:00Z",
+                  "libraries": {"a": {}}, "entries": [{"source_file": "a/x.py", "source_library": "a"}]}
+
+
+def _skill(tmp_path: Path, metadata: dict, provenance: dict | None = None,
+           brief: str | None = None) -> dict[str, Path | None]:
+    """metadata.json, and the map and brief when given, in tmp_path."""
+    paths = {"metadata": _write_json(tmp_path / "metadata.json", metadata), "provenance": None,
+             "brief": tmp_path / "skill-brief.yaml"}
+    if provenance is not None:
+        paths["provenance"] = _write_json(tmp_path / "provenance-map.json", provenance)
+    if brief is not None:
+        paths["brief"].write_text(brief, encoding="utf-8")
+    return paths
+
+
+def _baseline(paths: dict, tier: str = "Forge", now: str = BASELINE_NOW, *extra: str) -> dict:
+    """The CLI's JSON, as init.md §3 runs it (a null map passed as an empty string)."""
+    provenance = paths["provenance"]
+    result = _run_cli("baseline", "--metadata", str(paths["metadata"]), "--current-tier", tier,
+                      "--brief", str(paths["brief"]), "--provenance-map", str(provenance) if provenance else "",
+                      "--now", now, *extra)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert list(payload) == BASELINE_KEYS
+    return payload
+
+
+class TestBaselineCommand:
+    @pytest.mark.parametrize("metadata, expected", [
+        ({"forge_tier": "Deep", "confidence_tier": "Forge"}, "Deep"),
+        ({"forge_tier": "deep", "confidence_tier": "Forge+"}, "Forge+"),
+        ({"confidence_tier": "Quick"}, "Quick"),
+        ({"forge_tier": "Ultra", "confidence_tier": "T1"}, None),
+        ({}, None),
+    ], ids=["forge-tier", "invalid-forge-tier-then-confidence", "confidence-tier", "neither-valid", "none"])
+    def test_original_tier_chain(self, tmp_path: Path, metadata, expected) -> None:
+        payload = _baseline(_skill(tmp_path, metadata, FRESH_MAP))
+        assert payload["original_tier"] == expected
+
+    def test_scope_type_from_metadata_wins_over_the_brief(self, tmp_path: Path) -> None:
+        paths = _skill(tmp_path, {"scope_type": "component-library"}, FRESH_MAP,
+                       "scope:\n  type: public-api\n")
+        payload = _baseline(paths)
+        assert (payload["scope_type"], payload["scope_type_source"], payload["brief_error"]) == (
+            "component-library", "metadata", None)
+
+    @pytest.mark.parametrize("brief", ["scope:\n  type: public-api\n", "scope:\n  type: public-api\n---\n"],
+                             ids=["plain", "skf-1x-trailing-separator"])
+    def test_scope_type_falls_back_to_the_brief(self, tmp_path: Path, brief) -> None:
+        payload = _baseline(_skill(tmp_path, {"name": "demo"}, FRESH_MAP, brief))
+        assert (payload["scope_type"], payload["scope_type_source"], payload["brief_error"]) == (
+            "public-api", "brief", None)
+
+    @pytest.mark.parametrize("brief", [None, "name: demo\n", "scope:\n  include: [src]\n", "scope: []\n"],
+                             ids=["no-brief", "no-scope", "no-type", "scope-not-a-mapping"])
+    def test_no_scope_type_anywhere(self, tmp_path: Path, brief) -> None:
+        payload = _baseline(_skill(tmp_path, {"name": "demo"}, FRESH_MAP, brief))
+        assert (payload["scope_type"], payload["scope_type_source"], payload["brief_error"]) == (None, None, None)
+
+    @pytest.mark.parametrize("brief, needle", [("scope: [\n", "is not valid YAML"),
+                                               ("- public-api\n", "must be a YAML mapping"),
+                                               ("a: 1\n---\nb: 2\n", "is not valid YAML")],
+                             ids=["unparseable", "not-a-mapping", "two-documents"])
+    def test_a_brief_that_cannot_be_read_sets_brief_error(self, tmp_path: Path, brief, needle) -> None:
+        paths = _skill(tmp_path, {"name": "demo"}, FRESH_MAP, brief)
+        payload = _baseline(paths)
+        assert payload["scope_type"] is None and payload["scope_type_source"] is None
+        assert needle in payload["brief_error"] and str(paths["brief"]) in payload["brief_error"]
+        assert "\n" not in payload["brief_error"]
+
+    def test_a_brief_folder_sets_brief_error(self, tmp_path: Path) -> None:
+        paths = _skill(tmp_path, {"name": "demo"}, FRESH_MAP)
+        paths["brief"].mkdir()
+        assert "cannot read brief" in _baseline(paths)["brief_error"]
+
+    def test_a_docs_only_skill_is_never_made_by_the_brief(self, tmp_path: Path) -> None:
+        payload = _baseline(_skill(tmp_path, {"name": "demo"}, FRESH_MAP, "scope:\n  type: docs-only\n"))
+        assert (payload["scope_type"], payload["scope_type_source"]) == ("docs-only", "brief")
+        assert payload["docs_only_skill"] is False and payload["no_baseline"] is None
+
+    @pytest.mark.parametrize("metadata", [{"scope_type": "docs-only"}, {"source_type": "docs-only"}],
+                             ids=["scope-type", "older-source-type"])
+    def test_a_docs_only_skill_with_hashes_never_reads_its_map(self, tmp_path: Path, metadata) -> None:
+        sources = [{"url": "https://x/a.md", "content_hash": None},
+                   {"url": "https://x/b.md", "content_hash": "sha256:ab"}]
+        paths = _skill(tmp_path, {**metadata, "confidence_tier": "Deep", "doc_sources": sources})
+        # A map that would exit 1 if it were read.
+        (tmp_path / "provenance-map.json").write_text("[", encoding="utf-8")
+        paths["provenance"] = tmp_path / "provenance-map.json"
+        payload = _baseline(paths, "Quick")
+        assert payload["docs_only_skill"] is True and payload["no_baseline"] is None
+        assert (payload["compose_mode_stack"], payload["provenance_age_days"]) == (None, None)
+        assert (payload["tier_dropped"], payload["baseline_old"]) == (False, False)
+
+    @pytest.mark.parametrize("sources", [None, [], "x", [{"url": "a", "content_hash": None}],
+                                         [{"url": "a"}, "junk", {"url": "b", "content_hash": ""}]],
+                             ids=["missing", "empty", "not-a-list", "only-null", "no-hash-string"])
+    def test_a_docs_only_skill_without_hashes_has_no_baseline(self, tmp_path: Path, sources) -> None:
+        metadata = {"scope_type": "docs-only"}
+        if sources is not None:
+            metadata["doc_sources"] = sources
+        payload = _baseline(_skill(tmp_path, metadata))
+        assert payload["docs_only_skill"] is True and payload["no_baseline"] == "no-doc-hashes"
+
+    def test_a_skill_without_a_map_has_no_baseline(self, tmp_path: Path) -> None:
+        payload = _baseline(_skill(tmp_path, {"confidence_tier": "Deep"}), "Quick")
+        assert payload["no_baseline"] == "no-provenance-map" and payload["docs_only_skill"] is False
+        assert (payload["compose_mode_stack"], payload["provenance_age_days"]) == (None, None)
+        assert (payload["tier_dropped"], payload["baseline_old"]) == (False, False)
+
+    @pytest.mark.parametrize("metadata, tier, provenance, dropped", [
+        ({"confidence_tier": "Forge+"}, "Forge", FRESH_MAP, True),
+        ({"forge_tier": "Deep"}, "Quick", FRESH_MAP, True),
+        ({"confidence_tier": "Forge+"}, "Forge+", FRESH_MAP, False),
+        ({"confidence_tier": "Forge"}, "Deep", FRESH_MAP, False),
+        ({"forge_tier": "Forge+"}, "Forge", COMPOSE_MAP, False),
+        ({"forge_tier": "Deep"}, "Quick", CODE_STACK_MAP, True),
+        ({}, "Quick", FRESH_MAP, False),
+    ], ids=["compiled-forge-plus-run-forge", "compiled-deep-run-quick", "same-tier", "higher-tier",
+            "compose-stack", "code-mode-stack", "no-original-tier"])
+    def test_tier_dropped(self, tmp_path: Path, metadata, tier, provenance, dropped) -> None:
+        payload = _baseline(_skill(tmp_path, metadata, provenance), tier)
+        assert payload["tier_dropped"] is dropped
+        assert payload["compose_mode_stack"] is (provenance is COMPOSE_MAP)
+
+    @pytest.mark.parametrize("now, age, old", [("2026-07-01T00:00:00Z", 91, True),
+                                               ("2026-06-30T00:00:00Z", 90, False),
+                                               ("2026-06-30T23:59:59Z", 90, False)],
+                             ids=["91-days", "90-days", "90-days-and-hours"])
+    def test_baseline_old_is_above_90_days(self, tmp_path: Path, now, age, old) -> None:
+        payload = _baseline(_skill(tmp_path, {}, FRESH_MAP), "Forge", now)
+        assert (payload["provenance_age_days"], payload["baseline_old"]) == (age, old)
+
+    def test_the_age_falls_back_to_the_maps_mtime(self, tmp_path: Path) -> None:
+        paths = _skill(tmp_path, {}, {"entries": []})
+        os.utime(paths["provenance"], (1767225600, 1767225600))  # 2026-01-01T00:00:00Z
+        payload = _baseline(paths, "Forge", "2026-04-11T00:00:00Z")
+        assert (payload["provenance_age_days"], payload["baseline_old"]) == (100, True)
+
+    @pytest.mark.parametrize("provenance, compose", [(FRESH_MAP, False), (CODE_STACK_MAP, False),
+                                                     (COMPOSE_MAP, True)],
+                             ids=["single", "code-mode-stack", "compose-stack"])
+    def test_the_function_matches_normalize(self, tmp_path: Path, provenance, compose) -> None:
+        """compose_mode_stack and the age are the ones normalize gives for the map, so the
+        tier drop §7 asks about and the route §4 takes read the same compose mode."""
+        paths = _skill(tmp_path, {"confidence_tier": "Forge"}, provenance)
+        now = datetime(2026, 5, 1, tzinfo=timezone.utc)
+        facts = mod.baseline(json.loads(paths["metadata"].read_text(encoding="utf-8")), "Forge", None,
+                             paths["provenance"], now)
+        mtime = datetime.fromtimestamp(paths["provenance"].stat().st_mtime, timezone.utc)
+        normalized = mod.normalize(provenance, mtime, now)
+        assert (facts["compose_mode_stack"], facts["provenance_age_days"]) == (
+            normalized["compose_mode_stack"], normalized["age_days"]) == (compose, 30)
+
+    @pytest.mark.parametrize("which, content, needle", [
+        ("metadata", None, "metadata.json not found"),
+        ("metadata", "{nope", "malformed JSON in metadata.json"),
+        ("metadata", "[]", "must be a JSON object"),
+        ("provenance", None, "provenance map not found"),
+        ("provenance", "{nope", "malformed JSON in provenance map"),
+        ("provenance", "[]", "must be a JSON object"),
+    ], ids=["metadata-missing", "metadata-malformed", "metadata-not-object", "map-missing", "map-malformed",
+            "map-not-object"])
+    def test_a_file_it_cannot_use_exits_1(self, tmp_path: Path, which, content, needle) -> None:
+        paths = _skill(tmp_path, {"name": "demo"}, FRESH_MAP)
+        target = paths[which]
+        if content is None:
+            target.unlink()
+        else:
+            target.write_text(content, encoding="utf-8")
+        result = _run_cli("baseline", "--metadata", str(paths["metadata"]), "--current-tier", "Forge",
+                          "--provenance-map", str(paths["provenance"]))
+        assert result.returncode == 1 and result.stdout == ""
+        assert result.stderr.startswith("error: ") and needle in result.stderr, result.stderr
+
+    def test_a_folder_in_place_of_metadata_exits_1(self, tmp_path: Path) -> None:
+        (tmp_path / "metadata.json").mkdir()
+        result = _run_cli("baseline", "--metadata", str(tmp_path / "metadata.json"), "--current-tier", "Forge")
+        assert result.returncode == 1 and "failed to read metadata.json" in result.stderr
+
+    def test_a_bad_now_exits_1(self, tmp_path: Path) -> None:
+        paths = _skill(tmp_path, {}, FRESH_MAP)
+        result = _run_cli("baseline", "--metadata", str(paths["metadata"]), "--current-tier", "Forge",
+                          "--now", "soon")
+        assert result.returncode == 1 and "--now" in result.stderr
+
+    @pytest.mark.parametrize("tier", ["forge", "Ultra", ""])
+    def test_the_current_tier_must_be_a_tier(self, tmp_path: Path, tier) -> None:
+        paths = _skill(tmp_path, {}, FRESH_MAP)
+        result = _run_cli("baseline", "--metadata", str(paths["metadata"]), "--current-tier", tier)
+        assert result.returncode == 2 and "invalid choice" in result.stderr
+
+    def test_the_module_loads_without_pyyaml_and_a_brief_then_reports_it(self, tmp_path: Path) -> None:
+        """skf-extraction-snapshot.py loads this module with no dependencies, so its top level stays
+        standard-library only; reading a brief then needs PyYAML, and its absence is a brief_error."""
+        paths = _skill(tmp_path, {"name": "demo"}, FRESH_MAP, "scope:\n  type: public-api\n")
+        code = (
+            "import importlib.util, json, sys\n"
+            "from pathlib import Path\n"
+            "sys.modules['yaml'] = None\n"
+            f"spec = importlib.util.spec_from_file_location('m', {str(SCRIPT_PATH)!r})\n"
+            "m = importlib.util.module_from_spec(spec)\n"
+            "spec.loader.exec_module(m)\n"
+            "assert m.bounded_scan_files({'entries': [{'source_file': 'a'}]}) == ['a']\n"
+            f"facts = m.baseline({{'name': 'demo'}}, 'Forge', Path({str(paths['brief'])!r}), "
+            f"Path({str(paths['provenance'])!r}))\n"
+            "print(json.dumps(facts))\n"
+        )
+        result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=False)
+        assert result.returncode == 0, result.stderr
+        facts = json.loads(result.stdout)
+        assert facts["scope_type"] is None
+        assert facts["brief_error"].startswith("cannot load skf-resolve-authoritative-files.py beside "
+                                               "skf-load-provenance.py")
+
+
+class TestScriptPEP723:
+    """`baseline` reads a brief through skf-resolve-authoritative-files.py, which imports PyYAML:
+    under `uv run` only the header's dependencies are there, so it must declare it."""
+
+    def test_pyyaml_dependency(self) -> None:
+        text = SCRIPT_PATH.read_text(encoding="utf-8")
+        header = text[: text.index("# ///", text.index("# /// script") + 1)]
+        assert '# requires-python = ">=3.11"' in header and 'dependencies = ["pyyaml"]' in header

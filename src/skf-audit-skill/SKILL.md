@@ -31,7 +31,7 @@ You are a skill auditor in Ferris Audit mode: a deterministic drift-detection wo
 - Run every subagent in the foreground, passing `run_in_background: false` on every Agent call (Claude Code runs a subagent in the background when the flag is left out), with parallel ones as several such calls in one message, and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
 - Update `stepsCompleted` in output file frontmatter before loading next step
 - Always communicate in `{communication_language}`
-- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision; step 1's gates (manifest-vs-link, upstream-drift, baseline confirm) also record theirs in the run sink as they decide
+- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision; step 1's gates (manifest-vs-link, only when the `active` link's version has no provenance map and the manifest's has one; upstream-drift; baseline confirm) also record theirs in the run sink as they decide
 - Every HARD HALT names its exit code, `halt_reason` and phase; in headless mode it prints its envelope through the shared emitter, as each stage's **Halt envelope** paragraph shows
 - Once the [C] of `references/upstream-checkout.md` has bound `{source_tree}` (the private tree it read the upstream ref into), every step reads the source there, never at the recorded `source_path`, and every HALT after it first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` and goes on whatever it prints
 - Run state (the gates' decisions, the warnings, the emitter's payloads) lives in `{run_dir}`: step 6 deletes it, a HALT keeps it
@@ -58,20 +58,34 @@ Stage 1b returns to init.md at §5b's **Record for report**, then §6. Step 1 §
 | Aspect | Detail |
 |--------|--------|
 | **Inputs** | `skill_name` [required], `skill_path` [optional: the skill folder, bypassing manifest/symlink resolution], `tier_override` [optional: Quick / Forge / Forge+ / Deep, in place of the detected tier], `upstream_drift_choice` [optional: C / S / X; answers the upstream-drift gate in references/upstream-checkout.md; C, auditing the upstream ref from a private tree, when unset] |
-| **Gates** | step 1: Manifest-vs-Symlink Gate [N/M/X] · Upstream-Drift Gate [C/S/X] (references/upstream-checkout.md, only when upstream moved) · Baseline Confirm Gate [C/X] (only on a doubt: the forge tier is below the compile tier, or the provenance map is more than 90 days old) |
+| **Gates** | step 1: Manifest-vs-Symlink Gate [N/M/X] (only when the `active` link's version has no provenance map and the manifest's has one) · Upstream-Drift Gate [C/S/X] (references/upstream-checkout.md, only when upstream moved) · Baseline Confirm Gate [C/X] (only on a doubt: the forge tier is below the compile tier, or the provenance map is more than 90 days old) |
 | **Outputs** | The drift report, the JSON it was built from and the result contract, in `{forge_version}/` (the audited version's folder): `references/headless-contract.md` names each file |
 | **Headless** | Every gate takes its default action, a pre-supplied `upstream_drift_choice` answers the upstream-drift gate, `tier_override` sets the tier (step 1 §2), and each gate's decision lands in the envelope's `headless_decisions`. A caller reads the run's own `SKF_AUDIT_RESULT_JSON` line. A run that printed no envelope line has no result to read, whatever the process exit code: it was cut off, or could not write its result, and `audit-skill-result-latest.json` may then describe an earlier run, so it is never read in its place. |
 | **Exit codes** | `references/headless-contract.md`: each halt class's exit code and `halt_reason`, and the `SKF_AUDIT_RESULT_JSON` envelope |
 
 ## On Activation
 
-1. Load config from `{project-root}/_bmad/skf/config.yaml` and resolve:
-   - `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`
-   - `skills_output_folder`, `forge_data_folder`, `sidecar_path`
+1. **Load the config.** Bind `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py` (the first that exists; step 4 binds the same path), and `{preflightHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-preflight.py`, else `{project-root}/src/shared/scripts/skf-preflight.py` (the first that exists). Run it once:
+
+   ```bash
+   uv run {preflightHelper} "{project-root}"
+   ```
+
+   It parses `{project-root}/_bmad/skf/config.yaml` and `{sidecar_path}/preferences.yaml` into one JSON object: bind `project_name`, `user_name`, `communication_language` and `document_output_language` from its `config`, and `output_folder`, `skills_output_folder`, `forge_data_folder` and `sidecar_path` from `config.<name>_resolved`, each folder's absolute path. With `sidecar.preferences_error` (a `preferences.yaml` that is there but does not load), display that error in one line and go on. Then bind:
    - `timestamp` ← now, as `YYYYMMDD-HHmmss`, fixed for the whole run
    - `run_dir` ← `{project-root}/_bmad-output/.skf-run/skf-audit-skill-{timestamp}`, the run folder step 4 below creates
 
-2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `headless_mode: true` in `{sidecar_path}/preferences.yaml`. Default: false.
+   If the call exits non-zero or prints no JSON, or neither preflight path exists, HALT (exit code 3) at phase `on-activation:config` with "Audit Skill cannot load its config: {its `error` and `code`, else its first stderr line, else `skf-preflight.py` is missing, so re-install SKF}". Its `code` sets the `halt_reason`: `SIDECAR_UNDEFINED` and `SIDECAR_MISSING` (no forger sidecar to read the forge tier from) take `halt_reason: "forge-tier-missing"`; `CONFIG_MISSING`, `CONFIG_MALFORMED`, any other code, no JSON and no preflight path take `halt_reason: "helper-missing"`. Nothing is written. Under `--headless` or `-H` (step 2 has not run yet), the halt first prints its envelope; with no run folder yet, it passes its fields as options and the message, which quotes preflight's error and its absolute paths, in a quoted heredoc, through `python3` in place of `uv run` when `uv` is what is missing:
+
+   ```bash
+   uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --target stderr --phase on-activation:config --halt-reason '<halt_reason>' --reason - <<'SKF_REASON'
+   <the halt message>
+   SKF_REASON
+   ```
+
+   Display the line it prints, then stop. An interactive run displays the halt message alone, as does a headless one with no emitter path or whose emitter exits non-zero or prints no line.
+
+2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if step 1's preflight gave `derived.headless_mode` true (`headless_mode: true` in `{sidecar_path}/preferences.yaml`). Default: false.
 
 3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
 
@@ -90,7 +104,7 @@ Stage 1b returns to init.md at §5b's **Record for report**, then §6. Step 1 §
 
 4. **Pre-flight: `uv`, the helpers, the template and the run folder.** Before the first prompt, resolve `{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`. If neither exists, HALT (exit code 3, `halt_reason: "helper-missing"`) and display only: "Audit Skill cannot run without `skf-emit-result-envelope.py`, which is not installed. Re-install SKF."
 
-   Run `uv --version`, and check that `skf-load-provenance.py`, `skf-structural-diff.py`, `skf-severity-classify.py` and `skf-detect-docs.py` each exist in `{project-root}/_bmad/skf/shared/scripts/` or `{project-root}/src/shared/scripts/`. If `uv --version` fails, or a helper is in neither folder, HALT (exit code 3, `halt_reason: "helper-missing"`) at phase `on-activation:helpers`, naming what is missing: "Audit Skill cannot run without `<uv or the script>`, which is not installed. Install uv (<https://docs.astral.sh/uv/>) or re-install SKF, then re-run."
+   Run `uv --version`, and check that `skf-load-provenance.py`, `skf-forge-tier-rw.py`, `skf-structural-diff.py`, `skf-severity-classify.py` and `skf-detect-docs.py` each exist in `{project-root}/_bmad/skf/shared/scripts/` or `{project-root}/src/shared/scripts/`. If `uv --version` fails, or a helper is in neither folder, HALT (exit code 3, `halt_reason: "helper-missing"`) at phase `on-activation:helpers`, naming what is missing: "Audit Skill cannot run without `<uv or the script>`, which is not installed. Install uv (<https://docs.astral.sh/uv/>) or re-install SKF, then re-run."
 
    Then check the template: if `test -f "{driftReportTemplatePath}" && test -r "{driftReportTemplatePath}"` fails, HALT (exit code 3, `halt_reason: "template-missing"`) at phase `on-activation:template`, with `"path"` that path: "`drift_report_template_path` names `{driftReportTemplatePath}`, which is not a readable file. Point it at your copy in `{project-root}/_bmad/custom/skf-audit-skill.toml` or `.user.toml`, or re-install SKF when it is the bundled `assets/drift-report-template.md`." Then create the run folder:
 

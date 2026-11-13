@@ -141,6 +141,7 @@ PROSE_SCRIPTS = {
     "{emitEnvelopeHelper}": EMITTER,
     "{renderDriftTablesScript}": RENDER,
     "{compareFileHashesHelper}": COMPARE_FILE_HASHES,
+    "{forgeTierRwHelper}": SCRIPTS / "skf-forge-tier-rw.py",
 }
 
 STAGE_DATA = "{forge_version}/.skf-audit/{timestamp}"
@@ -753,12 +754,15 @@ def test_exports_off_the_public_surface_grade_nothing(tmp_path):
 def test_init_binds_the_scope_type_as_update_skill_does():
     """#702: a skill whose metadata.json records no scope type (oms-cognee) is audited under its brief's, the
     brief at the path §4b passes, so a public-api skill's re-index takes `--scope-type public-api`."""
-    artifacts = _flow(_slice(_read(INIT), "### 3. Load Skill Artifacts", "### 4."))
-    assert ("- `scope_type`: bind `{scope_type}` ← the `scope_type` metadata.json records, else the `scope.type` of "
+    section = _slice(_read(INIT), "### 3. Load Skill Artifacts", "### 4.")
+    artifacts = _flow(section)
+    # #1132: skf-load-provenance.py baseline reads the fallback; §3 binds its `scope_type`.
+    assert ("- `{scope_type}` ← `scope_type`: the `scope_type` metadata.json records, else the `scope.type` of "
             "`{forge_data_folder}/{skill_name}/skill-brief.yaml` when that file exists and names one (a skill whose "
             "metadata.json records no scope type is audited under its brief's), else null. When it is "
             "`public-api`, step 2 passes `--scope-type public-api` to the recipe runner and the snapshot build "
             "(`re-index.md` §3)") in artifacts
+    assert '--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml"' in _fenced_line(section, " baseline ")
     assert '"{forge_data_folder}/{skill_name}/skill-brief.yaml"' in BRIEF_GROUP
     update = _flow(_read(SRC / "skf-update-skill" / "references" / "detect-changes.md"))
     assert ("Bind `{scope_type}` ← the `scope_type` metadata.json records (init.md §2), else the `scope.type` of "
@@ -1273,10 +1277,12 @@ def test_the_baseline_stops_only_on_doubt():
     assert ("Display the summary and the plan. When neither doubt below holds, go straight on: load, read the "
             "entire file, and execute") in confirm
     assert "Either of these doubts stops the run here:" in confirm
-    assert ("**The tier dropped:** the run takes steps 2 to 4 (neither a compose-mode stack nor a docs-only "
-            "skill), and `{current_tier}` (§2) comes before `{original_tier}` (§3) in the order Quick, Forge, "
-            "Forge+, Deep. A null `{original_tier}` never counts as a drop.") in confirm
-    assert "**The baseline is old:** `{provenance_age_days}` (§4) is above 90." in confirm
+    # #1132: skf-load-provenance.py baseline works each doubt out; §7 keeps what it means.
+    assert ("**The tier dropped:** `{tier_dropped}` (§3) is true: the run takes steps 2 to 4 (neither a "
+            "compose-mode stack nor a docs-only skill), and `{current_tier}` (§2) comes before `{original_tier}` "
+            "in the order Quick, Forge, Forge+, Deep.") in confirm
+    assert ("**The baseline is old:** `{baseline_old}` (§3) is true: the provenance map is more than 90 days "
+            "old.") in confirm
     # The number is stated once; each reason once, in the prompt line, by the tool the run lacks.
     assert init.count("90") == 1
     assert ("so it lacks {Quick: ast-grep, so exports are read by eye / Forge: ccc, so an export moved out of the "
@@ -1290,13 +1296,14 @@ def test_the_baseline_stops_only_on_doubt():
     assert '`"report_path": "{outputFile}"` once §6 wrote the report' in _read(INIT)
     row = _slice(_read(HEADLESS), "| 6    | user-cancelled", "\n")
     assert "step 1 §7 baseline confirm gate `[X]`" in row
-    # Both tiers are bound by name: the run's in §2, the compile tier where the metadata is read.
-    tier = _flow(_slice(init, "**Apply tier override:**", "\n"))
-    assert tier.endswith("log which one set the tier, and bind it as `{current_tier}`.")
+    # Both tiers are bound by name from a helper: the run's in §2, the compile tier and the doubts in §3.
+    found = _flow(_slice(init, "**If found** (exit 0 with `exists` true)", "\n"))
+    assert "bind `{current_tier}` ← `tier`" in found and "log the tier with its `tier_source`" in found
     artifacts = _flow(_slice(init, "### 3. Load Skill Artifacts", "### 4."))
-    assert ("`{original_tier}`, the tier the skill was compiled at: `forge_tier` when it holds Quick, Forge, "
-            "Forge+ or Deep (a stack records it there), else `confidence_tier` when it does (a single skill "
-            "records it there), else null") in artifacts
+    assert "- `{original_tier}` ← `original_tier`: the tier the skill was compiled at" in artifacts
+    assert "- `{tier_dropped}` ← `tier_dropped` and `{baseline_old}` ← `baseline_old`: §7's two doubts" in artifacts
+    for by_hand in ("forge_tier", "confidence_tier", "doc_sources` is missing"):
+        assert by_hand not in artifacts, by_hand
     gate = _slice(init, "**GATE [default: C]**", "\n")
     assert gate.startswith("**GATE [default: C]**: Baseline Confirm Gate [C/X], reached only on a doubt above.")
     assert 'log: "headless: auto-continue past baseline confirmation ({each doubt that holds})"' in gate
@@ -1388,7 +1395,8 @@ def _values(skills: Path, forge: Path) -> dict[str, str]:
 
 
 def test_the_default_audits_the_active_links_version_folder(tmp_path):
-    """[N], and the headless default: provenance and outputs in the link's version folder."""
+    """A manifest that lags the link (#1132: an Info note, no gate), and the gate's [N]: provenance and outputs
+    in the link's version folder."""
     skills, forge = _two_versions(tmp_path)
     bound = _bound(_resolve(_values(skills, forge)))
     assert bound["{audited_version}"] == "1.1.0"
@@ -1408,9 +1416,40 @@ def test_m_audits_the_manifests_version_folder(tmp_path):
     assert Path(bound["{provenanceMap}"]).as_posix() == (forge / "demo" / "1.0.0" / "provenance-map.json").as_posix()
 
 
+def test_a_manifest_that_lags_the_link_gets_an_info_note(tmp_path):
+    """#1132 (BMad Builder enhancement-1): after an update the manifest lags
+    the link until the next export, so the audit goes on with the link's
+    version and one Info note, as the Manifest-lag guard prescribes and Test
+    Skill and Export Skill do; no gate decides, so nothing is recorded. The
+    note's skill_path names the manifest's package, from the resolve object."""
+    skills, forge = _two_versions(tmp_path)
+    resolved = _resolve(_values(skills, forge))
+    assert resolved["reason"] == "manifest-lags-link"
+    assert resolved["paths"]["provenance_map"]["path"] is not None
+    item = _slice(_init_1(), "2. `manifest-lags-link`", "3. `flat-layout`")
+    note, gate = item.split("\n\n   Only when ", 1)
+    note = _flow(note)
+    assert ("the helper chose the link's version, as the Manifest-lag guard prescribes. Bind it (below) and print "
+            "one Info note, filled from the `resolve` object: \"Auditing `{symlink_target}`, the version the "
+            "`active` link names; the export manifest still names `{active_version}`. Run `[EX] Export Skill` to "
+            "reconcile the manifest, or set `skill_path` to `{skill_group}/{active_version}/{skill_name}` to audit "
+            "`{active_version}` instead.\" No gate decides anything here, so nothing is recorded.") in note
+    for gated in ("**GATE", "[N]", "decision.json", "init.manifest-lags-link", "headless:"):
+        assert gated not in note, gated
+    # The note's path is the manifest's package, from the fields the helper prints.
+    package = Path(resolved["skill_group"]) / resolved["active_version"] / "demo"
+    assert (package / "SKILL.md").is_file()
+    # Every gate word sits in the sub-case, after "Only when".
+    assert gate.startswith("`paths.provenance_map.path` is null and `candidates.manifest.provenance_map` is set")
+    for gated in ("**GATE [default: N]**", '{"gate": "init.manifest-lags-link"', "**[N] Audit the link's version",
+                  "**[M] Audit the manifest's version ({active_version})**", "**[X] Abort**"):
+        assert item.count(gated) == 1 and gated in gate, gated
+
+
 def test_the_gate_says_when_the_links_version_has_no_map(tmp_path):
-    """A quick-skill version has no provenance map: [N] then audits in
-    degraded mode, which the gate and the headless log say."""
+    """A quick-skill version has no provenance map: only then does §1 stop
+    on the gate, and [N] stops at §4 with no baseline, which the gate and
+    the headless log say."""
     skills, forge = _two_versions(tmp_path)
     (forge / "demo" / "1.1.0" / "provenance-map.json").unlink()
     resolved = _resolve(_values(skills, forge))
@@ -1418,12 +1457,18 @@ def test_the_gate_says_when_the_links_version_has_no_map(tmp_path):
     assert resolved["paths"]["provenance_map"]["path"] is None
     assert resolved["candidates"]["manifest"]["provenance_map"] is not None
     gate = _flow(_slice(_init_1(), "2. `manifest-lags-link`", "3. `flat-layout`"))
-    assert ("When `paths.provenance_map.path` is null but `candidates.manifest.provenance_map` is set") in gate
+    assert ("Only when `paths.provenance_map.path` is null and `candidates.manifest.provenance_map` is set (the "
+            "link's version has no provenance map and the manifest's has one), present the manifest-vs-symlink "
+            "gate instead of the note") in gate
     assert "so **[N]** stops at §4 with no baseline to audit against" in gate
     assert "**[M]** audits `{active_version}` against its map" in gate
     assert ("so this run stops at step 1 (no-baseline): set skill_path to the {active_version} package to audit "
             "that version against its map.") in gate
-    assert "degraded" not in gate
+    assert "degraded" not in gate and "recommended" not in gate
+    # Exporting would move the manifest to the link's map-less version, so [X] names skill_path instead.
+    assert ("phase `init:manifest-gate`). To audit `{active_version}`, set `skill_path` to "
+            "`{skill_group}/{active_version}/{skill_name}` and re-run.") in gate
+    assert "before re-running audit-skill" not in gate
 
 
 # --------------------------------------------------------------------------
@@ -1683,12 +1728,15 @@ def test_init_routes_a_docs_only_skill_to_its_document_hashes():
     assert _frontmatter(DOC_DRIFT)["classifyStepFile"] == SEVERITY.name
     assert _frontmatter(SEVERITY)["reportStepFile"] == REPORT.name
     artifacts = _flow(_slice(init, "### 3. Load Skill Artifacts", "### 4."))
-    assert ("**A docs-only skill** (its `scope_type`, or the `source_type` an older `metadata.json` records, is "
-            "`docs-only`)") in artifacts
-    assert ('When `doc_sources` is missing or empty, or no entry of it has a `content_hash` (create-skill records '
-            'null for a document it could not fetch), nothing records the documents\' state: HALT with **exit 3**, '
-            '`halt_reason: "no-baseline"`, phase `init:baseline`') in artifacts
-    assert "skip §4, Stack Skill Detection and §5, take §5b's docs-only skip, and continue at §6" in artifacts
+    # #1132: skf-load-provenance.py baseline decides docs-only and the missing hashes; §3 routes on its JSON.
+    assert ("- `{docs_only_skill}` ← `docs_only_skill`: true when the `scope_type` metadata.json records, or the "
+            "`source_type` an older one records, is `docs-only`, never from the brief") in artifacts
+    assert ("Then route on `no_baseline`. **`no-doc-hashes`**: a docs-only skill has no source tree") in artifacts
+    assert ('here no entry of it has a `content_hash` (create-skill records null for a document it could not '
+            'fetch), so nothing records the documents\' state: HALT with **exit 3**, `halt_reason: "no-baseline"`, '
+            'phase `init:baseline`') in artifacts
+    assert ("**A docs-only skill** (`{docs_only_skill}` true) otherwise skips §4, Stack Skill Detection and §5, "
+            "takes §5b's docs-only skip, and continues at §6. Every other skill continues at §4.") in artifacts
     upstream = _flow(_slice(init, "### 5b. Detect Upstream Drift", "**Otherwise**"))
     assert 'A docs-only skill (§3) skips it the same way, with `upstream_fetch = "skipped: docs-only skill"`' in (
         upstream)
@@ -1874,3 +1922,161 @@ def test_the_check_passes_the_default_and_fails_a_missing_copy(tmp_path, value, 
     command = written.group(1).replace('"{driftReportTemplatePath}"', shlex.quote(path))
     proc = subprocess.run(["bash", "-c", command], capture_output=True, text=True, check=False)
     assert (proc.returncode == 0) is readable, (value, path)
+
+
+# --------------------------------------------------------------------------
+# #1132: init routes on skf-load-provenance.py baseline, run as §3 writes it
+# --------------------------------------------------------------------------
+
+
+def _baseline_fixture(tmp_path: Path, metadata: dict, provenance: dict | None, brief: str | None) -> dict[str, str]:
+    """A package's metadata.json, its version folder's map and the skill's brief, as §3's placeholders."""
+    package = tmp_path / "skills" / "demo" / "1.0.0" / "demo"
+    forge = tmp_path / "forge"
+    _write_json(package / "metadata.json", {"name": "demo", "version": "1.0.0", **metadata})
+    provenance_map = ""
+    if provenance is not None:
+        provenance_map = str(_write_json(forge / "demo" / "1.0.0" / "provenance-map.json", provenance))
+    if brief is not None:
+        (forge / "demo").mkdir(parents=True, exist_ok=True)
+        (forge / "demo" / "skill-brief.yaml").write_bytes(brief.encode("utf-8"))
+    return {"{resolved_skill_package}": str(package), "{forge_data_folder}": str(forge), "{skill_name}": "demo",
+            "{provenanceMap}": provenance_map}
+
+
+@pytest.mark.parametrize("metadata,provenance,brief,tier,expected", [
+    ({"confidence_tier": "Forge+"}, {"generated_at": "2020-01-01T00:00:00Z", "entries": []},
+     "scope:\n  type: public-api\n---\n", "Forge",
+     {"original_tier": "Forge+", "scope_type": "public-api", "scope_type_source": "brief", "docs_only_skill": False,
+      "no_baseline": None, "tier_dropped": True, "baseline_old": True}),
+    ({"scope_type": "docs-only", "confidence_tier": "Deep",
+      "doc_sources": [{"url": "https://example.com/a.md", "content_hash": None}]}, None, None, "Quick",
+     {"original_tier": "Deep", "scope_type": "docs-only", "scope_type_source": "metadata", "docs_only_skill": True,
+      "no_baseline": "no-doc-hashes", "tier_dropped": False, "baseline_old": False}),
+    ({"forge_tier": "Deep"}, None, None, "Quick",
+     {"original_tier": "Deep", "scope_type": None, "scope_type_source": None, "docs_only_skill": False,
+      "no_baseline": "no-provenance-map", "tier_dropped": False, "baseline_old": False}),
+], ids=["public-api-brief-tier-dropped-old", "docs-only-no-hashes", "no-map"])
+def test_section_3_runs_the_baseline_command_it_routes_on(tmp_path, metadata, provenance, brief, tier, expected):
+    """§3's command, run as written, gives each value §3 binds and the
+    `no_baseline` reason it routes on; a null map passes as an empty string."""
+    section = _slice(_read(INIT), "### 3. Load Skill Artifacts", "### 4.")
+    command = _fenced_line(section, " baseline ")
+    assert command == ('uv run {loadProvenanceHelper} baseline --metadata "{resolved_skill_package}/metadata.json" '
+                       '--brief "{forge_data_folder}/{skill_name}/skill-brief.yaml" --provenance-map '
+                       '"{provenanceMap}" --current-tier "{current_tier}"')
+    values = {**_baseline_fixture(tmp_path, metadata, provenance, brief), "{current_tier}": tier}
+    result = _run_prose(command, values)
+    assert result.returncode == 0, result.stderr
+    facts = json.loads(result.stdout)
+    assert {key: facts[key] for key in expected} == expected
+    # Each value §3 binds is one the helper prints.
+    for name, field in BINDING_RE.findall(_flow(section)):
+        assert field in facts, (name, field)
+    assert set(dict(BINDING_RE.findall(_flow(section))).values()) == {
+        "original_tier", "scope_type", "docs_only_skill", "tier_dropped", "baseline_old"}
+    assert "a null `{provenanceMap}` passed as an empty string" in _flow(section)
+
+
+def test_section_3_halts_provenance_invalid_on_a_baseline_it_cannot_read(tmp_path):
+    section = _slice(_read(INIT), "### 3. Load Skill Artifacts", "### 4.")
+    values = {**_baseline_fixture(tmp_path, {}, {"entries": []}, None), "{current_tier}": "Forge"}
+    Path(values["{provenanceMap}"]).write_bytes(b"[")
+    result = _run_prose(_fenced_line(section, " baseline "), values)
+    assert result.returncode == 1 and result.stdout == "" and "malformed JSON" in result.stderr
+    assert ('If it exits non-zero, HALT with **exit 3**, `halt_reason: "provenance-invalid"`, phase '
+            '`init:baseline`, showing its stderr, with `"path"` the file it names '
+            '(`{resolved_skill_package}/metadata.json` or `{provenanceMap}`)') in _flow(section)
+    assert values["{provenanceMap}"] in result.stderr
+
+
+def test_section_2_takes_the_tier_from_the_helper_and_records_an_ignored_override():
+    """§2 runs skf-forge-tier-rw.py effective with the input's override, so
+    no step reads forge-tier.yaml or preferences.yaml by hand, and each
+    ignored value reaches the envelope as a tier_override_ignored warning,
+    which the schema names."""
+    section = _slice(_read(INIT), "### 2. Load Forge Tier", "### 3.")
+    flow = _flow(section)
+    assert _fenced_line(section, " effective ") == (
+        'uv run {forgeTierRwHelper} effective --target "{sidecar_path}/forge-tier.yaml" --preferences '
+        '"{sidecar_path}/preferences.yaml" --tier-override="{tier_override}"')
+    assert "with an unset `tier_override` input passed as an empty string" in flow
+    assert ("display `warn: tier_override {value} ({where}) is not one of Quick, Forge, Forge+, Deep and was "
+            "ignored`") in flow
+    assert "write `tier_override_ignored: {value} ({where})` to `{run_dir}/warning.txt` with a file write" in flow
+    assert ('run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat '
+            '"{run_dir}/warning.txt")"`') in flow
+    for rejected in ("`invocation_override_rejected` for the input", "`override_rejected` for preferences.yaml"):
+        assert rejected in flow, rejected
+    for halt in ('**If it cannot be read** (exit 2', '"`{sidecar_path}/forge-tier.yaml` cannot be read: {its '
+                 '`message`}.', '**Any other exit, or no JSON:** HALT with **exit 3**, '
+                 '`halt_reason: "helper-missing"`, phase `init:forge-tier`'):
+        assert halt in flow, halt
+    assert "Load `{sidecar_path}/forge-tier.yaml`" not in flow and "Extract tier level" not in flow
+    warnings = json.loads(_read(AUDIT_SCHEMA))["properties"]["warnings"]["description"]
+    assert "tier_override_ignored (with the value and where it came from, input or preferences.yaml)" in warnings
+
+
+def _effective_as_written(sidecar: Path, tier_override: str) -> subprocess.CompletedProcess:
+    section = _slice(_read(INIT), "### 2. Load Forge Tier", "### 3.")
+    return _run_prose(_fenced_line(section, " effective "),
+                      {"{sidecar_path}": str(sidecar), "{tier_override}": tier_override})
+
+
+def test_section_2_ignores_a_bad_input_override_and_the_envelope_names_it(tmp_path):
+    """The I/O row: input `deep`, preferences Forge+, detected Forge runs at
+    Forge+, and the warning §2 records reaches the envelope as
+    `tier_override_ignored: deep (input)`."""
+    sidecar = tmp_path / "sidecar"
+    sidecar.mkdir()
+    (sidecar / "forge-tier.yaml").write_bytes(b"tools:\n  ast_grep: true\n  ccc: false\ntier: Forge\n")
+    (sidecar / "preferences.yaml").write_bytes(b"tier_override: Forge+\n")
+    done = _effective_as_written(sidecar, "deep")
+    assert done.returncode == 0, done.stderr
+    payload = json.loads(done.stdout)
+    assert (payload["exists"], payload["tier"], payload["tier_source"]) == (True, "Forge+", "override")
+    assert (payload["invocation_override"], payload["invocation_override_rejected"]) == ("deep", True)
+    assert payload["override_rejected"] is False
+    # The line §2 writes, filled as it says, recorded and emitted as it says.
+    template = re.search(r"write `(tier_override_ignored: \{value\} \(\{where\}\))`", _flow(_read(INIT))).group(1)
+    line = template.replace("{value}", payload["invocation_override"]).replace("{where}", "input")
+    assert line == "tier_override_ignored: deep (input)"
+    run_dir = tmp_path / "skf-audit-skill-20260101-000000"
+    run_dir.mkdir()
+    record = subprocess.run([sys.executable, str(EMITTER), "record", "--run-dir", str(run_dir), "--warning", line],
+                            capture_output=True, text=True, encoding="utf-8", check=False)
+    assert record.returncode == 0, record.stderr
+    halt = {"phase": "init:forge-tier", "reason": "stopped", "halt_reason": "forge-tier-missing"}
+    envelope = subprocess.run([sys.executable, str(EMITTER), "emit-halt", "--workflow", "skf-audit-skill",
+                               "--run-dir", str(run_dir), "--target", "stdout"], input=json.dumps(halt),
+                              capture_output=True, text=True, encoding="utf-8", check=False)
+    assert envelope.returncode == 0, envelope.stderr
+    assert json.loads(envelope.stdout.strip().partition(": ")[2])["warnings"] == [line]
+
+
+def test_section_2_passes_an_override_that_starts_with_a_dash_as_its_value(tmp_path):
+    """`--tier-override="{tier_override}"` keeps a value such as `-Deep` the
+    flag's own, so it is ignored with the warning instead of failing the
+    call as a missing argument, which §2 would read as an unreadable file."""
+    sidecar = tmp_path / "sidecar"
+    sidecar.mkdir()
+    (sidecar / "forge-tier.yaml").write_bytes(b"tools:\n  ast_grep: true\ntier: Forge\n")
+    done = _effective_as_written(sidecar, "-Deep")
+    assert done.returncode == 0, done.stderr
+    payload = json.loads(done.stdout)
+    assert (payload["tier"], payload["tier_source"]) == ("Forge", "detected")
+    assert (payload["invocation_override"], payload["invocation_override_rejected"]) == ("-Deep", True)
+
+
+def test_section_2_halts_forge_tier_missing_without_the_file_whatever_the_override(tmp_path):
+    """The I/O row: no forge-tier.yaml and a valid input override still halts forge-tier-missing."""
+    sidecar = tmp_path / "sidecar"
+    sidecar.mkdir()
+    done = _effective_as_written(sidecar, "Deep")
+    assert done.returncode == 0, done.stderr
+    payload = json.loads(done.stdout)
+    assert payload["exists"] is False and payload["tier"] is None and payload["invocation_override"] == "Deep"
+    missing = _flow(_slice(_read(INIT), "**If file missing** (exit 0 with `exists` false):", "**If it cannot"))
+    assert ('HALT with **exit 3**, `halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, '
+            '`"path": "{sidecar_path}/forge-tier.yaml"`') in missing
+    assert "Setup-forge has not been run. Cannot determine tool availability." in missing

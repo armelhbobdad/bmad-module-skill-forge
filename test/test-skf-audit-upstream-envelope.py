@@ -189,7 +189,8 @@ def test_c_is_the_headless_default_and_the_inputs_lose_the_consent_flags():
     assert "`upstream_drift_choice` [optional: C / S / X" in inputs and "C, auditing the upstream ref" in inputs
     assert "`force`" not in inputs
     gates = _slice(skill, "| **Gates** |", "\n")
-    assert gates.strip() == ("| **Gates** | step 1: Manifest-vs-Symlink Gate [N/M/X] · Upstream-Drift Gate [C/S/X] "
+    assert gates.strip() == ("| **Gates** | step 1: Manifest-vs-Symlink Gate [N/M/X] (only when the `active` link's "
+                             "version has no provenance map and the manifest's has one) · Upstream-Drift Gate [C/S/X] "
                              "(references/upstream-checkout.md, only when upstream moved) · Baseline Confirm Gate "
                              "[C/X] (only on a doubt: the forge tier is below the compile tier, or the provenance map "
                              "is more than 90 days old) |")
@@ -468,10 +469,15 @@ def test_the_overview_claims_only_what_the_stages_do():
 
 
 def test_the_tier_override_input_wins():
+    """#1132: skf-forge-tier-rw.py effective applies the chain, the input's
+    override passed as --tier-override, and §2 logs the tier's source."""
     tier = _flow(_slice(_read(INIT), "**Apply tier override:**", "\n"))
-    assert ("the invocation's `tier_override` input wins, then `tier_override` in `{sidecar_path}/preferences.yaml`, "
-            "then the detected tier") in tier
-    assert "log which one set the tier" in tier
+    assert ("the helper reads `{sidecar_path}/forge-tier.yaml` and applies the override chain: the invocation's "
+            "`tier_override` input wins, then `tier_override` in `{sidecar_path}/preferences.yaml`, then the detected "
+            "tier, each only when it is one of Quick, Forge, Forge+ or Deep") in tier
+    assert '--tier-override="{tier_override}"' in _read(INIT)
+    found = _flow(_slice(_read(INIT), "**If found** (exit 0 with `exists` true)", "\n"))
+    assert "log the tier with its `tier_source` (`invocation`, `override` or `detected`)" in found
     headless = _slice(_read(SKILL), "| **Headless** |", "\n")
     assert "`tier_override` sets the tier (step 1 §2)" in headless and "consumed at the gates" not in headless
 
@@ -567,6 +573,7 @@ def test_activation_resolves_the_emitter_and_creates_the_run_folder():
 # resolves it from its probe order and the placeholder it binds.
 SHARED_HELPERS = [
     (INIT, "loadProvenance", "skf-load-provenance.py"),
+    (INIT, "forgeTierRw", "skf-forge-tier-rw.py"),
     (STRUCTURAL, "structuralDiff", "skf-structural-diff.py"),
     (SEVERITY, "severityClassify", "skf-severity-classify.py"),
     (DOC_DRIFT, "compareDocHashes", "skf-detect-docs.py"),
@@ -699,7 +706,8 @@ def test_skill_md_names_every_stage_and_folder_it_uses():
     assert "nextStepFile" not in _frontmatter(CHECKOUT)
     rules = _flow(_slice(skill, "## Workflow Rules", "## Stages"))
     assert "Once the [C] of `references/upstream-checkout.md` has bound `{source_tree}`" in rules
-    assert "step 1's gates (manifest-vs-link, upstream-drift, baseline confirm) also record theirs" in rules
+    assert ("step 1's gates (manifest-vs-link, only when the `active` link's version has no provenance map and the "
+            "manifest's has one; upstream-drift; baseline confirm) also record theirs") in rules
     assert "§5b has bound" not in rules and "init.md §5b" not in skill
     conventions = _slice(skill, "## Conventions", "## Role")
     assert ("- **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the "
@@ -720,8 +728,11 @@ def test_skill_md_names_every_stage_and_folder_it_uses():
 
 @pytest.mark.parametrize("reason,phase", [("helper-missing", "on-activation:helpers"),
                                           ("template-missing", "on-activation:template"),
-                                          ("no-baseline", "init:provenance")],
-                         ids=["helper-missing", "template-missing", "no-baseline"])
+                                          ("no-baseline", "init:provenance"),
+                                          ("helper-missing", "on-activation:config"),
+                                          ("forge-tier-missing", "on-activation:config")],
+                         ids=["helper-missing", "template-missing", "no-baseline", "config-helper-missing",
+                              "config-forge-tier-missing"])
 def test_a_halt_before_the_run_folder_prints_a_valid_envelope(reason, phase):
     """The activation halts pass their payload to the emitter directly, through
     python3 when uv is what is missing; the new reasons exit 3."""
@@ -735,6 +746,97 @@ def test_a_halt_before_the_run_folder_prints_a_valid_envelope(reason, phase):
     envelope = json.loads(line)
     Draft202012Validator(_schema()).validate(envelope)
     assert (envelope["exit_code"], envelope["halt_reason"], envelope["error"]["phase"]) == (3, reason, phase)
+
+
+PREFLIGHT = SCRIPTS / "skf-preflight.py"
+# Each preflight halt code, with the exit-3 class On Activation step 1 files it under (#1132).
+PREFLIGHT_CLASSES = {"CONFIG_MISSING": "helper-missing", "CONFIG_MALFORMED": "helper-missing",
+                     "SIDECAR_UNDEFINED": "forge-tier-missing", "SIDECAR_MISSING": "forge-tier-missing"}
+
+
+def _preflight_project(tmp_path: Path, config: str | None, sidecar: bool = True,
+                       preferences: str | None = None) -> Path:
+    root = tmp_path / "project"
+    (root / "_bmad" / "skf").mkdir(parents=True)
+    if config is not None:
+        (root / "_bmad" / "skf" / "config.yaml").write_bytes(config.encode("utf-8"))
+    if sidecar:
+        (root / "_bmad" / "_memory" / "forger-sidecar").mkdir(parents=True)
+        if preferences is not None:
+            (root / "_bmad" / "_memory" / "forger-sidecar" / "preferences.yaml").write_bytes(
+                preferences.encode("utf-8"))
+    return root
+
+
+CONFIG = ("project_name: demo\nuser_name: Ada\ncommunication_language: English\n"
+          "document_output_language: English\noutput_folder: _bmad-output\nskills_output_folder: skills\n"
+          "forge_data_folder: forge-data\nsidecar_path: _bmad/_memory/forger-sidecar\n")
+
+
+def test_activation_loads_the_config_through_preflight(tmp_path):
+    """#1132 (BMad Builder determinism-4): On Activation runs skf-preflight.py
+    for the config and the headless flag, binds each folder from its
+    `_resolved` path, and files each preflight halt code under an exit-3
+    class the schema lists; the halt prints its envelope from options, its
+    message on stdin, since no run folder exists yet."""
+    skill = _read(SKILL)
+    first = _flow(_slice(skill, "1. **Load the config.**", "2. **Resolve `{headless_mode}`**"))
+    second = _flow(_slice(skill, "2. **Resolve `{headless_mode}`**", "\n"))
+    assert _fenced(skill, "{preflightHelper}") == 'uv run {preflightHelper} "{project-root}"'
+    assert ("`{preflightHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-preflight.py`, else "
+            "`{project-root}/src/shared/scripts/skf-preflight.py`") in first
+    assert ("bind `project_name`, `user_name`, `communication_language` and `document_output_language` from its "
+            "`config`, and `output_folder`, `skills_output_folder`, `forge_data_folder` and `sidecar_path` from "
+            "`config.<name>_resolved`") in first
+    assert "With `sidecar.preferences_error`" in first and "display that error in one line and go on" in first
+    assert "if step 1's preflight gave `derived.headless_mode` true" in second
+    assert "Load config from" not in skill
+    # Each code is named with its class, and every class is one the schema lists.
+    for code, reason in PREFLIGHT_CLASSES.items():
+        clause = re.search(rf"`{code}`[^;]*?take `halt_reason: \"([a-z-]+)\"`", first)
+        assert clause and clause.group(1) == reason, code
+    assert ("`CONFIG_MISSING`, `CONFIG_MALFORMED`, any other code, no JSON and no preflight path take "
+            "`halt_reason: \"helper-missing\"`") in first
+    assert set(PREFLIGHT_CLASSES.values()) <= set(_settings()["exit_codes"])
+    # The fields the step binds are the ones preflight prints.
+    root = _preflight_project(tmp_path / "ok", CONFIG, preferences="headless_mode: true\ntier_override: [\n")
+    done = subprocess.run([sys.executable, str(PREFLIGHT), str(root)], capture_output=True, text=True,
+                          encoding="utf-8", check=False)
+    assert done.returncode == 0, done.stdout + done.stderr
+    result = json.loads(done.stdout)
+    for name in ("project_name", "user_name", "communication_language", "document_output_language"):
+        assert name in result["config"], name
+    for name in ("output_folder", "skills_output_folder", "forge_data_folder", "sidecar_path"):
+        assert Path(result["config"][f"{name}_resolved"]).is_absolute(), name
+    assert "preferences_error" in result["sidecar"]
+    root = _preflight_project(tmp_path / "headless", CONFIG, preferences="headless_mode: true\n")
+    done = subprocess.run([sys.executable, str(PREFLIGHT), str(root)], capture_output=True, text=True,
+                          encoding="utf-8", check=False)
+    assert json.loads(done.stdout)["derived"]["headless_mode"] is True
+    # Each halt the step names is the code preflight prints for that project.
+    for case, project in {"CONFIG_MISSING": _preflight_project(tmp_path / "none", None),
+                          "CONFIG_MALFORMED": _preflight_project(tmp_path / "bad", "- a list\n"),
+                          "SIDECAR_UNDEFINED": _preflight_project(tmp_path / "undefined", "project_name: x\n"),
+                          "SIDECAR_MISSING": _preflight_project(tmp_path / "missing", CONFIG, sidecar=False)}.items():
+        done = subprocess.run([sys.executable, str(PREFLIGHT), str(project)], capture_output=True, text=True,
+                              encoding="utf-8", check=False)
+        assert done.returncode == 1 and json.loads(done.stdout)["code"] == case, (case, done.stdout)
+    # The halt command, run as written, for the forge-tier-missing class.
+    command = _fenced(skill, "--phase on-activation:config")
+    assert command == ("uv run {emitEnvelopeHelper} emit-halt --workflow skf-audit-skill --target stderr --phase "
+                       "on-activation:config --halt-reason '<halt_reason>' --reason - <<'SKF_REASON'")
+    words = shlex.split(command.partition(" <<")[0])
+    assert words[:3] == ["uv", "run", "{emitEnvelopeHelper}"]
+    args = [w.replace("<halt_reason>", "forge-tier-missing") for w in words[3:]]
+    message = 'Audit Skill cannot load its config: Sidecar directory not found: C:\\p "x". (SIDECAR_MISSING)'
+    proc = subprocess.run([sys.executable, str(EMITTER), *args], input=message + "\n", capture_output=True,
+                          text=True, encoding="utf-8", check=False)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    envelope = json.loads((proc.stdout + proc.stderr).strip().partition(": ")[2])
+    Draft202012Validator(_schema()).validate(envelope)
+    assert (envelope["exit_code"], envelope["halt_reason"], envelope["error"]["phase"]) == (
+        3, "forge-tier-missing", "on-activation:config")
+    assert envelope["error"]["reason"] == message
 
 
 def test_the_result_contract_emits_the_payload_step_1b_built():

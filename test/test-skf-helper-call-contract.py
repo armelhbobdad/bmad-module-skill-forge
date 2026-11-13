@@ -478,6 +478,9 @@ MUST_FIND = [
     ("src/skf-audit-skill/references/structural-diff.md", "render-drift-tables.py", "structural"),
     ("src/skf-audit-skill/references/severity-classify.md", "render-drift-tables.py", "severity"),
     ("src/skf-audit-skill/references/report.md", "render-drift-tables.py", "outside-scope"),
+    # #1132: init's tier and baseline facts, each from a helper.
+    ("src/skf-audit-skill/references/init.md", "skf-forge-tier-rw.py", "effective"),
+    ("src/skf-audit-skill/references/init.md", "skf-load-provenance.py", "baseline"),
     # create-stack-skill (#593, #587, #606): the halt, decision and success
     # emitter calls, the relabel and library tiers step 4 takes from the stack
     # helper, the step 6 stats and the code-mode entries and integrations step 7

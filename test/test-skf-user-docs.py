@@ -701,14 +701,22 @@ def test_drop_lines_give_the_version_rule_and_the_envelope_fields():
 
 
 def test_audit_section_names_the_version_it_reads_and_its_data_folder():
-    """The audit reads the `active` link's version unless [M] is picked, and keeps its JSON per run."""
+    """The audit reads the `active` link's version with an Info note (#1132), stops to offer [M] only when that
+    version has no provenance map and the manifest's has one, and keeps its JSON per run."""
     init = _read(SRC / "skf-audit-skill" / "references" / "init.md")
     assert "**[M] Audit the manifest's version ({active_version})**" in init
+    assert ("Only when `paths.provenance_map.path` is null and `candidates.manifest.provenance_map` is set (the "
+            "link's version has no provenance map and the manifest's has one), present the manifest-vs-symlink "
+            "gate instead of the note") in init
     front = yaml.safe_load(_read(SRC / "skf-audit-skill" / "references" / "report.md").split("---")[1])
     assert front["auditDataFolder"] == "{forge_version}/.skf-audit/{timestamp}"
     section = _slice(_read(WORKFLOWS), "### Audit Skill (AS)", "**Agent:**")
     version = _paragraph(section, "**Version read:**")
-    assert "the version the skill's `active` link names" in version and "offers `[M]`" in version
+    assert "the version the skill's `active` link names" in version
+    assert ("In that case it goes on with an Info note that names both versions, `@Ferris EX` to reconcile the "
+            "manifest, and the `skill_path` that audits the manifest's version instead.") in version
+    assert ("Only when the link's version has no provenance map and the manifest's has one does an interactive "
+            "run stop and offer `[M]` to audit the manifest's version") in version
     output = _paragraph(section, "**Output:**")
     assert "`forge-data/<name>/<version>/.skf-audit/<timestamp>/`" in output
     drift = _paragraph(section, "**Doc drift:**")
@@ -2234,7 +2242,8 @@ def test_docs_follow_the_tier_miss_the_audit_baseline_stop_and_the_drop_warnings
         assert token in require, token
 
     init = _read(SRC / "skf-audit-skill" / "references" / "init.md")
-    for token in ("When neither doubt below holds, go straight on", "`{provenance_age_days}` (§4) is above 90",
+    for token in ("When neither doubt below holds, go straight on",
+                  "`{baseline_old}` (§3) is true: the provenance map is more than 90 days old",
                   "**[X]** HALTs with **exit 6**, `halt_reason: \"user-cancelled\"`", "holds the baseline only",
                   "If `{headless_mode}`, continue with [C]"):
         assert token in init, token
