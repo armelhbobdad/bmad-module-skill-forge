@@ -99,12 +99,39 @@ FILE too (atomically), the record the rename's report reads back:
 written fails a batch that had not failed yet: `error.stage` is "record",
 with that file as its `path`, so the caller rolls back as for a rewrite.
 
+Predict mode (--predict with --skill-group): what the batch would leave for
+skf-verify-no-trace.py to find, worked out before the rename copies anything,
+as select.md section 7b runs it. --skill-group then names the OLD skill
+folder (and --forge-group the old forge folder), which the rename copies byte
+for byte before the batch runs. For each version whose <skill-group>/
+<version>/<old>/ package exists, it applies the batch's rewrite in memory to
+the package's three files and, with --forge-group, to that version's
+<forge-group>/<version>/provenance-map.json (execute.md section 5 checks only
+the versions whose package moved), then scans each result with the verifier's
+own scan_content, loaded from this script's folder. It writes and moves
+nothing, and takes no --result-to. It prints one JSON object:
+
+  {"status": "ok"|"error", "predict": true, "old_name", "new_name",
+   "skill_group", "forge_group": str|null, "renamed_versions": [...],
+   "clean", "hard_matches": [...], "body_warnings": [...],
+   "package_warnings": [...], "missing_files": [...],
+   "error": null | {"stage", "path", "message"}}
+
+Each match is {"version", "file", "region", "line", "text"}: `file` is the
+old folder's file, the one to edit, and `line` the line the verifier would
+name in the rewritten file. `clean` is true when the prediction ran and
+`hard_matches` is empty. It fails as the batch would: "inner-rename" for a
+package already at the new name, "rewrite" for a file it cannot read or
+transform, and "predict" when the verifier cannot be loaded.
+
 Exit codes:
-  0  success (file processed, written iff content changed; or batch done)
+  0  success (file processed, written iff content changed; batch done; or a
+     prediction made, clean or not)
   1  user error (bad args, --moved-folder with a kind other than the two JSON
      kinds, invalid new name, target not found)
-  2  operation failure (unparseable structure, atomic write failed, or a
-     batch move, rewrite or --result-to write that failed)
+  2  operation failure (unparseable structure, atomic write failed, a batch
+     move, rewrite or --result-to write that failed, or a prediction that
+     could not be made)
 
 CLI examples:
   python3 skf-rewrite-skill-name.py SKILL.md \
@@ -117,11 +144,15 @@ CLI examples:
   python3 skf-rewrite-skill-name.py --skill-group /project/skills/rename-skill \
       --versions 1.0.0,0.9.0 --old-name rename --new-name rename-skill \
       --moved-folder /project/skills --result-to run/rename-rewrite.json
+  python3 skf-rewrite-skill-name.py --predict --skill-group /project/skills/rename \
+      --versions 1.0.0,0.9.0 --old-name rename --new-name rename-skill \
+      --moved-folder /project/skills
 """
 
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import re
@@ -451,6 +482,39 @@ def _plain_segment(value: str) -> bool:
     return value not in ("", ".", "..") and not any(c in value for c in "/\\:\0")
 
 
+def _package_refusal(skill_group: Path, version: str, old_name: str, new_name: str, result: dict):
+    """The batch's per-version check, shared with the prediction.
+
+    Returns "skip" (no <old>/ package: named in `package_warnings`), the path
+    of a package already at the new name (the batch refuses it), or None when
+    the package can move.
+    """
+    if not (skill_group / version / old_name).is_dir():
+        result["package_warnings"].append(f"{version}: no {old_name}/ package in {skill_group / version}; skipped")
+        return "skip"
+    target = skill_group / version / new_name
+    return target if os.path.lexists(target) else None
+
+
+def _version_files(skill_group: Path, version: str, package: str, forge_group: Path | None, moved: bool):
+    """(kind, path) of each file the batch rewrites for one version, its package folder named `package`."""
+    files = []
+    if moved:
+        files += [(kind, skill_group / version / package / name) for kind, name in PACKAGE_FILES]
+    if forge_group is not None:
+        files.append((FORGE_FILE[0], forge_group / version / FORGE_FILE[1]))
+    return files
+
+
+def _fail(result: dict, stage: str, path: Path, message: str) -> dict:
+    result["status"] = "error"
+    result["error"] = {"stage": stage, "path": str(path), "message": message}
+    return result
+
+
+TAKEN = "the new package folder already exists"
+
+
 def run_batch(skill_group: Path, versions, old_name: str, new_name: str,
               forge_group: Path | None = None, moved_folders=()) -> dict:
     """Move each version's package to the new name, then rewrite its files.
@@ -473,31 +537,23 @@ def run_batch(skill_group: Path, versions, old_name: str, new_name: str,
     }
 
     def fail(stage: str, path: Path, message: str) -> dict:
-        result["status"] = "error"
-        result["error"] = {"stage": stage, "path": str(path), "message": message}
-        return result
+        return _fail(result, stage, path, message)
 
     for version in versions:
-        source = skill_group / version / old_name
-        target = skill_group / version / new_name
-        if not source.is_dir():
-            result["package_warnings"].append(
-                f"{version}: no {old_name}/ package in {skill_group / version}; skipped")
+        refusal = _package_refusal(skill_group, version, old_name, new_name, result)
+        if refusal == "skip":
             continue
-        if os.path.lexists(target):
-            return fail("inner-rename", target, "the new package folder already exists")
+        if refusal is not None:
+            return fail("inner-rename", refusal, TAKEN)
+        source = skill_group / version / old_name
         try:
-            os.rename(source, target)
+            os.rename(source, skill_group / version / new_name)
         except OSError as e:
             return fail("inner-rename", source, str(e))
         result["renamed_versions"].append(version)
 
     for version in versions:
-        files = []
-        if version in result["renamed_versions"]:
-            files += [(kind, skill_group / version / new_name / name) for kind, name in PACKAGE_FILES]
-        if forge_group is not None:
-            files.append((FORGE_FILE[0], forge_group / version / FORGE_FILE[1]))
+        files = _version_files(skill_group, version, new_name, forge_group, version in result["renamed_versions"])
         for kind, path in files:
             if not path.is_file():
                 result["missing_files"].append(str(path))
@@ -515,6 +571,79 @@ def run_batch(skill_group: Path, versions, old_name: str, new_name: str,
     return result
 
 
+# --- Predict: what the batch would leave for the verifier ----------------------
+
+VERIFIER = "skf-verify-no-trace.py"
+# The verifier's scan_content kind for each rewrite kind.
+SCAN_KIND = {"skill-frontmatter": "skill-md", "metadata-json": "metadata-json",
+             "context-snippet": "context-snippet", "provenance-json": "provenance-json"}
+
+
+def _load_scan():
+    """(the verifier's scan_content, None), or (None, why it cannot be loaded)."""
+    path = Path(__file__).resolve().parent / VERIFIER
+    try:
+        spec = importlib.util.spec_from_file_location("skf_verify_no_trace", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module.scan_content, None
+    except (ImportError, OSError, AttributeError, SyntaxError) as e:
+        return None, f"cannot load {VERIFIER} from {path.parent} ({e}): re-install SKF"
+
+
+def run_predict(skill_group: Path, versions, old_name: str, new_name: str,
+                forge_group: Path | None = None, moved_folders=()) -> dict:
+    """The batch's rewrite of the old folder, in memory, scanned as the verifier scans.
+
+    See "Predict mode" in the module docstring. Writes and moves nothing, and
+    never raises on a file it reads: a failure ends it with `status` "error".
+    """
+    result = {
+        "status": "ok",
+        "predict": True,
+        "old_name": old_name,
+        "new_name": new_name,
+        "skill_group": str(skill_group),
+        "forge_group": str(forge_group) if forge_group is not None else None,
+        "renamed_versions": [],
+        "clean": False,
+        "hard_matches": [],
+        "body_warnings": [],
+        "package_warnings": [],
+        "missing_files": [],
+        "error": None,
+    }
+    scan, why = _load_scan()
+    if scan is None:
+        return _fail(result, "predict", Path(__file__).resolve().parent / VERIFIER, why)
+
+    for version in versions:
+        refusal = _package_refusal(skill_group, version, old_name, new_name, result)
+        if refusal == "skip":
+            continue
+        if refusal is not None:
+            return _fail(result, "inner-rename", refusal, TAKEN)
+        result["renamed_versions"].append(version)
+
+    for version in result["renamed_versions"]:
+        for kind, path in _version_files(skill_group, version, old_name, forge_group, True):
+            if not path.is_file():
+                result["missing_files"].append(str(path))
+                continue
+            moved = moved_folders if kind in JSON_KINDS else ()
+            try:
+                done = process(path, kind, old_name, new_name, True, moved)
+            except ValueError as e:
+                return _fail(result, "rewrite", path, f"{kind} transform failed: {e}")
+            except OSError as e:
+                return _fail(result, "rewrite", path, f"cannot read it: {e}")
+            hard, warnings = scan(done["new_content"], SCAN_KIND[kind], old_name)
+            result["hard_matches"] += [{"version": version, "file": str(path), **m} for m in hard]
+            result["body_warnings"] += [{"version": version, "file": str(path), **m} for m in warnings]
+    result["clean"] = not result["hard_matches"]
+    return result
+
+
 def _main_batch(args) -> None:
     if not _plain_segment(args.old_name):
         _die(1, f"--old-name must be one folder name, got: {args.old_name!r}")
@@ -524,6 +653,11 @@ def _main_batch(args) -> None:
         _die(1, f"--versions must name version folders, got: {bad!r}")
     if not args.skill_group.is_dir():
         _die(1, f"skill group not found: {args.skill_group}")
+    if args.predict:
+        result = run_predict(args.skill_group, versions, args.old_name, args.new_name,
+                             args.forge_group, args.moved_folder)
+        print(json.dumps(result, indent=2))
+        sys.exit(0 if result["status"] == "ok" else 2)
     result = run_batch(args.skill_group, versions, args.old_name, args.new_name,
                        args.forge_group, args.moved_folder)
     if args.result_to is not None:
@@ -626,6 +760,9 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="batch: the copied forge folder whose provenance maps to rewrite")
     batch.add_argument("--result-to", type=Path, metavar="FILE",
                        help="batch: also write the result JSON to FILE")
+    batch.add_argument("--predict", action="store_true",
+                       help="batch: write nothing; --skill-group names the old skill folder, and the result lists "
+                            "what skf-verify-no-trace.py would find after the batch")
     return parser
 
 
@@ -640,10 +777,13 @@ def main() -> None:
     if any(not _folder_name(f) for f in args.moved_folder):
         _die(1, f"--moved-folder must name a folder, got: {args.moved_folder!r}")
 
-    batch_only = {"--versions": args.versions, "--forge-group": args.forge_group, "--result-to": args.result_to}
+    batch_only = {"--versions": args.versions, "--forge-group": args.forge_group, "--result-to": args.result_to,
+                  "--predict": True if args.predict else None}
     if args.skill_group is not None:
         if args.target is not None or args.kind is not None or args.dry_run:
             _die(1, "--skill-group takes no target, --kind or --dry-run")
+        if args.predict and args.result_to is not None:
+            _die(1, "--predict writes nothing: it takes no --result-to")
         if args.versions is None:
             _die(1, "--skill-group needs --versions")
         _main_batch(args)

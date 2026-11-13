@@ -83,6 +83,8 @@ The halt leaves `{run_dir}` in place.
 
 ### 0. Resolve Helpers
 
+When `{dry_run}` is true, run nothing in this step: a dry run ends at step 1 §8, before anything is copied.
+
 **Resolve helpers** in parallel: these are independent file-existence checks that batch into one tool-call message.
 
 - `{atomicWriteHelper}` ← first existing path in `{atomicWriteProbeOrder}` (used in §4 and §6)

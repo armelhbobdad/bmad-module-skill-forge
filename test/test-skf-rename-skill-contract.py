@@ -57,6 +57,7 @@ SELECT_HELPERS = {
     "manifestOpsProbeOrder": ("{manifestOpsHelper}", "skf-manifest-ops.py"),
     "skillInventoryProbeOrder": ("{skillInventoryHelper}", "skf-skill-inventory.py"),
     "skillRosterProbeOrder": ("{skillRosterHelper}", "skf-skill-roster.py"),
+    "rewriteSkillNameProbeOrder": ("{rewriteSkillNameHelper}", "skf-rewrite-skill-name.py"),
 }
 
 
@@ -117,7 +118,7 @@ def test_stage_files_stay_under_their_budgets():
 def test_frontmatter_names_each_helper_in_one_line():
     """leanness-1: a frontmatter comment names its helper and the sections that call it, nothing more."""
     for rel, helpers in ((SELECT, ("{manifestOpsHelper}", "{skillInventoryHelper}", "{skillRosterHelper}",
-                                   "{renameNameValidator}", "{runLockHelper}")),
+                                   "{rewriteSkillNameHelper}", "{renameNameValidator}", "{runLockHelper}")),
                          (EXECUTE, ("{atomicWriteHelper}", "{manifestOpsHelper}", "{rebuildManagedSectionsHelper}",
                                     "{rewriteSkillNameHelper}", "{verifyNoTraceHelper}", "{skillInventoryHelper}",
                                     "{runLockHelper}"))):
@@ -213,7 +214,7 @@ def test_select_resolves_every_helper_it_calls_before_the_first_question():
     for order, (helper, script) in SELECT_HELPERS.items():
         assert f"`{helper}` ← first existing path in `{{{order}}}`" in start, helper
         assert f"`{script}`" in start, script
-    assert "all five stay bound for the rest of the run" in start
+    assert "all six stay bound for the rest of the run" in start
     # §1 is the only place select.md resolves a helper.
     after = select[select.index("### 2. Read the Skill Roster"):]
     assert "first existing path in" not in after
@@ -235,7 +236,7 @@ def test_every_select_helper_call_runs_with_uv():
     """determinism-3: one interpreter, so a host that cannot run the helpers stops at §1."""
     body = _body(SELECT)
     for helper in ("{manifestOpsHelper}", "{skillInventoryHelper}", "{skillRosterHelper}", "{renameNameValidator}",
-                   "{runLockHelper}", "{emitEnvelopeHelper}"):
+                   "{runLockHelper}", "{emitEnvelopeHelper}", "{rewriteSkillNameHelper}"):
         calls = re.findall(rf"^\s*(\S+(?: \S+)?) {re.escape(helper)} ", body, re.M)
         assert calls and set(calls) == {"uv run"}, (helper, calls)
 
@@ -244,14 +245,17 @@ def test_each_helper_call_that_prints_no_json_halts_with_its_phase():
     select = _read(SELECT)
     for start, end, phase in (("### 2. Read the Skill Roster", "### 3. ", "select:list-skills"),
                               ("### 5. Ask for New Name", "### 6. ", "select:validate-new-name"),
-                              ("### 7. Enumerate Affected Versions", "### 8. ", "select:affected-versions")):
+                              ("### 7. Enumerate Affected Versions", "### 7b. ", "select:affected-versions"),
+                              ("### 7b. Predict the Verification", "### 8. ", "select:predict-verify")):
         section = _section(select, start, end)
         halts = [line for line in section.splitlines() if "no json" in line.lower() and "HALT (exit code 4" in line]
         assert halts, start
         assert all(f'`halt_reason: "write-failed"`, `emit-halt` phase `{phase}`' in line for line in halts), start
     row = next(line for line in _read(EXIT_CODES).splitlines() if line.startswith("| 4 "))
-    assert "the run-lock, envelope, manifest, inventory or roster helper is missing" in row
-    assert "step 1 §2, §5 and §7 (the skill roster cannot be read" in row
+    assert "the run-lock, envelope, manifest, inventory, roster or rewrite helper is missing" in row
+    assert "step 1 §2, §5, §7 and §7b (the skill roster cannot be read" in row
+    assert ("or the §7b prediction cannot read or rewrite a file of the old skill, finds a package already at the "
+            "new name in it or cannot load `skf-verify-no-trace.py`, or prints no JSON") in row
 
 
 # --------------------------------------------------------------------------
@@ -820,3 +824,112 @@ def test_the_manifest_entry_is_checked_by_the_helper_before_the_backup(tmp_path)
     assert (code, out["status"]) == (1, "error") and out["error"]
     _write(skills / ".export-manifest.json", "[]")
     assert _json_run(MANIFEST_OPS, argv)[1] is None, "a manifest of the wrong shape prints no JSON: the rollback"
+
+
+# --------------------------------------------------------------------------
+# #1181: step 1 §7b predicts step 2 §5's check before anything is copied
+# --------------------------------------------------------------------------
+
+REWRITE = SRC / "shared" / "scripts" / "skf-rewrite-skill-name.py"
+PREDICT_GROUP = '[--forge-group "{old_forge_group}" --moved-folder "{forge_data_folder}"]'
+
+
+def _predict_section() -> str:
+    return _section(_read(SELECT), "### 7b. Predict the Verification", "### 8. ")
+
+
+def _predict_call() -> str:
+    """§7b's one fenced call, its continuation lines joined."""
+    section = _predict_section()
+    assert section.count("```bash\n") == 1
+    block = section.split("```bash\n", 1)[1].split("\n```", 1)[0]
+    return re.sub(r"\s*\\\n\s*", " ", block).strip()
+
+
+def test_select_predicts_the_verification_before_the_confirmation():
+    """enhancement-1: §7b runs §5's scan on the rewrite of the old folder, between §7 and §8, and halts
+    `verify-failed` with each line and its fix, or `write-failed` when the prediction cannot be made."""
+    select = _read(SELECT)
+    assert (select.index("### 7. Enumerate Affected Versions") < select.index("### 7b. Predict the Verification")
+            < select.index("### 8. Confirmation Gate"))
+    section = _predict_section()
+    assert _predict_call() == (
+        'uv run {rewriteSkillNameHelper} --predict --skill-group "{old_skill_group}" '
+        "--versions {comma-separated affected_versions} --old-name {old_name} --new-name {new_name} "
+        '--moved-folder "{skills_output_folder}" ' + PREDICT_GROUP + ' 2> "{run_dir}/call.err"')
+    assert "Pass the bracketed group only when `{forge_move}` or `{same_folder}` is true" in section
+    assert "- **`status` is `ok` and `clean` is true:** go on to §8." in section
+    [verify] = [line for line in section.splitlines() if line.startswith("- **`status` is `ok` and `clean` is false")]
+    assert verify.endswith('HALT (exit code 5, `halt_reason: "verify-failed"`, `emit-halt` phase '
+                           "`select:predict-verify`), in a dry run too.")
+    for token in ("{each `hard_matches` entry as `{file}` line {line}: `{text}`}. Nothing was changed.",
+                  "Where a line is a note an earlier run wrote, or a `context-snippet.md` line such as `|gotchas:`, "
+                  "edit it in that file, then re-run.",
+                  "Where it names the library or repository the skill is named after (a `description`, an export, a "
+                  "source path), or `{old_name}` is a word of the snippet template itself, such as `api`, `root` or "
+                  "`data`, the skill cannot be renamed: create it again as `{new_name}` with `[BS] Brief Skill` and "
+                  "`[CS] Create Skill`.",
+                  "The troubleshooting guide's `verify-failed` entry has the details."):
+        assert token in verify, token
+    [failed] = [line for line in section.splitlines() if line.startswith("- **`status` is `error`, or no JSON")]
+    assert 'HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:predict-verify`)' in failed
+    assert "An interactive run reads that stderr in `{run_dir}/call.err`." in failed
+    # Step 2 §5 stays the commit gate.
+    assert "uv run {verifyNoTraceHelper}" in _section(_read(EXECUTE), "### 5. Verify", "### 6. ")
+    flags = _row(_read(CONTRACT), "Flags")
+    assert "`--dry-run` (run selection + validation + the step 1 §7b prediction of step 2 §5's check" in flags
+    assert "a predicted `verify-failed` halts it, exit 5, before the confirmation block" in flags
+    row5 = next(line for line in _read(EXIT_CODES).splitlines() if line.startswith("| 5 "))
+    assert ("step 1 §7b (the prediction of step 2 §5 finds `{old_name}` in a file of the old skill, before anything "
+            "is copied, a `--dry-run` included) and step 2 §5 (no-trace verification failed") in row5
+
+
+def _library_skill(skills: Path, forge: Path, name: str, description: str) -> None:
+    """One version of a skill as SKF writes it, its forge folder beside it."""
+    package = skills / name / "1.0.0" / name
+    _write(package / "SKILL.md", f"---\nname: {name}\ndescription: Use when parsing text.\n---\n# {name}\n")
+    _write(package / "metadata.json", json.dumps({"name": name, "version": "1.0.0", "description": description,
+                                                  "source_package": name, **SKF_MARK}, indent=2) + "\n")
+    _write(package / "context-snippet.md", f"[{name} v1.0.0]|root: skills/{name}/\n"
+                                           f"|IMPORTANT: {name} v1.0.0 - read SKILL.md before writing {name} code.\n")
+    _write(forge / name / "1.0.0" / "provenance-map.json",
+           json.dumps({"skill_name": name, "source_library": name, "entries": []}, indent=2) + "\n")
+
+
+def _tree(root: Path) -> dict:
+    return {p.relative_to(root).as_posix(): p.read_bytes() if p.is_file() else None for p in sorted(root.rglob("*"))}
+
+
+@pytest.mark.parametrize("library_named", [False, True], ids=["clean", "library-named"])
+@pytest.mark.parametrize("forge_move", [True, False], ids=["forge-moves", "forge-stays"])
+def test_the_documented_prediction_runs_and_changes_nothing(tmp_path, forge_move, library_named):
+    """The §7b call, filled in as an agent fills it: a description that names the library predicts §5's
+    match on the old skill's file, a clean skill predicts none, and no file or folder changes."""
+    old, new = "acme-lib", "acme-str"
+    skills, forge, run_dir = tmp_path / "skills", tmp_path / "forge-data", tmp_path / "run"
+    run_dir.mkdir()
+    description = f"Text utilities from the {old} package." if library_named else "Text utilities."
+    _library_skill(skills, forge, old, description)
+    before = _tree(tmp_path)
+    values = {"rewriteSkillNameHelper": str(REWRITE), "old_skill_group": str(skills / old),
+              "comma-separated affected_versions": "1.0.0", "old_name": old, "new_name": new,
+              "skills_output_folder": str(skills), "old_forge_group": str(forge / old),
+              "forge_data_folder": str(forge), "run_dir": str(run_dir)}
+    call = _predict_call().replace(PREDICT_GROUP, PREDICT_GROUP[1:-1] if forge_move else "")
+    keys = list(values)
+    words = shlex.split(re.sub(r"\{([^{}]+)\}", lambda m: f"@@{keys.index(m.group(1))}@@", call))
+    argv = [re.sub(r"@@(\d+)@@", lambda m: values[keys[int(m.group(1))]], w) for w in words]
+    assert argv[:3] == ["uv", "run", str(REWRITE)] and argv[-2:] == ["2>", f"{run_dir}/call.err"], argv
+    proc = subprocess.run([sys.executable, *argv[2:-2]], capture_output=True, timeout=60)
+    assert proc.returncode == 0, proc.stderr
+    out = json.loads(proc.stdout.decode("utf-8"))
+    assert (out["status"], out["predict"], out["renamed_versions"], out["error"]) == ("ok", True, ["1.0.0"], None)
+    assert out["forge_group"] == (str(forge / old) if forge_move else None)
+    assert out["clean"] is not library_named
+    metadata = skills / old / "1.0.0" / old / "metadata.json"
+    expected = [(metadata, "metadata-json", 4, f'"description": "Text utilities from the {old} package.",')]
+    assert [(Path(m["file"]), m["region"], m["line"], m["text"]) for m in out["hard_matches"]] == (
+        expected if library_named else [])
+    assert [(Path(w["file"]).name, w["text"]) for w in out["body_warnings"]] == [("SKILL.md", f"# {old}")]
+    assert out["missing_files"] == []
+    assert _tree(tmp_path) == before, "the prediction writes and moves nothing"

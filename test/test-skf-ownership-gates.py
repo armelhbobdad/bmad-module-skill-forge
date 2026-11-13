@@ -1857,7 +1857,7 @@ def test_rename_run_lock_goes_through_the_shared_helper():
     assert _fenced_calls(lock, "{runLockHelper} acquire") == [
         'uv run {runLockHelper} acquire --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" '
         '--owner "rename-skill:{old_name}:{run_id}" --stale-after 60' + CALL_ERR]
-    assert "**Skip this section when `--dry-run` is set:**" in lock, "a dry run never blocks a rename"
+    assert "**Skip this section when `{dry_run}` is true:**" in lock, "a dry run never blocks a rename"
     assert "bind `{lock_owner}` ← `owner`" in lock
     held = _section(lock, "- **3** (`acquired` false)", "- **Any other exit")
     assert ('HALT (exit code 5, `halt_reason: "halted-for-concurrent-run"`, `emit-halt` phase '
@@ -2177,7 +2177,8 @@ def test_rename_saves_the_stderr_each_quoting_halt_reads():
                         ("### 4b. ", "### 5. ", "{runLockHelper} acquire"),
                         ("### 5. ", "### 6. ", "{renameNameValidator}"),
                         ("### 6. ", "### 7. ", "{emitEnvelopeHelper} record"),
-                        ("### 7. ", "### 8. ", "affected-versions")],
+                        ("### 7. ", "### 7b. ", "affected-versions"),
+                        ("### 7b. ", "### 8. ", "{rewriteSkillNameHelper} --predict")],
         RENAME_EXECUTE: [("### 1. ", "### 2. ", "{runLockHelper} acquire"),
                          ("### 2. ", "### 3. ", "{rewriteSkillNameHelper}"),
                          ("### 4. ", "### 5. ", "{skillInventoryHelper} resolve"),
@@ -2314,7 +2315,7 @@ def test_rename_dry_run_restates_its_complete_envelope(tmp_path):
     from jsonschema import Draft202012Validator
 
     confirm = _section(_read(RENAME_SELECT), "### 8. Confirmation Gate", "### 9. ")
-    dry = _section(confirm, "**If `--dry-run` was passed**", "- **If `Y`**")
+    dry = _section(confirm, "**If `{dry_run}` is true**", "**GATE [default: Y]**")
     assert "In `{headless_mode}`, emit the dry-run envelope on **stdout**" in dry
     assert "Without `--result-dir` it writes no result file" in dry
     assert _fenced_calls(dry, "{emitEnvelopeHelper} emit") == [
@@ -2349,6 +2350,25 @@ def test_rename_dry_run_restates_its_complete_envelope(tmp_path):
            "no copy, no manifest re-key, no delete.")
     assert dry.index("rmdir") < dry.index(last) < dry.index(end)
     assert "display it verbatim" not in dry and "and end the run" not in dry
+
+
+def test_rename_dry_run_ends_before_the_confirm_gate():
+    """#1181 architecture-2: a headless dry run never takes the auto-confirm into step 2, where it stopped
+    `halted-for-concurrent-run` on the lock it never took. Every stage reads the bound `{dry_run}`."""
+    confirm = _section(_read(RENAME_SELECT), "### 8. Confirmation Gate", "### 9. ")
+    branch = "**If `{dry_run}` is true**, which takes precedence over the headless auto-confirm below:"
+    gate = "**GATE [default: Y]**: Otherwise (not a dry run), if `{headless_mode}`: auto-proceed with [Y]"
+    order = [confirm.index(marker) for marker in ("Proceed? [Y/N]\n```", branch, gate,
+                                                  "Wait for explicit user response.", "- **If `Y`**")]
+    assert order == sorted(order), order
+    assert confirm.count("**GATE [default:") == 1 and confirm.count("Wait for explicit user response.") == 1
+    for rel in (RENAME_SELECT, RENAME_EXECUTE):
+        for stale in ("`--dry-run` was passed", "`--dry-run` is set", "Skip the record when"):
+            assert stale not in _read(rel), (rel, stale)
+    guard = _section(_read(RENAME_EXECUTE), "### 0. Resolve Helpers", "### 1. ")
+    line = ("When `{dry_run}` is true, run nothing in this step: a dry run ends at step 1 §8, before anything is "
+            "copied.")
+    assert line in guard and guard.index(line) < guard.index("**Resolve helpers**")
 
 
 def test_rename_report_writes_its_result_files_through_the_emitter(tmp_path):

@@ -138,6 +138,46 @@ class TestVerify:
         assert any(m["version"] == "0.9.0" for m in r["hard_matches"])
 
 
+class TestScanContent:
+    """#1181: verify() scans each file through scan_content, which skf-rewrite-skill-name.py --predict calls on
+    the rewrite it would write, so the prediction and the commit gate report the same lines."""
+
+    SKILL_MD = "---\nname: rename\ndescription: the rename helper\n---\n# rename\nnot renamed\n"
+    METADATA = json.dumps({"name": "rename", "source_repo": "https://github.com/acme/rename",
+                           "description": "rename things"}, indent=2) + "\n"
+    SNIPPET = "[rename v1.0.0]|root: .claude/skills/rename/\n|gotchas: rename-skill is fine, rename is not\n"
+    PROV = json.dumps({"skill_name": "rename-skill", "entries": [{"source_library": "rename",
+                                                                    "note": "from rename"}]}, indent=2) + "\n"
+
+    def test_it_gives_verifys_regions_lines_and_texts_for_each_kind(self, tmp_path):
+        sg, fg = build_tree(tmp_path, "1.0.0", self.SKILL_MD, self.METADATA, self.SNIPPET, self.PROV)
+        r = mod.verify(sg, fg, OLD, NEW, ["1.0.0"])
+        inner = sg / "1.0.0" / NEW
+        hard, warnings = [], []
+        for path, kind in ((inner / "SKILL.md", "skill-md"), (inner / "metadata.json", "metadata-json"),
+                           (inner / "context-snippet.md", "context-snippet"),
+                           (fg / "1.0.0" / "provenance-map.json", "provenance-json")):
+            h, w = mod.scan_content(path.read_text(encoding="utf-8"), kind, OLD)
+            hard += [{"version": "1.0.0", "file": str(path), **m} for m in h]
+            warnings += [{"version": "1.0.0", "file": str(path), **m} for m in w]
+        assert (r["hard_matches"], r["body_warnings"]) == (hard, warnings)
+        assert [(m["region"], m["line"]) for m in hard] == [
+            ("skill-frontmatter", 2), ("skill-frontmatter", 3), ("metadata-json", 2), ("metadata-json", 4),
+            ("context-snippet", 1), ("context-snippet", 2), ("provenance-json", 6)]
+        assert [(m["region"], m["line"], m["text"]) for m in warnings] == [("skill-body", 5, "# rename")]
+
+    def test_the_json_kinds_skip_source_facts_and_the_others_do_not(self):
+        text = '{"source_repo": "rename"}\n'
+        assert mod.scan_content(text, "metadata-json", OLD) == ([], [])
+        assert mod.scan_content(text, "provenance-json", OLD) == ([], [])
+        assert mod.scan_content(text, "context-snippet", OLD) == (
+            [{"region": "context-snippet", "line": 1, "text": text.strip()}], [])
+
+    def test_an_unknown_kind_raises(self):
+        with pytest.raises(ValueError):
+            mod.scan_content("rename", "skill-frontmatter", OLD)
+
+
 class TestCli:
     def _run(self, sg, fg, versions):
         proc = subprocess.run(

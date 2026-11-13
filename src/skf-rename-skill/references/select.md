@@ -14,6 +14,10 @@ skillInventoryProbeOrder:
 skillRosterProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-roster.py'
   - '{project-root}/src/shared/scripts/skf-skill-roster.py'
+# {rewriteSkillNameHelper}: the §7b prediction.
+rewriteSkillNameProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-rewrite-skill-name.py'
+  - '{project-root}/src/shared/scripts/skf-rewrite-skill-name.py'
 # {renameNameValidator}: this skill's own new-name gate, run in §5.
 renameNameValidator: 'scripts/skf-validate-rename-name.py'
 # {runLockHelper} and {emitEnvelopeHelper}: §4b and the halt procedure.
@@ -70,7 +74,7 @@ The halt leaves `{run_dir}` in place.
 
 ### 1. Start the Run
 
-Resolve, as one batch of file-existence checks, `{runLockHelper}` ← first existing path in `{runLockProbeOrder}`, `{emitEnvelopeHelper}` ← first existing path in `{emitEnvelopeProbeOrder}`, `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}`, `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}` and `{skillRosterHelper}` ← first existing path in `{skillRosterProbeOrder}`; all five stay bound for the rest of the run. From `{project-root}`, take the run id:
+Resolve, as one batch of file-existence checks, `{runLockHelper}` ← first existing path in `{runLockProbeOrder}`, `{emitEnvelopeHelper}` ← first existing path in `{emitEnvelopeProbeOrder}`, `{manifestOpsHelper}` ← first existing path in `{manifestOpsProbeOrder}`, `{skillInventoryHelper}` ← first existing path in `{skillInventoryProbeOrder}`, `{skillRosterHelper}` ← first existing path in `{skillRosterProbeOrder}` and `{rewriteSkillNameHelper}` ← first existing path in `{rewriteSkillNameProbeOrder}`; all six stay bound for the rest of the run. From `{project-root}`, take the run id:
 
 ```bash
 uv run {runLockHelper} run-id
@@ -85,7 +89,7 @@ for dir in "{run_dir}" "{skills_output_folder}" "{forge_data_folder}"; do
 done
 ```
 
-- When a helper has no existing candidate, or `run-id` exits non-zero or prints no JSON: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:start-run`) with "**Rename Skill cannot start:** {the missing helper (`skf-run-lock.py`, `skf-emit-result-envelope.py`, `skf-manifest-ops.py`, `skf-skill-inventory.py` or `skf-skill-roster.py`), or the helper's error}. Nothing was changed. Re-install SKF, then re-run." With no run id yet, its `emit-halt` leaves out `--run-dir "{run_dir}"`.
+- When a helper has no existing candidate, or `run-id` exits non-zero or prints no JSON: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:start-run`) with "**Rename Skill cannot start:** {the missing helper (`skf-run-lock.py`, `skf-emit-result-envelope.py`, `skf-manifest-ops.py`, `skf-skill-inventory.py`, `skf-skill-roster.py` or `skf-rewrite-skill-name.py`), or the helper's error}. Nothing was changed. Re-install SKF, then re-run." With no run id yet, its `emit-halt` leaves out `--run-dir "{run_dir}"`.
 - When the loop exits non-zero: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:write-probe`, with the folder its stderr names as `path`) with "**Cannot write to `{that folder}`.** Nothing was changed. Check that the path exists as a folder you can write to and that the disk has free space, then re-run."
 
 Neither halt has a run folder to save stderr in: its heredoc holds the helper's error, or the folder, as displayed, with no `--stderr-from`.
@@ -166,7 +170,7 @@ When no rule applies, `{forge_move}` and `{forge_left_in_place}` come from the h
 
 ### 4b. Concurrency Guard
 
-**Skip this section when `--dry-run` is set:** a dry run writes nothing to the skill, so it takes no lock and never blocks a rename.
+**Skip this section when `{dry_run}` is true:** a dry run writes nothing to the skill, so it takes no lock and never blocks a rename.
 
 Two concurrent rename runs against the same `old_name` would corrupt state mid-copy: one would `rm -rf` the other's freshly-staged new directories, or both would race on the manifest re-key. Take the run lock, a file that names the run holding it. From `{project-root}`, run:
 
@@ -283,6 +287,23 @@ Also bind the four outer paths, each without a trailing `/`:
 - `old_forge_group` = `{forge_data_folder}/{old_name}`
 - `new_forge_group` = `{forge_data_folder}/{new_name}`
 
+### 7b. Predict the Verification
+
+Step 2 §5 rolls the rename back when `{old_name}` stays where it must not. Check that now, before anything is copied: with `--predict`, `{rewriteSkillNameHelper}` applies step 2 §2's rewrite to `{old_skill_group}` in memory, writes nothing, and runs step 2 §5's scan on the result. From `{project-root}`:
+
+```bash
+uv run {rewriteSkillNameHelper} --predict --skill-group "{old_skill_group}" \
+  --versions {comma-separated affected_versions} \
+  --old-name {old_name} --new-name {new_name} --moved-folder "{skills_output_folder}" \
+  [--forge-group "{old_forge_group}" --moved-folder "{forge_data_folder}"] 2> "{run_dir}/call.err"
+```
+
+Pass the bracketed group only when `{forge_move}` or `{same_folder}` is true, as step 2 §2 does.
+
+- **`status` is `ok` and `clean` is true:** go on to §8.
+- **`status` is `ok` and `clean` is false:** display "**Renaming `{old_name}` would leave its old name in:** {each `hard_matches` entry as `{file}` line {line}: `{text}`}. Nothing was changed. Where a line is a note an earlier run wrote, or a `context-snippet.md` line such as `|gotchas:`, edit it in that file, then re-run. Where it names the library or repository the skill is named after (a `description`, an export, a source path), or `{old_name}` is a word of the snippet template itself, such as `api`, `root` or `data`, the skill cannot be renamed: create it again as `{new_name}` with `[BS] Brief Skill` and `[CS] Create Skill`. The troubleshooting guide's `verify-failed` entry has the details." and HALT (exit code 5, `halt_reason: "verify-failed"`, `emit-halt` phase `select:predict-verify`), in a dry run too.
+- **`status` is `error`, or no JSON on stdout:** HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:predict-verify`) with "**Rename Skill cannot check the rename:** {its `error.message` at `{error.path}`, or the helper's stderr}. Nothing was changed. Fix the file or folder it names, or re-install SKF when the error names a helper, then re-run." An interactive run reads that stderr in `{run_dir}/call.err`.
+
 ### 8. Confirmation Gate
 
 Display the full operation summary:
@@ -320,11 +341,7 @@ to rebuild afterwards is reported and never undoes the rename.
 Proceed? [Y/N]
 ```
 
-**GATE [default: Y]**: If `{headless_mode}`: auto-proceed with [Y] (log line: "headless: auto-confirmed rename {old_name} → {new_name}") and record `{"gate": "confirm-rename", "default_action": "proceed", "taken_action": "proceed", "reason": "headless auto-confirm"}` in the run sink with §6's two commands, staged as `{run_dir}/decision.json`; when `record` exits non-zero, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:confirm`) with its message, which an interactive run reads in `{run_dir}/call.err`. Skip the record when `--dry-run` is set: a dry run does not execute the rename, so there is no confirmation to record.
-
-Wait for explicit user response.
-
-**If `--dry-run` was passed**: skip the Y/N prompt entirely and display "**[DRY RUN] No changes were made: the preview above shows what would be renamed.**" The dry run took no lock (§4b), so it releases none. In `{headless_mode}`, emit the dry-run envelope on **stdout**. From `{project-root}`:
+**If `{dry_run}` is true**, which takes precedence over the headless auto-confirm below: skip the Y/N prompt entirely and display "**[DRY RUN] No changes were made: the preview above shows what would be renamed.**" The dry run took no lock (§4b), so it releases none. In `{headless_mode}`, emit the dry-run envelope on **stdout**. From `{project-root}`:
 
 ```bash
 cat > "{run_dir}/result-context.json" <<'SKF_RESULT'
@@ -340,6 +357,10 @@ rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headl
 ```
 
 Then, in a headless run, display the line the emitter printed verbatim, after the delete and with nothing after it, so a `claude -p` caller reads it as the final message. In both modes, and whether or not the emitter printed a line, the dry run then ends with exit code 0: no copy, no manifest re-key, no delete.
+
+**GATE [default: Y]**: Otherwise (not a dry run), if `{headless_mode}`: auto-proceed with [Y] (log line: "headless: auto-confirmed rename {old_name} → {new_name}") and record `{"gate": "confirm-rename", "default_action": "proceed", "taken_action": "proceed", "reason": "headless auto-confirm"}` in the run sink with §6's two commands, staged as `{run_dir}/decision.json`; when `record` exits non-zero, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:confirm`) with its message, which an interactive run reads in `{run_dir}/call.err`.
+
+Wait for explicit user response.
 
 - **If `Y`** → proceed to section 9
 - **If `N`** (or `cancel` / `exit` / `[X]` / `:q`) → display "**Cancelled.** No changes were made." and HALT (exit code 6, `halt_reason: "user-cancelled"`, `emit-halt` phase `select:confirm`).
