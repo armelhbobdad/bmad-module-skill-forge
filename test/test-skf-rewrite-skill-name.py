@@ -995,7 +995,16 @@ class TestRenameProse:
         workflows = (REPO / "docs" / "workflows.md").read_text(encoding="utf-8")
         rs = next(line for line in workflows.split("\n") if line.startswith("- **`/skf-rename-skill` (RS)**"))
         assert "`3` resolution-failure (`manifest-corrupt`, `nothing-to-rename`)" in rs
-        assert "`verify-failed` when the old name is still in the renamed files" in rs
+        # #1181: the check runs before the copy too, a dry run included, so not every stop is a rollback.
+        assert "`verify-failed` when the old name would stay in the renamed files, found before anything is " \
+               "copied, a `--dry-run` included, or after the copy, which then rolls the rename back" in rs
+        rename = _between(workflows, "### Rename Skill (RS)", "### Drop Skill (DS)")
+        assert "A rename's dry run also runs the check for leftovers of the old name, so it stops with " \
+               "`verify-failed` (exit `5`)" in rename
+        knowledge = _between(VERSION_PATHS.read_text(encoding="utf-8"), "### Rename (RS - Rename Skill)", "### Drop")
+        assert "Before anything is copied, rename runs the same check on what its rewrite would make of the " \
+               "old skill's files, a `--dry-run` included, and stops with nothing changed on a match." in knowledge
+        assert "the no-trace check then stops the rename" in knowledge
         trouble = _between((REPO / "docs" / "troubleshooting.md").read_text(encoding="utf-8"),
                            "### Rename Skill stops with `verify-failed`", "\n### ")
         for phrase in ("(exit `5`)", "the skill keeps its old name and every file as it was",
