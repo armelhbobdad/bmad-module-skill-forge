@@ -5,6 +5,9 @@ reportUpdateScript: 'scripts/skf-report-update.py'
 comentionProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-comention-pairs.py'
   - '{project-root}/src/shared/scripts/skf-comention-pairs.py'
+enumerateStackSkillsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-enumerate-stack-skills.py'
+  - '{project-root}/src/shared/scripts/skf-enumerate-stack-skills.py'
 feasibilitySchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
   - '{project-root}/src/shared/references/feasibility-report-schema.md'
@@ -41,13 +44,14 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 ### 2. Extract Technology References
 
-**Run the mentions helper once.** Resolve `{comentionHelper}` from `{comentionProbeOrder}`; first existing path wins. Take the architecture document's path from `architectureDoc` in the `{outputFile}` frontmatter, then run:
+**Run the mentions helper once.** Resolve `{comentionHelper}` from `{comentionProbeOrder}` and `{enumerateStackSkillsHelper}` from `{enumerateStackSkillsProbeOrder}`; first existing path wins. Take the architecture document's path from `architectureDoc` in the `{outputFile}` frontmatter, then write the skill terms, add to the `aliases` of each skill in `{run_dir}/skill-terms.json` each other name a persistent fact gives the skill, and run the mentions helper:
 
 ```bash
+uv run {enumerateStackSkillsHelper} terms --inventory "{inventoryFile}" -o "{run_dir}/skill-terms.json"
 uv run {comentionHelper} mentions --doc "<architectureDoc>" --skills - > "{docMentionsFile}"
 ```
 
-piping on stdin a JSON array with one object per `skills[]` entry of `{inventoryFile}`: `{"name": "<name>", "aliases": [...]}`, where `aliases` holds the entry's `source_repo_basename` and `source_root_basename` that are not null, and each other name a persistent fact gives the skill. If no candidate exists, or the command exits non-zero, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `coverage:mentions`, naming its first stderr line. The integrations stage reads its `candidates[]` from `{docMentionsFile}` too.
+piping `{run_dir}/skill-terms.json` on stdin: a JSON array with one object per `skills[]` entry of `{inventoryFile}`, `{"name": "<name>", "aliases": [...]}`, where `aliases` holds the entry's `source_repo_basename` and `source_root_basename` that are not null, with the persistent-fact names added. If no candidate exists, or the command exits non-zero, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `coverage:mentions`, naming its first stderr line; a `terms` call that exits non-zero halts the same way. The integrations stage reads its `candidates[]` from `{docMentionsFile}` too.
 
 **Skills the document names:** each skill in the helper's `mentioned` list is a referenced technology, labelled with the skill's `name`, whose source section is the `header` of its first `skills[].paragraphs[]` entry (none when that `header` is null or the document names the skill only in a heading).
 
@@ -55,7 +59,7 @@ piping on stdin a JSON array with one object per `skills[]` entry of `{inventory
 
 ### 3. Cross-Reference Against Skills
 
-**Match the other technologies by script.** Run the §2 command again with the same array on stdin and `--technologies` added, overwriting `{docMentionsFile}` (the same HALT applies):
+**Match the other technologies by script.** Run the §2 mentions command again (never the `terms` call, which would drop the added aliases) with the same array on stdin and `--technologies` added, overwriting `{docMentionsFile}` (the same HALT applies):
 
 ```bash
 uv run {comentionHelper} mentions --doc "<architectureDoc>" --skills - --technologies "{run_dir}/technologies.json" > "{docMentionsFile}"
@@ -67,7 +71,7 @@ Each referenced technology matches a skill of `{inventoryFile}` this way:
 - Judge only the names in `unverified_technologies`: one matches a skill under a common alias of the skill's name ("ReactJS" or "react.js" for a `react` skill, "PostgreSQL" for a `postgres` skill), or a framework name for the skill of a library it encompasses (e.g., "Tauri" encompasses the Tauri ecosystem). A `name-contained` or `alias-contained` entry is no match by itself: React Native is not `react`.
 - A technology matched to a `mentioned` skill adds no row: that skill's own row stands.
 
-**Run the mentions helper again when a technology matches a skill that is not `mentioned`.** Add the technology's term, as the document writes it, to that skill's `aliases`. Keep a version written onto the name (`Vue3`, not `Vue`): the helper finds a term only at word boundaries. Once every technology is checked, run the command above once more with the extended array, overwriting `{docMentionsFile}` (the same HALT applies), and take §2's skill rows from the new file: each such skill is in `mentioned` now, and its row, labelled with its `name`, replaces the technology's. The integrations stage then finds that skill's pairs in `candidates[]`. With no such match, skip this run.
+**Run the mentions helper again when a technology matches a skill that is not `mentioned`.** Add the technology's term, as the document writes it, to that skill's `aliases` in `{run_dir}/skill-terms.json`. Keep a version written onto the name (`Vue3`, not `Vue`): the helper finds a term only at word boundaries. Once every technology is checked, run the command above once more with the extended array, overwriting `{docMentionsFile}` (the same HALT applies), and take §2's skill rows from the new file: each such skill is in `mentioned` now, and its row, labelled with its `name`, replaces the technology's. The integrations stage then finds that skill's pairs in `candidates[]`. With no such match, skip this run.
 
 **Detect a deliberate-removal signal (from the architecture document):** Before assigning Covered/Missing, check whether the referenced technology is explicitly marked for removal or replacement in the architecture document itself. Be conservative — recognize a removal signal only when one of these is present, and when in doubt leave it as a normal reference (a false removal signal silently drops a real coverage gap):
 - The technology is listed under a section whose heading matches (case-insensitive) one of: "deprecated", "removed", "legacy", "migrating away", "being replaced", "to be removed", "sunset", "retiring".

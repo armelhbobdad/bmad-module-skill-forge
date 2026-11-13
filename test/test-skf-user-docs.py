@@ -195,21 +195,24 @@ def test_quick_skill_exit_code_map_matches_the_halt_contract():
 
 
 def test_refine_architecture_documents_the_scope_confirmation():
-    """#610: the section describes the gate gap analysis shows for a derived scope, and its headless default."""
+    """#610: the section describes the gate gap analysis shows for a derived scope, and its headless default; #1177:
+    both say no gap, issue or improvement is looked for with an out-of-scope skill."""
     gate = _slice(_read(RA_REFS / "gap-analysis.md"), "**Confirm a derived scope.**", "**Technologies with no skill.**")
     for token in ("Type **C** to keep this scope", "Type skill names to bring them **into** scope",
                   "Type **-skill_name** to take a skill **out** of scope",
                   "keep the derived sets and auto-proceed with [C]",
-                  "Pairs, VS verdicts and improvement suggestions that involve an out-of-scope skill are listed for "
-                  "awareness only and stay out of the refined document."):
+                  "No gap, issue or improvement is looked for with an out-of-scope skill: the VS verdicts and the "
+                  "document's claims that involve one are listed for awareness only and stay out of the refined "
+                  "document."):
         assert token in gate, token
     section = _ra_section()
     assert "Gap analysis (confirms a derived scope)" in section
     scope = _paragraph(section, "**Scope:**")
     for token in ("`--scope-skills`", "type `C` to keep the scope", "a skill's name to bring it in",
                   "`-<name>` to take it out", "A headless run keeps the derived scope and logs that decision",
-                  "VS verdicts and improvement suggestions that involve an out-of-scope skill are listed for awareness "
-                  "only and stay out of the refined document"):
+                  "RA looks for no gap, issue or improvement with an out-of-scope skill: it names those skills once",
+                  "the VS verdicts and the document's claims that involve one are listed for awareness only and stay "
+                  "out of the refined document"):
         assert token in scope, token
 
 

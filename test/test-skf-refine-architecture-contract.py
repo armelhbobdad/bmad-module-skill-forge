@@ -39,7 +39,13 @@ and pin the prose around them:
   refinement is [R] at step 5's review, where feedback can still act);
 - init's documented `rules` call and issue detection's `verdicts` and
   `exports` calls run as written on a fixture, with the bindings the steps
-  give them.
+  give them;
+- init's `enumerate` and `terms` calls and gap analysis's `scope` call run
+  as written on skill folders (#1177): the terms are the source basenames
+  the hand rule took, deduped, and `pair_count` is
+  `{skill_count}*({skill_count}-1)/2`; an empty scope reruns with every
+  skill, and a `verdicts` call that lost its terms runs again once issue
+  detection writes them again.
 """
 
 from __future__ import annotations
@@ -60,6 +66,7 @@ REFERENCES = SKILL / "references"
 SCHEMA_PATH = SRC / "shared" / "scripts" / "schemas" / "skf-refine-architecture-result-envelope.v1.json"
 EMITTER = SRC / "shared" / "scripts" / "skf-emit-result-envelope.py"
 PRESERVATION = SKILL / "scripts" / "skf-check-preservation.py"
+ENUMERATE = SRC / "shared" / "scripts" / "skf-enumerate-stack-skills.py"
 SKILL_MD = SKILL / "SKILL.md"
 EXIT_CODES = REFERENCES / "exit-codes.md"
 INIT = REFERENCES / "init.md"
@@ -425,6 +432,14 @@ def _call(text: str, command: str) -> list[str]:
     return [quoted or bare for quoted, bare in re.findall(r'"([^"]*)"|(\S+)', rest)]
 
 
+def _helper_call(text: str, helper: str, command: str) -> list[str]:
+    """The documented call of a resolved helper, as argv for its script, up to an output redirect."""
+    prefix = f"uv run {{{helper}}} {command} "
+    [line] = [line.strip() for line in text.splitlines() if line.strip().startswith(prefix)]
+    rest = line.split(f"{{{helper}}} ", 1)[1].split(" > ", 1)[0]
+    return [quoted or bare for quoted, bare in re.findall(r'"([^"]*)"|(\S+)', rest)]
+
+
 def _bind(argv: list[str], values: dict) -> list[str]:
     out = []
     for word in argv:
@@ -608,6 +623,10 @@ def test_the_review_shows_the_summary_the_script_filled():
             "`{evidence_rows}` from the plan's entries, `tiers`, `unverified_technologies`, `skill_count` and "
             "`vs_report`") in summary
     assert "refuses a summary that lacks `{changes_rows}` or `{evidence_rows}`" in summary
+    # #1177: the run reads the in-scope skills only, so the summary counts those as its evidence.
+    build = _section(_read(COMPILE), "### 6. Build the Draft", "### 7.")
+    assert "`skill_count` (the number of skills in `{in_scope_skills}`, Step 02 §3" in build
+    assert "the inventory's `{skill_count}`" not in build
 
 
 def test_an_issue_claim_is_recorded_as_the_line_compile_anchors_on():
@@ -800,10 +819,18 @@ def test_the_documented_rules_and_verdicts_calls_run(tmp_path):
     assert tiers == {"issue": ["Critical", "Major", "Minor"], "improvement": ["High", "Medium", "Low"]}
     report = tmp_path / "feasibility-report-app-latest.md"
     report.write_bytes(VS_REPORT.encode("utf-8"))
-    # Step 02 section 2 stages the terms both helpers read.
-    (run_dir / "skill-terms.json").write_bytes(json.dumps(
-        [{"name": "loro", "aliases": []}, {"name": "yjs", "aliases": []}, {"name": "fastapi", "aliases": []}]
-    ).encode("utf-8"))
+    # Step 01 section 2 writes the terms both helpers read, with the enumerate helper's `terms` (#1177).
+    (run_dir / "skill-inventory.json").write_bytes(json.dumps({"skills": [
+        {"name": "loro", "source_repo_basename": "loro", "source_root_basename": None},
+        {"name": "yjs", "source_repo_basename": None, "source_root_basename": None},
+        {"name": "fastapi", "source_repo_basename": "fastapi", "source_root_basename": "fastapi"},
+    ]}).encode("utf-8"))
+    terms_argv = _bind(_helper_call(_read(INIT), "enumerateStackSkillsHelper", "terms"),
+                       {"run_dir": run_dir.as_posix()})
+    written = _run([ENUMERATE, *terms_argv])
+    assert written.returncode == 0, written.stderr
+    assert json.loads((run_dir / "skill-terms.json").read_bytes().decode("utf-8")) == [
+        {"name": "loro", "aliases": []}, {"name": "yjs", "aliases": []}, {"name": "fastapi", "aliases": []}]
     values = {"vs_report_path": report.as_posix(), "vs_generated_at": "2026-10-01T09:00:00Z",
               "run_dir": run_dir.as_posix(), "in_scope_names": "loro,yjs", "refinementRulesData": rules}
     joined = _run([PRESERVATION, *_bind(_call(_read(ISSUES), "verdicts"), values)])
@@ -812,10 +839,109 @@ def test_the_documented_rules_and_verdicts_calls_run(tmp_path):
     assert [(r["skill_a"], r["skill_b"], r["raises"]) for r in result["in_scope"]] == [("loro", "yjs", "Critical")]
     assert [(r["lib_a"], r["reason"]) for r in result["out_of_scope"]] == [("cycle", "no-inventory-skill"),
                                                                           ("loro", "out-of-scope")]
+    # Terms that are gone exit 2 naming the file: issue detection writes them again with the same call, then reruns.
+    (run_dir / "skill-terms.json").unlink()
+    lost = _run([PRESERVATION, *_bind(_call(_read(ISSUES), "verdicts"), values)])
+    assert lost.returncode == 2 and "skill-terms.json" in json.loads(lost.stdout)["error"]
+    rerun_argv = _bind(_helper_call(_read(ISSUES), "enumerateStackSkillsHelper", "terms"),
+                       {"run_dir": run_dir.as_posix()})
+    assert rerun_argv == terms_argv
+    assert _run([ENUMERATE, *rerun_argv]).returncode == 0
+    again = _run([PRESERVATION, *_bind(_call(_read(ISSUES), "verdicts"), values)])
+    assert again.returncode == 0 and json.loads(again.stdout)["in_scope"] == result["in_scope"]
     # A report [VS] rewrote during the run is stale: exit 1, which the step turns into exit 8.
     values["vs_generated_at"] = "2026-09-30T09:00:00Z"
     stale = _run([PRESERVATION, *_bind(_call(_read(ISSUES), "verdicts"), values)])
     assert stale.returncode == 1 and json.loads(stale.stdout)["status"] == "stale"
+
+
+# Ten skills SKF generated, with the source each was built from (None: no source recorded).
+SKILL_SOURCES = {
+    "oms-cognee": ("https://github.com/topoteretes/cognee.git", "cognee"),
+    "react": ("facebook/react", None),
+    "zod": (None, None),
+    "loro": ("loro-dev/loro", "crates/loro-internal"),
+    "yjs": ("https://github.com/yjs/yjs", None),
+    "automerge": ("automerge/automerge", "rust/automerge"),
+    "fastapi": ("tiangolo/fastapi", "FastAPI"),
+    "vite": ("vitejs/vite", "packages/vite"),
+    "tauri": ("tauri-apps/tauri", None),
+    "surrealdb": ("surrealdb/surrealdb", "lib"),
+}
+
+
+def _skf_skills(root: Path) -> None:
+    for name, (repo, source_root) in SKILL_SOURCES.items():
+        folder = root / name
+        folder.mkdir(parents=True)
+        (folder / "SKILL.md").write_bytes(f"# {name}\n".encode("utf-8"))
+        metadata = {"generated_by": "create-skill", "exports": [f"{name}Export"]}
+        if repo is not None:
+            metadata["source_repo"] = repo
+        if source_root is not None:
+            metadata["source_root"] = source_root
+        (folder / "metadata.json").write_bytes(json.dumps(metadata).encode("utf-8"))
+
+
+def _hand_terms(inventory: dict) -> list[dict]:
+    """The array gap analysis staged by hand before #1177: each entry's source basenames that are not null, with
+    the repeats the helper now drops (an alias equal to the name or to an earlier alias, ignoring case)."""
+    terms = []
+    for entry in inventory["skills"]:
+        aliases: list[str] = []
+        for alias in (entry["source_repo_basename"], entry["source_root_basename"]):
+            if alias is not None and alias.casefold() not in {entry["name"].casefold(), *map(str.casefold, aliases)}:
+                aliases.append(alias)
+        terms.append({"name": entry["name"], "aliases": aliases})
+    return terms
+
+
+def test_the_documented_terms_and_scope_calls_run(tmp_path):
+    # #1177 determinism-2 and architecture-5: init writes the terms with the helper, and gap analysis splits every
+    # unique pair of the saved inventory, so `pair_count` is the identity of `{skill_count}`.
+    run_dir = _run_dir(tmp_path)
+    skills = tmp_path / "skills"
+    _skf_skills(skills)
+    enumerate_argv = _bind(_helper_call(_read(INIT), "enumerateStackSkillsHelper", "enumerate"),
+                           {"skills_output_folder": skills.as_posix()})
+    assert "--pairs" not in enumerate_argv
+    enumerated = _run([ENUMERATE, *enumerate_argv])
+    assert enumerated.returncode == 0, enumerated.stderr
+    (run_dir / "skill-inventory.json").write_bytes(enumerated.stdout.encode("utf-8"))
+    inventory = json.loads(enumerated.stdout)
+    skill_count = inventory["skill_count"]
+    assert skill_count == len(SKILL_SOURCES) and "pairs" not in inventory
+
+    terms = _run([ENUMERATE, *_bind(_helper_call(_read(INIT), "enumerateStackSkillsHelper", "terms"),
+                                    {"run_dir": run_dir.as_posix()})])
+    assert terms.returncode == 0, terms.stderr
+    written = json.loads((run_dir / "skill-terms.json").read_bytes().decode("utf-8"))
+    assert written == json.loads(terms.stdout) == _hand_terms(inventory)
+    by_name = {entry["name"]: entry["aliases"] for entry in written}
+    assert by_name["oms-cognee"] == ["cognee"] and by_name["react"] == [] and by_name["zod"] == []
+    assert by_name["loro"] == ["loro-internal"] and by_name["fastapi"] == []
+
+    scope = _helper_call(_read(GAP), "enumerateStackSkillsHelper", "scope")
+
+    def split(in_scope_names: str) -> dict:
+        proc = _run([ENUMERATE, *_bind(scope, {"run_dir": run_dir.as_posix(), "in_scope_names": in_scope_names})])
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout)
+
+    # Ten skills, three in scope: section 4 reads three surfaces and section 5 judges three pairs.
+    result = split("loro,yjs,automerge")
+    assert result["pair_count"] == skill_count * (skill_count - 1) // 2 == 45
+    assert result["in_scope"] == ["automerge", "loro", "yjs"] and len(result["out_of_scope"]) == 7
+    assert result["in_scope_pair_count"] == 3 and result["out_of_scope_pair_count"] == 42
+    # The safe default passes no name, then runs the call again with the first result's out_of_scope names.
+    first = split("")
+    assert first["in_scope"] == [] and first["in_scope_pairs"] == []
+    # A name the rerun's hand-copied list drops comes back in out_of_scope, which section 3 then runs again for.
+    dropped = split(",".join(first["out_of_scope"][1:]))
+    assert dropped["out_of_scope"] == first["out_of_scope"][:1]
+    every = split(",".join(first["out_of_scope"]))
+    assert every["out_of_scope"] == [] and every["out_of_scope_pairs"] == []
+    assert every["in_scope_pair_count"] == every["pair_count"] == skill_count * (skill_count - 1) // 2
 
 
 def test_the_documented_exports_call_runs(tmp_path):

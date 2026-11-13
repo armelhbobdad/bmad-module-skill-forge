@@ -1068,7 +1068,7 @@ def test_version_paths_names_writers_and_forge_folders():
 # helper is missing (#599).
 STACK_ROSTER_SITES = {
     "src/skf-verify-stack/references/init.md": ((), False),
-    "src/skf-refine-architecture/references/init.md": (("`{pairs}` ← `pairs`",), False),
+    "src/skf-refine-architecture/references/init.md": ((), False),
 }
 
 

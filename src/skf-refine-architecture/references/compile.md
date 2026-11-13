@@ -88,7 +88,7 @@ For each issue finding from Step 03, with `tier` its severity, a tier of the Iss
 
 ### 4. Plan the Improvement Suggestions
 
-For each in-scope improvement finding from Step 04 (the `[RA-IMPROVEMENTS]` findings; out-of-scope improvements and synergies stay under `[RA-OUT-OF-SCOPE]` and never enter the refined document), with `tier` its value, a tier of the Improvement Value table of `{refinementRulesData}`:
+For each in-scope improvement finding from Step 04 (the `[RA-IMPROVEMENTS]` findings; `[RA-OUT-OF-SCOPE]` never enters the refined document), with `tier` its value, a tier of the Improvement Value table of `{refinementRulesData}`:
 
 - **anchor:** the heading of the section where the library is discussed, also when it appears there only in a table, code block or Mermaid diagram: the script puts the block at the end of that section, one heading level deeper. `null` when no section discusses the library: the script then collects the improvement under `## RA: Additional Improvements Suggested`, the most valuable tier first.
 - **block:**
@@ -123,7 +123,7 @@ The script writes the rows in this order: Gaps Filled; Issues Flagged and Improv
 
 ### 6. Build the Draft
 
-Write the plan to `{planFile}`: the `entries` of §2 to §4, the `summary` of §5, `unverified_technologies` (Step 02 §2b's list as written in the document, `[]` when it is empty), `skill_count` (the inventory's `{skill_count}`, Step 01 §2), `vs_report` (only when `vs_report_available` is true: the `path`, `coveragePercentage` and `coverageMeasured` of the report JSON Step 01 §1 cached as `{vs_report}`, never read from the report file) and `tiers` (`{"issue": [...], "improvement": [...]}`: `{rule_tiers}`, the `tiers` Step 01 §4's `rules` check printed; run that command again if they are no longer in context). Then run:
+Write the plan to `{planFile}`: the `entries` of §2 to §4, the `summary` of §5, `unverified_technologies` (Step 02 §2b's list as written in the document, `[]` when it is empty), `skill_count` (the number of skills in `{in_scope_skills}`, Step 02 §3: the only skills whose surfaces the run read as evidence), `vs_report` (only when `vs_report_available` is true: the `path`, `coveragePercentage` and `coverageMeasured` of the report JSON Step 01 §1 cached as `{vs_report}`, never read from the report file) and `tiers` (`{"issue": [...], "improvement": [...]}`: `{rule_tiers}`, the `tiers` Step 01 §4's `rules` check printed; run that command again if they are no longer in context). Then run:
 
 ```bash
 uv run {preservationScript} apply --original "{architecture_doc}" --plan "{planFile}" --draft "{draftFile}" -o "{applyResult}"

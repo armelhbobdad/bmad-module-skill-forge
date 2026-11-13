@@ -27,9 +27,12 @@ Subcommands:
   candidates <skills-root> [--explicit a,b]
       Pick the compose-mode candidates and gate them against the same
       roster, in one call (see Candidates below).
-  scope --skills a,b,c --in-scope a,b
+  scope (--skills a,b,c | --inventory FILE) --in-scope a,b
       Split the unique pairs of an inventory's skills by the skills in
       scope (see Scope below).
+  terms --inventory FILE -o FILE
+      Write the name and aliases of each skill of an enumerate result, the
+      skill terms a mentions or verdicts reader takes (see Terms below).
 
 Ownership. A stack roster reads only the skills SKF generated: a package
 counts only when its metadata.json carries an SKF marker (generated_by
@@ -280,11 +283,13 @@ Candidates:
 Scope:
 
   refine-architecture decides which skills its architecture document
-  covers after `enumerate` ran. The `scope` subcommand splits the pairs
-  `--pairs` emitted, so no prompt sorts them by hand, and a pair is never
-  dropped from both halves. It reads no skills root: --skills names the
-  inventory (the `name` of each skills[] entry of an enumerate result) and
-  --in-scope the skills in scope, both comma-separated, trimmed, with empty
+  covers after `enumerate` ran. The `scope` subcommand builds the pairs
+  `--pairs` emits and splits them, so no prompt sorts them by hand, and a
+  pair is never dropped from both halves. It reads no skills root: either
+  --skills names the inventory (the `name` of each skills[] entry of an
+  enumerate result), or --inventory reads those names from an enumerate
+  result saved as FILE, as `terms` reads it; --in-scope names the skills in
+  scope. --skills and --in-scope are comma-separated, trimmed, with empty
   items dropped. Names compare exactly, as skills[] spells them.
 
   in_scope            the --in-scope names that are inventory skills, sorted
@@ -297,18 +302,44 @@ Scope:
   pair_count, in_scope_pair_count, out_of_scope_pair_count
                       the sizes of the three pair lists (all, in, out)
 
+Terms:
+
+  A step that finds the skills a document or a report names matches each
+  skill by its name and the names of the repository and folder it was
+  built from (a skill named `oms-cognee` is named where a document says
+  "Cognee"). The `terms` subcommand reads an enumerate result saved as
+  --inventory FILE and writes, to the -o FILE, then prints, a JSON array
+  with one {"name", "aliases"} object per distinct skills[] `name`, in
+  inventory order. `aliases` holds the entry's `source_repo_basename` and
+  then its `source_root_basename`, each when it is a string, leaving out
+  one that equals the name or an earlier alias, ignoring case. An
+  inventory with no skills gives `[]`. The array is the --skills input of
+  skf-comention-pairs.py `mentions` and skf-check-preservation.py
+  `verdicts`.
+
+  FILE must hold a JSON object whose `skills` is a list, each entry an
+  object with a `name` that is a string that is not empty; anything else,
+  a FILE that cannot be read, or an -o FILE that cannot be written exits
+  1 with one `error:` line naming the path, and writes nothing.
+
 Exit codes:
   0  enumeration succeeded (including zero skills found)
   1  user error: a bad skills-root path, an --expect-hashes FILE that
      cannot be read or holds neither accepted shape, an --explicit or
-     --bundle-entries list that names no skill, or a scope --skills list
-     that names no skill
+     --bundle-entries list that names no skill, a scope --skills list or
+     --inventory FILE that names no skill, or an --inventory FILE that
+     cannot be read as an enumerate result, or a terms -o FILE that cannot
+     be written
+  2  a malformed call (argparse), such as scope with both --skills and
+     --inventory, or with neither
 
 CLI:
   uv run skf-enumerate-stack-skills.py enumerate <skills-root> [--pairs] [--reliability] [--expect-hashes FILE]
       [--bundle-entries a,b]
   uv run skf-enumerate-stack-skills.py candidates <skills-root> [--explicit a,b]
   uv run skf-enumerate-stack-skills.py scope --skills a,b,c --in-scope a,b
+  uv run skf-enumerate-stack-skills.py scope --inventory FILE --in-scope a,b
+  uv run skf-enumerate-stack-skills.py terms --inventory FILE -o FILE
 """
 
 from __future__ import annotations
@@ -1152,6 +1183,69 @@ def compute_scope(names: list[str], in_scope: list[str]) -> dict:
 
 
 # --------------------------------------------------------------------------
+# Skill terms: each skill's name and aliases, from a saved inventory (terms)
+# --------------------------------------------------------------------------
+
+
+class InventoryError(ValueError):
+    """An --inventory FILE that cannot be read as an enumerate result."""
+
+
+def read_inventory_skills(path: str) -> list[dict]:
+    """The skills[] entries of an enumerate result saved at `path`.
+
+    Raises InventoryError, naming the path, when the file cannot be read,
+    is not UTF-8 JSON, is not an object whose `skills` is a list, or holds
+    an entry that is not an object with a `name` string that is not empty.
+    """
+    try:
+        raw = Path(path).read_bytes()
+    except OSError as exc:
+        raise InventoryError(f"{path}: {exc.strerror or exc}") from exc
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise InventoryError(f"{path}: not UTF-8 text ({exc.reason} at byte {exc.start})") from exc
+    except (ValueError, RecursionError) as exc:
+        raise InventoryError(f"{path}: not JSON ({exc})") from exc
+    skills = data.get("skills") if isinstance(data, dict) else None
+    if not isinstance(skills, list):
+        raise InventoryError(f"{path}: not an enumerate result: no `skills` list")
+    for index, entry in enumerate(skills):
+        name = entry.get("name") if isinstance(entry, dict) else None
+        if not isinstance(name, str) or not name.strip():
+            raise InventoryError(f"{path}: skills[{index}] has no `name` string that is not empty")
+    return skills
+
+
+def compute_terms(skills: list[dict]) -> list[dict]:
+    """One {"name", "aliases"} per distinct skills[] name, in inventory order.
+
+    `aliases` holds the entry's source_repo_basename, then its
+    source_root_basename, each when it is a string that is not blank, and
+    leaves out one equal to the name or to an earlier alias, ignoring case.
+    A repeated name keeps its first entry. See "Terms" in the module
+    docstring.
+    """
+    terms: list[dict] = []
+    seen: set[str] = set()
+    for entry in skills:
+        name = entry["name"]
+        if name in seen:
+            continue
+        seen.add(name)
+        taken = {name.casefold()}
+        aliases: list[str] = []
+        for key in ("source_repo_basename", "source_root_basename"):
+            alias = entry.get(key)
+            if isinstance(alias, str) and alias.strip() and alias.casefold() not in taken:
+                taken.add(alias.casefold())
+                aliases.append(alias)
+        terms.append({"name": name, "aliases": aliases})
+    return terms
+
+
+# --------------------------------------------------------------------------
 # Derived output: inventory reliability verdict (--reliability)
 # --------------------------------------------------------------------------
 
@@ -1530,12 +1624,57 @@ def _cmd_candidates(args: argparse.Namespace) -> int:
 
 
 def _cmd_scope(args: argparse.Namespace) -> int:
-    names = _parse_explicit(args.skills)
-    if not names:
-        print("error: --skills names no skill", file=sys.stderr)
-        return 1
+    if args.inventory is not None:
+        try:
+            names = [entry["name"] for entry in read_inventory_skills(args.inventory)]
+        except InventoryError as exc:
+            print(f"error: --inventory {exc}", file=sys.stderr)
+            return 1
+        if not names:
+            print(f"error: --inventory {args.inventory} names no skill", file=sys.stderr)
+            return 1
+    else:
+        names = _parse_explicit(args.skills)
+        if not names:
+            print("error: --skills names no skill", file=sys.stderr)
+            return 1
     json.dump(compute_scope(names, _parse_explicit(args.in_scope)), sys.stdout, indent=2)
     sys.stdout.write("\n")
+    return 0
+
+
+def _write_whole(path: str, data: bytes) -> None:
+    """Write `data` to `path` through a sibling temporary file, so a failed write leaves nothing behind.
+
+    Raises OSError when the folder or the file cannot be written.
+    """
+    target = Path(path)
+    temp = target.with_name(f".{target.name}.{os.getpid()}.tmp")
+    try:
+        with open(temp, "wb") as handle:
+            handle.write(data)
+        os.replace(temp, target)
+    except OSError:
+        try:
+            temp.unlink()
+        except OSError:
+            pass
+        raise
+
+
+def _cmd_terms(args: argparse.Namespace) -> int:
+    try:
+        terms = compute_terms(read_inventory_skills(args.inventory))
+    except InventoryError as exc:
+        print(f"error: --inventory {exc}", file=sys.stderr)
+        return 1
+    text = json.dumps(terms, indent=2) + "\n"
+    try:
+        _write_whole(args.output, text.encode("utf-8"))
+    except OSError as exc:
+        print(f"error: -o {args.output}: {exc.strerror or exc}", file=sys.stderr)
+        return 1
+    sys.stdout.write(text)
     return 0
 
 
@@ -1620,13 +1759,21 @@ def _build_parser() -> argparse.ArgumentParser:
         "scope",
         help="split the unique pairs of an inventory's skills by the skills in scope",
     )
-    p_scope.add_argument(
+    inventory = p_scope.add_mutually_exclusive_group(required=True)
+    inventory.add_argument(
         "--skills",
-        required=True,
         metavar="NAMES",
         help=(
             "comma-separated names of the inventory's skills (the `name` of "
             "each skills[] entry of an enumerate result)"
+        ),
+    )
+    inventory.add_argument(
+        "--inventory",
+        metavar="FILE",
+        help=(
+            "an enumerate result saved as FILE, whose skills[] names are the "
+            "inventory's skills (instead of --skills)"
         ),
     )
     p_scope.add_argument(
@@ -1639,6 +1786,28 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     p_scope.set_defaults(func=_cmd_scope)
+
+    p_terms = sub.add_parser(
+        "terms",
+        help="write the name and aliases of each skill of a saved enumerate result",
+    )
+    p_terms.add_argument(
+        "--inventory",
+        required=True,
+        metavar="FILE",
+        help="an enumerate result saved as FILE",
+    )
+    p_terms.add_argument(
+        "-o",
+        dest="output",
+        required=True,
+        metavar="FILE",
+        help=(
+            "where to write the JSON array of {name, aliases}, one per skill, "
+            "which is printed too"
+        ),
+    )
+    p_terms.set_defaults(func=_cmd_terms)
 
     return parser
 

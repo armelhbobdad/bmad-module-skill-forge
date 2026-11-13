@@ -4,7 +4,7 @@
 
 Each analysis step stores its findings two ways: as workflow state for Step 05, and appended to the RA state file `{forge_data_folder}/ra-state-{project_name}.md` as a labeled block, `<!-- [RA-GAPS] ... -->`, `<!-- [RA-ISSUES] ... -->` or `<!-- [RA-IMPROVEMENTS] ... -->`. A block holds the **complete formatted findings**: each finding's full citation as its step formats it, with its type and its tier (a gap has none), the skills it cites, the evidence and the suggestion, never only counts, so Step 05 can rebuild them if context degrades on a long run. The refined document itself is written once, in Step 05; Steps 02-04 never write to it.
 
-A finding that involves a skill or a pair outside the document's scope (Step 02 §2b) goes under the shared `<!-- [RA-OUT-OF-SCOPE] ... -->` block instead: it is listed for awareness only, and Step 05 leaves it out of the refined document.
+No gap, issue or improvement is looked for with a skill outside the document's scope (Step 02 §2b). The shared `<!-- [RA-OUT-OF-SCOPE] ... -->` block holds only what the scope set aside: the names of the out-of-scope skills (Step 02 §6), the document's claims that name one (Step 03 §3) and the [VS] verdicts that involve one (Step 03 §4). It is listed for awareness only, and Step 05 leaves it out of the refined document.
 
 ## Findings a Review Dropped
 
