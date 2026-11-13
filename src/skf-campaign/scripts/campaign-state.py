@@ -74,7 +74,15 @@ Operations:
                     --no-results fails every batched skill.
   append-workarounds
                     Append entries to one skill's workarounds_applied; an
-                    entry it already holds is not added twice.
+                    entry it already holds is not added twice. --entry gives
+                    each entry's text; --doc-rot-file reads the JSON array of
+                    corrections create-skill's doc-rot step kept (each an
+                    object with a non-empty string `affected` and
+                    `candidate_category`) and appends one
+                    `[doc-rot] {affected}: {candidate_category}` entry for
+                    each. A missing file or `[]` adds nothing; a file that
+                    does not parse, is no array or holds a record without
+                    those two fields is exit 2, with nothing written.
   set-campaign      Write campaign-level fields: the architecture document
                     path, and the capstone, verification or refinement
                     summary read from the sub-skill's result envelope line
@@ -105,7 +113,10 @@ Operations:
   log               Append one typed entry to the decision log: decision (an
                     operator's choice), auto (a default a headless run took)
                     or event (a failure, a recovery, a skip), stamped from
-                    the clock. The log is append-only.
+                    the clock. The log is append-only. With --once it
+                    appends nothing when a line of the log already holds the
+                    same type and text (whitespace runs read as one space),
+                    and returns that line with `skipped` true.
   halt-payload      Print the payload of a HARD HALT's error envelope for
                     skf-emit-result-envelope.py emit-halt (read-only): the
                     phase, the halt reason, the halt message read from stdin,
@@ -141,14 +152,14 @@ CLI:
   uv run campaign-state.py apply-batch --state-file <p> --map-file <p> \\
       (--start | --results-file <p|-> | --no-results) [--stage <N>]
   uv run campaign-state.py append-workarounds --state-file <p> --skill <name> \\
-      --entry <text> [--entry <text> ...] [--stage <N>]
+      (--entry <text> [--entry <text> ...] | --doc-rot-file <p>) [--stage <N>]
   uv run campaign-state.py set-campaign --state-file <p> [--architecture-doc-path <p>] \\
       [--capstone <p|-> | --no-capstone] [--verification <p|-> | --no-verification] \\
       [--refinement <p|-> | --no-refinement] \\
       [--no-result capstone|verification|refinement ...] [--stage <N>]
   uv run campaign-state.py recover --state-file <p>
   uv run campaign-state.py archive --state-file <p> --brief-file <p>
-  uv run campaign-state.py log --log-file <p> --type <decision|auto|event> --text <entry>
+  uv run campaign-state.py log --log-file <p> --type <decision|auto|event> --text <entry> [--once]
   uv run campaign-state.py halt-payload --state-file <p> --phase <slug> --halt-reason <class> < <message>
   uv run campaign-state.py resume --state-file <p> [--from <skill>] [--next]
 
@@ -159,13 +170,14 @@ Output (one JSON object on stdout):
              "last_updated", "current_stage", "changed": [...]} plus the
              operation's own keys (init: "quality_gate", "brief_file", null
              without --brief-out; apply-batch: "activated", "skipped",
-             "completed", "failed"; set-campaign: "recorded", and
+             "completed", "failed"; append-workarounds: "added";
+             set-campaign: "recorded", and
              "not_recorded", one {"field", "status", "halt_reason",
              "exit_code"} row for each field it set to null)
   recover:  {"op", "state_file", "backup_file", "recovered", "last_updated",
              "current_stage"}
   archive:  {"op", "archive_dir", "moved": [...]}
-  log:      {"op", "log_file", "entry"}
+  log:      {"op", "log_file", "entry", "skipped"}
   halt-payload:
             {"phase", "reason", "halt_reason", "skills_completed",
              "skills_failed", "decision_log"}
@@ -179,7 +191,8 @@ Exit codes (each is the campaign's HALT code for the same class):
      output from another script that holds an error, a gate the gate script
      rejects, a state that init would overwrite, a brief template that is
      no YAML mapping, export flags or set-campaign flags that do not go
-     together, or an archive folder that exists
+     together, a doc-rot file that is no array of corrections, or an
+     archive folder that exists
   3  invalid state: the state is missing, malformed or fails the schema, or
      the change would make it fail (nothing written)
   4  apply-plan: a plan the stages cannot follow (circular-deps)
@@ -216,6 +229,8 @@ STATUSES = ("pending", "active", "completed", "failed", "skipped")
 SETTLED = ("completed", "failed", "skipped")
 OPEN = ("pending", "active")
 LOG_TYPES = ("decision", "auto", "event")
+# A decision-log line as `log` writes it: `- <stamp> (<type>) <text>`.
+LOG_LINE_RE = re.compile(r"^- \S+ \((decision|auto|event)\) (.*)$")
 EXPORT_STATUSES = ("exported", "failed")
 FINAL_STAGE = 10
 # Stage N runs step-(N+1); SKILL.md's Stages table.
@@ -767,12 +782,47 @@ def op_apply_batch(args: argparse.Namespace) -> dict:
     return mutate(args.state_file, "apply-batch", change, args.stage)
 
 
+def doc_rot_entries(source: str) -> list[str]:
+    """One `[doc-rot] {affected}: {candidate_category}` entry per correction in the file.
+
+    create-skill's doc-rot step writes the corrections its judgment pass
+    kept as a JSON array of records, and writes no file when it kept none,
+    so a missing file is nothing to record.
+    """
+    if not Path(source).exists():
+        return []
+    text = read_text(source, "Doc-rot file")
+    try:
+        records = json.loads(text)
+    except (ValueError, RecursionError) as exc:
+        raise StateError(EXIT_INPUT, "input-unreadable", f"Doc-rot file is not JSON: {exc}") from exc
+    if not isinstance(records, list):
+        raise StateError(EXIT_INPUT, "input-unreadable", "Doc-rot file is not a JSON array")
+    entries, errors = [], []
+    for number, record in enumerate(records, start=1):
+        if not isinstance(record, dict):
+            errors.append(f"record {number} is not a JSON object")
+            continue
+        fields = {key: record.get(key) for key in ("affected", "candidate_category")}
+        missing = [key for key, value in fields.items() if not isinstance(value, str) or not value.strip()]
+        if missing:
+            errors.append(f"record {number} has no non-empty string {' or '.join(missing)}")
+            continue
+        entries.append(f"[doc-rot] {fields['affected'].strip()}: {fields['candidate_category'].strip()}")
+    if errors:
+        raise StateError(EXIT_INPUT, "input-invalid", "Doc-rot file holds a record it cannot read: nothing was written.",
+                         errors)
+    return entries
+
+
 def op_append_workarounds(args: argparse.Namespace) -> dict:
+    entries = doc_rot_entries(args.doc_rot_file) if args.doc_rot_file is not None else args.entry
+
     def change(state: dict, stamp: str, changed: list[str]) -> dict:
         skill = _known(state, [args.skill])[args.skill]
         held = skill.setdefault("workarounds_applied", [])
         added = []
-        for entry in args.entry:
+        for entry in entries:
             if entry.strip() and entry not in held:
                 held.append(entry)
                 added.append(entry)
@@ -945,18 +995,37 @@ def op_archive(args: argparse.Namespace) -> dict:
     return {"op": "archive", "archive_dir": folder.as_posix(), "moved": moved}
 
 
+def logged_line(path: Path, kind: str, text: str) -> str | None:
+    """The line of the log that holds an entry of this type and text, or None (a missing log holds none)."""
+    if not path.is_file():
+        return None
+    try:
+        lines = path.read_bytes().decode("utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        raise StateError(EXIT_INPUT, "input-unreadable", f"Decision log unreadable: {exc}") from exc
+    for line in lines:
+        match = LOG_LINE_RE.match(line.strip())
+        if match and match.group(1) == kind and " ".join(match.group(2).split()) == text:
+            return line.strip()
+    return None
+
+
 def op_log(args: argparse.Namespace) -> dict:
     text = " ".join(args.text.split())
     if not text:
         raise StateError(EXIT_INPUT, "input-unreadable", "The log entry is empty")
-    entry = f"- {now()} ({args.type}) {text}"
     path = Path(args.log_file)
+    if args.once:
+        held = logged_line(path, args.type, text)
+        if held is not None:
+            return {"op": "log", "log_file": path.as_posix(), "entry": held, "skipped": True}
+    entry = f"- {now()} ({args.type}) {text}"
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "a", encoding="utf-8", newline="\n") as fh:
         fh.write(entry + "\n")
         fh.flush()
         os.fsync(fh.fileno())
-    return {"op": "log", "log_file": path.as_posix(), "entry": entry}
+    return {"op": "log", "log_file": path.as_posix(), "entry": entry, "skipped": False}
 
 
 def op_halt_payload(args: argparse.Namespace) -> dict:
@@ -1108,7 +1177,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = command("append-workarounds", "append entries to a skill's workarounds_applied")
     p.add_argument("--skill", required=True)
-    p.add_argument("--entry", action="append", required=True, help="one entry (repeat for several)")
+    source = p.add_mutually_exclusive_group(required=True)
+    source.add_argument("--entry", action="append", help="one entry (repeat for several)")
+    source.add_argument("--doc-rot-file",
+                        help="the JSON array of corrections create-skill's doc-rot step kept: one "
+                             "[doc-rot] {affected}: {candidate_category} entry each (a missing file adds none)")
 
     p = command("set-campaign", "write campaign-level fields")
     p.add_argument("--architecture-doc-path")
@@ -1129,6 +1202,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--log-file", required=True, help="path to _campaign-decision-log.md")
     p.add_argument("--type", required=True, choices=LOG_TYPES)
     p.add_argument("--text", required=True)
+    p.add_argument("--once", action="store_true",
+                   help="append nothing when the log already holds a line of this type and text")
 
     p = command("halt-payload", "print a HARD HALT's emit-halt payload; the message on stdin", stage=None)
     p.add_argument("--phase", required=True, help="the kebab slug of the step that halts")

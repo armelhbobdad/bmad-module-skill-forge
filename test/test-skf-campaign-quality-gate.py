@@ -342,6 +342,98 @@ class TestResolve:
         assert "brief_skill" not in mod.resolve(self.STATE, mod.parse_directive(""), "core")
 
 
+class TestDirectiveNotice:
+    """#1141: one sorted line for the directive's problems, the same for every skill, so step-05 logs it once."""
+
+    STATE = TestResolve.STATE
+    DIRECTIVE = "## Skip List\n- ghost\n\n## Quality Overrides\n- soft_target: 85\n- core: soft_target high\n"
+
+    def test_no_problem_is_null(self):
+        text = "## Skip List\n- legacy\n\n## Quality Overrides\n- soft_target: 85\n"
+        assert mod.resolve(self.STATE, mod.parse_directive(text), "core")["directive_notice"] is None
+        assert mod.resolve(self.STATE, mod.parse_directive(""), "core")["directive_notice"] is None
+
+    def test_an_unparsed_line_and_an_unknown_name_in_one_sorted_line(self):
+        r = mod.resolve(self.STATE, mod.parse_directive(self.DIRECTIVE), "core")
+        assert r["directive_notice"] == (
+            "Directive: Quality Overrides line 6 not parsed: core: soft_target high; "
+            "Skip List names `ghost`, which is no skill in this campaign"
+        )
+
+    def test_every_skill_gets_the_same_notice(self):
+        directive = mod.parse_directive(self.DIRECTIVE)
+        notices = {mod.resolve(self.STATE, directive, name)["directive_notice"] for name in ("core", "web", "legacy")}
+        assert len(notices) == 1 and None not in notices
+
+    def test_cli_prints_it(self, tmp_path, capsys):
+        state = _write_state(tmp_path, self.STATE)
+        directive = _write_directive(tmp_path, self.DIRECTIVE)
+        rc, out, _ = _run(
+            ["resolve", "--state-file", str(state), "--skill", "web", "--directive-file", str(directive)], capsys
+        )
+        assert rc == 0
+        assert out["directive_notice"].startswith("Directive: Quality Overrides line 6 not parsed: ")
+
+    def test_classify_gives_the_notice_resolve_gives(self):
+        """Export logs the notice the skill loop logged, so `--once` keeps it to one line."""
+        directive = mod.parse_directive(self.DIRECTIVE)
+        notice = mod.resolve(self.STATE, directive, "core")["directive_notice"]
+        assert notice is not None
+        assert mod.classify(self.STATE, directive)["directive_notice"] == notice
+        assert mod.classify(self.STATE, mod.parse_directive(""))["directive_notice"] is None
+
+
+def _state_script():
+    spec = importlib.util.spec_from_file_location("campaign_state_gate_test", SCRIPT.with_name("campaign-state.py"))
+    state_mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(state_mod)
+    return state_mod
+
+
+def _resolve_and_log(capsys, state_mod, state, directive, log, name):
+    """step-05's two moves: resolve the skill, then log a notice that is not null with --once."""
+    rc, out, _ = _run(["resolve", "--state-file", str(state), "--skill", name, "--directive-file", str(directive)],
+                      capsys)
+    assert rc == 0
+    if out["directive_notice"] is not None:
+        assert state_mod.main(["log", "--log-file", str(log), "--type", "event", "--once",
+                               "--text", out["directive_notice"]]) == 0
+        capsys.readouterr()
+
+
+def test_three_skills_log_one_notice(tmp_path, capsys):
+    """Two resolve calls for each of three skills, each logged with --once: the log holds the notice once."""
+    state_mod = _state_script()
+    state = _write_state(tmp_path, TestResolve.STATE)
+    directive = _write_directive(tmp_path, "## Quality Overrides\n- core: soft_target high\n")
+    log = tmp_path / "_campaign-decision-log.md"
+    for name in ("core", "web", "legacy"):
+        for _ in range(2):
+            _resolve_and_log(capsys, state_mod, state, directive, log, name)
+    lines = log.read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 1
+    assert lines[0].endswith("(event) Directive: Quality Overrides line 2 not parsed: core: soft_target high")
+
+
+def test_an_edited_directive_logs_its_new_notice(tmp_path, capsys):
+    """A directive edited between skills gives a new notice, which is appended; one with no problem logs nothing."""
+    state_mod = _state_script()
+    state = _write_state(tmp_path, TestResolve.STATE)
+    log = tmp_path / "_campaign-decision-log.md"
+    directive = _write_directive(tmp_path, "## Skip List\n- legacy\n")
+    _resolve_and_log(capsys, state_mod, state, directive, log, "core")
+    assert not log.exists()
+    _write_directive(tmp_path, "## Skip List\n- ghost\n")
+    _resolve_and_log(capsys, state_mod, state, directive, log, "web")
+    _write_directive(tmp_path, "## Skip List\n- ghost\n- phantom\n")
+    _resolve_and_log(capsys, state_mod, state, directive, log, "legacy")
+    assert [line.split(") ", 1)[1] for line in log.read_text(encoding="utf-8").splitlines()] == [
+        "Directive: Skip List names `ghost`, which is no skill in this campaign",
+        "Directive: Skip List names `ghost`, which is no skill in this campaign; "
+        "Skip List names `phantom`, which is no skill in this campaign",
+    ]
+
+
 class TestBriefSkillInputs:
     STATE = _state([dict(_skill("core", "pending"), pin="1.2.0"), dict(_skill("web", "pending"), pin=None)])
     BRIEF = {"targets": [
@@ -628,10 +720,23 @@ class TestSkillLoopProse:
         assert "keep its `threshold`" not in self.TEXT
 
     def test_completed_skill_records_its_path(self):
-        assert "--status completed --quality-score <quality_score> --skill-path <skill_package>`, with its `quality_score` and the `{skill_package}` CS named" in self.TEXT
+        # #1141: CS's path is recorded right after CS, so the completed call no longer carries it.
+        completed = next(line for line in self.TEXT.splitlines() if line.startswith("   - `status` `completed`"))
+        assert "--status completed --quality-score <quality_score>`, with its `quality_score`;" in completed
+        assert "--skill-path" not in completed and "skill_package" not in completed
+        cs = next(line for line in self.TEXT.splitlines() if "**CS** (`skf-create-skill`)" in line)
+        assert "--skill {skill_name} --skill-path <skill_package>`" in cs
 
-    def test_directive_problems_are_logged_once_per_stage(self):
-        assert "once per stage, from the first resolve call" in self.TEXT
+    def test_directive_problems_are_logged_once(self):
+        log = "uv run {stateScript} log --log-file {decisionLogFile} --type event --once --text '<directive_notice>'"
+        gate = self.TEXT[self.TEXT.index("3. Resolve the skill's run"):self.TEXT.index("4. Run `uv run {depsScript}")]
+        assert gate.index("--brief-file {briefFile}") < gate.index(log) < gate.index("When `skip` is true")
+        assert "when its `directive_notice` is not null, log it" in gate
+        ts = next(line for line in self.TEXT.splitlines() if "**TS** (`skf-test-skill`)" in line)
+        resolve = ts.index("uv run {gateScript} resolve --state-file {stateFile} --skill {skill_name}")
+        assert resolve < ts.index("log its `directive_notice` with `--once` as §4 does") < ts.index("--threshold=")
+        assert "once per stage" not in self.TEXT
+        assert "reports different ones" not in self.TEXT
 
     def test_test_skill_gets_the_threshold_and_alias(self):
         assert "`{skill_name} --headless --threshold={threshold}`" in self.TEXT
@@ -667,8 +772,13 @@ def test_export_takes_only_the_classified_candidates():
     text = _text("step-10-export.md")
     assert "uv run {gateScript} classify --state-file {stateFile}" in text
     assert "For each `skills[]` row of §3 whose `name` is in `export[]`" in text
-    assert "| Gate | Export Name |" in text
+    assert ("Show one row per `skills[]` entry with its name, tier, quality score, verdict, `export_name` and "
+            "skill path, then each `excluded[]` skill with its score and `reason`") in text
     assert "For each completed skill (from §3)" not in text
+    # #1141: Export logs the directive's problems as the skill loop does, one notice with --once.
+    assert ("and the call's `directive_notice`, when not null, with `--once` as step-05 does: `uv run {stateScript} log "
+            "--log-file {decisionLogFile} --type event --once --text '<directive_notice>'`") in text
+    assert "each `unparsed` or `warnings` entry" not in text
 
 
 def test_export_runs_under_the_export_name_and_records_each_outcome():

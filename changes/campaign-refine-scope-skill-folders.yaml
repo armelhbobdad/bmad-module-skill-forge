@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-campaign
+summary: |
+  Campaign's Refine stage now scopes Refine Architecture (`--scope-skills`) by the skill folder of each completed skill, the name Refine Architecture's inventory knows, instead of the campaign target name. A Tier B skill whose folder Quick Skill named after the library (target `cognee-lib`, folder `cognee`) no longer drops out of the refinement scope. The names come from the new `campaign-status.py --export-names`, which prints them on one comma-separated line; when no skill completed, Campaign leaves `--scope-skills` out.
+issues: [1141]

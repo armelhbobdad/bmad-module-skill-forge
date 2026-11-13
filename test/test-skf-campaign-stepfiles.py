@@ -22,6 +22,11 @@ own flags and log lines, not what a helper writes. The Exit Codes table keeps
 the code, its meaning and a note; RAISED_BY below indexes where each code is
 raised, and the directive spec recognizes only the sections the gate script
 parses.
+
+#1141: the skill loop records CS's skill path and kept doc-rot corrections
+right after CS, before TS, so nothing after the test reads CS's context; the
+strategy view comes from campaign-deps.py --render, and the export, resume
+and strategy steps state what to show in one sentence, not a fixed layout.
 """
 
 from __future__ import annotations
@@ -861,9 +866,6 @@ def test_steps_keep_the_rules_they_act_on() -> None:
     assert ("7. If the pass ends with a Tier A skill still `pending` (only a hand-edited state can do this), "
             "HALT (exit code 7, `dependency-deadlock`) and log it (type `event`).") in gate.splitlines()
     assert "runs `[H]alt`.\n" in gate
-    assert ("**Do not hand-grep the feeders or re-run the scan:** step 5c has already written its `## CORRECTION` "
-            "blocks into the compiled SKILL.md, so a second pass re-matches them as fresh findings and can disagree "
-            "with what CS wrote.") in _section(loop, 5)
     assert ("Its JSON result on stdout carries `skills_completed`, `skills_failed` and `duration`, which §6 displays; "
             "§5 builds the envelope from `{resultContextFile}`") in _section(_step("step-11-maintenance.md"), 2)
 
@@ -901,3 +903,119 @@ def test_directive_recognizes_what_the_gate_script_reads() -> None:
     assert "which changes no sub-skill's flags or inputs" in paragraph
     for gone in ("Pipeline Flags", "## Notes"):
         assert gone not in paragraph, gone
+
+
+# ---------------------------------------------------------------------------
+# #1141: CS's results are recorded right after CS; views come from scripts
+# ---------------------------------------------------------------------------
+
+
+def _state_module():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("campaign_state_stepfiles_run", STATE_SCRIPT)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _pipeline() -> tuple[str, str, str]:
+    """step-05 §5.2's CS bullet, the sub-bullets after it up to TS, and the TS bullet."""
+    body = _section(_step("step-05-skill-loop.md"), 5)
+    cs = body.index("     - **CS** (`skf-create-skill`)")
+    ts = body.index("     - **TS** (`skf-test-skill`)")
+    return body[cs:ts], body[ts:body.index("\n", ts)], body
+
+
+def test_the_skill_path_and_corrections_are_recorded_before_the_test() -> None:
+    before_ts, ts, body = _pipeline()
+    path_write = "uv run {stateScript} set-skill --state-file {stateFile} --skill {skill_name} --skill-path <skill_package>"
+    doc_rot = ("uv run {stateScript} append-workarounds --state-file {stateFile} --skill {skill_name} --doc-rot-file "
+               '"{project-root}/_bmad-output/.skf-stage/{skill_name}/doc-rot-corrections.json"')
+    assert path_write in before_ts and doc_rot in before_ts
+    assert before_ts.index(path_write) < before_ts.index("     - **Doc-rot check:**") < before_ts.index(doc_rot)
+    assert "On a `success` or `partial` line, record the `skill_package`" in before_ts
+    assert "on that same `success` or `partial` line" in before_ts
+    # Nothing after the test reads what CS left in context.
+    after_ts = body[body.index(ts) + len(ts):]
+    for gone in ("skill_package", "--skill-path", "correction_matches", "Doc-rot", "--entry"):
+        assert gone not in after_ts, gone
+    assert "**Do not hand-grep the feeders" not in body
+
+
+def test_a_path_recorded_before_a_failed_test_stays(tmp_path: pathlib.Path, capsys) -> None:
+    """The documented calls: CS `success` records the path; TS FAIL then fails the skill, which keeps it."""
+    before_ts, _, body = _pipeline()
+    state = _state_module()
+    path = tmp_path / "_campaign-state.yaml"
+    skill = {"name": "core", "status": "active", "depends_on": [], "tier": "A", "pin": "1.2.0", "brief_path": None,
+             "skill_path": None, "quality_score": None, "workarounds_applied": [], "started_at": None,
+             "completed_at": None, "commit_sha": None}
+    path.write_text(yaml.safe_dump({
+        "campaign": {"name": "demo", "started_at": "2026-10-01T10:00:00Z", "last_updated": "2026-10-01T10:00:00Z",
+                     "current_stage": 3,
+                     "quality_gate": {"hard": "zero-critical-high", "soft_target": 90, "soft_fallback": 80}},
+        "skills": [skill], "dependency_graph": {"execution_order": ["core"], "circular_deps_detected": False},
+    }, sort_keys=False), encoding="utf-8")
+    failed = re.search(r"`(uv run \{stateScript\} set-skill [^`]*--status failed)[^`]*`", body).group(1)
+    for call in (re.search(r"`(uv run \{stateScript\} set-skill [^`]*--skill-path <skill_package>)`",
+                           before_ts).group(1), failed):
+        argv = (call.replace("{stateFile}", str(path)).replace("{skill_name}", "core")
+                .replace("<skill_package>", "skills/core/1.2.0/core").split()[3:])
+        assert state.main(argv) == 0, call
+    capsys.readouterr()
+    [written] = yaml.safe_load(path.read_text(encoding="utf-8"))["skills"]
+    assert (written["status"], written["skill_path"]) == ("failed", "skills/core/1.2.0/core")
+
+
+def test_strategy_shows_the_view_campaign_deps_renders() -> None:
+    text = _step("step-02-strategy.md")
+    view = _section(text, 5)
+    assert ("Run `uv run {depsScript} --render --state-file {stateFile}` and show its output verbatim (display only: "
+            "it is not written to a file).") in view
+    assert "then HALT as §3 and §4 say" in view
+    for gone in ("DEPENDENCY MAP", "TIER DISTRIBUTION", "EXECUTION ORDER", "```"):
+        assert gone not in view, gone
+    assert "`cycle_edges`" in _section(text, 3)
+    assert "each `cycle_edges` entry" in _section(text, 4)
+    # §5's view exits 1 with a CIRCULAR_DEPENDENCY error, not --compute's JSON: §4's cycle case names it.
+    assert "- **Cycle** (`circular_deps_detected: true`, or a `CIRCULAR_DEPENDENCY` error from §5" in _section(text, 4)
+    assert "`tier_counts`" not in text
+    for gone in ("last review surface", "display the strategy view"):
+        assert gone not in text, gone
+    gate = _section(text, 6)
+    assert "- `[P]roceed`: write the plan (§7)" in gate and "- `[C]ancel`: log the cancel" in gate
+    assert "exit code 12 (`user-cancelled`)" in gate
+    assert text.rstrip().endswith("## OUTPUT\n\nChain to `{nextStepFile}`.")
+
+
+def test_only_strategy_renders_and_no_step_joins_the_plan_by_hand() -> None:
+    for path in sorted(REFERENCES_DIR.glob("*.md")):
+        text = path.read_text(encoding="utf-8")
+        if path.name != "step-02-strategy.md":
+            assert "--render" not in text, path.name
+        assert 'status == "completed"' not in text, path.name
+    strategy = _step("step-02-strategy.md")
+    assert strategy.count("--render") == 1 and "--render" in _section(strategy, 5)
+
+
+def test_export_and_resume_state_what_to_show() -> None:
+    export = _step("step-10-export.md")
+    for gone in ("Export Results", "{summary table and exclusions from §3}", "Display export summary",
+                 "| # | Name |", "ready for export.**"):
+        assert gone not in export, gone
+    assert ("Show one row per `skills[]` entry with its name, tier, quality score, verdict, `export_name` and skill "
+            "path, then each `excluded[]` skill with its score and `reason`, and `{N}`, the number of `export[]` "
+            "skills.") in _section(export, 3)
+    gate = _section_with_subsections(export, 4)
+    assert ("{N} skill(s) that clear the quality gate, listed in the §3 view, will be exported via "
+            "`skf-export-skill`:") in gate
+    assert "- **[E]xport all**:" in gate and "- **[C]ancel**:" in gate
+    assert "HALT with exit code 11 (`export-cancelled`)" in gate
+    assert ("After all exports, show how many skills exported, how many failed (each with its halt reason or exit "
+            "code) and how many the quality gate kept from export.") in _section(export, 5)
+    assert export.rstrip().endswith("## OUTPUT\n\nChain to `{nextStepFile}`.")
+    resume = _section(_step("step-resume.md"), 4)
+    assert "CAMPAIGN RESUME" not in _step("step-resume.md") and "```" not in resume
+    assert resume.strip().startswith("Before chaining, show the campaign name, the stage and `step_file` it resumes")
+    assert "(never a hand count of `skills[]`)" in resume

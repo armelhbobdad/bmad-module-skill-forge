@@ -66,17 +66,7 @@ It returns the stage to resume, its `step_file` and a `reason`. Then:
 
 ### §4: Resume Routing
 
-Derive the skill counts deterministically: `uv run {statusScript} --state-file {stateFile}` returns `completed`, `total`, and the per-status counts (`pending` / `active` / `failed` / `skipped`); do not hand-count `skills[]`. Display a resume summary before chaining:
-
-```
-CAMPAIGN RESUME: {campaign.name}
-
-  Resuming from: Stage {stage} ({step_file})
-  Target skill:  {skill} (if --from was used, otherwise "auto-detected" or "N/A")
-  Skills completed: {completed} / {total}
-  Skills remaining: {pending} pending, {active} active, {failed} failed, {skipped} skipped
-  Last updated:  {campaign.last_updated}
-```
+Before chaining, show the campaign name, the stage and `step_file` it resumes, the `--from` skill when one was named, the `completed` and `total` skills and the `pending`, `active`, `failed` and `skipped` counts that `uv run {statusScript} --state-file {stateFile}` returns (never a hand count of `skills[]`), and `campaign.last_updated`.
 
 ## OUTPUT
 

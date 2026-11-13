@@ -1,7 +1,8 @@
 """Structural integration tests for doc-rot correction hooks (step 5c).
 
 Validates step-doc-rot.md exists with correct frontmatter, the judgment pass
-over the scan's candidates (and campaign step 5's record of what it kept),
+over the scan's candidates (and campaign step 5's record of what it kept,
+read from the doc-rot-corrections.json §4 writes, #1141),
 CORRECTION block format, feeder artifact scan targets, graceful skip logic,
 step chain from step-auto-shard.md, and Stages table in SKILL.md.
 Also checks the temporal feeder: step 3b (sub/fetch-temporal.md) keeps the
@@ -13,12 +14,14 @@ feeder reaches the evidence report as a notice.
 from __future__ import annotations
 
 import importlib.util
+import json
 import pathlib
 import re
 import shlex
 import subprocess
 
 import pytest
+import yaml
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 CS_DIR = REPO_ROOT / "src" / "skf-create-skill"
@@ -272,31 +275,83 @@ class TestJudgmentPass:
 
 
 CAMPAIGN_SKILL_LOOP = REPO_ROOT / "src" / "skf-campaign" / "references" / "step-05-skill-loop.md"
+CAMPAIGN_STATE_PY = REPO_ROOT / "src" / "skf-campaign" / "scripts" / "campaign-state.py"
+CORRECTIONS_WRITE_RE = re.compile(r'cat > "([^"]+)" <<\'SKF_JSON\'\n(.+?)\nSKF_JSON', re.S)
+DOC_ROT_CALL_RE = re.compile(r"`(uv run \{stateScript\} append-workarounds [^`]*--doc-rot-file \"([^\"]+)\")`")
 
 
 def _campaign_doc_rot_check() -> str:
-    return _section(_read(CAMPAIGN_SKILL_LOOP), "- **Doc-rot check:**", "**Do not hand-grep")
+    return _section(_read(CAMPAIGN_SKILL_LOOP), "- **Doc-rot check:**", "- **TS**")
+
+
+def _corrections_write() -> re.Match:
+    match = CORRECTIONS_WRITE_RE.search(_section(_read(STEP_DOC_ROT), "### §4.", "### §5."))
+    assert match, "step-doc-rot.md §4 must write doc-rot-corrections.json with a quoted SKF_JSON heredoc"
+    return match
 
 
 class TestCampaignRecordsKeptCorrections:
-    """Campaign step 5 records what step 5c kept, by the fields step 5c writes."""
+    """Campaign step 5 records what step 5c kept, from the file step 5c writes (#1141), never from its context."""
 
-    def test_reads_the_candidate_category(self) -> None:
-        assert "`candidate_category`" in _campaign_doc_rot_check()
-        assert "`category`" not in _read(CAMPAIGN_SKILL_LOOP)
+    def test_both_steps_name_one_file(self) -> None:
+        written = _corrections_write().group(1)
+        assert written == "{project-root}/_bmad-output/.skf-stage/{skill-name}/doc-rot-corrections.json"
+        call = DOC_ROT_CALL_RE.search(_campaign_doc_rot_check())
+        assert call, "campaign step 5 must record the corrections with append-workarounds --doc-rot-file"
+        assert call.group(2) == written.replace("{skill-name}", "{skill_name}")
+        assert "`doc-rot-corrections.json`" in _section(_read(STEP_DOC_ROT), "## Rules", "## MANDATORY SEQUENCE")
 
-    def test_names_only_fields_step_5c_writes(self) -> None:
-        fields = re.findall(r"`(\w+)`", _section(_campaign_doc_rot_check(), "each with", ";"))
-        assert fields == ["source", "pattern", "candidate_category", "context_line", "affected"]
+    def test_the_file_holds_the_fields_section_2_documents(self) -> None:
+        [record] = json.loads(_corrections_write().group(2))
+        assert list(record) == ["source", "pattern", "candidate_category", "context_line", "affected"]
         scan = _scan_section()
-        for field in fields:
+        for field in record:
             assert f"`{field}`" in scan, field
+        four = _section(_read(STEP_DOC_ROT), "### §4.", "### §5.")
+        assert "Write `correction_matches` to the staging folder as a JSON array, one object per kept record" in four
+        assert "A run whose judgment pass kept nothing skips this section, so it writes no file" in four
 
     def test_records_only_the_kept_corrections(self) -> None:
         check = _campaign_doc_rot_check()
-        assert "holds only the corrections step 5c's judgment pass kept" in check
-        assert "the candidates the pass rejected are not corrections, so they are never recorded" in check
+        assert "record the corrections CS step 5c kept" in check
         assert "`[doc-rot] {affected}: {candidate_category}`" in check
+        assert "nothing when step 5c kept none and so wrote no file" in check
+        assert "`category`" not in _read(CAMPAIGN_SKILL_LOOP)
+        assert "correction_matches" not in _read(CAMPAIGN_SKILL_LOOP)
+
+    def test_the_documented_call_records_what_the_file_holds(self, tmp_path: pathlib.Path, capsys) -> None:
+        state_mod = _load_script(CAMPAIGN_STATE_PY, "campaign_state_doc_rot")
+        state = tmp_path / "_campaign-state.yaml"
+        state.write_text(yaml.safe_dump({
+            "campaign": {"name": "demo", "started_at": "2026-10-01T10:00:00Z",
+                         "last_updated": "2026-10-01T10:00:00Z", "current_stage": 3,
+                         "quality_gate": {"hard": "zero-critical-high", "soft_target": 90, "soft_fallback": 80}},
+            "skills": [{"name": "mylib", "status": "active", "depends_on": [], "tier": "A", "pin": None,
+                        "brief_path": None, "skill_path": None, "quality_score": None, "workarounds_applied": [],
+                        "started_at": None, "completed_at": None, "commit_sha": None}],
+            "dependency_graph": {"execution_order": ["mylib"], "circular_deps_detected": False},
+        }, sort_keys=False), encoding="utf-8")
+        target, payload = _corrections_write().groups()
+        # An upstream line holds quotes, backslashes and backticks: §4 has each `"` and `\` escaped.
+        assert "each value a JSON string with any `\"` or `\\` in it escaped" in _section(
+            _read(STEP_DOC_ROT), "### §4.", "### §5.")
+        values = {"{affected}": "Client.close_all", "{candidate_category}": "Removal", "{pattern}": "Removed",
+                  "{source}": "C:\\work\\changelog.md",
+                  "{context_line}": '- Removed the "legacy" `Client.close_all` (see docs\\api.md)'}
+        filled = payload
+        for slot, value in values.items():
+            filled = filled.replace(slot, json.dumps(value)[1:-1])
+        assert json.loads(filled)[0]["context_line"] == values["{context_line}"]
+        corrections = pathlib.Path(target.replace("{project-root}", str(tmp_path)).replace("{skill-name}", "mylib"))
+        corrections.parent.mkdir(parents=True)
+        corrections.write_text(filled, encoding="utf-8")
+        call = DOC_ROT_CALL_RE.search(_campaign_doc_rot_check()).group(1)
+        argv = shlex.split(call.replace("{stateFile}", state.as_posix()).replace("{skill_name}", "mylib")
+                           .replace("{project-root}", tmp_path.as_posix()))[3:]
+        assert state_mod.main(argv) == 0
+        capsys.readouterr()
+        [skill] = yaml.safe_load(state.read_text(encoding="utf-8"))["skills"]
+        assert skill["workarounds_applied"] == ["[doc-rot] Client.close_all: Removal"]
 
 
 # ---------------------------------------------------------------------------

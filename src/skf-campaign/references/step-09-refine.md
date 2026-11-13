@@ -3,6 +3,7 @@ nextStepFile: 'step-10-export.md'
 stateFile: '{campaignWorkspacePath}/_campaign-state.yaml'
 decisionLogFile: '{campaignWorkspacePath}/_campaign-decision-log.md'
 stateScript: 'scripts/campaign-state.py'
+statusScript: 'scripts/campaign-status.py'
 validateScript: 'scripts/campaign-validate-state.py'
 ---
 
@@ -53,7 +54,7 @@ skf-refine-architecture --headless --architecture-doc <arch_path> --vs-report-pa
 
 - `--architecture-doc`: the architecture doc discovered in §3 (required).
 - `--vs-report-path`: `campaign.verification.report_path` from §3, or `none` when state holds no report path.
-- `--scope-skills`: comma-separated names of completed campaign skills (from `skills[]` where `status == "completed"`). Optional but improves focus by limiting refinement scope to campaign-relevant skills.
+- `--scope-skills`: the line `uv run {statusScript} --state-file {stateFile} --export-names` prints, unchanged: each completed skill's folder name, the name Refine Architecture's inventory knows. Leave the flag out when that line is empty or the call exits non-zero.
 
 Keep the `SKF_REFINE_ARCHITECTURE_RESULT_JSON` line it prints for §5: on stdout, or on stderr when RA halts. Its fields are defined once, by `shared/scripts/schemas/skf-refine-architecture-result-envelope.v1.json` (in the SKF module: `{project-root}/_bmad/skf/` when installed, `{project-root}/src/` during development).
 

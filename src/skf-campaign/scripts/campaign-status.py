@@ -9,10 +9,18 @@
 array. That count is mechanical, with one correct answer, so this script owns
 it and identical state always yields identical output.
 
+--export-names gives step-09 the refinement scope: the skill folder of every
+completed skill, the name Refine Architecture's inventory knows. It is
+campaign-quality-gate.py's `export_name` (the last part of the skill_path
+the build recorded, else the campaign name), so a Tier B skill whose folder
+quick-skill named after the library is scoped under that folder.
+
 CLI:
   uv run campaign-status.py --state-file <path>
+  uv run campaign-status.py --state-file <path> --export-names
 
-Output (JSON on stdout):
+Output:
+  without --export-names, one JSON object on stdout:
   {
     "campaign_name": "...",
     "current_stage": 0,
@@ -20,6 +28,9 @@ Output (JSON on stdout):
     "total": 0, "completed": 0, "pending": 0,
     "active": 0, "failed": 0, "skipped": 0
   }
+  --export-names: one plain-text line on stdout, the export_name of every
+  completed skill of either tier, in skills[] order, each once, joined by
+  "," with no space (an empty line when no skill is completed)
 
 Exit codes:
   0  ok
@@ -29,14 +40,16 @@ Exit codes:
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import yaml
 
 STATUSES = ("pending", "active", "completed", "failed", "skipped")
+GATE_SCRIPT = Path(__file__).resolve().with_name("campaign-quality-gate.py")
 
 
 def _err(message: str, code: str) -> int:
@@ -66,10 +79,30 @@ def _counts(state: Dict[str, Any]) -> Dict[str, int]:
     return tally
 
 
-def run(state_file: str) -> int:
+def export_names(state: Dict[str, Any]) -> List[str]:
+    """The export_name of every completed skill, in skills[] order, each once."""
+    spec = importlib.util.spec_from_file_location("campaign_quality_gate", GATE_SCRIPT)
+    gate = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gate)
+    names: List[str] = []
+    skills = state.get("skills")
+    for skill in skills if isinstance(skills, list) else []:
+        if not isinstance(skill, dict) or skill.get("status") != "completed":
+            continue
+        name = gate.export_name(skill)
+        if isinstance(name, str) and name and name not in names:
+            names.append(name)
+    return names
+
+
+def run(state_file: str, names_only: bool = False) -> int:
     state = _load_state(Path(state_file))
     if state is None:
         return _err(f"State not readable as a mapping: {state_file}", "STATE_UNREADABLE")
+
+    if names_only:
+        sys.stdout.write(",".join(export_names(state)) + "\n")
+        return 0
 
     campaign = state.get("campaign", {}) or {}
     result: Dict[str, Any] = {
@@ -90,8 +123,13 @@ def main(argv: Optional[list] = None) -> int:
         description="Summarize the campaign state.",
     )
     parser.add_argument("--state-file", required=True, help="Path to _campaign-state.yaml")
+    parser.add_argument(
+        "--export-names",
+        action="store_true",
+        help="print the comma-joined skill folder (export_name) of every completed skill instead",
+    )
     args = parser.parse_args(argv)
-    return run(args.state_file)
+    return run(args.state_file, args.export_names)
 
 
 if __name__ == "__main__":

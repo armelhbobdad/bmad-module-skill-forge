@@ -31,6 +31,9 @@ Subcommands:
             brief-skill takes for it (`brief_skill`: `target_repo` from the
             brief, `target_version` the skill's pin, the brief target's
             language and scope hints), so no step reads them out of prose.
+            Its `directive_notice` puts the directive's `unparsed` items and
+            `warnings` in one sorted line, the same for every skill, which
+            step-05 logs once.
   record    Settle a Tier A skill from the SKF_TEST_RESULT_JSON line its
             test run printed (stdin, or the file --result names). Only the
             verdict PASS completes the skill; FAIL, INCONCLUSIVE,
@@ -77,7 +80,10 @@ Output (one JSON object on stdout):
   check:    {"hard", "soft_target", "soft_fallback"}
   resolve:  {"skill", "skip", "skip_reason", "hard", "soft_target",
              "soft_fallback", "threshold", "overrides": [...],
-             "unparsed": [...], "warnings": [...]}, and with --brief-file
+             "unparsed": [...], "warnings": [...], "directive_notice":
+             "Directive: <item>; <item>" (null when both lists are empty),
+             each unparsed item "<section> line <N> not parsed: <text>"},
+             and with --brief-file
              "brief_skill": {"target_repo", "skill_name", "target_version",
              "language_hint", "scope_hint"} (null when the skill has none)
   record:   {"skill", "status": "completed|failed", "verdict",
@@ -87,7 +93,8 @@ Output (one JSON object on stdout):
              "verdict", "reason"}],
              "export": [...], "excluded": [{"name", "tier", "quality_score",
              "verdict", "reason"}], "counts": {"pass", "fallback", "fail"},
-             "unparsed": [...], "warnings": [...]}
+             "unparsed": [...], "warnings": [...], "directive_notice"}, the
+             notice resolve gives for the same directive
 
 Exit codes:
   0  result printed (for record, read `status`)
@@ -241,6 +248,17 @@ def _unknown_name_warnings(directive: dict[str, Any], names: set[str]) -> list[s
     return warnings
 
 
+def directive_notice(unparsed: list[dict[str, Any]], warnings: list[str]) -> str | None:
+    """One line for the directive's problems, sorted, or None when it has none.
+
+    It names no skill, so every resolve and classify call over one directive
+    gives the same line, which step-05 and step-10 log once.
+    """
+    items = [f"{entry['section']} line {entry['line']} not parsed: {entry['text']}" for entry in unparsed]
+    items += list(warnings)
+    return "Directive: " + "; ".join(sorted(items)) if items else None
+
+
 # --------------------------------------------------------------------------
 # Gate
 # --------------------------------------------------------------------------
@@ -389,6 +407,7 @@ def resolve(
     gate = _checked(gate, applied)
     skipped = skill in directive["skip"]
     extra = {} if brief is None else {"brief_skill": brief_skill_inputs(state, brief, skill)}
+    warnings = _unknown_name_warnings(directive, names)
     return {
         "skill": skill,
         "skip": skipped,
@@ -397,7 +416,8 @@ def resolve(
         "threshold": gate["soft_target"],
         "overrides": applied,
         "unparsed": directive["unparsed"],
-        "warnings": _unknown_name_warnings(directive, names),
+        "warnings": warnings,
+        "directive_notice": directive_notice(directive["unparsed"], warnings),
         **extra,
     }
 
@@ -480,6 +500,7 @@ def export_name(skill: dict[str, Any]) -> Any:
 def classify(state: dict[str, Any], directive: dict[str, Any]) -> dict[str, Any]:
     base = state["campaign"]["quality_gate"]
     names = {s.get("name") for s in state["skills"] if isinstance(s, dict)}
+    warnings = _unknown_name_warnings(directive, names)
     rows: list[dict[str, Any]] = []
     for skill in state["skills"]:
         if not isinstance(skill, dict) or skill.get("status") != "completed":
@@ -516,7 +537,8 @@ def classify(state: dict[str, Any], directive: dict[str, Any]) -> dict[str, Any]
         ],
         "counts": {v: sum(1 for r in rows if r["verdict"] == v) for v in ("pass", "fallback", "fail")},
         "unparsed": directive["unparsed"],
-        "warnings": _unknown_name_warnings(directive, names),
+        "warnings": warnings,
+        "directive_notice": directive_notice(directive["unparsed"], warnings),
     }
 
 

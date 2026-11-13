@@ -49,7 +49,7 @@ Every write to `_campaign-state.yaml` goes through `scripts/campaign-state.py`. 
 | `apply-pins` | step-03 | each resolved pin, from `campaign-validate-pins.py`'s output |
 | `apply-provenance` | step-04 | each `commit_sha`, from `campaign-provenance.py`'s output |
 | `set-skill` | step-05, step-10, step-resume | a skill's `status`, `quality_score`, `skill_path`, `brief_path` or `export` outcome (`--export`); `active` stamps `started_at` once, `completed` stamps `completed_at`, `pending` clears both and the `export` outcome |
-| `append-workarounds` | step-05 | entries of a skill's `workarounds_applied`, each once |
+| `append-workarounds` | step-05 | entries of a skill's `workarounds_applied`, each once: the `--entry` texts, or with `--doc-rot-file` one `[doc-rot] {affected}: {candidate_category}` entry per correction create-skill's step 5c kept (no file, no entry) |
 | `apply-batch` | step-06 | the Tier B batch from its line-to-skill map: `--start`, `--results-file` or `--no-results` |
 | `set-campaign` | steps 07 to 09 | `architecture_doc_path`, and the capstone, verification or refinement summary read from the sub-skill's envelope line (`capstone.verified` with the verification); null for a stage skipped on purpose (`--no-<field>`), a sub-skill that printed no line (`--no-result <field>`, a `not_recorded` row with halt reason `no-result`) or a line it cannot read (one that does not parse, or has no `status` or `exit_code`: a `not_recorded` row with halt reason `result-unreadable`, exit 0); and `stage_outcomes`, each stage `completed`, `skipped` or `failed` with its halt reason and exit code |
 | `set-stage` | steps 05, 10, 11 | `current_stage` alone |
@@ -62,7 +62,7 @@ Its exit codes are the campaign's: 2 for invalid input (an unknown skill, an inp
 
 ## Decision Log
 
-`_campaign-decision-log.md` is append-only, one typed and timestamped line per entry, written with `uv run scripts/campaign-state.py log --log-file {campaignWorkspacePath}/_campaign-decision-log.md --type <decision|auto|event> --text '<entry>'` (single-quote the entry, so the shell expands no `$` or backtick in it, and write an apostrophe inside it as `'\''`). Its types:
+`_campaign-decision-log.md` is append-only, one typed and timestamped line per entry, written with `uv run scripts/campaign-state.py log --log-file {campaignWorkspacePath}/_campaign-decision-log.md --type <decision|auto|event> --text '<entry>'` (single-quote the entry, so the shell expands no `$` or backtick in it, and write an apostrophe inside it as `'\''`). With `--once` it appends nothing when the log already holds a line of the same type and text, and returns `skipped` `true`, so a notice several calls report is logged once. Its types:
 
 - `decision`: the operator's choice at a gate (skip or force, overwrite, export or cancel, re-run or next, a cancel)
 - `auto`: the default a headless run took at a gate

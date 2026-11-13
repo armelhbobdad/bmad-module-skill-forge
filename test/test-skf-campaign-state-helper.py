@@ -679,6 +679,82 @@ class TestAppendWorkarounds:
         assert _read(path)["skills"][0]["workarounds_applied"] == ["[doc-rot] a: rename", "[doc-rot] b: removal"]
 
 
+def _correction(affected: str, category: str, **fields) -> dict:
+    """A record as create-skill's doc-rot step writes it to doc-rot-corrections.json."""
+    return {"source": "changelog.md", "pattern": category, "candidate_category": category,
+            "context_line": f"- {category}: {affected}", "affected": affected, **fields}
+
+
+class TestAppendDocRotFile:
+    """#1141: campaign records the corrections create-skill kept from the file it wrote, not from context."""
+
+    def _append(self, capsys, path, source):
+        return _run(capsys, "append-workarounds", "--state-file", str(path), "--skill", "core",
+                    "--doc-rot-file", str(source))
+
+    def test_one_entry_per_kept_correction_each_once(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(skills=[_skill("core", workarounds_applied=["[doc-rot] a: Rename"])]))
+        source = tmp_path / "doc-rot-corrections.json"
+        source.write_text(json.dumps([_correction("a", "Rename"), _correction("b", "Removal"),
+                                      _correction("b", "Removal", source="releases.md")]), encoding="utf-8")
+        rc, out = self._append(capsys, path, source)
+        assert rc == 0
+        assert out["added"] == ["[doc-rot] b: Removal"]
+        assert _read(path)["skills"][0]["workarounds_applied"] == ["[doc-rot] a: Rename", "[doc-rot] b: Removal"]
+
+    def test_a_resumed_skill_records_nothing_twice(self, tmp_path, capsys):
+        path = _write(tmp_path, _state(skills=[_skill("core")]))
+        source = tmp_path / "doc-rot-corrections.json"
+        source.write_text(json.dumps([_correction("Client.close_all", "Removal")]), encoding="utf-8")
+        assert self._append(capsys, path, source)[1]["added"] == ["[doc-rot] Client.close_all: Removal"]
+        assert self._append(capsys, path, source)[1]["added"] == []
+        assert _read(path)["skills"][0]["workarounds_applied"] == ["[doc-rot] Client.close_all: Removal"]
+
+    @pytest.mark.parametrize("content", [None, "[]"], ids=["no-file", "empty-array"])
+    def test_nothing_kept_records_nothing(self, tmp_path, capsys, content):
+        path = _write(tmp_path, _state(skills=[_skill("core")]))
+        source = tmp_path / "doc-rot-corrections.json"
+        if content is not None:
+            source.write_text(content, encoding="utf-8")
+        rc, out = self._append(capsys, path, source)
+        assert (rc, out["added"]) == (0, [])
+        assert _read(path)["skills"][0]["workarounds_applied"] == []
+
+    @pytest.mark.parametrize(
+        "content, code",
+        [("{}", "input-unreadable"),
+         ("not json", "input-unreadable"),
+         ("", "input-unreadable"),
+         ('[{"candidate_category": "Removal"}]', "input-invalid"),
+         ('[{"affected": "a", "candidate_category": "  "}]', "input-invalid"),
+         ('[{"affected": 3, "candidate_category": "Removal"}]', "input-invalid"),
+         ('[{"affected": "a", "candidate_category": "Rename"}, "b"]', "input-invalid")],
+        ids=["object", "not-json", "empty", "no-affected", "blank-category", "number", "not-an-object"],
+    )
+    def test_a_file_it_cannot_read_writes_nothing(self, tmp_path, capsys, content, code):
+        path = _write(tmp_path, _state(skills=[_skill("core")]))
+        before = path.read_bytes()
+        source = tmp_path / "doc-rot-corrections.json"
+        source.write_text(content, encoding="utf-8")
+        rc, err = self._append(capsys, path, source)
+        assert (rc, err["code"]) == (2, code)
+        assert path.read_bytes() == before
+        assert not _bak(path).exists()
+
+    def test_entries_and_a_file_do_not_combine(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["append-workarounds", "--state-file", "s", "--skill", "core", "--entry", "x",
+                      "--doc-rot-file", "f.json"])
+        assert exc.value.code == 2
+        assert "argument --doc-rot-file: not allowed with argument --entry" in capsys.readouterr().err
+
+    def test_one_source_is_required(self, capsys):
+        with pytest.raises(SystemExit) as exc:
+            mod.main(["append-workarounds", "--state-file", "s", "--skill", "core"])
+        assert exc.value.code == 2
+        assert "one of the arguments --entry --doc-rot-file is required" in capsys.readouterr().err
+
+
 class TestSetCampaign:
     def test_records_the_capstone_from_its_envelope(self, tmp_path, capsys, monkeypatch):
         path = _write(tmp_path, _state(stage=5))
@@ -1000,6 +1076,45 @@ class TestRecoverAndLog:
             f"- {STAMP} (auto) headless: auto-proceed past plan-confirmation gate",
             f"- {LATER} (event) core failed: FAIL",
         ]
+
+    def test_log_once_skips_an_entry_the_log_holds(self, tmp_path, capsys):
+        log = tmp_path / "_campaign-decision-log.md"
+        notice = "Directive: Skip List names `ghost`, which is no skill in this campaign"
+        rc, first = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", notice)
+        assert (rc, first["skipped"]) == (0, False)
+        before = log.read_bytes()
+        for text in (notice, notice.replace(" names ", "   names\n  ")):
+            rc, again = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", text)
+            assert (rc, again["skipped"], again["entry"]) == (0, True, first["entry"])
+            assert log.read_bytes() == before
+
+    def test_log_once_appends_another_text_or_type(self, tmp_path, capsys):
+        log = tmp_path / "_campaign-decision-log.md"
+        assert _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive: a")[0] == 0
+        for kind, text in (("event", "Directive: b"), ("auto", "Directive: a")):
+            rc, out = _run(capsys, "log", "--log-file", str(log), "--type", kind, "--once", "--text", text)
+            assert (rc, out["skipped"]) == (0, False)
+        assert log.read_text(encoding="utf-8").splitlines() == [
+            f"- {STAMP} (event) Directive: a", f"- {LATER} (event) Directive: b", f"- {LATER} (auto) Directive: a"]
+
+    def test_log_once_reads_the_whole_log(self, tmp_path, capsys):
+        log = tmp_path / "_campaign-decision-log.md"
+        log.write_bytes(b"- 2026-09-01T00:00:00+00:00 (event) Directive: a\r\n- 2026-09-01T00:00:01+00:00 (auto) b\r\n")
+        rc, out = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive:  a")
+        assert (rc, out["skipped"], out["entry"]) == (0, True, "- 2026-09-01T00:00:00+00:00 (event) Directive: a")
+
+    def test_log_once_on_a_missing_log_appends(self, tmp_path, capsys):
+        log = tmp_path / "campaign" / "_campaign-decision-log.md"
+        rc, out = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--once", "--text", "Directive: a")
+        assert (rc, out["skipped"]) == (0, False)
+        assert log.read_text(encoding="utf-8").splitlines() == [f"- {STAMP} (event) Directive: a"]
+
+    def test_log_without_once_always_appends(self, tmp_path, capsys):
+        log = tmp_path / "_campaign-decision-log.md"
+        for _ in range(2):
+            rc, out = _run(capsys, "log", "--log-file", str(log), "--type", "event", "--text", "core failed")
+            assert (rc, out["skipped"]) == (0, False)
+        assert len(log.read_text(encoding="utf-8").splitlines()) == 2
 
     def test_log_type_is_closed(self, tmp_path):
         with pytest.raises(SystemExit) as exc:
