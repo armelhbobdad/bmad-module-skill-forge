@@ -79,21 +79,23 @@ The saved diff holds every set §5 renders. This step reads three of its fields 
 
 **Run only when** the tier is Forge+ or Deep, `tools.ccc` is true in forge-tier.yaml, and the saved diff's `summary.removed` is above 0. Otherwise skip this section silently.
 
-An export moved to a file outside the bounded scan list is missing from the snapshot, so the diff reports it as removed, which step 5 grades CRITICAL. Look for each `removed[]` entry of `{auditDataFolder}/structural-diff.json` elsewhere in the source:
+An export moved to a file outside the bounded scan list is missing from the snapshot, so the diff reports it as removed, which step 5 grades CRITICAL. Look for each `removed[]` entry of `{auditDataFolder}/structural-diff.json` elsewhere in the source. Resolve `{extractPublicApiHelper}` and `{extractionSnapshotHelper}` from their probe orders, then, from `{project-root}`, list the files that hold a removed name, less the scan list step 2 wrote:
 
-1. Search for its name: `cd {source_root} && ccc search --limit 5 "{name}"` (CLI), the `/ccc` skill (Claude Code) or the ccc MCP server (Cursor). `ccc search` reads the index of the current working directory (`knowledge/ccc-bridge.md` gives its flags). When `{source_tree}` is set, `{source_root}` is the private tree the [C] of `upstream-checkout.md` read, which has no ccc index: list the files of the tree that hold the name as a word instead, with `git -C "{source_root}" grep -l -w -F -e "{name}"`, and take them as the candidates.
-2. Drop each candidate file listed in `{auditDataFolder}/scan-files.json`, the scan list step 2 wrote: step 2 extracted those files, so the diff already saw their exports.
-3. Write the remaining candidates of every name, relative to `{source_root}` with forward slashes, as one JSON list in `{auditDataFolder}/relocation-candidates.json`. Resolve `{extractPublicApiHelper}` and `{extractionSnapshotHelper}` from their probe orders, then, from `{project-root}`, run the recipes over the candidates and add what they find to the snapshot:
+```bash
+uv run {extractionSnapshotHelper} relocation-candidates --diff "{auditDataFolder}/structural-diff.json" --source-root "{source_root}" --scan-list "{auditDataFolder}/scan-files.json" -o "{auditDataFolder}/relocation-candidates.json"
+```
 
-   ```bash
-   rm -f "{auditDataFolder}/relocations.json"
-   uv run {extractPublicApiHelper} --mode full --source-root "{source_root}" --files-from "{auditDataFolder}/relocation-candidates.json" --head-cap 0 -o "{auditDataFolder}/relocations.json"
-   uv run {extractionSnapshotHelper} relocate "{extractionSnapshot}" --diff "{auditDataFolder}/structural-diff.json" --extraction "{auditDataFolder}/relocations.json"
-   ```
+Add `--ccc` unless `{source_tree}` is set: the helper then searches each name with `ccc search` over the index of `{source_root}`. When `{source_tree}` is set, `{source_root}` is the private tree the [C] of `upstream-checkout.md` read, which has no ccc index, so the helper lists the files that hold a name as a word with one `git grep` there. It writes the candidates relative to `{source_root}` and prints `candidates`, their count: 0 skips the rest of this section. An `error` that starts `cannot run ccc` while the `/ccc` skill (Claude Code) or the ccc MCP server (Cursor) can search: search each removed name with it and write the files it returns, relative to `{source_root}` with forward slashes, as one JSON list in `{auditDataFolder}/relocation-candidates.json` (`relocate` adds nothing from a scan-list file). Then run the recipes over the candidates and add what they find to the snapshot:
 
-   `relocate` adds each export the runner found under a removed name in a file outside the bounded scan list (with the removed entry's `source_library` for a stack), recounts the snapshot and prints `added`: never edit the snapshot by hand.
+```bash
+rm -f "{auditDataFolder}/relocations.json"
+uv run {extractPublicApiHelper} --mode full --source-root "{source_root}" --files-from "{auditDataFolder}/relocation-candidates.json" --head-cap 0 -o "{auditDataFolder}/relocations.json"
+uv run {extractionSnapshotHelper} relocate "{extractionSnapshot}" --diff "{auditDataFolder}/structural-diff.json" --extraction "{auditDataFolder}/relocations.json"
+```
 
-When `added` is above 0, run §1's command again with the same arguments and the same `-o`, acting on its exit code as §1 does. The helper pairs each relocation with its removed entry as a move (or, when the name occurs more than once, lists it under `ambiguous_names[]`). A removed export the runner finds nowhere else stays removed. When ccc cannot search (no index for `{source_root}`, or the command fails), the runner writes no JSON, or `relocate` prints an `error`, skip the rest of this section and note `ccc relocation check skipped: {reason}` on the **Method:** line (§5).
+`relocate` adds each export the runner found under a removed name in a file outside the bounded scan list (with the removed entry's `source_library` for a stack), recounts the snapshot and prints `added`: never edit the snapshot by hand.
+
+When `added` is above 0, run §1's command again with the same arguments and the same `-o`, acting on its exit code as §1 does. The helper pairs each relocation with its removed entry as a move (or, when the name occurs more than once, lists it under `ambiguous_names[]`). A removed export the runner finds nowhere else stays removed. When ccc cannot search (no index for `{source_root}`, or the command fails), `relocation-candidates` prints any other `error`, the runner writes no JSON, or `relocate` prints an `error`, skip the rest of this section and note `ccc relocation check skipped: {reason}` on the **Method:** line (§5).
 
 ### 2. What the Diff Decides
 

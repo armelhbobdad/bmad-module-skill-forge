@@ -6,6 +6,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import re
+import shutil
 import subprocess
 import sys
 
@@ -419,7 +420,9 @@ class TestFromDiff:
         assert [c["field"] for c in diff["changed"]] == ["signature"]
         assert {"transform": "export-type", "count": 1} in diff["applied_transforms"]
         (finding,) = mod.project_diff(diff)
-        assert (finding["type"], finding["category"]) == ("changed", "signature")
+        # #1131: the new keyword argument has a default, so the fields settle it
+        assert (finding["type"], finding["category"]) == ("changed", "optional_parameter")
+        assert "category_choices" not in finding
         assert finding["detail"].startswith("signature: ") and "type:" not in finding["detail"]
 
     def test_label_changes_are_never_findings(self):
@@ -481,6 +484,390 @@ class TestFromDiff:
     def test_a_file_that_is_not_a_diff_is_refused(self, diff):
         with pytest.raises(ValueError, match="not a structural diff"):
             mod.project_diff(diff)
+
+
+# --------------------------------------------------------------------------
+# #1131: a changed export's category settled by the diff's fields
+# --------------------------------------------------------------------------
+
+OPEN = ["signature", "interface_contract", "inheritance", "implementation", "style"]
+# The choices of a changed export whose parameters the helper cannot read on
+# one side: those its fields would have settled are offered too.
+UNREAD = ["signature", "parameter_count", "parameter_type", "return_type", "interface_contract", "inheritance",
+          "required_parameter", "default_value", "optional_parameter", "implementation", "style"]
+
+
+def _expected(category):
+    """(category, category_choices) a CHANGED row expects: OPEN or UNREAD
+    is an open signature with those choices."""
+    return ("signature", category) if isinstance(category, list) else (category, None)
+
+# (id, file, baseline fields, current fields, category or the open choices,
+# severity): each export is one function of `file` named `f` (`add` for the
+# async one).
+CHANGED = [
+    ("spacing", "a.py", {"signature": "def f(a,b)"}, {"signature": "def f(a, b)"}, "whitespace", "LOW"),
+    ("spacing-runs-and-params", "a.ts", {"params": ["a:  string", "b ?: number"]},
+     {"params": ["a: string", "b?: number"]}, "whitespace", "LOW"),
+    ("optional-keyword", "add.py", {"signature": "async def add(data):"},
+     {"signature": "async def add(data, *, mode: str = 'soft'):"}, "optional_parameter", "MEDIUM"),
+    ("optional-ts", "a.ts", {"params": ["a: string"]}, {"params": ["a: string", "b?: number"]},
+     "optional_parameter", "MEDIUM"),
+    ("optional-star-args", "a.py", {"params": ["a"]}, {"params": ["a", "*args"]}, "optional_parameter", "MEDIUM"),
+    ("optional-rest", "a.ts", {"signature": "export function f(a: string): void {"},
+     {"signature": "export function f(a: string, ...more: string[]): void {"}, "optional_parameter", "MEDIUM"),
+    ("removed-and-added", "a.py", {"signature": "def f(a, b)"}, {"signature": "def f(a, c)"},
+     "parameter_count", "CRITICAL"),
+    ("removed-param", "a.py", {"params": ["a: int", "b: int"]}, {"params": ["a: int"]}, "parameter_count", "CRITICAL"),
+    ("retyped", "a.py", {"params": ["a: int"]}, {"params": ["a: str"]}, "parameter_type", "CRITICAL"),
+    ("retyped-ts", "a.ts", {"signature": "export function f(a: string): void {"},
+     {"signature": "export function f(a: number): void {"}, "parameter_type", "CRITICAL"),
+    ("return", "a.ts", {"signature": "export function f(a: string): void {"},
+     {"signature": "export function f(a: string): number {"}, "return_type", "CRITICAL"),
+    ("return-field", "a.py", {"return_type": "int"}, {"return_type": "str"}, "return_type", "CRITICAL"),
+    ("return-python", "a.py", {"signature": "def f(a) -> int:"}, {"signature": "def f(a) -> str:"},
+     "return_type", "CRITICAL"),
+    ("required", "a.py", {"signature": "def f(a):"}, {"signature": "def f(a, b):"}, "required_parameter", "HIGH"),
+    ("required-ts", "a.ts", {"params": ["a: string"]}, {"params": ["a: string", "b: number"]},
+     "required_parameter", "HIGH"),
+    ("default", "a.py", {"params": ["mode: str = 'r'"]}, {"params": ["mode: str = 'w'"]}, "default_value", "HIGH"),
+    ("default-set", "a.py", {"signature": "def f(a):"}, {"signature": "def f(a=1):"}, "default_value", "HIGH"),
+    ("default-dropped", "a.ts", {"params": ["a: string = 'x'"]}, {"params": ["a: string"]}, "default_value", "HIGH"),
+    # a removed parameter outranks a new optional one: the most severe holds first
+    ("removed-beats-optional", "a.py", {"signature": "def f(a, b):"}, {"signature": "def f(a, c=1):"},
+     "parameter_count", "CRITICAL"),
+    # #1131 review 1: each rule outranks the ones after it
+    ("retyped-beats-optional", "a.py", {"signature": "def f(a: int):"}, {"signature": "def f(a: str, b=None):"},
+     "parameter_type", "CRITICAL"),
+    ("return-beats-required", "a.py", {"signature": "def f(a) -> int:"}, {"signature": "def f(a, b) -> str:"},
+     "return_type", "CRITICAL"),
+    ("default-beats-optional", "a.py", {"signature": "def f(a=1):"}, {"signature": "def f(a=2, b=None):"},
+     "default_value", "HIGH"),
+    # a quoted literal keeps its spaces: a changed string default is no spacing change
+    ("literal", "a.py", {"signature": "def f(s, sep=' '):"}, {"signature": "def f(s, sep=''):"}, "default_value",
+     "HIGH"),
+    ("literal-comma", "a.py", {"signature": "def f(s, sep=', '):"}, {"signature": "def f(s, sep=','):"},
+     "default_value", "HIGH"),
+    ("literal-params", "a.py", {"params": ["sep: str = ', '"]}, {"params": ["sep: str = ','"]}, "default_value",
+     "HIGH"),
+    ("literal-ts", "a.ts", {"signature": "export function f(sep = ' '): void {"},
+     {"signature": "export function f(sep = ''): void {"}, "default_value", "HIGH"),
+    ("spacing-beside-literal", "a.py", {"signature": "def f(s, sep = ' ' ):"}, {"signature": "def f(s,sep=' '):"},
+     "whitespace", "LOW"),
+    # a Rust ' opens a lifetime, not a literal
+    ("spacing-rust-lifetime", "a.rs", {"signature": "pub fn f<'a>(x: &'a  str, y:  u8) -> &'a str {"},
+     {"signature": "pub fn f<'a>(x: &'a str, y: u8) -> &'a str {"}, "whitespace", "LOW"),
+    # a parameter made required or optional with its default unchanged
+    ("made-required", "a.ts", {"signature": "export function f(a?: string): void {"},
+     {"signature": "export function f(a: string, b?: number): void {"}, "required_parameter", "HIGH"),
+    ("made-required-alone", "a.ts", {"params": ["a?: string"]}, {"params": ["a: string"]}, "required_parameter",
+     "HIGH"),
+    ("made-optional", "a.ts", {"params": ["a: string", "b: number"]}, {"params": ["a: string", "b?: number"]},
+     "optional_parameter", "MEDIUM"),
+    # by position outside Python: a Go parameter the map writes by its type alone
+    ("go-by-type", "a.go", {"params": ["int"]}, {"params": ["int", "int"]}, "required_parameter", "HIGH"),
+    ("open-kind", "add.py", {"type": "async_function"}, {"signature": "def add(data):"}, OPEN, "CRITICAL"),
+    ("open-reorder", "a.py", {"signature": "def f(a, b):"}, {"signature": "def f(b, a):"}, OPEN, "CRITICAL"),
+    # a reorder, a move to keyword-only or positional-only, or a kept
+    # parameter's place shifted, beside a new optional parameter
+    ("open-reorder-and-optional", "a.py", {"signature": "def f(a, b):"}, {"signature": "def f(b, a, c=None):"},
+     OPEN, "CRITICAL"),
+    # #1131 review 2: the open check outranks a new required parameter and a changed default
+    ("open-reorder-and-required", "a.py", {"signature": "def f(a, b):"}, {"signature": "def f(b, a, c):"}, OPEN,
+     "CRITICAL"),
+    ("open-reorder-and-default", "a.py", {"signature": "def f(a=1, b=1):"}, {"signature": "def f(b=1, a=2):"},
+     OPEN, "CRITICAL"),
+    # #1131 review 2: outside Python a kept place whose name changed is a rename, a swap or a shift
+    ("open-shifted-ts", "a.ts", {"signature": "export function f(a: string, b?: string): void {"},
+     {"signature": "export function f(a: string, c?: string, b?: string): void {"}, OPEN, "CRITICAL"),
+    ("open-shifted-js", "a.js", {"signature": "export function f(a, b = 1) {"},
+     {"signature": "export function f(a, c = 2, b = 1) {"}, OPEN, "CRITICAL"),
+    ("open-swap-go", "a.go", {"signature": "func f(a int, b int) {"}, {"signature": "func f(b int, a int, c ...int) {"},
+     OPEN, "CRITICAL"),
+    ("open-rename-and-required-rust", "a.rs", {"signature": "pub fn f(a: u32) {"},
+     {"signature": "pub fn f(b: u32, c: u32) {"}, OPEN, "CRITICAL"),
+    # #1131 review 2: a Python parameter no caller passes by name keeps its slot when renamed
+    ("open-star-args-renamed", "a.py", {"signature": "def f(a, *args):"}, {"signature": "def f(a, *rest):"}, OPEN,
+     "CRITICAL"),
+    ("open-kwargs-renamed", "a.py", {"signature": "def f(a, **kwargs):"}, {"signature": "def f(a, **options):"},
+     OPEN, "CRITICAL"),
+    ("open-positional-only-renamed", "a.py", {"signature": "def f(a, /, b):"}, {"signature": "def f(x, /, b):"},
+     OPEN, "CRITICAL"),
+    ("optional-beside-positional-only-renamed", "a.py", {"signature": "def f(a, /):"},
+     {"signature": "def f(x, /, b=1):"}, "optional_parameter", "MEDIUM"),
+    ("star-args-gone", "a.py", {"signature": "def f(a, *args):"}, {"signature": "def f(a):"}, "parameter_count",
+     "CRITICAL"),
+    ("star-args-to-kwargs", "a.py", {"signature": "def f(a, *args):"}, {"signature": "def f(a, **args):"},
+     "parameter_count", "CRITICAL"),
+    # #1131 review 2: a quoted Python annotation names the type it quotes
+    ("open-quoted-annotation", "a.py", {"signature": "def f(a: 'Node') -> 'Node':"},
+     {"signature": "def f(a: Node) -> Node:"}, OPEN, "CRITICAL"),
+    ("open-quoted-return", "a.py", {"signature": "def f(a) -> 'pkg.Node':"}, {"signature": "def f(a) -> pkg.Node:"},
+     OPEN, "CRITICAL"),
+    ("open-quoted-in-subscript", "a.py", {"signature": "def f(b: Optional['Node'] = None):"},
+     {"signature": "def f(b: Optional[Node] = None):"}, OPEN, "CRITICAL"),
+    ("quoted-retyped", "a.py", {"signature": "def f(a: 'Node'):"}, {"signature": "def f(a: Leaf):"},
+     "parameter_type", "CRITICAL"),
+    ("literal-type-ts", "a.ts", {"signature": "export function f(a: 'x' | 'y'): void {"},
+     {"signature": "export function f(a: x | y): void {"}, "parameter_type", "CRITICAL"),
+    # #1131 review 3: a Python type compares as Python reads it, so another
+    # spelling of the same type (a ruff or pyupgrade fix) settles nothing
+    ("open-optional-as-union", "a.py", {"signature": "def f(a: Optional[int] = None):"},
+     {"signature": "def f(a: int | None = None):"}, OPEN, "CRITICAL"),
+    ("open-union-order", "a.py", {"signature": "def f(a: Union[int, str]):"}, {"signature": "def f(a: str | int):"},
+     OPEN, "CRITICAL"),
+    ("open-generic-alias", "a.py", {"signature": "def f(a: List[int]) -> Dict[str, Tuple[int, ...]]:"},
+     {"signature": "def f(a: list[int]) -> dict[str, tuple[int, ...]]:"}, OPEN, "CRITICAL"),
+    ("open-quoted-whole-annotation", "a.py", {"signature": "def f(a: 'list[Node]') -> 'Optional[Node]':"},
+     {"signature": "def f(a: list[Node]) -> Optional[Node]:"}, OPEN, "CRITICAL"),
+    ("optional-beside-union", "a.py", {"signature": "def f(a: Optional[int] = None):"},
+     {"signature": "def f(a: int | None = None, b=1):"}, "optional_parameter", "MEDIUM"),
+    ("union-retyped", "a.py", {"signature": "def f(a: Optional[int] = None):"},
+     {"signature": "def f(a: str | None = None):"}, "parameter_type", "CRITICAL"),
+    ("literal-value-retyped", "a.py", {"signature": "def f(a: Literal['0']):"}, {"signature": "def f(a: Literal[0]):"},
+     "parameter_type", "CRITICAL"),
+    # a dropped default is default_value: required_parameter needs the default unchanged
+    ("default-dropped-python", "a.py", {"signature": "def f(a=1):"}, {"signature": "def f(a):"}, "default_value",
+     "HIGH"),
+    ("open-keyword-only", "a.py", {"signature": "def f(a, b=1):"}, {"signature": "def f(a, *, b=1, c=2):"}, OPEN,
+     "CRITICAL"),
+    ("open-positional-only", "a.py", {"signature": "def f(a, b):"}, {"signature": "def f(a, b, /, c=1):"}, OPEN,
+     "CRITICAL"),
+    ("open-shifted", "a.py", {"signature": "def f(a, b=1):"}, {"signature": "def f(a, c=2, b=1):"}, OPEN,
+     "CRITICAL"),
+    ("open-keyword-only-params", "a.py", {"params": ["a", "b"]}, {"params": ["a", "*args", "b"]}, OPEN, "CRITICAL"),
+    ("optional-keyword-only-beside", "a.py", {"signature": "def f(a, *, b=1):"},
+     {"signature": "def f(a, *, c=2, b=1):"}, "optional_parameter", "MEDIUM"),
+    # a rename in place where callers pass by position
+    ("open-rename-ts", "a.ts", {"signature": "export function f(a: string): void {"},
+     {"signature": "export function f(b: string): void {"}, OPEN, "CRITICAL"),
+    ("open-rename-go", "a.go", {"signature": "func f(a int) {"}, {"signature": "func f(b int) {"}, OPEN, "CRITICAL"),
+    ("open-rename-rust", "a.rs", {"signature": "pub fn f(a: u32) {"}, {"signature": "pub fn f(b: u32) {"}, OPEN,
+     "CRITICAL"),
+    # a parameter annotation added changes no call
+    ("open-annotation-added", "a.py", {"signature": "def f(a):"}, {"signature": "def f(a: int):"}, OPEN, "CRITICAL"),
+    # parameters the helper cannot read on a side
+    ("open-unparsed", "a.py", {"signature": "grows(a)"}, {"signature": "grows(a, b)"}, UNREAD, "CRITICAL"),
+    ("open-no-language", "a.txt", {"signature": "def f(a):"}, {"signature": "def f(a, b):"}, UNREAD, "CRITICAL"),
+    ("open-vue", "a.vue", {"signature": "export function f(a) {"}, {"signature": "export function f(a, b) {"},
+     UNREAD, "CRITICAL"),
+    ("open-bare-star", "a.py", {"params": ["a", "b = 1"]}, {"params": ["a", "*", "b = 1", "c = 2"]}, UNREAD,
+     "CRITICAL"),
+    ("open-bare-slash", "a.py", {"params": ["a", "b"]}, {"params": ["a", "b", "/", "c = 1"]}, UNREAD, "CRITICAL"),
+    ("return-unread-params", "a.py", {"signature": "grows(a)", "return_type": "int"},
+     {"signature": "grows(a, b)", "return_type": "str"}, "return_type", "CRITICAL"),
+    ("open-quoted-return-unread-params", "a.py", {"signature": "grows(a)", "return_type": "'Node'"},
+     {"signature": "grows(a, b)", "return_type": "Node"}, UNREAD, "CRITICAL"),
+]
+
+
+def _changed_diff(file, base_fields, curr_fields):
+    name = "add" if file == "add.py" else "f"
+    return _diff([_export(name, file, 3, **base_fields)], [_export(name, file, 3, **curr_fields)])
+
+
+class TestChangedCategory:
+    @pytest.mark.parametrize("file,base,curr,expected,severity", [row[1:] for row in CHANGED],
+                             ids=[row[0] for row in CHANGED])
+    def test_the_fields_settle_one_category_on_every_projection(self, file, base, curr, expected, severity):
+        diff = _changed_diff(file, base, curr)
+        assert diff["changed"], diff
+        first, second = mod.project_diff(diff), mod.project_diff(json.loads(json.dumps(diff)))
+        assert first == second
+        (finding,) = first
+        category, choices = _expected(expected)
+        assert (finding["type"], finding["category"]) == ("changed", category)
+        assert finding.get("category_choices") == choices
+        assert classify_all(first)["findings"][0]["severity"] == severity
+
+    def test_a_signature_python_warns_on_leaves_stderr_empty(self, tmp_path):
+        """#1131 review 3: a default such as '\\s+' makes Python's parser
+        warn (a SyntaxWarning from 3.12); the projection prints nothing on
+        stderr."""
+        diff = _write_json(tmp_path / "structural-diff.json", _changed_diff(
+            "a.py", {"signature": r"def f(text, pattern='\s+'):"}, {"signature": r"def f(text, pattern='\s+', n=0):"}))
+        res = _run_cli("--from-diff", str(diff), "-o", str(tmp_path / "findings.json"))
+        assert res.returncode == 0, res.stdout + res.stderr
+        assert res.stderr == ""
+        (finding,) = json.loads((tmp_path / "findings.json").read_text(encoding="utf-8"))
+        assert finding["category"] == "optional_parameter"
+
+    def test_the_detail_lists_every_changed_item_either_way(self):
+        diff = _diff([_export("f", "a.py", 3, signature="def f(a):", return_type="int")],
+                     [_export("f", "a.py", 5, signature="def f(a, b):", return_type="int ")])
+        (finding,) = mod.project_diff(diff)
+        assert finding["category"] == "required_parameter"
+        assert finding["detail"] == "signature: def f(a): -> def f(a, b):; return_type: int -> int ; line: 3 -> 5"
+
+    def test_one_diff_grades_the_same_among_other_findings(self):
+        """The matrix's same-input row: one diff whose changed exports sit
+        among other buckets projects the same categories and severities
+        twice over."""
+        base = [_export("gone", "a.py", 1), _export("shifts", "a.py", 9)]
+        curr = [_export("shifts", "a.py", 12), _export("fresh", "c.py", 3)]
+        for i, (_, file, base_fields, curr_fields, _, _) in enumerate(CHANGED):
+            name = "add" if file == "add.py" else "f"
+            base.append(_export(name, f"x{i}/{file}", 3, **base_fields))
+            curr.append(_export(name, f"x{i}/{file}", 3, **curr_fields))
+        diff = _diff(base, curr)
+        runs = [classify_all(mod.project_diff(json.loads(json.dumps(diff)))) for _ in range(2)]
+        assert runs[0] == runs[1]
+        graded = {f["file"]: (f["category"], f["severity"]) for f in runs[0]["findings"]}
+        for i, row in enumerate(CHANGED):
+            assert graded[f"x{i}/{row[1]}"] == (_expected(row[4])[0], row[5]), row[0]
+
+
+def _projected(tmp_path, base, curr):
+    diff = _write_json(tmp_path / "structural-diff.json", _diff(base, curr))
+    return diff, tmp_path / "findings.json"
+
+
+# An ambiguous GET (removed b/route.ts:4, added c/route.ts:6), a removed
+# helper and a changed signature no field settles.
+JUDGED_BASE = [_export("GET", "a/route.ts", 1), _export("GET", "b/route.ts", 4), _export("helper", "u.py", 2),
+               _export("grows", "a.py", 3, signature="grows(a)")]
+JUDGED_CURR = [_export("GET", "a/route.ts", 1), _export("GET", "c/route.ts", 6),
+               _export("grows", "a.py", 3, signature="grows(a, b)")]
+
+
+class TestJudgmentFlags:
+    def _indices(self, findings):
+        return {(f["type"], f["name"]): i for i, f in enumerate(findings)}
+
+    def test_judge_lists_each_finding_left_to_judgment(self, tmp_path):
+        diff, out = _projected(tmp_path, JUDGED_BASE, JUDGED_CURR)
+        res = _run_cli("--from-diff", str(diff), "-o", str(out))
+        assert res.returncode == 0, res.stdout + res.stderr
+        line = json.loads(res.stdout)
+        findings = json.loads(out.read_text(encoding="utf-8"))
+        at = self._indices(findings)
+        assert line["needs_judgment"] == len(line["judge"]) == 4
+        assert line["judge"] == [
+            {"index": at[("added", "GET")], "type": "added", "category": "export", "name": "GET",
+             "file": "c/route.ts", "line": 6, "ambiguous_name": True},
+            {"index": at[("removed", "GET")], "type": "removed", "category": "export", "name": "GET",
+             "file": "b/route.ts", "line": 4, "category_choices": ["export", "internal_helper"],
+             "ambiguous_name": True},
+            {"index": at[("removed", "helper")], "type": "removed", "category": "export", "name": "helper",
+             "file": "u.py", "line": 2, "category_choices": ["export", "internal_helper"]},
+            {"index": at[("changed", "grows")], "type": "changed", "category": "signature", "name": "grows",
+             "file": "a.py", "line": 3, "category_choices": UNREAD},
+        ]
+
+    def test_the_flags_record_the_judgment_and_a_rerun_writes_the_same_file(self, tmp_path):
+        diff, out = _projected(tmp_path, JUDGED_BASE, JUDGED_CURR)
+        assert _run_cli("--from-diff", str(diff), "-o", str(out)).returncode == 0
+        at = self._indices(json.loads(out.read_text(encoding="utf-8")))
+        flags = ["--set-category", f"{at[('removed', 'helper')]}=Internal_Helper",
+                 "--set-category", f"{at[('changed', 'grows')]}=implementation",
+                 "--pair-move", str(at[("removed", "GET")]), str(at[("added", "GET")])]
+        res = _run_cli("--from-diff", str(diff), *flags, "-o", str(out))
+        assert res.returncode == 0, res.stdout + res.stderr
+        written = out.read_bytes()
+        findings = json.loads(written)
+        by_key = {(f["type"], f["name"]): f for f in findings}
+        assert ("removed", "GET") not in by_key and ("added", "GET") not in by_key
+        assert by_key[("moved", "GET")] == {"type": "moved", "category": "export", "name": "GET",
+                                            "detail": "moved from b/route.ts:4 to c/route.ts:6",
+                                            "file": "c/route.ts", "line": 6, "confidence": "T1"}
+        assert by_key[("removed", "helper")]["category"] == "internal_helper"
+        assert by_key[("changed", "grows")]["category"] == "implementation"
+        line = json.loads(res.stdout)
+        # judge keeps the indices the flags take, and shows each set category
+        assert [(j["index"], j["category"]) for j in line["judge"]] == [
+            (at[("removed", "helper")], "internal_helper"), (at[("changed", "grows")], "implementation")]
+        assert line["findings"] == 3 and line["needs_judgment"] == 2
+        assert _run_cli("--from-diff", str(diff), *flags, "-o", str(out)).returncode == 0
+        assert out.read_bytes() == written
+        graded = {f["name"]: f["severity"] for f in classify_all(findings)["findings"]}
+        assert graded == {"GET": "MEDIUM", "helper": "HIGH", "grows": "MEDIUM"}
+
+    def test_a_pair_of_two_libraries_is_refused(self):
+        """#1131 review 2: one name in two libraries is two exports."""
+        pair = [dict(type=f_type, category="export", name="GET", file=f"{lib}/route.ts", line=1,
+                     source_library=lib, ambiguous_name=True) for f_type, lib in (("removed", "a"), ("added", "b"))]
+        with pytest.raises(ValueError, match=r"^--pair-move 0 1: findings 0 and 1 differ in source_library$"):
+            mod.apply_judgments(pair, pair_moves=[(0, 1)])
+
+    def test_a_grouped_pair_keeps_its_library(self, tmp_path):
+        base = [dict(_export("GET", f"{p}/route.ts", 1), source_library="lib") for p in ("a", "b")]
+        curr = [dict(_export("GET", f"{p}/route.ts", 1), source_library="lib") for p in ("a", "c")]
+        diff = _write_json(tmp_path / "d.json", _diff(base, curr, group_by="source_library"))
+        out = tmp_path / "findings.json"
+        assert _run_cli("--from-diff", str(diff), "-o", str(out)).returncode == 0
+        at = self._indices(json.loads(out.read_text(encoding="utf-8")))
+        res = _run_cli("--from-diff", str(diff), "--pair-move", str(at[("removed", "GET")]),
+                       str(at[("added", "GET")]), "-o", str(out))
+        assert res.returncode == 0, res.stdout
+        (moved,) = json.loads(out.read_text(encoding="utf-8"))
+        assert (moved["type"], moved["source_library"]) == ("moved", "lib")
+
+    @pytest.mark.parametrize("flags,needle", [
+        (["--set-category", "{gone}=module"], "--set-category {gone}=module: module is not one of finding {gone}'s"),
+        (["--set-category", "{fresh}=export"], "--set-category {fresh}=export: finding {fresh} has no category_choices"),
+        (["--set-category", "9=style"], "--set-category 9=style: index 9 is out of range"),
+        (["--set-category=-1=style"], "--set-category -1=style: index -1 is out of range"),
+        (["--set-category", "{gone}=export", "--set-category", "{gone}=internal_helper"],
+         "--set-category {gone}=internal_helper: index {gone} is used twice"),
+        (["--set-category", "{removed}=export", "--pair-move", "{removed}", "{added}"],
+         "--pair-move {removed} {added}: index {removed} is used twice"),
+        (["--pair-move", "{gone}", "{added}"], "--pair-move {gone} {added}: finding {gone} is not a removed finding "
+                                               "with ambiguous_name"),
+        (["--pair-move", "{removed}", "{gone}"], "--pair-move {removed} {gone}: finding {gone} is not an added finding "
+                                                 "with ambiguous_name"),
+        (["--pair-move", "{removed}", "{other}"], "--pair-move {removed} {other}: findings {removed} and {other} differ "
+                                                  "in name"),
+    ], ids=["outside-choices", "no-choices", "out-of-range", "negative", "set-twice", "set-and-paired",
+            "removed-not-ambiguous", "added-not-ambiguous", "two-names"])
+    def test_a_flag_its_rule_refuses_writes_nothing(self, tmp_path, flags, needle):
+        base = [_export("GET", "a/route.ts", 1), _export("GET", "b/route.ts", 4), _export("POST", "a/route.ts", 2),
+                _export("POST", "b/route.ts", 2), _export("gone", "u.py", 1)]
+        curr = [_export("GET", "a/route.ts", 1), _export("GET", "c/route.ts", 6), _export("POST", "a/route.ts", 2),
+                _export("POST", "c/route.ts", 2), _export("fresh", "n.py", 1)]
+        diff, out = _projected(tmp_path, base, curr)
+        findings = mod.project_diff(_diff(base, curr))
+        at = {
+            "removed": next(i for i, f in enumerate(findings) if (f["type"], f["name"]) == ("removed", "GET")),
+            "added": next(i for i, f in enumerate(findings) if (f["type"], f["name"]) == ("added", "GET")),
+            "other": next(i for i, f in enumerate(findings) if (f["type"], f["name"]) == ("added", "POST")),
+            "gone": next(i for i, f in enumerate(findings) if f["name"] == "gone"),
+            "fresh": next(i for i, f in enumerate(findings) if f["name"] == "fresh"),
+        }
+        res = _run_cli("--from-diff", str(diff), *(flag.format(**at) for flag in flags), "-o", str(out))
+        assert res.returncode == 1, res.stdout + res.stderr
+        error = json.loads(res.stdout)
+        assert error["status"] == "error" and error["error"].startswith(needle.format(**at)), error
+        assert not out.exists()
+
+    @pytest.mark.parametrize("args", [
+        ["x.json", "--set-category", "0=export"], ["--rules", "--pair-move", "0", "1"],
+        ["--from-diff", "d.json", "--set-category", "export"], ["--from-diff", "d.json", "--set-category", "a=export"],
+        ["--from-diff", "d.json", "--pair-move", "0"]],
+        ids=["with-findings", "with-rules", "no-index", "index-not-a-number", "one-index"])
+    def test_flags_without_the_projection_or_malformed_are_usage_errors(self, args):
+        res = _run_cli(*args)
+        assert res.returncode == 2, res.stdout + res.stderr
+
+    def test_a_runner_that_cannot_load_is_an_error(self, tmp_path):
+        """A changed signature reads its parts with the recipe runner beside
+        the helper: one missing there stops the projection with exit 1."""
+        alone = tmp_path / "scripts"
+        alone.mkdir()
+        shutil.copy2(SCRIPT_PATH, alone / SCRIPT_PATH.name)
+        diff = _write_json(tmp_path / "d.json", _changed_diff("a.py", {"signature": "def f(a):"},
+                                                              {"signature": "def f(a, b):"}))
+        out = tmp_path / "findings.json"
+        res = subprocess.run([sys.executable, str(alone / SCRIPT_PATH.name), "--from-diff", str(diff), "-o", str(out)],
+                             capture_output=True, text=True, encoding="utf-8", timeout=60)
+        assert res.returncode == 1, res.stdout + res.stderr
+        assert json.loads(res.stdout)["error"].startswith(
+            "cannot load skf-extract-public-api.py beside skf-severity-classify.py: ")
+        assert "Traceback" not in res.stderr and not out.exists()
+        # a diff with nothing to read never loads it
+        diff = _write_json(tmp_path / "d.json", _diff([_export("f", "a.py", 3)], [_export("f", "a.py", 5)]))
+        res = subprocess.run([sys.executable, str(alone / SCRIPT_PATH.name), "--from-diff", str(diff), "-o", str(out)],
+                             capture_output=True, text=True, encoding="utf-8", timeout=60)
+        assert res.returncode == 0, res.stdout + res.stderr
 
 
 # --------------------------------------------------------------------------
@@ -697,15 +1084,17 @@ class TestQuotesSurvive:
         findings = tmp_path / "findings.json"
         res = _run_cli("--from-diff", str(diff), "-o", str(findings))
         assert res.returncode == 0, res.stdout
+        # #1131: a changed default settles the category, so nothing is left to judge
         assert json.loads(res.stdout) == {"status": "ok", "output": str(findings), "findings": 1,
-                                          "needs_judgment": 1, "sources": {"diff": 1}}
+                                          "needs_judgment": 0, "judge": [], "sources": {"diff": 1}}
         result = tmp_path / "severity.json"
         res = _run_cli(str(findings), "-o", str(result))
         assert res.returncode == 0, res.stdout
         line = json.loads(res.stdout)
-        assert line["drift_score"] == "CRITICAL" and line["total_findings"] == 1
-        detail = json.loads(result.read_text(encoding="utf-8"))["findings"][0]["detail"]
-        assert detail == "params: (mode: str = 'r') -> (mode: str = 'w')"
+        assert line["drift_score"] == "SIGNIFICANT" and line["total_findings"] == 1
+        (graded,) = json.loads(result.read_text(encoding="utf-8"))["findings"]
+        assert (graded["category"], graded["severity"]) == ("default_value", "HIGH")
+        assert graded["detail"] == "params: (mode: str = 'r') -> (mode: str = 'w')"
 
 
 class TestCli:

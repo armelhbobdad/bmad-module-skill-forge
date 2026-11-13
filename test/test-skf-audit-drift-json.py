@@ -69,6 +69,12 @@ the file it names, and step 4 halts (`template-missing`, exit 3) before the
 run folder and the first question when it names no readable file, so a bad
 override no longer has an undefined outcome in step 1.
 
+#1131: step 5 §1 records each judgment the projection leaves open as a flag
+on its command (`--set-category`, `--pair-move`), never as an edit of the
+findings file, and the projection settles a changed signature's category
+from the diff's fields; step 3 §1b lists the relocation candidates with one
+helper call, run here on a git tree before the relocate line.
+
 #1130: step 4 runs its claim checks in the main thread and saves one row set,
 optional fields included, that render-drift-tables.py prints and step 5
 classifies, with no New Patterns table; steps 1c and 5a and report §3 print
@@ -450,10 +456,13 @@ def test_ambiguous_names_are_shown_and_judged():
     assert ("step 5 judges whether a removed and an added entry of one name are one export that "
             "moved") in section
     judged = _flow(_slice(_read(SEVERITY), "2. **Ambiguous names.**", "Keep one finding per item"))
-    # Recorded the way skf-severity-classify.py --from-diff describes a judged move.
+    # #1131: a flag records the move the way skf-severity-classify.py --pair-move describes it.
+    assert "Then add `--pair-move {removed index} {added index}`, which records the move as the helper records one" \
+        in judged
     assert '`{type: "moved", category: "export", detail: "moved from {removed file:line} to {file:line}"}`' in judged
     assert "without `ambiguous_name`, and the removed finding is deleted" in judged
     assert "ambiguous_name" in classify_mod.__doc__ and "moved from" in classify_mod.__doc__
+    assert "--pair-move REMOVED_INDEX ADDED_INDEX" in classify_mod.__doc__
 
 
 def test_no_step_echoes_findings():
@@ -757,20 +766,46 @@ def test_init_binds_the_scope_type_as_update_skill_does():
     assert "`{scope_type}` (step 1 §3) is `public-api`" in _flow(_read(RE_INDEX))
 
 
+def _git_tree(root: Path, files: dict[str, str]) -> Path:
+    """A git work tree at `root` whose files are all tracked."""
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_bytes(text.encode("utf-8"))
+    for args in (["init", "-q"], ["add", "-A"]):
+        subprocess.run(["git", "-C", str(root), *args], capture_output=True, check=True, timeout=60)
+    return root
+
+
 def test_a_relocated_export_becomes_a_move(tmp_path):
-    """§1b: the runner's find over the candidates, added to the snapshot by
-    the prose's relocate command, then the same diff again."""
+    """§1b: the candidates line over a git tree (#1131: one helper call, the
+    scan list's files left out), the runner's find over the candidates,
+    added to the snapshot by the prose's relocate command, then the same
+    diff again."""
     audit = Audit(tmp_path, [_entry("keep", "pkg/a.py", 1), _entry("parse", "pkg/a.py", 9)],
                   [_export("keep", "pkg/a.py", 1), _export("inner", "pkg/a.py", 20, public=False)])
     first = audit.diff()
     assert [r["name"] for r in first["removed"]] == ["parse"]
     assert [n["name"] for n in first["not_public"]] == ["inner"]
     assert audit.classify(audit.project())["drift_score"] == "CRITICAL"
+    root = _git_tree(tmp_path / "source", {"pkg/a.py": "def keep():\n    parse = None\n",
+                                           "pkg/util/parsing.py": "def parse(text):\n    pass\n",
+                                           "pkg/util/parser.py": "def parser():\n    pass\n"})
+    audit.values["{source_root}"] = str(root)
+    # step 2's scan list, by re-index §2's own command
+    (scan,) = [line.strip() for line in _read(RE_INDEX).splitlines()
+               if line.strip().startswith("uv run {extractionSnapshotHelper} scan-list ")]
+    assert _run_prose(scan, audit.values).returncode == 0
+    section = _slice(_read(STRUCTURAL), "### 1b.", "### 2.")
+    found = audit.run(STRUCTURAL, "relocation-candidates --diff")
+    assert found.returncode == 0, found.stdout + found.stderr
+    assert json.loads(found.stdout)["candidates"] == 1
+    assert _load(audit.data / "relocation-candidates.json") == ["pkg/util/parsing.py"]
+    # the candidates line runs before the runner and relocate lines
+    assert section.index("relocation-candidates --diff") < section.index("{extractPublicApiHelper} --mode full")
     _write_json(audit.data / "relocations.json", {"status": "ok", "exports": [
         {"export_name": "parse", "source_file": "pkg/util/parsing.py", "source_line": 3, "export_type": "function",
          "signature": "def parse(text)", "confidence": "T1", "extraction_method": "ast-grep"},
         {"export_name": "unrelated", "source_file": "pkg/util/parsing.py", "source_line": 9}]})
-    section = _slice(_read(STRUCTURAL), "### 1b.", "### 2.")
     (relocate,) = [line.strip() for line in section.splitlines() if line.strip().startswith(
         "uv run {extractionSnapshotHelper} relocate ")]
     result = _run_prose(relocate, audit.values)
@@ -786,6 +821,73 @@ def test_a_relocated_export_becomes_a_move(tmp_path):
     assert _next_workflow(result) is None
 
 
+def test_step_5_records_each_judgment_as_a_flag(tmp_path):
+    """#1131: §1's command, run twice, writes the same file; its summary line
+    lists by index each finding left to judgment, and §1's command with
+    `--set-category` and `--pair-move` appended records the judgments, which
+    §2 classifies with exit 0. No step edits the findings file."""
+    build = _flow(_slice(_read(SEVERITY), "### 1. Build the Findings File", "### 2."))
+    for token in ("The summary line's `judge` lists, by `index`, each finding left to judgment",
+                  "Never edit `{auditDataFolder}/findings.json`: when a judgment changes a finding, run the same "
+                  "command again with every judgment's flag added, each naming its finding by that `index`",
+                  "`--set-category {index}={category}` sets a choice from the finding's `category_choices`",
+                  "(`internal_helper`)", "`interface_contract` or `inheritance`", "`implementation`", "`style`",
+                  # #1131 review 2: a rename no caller sees is style; a shift or swap stays a signature change
+                  "`style` for a reformatting, a parameter renamed where no caller passes it by name (a Python "
+                  "`*args`, `**kwargs` or positional-only one, or a TS/JS, Go or Rust one at its place), a type "
+                  # #1131 review 3: an annotation added, dropped or spelled another way is style too
+                  "annotation added or dropped, or one that names the same type another way (its quotes dropped, "
+                  "`Optional[int]` as `int | None`, `List[int]` as `list[int]`); a parameter inserted or swapped "
+                  "at a place callers pass by position stays `signature`",
+                  "When the helper could not read its parameters (a language it does not parse, a declaration it "
+                  "cannot read), the choices also hold the categories those fields would have settled: "
+                  "`parameter_count` for a removed parameter, `parameter_type` or `return_type` for a changed type, "
+                  "`required_parameter` for a new required parameter, `default_value` for a changed default and "
+                  "`optional_parameter` for a new optional one",
+                  "any other names the file or flag to fix"):
+        assert token in build, token
+    assert "Then edit `{auditDataFolder}/findings.json`" not in _read(SEVERITY)
+    problems = _flow(_slice(_read(SEVERITY), "**Exit 1 with `problems[]`:**", "**Exit 1 without"))
+    assert ("Fix what made each one, never the findings file: the saved row (a Semantic Drift row's `category`, a "
+            "pair from the rule table) or §1's flags, run §1's command again, then run the command again") in problems
+    entries = [_entry("GET", "a/route.ts", 1), _entry("GET", "b/route.ts", 4), _entry("helper", "pkg/u.py", 2),
+               _entry("grows", "pkg/g.py", 3, export_type="class", signature="class grows(Base)"),
+               _entry("open", "pkg/io.py", 5, signature="def open(path, mode='r'):")]
+    exports = [_export("GET", "a/route.ts", 1), _export("GET", "c/route.ts", 6),
+               _export("grows", "pkg/g.py", 3, type="class", signature="class grows(Other)"),
+               _export("open", "pkg/io.py", 5, signature="def open(path, mode='w'):")]
+    audit = Audit(tmp_path, entries, exports)
+    audit.diff()
+    first = audit.run(SEVERITY, "--from-diff")
+    assert first.returncode == 0, first.stdout + first.stderr
+    written = (audit.data / "findings.json").read_bytes()
+    assert audit.run(SEVERITY, "--from-diff").returncode == 0
+    assert (audit.data / "findings.json").read_bytes() == written
+    findings = json.loads(written)
+    # a changed default is settled by its fields; nothing it settles carries choices
+    (default,) = [f for f in findings if f["name"] == "open"]
+    assert default["category"] == "default_value" and "category_choices" not in default
+    listed = json.loads(first.stdout)["judge"]
+    judge = {(j["type"], j["name"]): j["index"] for j in listed}
+    assert set(judge) == {("added", "GET"), ("removed", "GET"), ("removed", "helper"), ("changed", "grows")}
+    # a class declaration has no parameters the helper reads, so every category its fields could settle is offered
+    (grows,) = [j for j in listed if j["name"] == "grows"]
+    assert grows["category_choices"] == list(classify_mod.UNREAD_CHOICES)
+    assert {"inheritance", "required_parameter", "optional_parameter"} <= set(grows["category_choices"])
+    flags = (f" --set-category {judge[('removed', 'helper')]}=internal_helper"
+             f" --set-category {judge[('changed', 'grows')]}=inheritance"
+             f" --pair-move {judge[('removed', 'GET')]} {judge[('added', 'GET')]}")
+    judged = audit.run(SEVERITY, "--from-diff", flags)
+    assert judged.returncode == 0, judged.stdout + judged.stderr
+    result = audit.classify()
+    graded = {(f["type"], f["name"]): (f["category"], f["severity"]) for f in result["findings"]}
+    assert graded == {("moved", "GET"): ("export", "MEDIUM"), ("removed", "helper"): ("internal_helper", "HIGH"),
+                      ("changed", "grows"): ("inheritance", "CRITICAL"),
+                      ("changed", "open"): ("default_value", "HIGH")}
+    (move,) = [f for f in result["findings"] if f["type"] == "moved"]
+    assert move["detail"] == "moved from b/route.ts:4 to c/route.ts:6" and "ambiguous_name" not in move
+
+
 def test_a_quoted_signature_reaches_the_classification_intact(tmp_path):
     """The findings travel by file path, so the single quotes the diff writes
     into a signature's string default survive, where `echo '<JSON>'` broke."""
@@ -795,8 +897,10 @@ def test_a_quoted_signature_reaches_the_classification_intact(tmp_path):
     (projected,) = audit.project()
     assert projected["detail"] == ("signature: def parse(mode: str = 'fast') -> "
                                    "def parse(mode: str = 'fast', label: str = 'x')")
+    # #1131: the new parameter has a default, so the fields settle the category
+    assert projected["category"] == "optional_parameter" and "category_choices" not in projected
     (classified,) = audit.classify()["findings"]
-    assert (classified["detail"], classified["severity"]) == (projected["detail"], "CRITICAL")
+    assert (classified["detail"], classified["severity"]) == (projected["detail"], "MEDIUM")
 
 
 def test_saved_script_asset_and_semantic_files_are_findings(tmp_path):

@@ -263,9 +263,16 @@ def test_each_halt_names_the_file_that_reads_the_tree():
 
 
 def test_a_private_tree_has_no_ccc_index_so_relocations_use_git_grep():
-    relocate = _flow(_slice(_read(STRUCTURAL), "### 1b.", "### 2."))
+    """#1131: the candidates helper searches with ccc only when §1b passes
+    --ccc, which it leaves out for the private tree, so `git grep` runs there."""
+    section = _slice(_read(STRUCTURAL), "### 1b.", "### 2.")
+    relocate = _flow(section)
     assert 'When `{source_tree}` is set' in relocate
-    assert '`git -C "{source_root}" grep -l -w -F -e "{name}"`' in relocate
+    assert "Add `--ccc` unless `{source_tree}` is set" in relocate
+    assert "the helper lists the files that hold a name as a word with one `git grep` there" in relocate
+    command = _fenced(section, "relocation-candidates --diff")
+    assert "--ccc" not in command and '--source-root "{source_root}"' in command
+    assert "git -C" not in relocate and "ccc search --limit" not in relocate
 
 
 # --------------------------------------------------------------------------

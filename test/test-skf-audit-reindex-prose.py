@@ -594,31 +594,33 @@ def test_a_public_api_build_marks_the_surface_and_warns_once_without_one() -> No
 
 def test_a_baseline_gap_is_read_with_the_kind_its_declaration_has() -> None:
     """#682: the build lists the map's entries the runner leaves out (a
-    dunder, a module) while their file still declares them. The worker
-    records each at its line with the map's kind only while the declaration
-    still has it, so a real kind change still reaches step 3; it says what
-    a module, a package and a renaming alias record. One by-eye pass: a gap
-    the reader cannot place is a warning, never a second loop."""
+    dunder) while their file still declares them. The worker records each
+    at its line with the map's kind only while the declaration still has
+    it, so a real kind change still reaches step 3; it says what a renaming
+    alias records. A module or package is no gap any more: the build
+    records it itself (#1131), so the worker has no module rule. One by-eye
+    pass: a gap the reader cannot place is a warning, never a second loop."""
     text = _read(RE_INDEX)
     forge = _flow(_slice(text, "**Forge tier (ast-grep available):**", "**Tier degradation handling"))
     assert ("the provenance map's entries the runner leaves out (a Python or Rust underscore name such as "
-            "`__version__`, a module) that the source still declares") in forge
+            "`__version__`) that the source still declares") in forge
     build = _flow(_slice(text, "**2. Build the snapshot.**", "**3. What the runner leaves.**"))
     assert ("Item 3 reads the gaps once: when `complete` is true and `extraction_gaps` still lists a name after "
             "that read (one the reader could not place), warn \"**Extraction gap:** {name} ({file}:{line}) was not "
             "found by eye; step 3 reports it as removed.\" for each and go on to §4 without reading again") in build
     leaves = _flow(_slice(text, "**3. What the runner leaves.**", SNAPSHOT_WRITE))
     assert ("a gap whose `entry` is null is a provenance map entry the runner leaves out (a Python or Rust "
-            "underscore name such as `__version__`, a module) that its file still declares") in leaves
+            "underscore name such as `__version__`) that its file still declares") in leaves
     for rule in (
         "as `type`, its `export_type` when the declaration at that line still has that kind, else the kind it has "
         "now (a `variable` now declared by a `def` is a `function`, which step 3 reports as a changed kind)",
         "when the gap gives no `export_type`, the kind the declaration has",
-        "the import line for an alias that renames",
-        "for a module or package (a gap at line 1 of a file the name is the module or package of) `module` and "
-        "the file's path from `{source_root}` without its extension or a final `__init__` or `index`",
+        "as `signature`, the declaration on one line, and the import line for an alias that renames "
+        "(`from cognee.api.v1.visualize import visualize_graph as visualize`).",
     ):
         assert rule in leaves, rule
+    for gone in ("a module) that", "for a module or package (a gap at line 1", "`module cognee.modules.pipelines`"):
+        assert gone not in text, gone
 
 
 def test_re_index_always_scans_the_bounded_list() -> None:
