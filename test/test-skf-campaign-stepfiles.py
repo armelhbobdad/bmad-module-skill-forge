@@ -1024,6 +1024,13 @@ def test_the_skill_path_and_corrections_are_recorded_before_the_test() -> None:
     assert before_ts.index(path_write) < before_ts.index("     - **Doc-rot check:**") < before_ts.index(doc_rot)
     assert "On a `success` or `partial` line, record the `skill_package`" in before_ts
     assert "on that same `success` or `partial` line" in before_ts
+    # #1141: the record gates no stage, so a file the helper cannot read is logged and passed, never a HALT.
+    assert ("An exit 2 (a file that is no JSON array of records with an `affected` and a `candidate_category`) "
+            "writes nothing and stops nothing, since this record gates no stage: log \"doc-rot corrections not "
+            "recorded: <error>\" (type `event`) and go on to TS.") in before_ts
+    # The step's state rule stays the shared one: the State Contract it points to names the exception.
+    assert ("HALT with the same code, except where the step names another route for that call: step-05 logs a "
+            "doc-rot file `append-workarounds` cannot read and goes on.") in _step("campaign-contracts.md")
     # Nothing after the test reads what CS left in context.
     after_ts = body[body.index(ts) + len(ts):]
     for gone in ("skill_package", "--skill-path", "correction_matches", "Doc-rot", "--entry"):

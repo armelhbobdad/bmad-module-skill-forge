@@ -784,6 +784,16 @@ class TestAppendDocRotFile:
         assert (rc, out["added"]) == (0, [])
         assert _read(path)["skills"][0]["workarounds_applied"] == []
 
+    def test_a_control_character_in_a_value_reads_as_itself(self, tmp_path, capsys):
+        """The record is written through a heredoc that escapes only `"` and `\\`: a tab a context_line keeps from
+        the upstream line, which strict JSON refuses, still records the correction (#1141)."""
+        path = _write(tmp_path, _state(skills=[_skill("core")]))
+        source = tmp_path / "doc-rot-corrections.json"
+        source.write_text('[{"source": "s", "pattern": "p", "candidate_category": "Removal", '
+                          '"context_line": "foo()\t// deprecated", "affected": "foo"}]', encoding="utf-8")
+        rc, out = self._append(capsys, path, source)
+        assert (rc, out["added"]) == (0, ["[doc-rot] foo: Removal"])
+
     @pytest.mark.parametrize(
         "content, code",
         [("{}", "input-unreadable"),

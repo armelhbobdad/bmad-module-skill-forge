@@ -58,7 +58,7 @@ Every write to `_campaign-state.yaml` goes through `scripts/campaign-state.py`. 
 | `resume` | step-resume | nothing: it returns the stage and step file to resume |
 | `halt-payload` | any HARD HALT | nothing: it prints the error envelope's payload (Result Contract above) |
 
-Its exit codes are the campaign's: 2 for invalid input (an unknown skill, an input file it cannot read, a script output that holds an error, a Tier A pin that is no X.Y.Z version), 3 for an invalid state or change, 4 for a plan `apply-plan` refuses, 5 for a pin `apply-pins` refuses, 6 for a repository `apply-provenance` refuses, 9 for a `recover` with no valid backup. HALT with the same code.
+Its exit codes are the campaign's: 2 for invalid input (an unknown skill, an input file it cannot read, a script output that holds an error, a Tier A pin that is no X.Y.Z version), 3 for an invalid state or change, 4 for a plan `apply-plan` refuses, 5 for a pin `apply-pins` refuses, 6 for a repository `apply-provenance` refuses, 9 for a `recover` with no valid backup. HALT with the same code, except where the step names another route for that call: step-05 logs a doc-rot file `append-workarounds` cannot read and goes on.
 
 ## Decision Log
 

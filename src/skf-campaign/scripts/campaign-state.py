@@ -874,13 +874,16 @@ def doc_rot_entries(source: str) -> list[str]:
 
     create-skill's doc-rot step writes the corrections its judgment pass
     kept as a JSON array of records, and writes no file when it kept none,
-    so a missing file is nothing to record.
+    so a missing file is nothing to record. It writes the file through a
+    heredoc that escapes only `"` and `\\`, so a control character inside a
+    value (a tab a `context_line` keeps from the upstream line) is read as
+    itself rather than refused.
     """
     if not Path(source).exists():
         return []
     text = read_text(source, "Doc-rot file")
     try:
-        records = json.loads(text)
+        records = json.loads(text, strict=False)
     except (ValueError, RecursionError) as exc:
         raise StateError(EXIT_INPUT, "input-unreadable", f"Doc-rot file is not JSON: {exc}") from exc
     if not isinstance(records, list):
