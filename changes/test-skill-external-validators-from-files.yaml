@@ -1,0 +1,6 @@
+type: changed
+scope: skf-test-skill
+summary: |
+  Test Skill's external validators step now reads skill-check's score, its error and warning counts, the description check and the external-validator gaps from the saved skill-check and Tessl Review results with scripts, so the same results give the same score, report and Gap Report on every run. The step saves both results in the run folder (`skill-check.json`, `tessl.json`), and `combine-external-scores.py` writes what the later steps read to `external.json`: skill-check's score for the tested skill by the rule Quick Skill uses (the top-level `qualityScore` of an older skill-check build included), the counts, the diagnostics, whether skill-check reported a description rule, and the Tessl Review findings. In the Gap Report, each skill-check gap is now titled `skill-check: <rule id>`, names its file relative to the skill folder as its Source (`SKILL.md:12`, say), and takes skill-check's own suggestion as its remediation when skill-check gives one; a Tessl Review description suggestion's gap says to edit the SKILL.md frontmatter description, and the brief too when the skill has one. The report step's description hints now follow the same check. When `combine-external-scores.py` fails twice, the run stops with `helper-failed` at phase `external-validators:score`.
+issues: [1120]
+prs: [1205]

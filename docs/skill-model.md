@@ -91,7 +91,7 @@ This is useful for comparing skill quality across tiers for the same target. Eac
 # 4. Reset to tier_override: ~ (auto-detect)
 ```
 
-Set `tier_override` to `Quick`, `Forge`, `Forge+`, or `Deep` (capital letters matter). Set it to `~` (null) to return to auto-detection. Setup (SF) and every tier-aware workflow respect it: Analyze Source (AN), Brief Skill (BS), Create Skill (CS), Stack Skill (SS), Update Skill (US), Audit Skill (AS) and Test Skill (TS). Quick Skill (QS) ignores it. SKF ignores a value it does not recognize and uses the detected tier. You can force a tier your tools do not support, but setup warns you, and steps that need a missing tool then stop or fall back to a lower tier with a warning.
+Set `tier_override` to `Quick`, `Forge`, `Forge+`, or `Deep` (capital letters matter). Set it to `~` (null) to return to auto-detection. Setup (SF) and every tier-aware workflow respect it: Analyze Source (AN), Brief Skill (BS), Create Skill (CS), Stack Skill (SS), Update Skill (US), Audit Skill (AS) and Test Skill (TS). Quick Skill (QS) ignores it. Test Skill's `--tier` flag, when you pass it, wins over `tier_override`. SKF ignores a value it does not recognize and uses the detected tier. You can force a tier your tools do not support, but setup warns you, and steps that need a missing tool then stop or fall back to a lower tier with a warning.
 
 ---
 

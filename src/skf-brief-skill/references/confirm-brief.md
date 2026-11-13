@@ -123,8 +123,8 @@ Flag any fields that may need review:
 
 "**Description:** synthesized in step 1 and accepted there. This is the text agents read when deciding whether to route to your skill: refine it here if you want to tighten it now that the full brief is visible."
 
-{If forge tier was defaulted:}
-"**Note:** Forge tier defaulted to Quick (no forge-tier.yaml found)."
+{If `tier_source` is `fallback-corrupted-config`:}
+"**Note:** Forge tier defaulted to Quick (forge-tier.yaml could not be read)."
 
 {If any scope patterns seem broad or narrow:}
 "**Note:** {specific observation about scope breadth}."

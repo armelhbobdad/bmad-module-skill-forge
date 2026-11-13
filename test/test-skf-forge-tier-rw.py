@@ -14,6 +14,13 @@ lose no entry, a held lock makes a call wait and then exit 3 with nothing
 written, a stale lock is replaced, and so at once is the empty file an
 `flock` on the same path leaves. remove-qmd-collection is
 register-qmd-collection's rollback.
+
+`effective` (#1118) is the one tier read Brief Skill and Test Skill run: it
+applies a `tier_override` only when it names one of the four tiers, reports
+a missing forge-tier.yaml as `exists` false, and exits 2 with nothing on
+stdout for a file it cannot use, a truncated one included, while a
+preferences.yaml it cannot use is named in `preferences_error`. It takes no
+lock and writes nothing.
 """
 
 from __future__ import annotations
@@ -413,6 +420,237 @@ def test_read_existing_file_emits_full_data(tmp_target):
     assert payload["exists"] is True
     assert payload["data"]["tier"] == "Deep"
     assert len(payload["data"]["qmd_collections"]) == 2
+
+
+# ─── effective subcommand ───────────────────────────────────────────────────
+
+
+DETECT_TOOLS_SCRIPT = SCRIPT_PATH.parent / "skf-detect-tools.py"
+SIDECAR_TOOLS = {"ast_grep": True, "gh_cli": False, "qmd": True, "ccc": False,
+                 "ccc_daemon": None, "security_scan": False}
+
+
+def _effective(target: Path, preferences: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "effective", "--target", str(target),
+         "--preferences", str(preferences)],
+        capture_output=True, text=True, encoding="utf-8", timeout=10,
+    )
+
+
+def _sidecar(tmp_path: Path, forge_tier: str | bytes | None = None,
+             preferences: str | None = None) -> tuple[Path, Path]:
+    """(forge-tier.yaml, preferences.yaml) in tmp_path; None leaves a file out."""
+    target, prefs = tmp_path / "forge-tier.yaml", tmp_path / "preferences.yaml"
+    if forge_tier is not None:
+        if isinstance(forge_tier, bytes):
+            target.write_bytes(forge_tier)
+        else:
+            target.write_text(forge_tier, encoding="utf-8")
+    if preferences is not None:
+        prefs.write_text(preferences, encoding="utf-8")
+    return target, prefs
+
+
+FORGE = yaml.safe_dump({"tools": SIDECAR_TOOLS, "tier": "Forge"}, sort_keys=False)
+
+
+def _ok_effective(target: Path, prefs: Path) -> dict:
+    result = _effective(target, prefs)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert list(payload) == ["exists", "tier", "detected_tier", "tier_source", "override_rejected",
+                             "tier_override", "tools", "preferences_error", "status", "version"]
+    assert payload["status"] == "ok" and payload["version"] == "v1"
+    return payload
+
+
+DETECTED = {"exists": True, "tier": "Forge", "detected_tier": "Forge", "tier_source": "detected",
+            "override_rejected": False, "tier_override": None, "tools": SIDECAR_TOOLS,
+            "preferences_error": None}
+
+
+def _fields(payload: dict) -> dict:
+    return {k: v for k, v in payload.items() if k not in ("status", "version")}
+
+
+def test_effective_valid_tiers_match_the_detector():
+    detect_spec = importlib.util.spec_from_file_location("skf_detect_tools_tiers", DETECT_TOOLS_SCRIPT)
+    detect = importlib.util.module_from_spec(detect_spec)
+    detect_spec.loader.exec_module(detect)
+    assert mod.VALID_TIERS == detect.VALID_TIERS == ("Quick", "Forge", "Forge+", "Deep")
+
+
+@pytest.mark.parametrize("preferences", [None, "", "headless_mode: true\n", "tier_override: ~\n",
+                                         "tier_override:\n"],
+                         ids=["no-file", "empty", "no-key", "null", "blank"])
+def test_effective_reports_the_detected_tier(tmp_path, preferences):
+    target, prefs = _sidecar(tmp_path, FORGE, preferences)
+    assert _fields(_ok_effective(target, prefs)) == DETECTED
+
+
+@pytest.mark.parametrize("override", ["Quick", "Forge+", "Deep"])
+def test_effective_applies_a_valid_override(tmp_path, override):
+    target, prefs = _sidecar(tmp_path, FORGE, f"tier_override: {override}\n")
+    assert _fields(_ok_effective(target, prefs)) == {
+        **DETECTED, "tier": override, "tier_source": "override", "tier_override": override}
+
+
+@pytest.mark.parametrize("value, echoed", [("deep", "deep"), ("3", 3), ('""', ""), ("FORGE+", "FORGE+"),
+                                           ("Ultra", "Ultra"), ("[Deep]", ["Deep"])])
+def test_effective_rejects_an_override_that_names_no_tier(tmp_path, value, echoed):
+    target, prefs = _sidecar(tmp_path, FORGE, f"tier_override: {value}\n")
+    assert _fields(_ok_effective(target, prefs)) == {
+        **DETECTED, "override_rejected": True, "tier_override": echoed}
+
+
+@pytest.mark.parametrize("preferences, needle", [("a: [\n", "failed to parse"), ("- Deep\n", "got list"),
+                                                 ("tier_override\n", "got str")])
+def test_effective_names_a_preferences_file_it_cannot_use_and_applies_no_override(tmp_path, preferences,
+                                                                                  needle):
+    target, prefs = _sidecar(tmp_path, FORGE, preferences)
+    payload = _fields(_ok_effective(target, prefs))
+    error = payload.pop("preferences_error")
+    assert str(prefs) in error and needle in error, error
+    assert payload == {k: v for k, v in DETECTED.items() if k != "preferences_error"}
+
+
+def test_effective_names_a_preferences_folder_it_cannot_read(tmp_path):
+    target, prefs = _sidecar(tmp_path, FORGE)
+    prefs.mkdir()
+    payload = _ok_effective(target, prefs)
+    assert payload["tier"] == "Forge" and str(prefs) in payload["preferences_error"]
+
+
+def test_effective_reports_a_missing_forge_tier_file(tmp_path):
+    target, prefs = _sidecar(tmp_path, None, "tier_override: Deep\n")
+    payload = _fields(_ok_effective(target, prefs))
+    assert payload["exists"] is False
+    assert payload["tier"] is None and payload["detected_tier"] is None and payload["tier_source"] is None
+    assert payload["tools"] == {}
+
+
+@pytest.mark.parametrize("content", [
+    "tier: [\n",  # does not parse
+    "",  # empty
+    "tools:\n  ast_grep: true\n",  # cut before its tier line
+    "tier: Ultra\n",
+    "tier: forge\n",  # case matters
+    "tier: ~\n",
+    "- Forge\n",  # not a mapping
+    "tools: 3\ntier: Forge\n",
+    "tools:\ntier: Forge\n",  # a null tools is not a mapping
+    b"tier: \xff\n",  # not UTF-8
+], ids=["unparseable", "empty", "truncated", "unknown-tier", "lowercase-tier", "null-tier", "list",
+        "tools-scalar", "tools-null", "not-utf8"])
+def test_effective_exits_2_on_a_forge_tier_file_it_cannot_use(tmp_path, content):
+    target, prefs = _sidecar(tmp_path, content, "tier_override: Deep\n")
+    result = _effective(target, prefs)
+    assert result.returncode == 2, result.stdout
+    assert result.stdout == ""
+    error = json.loads(result.stderr)
+    assert error["status"] == "error" and str(target) in error["message"], error
+
+
+def test_effective_exits_2_on_a_folder_in_place_of_the_forge_tier_file(tmp_path):
+    target, prefs = _sidecar(tmp_path, None, "tier_override: Deep\n")
+    target.mkdir()
+    result = _effective(target, prefs)
+    assert result.returncode == 2 and result.stdout == ""
+    assert str(target) in json.loads(result.stderr)["message"]
+
+
+def test_effective_exits_2_on_every_cut_of_a_real_sidecar_before_its_tier(tmp_target):
+    """Every seventh cut of a Deep file write-tools rendered, up to inside its tier line, exits 2."""
+    _write_tools(tmp_target, _payload_with_arrays())
+    full = tmp_target.read_text(encoding="utf-8")
+    prefs = tmp_target.with_name("preferences.yaml")
+    cut_at = full.index("tier: Deep")
+    for end in range(0, cut_at + len("tier: Dee"), 7):
+        tmp_target.write_text(full[:end], encoding="utf-8")
+        result = _effective(tmp_target, prefs)
+        assert result.returncode == 2 and result.stdout == "", (end, result.stdout)
+        assert str(tmp_target) in json.loads(result.stderr)["message"], (end, result.stderr)
+
+
+def test_effective_exits_2_on_every_cut_inside_a_forge_plus_tier_line(tmp_target):
+    """A Forge+ file cut right before its `+` parses as Forge, so a file that stops on its tier line exits 2."""
+    _write_tools(tmp_target, {**_baseline_payload(), "tier": "Forge+"})
+    full = tmp_target.read_text(encoding="utf-8")
+    prefs = tmp_target.with_name("preferences.yaml")
+    cut_at = full.index("tier: Forge+\n")
+    for end in range(cut_at, cut_at + len("tier: Forge+") + 1):
+        tmp_target.write_text(full[:end], encoding="utf-8")
+        result = _effective(tmp_target, prefs)
+        assert result.returncode == 2 and result.stdout == "", (end, result.stdout)
+        assert str(tmp_target) in json.loads(result.stderr)["message"], (end, result.stderr)
+    tmp_target.write_text(full[:cut_at + len("tier: Forge+\n")], encoding="utf-8")
+    assert _ok_effective(tmp_target, prefs)["tier"] == "Forge+"
+
+
+@pytest.mark.parametrize("payload", [_payload_with_arrays(), {**_baseline_payload(), "tier": "Forge+"}],
+                         ids=["deep", "forge-plus"])
+def test_effective_reads_the_whole_tier_and_tools_from_every_cut_after_the_tier_line(tmp_target, payload,
+                                                                                    capsys):
+    """write-tools writes `tools` and then `tier` first, so a file cut after its tier line still holds both
+    whole: every such cut exits 2 or reads the tier and tools of the whole file, never another tier."""
+    _write_tools(tmp_target, payload)
+    full = tmp_target.read_text(encoding="utf-8")
+    whole = mod.effective_tier(tmp_target, tmp_target.with_name("preferences.yaml"))
+    start = full.index(f"\ntier: {payload['tier']}\n") + len(f"\ntier: {payload['tier']}\n")
+    assert full.index("tools:") < start and full.index("tier_detected_at:") >= start
+    read = 0
+    for end in range(start, len(full)):
+        tmp_target.write_text(full[:end], encoding="utf-8")
+        try:
+            got = mod.effective_tier(tmp_target, tmp_target.with_name("preferences.yaml"))
+        except SystemExit as stop:
+            assert stop.code == 2, end
+            continue
+        assert (got["tier"], got["tools"]) == (whole["tier"], whole["tools"]), end
+        read += 1
+    assert read
+    capsys.readouterr()
+
+
+def test_effective_reads_a_forge_tier_file_without_tools(tmp_path):
+    target, prefs = _sidecar(tmp_path, "tier: Forge\n")
+    assert _fields(_ok_effective(target, prefs)) == {**DETECTED, "tools": {}}
+
+
+def test_effective_reads_a_legacy_unquoted_timestamp(tmp_path):
+    target, prefs = _sidecar(tmp_path, FORGE + "tier_detected_at: 2025-01-01T00:00:00\n")
+    assert _fields(_ok_effective(target, prefs)) == DETECTED
+
+
+def test_effective_reads_what_write_tools_wrote(tmp_target):
+    _write_tools(tmp_target, _payload_with_arrays())
+    payload = _ok_effective(tmp_target, tmp_target.with_name("preferences.yaml"))
+    assert payload["tier"] == payload["detected_tier"] == "Deep"
+    assert payload["tools"] == _read_yaml_file(tmp_target)["tools"]
+
+
+def test_effective_takes_no_lock_and_writes_nothing(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    before = tmp_target.read_bytes()
+    lock = tmp_target.with_name(tmp_target.name + ".lock")
+    record = {"owner": "create-skill:other:run-1", "tool": "skf-run-lock",
+              "acquired_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")}
+    lock.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    started = time.monotonic()
+    payload = _ok_effective(tmp_target, tmp_target.with_name("preferences.yaml"))
+    assert time.monotonic() - started < 5, "a held lock made effective wait"
+    assert payload["tier"] == "Deep"
+    assert tmp_target.read_bytes() == before
+    assert json.loads(lock.read_text(encoding="utf-8")) == record
+    assert sorted(p.name for p in tmp_target.parent.iterdir()) == ["forge-tier.yaml", "forge-tier.yaml.lock"]
+
+
+def test_effective_needs_both_paths(tmp_target):
+    for argv in (["effective", "--target", str(tmp_target)], ["effective", "--preferences", str(tmp_target)]):
+        result = subprocess.run([sys.executable, str(SCRIPT_PATH), *argv], capture_output=True, text=True,
+                                timeout=10)
+        assert result.returncode == 2 and "required" in result.stderr, argv
 
 
 # ─── write-tools from a setup run's staged outputs ──────────────────────────

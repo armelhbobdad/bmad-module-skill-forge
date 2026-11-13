@@ -110,7 +110,7 @@ Never stop on the result:
 Then, when §1's emitter printed its line, delete the run folder:
 
 ```bash
-rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" "{run_dir}/warnings.jsonl" "{run_dir}/rename-rewrite.json" "{run_dir}/export-manifest.backup.json" && rmdir "{run_dir}"
+rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" "{run_dir}/warnings.jsonl" "{run_dir}/rename-rewrite.json" "{run_dir}/export-manifest.backup.json" "{run_dir}/call.err" && rmdir "{run_dir}"
 ```
 
 When that fails, tell the user in one line that `{run_dir}` stays and can be deleted, then continue. When §1's emitter printed no line, keep `{run_dir}` instead and tell the user in one line that it holds the run's decisions, its warnings and the payload the emitter refused.

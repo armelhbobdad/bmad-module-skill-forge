@@ -904,17 +904,23 @@ class TestWorkflowWiring:
         block = _section(fm_text, "# Resolve `{tesslReviewHelper}`", "preferencesFile:")
         assert "HALT" not in block, "the review is advisory: its probe orders never halt"
 
-    @pytest.mark.parametrize("path, start, end, submit", [
+    @pytest.mark.parametrize("path, start, end, submit, collect, bound_from", [
         (VALIDATE, "### 6b. Tessl Review (optional)", "### 7. Validate metadata.json",
-         'uv run {tesslReviewHelper} submit "<staging-skill-dir>" --preferences "{preferencesFile}"'),
+         'uv run {tesslReviewHelper} submit "<staging-skill-dir>" --preferences "{preferencesFile}"', COLLECT_CMD,
+         "from the `submit` JSON and again from each `collect` JSON"),
+        # #1120: Test Skill saves each result in the run folder, where combine-external-scores.py reads the scores.
         (EXTERNAL, "### 3. Run Tessl Review (optional)", "### 4. Calculate Combined External Score",
-         'uv run {tesslReviewHelper} submit "{skillDir}" --preferences "{preferencesFile}"'),
+         'uv run {tesslReviewHelper} submit "{skillDir}" --preferences "{preferencesFile}" > "{run_dir}/tessl.json"',
+         COLLECT_CMD + ' > "{run_dir}/tessl.json"',
+         "Each call writes its JSON to `{run_dir}/tessl.json`, in place of the one before it: read the bindings below "
+         "from that file after the `submit` call and again after each `collect` call. A stopped call leaves the file "
+         "empty, which section 4 reads as no Tessl Review score."),
     ])
-    def test_helper_calls_and_bindings(self, path, start, end, submit):
+    def test_helper_calls_and_bindings(self, path, start, end, submit, collect, bound_from):
         section = _section(_read(path), start, end)
         # The only commands: one submit, then collect while pending, the last collect with --final.
         commands = re.findall(r"^```bash\n(.*?)\n```$", section, re.M | re.S)
-        assert commands == [submit, COLLECT_CMD]
+        assert commands == [submit, collect]
         count, ordinal = COUNT_WORDS[mod.MAX_COLLECTS]
         assert "While `{tessl_status}` is `pending`, collect the review" in section
         assert f"at most {count} times, and add `--final` to the {ordinal} call" in section
@@ -928,6 +934,7 @@ class TestWorkflowWiring:
         assert "HALT" not in section
         # Names the tessl command next to the reviewed folder (the staging-validate-promote memory note keys on it).
         assert "(`tessl review run`, which the helper below runs on a copy of `" in section
+        assert bound_from in section
         assert "from the `submit` JSON and again from each `collect` JSON" in section
         bound = dict(BINDING_RE.findall(section))
         assert bound == BINDINGS
@@ -947,8 +954,14 @@ class TestWorkflowWiring:
 
     def test_combined_score_uses_the_bound_scores(self):
         section = _section(_read(EXTERNAL), "### 4. Calculate Combined External Score", "### 5. ")
-        assert "Pass `skill_check_score` as `skillCheckScore` and `{tessl_review_score}` as `tesslReviewScore`" in section
+        # #1120: the script reads both scores from the files §2 and §3 saved; nothing is typed into its input.
+        assert ('```bash\nuv run {externalScoreScript} --skill-check "{run_dir}/skill-check.json" --tessl '
+                '"{run_dir}/tessl.json" --skill-dir "{skillDir}" --output "{run_dir}/external.json"\n```') in section
+        assert "so pass both files on every run" in section and "echo '{" not in section
         assert "Bind `{external_score}` ← `externalScore`" in section
+        for binding in ("`{skill_check_score}` ← `skillCheckScore`", "`{skill_check_errors}` ← `skillCheckErrorCount`",
+                        "`{skill_check_warnings}` ← `skillCheckWarningCount`"):
+            assert binding in section, binding
         assert "`{external_tools_used}` ← `toolsUsed`" in section
         append = _section(_read(EXTERNAL), "### 5. Write the External Validation Section", "### 6. Report Results")
         assert "### Tessl Review\n- **Result:** {tessl_summary}\n" in append

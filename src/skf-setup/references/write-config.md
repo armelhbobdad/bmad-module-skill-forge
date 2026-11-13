@@ -29,7 +29,7 @@ Write the detected tools, the tier and the ccc index state to `{sidecar_path}/fo
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
 - If no path in `forgeTierRwProbeOrder` exists, halt with phase `step 2:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-forge-tier-rw.py was not found. Reinstall SKF, then re-run /skf-setup.`
-- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, `--stderr-from` where the halt names it, and `--customization-resolver-unavailable "<reason>"` once SKILL.md On Activation item 6 bound `{customization_resolver_unavailable}` to a reason, escaped as the halt contract says), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
+- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, `--stderr-from` where the halt names it, and `--customization-resolver-unavailable-from "{run_dir}/resolver.err"` once SKILL.md On Activation item 6 bound `{customization_resolver_unavailable}` to a reason), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 
 ## MANDATORY SEQUENCE
 
@@ -49,10 +49,10 @@ The script takes the tools and the tier from step 1's `detect-tools.json`, and t
 ```bash
 uv run {emitEnvelopeHelper} emit-blocked --phase "step 2:write-tools" --path "{sidecar_path}/forge-tier.yaml" \
     --reason "<message>" --stderr-from "{run_dir}/write-tools.err" \
-    [--customization-resolver-unavailable "{customization_resolver_unavailable}"]
+    [--customization-resolver-unavailable-from "{run_dir}/resolver.err"]
 ```
 
-In each `emit-blocked` call of this step, keep the bracketed `--customization-resolver-unavailable` only when On Activation item 6 bound `{customization_resolver_unavailable}` to a reason, escaped as the halt contract says; otherwise leave it out.
+In each `emit-blocked` call of this step, keep the bracketed `--customization-resolver-unavailable-from` only when On Activation item 6 bound `{customization_resolver_unavailable}` to a reason; otherwise leave it out.
 
 ### 2. Ensure the Forge Data Folder
 
@@ -65,7 +65,7 @@ On non-zero exit, halt as section 1 does, with phase `step 2:forge-data-dir`, pa
 ```bash
 uv run {emitEnvelopeHelper} emit-blocked --phase "step 2:forge-data-dir" --path "{forge_data_folder}" \
     --reason "<message>" --stderr-from "{run_dir}/forge-data-dir.err" \
-    [--customization-resolver-unavailable "{customization_resolver_unavailable}"]
+    [--customization-resolver-unavailable-from "{run_dir}/resolver.err"]
 ```
 
 ### 3. Auto-Proceed

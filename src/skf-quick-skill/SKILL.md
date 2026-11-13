@@ -58,35 +58,55 @@ These rules apply to every step in this workflow:
 
 ## On Activation
 
-1. Read `{project-root}/_bmad/skf/config.yaml` and resolve `project_name`, `output_folder`, `user_name`, `communication_language`, `document_output_language`, `skills_output_folder`, `forge_data_folder` and `sidecar_path`.
+1. **Check the runtime, then load the config and the helpers.** Every helper this workflow runs, the envelope emitter and the preflight included, runs through `uv run`, so first confirm that `python3` and `uv` are both on `$PATH` (`command -v python3` and `command -v uv`). If either is missing, HARD HALT with **exit code 3 (resolution-failure)**: display "**Quick Skill needs `{the missing tool}`, which is not on your PATH.** Install it (`uv` from <https://docs.astral.sh/uv/getting-started/installation/>, `python3` from <https://www.python.org/downloads/>), then re-run." No envelope is printed: the emitter needs `uv` too.
 
-   Then check the runtime: every helper this workflow runs, the envelope emitter included, runs through `uv run`, so confirm that `python3` and `uv` are both on `$PATH` (`command -v python3` and `command -v uv`). If either is missing, HARD HALT with **exit code 3 (resolution-failure)**: display "**Quick Skill needs `{the missing tool}`, which is not on your PATH.** Install it (`uv` from <https://docs.astral.sh/uv/getting-started/installation/>, `python3` from <https://www.python.org/downloads/>), then re-run." No envelope is printed: the emitter needs `uv` too.
+   Then resolve `{emitEnvelopeHelper}` ← the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`, the shared emitter every envelope and auto-decision goes through. With no emitter path (an incomplete install), each halt displays its message alone and step 6 §3 writes no result contract.
 
-   Then resolve `{emitEnvelopeHelper}` ← the first existing path of `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py` and `{project-root}/src/shared/scripts/skf-emit-result-envelope.py`, the shared emitter every envelope and auto-decision goes through, and create the run folder:
+   Then load the config: `{preflightHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-preflight.py`, else `{project-root}/src/shared/scripts/skf-preflight.py` (the first that exists). Run:
+
+   ```bash
+   uv run {preflightHelper} "{project-root}" --allow-missing-sidecar
+   ```
+
+   It parses `{project-root}/_bmad/skf/config.yaml` and `preferences.yaml` into one JSON object: bind `project_name`, `user_name`, `communication_language` and `document_output_language` from its `config`, and `output_folder`, `skills_output_folder`, `forge_data_folder` and `sidecar_path` from `config.<name>_resolved`, each folder's absolute path. With `sidecar.preferences_error` (a `preferences.yaml` that is there but does not load), go on with the defaults and display that error in one line; `derived.headless_mode` is then false, so only `--headless` or `-H` makes the run headless. If neither path exists, or the call exits non-zero or prints no JSON, HARD HALT with **exit code 3 (resolution-failure)**: display "**Quick Skill cannot load its config.** {its `error`, else its first stderr line, else: SKF's preflight (`skf-preflight.py`) is missing from `{project-root}/_bmad/skf/shared/scripts/`, so re-install SKF.}" and emit with nothing to stage in, since no run folder exists yet. The payload's `reason` is the message's first sentence alone: preflight's error names an absolute path, which typed into JSON can break it, so only the display carries it:
+
+   ```bash
+   uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --target stderr <<'SKF_JSON'
+   {"phase": "on-activation", "halt_reason": "resolution-failure", "reason": "Quick Skill cannot load its config.", "skill_package": null, "details": {"cause": "<its code, preflight-missing with no path, or preflight-error after a call that printed no JSON>"}}
+   SKF_JSON
+   ```
+
+   Then create the run folder:
 
    ```bash
    mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-quick-skill-XXXXXXXX"
    ```
 
-   Bind `{run_dir}` ← the path it prints (a finished run deletes it; a halted one keeps it). If it cannot be created, HARD HALT with **exit code 4 (write-failure)**: display "**Quick Skill cannot start: the run folder could not be created.** {the first stderr line}" and emit with nothing to stage in:
+   Bind `{run_dir}` ← the path it prints (a finished run deletes it; a halted one keeps it). If it cannot be created, HARD HALT with **exit code 4 (write-failure)**: display "**Quick Skill cannot start: the run folder could not be created.** {the first stderr line}" and emit with nothing to stage in, that stderr line again in the display alone:
 
    ```bash
    uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --target stderr <<'SKF_JSON'
-   {"phase": "on-activation", "halt_reason": "write-failure", "reason": "<that message, one line>", "skill_package": null}
+   {"phase": "on-activation", "halt_reason": "write-failure", "reason": "Quick Skill cannot start: the run folder could not be created.", "skill_package": null}
    SKF_JSON
    ```
 
-   With no emitter path (an incomplete install), each halt displays its message alone and step 6 §3 writes no result contract.
+   Then resolve every helper the stages run, before any stage loads:
 
-2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if `{sidecar_path}/preferences.yaml` sets `headless_mode: true`. Default: false.
+   ```bash
+   uv run {preflightHelper} "{project-root}" --allow-missing-sidecar --helpers "{skill-root}" > "{run_dir}/helpers.json"
+   ```
 
-3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py`, else `{project-root}/src/shared/scripts/skf-resolve-customization.py` (the first that exists), and run:
+   It writes the same JSON object with a `helpers` map, `{<stem>: <absolute path or null>}`, one key for each `<stem>ProbeOrder` array in the stages' frontmatter; each stage binds its helpers from that file (its Rules). If the call exits non-zero, HARD HALT with **exit code 3 (resolution-failure)**: display "**Quick Skill cannot start: SKF helpers are missing.** {the `error` in `{run_dir}/helpers.json`, which names each missing helper, else its first stderr line, else: the preflight printed no JSON, so re-install SKF.}" Stage `{"phase": "on-activation", "halt_reason": "resolution-failure", "reason": "Quick Skill cannot start: SKF helpers are missing.", "skill_package": null, "details": {"cause": "helpers-missing", "missing": [<its helpers_missing, if any>]}}` as `{run_dir}/halt.json`, with `"details": {"cause": "preflight-error"}` when the file holds no JSON, and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-quick-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`.
+
+2. **Resolve `{headless_mode}`**: true if `--headless` or `-H` was passed as an argument, or if step 1's preflight gave `derived.headless_mode` true (`headless_mode: true` in `{sidecar_path}/preferences.yaml`). Default: false.
+
+3. **Resolve workflow customization.** Bind `{resolveCustomizationHelper}` ← `helpers.resolveCustomization` in `{run_dir}/helpers.json`, which step 1 wrote (step 1 halts when the script is missing), and run:
 
    ```bash
    uv run {resolveCustomizationHelper} --skill {skill-root} --project-root {project-root} --key workflow
    ```
 
-   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-quick-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, prints no JSON or is missing, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `SKF helper skf-resolve-customization.py not found` when the script is missing, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran) and, when `{emitEnvelopeHelper}` has a path, record it in the run sink: write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes or `$( )`), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"`. Under `--batch`, `references/batch-mode.md` §2 records that file in each target's run folder.
+   It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-quick-skill.toml` (team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero or prints no JSON, print one line, `[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, `no JSON` when it printed none). If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: the `{project-root}/_bmad/custom/` overrides do not apply to this run. In that case keep the reason as `{customization_resolver_unavailable}` (unset when the resolver ran) and, when `{emitEnvelopeHelper}` has a path, record it in the run sink: write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes or `$( )`), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"`. Under `--batch`, `references/batch-mode.md` §2 records that file in each target's run folder.
 
    Bind these three as workflow-context variables, taking the default when the merged value is empty or absent:
 

@@ -74,6 +74,17 @@ block, section 5 is the one home of that rule (scoring-rules.md points at
 it), and the producer formats the criterion names are pinned, so a change
 there fails here.
 
+They keep the run's config and tier on helpers too (#1118): SKILL.md On
+Activation step 1 checks `uv`, then loads config.yaml and preferences.yaml
+through one skf-preflight.py call, run here on a project, binds the values
+its `config` holds, and halts `helper-missing` or `helper-failed` (a missing
+config.yaml gives CONFIG_MISSING) at `on-activation:config`, printing its
+envelope under `--headless`; init.md §4 takes the tier, the tool flags and a
+valid `tier_override` from one `skf-forge-tier-rw.py effective` call, run
+here on a sidecar, halts `forge-tier-missing` on a file that is missing or
+that it cannot read a tier from (a truncated one included), and section 4b
+reads no file; `--tier` skips the call and wins over `tier_override`.
+
 Every slicer asserts its markers, so a renamed heading fails instead of
 passing vacuously.
 """
@@ -147,6 +158,8 @@ PROSE_SCRIPTS = {
     "{scanSkillMdStructureHelper}": SCRIPTS / "skf-scan-skill-md-structure.py",
     "{resultContextScript}": TEST_SKILL / "scripts" / "build-result-context.py",
     "{emitEnvelopeHelper}": SCRIPTS / "skf-emit-result-envelope.py",
+    "{preflightHelper}": SCRIPTS / "skf-preflight.py",
+    "{forgeTierRwHelper}": SCRIPTS / "skf-forge-tier-rw.py",
 }
 
 PROVENANCE = "provenance-map.json"
@@ -916,6 +929,265 @@ def test_runtime_is_checked_before_the_first_helper_call():
 
 
 # --------------------------------------------------------------------------
+# #1118: activation loads the config through skf-preflight.py, and init.md §4
+# reads the tier, the tool flags and tier_override from one effective call
+# --------------------------------------------------------------------------
+
+
+PREFLIGHT_CALL = 'uv run {preflightHelper} "{project-root}" --allow-missing-sidecar'
+EFFECTIVE_CALL = ('uv run {forgeTierRwHelper} effective --target "{sidecarFile}" '
+                  '--preferences "{sidecar_path}/preferences.yaml"')
+# The command a step 1 HALT runs, before any run folder exists: its fields as options, its message in a heredoc.
+ACTIVATION_HALT = ("uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --target stderr --phase '<phase>' "
+                   "--halt-reason '<halt_reason>' --reason - <<'SKF_REASON'\n"
+                   "<the halt message>\n"
+                   "SKF_REASON")
+# The same form in init.md, for a halt before §6b whose message quotes a helper's text.
+INIT_OPTION_HALT = ("uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --target stderr --phase '<phase>' "
+                    "--halt-reason '<halt_reason>' --skill-name \"{skill_name}\" --reason - <<'SKF_REASON'\n"
+                    "<the halt message>\n"
+                    "SKF_REASON")
+FORGE_TIER_MISSING = ('HALT (`halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecarFile}"`) '
+                      'with "**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup** '
+                      'workflow first to configure your forge tier (Quick/Forge/Forge+/Deep), or re-run with '
+                      '`--tier=<Quick|Forge|Forge+|Deep>` to bypass the sidecar."')
+FORGE_TIER_UNUSABLE = ('HALT (`halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecarFile}"`) '
+                       'with "**Cannot proceed.** forge-tier.yaml at `{sidecarFile}` cannot be read: {its `message`}. '
+                       'Re-run the **setup** workflow to rewrite it, or re-run with `--tier=<Quick|Forge|Forge+|Deep>` '
+                       'to bypass the sidecar."')
+
+
+def _emit_by_options(block: str, values: dict[str, str], message: str) -> dict:
+    """Run a documented option-form halt with `message` as its heredoc's body; the envelope it prints."""
+    first, body, end = block.splitlines()
+    assert first.endswith(" <<'SKF_REASON'") and (body, end) == ("<the halt message>", "SKF_REASON")
+    rest = first.removesuffix(" <<'SKF_REASON'").removeprefix("uv run {emitEnvelopeHelper} ")
+    for key, value in values.items():
+        rest = rest.replace(key, value)
+    assert not re.search(r"\{\w+\}|<[a-z][^>]*>", rest), f"unfilled placeholder in {rest!r}"
+    proc = subprocess.run([sys.executable, str(PROSE_SCRIPTS["{emitEnvelopeHelper}"]), *shlex.split(rest)],
+                          input=message + "\n", capture_output=True, text=True, encoding="utf-8", check=False,
+                          timeout=30)
+    assert proc.returncode == 0, proc.stderr
+    return json.loads(proc.stderr.strip().removeprefix("SKF_TEST_RESULT_JSON: "))
+
+
+def _activation_step_1() -> str:
+    return _slice(_read(SKILL_MD), "1. **Check the runtime, then load the config.**", "2. **Resolve `{headless_mode}`**")
+
+
+def _init_4() -> str:
+    return _slice(_read(INIT), "### 4. Load Forge Tier State", "### 5. Load Skill Metadata")
+
+
+def _project(root: Path, prefs: str | None = None, config: bool = True) -> Path:
+    """A project with an installed config.yaml and a sidecar, as skf-setup leaves it."""
+    if config:
+        _write_tree(root, {"_bmad/skf/config.yaml": (
+            "project_name: demo\nuser_name: Ada\ncommunication_language: English\n"
+            "document_output_language: English\nskills_output_folder: skills\nforge_data_folder: forge-data\n"
+            "sidecar_path: _bmad/_memory/forger-sidecar\n")})
+    sidecar = root / "_bmad" / "_memory" / "forger-sidecar"
+    sidecar.mkdir(parents=True, exist_ok=True)
+    if prefs is not None:
+        (sidecar / "preferences.yaml").write_text(prefs, encoding="utf-8")
+    return sidecar
+
+
+def _branch(section: str, label: str) -> str:
+    """The one list item of `section` that starts with `label`."""
+    [item] = [line for line in section.splitlines() if line.startswith(f"- **{label}")]
+    return item
+
+
+def test_activation_loads_the_config_through_the_preflight(tmp_path):
+    step1 = _activation_step_1()
+    assert PREFLIGHT_CALL in _fence(step1, PREFLIGHT_CALL)
+    assert _read(SKILL_MD).count(PREFLIGHT_CALL) == 1, "one preflight call"
+    assert "Load config from" not in _read(SKILL_MD)
+    flow = _flow(step1)
+    assert ("`{preflightHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-preflight.py`, else "
+            "`{project-root}/src/shared/scripts/skf-preflight.py` (the first that exists)") in flow
+    assert ("bind `project_name`, `user_name`, `communication_language` and `document_output_language` from its "
+            "`config`, and `skills_output_folder`, `forge_data_folder` and `sidecar_path` from "
+            "`config.<name>_resolved`") in flow
+    _project(tmp_path, "headless_mode: true\n")
+    done = _run(PREFLIGHT_CALL, {"{project-root}": tmp_path.as_posix()}, tmp_path)
+    assert done.returncode == 0, done.stdout + done.stderr
+    out = json.loads(done.stdout)
+    for name in ("project_name", "user_name", "communication_language", "document_output_language"):
+        assert name in out["config"], name
+    for name in ("skills_output_folder", "forge_data_folder", "sidecar_path"):
+        assert Path(out["config"][f"{name}_resolved"]).is_absolute(), name
+    assert out["config"]["sidecar_path_resolved"] == str(tmp_path / "_bmad" / "_memory" / "forger-sidecar")
+    assert out["derived"]["headless_mode"] is True
+    step2 = _flow(_slice(_read(SKILL_MD), "2. **Resolve `{headless_mode}`**", "3. **Resolve workflow customization.**"))
+    assert ("true if `--headless` or `-H` was passed as an argument, or if step 1's preflight gave "
+            "`derived.headless_mode` true (`headless_mode: true` in `{sidecar_path}/preferences.yaml`)") in step2
+
+
+def test_a_preferences_file_that_does_not_load_is_named_at_activation(tmp_path):
+    _project(tmp_path, "headless_mode: [\n")
+    done = _run(PREFLIGHT_CALL, {"{project-root}": tmp_path.as_posix()}, tmp_path)
+    assert done.returncode == 0
+    out = json.loads(done.stdout)
+    assert out["sidecar"]["preferences_error"] and out["derived"]["headless_mode"] is False
+    assert ("With `sidecar.preferences_error` (a `preferences.yaml` that is there but does not load), display that "
+            "error in one line and go on with the defaults.") in _flow(_activation_step_1())
+
+
+def test_a_config_the_preflight_cannot_load_halts_at_activation(tmp_path):
+    _project(tmp_path, config=False)
+    done = _run(PREFLIGHT_CALL, {"{project-root}": tmp_path.as_posix()}, tmp_path)
+    assert done.returncode == 1
+    assert json.loads(done.stdout)["code"] == "CONFIG_MISSING"
+    # --allow-missing-sidecar never hides a sidecar_path the installer left as a placeholder.
+    _write_tree(tmp_path, {"_bmad/skf/config.yaml": "sidecar_path: '{sidecar_path}'\n"})
+    undefined = _run(PREFLIGHT_CALL, {"{project-root}": tmp_path.as_posix()}, tmp_path)
+    assert undefined.returncode == 1 and json.loads(undefined.stdout)["code"] == "SIDECAR_UNDEFINED"
+    flow = _flow(_activation_step_1())
+    assert 'If neither path exists, HALT (`halt_reason: "helper-missing"`, phase `on-activation:config`)' in flow
+    assert ('if the call exits non-zero or prints no JSON, HALT (`halt_reason: "helper-failed"`, phase '
+            '`on-activation:config`)') in flow
+    assert ('"**test-skill cannot load its config.** {its `error` and `code`, such as `CONFIG_MISSING`, else its '
+            'first stderr line, else: `skf-preflight.py` is missing, so re-install SKF.}"') in flow
+
+
+def test_activation_checks_uv_before_the_preflight_and_prints_each_halt_headless(tmp_path):
+    step1 = _activation_step_1()
+    flow = _flow(step1)
+    assert flow.index("(`command -v uv`)") < flow.index('HALT (`halt_reason: "runtime-missing"`, phase '
+                                                         '`on-activation:runtime`)') < flow.index(PREFLIGHT_CALL)
+    assert "https://docs.astral.sh/uv/getting-started/installation/" in flow
+    assert "under `--headless` or `-H` each HALT of this step first prints its envelope" in flow
+    assert ("when `uv` is the missing tool, bind `{emitEnvelopeHelper}` as above first, and the command runs with "
+            "`python3` in place of `uv run`") in flow
+    assert "With no emitter path, or when the emitter exits non-zero or prints no line, display the halt message alone" in flow
+    # The emitter both files bind is one script.
+    assert ("`{emitEnvelopeHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else "
+            "`{project-root}/src/shared/scripts/skf-emit-result-envelope.py`") in flow
+    assert _frontmatter(INIT)["emitEnvelopeProbeOrder"][1] == "{project-root}/src/shared/scripts/skf-emit-result-envelope.py"
+    block = "\n".join(line[3:] for line in step1.splitlines() if line.startswith("   ")).strip()
+    assert ACTIVATION_HALT in block and "<<'SKF_TS_HALT'" not in step1
+    # The documented command, filled for the config halt, gives the envelope a headless caller reads, even when
+    # preflight's error names a Windows path, whose backslashes a hand-typed JSON payload cannot hold.
+    message = ("test-skill cannot load its config. Cannot initialize. SKF is not installed in this project "
+               "(C:\\Users\\me\\demo\\_bmad\\skf\\config.yaml not found). CONFIG_MISSING")
+    envelope = _emit_by_options(ACTIVATION_HALT, {"<phase>": "on-activation:config",
+                                                  "<halt_reason>": "helper-failed"}, message)
+    assert (envelope["status"], envelope["exit_code"], envelope["halt_reason"]) == ("error", 1, "helper-failed")
+    assert envelope["error"] == {"phase": "on-activation:config", "reason": message}
+    assert envelope["skill_name"] is None
+
+
+def test_a_halt_before_the_run_folder_passes_a_helpers_text_as_options():
+    """A halt before §6b whose message quotes a helper's text (migrate's `error`, the forge-tier helper's
+    `message`, a stderr line) passes its fields as options, so a Windows path never breaks a typed payload."""
+    rule = _slice(_read(INIT), "**Halt envelope.**", "### 0.")
+    assert INIT_OPTION_HALT in rule
+    flow = _flow(rule)
+    assert ("A halt whose message quotes a helper's text (its `error`, its `message` or its stderr, which can hold "
+            "the backslashes of a Windows path) passes its fields as options instead") in flow
+    assert (flow.index("<<'SKF_TS_HALT'") < flow.index("A halt whose message quotes")
+            < flow.index("Once §6b has created the run folder"))
+    message = 'Could not move entries back from C:\\Users\\me\\skills\\demo\\1.0.0.skf-migrate: "busy"'
+    envelope = _emit_by_options(INIT_OPTION_HALT, {"<phase>": "init:resolve", "<halt_reason>": "helper-failed",
+                                                   "{skill_name}": "demo"}, message)
+    assert (envelope["skill_name"], envelope["halt_reason"], envelope["exit_code"]) == ("demo", "helper-failed", 1)
+    assert envelope["error"] == {"phase": "init:resolve", "reason": message}
+
+
+def test_new_citations_name_paths_that_resolve():
+    """SKILL.md's bare-path rule (#1112): a stage cites another stage from the skill root, and a runtime halt
+    points at the published docs, since `docs/` is not installed with the skill."""
+    assert "`{run_dir}/external.json` (`references/external-validators.md` §4)" in _read(REPORT)
+    docs = "<https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/#prerequisites-full-reference>"
+    for path in (SKILL_MD, INIT):
+        assert "`docs/getting-started.md`" not in _read(path), path.name
+        assert docs in _read(path), path.name
+
+
+def _effective_values(sidecar: Path) -> dict[str, str]:
+    sidecar_file = _frontmatter(INIT)["sidecarFile"].replace("{sidecar_path}", sidecar.as_posix())
+    return {"{sidecarFile}": sidecar_file, "{sidecar_path}": sidecar.as_posix()}
+
+
+def test_init_reads_the_tier_and_the_tools_from_one_effective_call(tmp_path):
+    assert _frontmatter(INIT)["forgeTierRwProbeOrder"] == [
+        "{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py",
+        "{project-root}/src/shared/scripts/skf-forge-tier-rw.py",
+    ]
+    section = _init_4()
+    assert EFFECTIVE_CALL in _fence(section, EFFECTIVE_CALL)
+    assert _read(INIT).count("uv run {forgeTierRwHelper}") == 1, "one call"
+    flow = _flow(section)
+    assert ('resolve `{forgeTierRwHelper}` ← first existing path in `{forgeTierRwProbeOrder}`. If neither path exists, '
+            'HALT (`halt_reason: "helper-missing"`, phase `init:forge-tier`)') in flow
+    sidecar = _project(tmp_path, "tier_override: Deep\n")
+    (sidecar / "forge-tier.yaml").write_text(
+        "tools:\n  ast_grep: true\n  gh_cli: false\n  qmd: false\n  ccc: true\ntier: Forge+\n", encoding="utf-8")
+    done = _run(EFFECTIVE_CALL, _effective_values(sidecar), tmp_path)
+    assert done.returncode == 0, done.stderr
+    out = json.loads(done.stdout)
+    assert (out["exists"], out["tier"], out["detected_tier"], out["tier_source"]) == (True, "Deep", "Forge+", "override")
+    found = _branch(section, "Exit 0 with `exists` true:**")
+    assert ("bind `{detected_tier}` ← its `tier`, the tier after a valid override (the JSON's own `detected_tier` is "
+            "the file's tier), and the tool availability flags (`ast_grep`, `gh_cli`, `qmd`) ← its `tools`") in found
+    for flag in ("ast_grep", "gh_cli", "qmd"):
+        assert flag in out["tools"], flag
+
+
+def test_init_halts_forge_tier_missing_on_a_missing_or_unusable_file(tmp_path):
+    section = _init_4()
+    sidecar = _project(tmp_path, "tier_override: Deep\n")
+    missing = _run(EFFECTIVE_CALL, _effective_values(sidecar), tmp_path)
+    assert missing.returncode == 0 and json.loads(missing.stdout)["exists"] is False
+    assert FORGE_TIER_MISSING in _branch(section, "Exit 0 with `exists` false**")
+    # A file cut before its tier line still parses: the helper exits 2, and the run halts as for a missing one.
+    (sidecar / "forge-tier.yaml").write_text("tools:\n  ast_grep: true\n  qmd: fa", encoding="utf-8")
+    cut = _run(EFFECTIVE_CALL, _effective_values(sidecar), tmp_path)
+    assert cut.returncode == 2 and cut.stdout == b""
+    assert "forge-tier.yaml" in json.loads(cut.stderr)["message"]
+    assert FORGE_TIER_UNUSABLE in _branch(section, "Exit 2 with the helper's JSON error on stderr**")
+    failed = _branch(section, "Any other exit, or no JSON:**")
+    assert 'HALT (`halt_reason: "helper-failed"`, phase `init:forge-tier`) with its stderr message' in failed
+    # An older helper rejects `effective` with exit 2 and no JSON: that is a helper failure, not a bad file.
+    assert "An exit 2 with no JSON on stderr counts here" in failed
+
+
+def test_init_reads_no_tier_file_by_hand_and_the_tier_flag_skips_the_call():
+    section = _init_4()
+    override = _slice(_read(INIT), "### 4b. Apply Tier Override (if set)", "### 5. Load Skill Metadata")
+    for stale in ("Read `{sidecarFile}`", "Read `{sidecar_path}/preferences.yaml`", "Read `tier` value",
+                  "Read tool availability flags"):
+        assert stale not in section, stale
+    flow = _flow(override)
+    assert flow.startswith("### 4b. Apply Tier Override (if set) This section reads no file:")
+    assert "When its `override_rejected` is true, log an Info note" in flow
+    # --tier comes first and skips the call, its halts and section 4b: the flag wins over tier_override.
+    bypass = _flow(_slice(section, "**`--tier=<...>` flag bypass", "**Otherwise (no `--tier` flag):**"))
+    assert section.index("**`--tier=<...>` flag bypass") < section.index(EFFECTIVE_CALL)
+    assert "skip the call below, its HALTs and §4b: the flag's tier is the run's tier, and `tier_override` does not change it" in bypass
+    [flag] = [line for line in _read(INIT).splitlines() if line.startswith("- `--tier=<Quick|Forge|Forge+|Deep>`:")]
+    assert "read neither forge-tier.yaml nor `tier_override`, so the flag wins over `tier_override`" in flag
+    inputs = next(line for line in _read(CONTRACT).splitlines() if line.startswith("| **Inputs** |"))
+    assert "it wins over `tier_override`" in inputs
+
+
+def test_the_contract_names_the_new_halt_sites():
+    table = _slice(_read(CONTRACT), "| `halt_reason` | Raised by |", "When the emitter itself")
+    rows = {m.group(1): m.group(2) for m in re.finditer(r"^\| `([a-z-]+)` \| (.*) \|$", table, re.M)}
+    assert rows["runtime-missing"].startswith("SKILL.md On Activation step 1: `uv` is not on `PATH`; init.md §0b")
+    assert "SKILL.md On Activation step 1 (`skf-preflight.py`)" in rows["helper-missing"]
+    assert "§4 (`skf-forge-tier-rw.py`, unless `--tier` was passed)" in rows["helper-missing"]
+    assert rows["helper-failed"].startswith("a helper or a script that exits with an error the step cannot correct: "
+                                            "SKILL.md On Activation step 1 (a config `skf-preflight.py` cannot load")
+    assert "init.md §2, §4 and §6b" in rows["helper-failed"]
+    assert rows["forge-tier-missing"].startswith("init.md §4: forge-tier.yaml is not there, or `skf-forge-tier-rw.py` "
+                                                 "cannot read a tier from it")
+
+
+# --------------------------------------------------------------------------
 # #588 item 4: the workspace drift guard
 # --------------------------------------------------------------------------
 
@@ -1495,6 +1767,10 @@ def test_the_run_folder_is_created_at_the_lock_and_removed_at_both_ends():
     assert f"bind `{{run_dir}}` ← `{RUN_FOLDER}`" in lock
     assert f'mkdir -p "{RUN_FOLDER}"' in lock
     assert "releasing the run lock first as the **Halt envelope** paragraph says" in lock
+    # The halt quotes mkdir's stderr and has no folder to stage a payload in, so it passes options (#1119).
+    assert ("passing the halt's fields as options and that line on stdin, as it says for a helper's text: there is "
+            "no folder to stage a payload in.") in lock
+    assert "payload on stdin" not in lock
     halt_envelope = _flow(_slice(_read(INIT), "**Halt envelope.**", "### 0."))
     assert f"Once §6a took the run lock, it releases the lock first, whatever the release prints: from `{{project-root}}`, run `{RELEASE}`" in halt_envelope
     section7 = _flow(_slice(_read(REPORT), "### 7. Health-Check Dispatch", "load and execute `{nextStepFile}`"))
@@ -3019,9 +3295,22 @@ def test_the_prose_scoring_chain_runs_end_to_end(tmp_path):
     assert (coverage["documented"], coverage["denominator"], coverage["exportCoverage"]) == (3, 3, 100.0)
     coherence = _exec(_command(COVERAGE_BRANCHES, "uv run {coherenceScript}"), values, tmp_path)
     assert coherence["findings"] == []
-    external = _exec(_command(EXTERNAL, "uv run {externalScoreScript}").replace(
-        "<score or null>", "80", 1).replace("<score or null>", "null"), values, tmp_path)
-    assert external["externalScore"] == 80.0
+    # #1120: §2 and §3 saved the tools' JSON in the run folder; §4's script reads skill-check's score for the skill
+    # (here an entry beside another skill's), and a tessl.json a stopped call left empty counts as no Tessl score.
+    (run / "skill-check.json").write_bytes((json.dumps({
+        "summary": {"skillCount": 2, "errorCount": 0, "warningCount": 1},
+        "diagnostics": [{"ruleId": "body.max_lines", "severity": "warn", "message": "long", "file": "skill/SKILL.md",
+                         "line": 4, "column": 1}],
+        "scores": [{"skillId": "x/other", "relativePath": "other/SKILL.md", "score": 40},
+                   {"skillId": "x/skill", "relativePath": "skill/SKILL.md", "score": 80}]}) + "\nWrote r.json\n"
+                                                ).encode("utf-8"))
+    (run / "tessl.json").write_bytes(b"")
+    command = _command(EXTERNAL, "uv run {externalScoreScript}")
+    external = _exec(command, values | {"{skillDir}": skill.as_posix()}, tmp_path)
+    assert (external["externalScore"], external["toolsUsed"], external["skillCheckWarningCount"]) == (
+        80.0, ["skill-check"], 1)
+    assert [(d["ruleId"], d["file"], d["line"]) for d in external["skillCheckDiagnostics"]] == [
+        ("body.max_lines", "SKILL.md", 4)]
 
     flags = {"mode": "naive", "tier": "Forge", "docsOnly": False, "state2": False, "stackSkill": False,
              "referenceApp": False, "threshold": 80, "analysisConfidence": "full", "toolingStatus": "ok"}

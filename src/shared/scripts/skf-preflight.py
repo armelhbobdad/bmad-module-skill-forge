@@ -19,10 +19,27 @@ on stdout — that fallback is the safety net, not the canonical path:
   uv run skf-preflight.py <project-root>
   uv run skf-preflight.py <project-root> --config-path <alt-config>
   uv run skf-preflight.py <project-root> --allow-missing-sidecar
+  uv run skf-preflight.py <project-root> --helpers <skill-root>
 
 --allow-missing-sidecar: a sidecar folder that does not exist yet (a first
 run, before skf-setup writes it) is not a halt. The run goes on with empty
 preferences and forge tier, and `sidecar.missing` is true.
+
+--helpers <skill-root>: also resolve the skill's helpers, so a workflow can
+halt once at activation instead of at the stage that runs a missing one.
+Every `<stem>ProbeOrder` list in the YAML frontmatter of a `.md` file under
+`<skill-root>/references/` (at any depth) gives one key of `helpers`,
+{<stem>: absolute path or null}, sorted, plus `resolveCustomization`, the
+customization helper every activation runs. A workflow binds `{<stem>}` and
+`{<stem>Helper}` from `helpers.<stem>`. Each entry's leading
+`{project-root}` becomes the project root (a relative entry is joined to
+it), an entry that holds any other `{...}` never matches, and the first
+entry naming an existing file wins. A null makes the run a HELPERS_MISSING
+halt, with `helpers_missing` listing the missing file names. A skill root
+that is not a folder, a frontmatter that is not YAML, a `*ProbeOrder` that
+is not a list of paths, or one stem declared with two different lists is a
+HELPERS_MALFORMED halt, with `helpers` null. A config halt comes first and
+keeps its own code, with `helpers` attached.
 
 Folder values: the BMAD Method installer writes each folder in config.yaml
 as `{project-root}/<value>`, and the standalone installer writes it relative
@@ -44,7 +61,8 @@ Exit 0 on success, exit 1 on a hard halt, whose `code` is CONFIG_MISSING
 (no config.yaml: SKF is not installed, so the error names the installer),
 CONFIG_MALFORMED (config.yaml is there but cannot be read or is not a YAML
 mapping), SIDECAR_UNDEFINED or, without --allow-missing-sidecar,
-SIDECAR_MISSING.
+SIDECAR_MISSING; with --helpers, HELPERS_MISSING or HELPERS_MALFORMED after
+those.
 """
 
 from __future__ import annotations
@@ -81,6 +99,19 @@ INSTALL_REMEDY = (
 PROJECT_ROOT_RE = re.compile(r"\A\{project-root\}(?:[/\\]+|\Z)")
 PLACEHOLDER_RE = re.compile(r"\{[^{}]*\}")
 FOLDER_KEYS = ("output_folder", "skills_output_folder", "forge_data_folder")
+
+# --helpers: a `<stem>ProbeOrder` key in a stage's frontmatter, the
+# frontmatter itself, and the helper no stage declares because every SKILL.md
+# activation runs it.
+PROBE_ORDER_RE = re.compile(r"\A([A-Za-z][A-Za-z0-9]*)ProbeOrder\Z")
+FRONTMATTER_RE = re.compile(r"\A---\n(.*?)^---[ \t]*$", re.MULTILINE | re.DOTALL)
+BUILT_IN_HELPERS = {
+    "resolveCustomization": [
+        "{project-root}/_bmad/skf/shared/scripts/skf-resolve-customization.py",
+        "{project-root}/src/shared/scripts/skf-resolve-customization.py",
+    ],
+}
+HELPERS_REMEDY = "Reinstall SKF, then retry."
 
 
 def _json_default(value):
@@ -167,12 +198,120 @@ def folder_missing(path):
         return False
 
 
-def run_preflight(project_root, config_path=None, allow_missing_sidecar=False):
+def file_present(path):
+    """True when a file is at `path`. One that cannot be checked cannot run."""
+    try:
+        return stat.S_ISREG(Path(path).stat().st_mode)
+    except (OSError, ValueError):
+        return False
+
+
+def probe_orders(skill_root):
+    """Return ({stem: [entry, ...]}, None) for a skill, or (None, error).
+
+    Reads every `<stem>ProbeOrder` list in the YAML frontmatter of the `.md`
+    files under `<skill_root>/references/`, after the built-in ones. A stem
+    two files declare must name the same list in both.
+    """
+    skill_root = Path(skill_root)
+    if folder_missing(skill_root):
+        return None, f"skill root {skill_root} is not a folder"
+    orders = {stem: list(entries) for stem, entries in BUILT_IN_HELPERS.items()}
+    declared = {stem: "skf-preflight.py" for stem in orders}
+    references = skill_root / "references"
+    try:
+        files = sorted(references.rglob("*.md")) if not folder_missing(references) else []
+    except OSError as e:
+        return None, f"Cannot read {references}: {e}"
+    for path in files:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, ValueError) as e:
+            return None, f"Cannot read {path}: {e}"
+        m = FRONTMATTER_RE.match(text)
+        if not m:
+            continue
+        try:
+            data = yaml.safe_load(m.group(1))
+        except yaml.YAMLError as e:
+            return None, f"YAML parse error in the frontmatter of {path}: {e}"
+        if data is None:
+            continue
+        if not isinstance(data, dict):
+            return None, f"Not a YAML mapping: the frontmatter of {path} holds a {type(data).__name__}"
+        for key, entries in data.items():
+            stem = PROBE_ORDER_RE.match(key) if isinstance(key, str) else None
+            if not stem:
+                continue
+            stem = stem.group(1)
+            if not (isinstance(entries, list) and entries and all(isinstance(e, str) for e in entries)):
+                return None, f"{key} in {path} is not a list of paths"
+            if stem in orders and orders[stem] != entries:
+                return None, f"{key} differs between {declared[stem]} and {path}"
+            orders.setdefault(stem, entries)
+            declared.setdefault(stem, str(path))
+    return orders, None
+
+
+def resolve_helpers(project_root, skill_root):
+    """Return (helpers, missing, error) for the skill at `skill_root`.
+
+    `helpers` maps each stem to the first entry of its probe order that
+    names an existing file, as an absolute path, or to None; `missing` lists
+    the file names of the stems left at None. On an error, `helpers` and
+    `missing` are None.
+    """
+    project_root = Path(project_root).resolve()
+    orders, err = probe_orders(skill_root)
+    if err:
+        return None, None, " ".join(err.split())
+    helpers, missing = {}, set()
+    for stem in sorted(orders):
+        found = None
+        for entry in orders[stem]:
+            path, placeholder = resolve_folder(entry, project_root)
+            if path and not placeholder and file_present(path):
+                found = path
+                break
+        helpers[stem] = found
+        if found is None:
+            missing.update(entry.replace("\\", "/").rsplit("/", 1)[-1] for entry in orders[stem])
+    return helpers, sorted(missing), None
+
+
+def run_preflight(project_root, config_path=None, allow_missing_sidecar=False, helpers_root=None):
     """Run preflight checks and return a result dict.
 
     `allow_missing_sidecar` turns a missing sidecar folder into empty
-    defaults instead of the SIDECAR_MISSING halt.
+    defaults instead of the SIDECAR_MISSING halt. `helpers_root`, a skill
+    root, adds its `helpers` map: a missing helper is the HELPERS_MISSING
+    halt and a probe order that cannot be read the HELPERS_MALFORMED one,
+    unless the config halted first.
     """
+    result = load_config_and_sidecar(project_root, config_path, allow_missing_sidecar)
+    if helpers_root is None:
+        return result
+    helpers, missing, err = resolve_helpers(project_root, helpers_root)
+    extra = {"helpers": helpers}
+    if missing:
+        extra["helpers_missing"] = missing
+    if result["status"] != "ok":
+        return {**result, **extra}
+    if err:
+        halt = {"error": f"Cannot initialize. {err.rstrip('.')}. {HELPERS_REMEDY}", "code": "HELPERS_MALFORMED"}
+    elif missing:
+        halt = {
+            "error": f"Cannot initialize. SKF helpers not found: {', '.join(missing)}. {HELPERS_REMEDY}",
+            "code": "HELPERS_MISSING",
+        }
+    else:
+        return {**result, **extra}
+    rest = {key: value for key, value in result.items() if key != "status"}
+    return {"status": "hard-halt", **halt, **rest, **extra}
+
+
+def load_config_and_sidecar(project_root, config_path=None, allow_missing_sidecar=False):
+    """Load config.yaml and the sidecar files: run_preflight without --helpers."""
     project_root = Path(project_root).resolve()
 
     # 1. Load config.yaml
@@ -301,7 +440,8 @@ def run_preflight(project_root, config_path=None, allow_missing_sidecar=False):
     }
 
 
-USAGE = "Usage: uv run skf-preflight.py <project-root> [--config-path <path>] [--allow-missing-sidecar]"
+USAGE = ("Usage: uv run skf-preflight.py <project-root> [--config-path <path>] [--allow-missing-sidecar] "
+         "[--helpers <skill-root>]")
 
 
 if __name__ == "__main__":
@@ -311,12 +451,21 @@ if __name__ == "__main__":
 
     proj_root = sys.argv[1]
     cfg_path = None
+    skill_root = None
 
     if "--config-path" in sys.argv:
         idx = sys.argv.index("--config-path")
         if idx + 1 < len(sys.argv):
             cfg_path = sys.argv[idx + 1]
 
-    result = run_preflight(proj_root, cfg_path, allow_missing_sidecar="--allow-missing-sidecar" in sys.argv)
+    if "--helpers" in sys.argv:
+        idx = sys.argv.index("--helpers")
+        if idx + 1 >= len(sys.argv) or sys.argv[idx + 1].startswith("--"):
+            print(USAGE, file=sys.stderr)
+            sys.exit(1)
+        skill_root = sys.argv[idx + 1]
+
+    result = run_preflight(proj_root, cfg_path, allow_missing_sidecar="--allow-missing-sidecar" in sys.argv,
+                           helpers_root=skill_root)
     print(json.dumps(result, indent=2, default=_json_default))
     sys.exit(1 if result["status"] == "hard-halt" else 0)

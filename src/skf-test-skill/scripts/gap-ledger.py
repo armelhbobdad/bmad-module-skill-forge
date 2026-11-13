@@ -63,6 +63,7 @@ Subcommands:
          [--surface <file>] [--signatures <file>] [--numerator <file>]
          [--stale <file>] [--provenance <file>] [--inventory <file>]
          [--skill-dir <dir>] [--metadata <path>] [--served <family>]...
+         [--not-applicable <index>:<rule-id>]...
       Build the records from the result file a script wrote (see Adapters
       below) instead of reading them, then append them as above, with the
       same output. A gap a script finds is recorded with a fixed title,
@@ -366,6 +367,28 @@ cites (never read; default `metadata.json`):
             `scripts-assets` gap. The titles are coherence-check.md's
             `naive-coherence:` texts; a `reference-check` result (contextual
             mode) titles its gap `coherence:` instead.
+  external  --input combine-external-scores.py's file-mode result
+            (external.json, which external-validators.md §4 writes on every
+            run); --not-applicable, repeatable, `<index>:<rule-id>` with a
+            lowercase slug, one for each content suggestion that §3 of
+            external-validators.md marked `(not applicable: <rule-id>)`, its
+            index its place in `tesslContentSuggestions` counting from 0. A
+            result without `skillCheckDiagnostics`,
+            `tesslValidationFindings`, `tesslDescriptionSuggestions` and
+            `tesslContentSuggestions` (a JSON-input result) is INVALID_INPUT,
+            as is a mark of another form or whose index that list does not
+            have. In this order: each
+            `skillCheckDiagnostics[]` entry is a Low `external-validator` gap
+            `skill-check: {ruleId}` at `{file}:{line}` (a line above 0), else
+            `{file}`, else `SKILL.md`, its message the issue and its
+            `suggestion`, when it has one, the remediation; each
+            `tesslValidationFindings[]` entry a Low `external-validator` gap
+            `Tessl Review: {name}` at `SKILL.md`, its message the issue; each
+            description suggestion a Low `description` gap titled with it at
+            `SKILL.md frontmatter description`, fixed there (and in the brief,
+            when the skill has one); and each content suggestion no mark
+            names an Info `external-validator` gap titled with it at
+            `SKILL.md`.
 
   render --ledger <path> [--heading]
       Print the Gap Report body in Markdown on stdout: the totals, the
@@ -952,6 +975,7 @@ ADAPTER_OPTIONS: dict[str, frozenset[str]] = {
     "provenance-line": frozenset({"stale"}),
     "coherence": frozenset(),
     "structure": frozenset({"served"}),
+    "external": frozenset({"not_applicable"}),
 }
 ALL_ADAPTER_OPTIONS = frozenset().union(*ADAPTER_OPTIONS.values())
 _DEFAULT_METADATA = "metadata.json"
@@ -2285,6 +2309,71 @@ def from_coherence(result: object) -> list[dict]:
     return records
 
 
+# A --not-applicable mark: a content suggestion's index, counting from 0, and the tessl-review.md rule that matched it.
+_MARK_RE = re.compile(r"(\d+):([a-z][a-z0-9]*(?:-[a-z0-9]+)*)")
+_EXTERNAL_LISTS = ("skillCheckDiagnostics", "tesslValidationFindings", "tesslDescriptionSuggestions",
+                   "tesslContentSuggestions")
+
+
+def _suggestions(result: dict, key: str) -> list[str]:
+    items = _list(result, key, "--input")
+    for index, item in enumerate(items):
+        if not isinstance(item, str) or not item.strip():
+            raise AdapterError(f"--input: {key}[{index}] is not a suggestion's text")
+    return items
+
+
+def from_external(result: object, marks: list[str] | None = None) -> list[dict]:
+    """combine-external-scores.py's file-mode result: the external validators' findings."""
+    result = _object(result, "--input (combine-external-scores.py --skill-check)", *_EXTERNAL_LISTS)
+    content = _suggestions(result, "tesslContentSuggestions")
+    skipped: set[int] = set()
+    for mark in marks or []:
+        m = _MARK_RE.fullmatch(mark)
+        if m is None:
+            raise AdapterError(f"--not-applicable {mark!r} is not <index>:<rule-id>, the rule id a lowercase slug")
+        index = int(m.group(1))
+        if index >= len(content):
+            raise AdapterError(f"--not-applicable {mark}: tesslContentSuggestions has no entry {index} (it holds "
+                               f"{len(content)}, counting from 0)")
+        skipped.add(index)
+    records: list[dict] = []
+    for index, diagnostic in enumerate(_list(result, "skillCheckDiagnostics", "--input")):
+        if not isinstance(diagnostic, dict):
+            raise AdapterError(f"--input: skillCheckDiagnostics[{index}] is not an object")
+        rule = diagnostic.get("ruleId") if isinstance(diagnostic.get("ruleId"), str) else ""
+        rule = rule.strip() or "diagnostic"
+        file = diagnostic.get("file") if isinstance(diagnostic.get("file"), str) else ""
+        line = _count(diagnostic.get("line"))
+        where = f"{file}:{line}" if file and line and line > 0 else file or "SKILL.md"
+        message = diagnostic.get("message") if isinstance(diagnostic.get("message"), str) else None
+        suggestion = diagnostic.get("suggestion") if isinstance(diagnostic.get("suggestion"), str) else ""
+        records.append(_gap(
+            "Low", "external-validator", f"skill-check: {rule}", where,
+            suggestion.strip() or f"Fix what skill-check's `{rule}` rule reports at {where}, then re-run Test Skill.",
+            issue=message))
+    for index, finding in enumerate(_list(result, "tesslValidationFindings", "--input")):
+        if not isinstance(finding, dict):
+            raise AdapterError(f"--input: tesslValidationFindings[{index}] is not an object")
+        name = finding.get("name") if isinstance(finding.get("name"), str) else ""
+        name = name.strip() or "validation check"
+        message = finding.get("message") if isinstance(finding.get("message"), str) else None
+        records.append(_gap(
+            "Low", "external-validator", f"Tessl Review: {name}", "SKILL.md",
+            f"Fix what Tessl Review's `{name}` check reports in SKILL.md, then re-run Test Skill.", issue=message))
+    for suggestion in _suggestions(result, "tesslDescriptionSuggestions"):
+        records.append(_gap(
+            "Low", "description", suggestion, "SKILL.md frontmatter description",
+            "Edit the SKILL.md frontmatter description as this suggestion says, then re-run Test Skill. When "
+            "the skill has a brief, edit the description there too, so the next Create Skill run keeps it."))
+    for index, suggestion in enumerate(content):
+        if index not in skipped:
+            records.append(_gap(
+                "Info", "external-validator", suggestion, "SKILL.md",
+                "Apply this Tessl Review suggestion to SKILL.md only if you agree: it is advisory."))
+    return records
+
+
 def _structure_shape(data: object) -> str | None:
     """Which skf-scan-skill-md-structure.py result `data` is."""
     if not isinstance(data, dict):
@@ -2408,6 +2497,8 @@ def build_records(args: argparse.Namespace) -> list[dict]:
     if kind == "provenance-line":
         stale = read_result(args.stale, "--stale") if args.stale is not None else None
         return from_provenance_line(data, stale)
+    if kind == "external":
+        return from_external(data, args.not_applicable)
     return from_coherence(data)
 
 
@@ -2640,6 +2731,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--metadata", help="the metadata.json path a record cites as its Source (not read)")
     p.add_argument("--served", action="append", choices=FAMILIES,
                    help="structure: a family another heading serves (the caller's judgment); repeatable")
+    p.add_argument("--not-applicable", action="append", metavar="INDEX:RULE",
+                   help="external: a Tessl Review content suggestion marked not applicable, by its index in "
+                        "tesslContentSuggestions (from 0) and the tessl-review.md rule id; repeatable")
     p.set_defaults(func=_cmd_append)
 
     p = sub.add_parser("render", help="print the Gap Report in Markdown")
@@ -2673,9 +2767,25 @@ def _force_utf8(*streams) -> None:
                 stream.reconfigure(encoding="utf-8", errors=errors)
 
 
+def _join_mark_values(argv: list[str]) -> list[str]:
+    """Join each `--not-applicable <mark>` into one `--not-applicable=<mark>` token. Before Python 3.12, argparse
+    reads a value that starts with `-` (such as a negative index) as another option and exits with its usage line, so
+    the adapter's own refusal, a JSON error on stdout, never ran; joined, every mark reaches the adapter."""
+    joined: list[str] = []
+    i = 0
+    while i < len(argv):
+        if argv[i] == "--not-applicable" and i + 1 < len(argv):
+            joined.append(f"--not-applicable={argv[i + 1]}")
+            i += 2
+            continue
+        joined.append(argv[i])
+        i += 1
+    return joined
+
+
 def main(argv: list[str] | None = None) -> int:
     _force_utf8(sys.stdin, sys.stdout, sys.stderr)
-    args = _build_parser().parse_args(argv)
+    args = _build_parser().parse_args(_join_mark_values(sys.argv[1:] if argv is None else list(argv)))
     return args.func(args)
 
 

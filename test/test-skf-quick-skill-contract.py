@@ -1162,6 +1162,8 @@ def _schema() -> dict:
     return json.loads(_read(ENVELOPE_SCHEMA))
 
 
+# SKILL.md On Activation step 1: the runtime check, the config, the run folder and the helpers.
+STEP_1 = "1. **Check the runtime, then load the config and the helpers.**"
 # A HARD HALT that names its exit code, in either of the two forms the steps use.
 HALT_RE = re.compile(r"HARD HALT(?:(?: the workflow)? with \*\*exit code (\d+) \(([a-z-]+)\)\*\*"
                      r"| \(exit code (\d+), ([a-z-]+)\))")
@@ -1220,12 +1222,14 @@ def test_the_scan_finds_every_hard_halt():
         per_file[name] = per_file.get(name, 0) + 1
     # resolve-target.md gained the step 1 §4 halt for a file listing no probe could read, and the
     # halts for a missing resolver (§1b) and language detector (§4) in place of a by-hand walk;
-    # SKILL.md gained the runtime halt for a missing python3 or uv.
-    # quick-extract.md and write-and-validate.md gained the halts for a missing shipped helper (#599).
+    # SKILL.md gained the runtime halt for a missing python3 or uv, then the halts for a config the
+    # preflight cannot load and for a missing helper of any stage (#1117).
+    # quick-extract.md and write-and-validate.md gained the halts for a missing shipped helper (#599), and
+    # write-and-validate.md the one for a missing validation summarizer (#1120).
     # batch-mode.md gained the halts for a failing next, a second failing record and a failing summarize (#903).
-    assert per_file == {"SKILL.md": 3, "batch-mode.md": 6, "compile.md": 1, "ecosystem-check.md": 2,
+    assert per_file == {"SKILL.md": 5, "batch-mode.md": 6, "compile.md": 1, "ecosystem-check.md": 2,
                         "finalize.md": 1, "quick-extract.md": 5, "resolve-target.md": 12,
-                        "write-and-validate.md": 6}
+                        "write-and-validate.md": 7}
     assert set(per_file) - {"SKILL.md", "batch-mode.md"} == set(STAGES)
 
 
@@ -1238,18 +1242,18 @@ def test_a_missing_runtime_halts_before_the_run_folder():
     """W4 hand-off (W3 re-check enhancement-4): without uv no helper and no emitter can run,
     so activation checks for python3 and uv before anything else and halts with exit 3."""
     text = _read(SKILL)
-    step1 = _section(text, "1. Read `{project-root}/_bmad/skf/config.yaml`", "\n2. ")
+    step1 = _section(text, STEP_1, "\n2. ")
     for needle in ("`command -v python3` and `command -v uv`", "HARD HALT with **exit code 3 (resolution-failure)**",
                    "<https://docs.astral.sh/uv/getting-started/installation/>",
                    "No envelope is printed: the emitter needs `uv` too."):
         assert needle in step1, needle
-    assert step1.index("command -v uv") < step1.index("mktemp -d") < step1.index("emit-halt")
+    assert step1.index("command -v uv") < step1.index("emit-halt") < step1.index("mktemp -d")
     [site] = [s for s in _halt_sites() if s[0] == "SKILL.md" and _runtime_halt(s[3])]
     assert site[1:3] == (3, "resolution-failure")
     assert EMIT_HALT not in site[3][:site[3].index("Then resolve `{emitEnvelopeHelper}`")]
     codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
     [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
-    assert row3.split("|")[3].strip().startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing)")
+    assert row3.split("|")[3].strip().startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing, ")
     assert ("except SKILL.md On Activation's halt for a missing `python3` or `uv`, which the emitter needs"
             in _read(HALT_CONTRACT))
     [exit_row] = [line for line in text.splitlines() if line.startswith("| **Exit codes** |")]
@@ -1266,12 +1270,12 @@ def test_no_stage_halts_without_an_exit_code():
     assert '"reason": "Headless mode requires a target argument."' in gate
 
 
-@pytest.mark.parametrize("site", range(36), ids=lambda i: f"halt-{i}")
+@pytest.mark.parametrize("site", range(39), ids=lambda i: f"halt-{i}")
 def test_every_hard_halt_emits_through_the_emitter(site):
     """#593: each HARD HALT carries the inline emit command, and its payload builds the envelope it names,
     except the runtime halt, which no emitter can serve (test_a_missing_runtime_halts_before_the_run_folder)."""
     sites = _halt_sites()
-    assert len(sites) == 36
+    assert len(sites) == 39
     name, code, reason, segment = sites[site]
     if _runtime_halt(segment):
         assert name == "SKILL.md"
@@ -1313,6 +1317,10 @@ SHIPPED_HELPERS = [
                  "frontmatter-validator-missing", "skip frontmatter validation", id="frontmatter-validator"),
     pytest.param("write-and-validate.md", "{outputValidator}", "skf-validate-output.py", "output-validator-missing",
                  "skip body/snippet/metadata validation", id="output-validator"),
+    # #1120: without the summarizer the step would count the issues by hand, as it did before.
+    pytest.param("write-and-validate.md", "{validationSummaryHelper}", "skf-summarize-validation.py",
+                 "validation-summarizer-missing", "`skill_md` counts skill-check's `diagnostics[]`",
+                 id="validation-summarizer"),
 ]
 
 
@@ -1340,11 +1348,13 @@ def test_the_helper_halts_follow_the_runtime_halt_in_the_contract():
     codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
     [row3] = [line for line in codes.splitlines() if line.startswith("| 3 ")]
     raised_by = row3.split("|")[3].strip()
-    assert raised_by.startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing); a shipped helper missing, "
+    assert raised_by.startswith("SKILL.md On Activation step 1 (`python3` or `uv` missing, a config `skf-preflight.py` "
+                                "cannot load, or a helper of any stage missing, `details.cause` `helpers-missing`); "
+                                "a shipped helper missing, "
                                 "named in the message and in `details.cause` (step 3: `skf-github-fetch.py`, "
                                 "`skf-skills-module.py` §1, `skf-extract-public-api.py` §2; step 5: "
                                 "`skf-atomic-write.py` §2, `skf-validate-frontmatter.py` §4 when skill-check is "
-                                "unavailable, `skf-validate-output.py` §5)")
+                                "unavailable, `skf-validate-output.py` §5, `skf-summarize-validation.py` §6)")
 
 
 def test_the_output_validator_runs_through_uv():
@@ -1357,13 +1367,209 @@ def test_the_output_validator_runs_through_uv():
 
 def test_the_emitter_is_resolved_and_the_run_folder_made_before_the_first_halt():
     text = _read(SKILL)
-    step1 = _section(text, "1. Read `{project-root}/_bmad/skf/config.yaml`", "\n2. ")
+    step1 = _section(text, STEP_1, "\n2. ")
     for needle in ("`{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`",
                    "`{project-root}/src/shared/scripts/skf-emit-result-envelope.py`",
                    'mktemp -d "{project-root}/_bmad-output/.skf-run/skf-quick-skill-XXXXXXXX"',
                    "Bind `{run_dir}` ← the path it prints"):
         assert needle in step1, needle
     assert text.index("Bind `{run_dir}`") < text.index("5. **If `--batch` is set**")
+
+
+# --------------------------------------------------------------------------
+# #1117: activation loads the config through skf-preflight.py and resolves
+# every stage's helpers once, into {run_dir}/helpers.json, before any stage loads
+# --------------------------------------------------------------------------
+
+PREFLIGHT = SCRIPTS / "skf-preflight.py"
+CONFIG_CALL = 'uv run {preflightHelper} "{project-root}" --allow-missing-sidecar\n'
+HELPERS_CALL = ('uv run {preflightHelper} "{project-root}" --allow-missing-sidecar --helpers "{skill-root}" '
+                '> "{run_dir}/helpers.json"\n')
+HELPERS_RULE = ("- Bind each `{<stem>}` or `{<stem>Helper}` this step runs ← `helpers.<stem>` in the `helpers.json` "
+                "SKILL.md On Activation step 1 wrote: in `{run_dir}`, or under `--batch` in the batch folder that holds "
+                "it, the parent folder of `{run_dir}`. Take the first existing path in the `<stem>ProbeOrder` array "
+                "above only when that file holds no `<stem>`. Each step below that resolves a helper from its probe "
+                "order binds it by this rule; its halt or fallback for a helper with no path still applies, and fires "
+                "only when neither the file nor the probe order names a path that exists, as when the helper was "
+                "removed after activation.")
+
+
+def _probe_stems() -> dict[str, set[str]]:
+    """Each stage file's `<stem>ProbeOrder` stems."""
+    return {md.name: set(re.findall(r"^([A-Za-z]+)ProbeOrder:", _read(md), re.M))
+            for md in sorted((QS / "references").glob("*.md"))}
+
+
+def _run_call(block: str, project: Path, run_dir: Path, config: Path) -> subprocess.CompletedProcess:
+    """A documented preflight call, run by bash with this repository's script and a config path."""
+    command = (block.strip().replace("uv run {preflightHelper}", f'"{sys.executable}" "{PREFLIGHT.as_posix()}"')
+               .replace("{project-root}", project.as_posix()).replace("{skill-root}", QS.as_posix())
+               .replace("{run_dir}", run_dir.as_posix()))
+    command = command.replace(" --allow-missing-sidecar", f' --allow-missing-sidecar --config-path "{config.as_posix()}"')
+    return subprocess.run(["bash", "-c", command], capture_output=True, text=True, timeout=60)
+
+
+def test_activation_runs_both_pre_passes_before_a_stage_loads():
+    """The config pre-pass comes before the run folder, the helpers pre-pass after it, and both
+    before batch-mode.md or resolve-target.md loads; no config file is read by hand."""
+    text = _read(SKILL)
+    step1 = _section(text, STEP_1, "\n2. ")
+    assert _nested_bash_block(step1, "--allow-missing-sidecar\n") == CONFIG_CALL
+    assert _nested_bash_block(step1, "--helpers") == HELPERS_CALL
+    assert ("`{preflightHelper}` ← `{project-root}/_bmad/skf/shared/scripts/skf-preflight.py`, else "
+            "`{project-root}/src/shared/scripts/skf-preflight.py` (the first that exists)") in step1
+    config, helpers = text.index(CONFIG_CALL), text.index(HELPERS_CALL)
+    assert text.index("command -v uv") < config < text.index("mktemp -d") < text.index("Bind `{run_dir}`") < helpers
+    assert helpers < text.index("5. **If `--batch` is set**") < text.index("6. Load, read the full file, and then "
+                                                                           "execute `references/resolve-target.md`")
+    assert "Read `{project-root}/_bmad/skf/config.yaml`" not in text
+    assert ("bind `project_name`, `user_name`, `communication_language` and `document_output_language` from its "
+            "`config`, and `output_folder`, `skills_output_folder`, `forge_data_folder` and `sidecar_path` from "
+            "`config.<name>_resolved`") in step1
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_the_config_pre_pass_gives_every_value_step_1_and_2_bind(tmp_path):
+    step1 = _section(_read(SKILL), STEP_1, "\n2. ")
+    config = tmp_path / "config.yaml"
+    config.write_text("project_name: demo\nuser_name: Ada\nskills_output_folder: skills\nforge_data_folder: fd\n"
+                      "output_folder: out\nsidecar_path: sc\n", encoding="utf-8")
+    (tmp_path / "sc").mkdir()
+    (tmp_path / "sc" / "preferences.yaml").write_text("headless_mode: true\n", encoding="utf-8")
+    done = _run_call(_nested_bash_block(step1, "--allow-missing-sidecar\n"), tmp_path, tmp_path, config)
+    assert done.returncode == 0, done.stdout + done.stderr
+    out = json.loads(done.stdout)
+    for name in ("project_name", "user_name", "communication_language", "document_output_language"):
+        assert f"`{name}`" in step1 and name in out["config"], name
+    for name in ("output_folder", "skills_output_folder", "forge_data_folder", "sidecar_path"):
+        assert Path(out["config"][f"{name}_resolved"]).is_absolute(), name
+    assert out["config"]["skills_output_folder_resolved"] == str(tmp_path.resolve() / "skills")
+    assert out["derived"]["headless_mode"] is True
+    step2 = _section(_read(SKILL), "2. **Resolve `{headless_mode}`**", "\n\n3. ")
+    assert "`derived.headless_mode`" in step2 and "`--headless` or `-H`" in step2
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_a_preferences_file_that_does_not_load_is_named_and_the_run_goes_on(tmp_path):
+    """#1117 review 1: a preferences.yaml that is there but does not parse gives `status` `ok` with
+    `sidecar.preferences_error`; step 1 names it in one line, as Setup item 4 and Ferris do, and
+    goes on with the defaults, so `derived.headless_mode` is false."""
+    step1 = _section(_read(SKILL), STEP_1, "\n2. ")
+    assert ("With `sidecar.preferences_error` (a `preferences.yaml` that is there but does not load), go on with "
+            "the defaults and display that error in one line; `derived.headless_mode` is then false, so only "
+            "`--headless` or `-H` makes the run headless.") in step1
+    # The sentence sits with the config bindings, before the config halt and the run folder.
+    assert (step1.index("from `config.<name>_resolved`") < step1.index("`sidecar.preferences_error`")
+            < step1.index("**Quick Skill cannot load its config.**") < step1.index("mktemp -d"))
+    config = tmp_path / "config.yaml"
+    config.write_text("project_name: demo\nsidecar_path: sc\n", encoding="utf-8")
+    (tmp_path / "sc").mkdir()
+    (tmp_path / "sc" / "preferences.yaml").write_text("headless_mode: [true\n", encoding="utf-8")
+    done = _run_call(_nested_bash_block(step1, "--allow-missing-sidecar\n"), tmp_path, tmp_path, config)
+    assert done.returncode == 0, done.stdout + done.stderr
+    out = json.loads(done.stdout)
+    assert out["status"] == "ok"
+    assert out["sidecar"]["preferences_error"] and "preferences.yaml" in out["sidecar"]["preferences_error"]
+    assert out["derived"]["headless_mode"] is False
+
+
+def test_a_missing_batch_helper_stops_at_activation_with_exit_3():
+    """#1117 review 1: `skf-quick-batch.py` is in the activation's helpers map, so a run that starts
+    without it stops at SKILL.md On Activation step 1 with exit 3; batch mode's exit 2 stays only for
+    a batch helper gone after activation."""
+    codes = _section(_read(HALT_CONTRACT), "## Exit Codes", "## Result Contract")
+    [row2] = [line for line in codes.splitlines() if line.startswith("| 2 ")]
+    assert ("`skf-quick-batch.py` missing after activation, since a run that starts without it stops at SKILL.md "
+            "On Activation step 1 with exit `3`, `helpers-missing`)") in row2
+    exit_code = _read(BATCH_MODE)[_read(BATCH_MODE).index("## Exit code"):]
+    assert "§1 cannot read the batch file or `skf-quick-batch.py` has gone missing since activation" in exit_code
+    assert ("A run that starts without `skf-quick-batch.py` stops at SKILL.md On Activation step 1 with code `3` "
+            "(`helpers-missing`), before this file loads.") in exit_code
+    assert "or `skf-quick-batch.py` is missing, and with code `4`" not in exit_code
+    assert "quickBatch" in _probe_stems()["batch-mode.md"]
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_the_helpers_pre_pass_maps_every_stage_helper(tmp_path):
+    """Run as written against this repository, the pre-pass writes one key for every stem the stages
+    declare, plus the customization resolver step 3 runs, each an existing file."""
+    config = tmp_path / "config.yaml"
+    config.write_text(f"sidecar_path: {(tmp_path / 'sc').as_posix()}\n", encoding="utf-8")
+    done = _run_call(HELPERS_CALL, REPO, tmp_path, config)
+    assert done.returncode == 0, done.stderr
+    helpers = json.loads(_read(tmp_path / "helpers.json"))["helpers"]
+    stems = set().union(*_probe_stems().values())
+    # No fixed count: a stage that gains a probe order (#1120) needs no edit here.
+    assert stems and "resolveCustomization" not in stems
+    assert sorted(helpers) == sorted(stems | {"resolveCustomization"})
+    for stem, path in helpers.items():
+        assert path and Path(path).is_file(), stem
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's commands through a POSIX shell")
+def test_a_missing_helper_halts_at_activation_with_exit_3(tmp_path):
+    """The pre-pass exits 1 naming each missing helper, and the halt it stages builds an exit-3
+    envelope whose details name them, before any stage loads."""
+    [site] = [segment for file, code, reason, segment in _halt_sites()
+              if file == "SKILL.md" and '"cause": "helpers-missing"' in segment]
+    assert site.startswith("HARD HALT with **exit code 3 (resolution-failure)**")
+    assert '`"details": {"cause": "preflight-error"}` when the file holds no JSON' in site
+    assert "{the `error` in `{run_dir}/helpers.json`, which names each missing helper" in site
+    payload = _filled(_staged(site, "halt.json"))
+    assert payload == {"phase": "on-activation", "halt_reason": "resolution-failure",
+                       "reason": "Quick Skill cannot start: SKF helpers are missing.", "skill_package": None,
+                       "details": {"cause": "helpers-missing", "missing": []}}
+    # A project with no SKF scripts: every helper is missing.
+    config = tmp_path / "config.yaml"
+    config.write_text(f"sidecar_path: {(tmp_path / 'sc').as_posix()}\n", encoding="utf-8")
+    done = _run_call(HELPERS_CALL, tmp_path, tmp_path, config)
+    assert done.returncode == 1
+    out = json.loads(_read(tmp_path / "helpers.json"))
+    assert out["code"] == "HELPERS_MISSING" and "skf-resolve-package.py" in out["helpers_missing"]
+    payload["details"]["missing"] = out["helpers_missing"]
+    schema = _schema()
+    envelope = _emitter().build_envelope(schema, payload, halt=True, decisions=[], warnings=[], stamps={
+        "timestamp": "2026-11-12T00:00:00Z", "run_id": "ab12cd34", "result_path": None})
+    assert _emitter().contract_errors(schema, envelope) == []
+    assert (envelope["status"], envelope["exit_code"]) == ("error", 3)
+    assert envelope["error"]["details"]["missing"] == out["helpers_missing"]
+
+
+def test_a_config_the_preflight_cannot_load_halts_before_the_run_folder():
+    [site] = [segment for file, code, reason, segment in _halt_sites()
+              if file == "SKILL.md" and "**Quick Skill cannot load its config.**" in segment]
+    assert site.startswith("HARD HALT with **exit code 3 (resolution-failure)**")
+    assert "{its `error`, else its first stderr line, else: SKF's preflight (`skf-preflight.py`) is missing" in site
+    assert "--run-dir" not in site[:site.index("Then create the run folder")]
+    payload = _filled(_staged(site, "halt.json"))
+    assert payload["details"]["cause"].startswith("<its code, preflight-missing with no path, or preflight-error")
+    # preflight's error names an absolute path, so only the display quotes it: the payload's reason is typed text.
+    assert payload["reason"] == "Quick Skill cannot load its config."
+    assert "The payload's `reason` is the message's first sentence alone" in site
+
+
+def test_the_run_folder_halt_stages_a_reason_it_wrote():
+    [site] = [segment for file, code, reason, segment in _halt_sites()
+              if file == "SKILL.md" and "**Quick Skill cannot start: the run folder could not be created.**" in segment]
+    payload = _filled(_staged(site, "halt.json"))
+    assert (payload["halt_reason"], payload["reason"]) == (
+        "write-failure", "Quick Skill cannot start: the run folder could not be created.")
+    assert "that stderr line again in the display alone" in site
+
+
+def test_every_stage_binds_its_helpers_from_helpers_json():
+    """Each stage that declares a probe order reads the activation's map first; its own halts stay."""
+    declaring = {name for name, stems in _probe_stems().items() if stems}
+    assert declaring == {"resolve-target.md", "quick-extract.md", "compile.md", "write-and-validate.md",
+                         "finalize.md", "batch-mode.md"}
+    for name in sorted(declaring - {"batch-mode.md"}):
+        rules = _section(_read(QS / "references" / name), "## Rules\n", "## Steps")
+        assert rules.count(HELPERS_RULE) == 1, name
+    execution = _section(_read(BATCH_MODE), "## Execution", "### 1. Start the Batch")
+    assert ("Bind `{quickBatchHelper}` ← `helpers.quickBatch` in `{batch_dir}/helpers.json`, which SKILL.md On "
+            "Activation step 1 wrote; take the first existing path in `{quickBatchProbeOrder}` only when that file "
+            "holds no `quickBatch`.") in execution
+    assert "Resolve `{quickBatchHelper}` from `{quickBatchProbeOrder}`" not in execution
 
 
 def test_the_halt_contract_defines_the_payload_and_the_batch_rule():
@@ -1382,7 +1588,7 @@ def test_the_halt_contract_defines_the_payload_and_the_batch_rule():
     contract = _section(text, "## Result Contract on HARD HALT", "```bash")
     paths = re.findall(r"`(\{project-root\}/[^`]+/skf-emit-result-envelope\.py)`", contract)
     assert paths == re.findall(r"`(\{project-root\}/[^`]+/skf-emit-result-envelope\.py)`",
-                               _section(_read(SKILL), "1. Read `{project-root}/_bmad/skf/config.yaml`", "\n2. "))
+                               _section(_read(SKILL), STEP_1, "\n2. "))
     assert paths == ["{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py",
                      "{project-root}/src/shared/scripts/skf-emit-result-envelope.py"]
 
@@ -1438,20 +1644,49 @@ def test_every_headless_gate_records_its_decision():
 VALIDATION_ISSUES = '`{"skill_md": <n>, "context_snippet": <n>, "metadata": <n>, "security": <n>}`'
 
 
+SUMMARIZER = SCRIPTS / "skf-summarize-validation.py"
+SUMMARY_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-summarize-validation.py",
+                 "{project-root}/src/shared/scripts/skf-summarize-validation.py"]
+SUMMARY_CALL = ('uv run {validationSummaryHelper} --skill-check "{run_dir}/skill-check.json" '
+                '--frontmatter "{run_dir}/frontmatter.json" --output "{run_dir}/output.json" '
+                '--security "{run_dir}/security.json" --skill-dir "{skill_package}" '
+                '> "{run_dir}/validation-summary.json"\n')
+
+
 def test_step_5_counts_the_validation_issues_in_the_schema_shape():
-    """#586: {validation_issues} is the object the schema requires, counted from the validators' arrays."""
-    report = _section(_read(QS / "references" / "write-and-validate.md"), "### 6. Report Validation Results",
-                      "### 7. ")
-    assert f"`{{validation_issues}}` ← {VALIDATION_ISSUES}" in report
-    for count in ("`skill_md` counts skill-check's `diagnostics[]` (without skill-check, the frontmatter "
-                  "validator's `issues[]`) plus `validation.skill_md.body[]`",
-                  "`context_snippet` counts `validation.context_snippet.issues[]`",
-                  "`metadata` counts `validation.metadata.issues[]`",
-                  "`security` counts the §4 security scan's `findings[]`",
-                  "A check that did not run counts 0"):
-        assert count in report, count
+    """#586, #1120: {validation_issues} is the object the schema requires, and {quality_score} skill-check's score,
+    both taken from the summarizer §6 runs over the four outputs the validators saved, every flag passed; the step
+    keeps no rule for the score or the counts, and finalize copies both values from that file."""
+    text = _read(WRITE_AND_VALIDATE)
+    frontmatter = text.split("---\n", 2)[1]
+    assert "validationSummaryProbeOrder:\n" + "".join(f"  - '{path}'\n" for path in SUMMARY_PROBE) in frontmatter
+    report = _section(text, "### 6. Report Validation Results", "### 7. ")
+    assert _bash_block(report, "{validationSummaryHelper}") == SUMMARY_CALL
+    assert report.index("Resolve `{validationSummaryHelper}` ← first existing path in `{validationSummaryProbeOrder}`") \
+        < report.index("HARD HALT") < report.index(SUMMARY_CALL)
+    assert "Pass every flag on every path: a file no check wrote counts nothing." in report
+    assert ("Bind `{quality_score}` ← `quality_score` (skill-check's score for this skill, null when skill-check did "
+            "not validate it or reported no score) and `{validation_issues}` ← `validation_issues` from "
+            "`{run_dir}/validation-summary.json`.") in report
+    assert ("list the entries of that file's `issues.skill_md`, `issues.context_snippet`, `issues.metadata` and "
+            "`issues.security`") in report
+    # Each validator saves its stdout where the summarizer reads it.
+    four = _section(text, "### 4. Validate SKILL.md via skill-check", "### 5. ")
+    five = _section(text, "### 5. Validate Body, Snippet, and Metadata", "### 6. ")
+    assert _bash_block(four, "{frontmatterValidator}") == (
+        'uv run {frontmatterValidator} "{skill_package}/SKILL.md" --skill-dir-name {repo_name} '
+        '> "{run_dir}/frontmatter.json"\n')
+    assert _bash_block(five, "{outputValidator}") == (
+        'uv run {outputValidator} "{skill_package}" --generated-by quick-skill --skip-frontmatter '
+        '> "{run_dir}/output.json"\n')
+    # No score rule and no counting rule is left in the step.
+    for stale in ("relativePath", "skillId", "scores[].score", "counts skill-check's", "counts `validation.",
+                  "A check that did not run counts 0", "**Parse the JSON in", "Record each issue as a validation issue",
+                  "Set `validation_result`"):
+        assert stale not in text, stale
     finalize = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
-    assert f"`validation_issues` (step 5, the object {VALIDATION_ISSUES})" in finalize
+    assert ("`quality_score` and `validation_issues` (the two values of `{run_dir}/validation-summary.json`, step 5 "
+            f"§6, copied as they are there: a number or null, and the object {VALIDATION_ISSUES})") in finalize
     shape = json.loads(VALIDATION_ISSUES.strip("`").replace("<n>", "0"))
     issues = _schema()["properties"]["summary"]["properties"]["validation_issues"]
     assert list(shape) == issues["required"] and set(shape) == set(issues["properties"])
@@ -1461,11 +1696,11 @@ def test_step_5_counts_the_validation_issues_in_the_schema_shape():
     assert '"security_result": "{security_result}"' in finalize
 
 
-def _success_payload(section: str) -> str:
+def _success_payload(section: str, quality_score: str = "91", issues: str | None = None) -> str:
     """finalize §3's staged payload, each bare JSON value filled in as a run fills it."""
     # {validation_issues} takes the shape step 5 defines, its counts filled in.
-    issues = VALIDATION_ISSUES.strip("`").replace("<n>", "1", 1).replace("<n>", "0")
-    sample = {"{export count}": "12", "{quality_score}": "91", "{repo_shape}": "null",
+    issues = issues or VALIDATION_ISSUES.strip("`").replace("<n>", "1", 1).replace("<n>", "0")
+    sample = {"{export count}": "12", "{quality_score}": quality_score, "{repo_shape}": "null",
               '"{extraction confidence}"': '"high"', '"{active_pointer}"': '"symlink"',
               "{language_resolution}": '"detected"', "{detected_languages}": '["python"]',
               "{zero_exports_rescue}": "null", "{validation_issues}": issues,
@@ -1476,6 +1711,59 @@ def _success_payload(section: str) -> str:
         assert placeholder in payload, placeholder
         payload = payload.replace(placeholder, value)
     return payload
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="runs the step's command through a POSIX shell")
+@pytest.mark.parametrize("build", ["scores", "qualityScore", "stopped"])
+def test_the_summary_call_fills_the_success_payload(tmp_path: Path, build: str):
+    """#1120: §6's call, run by bash as written over saved validator outputs, writes the two values finalize §3
+    copies, and the envelope they build carries them. An older skill-check build that prints only a top-level
+    `qualityScore` reaches `summary.quality_score`; a skill-check that stopped leaves it null and the frontmatter
+    validator's issues count, as the frontmatter path does."""
+    report = _section(_read(WRITE_AND_VALIDATE), "### 6. Report Validation Results", "### 7. ")
+    package = tmp_path / "skills" / "demo" / "1.0.0" / "demo"
+    package.mkdir(parents=True)
+    (package / "SKILL.md").write_text("---\nname: demo\ndescription: Demo. Use when testing.\n---\n# Demo\n",
+                                      encoding="utf-8")
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    diagnostic = {"ruleId": "body.max_lines", "severity": "warn", "message": "long", "file": "x", "line": 3}
+    checked = {"summary": {"skillCount": 1, "errorCount": 0, "warningCount": 1}, "diagnostics": [diagnostic]}
+    if build == "scores":
+        checked["scores"] = [{"skillId": "x/y", "relativePath": "skills/demo/1.0.0/demo/SKILL.md", "score": 86}]
+    elif build == "qualityScore":
+        checked["qualityScore"] = 72
+    text = "Error: unknown option '--fix'\n" if build == "stopped" else json.dumps(checked) + "\nWrote r.json\n"
+    (run_dir / "skill-check.json").write_text(text, encoding="utf-8")
+    if build == "stopped":
+        (run_dir / "frontmatter.json").write_text(json.dumps({"status": "fail", "issues": [
+            {"severity": "high", "field": "name", "message": "a"}, {"severity": "low", "field": "x", "message": "b"}]}),
+            encoding="utf-8")
+    (run_dir / "output.json").write_text(json.dumps({"validation": {
+        "skill_md": {"frontmatter": {"skipped": "--skip-frontmatter"}, "body": []},
+        "context_snippet": {"issues": [{"severity": "low", "field": "length", "message": "short"}]},
+        "metadata": {"issues": []}}}), encoding="utf-8")
+    # No security.json: a scan that wrote nothing counts nothing.
+    command = (_bash_block(report, "{validationSummaryHelper}").strip()
+               .replace("uv run {validationSummaryHelper}", f'"{sys.executable}" "{SUMMARIZER.as_posix()}"')
+               .replace("{run_dir}", run_dir.as_posix()).replace("{skill_package}", package.as_posix()))
+    done = subprocess.run(["bash", "-c", command], cwd=tmp_path, capture_output=True, text=True, timeout=60)
+    assert done.returncode == 0, done.stderr
+    summary = json.loads(_read(run_dir / "validation-summary.json"))
+    expected = {"scores": (86, 1), "qualityScore": (72, 1), "stopped": (None, 2)}[build]
+    assert (summary["quality_score"], summary["validation_issues"]["skill_md"]) == expected
+    assert summary["validation_issues"] | {"skill_md": 0} == {"skill_md": 0, "context_snippet": 1, "metadata": 0,
+                                                               "security": 0}
+    section = _section(_read(FINALIZE), "### 3. Result Envelope and Result Contract", "### 4. ")
+    context = json.loads(_success_payload(section, json.dumps(summary["quality_score"]),
+                                          json.dumps(summary["validation_issues"])))
+    schema = _schema()
+    emitter = _emitter()
+    envelope = emitter.build_envelope(schema, context, halt=False, decisions=[], warnings=[], stamps={
+        "timestamp": "2026-11-13T00:00:00Z", "run_id": "ab12cd34", "result_path": None})
+    assert emitter.contract_errors(schema, envelope) == []
+    assert envelope["summary"]["quality_score"] == expected[0]
+    assert envelope["summary"]["validation_issues"] == summary["validation_issues"]
 
 
 def test_the_success_payload_builds_the_schema_envelope():
@@ -1942,7 +2230,7 @@ def test_step_5_does_not_retell_its_validators():
     assert "brief it with `@Ferris BS` and compile it with `@Ferris CS`" in text
 
 
-SCAN_CALL = 'uv run {securityScanHelper} run --package "{skill_package}"\n'
+SCAN_CALL = 'uv run {securityScanHelper} run --package "{skill_package}" > "{run_dir}/security.json"\n'
 
 
 def test_step_5_reads_the_security_scan_from_the_helper():
@@ -1962,9 +2250,9 @@ def test_step_5_reads_the_security_scan_from_the_helper():
     assert scan.startswith("**Security scan.** Run it whether or not skill-check ran.")
     assert _bash_block(scan, "{securityScanHelper}") == SCAN_CALL
     for needle in ("Bind `{security_result}` ← its `security_result` (`pass`, `warn` or `skipped`) and "
-                   "`{security_note}` ← its `note`",
-                   "record each `findings[]` entry's `text` as an advisory validation issue: security findings do "
-                   "not block output",
+                   "`{security_note}` ← its `note` in `{run_dir}/security.json`, whose `findings[]` §6 lists as "
+                   "advisory validation issues: security findings do not block output",
+                   "when the file holds no JSON object, bind `skipped` and `skf-security-scan.py printed no result`",
                    'For `skipped`, log "security scan skipped: {security_note}" in the validation results.',
                    "When no `{securityScanProbeOrder}` path exists, bind `{security_result}` ← `skipped` and "
                    "`{security_note}` ← `skf-security-scan.py missing`",
@@ -1975,7 +2263,7 @@ def test_step_5_reads_the_security_scan_from_the_helper():
     assert "the security scan at the end of section 4 still runs" in three and "security_result" not in three
     report = _section(text, "### 6. Report Validation Results", "### 7. ")
     assert "**Security:** {security_result}\n{`{security_note}`, then each §4 security finding}\n" in report
-    assert "`security` counts the §4 security scan's `findings[]`" in report
+    assert "`issues.security`" in report and '--security "{run_dir}/security.json"' in report
     # The old reading of skill-check's stderr tail is gone, and no note names an issue number.
     for stale in ("finding code", "skill-check.stderr` and the exit code", "security[]", "#892", "mcp-scan"):
         assert stale not in text, stale
@@ -2004,17 +2292,17 @@ def test_step_5_captures_skill_check_and_reads_a_run_with_no_json():
     assert four.index("```bash") < four.index(stopped) < four.index("**Guard outputs.**")
     fallback = _section(four, "**If no `{descriptionGuardProbeOrder}` path exists**", "\n")
     assert f"with the same capture (`{capture}`, its exit code noted)" in fallback
-    assert "**Parse the JSON in `{run_dir}/skill-check.json`**" in four
-    # stdout can carry a "Wrote <path>" line after the JSON, so the JSON is the object at its start.
+    # stdout can carry a "Wrote <path>" line after the JSON; §6's summarizer reads the object at its start (#1120).
     no_json = _section(four, "**If `{run_dir}/skill-check.json` does not start with a JSON object**", "\n")
     for needle in ("skill-check stopped before it validated (exit 2 on a config, option or plugin error)",
-                   'log "skill-check failed: {the stderr line that names the cause, or its last line}", keep '
-                   '`{quality_score}` null, and run the frontmatter validator below',
-                   "run the frontmatter validator below, as when skill-check is not available",
-                   "a `Wrote <path>` line when the project config sets a report path",
-                   "read only the JSON object at its start"):
+                   'log "skill-check failed: {the stderr line that names the cause, or its last line}" and run the '
+                   "frontmatter validator below, as when skill-check is not available",
+                   "Otherwise skill-check validated, even when its stdout goes on after the JSON (a `Wrote <path>` "
+                   "line when the project config sets a report path): §6 reads the score and the remaining "
+                   "diagnostics from that JSON."):
         assert needle in no_json, needle
-    assert four.index(no_json) < four.index("**Parse the JSON in") < four.index("**If skill-check is not available**")
+    assert "keep `{quality_score}` null" not in four and "**Parse the JSON in" not in four
+    assert four.index(no_json) < four.index("**If skill-check is not available**")
 
 
 HASH_PROBE = ["{project-root}/_bmad/skf/shared/scripts/skf-hash-content.py",
@@ -2055,7 +2343,8 @@ def test_step_5_tells_a_fix_from_the_file_hash():
     report = _section(text, "### 6. Report Validation Results", "### 7. ")
     assert ("{list the auto-fixed issues: the §4 rewrite note when `{skill_md_changed}` is true, and the §4 "
             "description-guard note when the guard restored the description}") in report
-    assert "A check that did not run counts 0, and the §4 rewrite note and the guard note count nothing." in report
+    assert ('List beside them the notes §4 recorded, which count nothing: the rewrite note, the guard note, '
+            '"skill-check failed", "description guard unavailable" and the guard\'s high-severity issues.') in report
 
 
 def test_finalize_relays_the_flip_helpers_message():
@@ -2082,7 +2371,9 @@ def test_skill_md_keeps_one_home_per_rule():
     # "step 5" alone names write-and-validate in this table (`--skip-snippet`'s "step 5 §2").
     [batch] = [line for line in text.splitlines() if line.startswith("   | `--batch <file>` |")]
     assert "headless (On Activation step 5);" in batch
-    assert "or if `{sidecar_path}/preferences.yaml` sets `headless_mode: true`" in text
+    assert ("or if step 1's preflight gave `derived.headless_mode` true (`headless_mode: true` in "
+            "`{sidecar_path}/preferences.yaml`)") in text
+    assert "or if `{sidecar_path}/preferences.yaml` sets `headless_mode: true`" not in text
     step5 = _section(text, "5. **If `--batch` is set**", "\n\n6. ")
     assert step5.strip() == "5. **If `--batch` is set**, load and read `references/batch-mode.md` in full before " \
                             "anything else and follow it."

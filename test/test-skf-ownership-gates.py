@@ -39,8 +39,10 @@ from __future__ import annotations
 import importlib.util
 import inspect
 import json
+import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -529,7 +531,7 @@ def test_rename_names_a_foreign_folder_before_the_empty_list_halt():
     refusal = empty.index("is in `{not_skf_output}`")
     assert refusal < empty.index('"nothing-to-rename"')
     assert "§4a refusal" in empty and "in either mode" in empty
-    assert 'old_name: "{old_name}"' in empty
+    assert 'with `--old-name "{old_name}"`' in empty
     assert "Left untouched (not SKF output): {not_skf_output}" in empty
 
 
@@ -1595,7 +1597,21 @@ RENAME_SCHEMA = SRC / "shared" / "scripts" / "schemas" / "skf-rename-skill-resul
 RENAME_RELEASE = ('uv run {runLockHelper} release --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" '
                   '--owner "{lock_owner}"')
 RENAME_EMIT_HALT = ('uv run {emitEnvelopeHelper} emit-halt --workflow skf-rename-skill --run-dir "{run_dir}" '
-                    "--target stderr <<'SKF_HALT'")
+                    "--target stderr --phase '<phase>' --halt-reason '<halt_reason>' --path \"<path>\" "
+                    '--old-name "{old_name}" --new-name "{new_name}" --stderr-from "{run_dir}/call.err" '
+                    "--reason - <<'SKF_REASON'")
+# The warning a halt records when its lock release failed (#1119: no payload to add it to).
+RENAME_RECORD_UNRELEASED = ('uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning '
+                            '"run-lock-not-released: {forge_data_folder}/.skf-rename-{old_name}.lock"')
+# Where a call whose halt quotes its stderr saves that stderr (#1119).
+CALL_ERR = ' 2> "{run_dir}/call.err"'
+# A refused halt call gets one corrected retry, and the fallback reads the stderr the
+# headless run saved instead of showing a literal `<message>` (#1119 review round 1).
+RENAME_HALT_RETRY = ("When it exits 1 and its `message` names an option, a field or `<message>`, fix the call "
+                     "once and run it again.")
+RENAME_HALT_FALLBACK = ("Only when `{emitEnvelopeHelper}` is missing, or the emitter still fails or prints no "
+                        "line, display the halt's message alone, reading any stderr it quotes from "
+                        "`{run_dir}/call.err`.")
 # A HALT site: its exit code, its halt_reason and the phase its emit-halt stages.
 RENAME_HALT_RE = re.compile(r'HALT:? \(?exit code (\d+), `halt_reason: "([a-z-]+)"`, `emit-halt` phase `([a-z]+:[a-z-]+)`')
 
@@ -1634,9 +1650,12 @@ def _run_py(script: Path, args: list[str], stdin: bytes | None = None) -> subpro
 
 
 def _documented_lock_argv(call: str, values: dict) -> list[str]:
-    """A documented `uv run {runLockHelper} ...` call as argv after the script, placeholders filled."""
+    """A documented `uv run {runLockHelper} ...` call as argv after the script, placeholders filled
+    and its stderr redirect left out."""
     words = shlex.split(re.sub(r"\{(\w+)\}", r"@@\1@@", call))
     assert words[:3] == ["uv", "run", "@@runLockHelper@@"], words
+    if words[-2:-1] == ["2>"]:
+        words = words[:-2]
     return [re.sub(r"@@(\w+)@@", lambda m: values[m.group(1)], w) for w in words[3:]]
 
 
@@ -1647,10 +1666,16 @@ def _documented_emit_argv(call: str, values: dict) -> list[str]:
     return [re.sub(r"@@(\w+)@@", lambda m: values[m.group(1)], w) for w in words[3:] if not w.startswith("<<")]
 
 
-def _halt_template(procedure: str) -> dict:
-    """The halt procedure's payload template, each placeholder filled with a value of its type."""
-    body = re.sub(r'<"\{\w+\}", or null [^>]*>', "null", _heredoc(procedure, "SKF_HALT"))
-    return json.loads(re.sub(r'"<[^">]*>"', '"x"', body.replace('"{old_name}"', '"x"').replace('"{new_name}"', '"x"')))
+def _halt_call(call: str, drop: tuple[str, ...] = (), **fill: str) -> str:
+    """The documented emit-halt call as a halt runs it: the options it leaves out
+    removed, and its `<phase>`, `<halt_reason>` and `<path>` filled in."""
+    for option in drop:
+        call, n = re.subn(rf""" {re.escape(option)} (?:"[^"]*"|'[^']*')""", "", call)
+        assert n == 1, (option, call)
+    for key, value in fill.items():
+        call = call.replace(f"<{key}>", value)
+    assert not re.search(r"<(?:phase|halt_reason|path)>", call), call
+    return call
 
 
 def _emitted(proc: subprocess.CompletedProcess, stream: str = "stderr") -> dict:
@@ -1676,7 +1701,7 @@ def test_rename_run_lock_goes_through_the_shared_helper():
     lock = _section(select, "### 4b. Concurrency Guard", "### 5. Ask for New Name")
     assert _fenced_calls(lock, "{runLockHelper} acquire") == [
         'uv run {runLockHelper} acquire --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" '
-        '--owner "rename-skill:{old_name}:{run_id}" --stale-after 60']
+        '--owner "rename-skill:{old_name}:{run_id}" --stale-after 60' + CALL_ERR]
     assert "**Skip this section when `--dry-run` is set:**" in lock, "a dry run never blocks a rename"
     assert "bind `{lock_owner}` ← `owner`" in lock
     held = _section(lock, "- **3** (`acquired` false)", "- **Any other exit")
@@ -1695,7 +1720,7 @@ def test_rename_run_lock_goes_through_the_shared_helper():
     copy = _section(execute, "### 1. Copy skill_group and forge_group", "### 2. ")
     assert _fenced_calls(copy, "{runLockHelper} acquire") == [
         'uv run {runLockHelper} acquire --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" '
-        '--owner "{lock_owner}" --stale-after 60']
+        '--owner "{lock_owner}" --stale-after 60' + CALL_ERR]
     assert copy.index("**Renew the run lock first.**") < copy.index("**Precondition:**")
     renew = _section(copy, "- **Exit 0 with `refreshed` false, or exit 3:**", "- **Any other exit")
     assert '`halt_reason: "halted-for-concurrent-run"`, `emit-halt` phase `execute:run-lock`' in renew
@@ -1779,22 +1804,38 @@ def test_rename_lock_beside_a_shared_folder_stays_skf_own(tmp_path):
 
 
 def test_rename_halts_emit_through_the_shared_emitter():
-    """#593: every HALT names its phase, and each step file passes it to the one emitter call."""
+    """#593, #1119: every HALT names its phase, and each step file passes it to the one emitter
+    call, which builds the payload from its options: no step types or escapes a JSON payload."""
+    error_fields = set(_schema()["properties"]["error"]["oneOf"][1]["properties"])
     for rel in (RENAME_SELECT, RENAME_EXECUTE):
         text = _read(rel)
         procedure = _section(text, "**Halt procedure.**", "## MANDATORY SEQUENCE")
         assert _fenced_calls(procedure, "{runLockHelper} release") == [RENAME_RELEASE]
-        # The payload goes to the emitter on stdin: a halt stages no file, so it emits its
-        # line where it cannot write the run folder too.
+        # The halt stages no file, so it emits its line where it cannot write the run folder too.
         assert _fenced_calls(procedure, "emit-halt") == [RENAME_EMIT_HALT]
-        assert "halt.json" not in text, f"{rel}: a halt stages nothing"
-        # The halt's own keys and the two names: every one is a field the schema takes.
-        assert set(_halt_template(procedure)) == {"phase", "halt_reason", "reason", "path", "old_name", "new_name"}
-        assert "escape `\"`, `\\` and control characters, and write every path with `/`" in procedure
-        assert ('add `"warnings": ["run-lock-not-released: {forge_data_folder}/.skf-rename-{old_name}.lock"]` '
-                "to the payload below") in procedure
-        assert ("Only when `{emitEnvelopeHelper}` is missing, or the emitter still fails or prints no line, "
-                "display the halt's message alone.") in procedure
+        assert _heredoc(procedure, "SKF_REASON") == "<the message the halt displays>"
+        for stale in ("halt.json", "Write each string as JSON", "<<'SKF_HALT'", "to the payload below",
+                      "fix the payload once"):
+            assert stale not in text, f"{rel}: {stale}"
+        # Each option fills a field the schema takes: the error object's, or the envelope's own.
+        options = {o.replace("-", "_") for o in re.findall(r" --([a-z-]+) ", RENAME_EMIT_HALT.split("--target", 1)[1])}
+        assert options == {"phase", "halt_reason", "path", "old_name", "new_name", "stderr_from", "reason"}
+        assert {"phase", "reason", "path"} <= error_fields
+        assert {"halt_reason", "old_name", "new_name"} <= set(_schema()["properties"])
+        assert ("The heredoc holds the message the halt displays, as displayed and unescaped: helper JSON values, "
+                "the lists it printed") in procedure
+        assert ("Where that message quotes the stderr of the call that just failed, write `<message>` in its "
+                'place: the emitter takes the diagnostic from `--stderr-from "{run_dir}/call.err"`') in procedure
+        assert "Leave out `--stderr-from` for a halt that quotes no stderr" in procedure
+        # A failed release records its warning in the sink, which the emitter folds in.
+        assert _fenced_calls(procedure, "{emitEnvelopeHelper} record") == [RENAME_RECORD_UNRELEASED]
+        assert ("In `{headless_mode}`, also record that in the run sink, where the emitter reads it for the "
+                "halt's envelope; when `record` exits non-zero, show its message in one line and go on with "
+                "the halt") in procedure
+        # A refused call is fixed once and run again: most halts must drop --stderr-from, and
+        # one slip would otherwise end a headless halt with no envelope line (#1119 round 1).
+        assert RENAME_HALT_RETRY in procedure
+        assert RENAME_HALT_FALLBACK in procedure
         for line in _section(text, "## MANDATORY SEQUENCE", None).split("\n"):
             if re.search(r"\bHALT\b", line) and "exit code" in line:
                 assert RENAME_HALT_RE.search(line) or "halt_reason: \"{rename_verdict}\"" in line, (
@@ -1808,46 +1849,209 @@ def test_rename_halts_emit_through_the_shared_emitter():
 def test_rename_halt_emits_without_a_run_folder(tmp_path):
     """A halt before §1 binds a run folder, or whose folder could not be created, still prints its line.
 
-    The documented call runs as written: without --run-dir for select §1's start-run halt, with
-    the --run-dir of a folder that does not exist for its write-probe halt, and with a run folder
-    that holds a decision for a step 2 halt whose lock release failed.
+    The documented call runs as written, the options a halt leaves out removed: without --run-dir
+    for select §1's start-run halt, with the --run-dir of a folder that does not exist for its
+    write-probe halt, and with a run folder that holds a decision and the warning a failed lock
+    release recorded for a step 2 halt.
     """
     select = _read(RENAME_SELECT)
     procedure = _section(select, "**Halt procedure.**", "## MANDATORY SEQUENCE")
     [call] = _fenced_calls(procedure, "emit-halt")
     assert 'pass `--run-dir "{run_dir}"` once §1 has bound it, even when the folder could not be created' in procedure
+    assert ("`--old-name` until §4 binds `{old_name}` and `--new-name` until §5 binds `{new_name}`") in procedure
     start = _section(select, "### 1. Start the Run", "### 2. ")
     assert 'With no run id yet, its `emit-halt` leaves out `--run-dir "{run_dir}"`.' in start
+    assert ("Neither halt has a run folder to save stderr in: its heredoc holds the helper's error, or the "
+            "folder, as displayed, with no `--stderr-from`.") in start
     assert "displays its message alone" not in start, "a missing run folder never silences a halt"
-    template = _halt_template(procedure)
 
-    def halt(argv_call: str, values: dict, **fields) -> dict:
-        payload = {**template, "old_name": None, "new_name": None, **fields}
-        if "path" not in fields:
-            del payload["path"]
-        return _emitted(_run_py(EMITTER_PY, _documented_emit_argv(argv_call, values),
-                                json.dumps(payload).encode("utf-8")))
+    def halt(documented: str, values: dict, reason: str, drop: tuple[str, ...], **fill: str) -> dict:
+        argv = _documented_emit_argv(_halt_call(documented, drop, **fill), values)
+        return _emitted(_run_py(EMITTER_PY, argv, reason.encode("utf-8")))
 
     no_run_dir = call.replace(' --run-dir "{run_dir}"', "")
-    started = halt(no_run_dir, {}, phase="select:start-run", halt_reason="write-failed",
-                   reason="Rename Skill cannot start: skf-run-lock.py is missing.")
+    started = halt(no_run_dir, {}, "Rename Skill cannot start: skf-run-lock.py is missing.\n",
+                   ("--path", "--old-name", "--new-name", "--stderr-from"),
+                   phase="select:start-run", halt_reason="write-failed")
     assert (started["exit_code"], started["run_id"], started["error"]["phase"]) == (4, None, "select:start-run")
+    assert (started["old_name"], started["new_name"]) == (None, None), "a name no halt passed is null"
     missing = tmp_path / "_bmad-output" / ".skf-run" / "skf-rename-skill-20261001T000000Z-0123abcd"
-    probe = halt(call, {"run_dir": str(missing)}, phase="select:write-probe", halt_reason="write-failed",
-                 reason=f"Cannot write to {missing.as_posix()}.", path=missing.as_posix())
+    probe = halt(call, {"run_dir": str(missing)}, f"Cannot write to {missing.as_posix()}.\n",
+                 ("--old-name", "--new-name", "--stderr-from"), phase="select:write-probe",
+                 halt_reason="write-failed", path=missing.as_posix())
     assert (probe["run_id"], probe["error"]["path"]) == ("20261001T000000Z-0123abcd", missing.as_posix())
     assert not missing.exists() and not missing.parent.exists(), "the emitter creates no run folder"
-    # A step 2 halt whose release failed: the payload's warning and the recorded decision both reach the line.
-    [step2_call] = _fenced_calls(_section(_read(RENAME_EXECUTE), "**Halt procedure.**", "## MANDATORY SEQUENCE"),
-                                 "emit-halt")
+    # A step 2 halt whose release failed: the warning it recorded and the recorded decision both reach the line.
+    step2 = _section(_read(RENAME_EXECUTE), "**Halt procedure.**", "## MANDATORY SEQUENCE")
+    [step2_call] = _fenced_calls(step2, "emit-halt")
+    [unreleased] = _fenced_calls(step2, "{emitEnvelopeHelper} record")
     run_dir = tmp_path / "skf-rename-skill-20261001T000000Z-89abcdef"
     decision = _record_the_override(run_dir)
-    lock = f"{(tmp_path / 'forge').as_posix()}/.skf-rename-demo.lock"
-    copied = halt(step2_call, {"run_dir": str(run_dir)}, phase="execute:copy", halt_reason="copy-failed",
-                  reason="Copy failed.", old_name="demo", new_name="demo-kit",
-                  warnings=[f"run-lock-not-released: {lock}"])
+    forge = (tmp_path / "forge").as_posix()
+    values = {"run_dir": str(run_dir), "forge_data_folder": forge, "old_name": "demo", "new_name": "demo-kit"}
+    recorded = _run_py(EMITTER_PY, _documented_emit_argv(unreleased, values))
+    assert recorded.returncode == 0, recorded.stderr
+    copied = halt(step2_call, values, "Copy failed.\n", ("--path", "--stderr-from"), phase="execute:copy",
+                  halt_reason="copy-failed")
     assert copied["headless_decisions"] == [decision]
-    assert copied["warnings"] == [f"run-lock-not-released: {lock}"]
+    assert copied["warnings"] == [f"run-lock-not-released: {forge}/.skf-rename-demo.lock"]
+    assert (copied["old_name"], copied["new_name"]) == ("demo", "demo-kit")
+
+
+# A failed helper's stderr as `2> "{run_dir}/call.err"` saves it: uv's own line first, then
+# the helper's JSON error, or a traceback that holds quotes and Windows paths.
+CALL_ERR_CASES = [
+    (b'Installed 1 package in 3ms\n{"status":"error","message":"cannot write \\"C:\\\\x\\":\\nPermission denied"}\n',
+     'cannot write "C:\\x": Permission denied'),
+    (b'Traceback (most recent call last):\n  File "C:\\Users\\x\\skf-manifest-ops.py", line 9, in <module>\n'
+     b"    raise ValueError('it\'s \"bad\"')\nValueError: it's \"bad\"\n",
+     "Traceback (most recent call last):"),
+    (b'error: Failed to spawn: "C:\\Users\\x\\it\'s $(touch pwned).py"\n  Caused by: No such file\n',
+     'error: Failed to spawn: "C:\\Users\\x\\it\'s $(touch pwned).py"'),
+]
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+@pytest.mark.parametrize("raw,diagnostic", CALL_ERR_CASES, ids=["json-error-after-uv", "traceback", "uv-error"])
+def test_a_documented_rename_halt_reads_the_failed_calls_stderr(tmp_path, raw, diagnostic):
+    """#1119: the documented call, run by bash on a saved stderr: the heredoc's `<message>` takes
+    the diagnostic, folded to one line, and the envelope arrives as one schema-valid line."""
+    run_dir = tmp_path / "skf-rename-skill-20261001T000000Z-0123abcd"
+    run_dir.mkdir()
+    (run_dir / "call.err").write_bytes(raw)
+    [call] = _fenced_calls(_section(_read(RENAME_EXECUTE), "**Halt procedure.**", "## MANDATORY SEQUENCE"),
+                           "emit-halt")
+    command = _halt_call(call, ("--path",), phase="execute:manifest", halt_reason="manifest-write-failed")
+    command = (command.replace("uv run {emitEnvelopeHelper}", f"{shlex.quote(sys.executable)} "
+                                                              f"{shlex.quote(EMITTER_PY.as_posix())}")
+               .replace("{run_dir}", run_dir.as_posix()).replace("{old_name}", "demo")
+               .replace("{new_name}", "demo-kit"))
+    message = "**Manifest update failed:** <message>. Rolled back the new directories. Old skill is intact."
+    done = subprocess.run(["bash", "-c", f"{command}\n{message}\nSKF_REASON\n"], capture_output=True, timeout=30,
+                          cwd=tmp_path)
+    assert done.stdout == b""
+    envelope = _emitted(done)
+    assert (envelope["exit_code"], envelope["halt_reason"]) == (4, "manifest-write-failed")
+    assert envelope["error"]["reason"] == (f"**Manifest update failed:** {diagnostic}. Rolled back the new "
+                                           "directories. Old skill is intact.")
+    assert not (tmp_path / "pwned").exists()
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+def test_a_documented_rename_halt_keeps_its_message_literal(tmp_path):
+    """#1119: the message goes in through the quoted heredoc, unescaped: quotes, backticks,
+    `$( )` and backslashes reach the envelope as displayed, and nothing runs."""
+    [call] = _fenced_calls(_section(_read(RENAME_SELECT), "**Halt procedure.**", "## MANDATORY SEQUENCE"),
+                           "emit-halt")
+    command = _halt_call(call, ("--path", "--new-name", "--stderr-from"), phase="select:source-authority",
+                         halt_reason="source-authority-blocked")
+    command = (command.replace("uv run {emitEnvelopeHelper}", f"{shlex.quote(sys.executable)} "
+                                                              f"{shlex.quote(EMITTER_PY.as_posix())}")
+               .replace("{run_dir}", (tmp_path / "skf-rename-skill-RUN").as_posix()).replace("{old_name}", "demo"))
+    message = ("**`demo` is an official skill** (its `source_authority` is `official`). It's \"SKF's own\" "
+               "$(touch pwned) `touch pwned2` C:\\Users\\x\\ $HOME")
+    done = subprocess.run(["bash", "-c", f"{command}\n{message}\nSKF_REASON\n"], capture_output=True, timeout=30,
+                          cwd=tmp_path)
+    envelope = _emitted(done)
+    assert envelope["error"]["reason"] == message
+    assert (envelope["exit_code"], envelope["old_name"], envelope["new_name"]) == (5, "demo", None)
+    assert not (tmp_path / "pwned").exists() and not (tmp_path / "pwned2").exists()
+
+
+# A slip in a halt's options, the call the one retry runs instead, and what the refusal names.
+# Each: the options the slipped call left out and its halt_reason, then the same for the fix.
+HALT_SLIPS = {
+    # A halt that quotes no stderr kept the template's --stderr-from.
+    "stray-stderr-from": ((("--path",), "copy-failed"), (("--path", "--stderr-from"), "copy-failed"),
+                          "**Collision detected at execution time.** Aborting before any files are touched.",
+                          ("--stderr-from", "<message>")),
+    # A halt that quotes the copy's stderr dropped --stderr-from.
+    "missing-stderr-from": ((("--path", "--stderr-from"), "copy-failed"), (("--path",), "copy-failed"),
+                            "**Copy failed:** `a` → `b`: <message>. No files were modified. Old skill is intact.",
+                            ("<message>", "--stderr-from")),
+    # A halt_reason the schema does not take.
+    "unknown-halt-reason": ((("--path", "--stderr-from"), "copy-faild"), (("--path", "--stderr-from"), "copy-failed"),
+                            "**Collision detected at execution time.** Aborting before any files are touched.",
+                            ("halt_reason",)),
+}
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+@pytest.mark.parametrize("slip", sorted(HALT_SLIPS))
+def test_a_refused_rename_halt_names_what_its_one_retry_fixes(tmp_path, slip):
+    """#1119 review round 1: the documented call, run by bash with a slip, exits 1 and prints
+    no envelope line, and its `message` names the option, the field or `<message>` to fix,
+    so the halt procedure's one retry with that fixed prints the line."""
+    (slipped_drop, slipped_reason), (fixed_drop, fixed_reason), message, names = HALT_SLIPS[slip]
+    run_dir = tmp_path / "skf-rename-skill-20261001T000000Z-0123abcd"
+    run_dir.mkdir()
+    (run_dir / "call.err").write_bytes(b"cp: cannot create directory 'b': Permission denied\n")
+    procedure = _section(_read(RENAME_EXECUTE), "**Halt procedure.**", "## MANDATORY SEQUENCE")
+    assert RENAME_HALT_RETRY in procedure
+    [call] = _fenced_calls(procedure, "emit-halt")
+
+    def run(drop: tuple[str, ...], halt_reason: str) -> subprocess.CompletedProcess:
+        command = _halt_call(call, drop, phase="execute:copy", halt_reason=halt_reason)
+        command = (command.replace("uv run {emitEnvelopeHelper}", f"{shlex.quote(sys.executable)} "
+                                                                  f"{shlex.quote(EMITTER_PY.as_posix())}")
+                   .replace("{run_dir}", run_dir.as_posix()).replace("{old_name}", "demo")
+                   .replace("{new_name}", "demo-kit"))
+        return subprocess.run(["bash", "-c", f"{command}\n{message}\nSKF_REASON\n"], capture_output=True,
+                              timeout=30, cwd=tmp_path)
+
+    refused = run(slipped_drop, slipped_reason)
+    assert (refused.returncode, refused.stdout) == (1, b"")
+    [line] = refused.stderr.decode("utf-8").splitlines()
+    assert "SKF_RENAME_SKILL_RESULT_JSON" not in line
+    refusal = json.loads(line)["message"]
+    assert all(name in refusal for name in names), refusal
+    envelope = _emitted(run(fixed_drop, fixed_reason))
+    assert (envelope["exit_code"], envelope["halt_reason"], envelope["error"]["phase"]) == (4, "copy-failed",
+                                                                                            "execute:copy")
+    if "<message>" in message:
+        assert "Permission denied" in envelope["error"]["reason"]
+
+
+def test_rename_saves_the_stderr_each_quoting_halt_reads():
+    """#1119: each call whose halt quotes its stderr saves it in `{run_dir}/call.err`, which the
+    halt's `--stderr-from` and an interactive run read; the run folder's deletes remove it."""
+    redirected = {
+        RENAME_SELECT: [("### 2. ", "### 3. ", "{manifestOpsHelper} {skills_output_folder} read"),
+                        ("### 3. ", "### 4. ", "{skillInventoryHelper} {skills_output_folder} --forge-data-folder"),
+                        ("### 4b. ", "### 5. ", "{runLockHelper} acquire"),
+                        ("### 5. ", "### 6. ", "{renameNameValidator}"),
+                        ("### 6. ", "### 7. ", "{emitEnvelopeHelper} record"),
+                        ("### 7. ", "### 8. ", "affected-versions")],
+        RENAME_EXECUTE: [("### 1. ", "### 2. ", "{runLockHelper} acquire"),
+                         ("### 2. ", "### 3. ", "{rewriteSkillNameHelper}"),
+                         ("### 4. ", "### 5. ", "flip-link --link \"{new_skill_group}/active\""),
+                         ("### 6. ", "### 7. ", 'cp "{skills_output_folder}/.export-manifest.json"'),
+                         ("### 6. ", "### 7. ", "{skills_output_folder} rename {old_name} {new_name}")],
+    }
+    for rel, sites in redirected.items():
+        sequence = _section(_read(rel), "## MANDATORY SEQUENCE", None)
+        for start, end, needle in sites:
+            calls = [c for c in _fenced_calls(_section(sequence, start, end), needle) if not c.startswith("rm ")]
+            assert calls and all(c.endswith(CALL_ERR) for c in calls), (rel, start, needle, calls)
+        # No other fenced call writes the file between a failed call and its halt.
+        everything = _fenced_calls(sequence, "call.err")
+        assert len(everything) == len(sites) + (1 if rel == RENAME_SELECT else 0), (rel, everything)
+    execute = _read(RENAME_EXECUTE)
+    copy = _section(execute, "### 1. Copy skill_group and forge_group", "### 2. ")
+    assert 'its stderr saved in the run folder (`2> "{run_dir}/call.err"`)' in copy
+    assert "the same way, its stderr in `{run_dir}/call.err`" in copy
+    rollback = _section(execute, "**Rollback on a failed backup or a helper non-zero exit:**", "Set context flag")
+    assert all("call.err" not in c for c in _fenced_calls(rollback, "uv run")), "the rollback leaves call.err alone"
+    assert "reading both from `{run_dir}/call.err`" in _section(execute, "### 4. ", "### 5. ")
+    assert "read from `{run_dir}/call.err`" in _section(execute, "### 6. ", "### 7. ")
+    for rel in (RENAME_SELECT, RENAME_EXECUTE):
+        quoting = [line for line in _read(rel).split("\n") if "HALT" in line and "stderr}" in line]
+        assert quoting, rel
+        for line in quoting:
+            assert "call.err" in line, f"{rel}: a halt that quotes stderr names no file to read: {line[:100]}"
+    for rel in (RENAME_SELECT, RENAME_REPORT):
+        [delete] = _fenced_calls(_read(rel), "rmdir")
+        assert delete.endswith('"{run_dir}/call.err" && rmdir "{run_dir}"'), (rel, delete)
 
 
 def test_rename_exit_code_table_names_every_halt_reason():
@@ -1889,14 +2093,20 @@ def test_rename_every_halt_site_matches_the_schema_exit_code(tmp_path):
     assert {reason for _, _, _, reason, _ in sites} == set(codes), "every halt_reason has a documented halt"
     run_dir = tmp_path / "skf-rename-skill-20261001T000000Z-0123abcd"
     run_dir.mkdir()
-    argv = _documented_emit_argv(RENAME_EMIT_HALT, {"run_dir": str(run_dir)})
+    values = {"run_dir": str(run_dir), "old_name": "demo"}
     for rel, number, code, reason, phase in sites:
         assert codes[reason] == code, f"{rel}:{number}: {reason} exits {codes[reason]}, not {code}"
-        payload = {"phase": phase, "halt_reason": reason, "reason": "the step halted", "old_name": "demo",
-                   "new_name": None}
-        envelope = _emitted(_run_py(EMITTER_PY, argv, json.dumps(payload).encode("utf-8")))
+        call = _halt_call(RENAME_EMIT_HALT, ("--path", "--new-name", "--stderr-from"), phase=phase,
+                          halt_reason=reason)
+        envelope = _emitted(_run_py(EMITTER_PY, _documented_emit_argv(call, values), b"the step halted\n"))
         assert (envelope["status"], envelope["exit_code"], envelope["error"]["phase"]) == ("error", code, phase)
         assert envelope["run_id"] == "20261001T000000Z-0123abcd"
+        # The payload a step used to type on stdin builds the same envelope (#1119).
+        payload = {"phase": phase, "halt_reason": reason, "reason": "the step halted", "old_name": "demo",
+                   "new_name": None}
+        typed = _emitted(_run_py(EMITTER_PY, _documented_emit_argv(RENAME_EMIT_HALT.split(" --phase")[0], values),
+                                 json.dumps(payload).encode("utf-8")))
+        assert typed == envelope
 
 
 def test_rename_contract_lists_the_schema_halt_reasons():
@@ -1938,7 +2148,7 @@ def _record_the_override(run_dir: Path) -> dict:
     decision = json.loads(_heredoc(source, "SKF_DECISION"))
     assert _fenced_calls(source, "{emitEnvelopeHelper} record") == [
         'uv run {emitEnvelopeHelper} record --workflow skf-rename-skill --run-dir "{run_dir}" --decision '
-        '< "{run_dir}/decision.json"']
+        '< "{run_dir}/decision.json"' + CALL_ERR]
     proc = _run_py(EMITTER_PY, ["record", "--workflow", "skf-rename-skill", "--run-dir", str(run_dir), "--decision"],
                    json.dumps(decision).encode("utf-8"))
     assert proc.returncode == 0, proc.stderr
@@ -1972,7 +2182,7 @@ def test_rename_dry_run_restates_its_complete_envelope(tmp_path):
     assert re.findall(r'"(\w+)":', restated) == list(envelope)
     assert _fenced_calls(dry, "rmdir") == [
         'rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" '
-        '"{run_dir}/warnings.jsonl" && rmdir "{run_dir}"']
+        '"{run_dir}/warnings.jsonl" "{run_dir}/call.err" && rmdir "{run_dir}"']
     # When the emitter printed no line, the run folder is the only record of the decisions.
     keep = dry.index("keep `{run_dir}` and say in one line that it holds the run's decisions, its warnings and "
                      "the payload the emitter refused")
@@ -2028,7 +2238,7 @@ def test_rename_report_runs_one_terminal_sequence():
     assert _fenced_calls(release, "rmdir") == [
         'rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" '
         '"{run_dir}/warnings.jsonl" "{run_dir}/rename-rewrite.json" "{run_dir}/export-manifest.backup.json" '
-        '&& rmdir "{run_dir}"']
+        '"{run_dir}/call.err" && rmdir "{run_dir}"']
     # The run folder goes only once the emitter printed the line that carries its decisions.
     assert "Then, when §1's emitter printed its line, delete the run folder:" in release
     assert ("When §1's emitter printed no line, keep `{run_dir}` instead and tell the user in one line that it "

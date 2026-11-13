@@ -85,6 +85,8 @@ KEY = {skill: "agent" if skill == "skf-forger" else "workflow" for skill in ACTI
 MISSING_HELPER = "SKF helper skf-resolve-customization.py not found"
 REASON = (f"(`<reason>`: its first stderr line, `{MISSING_HELPER}` when the script is missing, `no JSON` when "
           "it printed none).")
+# Setup and Quick Skill halt at activation when the script is missing (#1117), so they name no reason for it.
+HELPERS_REASON = "(`<reason>`: its first stderr line, `no JSON` when it printed none)."
 # Routes that keep the reason for a later stage, or print it under a condition, instead of recording it at once.
 # test, refine-architecture and create-stack take their phrase from the ROUTES table their own test keeps.
 ROUTE_EXCEPTIONS = {
@@ -95,6 +97,11 @@ ROUTE_EXCEPTIONS = {
                   "print the warning only when `{quiet_mode}` is false"),
     "skf-forger": ("Ferris keeps no run log of his own, so that line opens the greeting",),
 }
+# The activations that bind the helper from skf-preflight.py --helpers instead of probing for it.
+ITEM_4_BINDS = {"skf-setup": "With `{resolveCustomizationHelper}` bound in item 4, run:",
+                "skf-quick-skill": AC.HELPERS_BINDINGS["skf-quick-skill"] + ", and run:"}
+# The activations that save the resolver's stderr for the emitter to read the reason from (#1119).
+STDERR_FILES = {"skf-setup": ' 2> "{run_dir}/resolver.err"'}
 CREATE_STACK_INIT = SRC / "skf-create-stack-skill" / "references" / "init.md"
 PIPELINE_MODE = SRC / "skf-forger" / "references" / "pipeline-mode.md"
 
@@ -118,14 +125,16 @@ def _step(skill: str) -> str:
 
 def _command(skill: str) -> str:
     assert AC.COMMAND.endswith(" --key workflow")
-    return AC.COMMAND.removesuffix("workflow") + KEY[skill]
+    return AC.COMMAND.removesuffix("workflow") + KEY[skill] + STDERR_FILES.get(skill, "")
 
 
 def _shared(skill: str) -> str:
     """The merge, warning and fallback sentences every activation writes word for word."""
+    opener, reason = (AC.HELPERS_WARNING_OPENER, HELPERS_REASON) if skill in ITEM_4_BINDS else (AC.WARNING_OPENER,
+                                                                                                REASON)
     return (f"It merges the bundled `{{skill-root}}/customize.toml` with `{{project-root}}/_bmad/custom/{skill}.toml` "
-            "(team overrides, committed) and `.user.toml` (personal overrides, gitignored). When it exits non-zero, "
-            f"prints no JSON or is missing, print one line, {AC.WARNING} {REASON} {AC.FALLBACK}")
+            f"(team overrides, committed) and `.user.toml` (personal overrides, gitignored). {opener}{AC.WARNING} "
+            f"{reason} {AC.FALLBACK}")
 
 
 def test_every_activation_is_compared():
@@ -139,9 +148,18 @@ def test_the_resolver_runs_through_uv_with_the_project_root(skill):
     step = _step(skill)
     fences = re.findall(r"```bash\n(.*?)```", step, re.S)
     assert [line.strip() for fence in fences for line in fence.splitlines() if line.strip()] == [_command(skill)]
-    # #770: the installed-else-src binding, on one line, before the fence.
-    [binding] = [line for line in step.splitlines() if AC.BINDING in line]
-    assert step.index(binding) < step.index("```bash"), skill
+    # #770: the installed-else-src binding, on one line, before the fence. Setup binds the
+    # helper with the rest of its helpers from item 4's one preflight call (#1117).
+    if skill in ITEM_4_BINDS:
+        assert AC.BINDING not in step, skill
+        binding = ITEM_4_BINDS[skill]
+        assert step.index(binding) < step.index("```bash"), skill
+        if skill == "skf-setup":
+            ok = next(line for line in _skill_md(skill).splitlines() if "`status` `ok`" in line)
+            assert "`{resolveCustomizationHelper}` from `helpers.<stem>`" in ok
+    else:
+        [binding] = [line for line in step.splitlines() if AC.BINDING in line]
+        assert step.index(binding) < step.index("```bash"), skill
     assert AC.CORE_RESOLVER not in _skill_md(skill)
 
 

@@ -16,7 +16,7 @@ The inputs, flags, gate map, outputs and headless result envelope of `skf-rename
 
 ## Result Contract (Headless)
 
-When `{headless_mode}` is true, step 3 emits a single-line JSON envelope on **stdout** before chaining to step 4, the `--dry-run` exit (step 1 §8) emits it on **stdout** with `status: "dry-run"`, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`. The model never types the line: each site passes its payload to the shared emitter, `shared/scripts/skf-emit-result-envelope.py`, which checks it against `shared/scripts/schemas/skf-rename-skill-result-envelope.v1.json`:
+When `{headless_mode}` is true, step 3 emits a single-line JSON envelope on **stdout** before chaining to step 4, the `--dry-run` exit (step 1 §8) emits it on **stdout** with `status: "dry-run"`, and every HARD HALT emits the same envelope shape on **stderr** with `status: "error"`. The model never types the line: each site passes its payload, or a halt its options, to the shared emitter, `shared/scripts/skf-emit-result-envelope.py`, which checks it against `shared/scripts/schemas/skf-rename-skill-result-envelope.v1.json`:
 
 ```
 SKF_RENAME_SKILL_RESULT_JSON: {"status":"success|error|dry-run","old_name":"…|null","new_name":"…|null","versions_renamed":[],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":0,"halt_reason":null,"headless_decisions":[],"run_id":"…","result_path":"…|null"}

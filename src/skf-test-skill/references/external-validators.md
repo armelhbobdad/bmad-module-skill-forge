@@ -58,27 +58,21 @@ Use `--no-install` so the probe never triggers a slow cold-cache download (npx
 would otherwise fetch the package before printing help). Wrap in `timeout 15s`
 so a hung probe cannot stall the workflow — consistent with the 120s cap used
 on the actual validator run below. If the probe exits non-zero OR the 15s
-timeout trips (exit code `124`), record `skill_check_score: N/A` and skip to
-section 3.
+timeout trips (exit code `124`), skill-check is not available: skip to
+section 3. No `{run_dir}/skill-check.json` is written, so section 4 reads no
+skill-check score.
 
 **Run validation (120s timeout):**
 
 ```bash
-timeout 120s npx skill-check check {skillDir} --format json --no-security-scan
+timeout 120s npx skill-check check "{skillDir}" --format json --no-security-scan > "{run_dir}/skill-check.json" 2> "{run_dir}/skill-check.stderr"; echo "skill-check exited $?"
 ```
 
-If the command exits non-zero AND the exit code is `124` (GNU timeout's signal for the 120s wall-clock expiring), record `skill_check_score: N/A` with reason `timeout-120s`, log a warning, and skip to section 3. Other non-zero exits fall through to the regular JSON-parse path per the note below.
-
-**Parse JSON output** to extract:
-- `scores[].score` — overall score (0-100); match the entry by `relativePath` (or `skillId`) to the validated skill dir. Older skill-check builds exposed this as a top-level `qualityScore` — fall back to that if `scores[]` is absent.
-- `diagnostics[]` — any remaining issues
-- `summary.errorCount` and `summary.warningCount` — issue counts (the counts live under `summary`, not at the top level)
+If the `skill-check exited` line names exit code `124` (GNU timeout's signal for the 120s wall-clock expiring), log the warning `skill-check: timeout-120s` and go to section 3. On any other exit code, section 4 reads whatever JSON the file holds, per the note below. The call writes stdout and stderr to the run folder, never into this context: section 4's script reads the score, the issue counts and the diagnostics from `{run_dir}/skill-check.json`.
 
 **Note:** `skill-check` may return a non-zero exit code even when `summary.errorCount` is 0. Always rely on the parsed JSON output, not the shell exit code.
 
-Store in context: `skill_check_score`, `skill_check_diagnostics`
-
-**If skill-check fails entirely:** Record `skill_check_score: N/A`, log warning, continue.
+**If skill-check fails entirely** (no `skill-check exited` line came back, or the file does not start with a JSON object), log a warning naming the last line of `{run_dir}/skill-check.stderr` and continue: section 4 reads no score from a file without JSON.
 
 ### 3. Run Tessl Review (optional)
 
@@ -87,14 +81,16 @@ Tessl Review (`tessl review run`, which the helper below runs on a copy of `{ski
 Resolve `{tesslReviewHelper}` ← first existing path in `{tesslReviewProbeOrder}`. If neither path exists, set `{tessl_summary}` to `not run — skf-tessl-review.py is missing` and `{tessl_warnings}` to the one line `Tessl Review: {tessl_summary}`, log that line as a warning, set `{tessl_review_score}` to null and go to section 4. Otherwise submit the review:
 
 ```bash
-uv run {tesslReviewHelper} submit "{skillDir}" --preferences "{preferencesFile}"
+uv run {tesslReviewHelper} submit "{skillDir}" --preferences "{preferencesFile}" > "{run_dir}/tessl.json"
 ```
 
 A review takes Tessl about two minutes, so no call waits for all of it. When the review is on, `submit` sends a copy of the skill to Tessl and returns `pending` with Tessl's run id as soon as Tessl accepts it; when it is off or cannot run, `submit` returns that result instead. While `{tessl_status}` is `pending`, collect the review, at most six times, and add `--final` to the sixth call, which turns a review still running into `timeout`:
 
 ```bash
-uv run {tesslReviewHelper} collect "{tessl_run_id}" --workspace "{tessl_workspace}" --tessl-version "{tessl_version}"
+uv run {tesslReviewHelper} collect "{tessl_run_id}" --workspace "{tessl_workspace}" --tessl-version "{tessl_version}" > "{run_dir}/tessl.json"
 ```
+
+Each call writes its JSON to `{run_dir}/tessl.json`, in place of the one before it: read the bindings below from that file after the `submit` call and again after each `collect` call. A stopped call leaves the file empty, which section 4 reads as no Tessl Review score.
 
 Each call ends within two minutes (a `collect` checks the review for up to 90 seconds, then returns `pending` again or the result), so run each one with your shell tool's default time limit. If the shell tool stops a call before it prints its JSON, or it prints none, make that the last call: set `{tessl_status}` to `failed`, `{tessl_summary}` to `failed — stopped before skf-tessl-review.py reported a result` and `{tessl_warnings}` to the one line `Tessl Review: {tessl_summary}`, keep `{tessl_run_id}` and the other values the calls before it bound, log that line as a warning, set `{tessl_review_score}` to null and go to section 4. Otherwise rely on the JSON, not the exit code, and bind these from the `submit` JSON and again from each `collect` JSON, whose values replace the earlier ones:
 
@@ -115,13 +111,15 @@ Every key is always present: the scores and `{tessl_validation}` are null and th
 
 ### 4. Calculate Combined External Score
 
-The combined external score feeds `externalValidation` into the scoring script (step 5), so its mean is computed by a script, not in-prompt. Both scores are on the same 0-100 scale (skill-check's quality score; the Tessl Review score). Pass `skill_check_score` as `skillCheckScore` and `{tessl_review_score}` as `tesslReviewScore`, each `null` when its tool produced no score (`{externalScoreScript}` resolves relative to the skill root):
+The combined external score feeds `externalValidation` into the scoring script (step 5), so its mean is computed by a script, not in-prompt. Both scores are on the same 0-100 scale (skill-check's quality score; the Tessl Review score). The script reads both from the files sections 2 and 3 saved: skill-check's score for `{skillDir}` by the rule Quick Skill's validation summary uses, and the Tessl Review score when `{run_dir}/tessl.json` holds a `reviewed` result. A file a section did not write, or one without JSON, is a tool that produced no score, so pass both files on every run. Run it from the folder section 2 ran skill-check in, since skill-check gives each path relative to that folder (`{externalScoreScript}` resolves relative to the skill root):
 
 ```bash
-echo '{"skillCheckScore": <score or null>, "tesslReviewScore": <score or null>}' | uv run {externalScoreScript} --stdin --output "{run_dir}/external.json"
+uv run {externalScoreScript} --skill-check "{run_dir}/skill-check.json" --tessl "{run_dir}/tessl.json" --skill-dir "{skillDir}" --output "{run_dir}/external.json"
 ```
 
-`--output` also writes the result to the run folder, where step 5 hands it to the scoring script; run the command even when neither tool produced a score. Read the result: do not re-average by hand. Bind `{external_score}` ← `externalScore` (the mean when both tools produced a score, the single score when one did, or `null` when neither did: the scoring step then redistributes the external-validation weight) and `{external_tools_used}` ← `toolsUsed` (`skill-check`, and `tessl` for Tessl Review). Record `external_score: N/A` when `{external_score}` is null.
+`--output` also writes the result to the run folder, where step 5 hands it to the scoring script, section 5b records its findings and report.md §4b reads its description check; run the command even when neither tool produced a score. Read the summary it prints: do not re-average by hand. Bind `{external_score}` ← `externalScore` (the mean when both tools produced a score, the single score when one did, or `null` when neither did: the scoring step then redistributes the external-validation weight), `{external_tools_used}` ← `toolsUsed` (`skill-check`, and `tessl` for Tessl Review), `{skill_check_score}` ← `skillCheckScore`, `{skill_check_errors}` ← `skillCheckErrorCount` and `{skill_check_warnings}` ← `skillCheckWarningCount` (each null when skill-check produced no JSON). Record `external_score: N/A` when `{external_score}` is null.
+
+If the command exits non-zero, fix the call once (its `error` names the problem) and run it again. If it fails again, HALT with its `error` (`halt_reason: "helper-failed"`, phase `external-validators:score`).
 
 ### 5. Write the External Validation Section
 
@@ -132,10 +130,10 @@ Write this section in place of the template's `## External Validation` heading a
 
 ### skill-check
 - **Available:** {yes/no}
-- **Quality Score:** {score}/100
-- **Errors:** {count}
-- **Warnings:** {count}
-- **Diagnostics:** {list or "none"}
+- **Quality Score:** {skill_check_score}/100
+- **Errors:** {skill_check_errors}
+- **Warnings:** {skill_check_warnings}
+- **Diagnostics:** {each `skillCheckDiagnostics` entry of `{run_dir}/external.json` as `ruleId (severity) at file:line: message`, or "none"}
 
 ### Tessl Review
 - **Result:** {tessl_summary}
@@ -152,34 +150,27 @@ Write this section in place of the template's `## External Validation` heading a
 - **Tools used:** {external_tools_used}
 ```
 
+In the skill-check block, write `N/A` for a null `{skill_check_score}`, `{skill_check_errors}` or `{skill_check_warnings}`: skill-check gave no JSON, or no score for this skill.
+
 When `{tessl_status}` is not `reviewed`, the Tessl Review block holds only its Result line and, when `{tessl_run_id}` is set, its Run line, so the report names the run of a review that may still finish.
 
 ### 5b. Record the External Validation Gaps
 
-Record the validators' findings in the gap ledger `{ledgerFile}`, so the Gap Report lists them beside the coverage and coherence gaps. Each is one record in the Ledger Record Format of `{outputFormatsFile}`, with the severity and category the Gap Severity table (`{scoringRulesFile}`) gives it:
-
-- each entry of `skill_check_diagnostics`: a Low `external-validator` gap, with the file and line it names as its Source (else `SKILL.md`) and its message as the Issue;
-- each `{tessl_validation}` finding: a Low `external-validator` gap, titled `Tessl Review: {name}`, with `SKILL.md` as its Source and its message as the Issue;
-- each of `{tessl_description_suggestions}`: a Low `description` gap titled with the suggestion, with the SKILL.md frontmatter `description` as its Source;
-- each of `{tessl_content_suggestions}` not marked `(not applicable: <rule-id>)`: an Info `external-validator` gap titled with the suggestion, with `SKILL.md` as its Source.
-
-Write the records as one JSON array on the lines between the two markers, exactly as they are: the quoted marker hands them to the script unchanged, quotes, apostrophes and `$` included. Run the command even when the array is empty (`[]`), as it is when neither validator ran: the hard gate refuses to decide until every stage before it has recorded, with gaps or without (`{gapLedgerScript}` resolves relative to the skill root).
+Record the validators' findings in the gap ledger `{ledgerFile}`, so the Gap Report lists them beside the coverage and coherence gaps. The script builds the records from `{run_dir}/external.json`, which section 4 wrote, each in the Ledger Record Format of `{outputFormatsFile}` with the severity and category the Gap Severity table (`{scoringRulesFile}`) gives it: each skill-check diagnostic and each `{tessl_validation}` finding a Low `external-validator` gap, each of `{tessl_description_suggestions}` a Low `description` gap and each of `{tessl_content_suggestions}` not marked `(not applicable: <rule-id>)` an Info `external-validator` gap. Pass one `--not-applicable <index>:<rule-id>` for each content suggestion section 3 marked, its index its place in `{tessl_content_suggestions}` counting from 0, and none when section 3 marked none. Run the command even when neither validator ran: the hard gate refuses to decide until every stage before it has recorded, with gaps or without (`{gapLedgerScript}` resolves relative to the skill root).
 
 ```bash
-uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage external-validators <<'SKF_GAPS'
-<the records, one JSON array>
-SKF_GAPS
+uv run {gapLedgerScript} append --ledger "{ledgerFile}" --stage external-validators --from external --input "{run_dir}/external.json" [--not-applicable <index>:<rule-id>]...
 ```
 
 Rely on its JSON:
 
 - Exit 0: the records are in the ledger. `appended` names the id each new record received, and `duplicates` the ones a rerun of this step had already recorded.
-- Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct each record `errors[]` names (its `index` counts from 0) and run the command again.
+- Exit 2 (`INVALID_RECORD` or `INVALID_INPUT`): nothing was written. Correct the `--not-applicable` marks its `error` names and run the command again.
 - Exit 1: HALT with the script's `error` (`halt_reason: "helper-failed"`, phase `external-validators:ledger`).
 
 ### 6. Report Results
 
-Report the external validation result to the user: skill-check's score out of 100 (or `skipped`), the line `Tessl Review: {tessl_summary}`, the combined external score, and each entry of `{tessl_warnings}` as a warning. Then proceed to the hard gate.
+Report the external validation result to the user: skill-check's score out of 100, `{skill_check_score}` (or `skipped` when it is null), the line `Tessl Review: {tessl_summary}`, the combined external score, and each entry of `{tessl_warnings}` as a warning. Then proceed to the hard gate.
 
 Append `'external-validators'` to `stepsCompleted` in the `{outputFile}` frontmatter, then load and execute {nextStepFile}.
 

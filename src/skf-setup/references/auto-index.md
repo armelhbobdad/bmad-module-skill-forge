@@ -27,18 +27,18 @@ Reconcile the `qmd_collections` registry with the live QMD collections, and prun
 ## Rules
 
 - Never reimplement the forge-namespace suffix filter or the path check in prose: the classifier owns them
-- Run `qmd collection remove`, through the classifier's `remove-orphans`, only on the interactive **[R]** or an explicit `--orphan-action=remove`: that flag is the consent, and `{orphan_auto_resolution}` records the decision, so the envelope's `warnings` name each collection the removal deleted
+- Run `qmd collection remove`, through the classifier's `remove-orphans`, only on the interactive **[R]** or an explicit `--orphan-action=remove`: that flag is the consent, and the emitter records the decision from the flags step 4 passes, so the envelope's `warnings` name each collection the removal deleted
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line a halt displays
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
 - If a section needs a helper whose probe order has no existing path, halt (an install fault, not a hygiene error) with phase `step 3:helper-missing`, `path` set to that array's first entry, and reason `Setup cannot proceed: <script file name> was not found. Reinstall SKF, then re-run /skf-setup.`
-- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, `--stderr-from` where the halt names it, and `--customization-resolver-unavailable "<reason>"` once SKILL.md On Activation item 6 bound `{customization_resolver_unavailable}` to a reason, escaped as the halt contract says), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
+- Every halt follows the SKILL.md halt contract: when `{quiet_mode}` is true, run `uv run {emitEnvelopeHelper} emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"`, which builds the payload itself (no `--path` for a halt without one, `--stderr-from` where the halt names it, and `--customization-resolver-unavailable-from "{run_dir}/resolver.err"` once SKILL.md On Activation item 6 bound `{customization_resolver_unavailable}` to a reason), and display its stdout line verbatim and nothing else (the reason alone if `{emitEnvelopeHelper}` resolves to no path, or the helper exits non-zero or prints no line); otherwise display the reason
 - Do not fail the workflow if hygiene encounters errors; a missing helper is not a hygiene error
 
 ## MANDATORY SEQUENCE
 
 ### 1. Check Tier
 
-Set `{orphan_auto_resolution}` to null. When `{require_tier_satisfied}` (from step 1) is `false`, go to section 5 with no output: a run that ends `tier_failure` runs no hygiene, so it removes no collection and prunes no registry entry, and step 4 reports none. Otherwise the QMD sections (2 and 3) run only when `{calculated_tier}` is Deep, and section 4 runs when `{calculated_tier}` is Deep or `{ccc}` is true. Go to section 2 at Deep tier, else to section 4 when `{ccc}` is true, else to section 5 with no output.
+When `{require_tier_satisfied}` (from step 1) is `false`, go to section 5 with no output: a run that ends `tier_failure` runs no hygiene, so it removes no collection and prunes no registry entry, and step 4 reports none. Otherwise the QMD sections (2 and 3) run only when `{calculated_tier}` is Deep, and section 4 runs when `{calculated_tier}` is Deep or `{ccc}` is true. Go to section 2 at Deep tier, else to section 4 when `{ccc}` is true, else to section 5 with no output.
 
 ### 2. Classify Live QMD Collections vs Registry
 
@@ -62,7 +62,7 @@ Otherwise bind `{orphaned_collections}` ← `orphaned` and `{orphan_paths}` ← 
 - `{orphan_action}` is non-null (activation lets through only `keep` or `remove`) → act on that value, with `source: "orphan-action-flag"`
 - `{quiet_mode}` is true → the default **Keep**, with `source: "headless-default"` when `{headless_mode}` is true and `source: "quiet-default"` otherwise (a `--quiet` run)
 
-Set `{orphan_auto_resolution: {action: <keep|remove>, source: <as above>}}`: step 4 adds the count and, after a removal, the collections removed and not removed, so the envelope's `warnings` audit a decision nobody confirmed. On keep, unless `{quiet_mode}` is true, display `"Auto-decision (--orphan-action=keep): kept {count} orphaned forge collection(s)"`, where `{count}` is the number of names in `{orphaned_collections}`, then go to section 4. On remove, run the removal below, still with no prompt.
+Record nothing yourself: step 4 passes the flags that decided it, and the emitter records the decision with its `source` (`orphan-action-flag`, `headless-default` or `quiet-default`), the count and, after a removal, the collections removed and not removed, so the envelope's `warnings` audit a decision nobody confirmed. On keep, unless `{quiet_mode}` is true, display `"Auto-decision (--orphan-action=keep): kept {count} orphaned forge collection(s)"`, where `{count}` is the number of names in `{orphaned_collections}`, then go to section 4. On remove, run the removal below, still with no prompt.
 
 **GATE [default: K]**: reached only when none of the cases above applies, so `{orphan_action}` is null and `{quiet_mode}` is false. Display to the user:
 

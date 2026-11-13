@@ -171,10 +171,15 @@ def test_every_setup_step_declares_envelope_probe_order_and_helper_missing_halt(
 
 
 def test_skill_md_routes_unresolved_helpers_through_halt_contract():
+    """#1117: activation resolves every step's probe order at once, so a
+    missing helper halts before any step runs; the step halts stay as a backstop."""
     conventions = _section(_read(SKILL_MD), "## Conventions")
     probe_line = next(line for line in conventions.splitlines() if "ProbeOrder" in line)
-    assert "halt contract" in probe_line
-    assert "helper-missing" in probe_line
+    assert ("On Activation item 4 resolves them all and halts (`on-activation:helper-missing`) on any helper "
+            "with neither path.") in probe_line
+    # The Done when shortens the bullet: shorter than its 389 bytes before #1117.
+    assert len(probe_line.encode("utf-8")) < 389
+    assert "Run the first that exists" not in probe_line
 
 
 def test_conventions_say_where_each_path_resolves():
@@ -235,19 +240,38 @@ def test_halt_contract_falls_back_to_the_reason_when_the_helper_fails():
     assert "If the helper exits non-zero or prints no line, display the reason alone." in fallback
 
 
+def _runner_loop() -> str:
+    """The fenced runner loop right after the halt-contract paragraph (#1117)."""
+    text = _read(SKILL_MD)
+    halt_contract = next(line for line in text.splitlines() if "Halt contract" in line)
+    m = re.match(r"\n\n```bash\n(.*?\n)```\n", text[text.index(halt_contract) + len(halt_contract):], re.S)
+    assert m, "no runner loop right after the halt contract"
+    return m.group(1)
+
+
 def test_halt_contract_names_a_runner_chain_for_the_activation_halts():
     """The activation halts can fire before uv is proven present, and Windows
     often has `python` or `py` but only a store alias for `python3`; by the
-    time a step file runs, activation has proven uv present."""
+    time a step file runs, activation has proven uv present. The chain is one
+    loop the halts run as written (#1117)."""
     halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
     assert "`<runner>` is `uv run` in the step files" in halt_contract
-    assert "try the runners `uv run`, `python3`, `python` and `py -3` in that order" in halt_contract
+    assert ("so they run the loop below as written, dropping `--path` or the `--stderr-from -` heredoc as the "
+            "halt needs") in halt_contract
+    # Every halt the loop serves comes before item 6, which binds the resolver reason (#1119).
+    assert "or adding `--customization-resolver-unavailable`" not in halt_contract
     prefix = re.search(r'^ENVELOPE_PREFIX = "(.+)"$', _read(EMIT_HELPER), re.M).group(1)
-    assert f"stop at the first that exits 0 and prints a line starting `{prefix.strip()}`" in halt_contract
-    assert "`python3` for the halts in this list" not in halt_contract
+    assert f"it stops at the first runner that exits 0 and prints a line starting `{prefix.strip()}`" in halt_contract
+    assert ("`<helper>` is `{emitEnvelopeHelper}` once item 4 bound it, and for the halts of items 1 to 4 "
+            "`skf-emit-result-envelope.py` at its installed path, else its dev path (Conventions)") in halt_contract
+    assert "try the runners" not in halt_contract and "`python3` for the halts in this list" not in halt_contract
+    loop = _runner_loop()
+    assert f'case "$line" in "{prefix}"*) printf' in loop
+    assert loop.count("<<'SKF_TEXT'") == 1 and "\nSKF_TEXT\n) && " in loop
+    assert loop.endswith("done\n")
 
 
-ACTIVATION_RUNNERS = re.compile(r"try the runners ((?:`[^`]+`(?:, | and ))+`[^`]+`) in that order")
+ACTIVATION_RUNNERS = re.compile(r"^for r in (.+); do$", re.M)
 UV_MISSING = {"phase": "on-activation:uv-missing",
               "reason": "Setup cannot proceed: uv is not installed."}
 # Every module the envelope helper may import. Each is in the standard library
@@ -266,9 +290,9 @@ def test_activation_halt_runners_can_run_the_envelope_helper():
     """Every runner the halt contract names for the activation halts is a bare
     interpreter except `uv run`, so the helper must stay stdlib-only."""
     halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
-    chain = ACTIVATION_RUNNERS.search(halt_contract)
+    chain = ACTIVATION_RUNNERS.search(_runner_loop())
     assert chain, "no runner chain for the activation halts"
-    assert re.findall(r"`([^`]+)`", chain.group(1)) == ["uv run", "python3", "python", "py -3"]
+    assert shlex.split(chain.group(1)) == ["uv run", "python3", "python", "py -3"]
     assert "stdlib-only" in halt_contract
     src = _read(EMIT_HELPER)
     header = re.search(r"^# /// script$(.*?)^# ///$", src, re.M | re.S)
@@ -298,6 +322,60 @@ def test_activation_halt_runners_can_run_the_envelope_helper():
     # A payload the helper rejects prints no line, so the contract falls back to the reason.
     rejected = _emit_blocked({"phase": "on-activation:uv-missing"})
     assert rejected.returncode == 1 and rejected.stdout == b""
+
+
+def _filled_loop(phase: str, reason: str, path: str | None, text: str | None) -> str:
+    """The runner loop as an activation halt runs it: no `--path` for a halt
+    without one, and no heredoc for a halt with no text from the user or a helper."""
+    loop = _runner_loop()
+    if path is None:
+        loop = loop.replace(' --path "<path>"', "", 1)
+    if text is None:
+        loop = loop.replace(" --stderr-from - <<'SKF_TEXT'\n<text>\nSKF_TEXT\n", "\n", 1)
+        assert "SKF_TEXT" not in loop
+    return (loop.replace("<helper>", EMIT_HELPER.as_posix()).replace("<phase>", phase)
+            .replace("<reason>", reason).replace("<path>", path or "").replace("<text>", text or ""))
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+def test_the_runner_loop_prints_one_envelope_with_only_python3_on_path(tmp_path):
+    """#1117: before uv is proven, the first runner that works prints the line;
+    the quoted heredoc keeps every quote, `$( )`, backtick and backslash literal.
+    A `uv` that exits 0 but prints no envelope line is skipped, not displayed."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    (bindir / "python3").symlink_to(sys.executable)
+    env = {"PATH": str(bindir), "HOME": str(tmp_path)}
+    message = "it's \"read-only\" $(touch pwned) `touch pwned2` C:\\x ( unbalanced"
+    loop = _filled_loop("on-activation:helper-missing", "Setup cannot proceed: <message>",
+                        "/project/_bmad/skf/shared/scripts", message)
+    expected = {"phase": "on-activation:helper-missing", "reason": "Setup cannot proceed: " + message,
+                "path": "/project/_bmad/skf/shared/scripts"}
+    # Only python3 on PATH: `uv run` is not found, and python3 prints the line.
+    done = subprocess.run([shutil.which("bash"), "-c", loop], capture_output=True, timeout=30, cwd=tmp_path, env=env)
+    assert _blocked_error(done) == expected
+    # A `uv` that exits 0 with a line that is no envelope: the guard skips it and python3 still prints.
+    uv = bindir / "uv"
+    uv.write_text("#!/bin/sh\n: > \"$HOME/uv-ran\"\nprintf '%s\\n' 'uv: not an envelope line'\nexit 0\n",
+                  encoding="utf-8")
+    uv.chmod(0o755)
+    done = subprocess.run([shutil.which("bash"), "-c", loop], capture_output=True, timeout=30, cwd=tmp_path, env=env)
+    assert _blocked_error(done) == expected
+    assert (tmp_path / "uv-ran").exists(), "the uv stub never ran, so the prefix guard was not exercised"
+    assert b"not an envelope line" not in done.stdout
+    assert not (tmp_path / "pwned").exists() and not (tmp_path / "pwned2").exists()
+    # A halt with no path and no text drops both, and still prints one line.
+    error = _blocked_error(subprocess.run([shutil.which("bash"), "-c", _filled_loop(
+        UV_MISSING["phase"], UV_MISSING["reason"], None, None)], capture_output=True, timeout=30, cwd=tmp_path,
+        env=env))
+    assert error == {**UV_MISSING, "path": "<n/a>"}
+    # No runner prints the line (only the stray uv is left): nothing is printed, so the
+    # contract displays the reason alone.
+    (bindir / "python3").unlink()
+    nothing = subprocess.run([shutil.which("bash"), "-c", _filled_loop(
+        UV_MISSING["phase"], UV_MISSING["reason"], None, None)], capture_output=True, timeout=30, cwd=tmp_path,
+        env=env)
+    assert nothing.stdout == b""
 
 
 # The emit-blocked call each step's halt rule names: the emitter builds the payload.
@@ -373,10 +451,11 @@ def test_config_missing_reason_names_the_installer():
 QUOTE_RULE = ("Text from the user or a helper never goes into the single-quoted `--reason`: write `<message>` "
               "there and pass the text on stdin with `--stderr-from -` and a quoted `<<'SKF_TEXT'` heredoc, "
               "one per runner tried, for the emitter to fold to one line and escape.")
-# The resolver reason every halt passes once On Activation item 6 bound it (#595).
-RESOLVER_RULE = ("Once item 6 binds `{customization_resolver_unavailable}` to a reason, every halt also passes "
-                 "`--customization-resolver-unavailable \"<reason>\"`, escaping each `\\`, `\"`, `$` and backtick "
-                 "in it with a backslash.")
+# The resolver reason every halt passes once On Activation item 6 bound it (#595): the file
+# item 6 saved its stderr in, which the emitter reads, so no step escapes the reason (#1119).
+RESOLVER_FILE = '--customization-resolver-unavailable-from "{run_dir}/resolver.err"'
+RESOLVER_RULE = ("Once item 6 binds `{customization_resolver_unavailable}` to a reason, every later halt also "
+                 f"passes `{RESOLVER_FILE}`, which the emitter folds to one line and escapes.")
 ENVELOPE_PREFIX = "SKF_SETUP_RESULT_JSON: "
 
 
@@ -390,10 +469,10 @@ def _stdin_blocked(phase: str, reason: str, text: str, path: str | None = None) 
                           timeout=10)
 
 
-def _contract_call(text: str, resolver: str | None = None) -> str:
+def _contract_call(text: str, run_dir: pathlib.Path | None = None) -> str:
     """The halt contract's emit-blocked call for the config-malformed halt, as a
     bash command: single-quoted phase and reason, the text in a quoted heredoc,
-    and the resolver reason escaped as the contract says."""
+    and, with `run_dir`, the file option that names item 6's saved reason."""
     halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
     call = re.search(r"run `(<runner> <helper> emit-blocked [^`]+)`", halt_contract).group(1)
     assert call == "<runner> <helper> emit-blocked --phase '<phase>' --reason '<reason>' --path \"<path>\"", call
@@ -402,9 +481,8 @@ def _contract_call(text: str, resolver: str | None = None) -> str:
                .replace("<phase>", "on-activation:config-malformed")
                .replace("<reason>", "Setup cannot proceed: <message>")
                .replace("<path>", "/project/_bmad/skf/config.yaml"))
-    if resolver is not None:
-        escaped = "".join("\\" + ch if ch in '\\"$`' else ch for ch in resolver)
-        command += f' --customization-resolver-unavailable "{escaped}"'
+    if run_dir is not None:
+        command += " " + RESOLVER_FILE.replace("{run_dir}", run_dir.as_posix())
     return f"{command} --stderr-from - <<'SKF_TEXT'\n{text}\nSKF_TEXT\n"
 
 
@@ -456,22 +534,40 @@ def test_the_halt_contract_passes_helper_text_on_stdin(tmp_path, message):
     assert not (tmp_path / "pwned").exists()
 
 
+# What item 6's `2> "{run_dir}/resolver.err"` saves when the resolver fails, and the
+# one-line reason the emitter takes from it: backticks, `$( )`, quotes and a backslash
+# path the shell would have run or eaten in an argument (#1119).
+RESOLVER_ERR = (b"error: Python 3.11+ is required (stdlib `tomllib` not found).\n"
+                b"  hint: run it in \"$HOME\" $(touch pwned) with C:\\py\\python.exe\n")
+RESOLVER_REASON = "error: Python 3.11+ is required (stdlib `tomllib` not found)."
+
+
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
-def test_a_halt_after_item_6_carries_the_resolver_reason(tmp_path):
-    """#595: once item 6 bound a resolver reason, the halt passes it, escaped
-    as the contract says, and the blocked envelope warns that the overrides
-    were not applied. The reason can hold a single quote (No module named
-    'tomllib'), so it goes between double quotes."""
+@pytest.mark.parametrize("saved,reason", [
+    (RESOLVER_ERR, RESOLVER_REASON),
+    (b"exit 1: No module named 'tomllib' in \"$HOME\" $(touch pwned) `x` C:\\py\n",
+     "exit 1: No module named 'tomllib' in \"$HOME\" $(touch pwned) `x` C:\\py"),
+    (None, "(no error message)"),
+], ids=["uv-python-error", "shell-characters", "missing-file"])
+def test_a_halt_after_item_6_carries_the_resolver_reason(tmp_path, saved, reason):
+    """#595, #1119: once item 6 bound a resolver reason, the halt names the file
+    item 6 saved it in, and the blocked envelope warns, the reason on one line,
+    that the overrides were not applied. Nothing in the reason runs."""
     halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
     assert RESOLVER_RULE in halt_contract
-    reason = "exit 1: No module named 'tomllib' in \"$HOME\" `x` C:\\py"
-    done = subprocess.run(["bash", "-c", _contract_call("bad: key: here", resolver=reason)], capture_output=True,
+    assert "escaping each" not in halt_contract
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    if saved is not None:
+        (run_dir / "resolver.err").write_bytes(saved)
+    done = subprocess.run(["bash", "-c", _contract_call("bad: key: here", run_dir)], capture_output=True,
                           timeout=20, cwd=tmp_path)
     assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
     [line] = done.stdout.decode("utf-8").splitlines()
     envelope = json.loads(line[len(ENVELOPE_PREFIX):])["skf_setup"]
     assert envelope["status"] == "blocked"
     assert envelope["warnings"] == [f"customization_resolver_unavailable: {reason}"]
+    assert not (tmp_path / "pwned").exists()
 
 
 def test_every_step_halt_passes_the_resolver_reason():
@@ -482,16 +578,17 @@ def test_every_step_halt_passes_the_resolver_reason():
     for name in ("detect-and-tier.md", "write-config.md", "ccc-index.md", "auto-index.md"):
         text = _read(REFS / name)
         rule = next(line for line in _section(text, "## Rules").splitlines() if "emit-blocked" in line)
-        assert ("and `--customization-resolver-unavailable \"<reason>\"` once SKILL.md On Activation item 6 bound "
-                "`{customization_resolver_unavailable}` to a reason, escaped as the halt contract says") in rule, name
+        assert (f"and `{RESOLVER_FILE}` once SKILL.md On Activation item 6 bound "
+                "`{customization_resolver_unavailable}` to a reason)") in rule, name
+        assert "escaped as the halt contract says" not in text, name
         calls = [line for block in re.findall(r"```bash\n(.*?)```", text, re.DOTALL)
                  for line in _joined(block).splitlines() if "emit-blocked" in line]
         for call in calls:
             assert call.rstrip().endswith(" " + RESOLVER_GROUP), (name, call)
         if calls:
-            assert ("In each `emit-blocked` call of this step, keep the bracketed `--customization-resolver-unavailable` "
-                    "only when On Activation item 6 bound `{customization_resolver_unavailable}` to a reason, escaped "
-                    "as the halt contract says; otherwise leave it out.") in text, name
+            assert ("In each `emit-blocked` call of this step, keep the bracketed "
+                    "`--customization-resolver-unavailable-from` only when On Activation item 6 bound "
+                    "`{customization_resolver_unavailable}` to a reason; otherwise leave it out.") in text, name
         fenced += calls
     assert len(fenced) == len(STDERR_HALTS)
 
@@ -502,29 +599,85 @@ def test_item_6_runs_the_resolver_through_uv_and_binds_its_reason():
     keeps the reason for report.md and every later halt."""
     item = _section(_on_activation(_read(SKILL_MD)), "6. **Resolve workflow customization.**")
     assert ("uv run {resolveCustomizationHelper} --skill {skill-root} "
-            "--project-root {project-root} --key workflow") in item
+            "--project-root {project-root} --key workflow 2> \"{run_dir}/resolver.err\"") in item
     assert "{project-root}/_bmad/scripts/resolve_customization.py" not in item
     flat = " ".join(item.split())
     assert ("It merges the bundled `{skill-root}/customize.toml` with `{project-root}/_bmad/custom/skf-setup.toml` "
             "(team overrides, committed) and `.user.toml` (personal overrides, gitignored).") in flat
-    assert ("When it exits non-zero, prints no JSON or is missing, print one line, "
+    # Item 4 halts when the script is missing (#1117), so item 6 names no reason for that case.
+    assert ("When it exits non-zero or prints no JSON, print one line, "
             "`[activation/warn] customization_resolver_unavailable: <reason>` (`<reason>`: its first stderr line, "
-            "`SKF helper skf-resolve-customization.py not found` when the script is "
-            "missing, `no JSON` when it printed none).") in flat
+            "`no JSON` when it printed none).") in flat
+    assert "when the script is missing" not in flat and "is missing, print one line" not in flat
     assert ("If the resolver cannot run, read `{skill-root}/customize.toml` alone and use its bundled defaults: "
             "the `{project-root}/_bmad/custom/` overrides do not apply to this run.") in flat
     assert "Bind `{customization_resolver_unavailable}` ← that reason (null when the resolver ran)" in flat
     assert "print the warning only when `{quiet_mode}` is false" in flat
+    # The redirect hides the resolver's stderr from the run, so the reason is read from the file,
+    # and the file holds the reason whenever it is bound, also when the resolver printed none (#1119).
+    assert ITEM_6_FILE_RULE in flat
+    assert flat.index("overrides do not apply to this run.") < flat.index(ITEM_6_FILE_RULE) < \
+        flat.index("Bind `{customization_resolver_unavailable}` ← that reason")
+    assert (f"`references/report.md` and every later halt then pass `{RESOLVER_FILE}` to the emitter") in flat
     # #601: no bare `_bmad/` path is left for the path-standards scan to flag.
     assert re.search(r"(?<!\{project-root\}/)_bmad/", _on_activation(_read(SKILL_MD))) is None
     report = _read(REFS / "report.md")
-    assert '"customization_resolver_unavailable": {customization_resolver_unavailable},' in report
+    assert f"[{RESOLVER_FILE}]" in report and "{customization_resolver_unavailable}," not in report
+
+
+# Item 6's sentence after the fallback: where `<reason>` is read, and the fixed reason the
+# file gets when the resolver printed none (#1119 review round 1).
+ITEM_6_FILE_RULE = ("The resolver's stderr is in `{run_dir}/resolver.err`, so read `<reason>` from that file "
+                    "(`(no error message)` when it is empty); when it exits 0 and prints "
+                    "no JSON, first write that fixed reason into the file "
+                    "(`printf '%s\\n' '<the fixed reason>' > \"{run_dir}/resolver.err\"`), so the file holds the "
+                    "reason whenever `{customization_resolver_unavailable}` is bound.")
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+@pytest.mark.parametrize("case", ["resolver-fails", "resolver-silent", "resolver-no-json"])
+def test_item_6_leaves_the_reason_in_the_file_the_halts_read(tmp_path, case):
+    """#1119 review round 1: item 6's documented command, run by bash with a resolver that
+    fails, saves its stderr in resolver.err; a silent failure leaves `(no error message)`; a
+    run that exits 0 with no JSON gets its fixed reason through the documented printf. Each later halt's
+    emitter then warns with that reason, and nothing in it runs."""
+    item = _section(_on_activation(_read(SKILL_MD)), "6. **Resolve workflow customization.**")
+    [command] = [line.strip() for line in re.findall(r"```bash\n(.*?)```", item, re.S)[0].splitlines()
+                 if line.strip()]
+    printf = re.search(r"\(`(printf [^`]+)`\)", " ".join(item.split())).group(1)
+    run_dir = tmp_path / "run"
+    run_dir.mkdir()
+    resolver = tmp_path / "fake-resolver.py"
+    stderr_text = {"resolver-fails": "error: Python 3.11+ is required (stdlib `tomllib` not found) $(touch pwned)",
+                   "resolver-silent": ""}.get(case)
+    if stderr_text is not None:
+        written = f"{stderr_text}\n" if stderr_text else ""
+        resolver.write_text(f"import sys\nsys.stderr.write({written!r})\nsys.exit(1)\n", encoding="utf-8")
+        values = {"resolveCustomizationHelper": shlex.quote(resolver.as_posix()),
+                  "skill-root": SETUP_DIR.as_posix(), "project-root": tmp_path.as_posix(), "run_dir": run_dir.as_posix()}
+        shell = re.sub(r"\{([\w-]+)\}", lambda m: values[m.group(1)], command).replace(
+            "uv run ", shlex.quote(sys.executable) + " ", 1)
+        ran = subprocess.run(["bash", "-c", shell], capture_output=True, timeout=20, cwd=tmp_path)
+        assert ran.returncode == 1 and ran.stderr == b"", "the redirect sends the resolver's stderr to the file"
+        expected = stderr_text or "(no error message)"
+    else:
+        fixed = "no JSON"
+        shell = printf.replace("<the fixed reason>", fixed).replace("{run_dir}", run_dir.as_posix())
+        assert subprocess.run(["bash", "-c", shell], timeout=20, cwd=tmp_path).returncode == 0
+        expected = fixed
+    done = subprocess.run(["bash", "-c", _contract_call("bad: key: here", run_dir)], capture_output=True,
+                          timeout=20, cwd=tmp_path)
+    assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
+    [line] = done.stdout.decode("utf-8").splitlines()
+    assert json.loads(line[len(ENVELOPE_PREFIX):])["skf_setup"]["warnings"] == [
+        f"customization_resolver_unavailable: {expected}"]
+    assert not (tmp_path / "pwned").exists()
 
 
 # Each step halt that quotes a failed command's stderr: its phase, and the file
-# (`-` for stdin) the emitter reads the diagnostic from.
+# the emitter reads the diagnostic from. The run-folder halt, which pipes its
+# stderr, is On Activation item 5b's (#1119).
 STDERR_HALTS = {
-    "step 1:run-folder": ("detect-and-tier.md", "-"),
     "step 1:detect-tools": ("detect-and-tier.md", "{run_dir}/detect-tools.err"),
     "step 2:write-tools": ("write-config.md", "{run_dir}/write-tools.err"),
     "step 2:forge-data-dir": ("write-config.md", "{run_dir}/forge-data-dir.err"),
@@ -536,19 +689,16 @@ def _joined(text: str) -> str:
     return re.sub(r"\\\n\s*", "", text)
 
 
-# The optional resolver option each fenced step halt carries (#595).
-RESOLVER_GROUP = '[--customization-resolver-unavailable "{customization_resolver_unavailable}"]'
+# The optional resolver option each fenced step halt carries (#595), naming item 6's file (#1119).
+RESOLVER_GROUP = f"[{RESOLVER_FILE}]"
 
 
-def _with_resolver(call: str, resolver: str | None = None) -> str:
-    """`call` with its resolver group left out, or filled with `resolver`,
-    escaped as the halt contract says."""
+def _with_resolver(call: str, resolver: bool = False) -> str:
+    """`call` with its resolver group left out, or kept, as a run whose item 6
+    bound a reason keeps it."""
     assert call.endswith(" " + RESOLVER_GROUP), call
     base = call[:-len(RESOLVER_GROUP) - 1]
-    if resolver is None:
-        return base
-    escaped = "".join("\\" + ch if ch in '\\"$`' else ch for ch in resolver)
-    return f'{base} --customization-resolver-unavailable "{escaped}"'
+    return f"{base} {RESOLVER_FILE}" if resolver else base
 
 
 def _blocked_calls(text: str) -> dict[str, str]:
@@ -575,15 +725,17 @@ def test_step_files_leave_the_reason_to_the_emitter():
         call = _blocked_calls(_read(REFS / name)).get(phase)
         assert call, (name, phase)
         call = _with_resolver(call)
-        assert f'--stderr-from "{source}"' in call or (source == "-" and call.endswith("--stderr-from -")), call
+        assert f'--stderr-from "{source}"' in call, call
         assert "<message>" in call, call
-        if source != "-":
-            # The helper's stderr goes to that file where it runs, and an
-            # interactive run, which calls no emitter, reads it there.
-            text = _joined(_read(REFS / name))
-            assert f'2> "{source}"' in text, (name, source)
-            halt = next(b for _, _, b in _prose_blocks(text) if f"`{phase}`" in b)
-            assert re.search(r"\breads? that file\b", halt), (name, phase)
+        # The helper's stderr goes to that file where it runs, and an
+        # interactive run, which calls no emitter, reads it there.
+        text = _joined(_read(REFS / name))
+        assert f'2> "{source}"' in text, (name, source)
+        halt = next(b for _, _, b in _prose_blocks(text) if f"`{phase}`" in b)
+        assert re.search(r"\breads? that file\b", halt), (name, phase)
+    [pipe] = [c for p, c in _blocked_calls(_read(SKILL_MD)).items() if p == "on-activation:run-folder"]
+    assert pipe.endswith('--reason "Setup cannot proceed: the run folder could not be created: <message>" '
+                         "--stderr-from -"), pipe
 
 
 def _documented_blocked(name: str, phase: str, values: dict) -> list[str]:
@@ -616,22 +768,20 @@ def test_a_documented_stderr_halt_emits_its_blocked_envelope(tmp_path, phase):
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
 @pytest.mark.parametrize("phase", sorted(STDERR_HALTS))
 def test_a_documented_step_halt_carries_the_resolver_reason(tmp_path, phase):
-    """Each fenced step halt, its resolver option filled and escaped as the
-    halt contract says, run by bash: the envelope keeps the reason whole."""
+    """Each fenced step halt, its resolver option kept, run by bash on a resolver.err
+    holding shell characters: the envelope keeps the reason whole, and nothing runs."""
     name, source = STDERR_HALTS[phase]
     project = tmp_path / "project"
     project.mkdir()
     run_dir = tmp_path / "run"
     run_dir.mkdir()
-    if source == "-":
-        (project / "_bmad-output").write_bytes(b"a file where the folder goes\n")
-    else:
-        (run_dir / source.split("/")[-1]).write_bytes(b"cannot write the file\n")
+    (run_dir / source.split("/")[-1]).write_bytes(b"cannot write the file\n")
     reason = "exit 1: No module named 'tomllib' in \"$HOME\" $(touch pwned) `x` C:\\py"
+    (run_dir / "resolver.err").write_bytes(reason.encode("utf-8") + b"\n")
     values = {"emitEnvelopeHelper": shlex.quote(EMIT_HELPER.as_posix()), "run_dir": run_dir.as_posix(),
               "project-root": project.as_posix(), "sidecar_path": project.as_posix(),
               "forge_data_folder": (project / "forge-data").as_posix()}
-    call = _with_resolver(_blocked_calls(_read(REFS / name))[phase], reason)
+    call = _with_resolver(_blocked_calls(_read(REFS / name))[phase], resolver=True)
     command = re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), call)
     command = command.replace("uv run ", shlex.quote(sys.executable) + " ")
     done = subprocess.run(["bash", "-c", command], capture_output=True, timeout=20, cwd=tmp_path)
@@ -643,20 +793,35 @@ def test_a_documented_step_halt_carries_the_resolver_reason(tmp_path, phase):
     assert not (tmp_path / "pwned").exists()
 
 
+# The staged payload file and the phase #1119 retired, written in two parts so that a
+# grep of src/ and test/ for either finds no live use of it.
+RETIRED_PAYLOAD = "report-context" + ".json"
+RETIRED_PHASE = "step 1:" + "run-folder"
+
+
+def _run_folder_item() -> str:
+    """On Activation item 5b, which makes the run folder before item 6 saves the resolver's stderr in it."""
+    text = _read(SKILL_MD)
+    start = text.index("5b. **Create the run folder.**")
+    return text[start:text.index("6. **Resolve workflow customization.**", start)]
+
+
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
 def test_the_run_folder_halt_pipes_the_failed_command_to_the_emitter(tmp_path):
-    """No run folder holds the stderr, so the documented pipe hands it over."""
+    """No run folder holds the stderr, so the documented pipe hands it over. It runs
+    before item 6, so it passes no resolver option (#1119)."""
     project = tmp_path / "project"
     project.mkdir()
     (project / "_bmad-output").write_bytes(b"a file where the folder goes\n")
-    [pipe] = [_with_resolver(c) for p, c in _blocked_calls(_read(REFS / "detect-and-tier.md")).items()
-              if p == "step 1:run-folder"]
+    [pipe] = [c for p, c in _blocked_calls(_read(SKILL_MD)).items() if p == "on-activation:run-folder"]
+    assert "resolver" not in pipe, pipe
     values = {"emitEnvelopeHelper": shlex.quote(EMIT_HELPER.as_posix()), "project-root": project.as_posix()}
     command = re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), pipe)
     command = command.replace("uv run ", shlex.quote(sys.executable) + " ")
     done = subprocess.run(["bash", "-c", command], capture_output=True, timeout=20)
     error = _blocked_error(done)
-    assert error["phase"] == "step 1:run-folder"
+    assert error["phase"] == "on-activation:run-folder"
+    assert error["path"] == f"{project.as_posix()}/_bmad-output/.skf-run"
     assert error["reason"].startswith("Setup cannot proceed: the run folder could not be created: mkdir")
     assert "\n" not in error["reason"]
 
@@ -667,16 +832,14 @@ def test_a_run_folder_repeat_that_succeeds_leaves_no_folder(tmp_path):
     and the reason says the stderr held nothing."""
     project = tmp_path / "project"
     project.mkdir()
-    [pipe] = [_with_resolver(c) for p, c in _blocked_calls(_read(REFS / "detect-and-tier.md")).items()
-              if p == "step 1:run-folder"]
+    [pipe] = [c for p, c in _blocked_calls(_read(SKILL_MD)).items() if p == "on-activation:run-folder"]
     values = {"emitEnvelopeHelper": shlex.quote(EMIT_HELPER.as_posix()), "project-root": project.as_posix()}
     command = re.sub(r"\{([\w-]+)\}", lambda m: values.get(m.group(1), m.group(0)), pipe)
     command = command.replace("uv run ", shlex.quote(sys.executable) + " ")
     error = _blocked_error(subprocess.run(["bash", "-c", command], capture_output=True, timeout=20))
     assert error["reason"] == "Setup cannot proceed: the run folder could not be created: (no error message)"
     assert list((project / "_bmad-output" / ".skf-run").iterdir()) == []
-    detect = _section(_read(REFS / "detect-and-tier.md"), "### 1.")
-    assert "a repeat that succeeds removes the folder it made" in detect
+    assert "a repeat that succeeds removes the folder it made" in _run_folder_item()
 
 
 def test_the_notices_say_a_tier_miss_builds_no_index():
@@ -979,7 +1142,7 @@ def test_orphan_removal_rule_names_both_consents():
     rule = next(line for line in _section(text, "## Rules").splitlines() if "`qmd collection remove`" in line)
     assert "interactive **[R]**" in rule
     assert "`--orphan-action=remove`" in rule
-    assert "{orphan_auto_resolution}" in rule
+    assert "the emitter records the decision from the flags step 4 passes" in rule
 
 
 def test_unprompted_orphan_removals_are_recorded_by_name():
@@ -988,7 +1151,12 @@ def test_unprompted_orphan_removals_are_recorded_by_name():
     gate = _section(_read(REFS / "auto-index.md"), "### 3.")
     assert ('remove-orphans \\\n    --classification-from "{run_dir}/qmd-classify.json" \\\n'
             '    --project-root "{project-root}" \\\n    > "{run_dir}/qmd-remove.json"') in gate
-    assert "Set `{orphan_auto_resolution: {action: <keep|remove>, source: <as above>}}`" in gate
+    # #1119: the step types no decision; the emitter derives it from the flags step 4 passes.
+    assert ("Record nothing yourself: step 4 passes the flags that decided it, and the emitter records the "
+            "decision with its `source` (`orphan-action-flag`, `headless-default` or `quiet-default`), the count "
+            "and, after a removal, the collections removed and not removed") in gate
+    assert "{orphan_auto_resolution" not in _read(REFS / "auto-index.md")
+    assert "step 4 passes the flags that decided it, and the emitter records the decision" in _read(SKILL_MD)
     assert "Auto-decision (--orphan-action=remove): removed {removed, comma-separated}" in gate
     assert "qmd collection remove <name>" not in gate and "len(" not in gate
     doc = ast.get_docstring(ast.parse(_read(EMIT_HELPER)))
@@ -1091,7 +1259,9 @@ def test_every_setup_guard_reads_quiet_mode_alone(path):
     # {headless_mode} is only parsed, folded with preferences.yaml, and named
     # as the source of the step 3 orphan default.
     allowed = {"SKILL.md": ("1. **Parse invocation flags first**", "5. **Reconcile `{headless_mode}`**"),
-               "auto-index.md": ("- `{quiet_mode}` is true → the default **Keep**",)}.get(path.name, ())
+               "auto-index.md": ("- `{quiet_mode}` is true → the default **Keep**",),
+               # Step 4 passes --headless so the emitter names that orphan default (#1119).
+               "report.md": ("- `--orphan-action {orphan_action}` when",)}.get(path.name, ())
     readers = [line.strip()[:60] for line in text.splitlines() if "{headless_mode}" in line]
     assert [line for line in readers if not line.startswith(allowed)] == []
 
@@ -1145,18 +1315,31 @@ RUN_DIR_DELETE_RE = re.compile(r'^rm -f ((?:"\{run_dir\}/[a-z-]+\.(?:json|err)" 
                                re.M)
 
 
-def test_run_folder_is_made_in_step_1_and_removed_in_step_4():
+def test_run_folder_is_made_at_activation_and_removed_in_step_4():
+    """#1119: item 5b makes the folder before item 6 saves the resolver's stderr in it."""
+    item = _run_folder_item()
+    assert 'mktemp -d "{project-root}/_bmad-output/.skf-run/skf-setup-XXXXXXXX"' in item
+    assert "Bind `{run_dir}` ← the path it prints" in item
+    assert "halt with phase `on-activation:run-folder`, `path` `{project-root}/_bmad-output/.skf-run`" in item
+    assert "Item 3 proved `uv` and item 4 bound the helper, so this halt runs its own pipe, not the loop" in item
+    activation = _on_activation(_read(SKILL_MD))
+    assert activation.index("5. **Reconcile") < activation.index("5b. **Create the run folder.**") < \
+        activation.index("6. **Resolve workflow customization.**")
     detect = _section(_read(REFS / "detect-and-tier.md"), "### 1.")
-    assert 'mktemp -d "{project-root}/_bmad-output/.skf-run/skf-setup-XXXXXXXX"' in detect
-    assert "Bind `{run_dir}` ← the path it prints" in detect
-    assert "halt with phase `step 1:run-folder`" in detect
+    assert "mktemp" not in detect and "run-folder" not in detect
+    assert "Run the detector into `{run_dir}`, the run folder SKILL.md On Activation item 5b made:" in detect
+    for path in [SKILL_MD, *sorted(REFS.glob("*.md")), *sorted((SRC / "shared").rglob("*"))]:
+        if path.is_file() and path.suffix in (".md", ".py", ".json"):
+            assert RETIRED_PHASE not in _read(path), path.name
     report = _read(REFS / "report.md")
     chain = _section(report, "### 5.")
     delete = RUN_DIR_DELETE_RE.search(chain)
     assert delete, "section 5 does not delete the run folder file by file"
-    written = {name for step in STEP_FILES for name in RUN_DIR_WRITE_RE.findall(_read(REFS / step))}
+    written = {name for path in (SKILL_MD, *(REFS / step for step in STEP_FILES))
+               for name in RUN_DIR_WRITE_RE.findall(_read(path))}
     assert set(re.findall(r'"\{run_dir\}/([a-z-]+\.(?:json|err))"', delete.group(1))) == written
-    assert {"detect-tools.err", "write-tools.err", "forge-data-dir.err"} <= written
+    assert {"detect-tools.err", "write-tools.err", "forge-data-dir.err", "resolver.err"} <= written
+    assert RETIRED_PAYLOAD not in written
     # A recursive delete of a mis-bound {run_dir} could take every run's folder with it.
     assert "rm -r" not in report
     # Deleted before the tier-miss line shows, so that line stays the final message.
@@ -1178,27 +1361,37 @@ def test_every_staged_helper_output_is_one_the_emitter_reads():
                                   "qmd-remove.json", "clean-stale.json"}
 
 
-def test_report_payload_is_staged_before_the_banner_and_shared_with_the_envelope():
+# The options report.md section 1 names, which both report calls end with (#1119), and the
+# empty stdin after them, so a call never reads or waits on one the host left open (round 1).
+REPORT_GROUP = f"[--orphan-action {{orphan_action}}] [--headless] [--quiet] {RESOLVER_GROUP}"
+NO_STDIN = " < /dev/null"
+
+
+def test_report_passes_options_and_no_payload_to_the_banner_and_the_envelope():
+    """#1119: the orphan decision and the resolver reason go to the emitter as
+    options, so step 4 types no payload and escapes nothing."""
     report = _read(REFS / "report.md")
     staged = _section(report, "### 1.")
-    assert "cat > \"{run_dir}/report-context.json\" <<'SKF_JSON'" in staged
-    keys = set(re.findall(r'^  "([a-z_]+)":', staged, re.MULTILINE))
-    # Only what neither a helper output nor the project gives: every other
-    # value comes from a staged file (#592) or from the path options.
-    assert keys == {"orphan_auto_resolution", "customization_resolver_unavailable", "error"}
-    assert '"customization_resolver_unavailable": {customization_resolver_unavailable},' in staged
+    for stale in (RETIRED_PAYLOAD, "<<'SKF_JSON'", "{orphan_auto_resolution", "Stage the"):
+        assert stale not in report, stale
+    assert (f"No step types a payload: both calls end with the same option group, `{REPORT_GROUP}`, each "
+            "bracket kept only when its value holds, and then with `< /dev/null`, which the emitter reads as "
+            "the empty payload `{}`, so neither call reads or waits on a stdin the host left open:") in staged
+    assert ("`--orphan-action {orphan_action}` when `{orphan_action}` is non-null, `--headless` when "
+            "`{headless_mode}` is true, and `--quiet` when `{quiet_mode}` is true") in staged
     doc = ast.get_docstring(ast.parse(_read(EMIT_HELPER)))
-    assert all(f'"{key}"' in doc for key in keys), keys
+    for option in ("--orphan-action", "--headless", "--quiet", "--customization-resolver-unavailable-from"):
+        assert option in doc, option
     # The folders On Activation bound from preflight: the emitter reads no config.yaml.
     paths = '--project-root "{project-root}" --sidecar-path "{sidecar_path}" --forge-data-folder "{forge_data_folder}"'
     banner = _joined(_section(report, "### 2."))
     assert (f'render-report --run-dir "{{run_dir}}" {paths} --tier-rules "{{skill-root}}/references/tier-rules.md" '
-            '< "{run_dir}/report-context.json"') in banner
+            f"{REPORT_GROUP}{NO_STDIN}\n") in banner
     assert (REFS / "tier-rules.md").is_file()
     # The script owns the banner's lines: no template of them is left to drift from it.
     assert "kept for reference only" not in report and "{if " not in report
     emit = _joined(_section(report, "### 4."))
-    assert f'emit --run-dir "{{run_dir}}" {paths} < "{{run_dir}}/report-context.json"' in emit
+    assert f'emit --run-dir "{{run_dir}}" {paths} {REPORT_GROUP}{NO_STDIN}\n' in emit
     assert "echo '" not in report and "tierRulesData" not in report
     rules = _section(report, "## Rules")
     assert "negative framing" not in rules
@@ -1232,19 +1425,38 @@ def test_report_types_no_path_and_repairs_no_payload():
     report = _read(REFS / "report.md")
     staged = _section(report, "### 1.")
     assert "Write each path" not in report and "{sidecar_path}/forge-tier.yaml" not in staged
-    rule = next(b for _, _, b in _prose_blocks(staged) if "`{customization_resolver_unavailable}`" in b)
-    assert ("`{customization_resolver_unavailable}` is JSON `null` unless SKILL.md On Activation bound it to "
-            "the resolver's one-line failure reason; it is then that reason as a JSON string") in rule
+    assert (f"`{RESOLVER_FILE}` when SKILL.md On Activation item 6 bound `{{customization_resolver_unavailable}}` "
+            "to a reason: the emitter reads the reason from that file, folds it to one line and escapes it") in staged
+    assert "escaped" not in staged and "JSON string" not in staged
     for prefix in ("### 2.", "### 4."):
-        assert "fix `report-context.json`" not in _section(report, prefix), prefix
+        assert "report-context" not in _section(report, prefix), prefix
         assert "run it again" not in _section(report, prefix), prefix
     emit_failure = next(b for _, _, b in _prose_blocks(_section(report, "### 4.")) if "exits non-zero" in b)
     assert "failed schema validation" not in emit_failure
 
 
-def test_the_staged_report_payload_runs_through_both_report_calls(tmp_path):
-    """The heredoc as step 3 and On Activation leave it, through the documented
-    calls: the paths come from the folders activation bound, not from the payload."""
+def _report_option_group(call: str, orphan_action: str | None, headless: bool, quiet: bool,
+                         resolver: bool) -> str:
+    """A report call's option group as section 1 keeps it: each bracket only when its value holds,
+    then the empty stdin."""
+    assert call.endswith(f" {REPORT_GROUP}{NO_STDIN}"), call
+    kept = [f"--orphan-action {orphan_action}"] if orphan_action else []
+    kept += ["--headless"] * headless + ["--quiet"] * quiet + [RESOLVER_FILE] * resolver
+    return " ".join([call[:-len(REPORT_GROUP + NO_STDIN) - 1], *kept]) + NO_STDIN
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="POSIX shell")
+@pytest.mark.parametrize("orphan_action,headless,quiet,decision", [
+    (None, True, True, "keep 2 orphaned collection(s) (non-interactive, headless-default)"),
+    (None, False, True, "keep 2 orphaned collection(s) (non-interactive, quiet-default)"),
+    ("remove", False, False, "remove 2 orphaned collection(s) (non-interactive, orphan-action-flag)"),
+    (None, False, False, None),
+], ids=["headless", "quiet", "orphan-action-remove", "interactive"])
+def test_both_report_calls_run_as_documented_with_no_payload(tmp_path, orphan_action, headless, quiet, decision):
+    """#1119: the documented calls, run by bash on a stdin the host left open, which they
+    never wait on (round 1): the paths come from the folders activation bound, the orphan
+    decision from the flags and the staged classification, and the resolver reason from
+    item 6's file, shell characters and all."""
     project = tmp_path / "project"
     (project / "_bmad" / "skf").mkdir(parents=True)
     (project / "_bmad" / "skf" / "config.yaml").write_bytes(
@@ -1260,28 +1472,45 @@ def test_the_staged_report_payload_runs_through_both_report_calls(tmp_path):
     detect = {"tools": {"ast_grep": {"available": True, "version": "ast-grep 0.45.3"}},
               "tier": {"calculated": "Forge"}, "prior": {"previous_tier": "Forge"}, "require_tier": {}}
     (run_dir / "detect-tools.json").write_bytes(json.dumps(detect).encode("utf-8"))
-    heredoc = re.search(r"<<'SKF_JSON'\n(.*?)\nSKF_JSON", _section(_read(REFS / "report.md"), "### 1."), re.S)
-    payload = (heredoc.group(1).replace("{orphan_auto_resolution_or_null}", "null")
-               .replace("{customization_resolver_unavailable}", json.dumps('resolve_customization.py: "x" failed')))
+    (run_dir / "qmd-classify.json").write_bytes(json.dumps(
+        {"status": "ok", "healthy": [], "orphaned": ["a-docs", "b-brief"]}).encode("utf-8"))
+    if orphan_action == "remove":
+        (run_dir / "qmd-remove.json").write_bytes(json.dumps(
+            {"status": "ok", "removed": ["a-docs", "b-brief"], "failed": [], "errors": {}}).encode("utf-8"))
+    (run_dir / "resolver.err").write_bytes(RESOLVER_ERR)
     root = project.resolve().as_posix()
-    values = {"emitEnvelopeHelper": EMIT_HELPER.as_posix(), "run_dir": run_dir.as_posix(),
+    values = {"emitEnvelopeHelper": shlex.quote(EMIT_HELPER.as_posix()), "run_dir": run_dir.as_posix(),
               "project-root": project.as_posix(), "skill-root": SETUP_DIR.as_posix(),
-              "sidecar_path": bound["sidecar_path_resolved"], "forge_data_folder": bound["forge_data_folder_resolved"]}
+              "sidecar_path": bound["sidecar_path_resolved"], "forge_data_folder": bound["forge_data_folder_resolved"],
+              "orphan_action": orphan_action or ""}
     report = _read(REFS / "report.md")
     outputs = {}
     for prefix, word in (("### 2.", "render-report"), ("### 4.", "emit")):
         [call] = [line for block in re.findall(r"```bash\n(.*?)```", _section(report, prefix), re.S)
                   for line in _joined(block).splitlines() if f" {word} " in line]
-        command = re.sub(r"\{([\w-]+)\}", lambda m: values[m.group(1)], call.split(" < ")[0])
-        words = shlex.split(command)
-        assert words[:3] == ["uv", "run", EMIT_HELPER.as_posix()], words
-        done = subprocess.run([sys.executable, *words[2:]], input=payload.encode("utf-8"),
-                              capture_output=True, timeout=10)
+        command = _report_option_group(call, orphan_action, headless, quiet, resolver=True)
+        command = re.sub(r"\{([\w-]+)\}", lambda m: values[m.group(1)], command)
+        command = command.replace("uv run ", shlex.quote(sys.executable) + " ", 1)
+        # A pipe whose write end this test holds open: a call that read it would block until killed.
+        host_stdin, held_open = os.pipe()
+        try:
+            done = subprocess.run(["bash", "-c", command], stdin=host_stdin, capture_output=True, timeout=20,
+                                  cwd=tmp_path)
+        finally:
+            os.close(host_stdin)
+            os.close(held_open)
         assert done.returncode == 0, done.stderr.decode("utf-8", "replace")
         outputs[word] = done.stdout.decode("utf-8")
     envelope = json.loads(outputs["emit"].strip()[len(ENVELOPE_PREFIX):])["skf_setup"]
     assert envelope["config_path"] == f"{root}/_bmad/_memory/forger-sidecar/forge-tier.yaml"
-    assert 'customization_resolver_unavailable: resolve_customization.py: "x" failed' in envelope["warnings"]
+    assert envelope["warnings"][0] == f"customization_resolver_unavailable: {RESOLVER_REASON}"
+    trail = [w for w in envelope["warnings"] if w.startswith("orphan_")]
+    if decision is None:
+        assert trail == [], "a gate the user answered records no decision"
+    else:
+        removed = ["orphan_removed: a-docs", "orphan_removed: b-brief"] if orphan_action == "remove" else []
+        assert trail == [f"orphan_auto_resolution: {decision}", *removed]
+    assert not (tmp_path / "pwned").exists()
     banner = outputs["render-report"].splitlines()
     assert f"  - forge-tier.yaml: {root}/_bmad/_memory/forger-sidecar/forge-tier.yaml" in banner
     assert f"  - {root}/forge-data/ (directory ensured)" in banner
@@ -1420,10 +1649,10 @@ def test_write_failure_phases_named_wherever_a_write_failure_is_described():
 
 
 def test_step_4_passes_a_null_error_and_step_2_binds_none():
-    """A halt that names a phase never reaches step 4, so its payload's error is null."""
+    """A halt that names a phase never reaches step 4, so its error is null: step 4 passes none."""
     report = _read(REFS / "report.md")
     staged = _section(report, "### 1.")
-    assert '"error": null' in staged
+    assert '"error"' not in staged
     assert "`error` stays `null`: a halt that names a phase never reaches this step" in staged
     assert "{error_object_or_null}" not in report
     assert "set `{error:" not in _read(REFS / "write-config.md")
@@ -1434,11 +1663,13 @@ def test_step_4_passes_a_null_error_and_step_2_binds_none():
 
 def test_skill_md_lifts_its_invocation_contract():
     """#600: the headless-only contract lives behind a one-line pointer, so
-    SKILL.md stays under its 3,000-token budget (len // 4, the SKF convention)."""
+    SKILL.md stays under its 3,500-token budget (len // 4, the SKF convention).
+    The budget was 3,000 until #1119 moved the run folder into On Activation
+    (item 5b), where item 6 saves the resolver's stderr."""
     skill = _read(SKILL_MD)
     pointer = _section(skill, "## Invocation Contract")
     assert "`references/invocation-contract.md`" in pointer and "| **" not in pointer
-    assert len(skill) // 4 < 3000, len(skill) // 4
+    assert len(skill) // 4 < 3500, len(skill) // 4
     contract = _section(_read(INVOCATION_CONTRACT), "## Invocation Contract")
     rows = re.findall(r"^\| \*\*([A-Za-z ]+)\*\* \|", contract, re.MULTILINE)
     assert rows == ["Inputs", "Flags", "Gates", "Outputs", "Headless", "Failure modes"]
@@ -1502,7 +1733,7 @@ def test_a_tier_miss_skips_the_due_index_build_and_the_hygiene():
     assert skip in first
     # The skip comes before every route into a hygiene section.
     assert first.index(skip) < first.index("Go to section 2 at Deep tier")
-    assert first.index("Set `{orphan_auto_resolution}` to null") < first.index(skip)
+    assert "orphan_auto_resolution" not in first, "the emitter, not step 3, records the orphan decision"
     contract = _section(_read(INVOCATION_CONTRACT), "## Invocation Contract")
     failure = next(line for line in contract.splitlines() if line.startswith("| **Failure modes**"))
     assert ("Such a run fails fast: it builds no ccc index that is due (`ccc_index.status` `\"skipped\"`, "
@@ -1577,6 +1808,64 @@ def test_preflight_gives_every_value_activation_binds(tmp_path):
     assert "`{tier_override}` from `sidecar.preferences.tier_override`" in load
     assert out["sidecar"]["preferences"]["tier_override"] is None
     assert out["derived"]["headless_mode"] is True
+
+
+def _item_4() -> str:
+    return _section(_on_activation(_read(SKILL_MD)), "4. **Load config and preferences.**")
+
+
+def test_item_4_resolves_every_helper_the_step_files_run(tmp_path):
+    """#1117: item 4's one preflight call, run as written against this repository,
+    binds every `{...Helper}` the step files and item 6 run, none of them null."""
+    item = _item_4()
+    [call] = re.findall(r'Run `(uv run "<preflight>" [^`]+)`', item)
+    assert call == 'uv run "<preflight>" "{project-root}" --allow-missing-sidecar --helpers "{skill-root}"'
+    argv = shlex.split(call.replace('uv run "<preflight>"', "").replace("{project-root}", REPO_ROOT.as_posix())
+                       .replace("{skill-root}", SETUP_DIR.as_posix()))
+    config = tmp_path / "config.yaml"
+    config.write_text(f"sidecar_path: {(tmp_path / 'sidecar').as_posix()}\n", encoding="utf-8")
+    done = subprocess.run([sys.executable, str(PREFLIGHT), *argv, "--config-path", str(config)],
+                          capture_output=True, text=True, timeout=30)
+    assert done.returncode == 0, done.stdout + done.stderr
+    helpers = json.loads(done.stdout)["helpers"]
+    ok = next(line for line in item.splitlines() if "`status` `ok`" in line)
+    bind = ok[ok.index("Bind `{detectToolsHelper}`"):]
+    bound = re.findall(r"`\{([A-Za-z]+)Helper\}`", bind[:bind.index("from `helpers.<stem>`")])
+    used = set()
+    for name in STEP_FILES:
+        used |= set(re.findall(r"\{([A-Za-z]+)Helper\}", _read(REFS / name)))
+    used |= set(re.findall(r"\{([A-Za-z]+)Helper\}", _section(_on_activation(_read(SKILL_MD)),
+                                                               "6. **Resolve workflow customization.**")))
+    assert sorted(bound) == sorted(used) == sorted(helpers)
+    for stem in bound:
+        assert helpers[stem] and pathlib.Path(helpers[stem]).is_file(), stem
+    assert "`helpers.detectTools` for `{detectToolsHelper}`" in ok
+
+
+def test_a_missing_helper_halts_at_item_4_naming_it(tmp_path):
+    """#1117: a missing helper ends the run at activation, before any step
+    file loads, with the error that names it as the reason."""
+    item = _item_4()
+    [bullet] = [line for line in item.splitlines() if "`code` starting `HELPERS_`" in line]
+    for needle in ("halt with phase `on-activation:helper-missing`", "`path` `{project-root}/_bmad/skf/shared/scripts`",
+                   "reason `Setup cannot proceed: <message>`: its `error` without the leading `Cannot initialize. `",
+                   "passed as the halt contract says", "No step file loads."):
+        assert needle in bullet, needle
+    assert item.index(bullet) < item.index("`code` `CONFIG_MISSING`")
+    project = _project(tmp_path, f"sidecar_path: {(tmp_path / 'sidecar').as_posix()}\n")
+    proc = subprocess.run([sys.executable, str(PREFLIGHT), str(project), "--allow-missing-sidecar", "--helpers",
+                           str(SETUP_DIR)], capture_output=True, text=True, timeout=30)
+    assert proc.returncode == 1
+    out = json.loads(proc.stdout)
+    assert out["code"] == "HELPERS_MISSING" and out["code"].startswith("HELPERS_")
+    assert "skf-detect-tools.py" in out["helpers_missing"] and "skf-detect-tools.py" in out["error"]
+    message = out["error"].removeprefix("Cannot initialize. ")
+    assert message != out["error"]
+    path = (project / "_bmad" / "skf" / "shared" / "scripts").as_posix()
+    error = _blocked_error(_stdin_blocked("on-activation:helper-missing", "Setup cannot proceed: <message>", message,
+                                          path))
+    assert error == {"phase": "on-activation:helper-missing", "reason": "Setup cannot proceed: " + message,
+                     "path": path}
 
 
 @pytest.mark.parametrize("config,code", [

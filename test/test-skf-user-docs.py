@@ -763,7 +763,9 @@ def test_quick_skill_headless_block_names_the_success_envelope():
     batch = _paragraph(block, "**Batch mode (`--batch <file>`).**")
     for token in ("each target runs steps 1 to 6", "the health check runs once, after the batch summary",
                   "the highest exit code among its failed targets (`0` when none failed)",
-                  "`--fail-fast` stops it at the first failed target", "writes no summary and exits `2`, or `4`",
+                  "`--fail-fast` stops it at the first failed target",
+                  "writes no summary and exits `2`, `4` when its run folder cannot be written, or `3` when it "
+                  "stops as it starts",
                   "stops with exit `4` and a `batch-mode` halt line",
                   "The batch's result is the file that event's `summary_path` names",
                   "the `-latest` copy holds the last batch summary written, which may be another batch's"):
@@ -1913,7 +1915,13 @@ def test_customizing_section_and_chain_docs_follow_the_activation():
                   "`customization_resolver_unavailable: not found`",
                   # #965: a missing SKF helper names itself, so it never reads as a missing core resolver.
                   "`customization_resolver_unavailable: SKF helper skf-resolve-customization.py not found`",
-                  "reinstall SKF"):
+                  "reinstall SKF",
+                  # #1117: these two resolve every helper at activation and stop there instead of warning.
+                  "Setup Forge and Quick Skill never reach that warning: they look for that helper, with every "
+                  "other helper their stage files declare, when they start, and stop there when one is missing, "
+                  "naming each",
+                  "Setup Forge at phase `on-activation:helper-missing`",
+                  "Quick Skill with exit `3` and `details.cause` `helpers-missing`"):
         assert token in resolver, token
     forger = _paragraph(customizing, "Ferris reads `_bmad/custom/skf-forger.toml`")
     # Ferris resolves `--key agent`: his override opens with `[agent]`, not the `[workflow]` the opening names.

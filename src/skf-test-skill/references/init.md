@@ -27,6 +27,13 @@ frontmatterScriptProbeOrder:
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
+# Resolve `{forgeTierRwHelper}` to the first existing path; §4 HALTs if
+# neither exists, unless `--tier` was passed. §4 runs its `effective`
+# command once: it reads the tier and the tool flags from forge-tier.yaml
+# and applies a valid `tier_override` from preferences.yaml.
+forgeTierRwProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
+  - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
 # Resolve `{checkWorkspaceDriftHelper}` to the first existing path; §5b HALTs
 # if neither exists. It runs the workspace drift guard, once per repository
 # of a stack skill.
@@ -64,7 +71,15 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --target stderr 
 SKF_TS_HALT
 ```
 
-Once §6b has created the run folder, write the same object, with `"report_path": "{report_file}"` once §6c created the report, to `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. The emitter sets `status: "error"`, derives `exit_code` from `halt_reason` and stamps `run_id`. Display the line it prints, as the run's last line, then stop. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. `references/invocation-contract.md` lists every `halt_reason`.
+A halt whose message quotes a helper's text (its `error`, its `message` or its stderr, which can hold the backslashes of a Windows path) passes its fields as options instead, so no step types that text into JSON: add `--skill-name "{skill_name}"` once §1 named the skill and `--path "<path>"` when the halt names one, and pass the message on stdin in a quoted heredoc:
+
+```bash
+uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --target stderr --phase '<phase>' --halt-reason '<halt_reason>' --skill-name "{skill_name}" --reason - <<'SKF_REASON'
+<the halt message>
+SKF_REASON
+```
+
+Once §6b has created the run folder, write the stdin form's object, with `"report_path": "{report_file}"` once §6c created the report, to `{run_dir}/halt.json` and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-test-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`. The emitter sets `status: "error"`, derives `exit_code` from `halt_reason` and stamps `run_id`. Display the line it prints, as the run's last line, then stop. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing. `references/invocation-contract.md` lists every `halt_reason`.
 
 ### 0. Resolve the Envelope Emitter
 
@@ -72,7 +87,7 @@ Resolve `{emitEnvelopeHelper}` ← first existing path in `{emitEnvelopeProbeOrd
 
 ### 0b. Check the Runtime
 
-Every step runs SKF's helpers through `uv run`, which also installs the dependencies each script declares (PEP 723); bare `python3` ignores them, so a helper such as the frontmatter validator fails on its PyYAML import. Confirm that `python3` and `uv` are both on `$PATH` (`command -v python3` and `command -v uv`). If either is missing, HALT (`halt_reason: "runtime-missing"`, phase `init:runtime`): "**test-skill needs `{the missing tool}`, which is not on your PATH.** Install it (`uv`: <https://docs.astral.sh/uv/getting-started/installation/>; `python3`: <https://www.python.org/downloads/>; both are documented runtime prerequisites, see `docs/getting-started.md`), then re-run." Nothing is written. The emitter needs only the standard library, so when `uv` is the missing tool the envelope command runs with `python3` in place of `uv run`; with both missing, display the halt message alone.
+Every step runs SKF's helpers through `uv run`, which also installs the dependencies each script declares (PEP 723); bare `python3` ignores them, so a helper such as the frontmatter validator fails on its PyYAML import. Confirm that `python3` and `uv` are both on `$PATH` (`command -v python3` and `command -v uv`). If either is missing, HALT (`halt_reason: "runtime-missing"`, phase `init:runtime`): "**test-skill needs `{the missing tool}`, which is not on your PATH.** Install it (`uv`: <https://docs.astral.sh/uv/getting-started/installation/>; `python3`: <https://www.python.org/downloads/>; both are documented runtime prerequisites, see <https://armelhbobdad.github.io/bmad-module-skill-forge/getting-started/#prerequisites-full-reference>), then re-run." Nothing is written. The emitter needs only the standard library, so when `uv` is the missing tool the envelope command runs with `python3` in place of `uv run`; with both missing, display the halt message alone.
 
 ### 1. Receive the Skill Name
 
@@ -82,7 +97,7 @@ Bind `{skill_name}` from the workflow argument: a skill name, or a path inside `
 - `--allow-workspace-drift`: bypass the section 5b pre-flight guard that halts when local workspace HEAD does not match `metadata.source_commit`. Store `allow_workspace_drift: true` in workflow context when present; §5b decides whether drift was overridden and records it in the report frontmatter (`workspaceDrift`), which the later steps read. No effect when `source_commit` is unpinned or the source is not a git working tree.
 - `--no-discovery` — skip the §4b Discovery Testing block in step 6 (report). Store `no_discovery: true` in workflow context when present.
 - `--no-health-check` — skip the §7 health-check dispatch in step 6 (report). Store `no_health_check: true` in workflow context when present.
-- `--tier=<Quick|Forge|Forge+|Deep>`: bypass the §4 forge-tier.yaml sidecar HALT. Store `tier_flag: '<value>'` in workflow context when present; §4 will set `detected_tier` directly from this value and skip the sidecar probe. A value that is not one of the four (case-sensitive) HALTs here, before anything runs (`halt_reason: "input-invalid"`, phase `init:flags`): "Error: --tier=<value> is not one of Quick, Forge, Forge+, Deep".
+- `--tier=<Quick|Forge|Forge+|Deep>`: test at this tier, bypassing the §4 forge-tier.yaml sidecar HALT. Store `tier_flag: '<value>'` in workflow context when present; §4 will set `detected_tier` directly from this value and read neither forge-tier.yaml nor `tier_override`, so the flag wins over `tier_override`. A value that is not one of the four (case-sensitive) HALTs here, before anything runs (`halt_reason: "input-invalid"`, phase `init:flags`): "Error: --tier=<value> is not one of Quick, Forge, Forge+, Deep".
 - `--threshold=<N>`: override the pass threshold for this run. §1b resolves it: CLI wins over per-pipeline defaults and the `workflow.default_threshold` scalar.
 - `--discovery-catalog=all`: widen the discovery catalog of step 6 §4b.0. Store `discovery_catalog_all: true` in workflow context when present.
 
@@ -225,19 +240,22 @@ This skill will fail `npx skills add` and `npx skill-check check`. {If warn:} Co
 
 ### 4. Load Forge Tier State
 
-**`--tier=<...>` flag bypass (precedes the sidecar probe).** If `tier_flag` is set in workflow context (from §1's `--tier=<Quick|Forge|Forge+|Deep>` flag, which §1 checked): set `detected_tier` directly to the flag's value, leave `ast_grep`/`gh_cli`/`qmd` availability flags unset (downstream steps treat unset as "unknown": analysis proceeds without tool-specific enrichment), log Info note "tier: supplied via --tier flag, sidecar bypassed", and SKIP the sidecar probe and HALT below (jump straight to §4b "Apply Tier Override").
+**`--tier=<...>` flag bypass (precedes the forge-tier call).** If `tier_flag` is set in workflow context (from §1's `--tier=<Quick|Forge|Forge+|Deep>` flag, which §1 checked): set `detected_tier` directly to the flag's value, leave `ast_grep`/`gh_cli`/`qmd` availability flags unset (downstream steps treat unset as "unknown": analysis proceeds without tool-specific enrichment), log Info note "tier: supplied via --tier flag, sidecar bypassed", and skip the call below, its HALTs and §4b: the flag's tier is the run's tier, and `tier_override` does not change it. Continue at §5.
 
-**Otherwise (no `--tier` flag):** Read `{sidecarFile}` to determine available analysis depth.
+**Otherwise (no `--tier` flag):** resolve `{forgeTierRwHelper}` ← first existing path in `{forgeTierRwProbeOrder}`. If neither path exists, HALT (`halt_reason: "helper-missing"`, phase `init:forge-tier`) with "Error: cannot locate skf-forge-tier-rw.py at `{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py` or `{project-root}/src/shared/scripts/skf-forge-tier-rw.py`. Install the SKF module or run from a development checkout with src/ present." From `{project-root}`, run it once. It reads the tier and the tool flags from `{sidecarFile}` and applies the `tier_override` of `{sidecar_path}/preferences.yaml` only when it names Quick, Forge, Forge+ or Deep, capital letters included:
 
-**If forge-tier.yaml exists:**
-- Read `tier` value (Quick, Forge, Forge+, or Deep)
-- Read tool availability flags (ast_grep, gh_cli, qmd)
+```bash
+uv run {forgeTierRwHelper} effective --target "{sidecarFile}" --preferences "{sidecar_path}/preferences.yaml"
+```
 
-**If forge-tier.yaml missing:** HALT (`halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecarFile}"`) with "**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep), or re-run with `--tier=<Quick|Forge|Forge+|Deep>` to bypass the sidecar."
+- **Exit 0 with `exists` true:** bind `{detected_tier}` ← its `tier`, the tier after a valid override (the JSON's own `detected_tier` is the file's tier), and the tool availability flags (`ast_grep`, `gh_cli`, `qmd`) ← its `tools`. This step reads neither file itself.
+- **Exit 0 with `exists` false** (forge-tier.yaml missing): HALT (`halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecarFile}"`) with "**Cannot proceed.** forge-tier.yaml not found at `{sidecarFile}`. Please run the **setup** workflow first to configure your forge tier (Quick/Forge/Forge+/Deep), or re-run with `--tier=<Quick|Forge|Forge+|Deep>` to bypass the sidecar."
+- **Exit 2 with the helper's JSON error on stderr** (a forge-tier.yaml that cannot be read or parsed, or holds no `tier` it can use, a truncated one included): HALT (`halt_reason: "forge-tier-missing"`, phase `init:forge-tier`, `"path": "{sidecarFile}"`) with "**Cannot proceed.** forge-tier.yaml at `{sidecarFile}` cannot be read: {its `message`}. Re-run the **setup** workflow to rewrite it, or re-run with `--tier=<Quick|Forge|Forge+|Deep>` to bypass the sidecar."
+- **Any other exit, or no JSON:** HALT (`halt_reason: "helper-failed"`, phase `init:forge-tier`) with its stderr message. An exit 2 with no JSON on stderr counts here: an older `skf-forge-tier-rw.py`, which has no `effective` command, exits 2 that way.
 
 ### 4b. Apply Tier Override (if set)
 
-Read `{sidecar_path}/preferences.yaml`. If `tier_override` is set and is a valid tier value (Quick, Forge, Forge+, or Deep), update `detected_tier` to the override value for use in subsequent steps and output documents.
+This section reads no file: §4's call applied a valid `tier_override` already (its `tier_source` is then `override`), so `{detected_tier}` is the tier the later steps and output documents use. When its `override_rejected` is true, log an Info note: "tier_override: `{tier_override}` is not one of Quick, Forge, Forge+, Deep and was ignored; testing at the detected tier {detected_tier}."
 
 ### 5. Load Skill Metadata
 
@@ -292,7 +310,7 @@ The owner names no run id, so the helper adds one. Bind `{run_id}` ← `run_id` 
   mkdir -p "{project-root}/_bmad-output/.skf-run/skf-test-skill-{run_id}"
   ```
 
-  If it cannot be created, HALT (`halt_reason: "write-failed"`, phase `init:run-folder`, `"path"` the folder) with the first stderr line, releasing the run lock first as the **Halt envelope** paragraph says and passing the envelope's payload on stdin: there is no folder to stage it in. report.md §7 removes the folder when the run ends; a HALT leaves it for inspection.
+  If it cannot be created, HALT (`halt_reason: "write-failed"`, phase `init:run-folder`, `"path"` the folder) with the first stderr line, releasing the run lock first as the **Halt envelope** paragraph says and passing the halt's fields as options and that line on stdin, as it says for a helper's text: there is no folder to stage a payload in. report.md §7 removes the folder when the run ends; a HALT leaves it for inspection.
 - `acquired` is false (exit 3): another run holds a lock that has not gone stale. HALT (`halt_reason: "another-run-active"`, phase `init:run-lock`) with "**Another test-skill run is active for {skill_name}.** {message}": the helper's `message` names that run, the lock file to delete when no run is active, and the time the lock goes stale. This run holds no lock, so nothing is released.
 - The helper exits 1 or 2, or prints no JSON: HALT (`halt_reason: "helper-failed"`, phase `init:run-lock`) with its stderr message (exit 2: the lock file could not be written, so check that `{forge_version}` is writable). This run holds no lock, so nothing is released.
 

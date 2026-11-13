@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-setup
+summary: |
+  When the customization resolver fails, Setup Forge now saves its error in the run folder (`resolver.err`), and every later halt and the final report pass that file to the emitter with `--customization-resolver-unavailable-from`, which takes the reason, folds it to one line and escapes it. The reason no longer goes through a hand-escaped shell argument or a hand-built `report-context.json`, so a backtick, `$( )`, a quote or a backslash in it can no longer break the `SKF_SETUP_RESULT_JSON` line or run as a command. The report also passes the orphan decision as `--orphan-action`, `--headless` and `--quiet`, and the emitter derives its `source` (`orphan-action-flag`, `headless-default` or `quiet-default`) from them. `emit`, `render-report` and `emit-blocked` of `skf-emit-result-envelope.py` gain `--customization-resolver-unavailable-from FILE`, and setup's `emit` and `render-report` read an empty stdin as an empty payload: the report runs them with `< /dev/null`, so neither reads or waits on a stdin the host left open.
+issues: [1119]
+prs: [1205]

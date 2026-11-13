@@ -44,17 +44,21 @@ Identify the skill the user wants to rename, validate the new name against the a
    uv run {runLockHelper} release --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" --owner "{lock_owner}"
    ```
 
-   When it exits non-zero or prints no JSON, tell the user in one line that the lock file stays, and add `"warnings": ["run-lock-not-released: {forge_data_folder}/.skf-rename-{old_name}.lock"]` to the payload below.
-
-2. In `{headless_mode}`, pass the halt to the shared emitter, which prints its envelope on **stderr**. Write each string as JSON (escape `"`, `\` and control characters, and write every path with `/`), and pass `--run-dir "{run_dir}"` once §1 has bound it, even when the folder could not be created:
+   When it exits non-zero or prints no JSON, tell the user in one line that the lock file stays. In `{headless_mode}`, also record that in the run sink, where the emitter reads it for the halt's envelope; when `record` exits non-zero, show its message in one line and go on with the halt:
 
    ```bash
-   uv run {emitEnvelopeHelper} emit-halt --workflow skf-rename-skill --run-dir "{run_dir}" --target stderr <<'SKF_HALT'
-   {"phase": "<phase>", "halt_reason": "<halt_reason>", "reason": "<the message the halt displays>", "path": "<the path the halt names; leave the key out when it names none>", "old_name": <"{old_name}", or null before §4 binds it>, "new_name": <"{new_name}", or null before §5 binds it>}
-   SKF_HALT
+   uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "run-lock-not-released: {forge_data_folder}/.skf-rename-{old_name}.lock"
    ```
 
-   Display the `SKF_RENAME_SKILL_RESULT_JSON:` line it prints verbatim. When it exits non-zero and its `message` names the payload, fix the payload once and run it again. Only when `{emitEnvelopeHelper}` is missing, or the emitter still fails or prints no line, display the halt's message alone.
+2. In `{headless_mode}`, pass the halt to the shared emitter, which builds the payload from the options and prints its envelope on **stderr**. The heredoc holds the message the halt displays, as displayed and unescaped: helper JSON values, the lists it printed, the user's argument and paths included. Where that message quotes the stderr of the call that just failed, write `<message>` in its place: the emitter takes the diagnostic from `--stderr-from "{run_dir}/call.err"` and folds it to one line. Leave out `--stderr-from` for a halt that quotes no stderr, `--path` for a halt that names none (`<path>` written with `/`), `--old-name` until §4 binds `{old_name}` and `--new-name` until §5 binds `{new_name}`, and pass `--run-dir "{run_dir}"` once §1 has bound it, even when the folder could not be created:
+
+   ```bash
+   uv run {emitEnvelopeHelper} emit-halt --workflow skf-rename-skill --run-dir "{run_dir}" --target stderr --phase '<phase>' --halt-reason '<halt_reason>' --path "<path>" --old-name "{old_name}" --new-name "{new_name}" --stderr-from "{run_dir}/call.err" --reason - <<'SKF_REASON'
+   <the message the halt displays>
+   SKF_REASON
+   ```
+
+   Display the `SKF_RENAME_SKILL_RESULT_JSON:` line it prints verbatim. When it exits 1 and its `message` names an option, a field or `<message>`, fix the call once and run it again. Only when `{emitEnvelopeHelper}` is missing, or the emitter still fails or prints no line, display the halt's message alone, reading any stderr it quotes from `{run_dir}/call.err`.
 
 The halt leaves `{run_dir}` in place.
 
@@ -80,6 +84,8 @@ done
 - When a helper has no existing candidate, or `run-id` exits non-zero or prints no JSON: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:start-run`) with "**Rename Skill cannot start:** {the missing helper (`skf-run-lock.py`, `skf-emit-result-envelope.py`, `skf-manifest-ops.py` or `skf-skill-inventory.py`), or the helper's error}. Nothing was changed. Re-install SKF, then re-run." With no run id yet, its `emit-halt` leaves out `--run-dir "{run_dir}"`.
 - When the loop exits non-zero: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:write-probe`, with the folder its stderr names as `path`) with "**Cannot write to `{that folder}`.** Nothing was changed. Check that the path exists as a folder you can write to and that the disk has free space, then re-run."
 
+Neither halt has a run folder to save stderr in: its heredoc holds the helper's error, or the folder, as displayed, with no `--stderr-from`.
+
 Once the loop passes and `{customization_resolver_unavailable}` is set (SKILL.md On Activation step 3), record the reason in the run sink: write `customization_resolver_unavailable: {customization_resolver_unavailable}` to `{run_dir}/resolver-warning.txt` with a file write, never `echo` (the reason can hold quotes or `$( )`), then run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning "$(cat "{run_dir}/resolver-warning.txt")"`, and delete that file (`rm -f "{run_dir}/resolver-warning.txt"`), so the report step's `rmdir` still finds the folder empty.
 
 ### 2. Read Export Manifest
@@ -87,26 +93,26 @@ Once the loop passes and `{customization_resolver_unavailable}` is set (SKILL.md
 Read the manifest through `{manifestOpsHelper}`, never by eye: it migrates v1 to v2, normalizes `platforms` to `ides`, and reports a file that does not parse:
 
 ```bash
-uv run {manifestOpsHelper} {skills_output_folder} read
+uv run {manifestOpsHelper} {skills_output_folder} read 2> "{run_dir}/call.err"
 ```
 
 - **`status == "error"`** (the file exists but does not parse): halt with "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: {error}. Fix or remove the file before renaming." HALT (exit code 3, `halt_reason: "manifest-corrupt"`, `emit-halt` phase `select:read-manifest`, with the manifest as `path`).
 - **`status == "ok"`**: use `result.manifest` (already in the v2 shape) as `manifest` for the rest of this step. Set `manifest_exists = true` when `manifest.exports` has at least one entry, else `false` (a missing file reads back as an empty `exports`). With no entry, §3's on-disk scan is the whole roster: drafted or never-exported skills can still be renamed, and step 2 §6 has no manifest entry to re-key.
-- **No JSON on stdout** (the helper could not run): HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:read-manifest`) with "**Rename Skill cannot read the export manifest:** {the helper's stderr}. Nothing was changed. Re-install SKF, then re-run."
+- **No JSON on stdout** (the helper could not run): HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:read-manifest`) with "**Rename Skill cannot read the export manifest:** {the helper's stderr}. Nothing was changed. Re-install SKF, then re-run." An interactive run reads that stderr in `{run_dir}/call.err`.
 
 ### 3. List Available Skills
 
 Enumerate every skill available for rename deterministically:
 
 ```bash
-uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder}
+uv run {skillInventoryHelper} {skills_output_folder} --forge-data-folder {forge_data_folder} 2> "{run_dir}/call.err"
 ```
 
-Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear), plus `skf_skill`. List only the entries whose `skf_skill` is true: rename copies and then deletes the whole folder, so a folder SKF did not generate is never offered. A listed skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle: annotate it "(not in manifest)". The §4a rename check decides whether the skill the user picks can move. Bind `{not_skf_output}` ← `not_skf_output` (folders holding a skill SKF did not generate); when it is non-empty, show one line under the list: "Not offered (not SKF output): {not_skf_output}". When the call prints no JSON, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:list-skills`) with "**Rename Skill cannot list the skills:** {the helper's stderr}. Nothing was changed. Re-install SKF, then re-run."
+Read the JSON. Each entry in `skills[]` carries `name`, its `versions` array, and `active_version` (the helper unions the manifest `exports` with the on-disk directories and dedupes, so manifest-tracked and orphaned skills both appear), plus `skf_skill`. List only the entries whose `skf_skill` is true: rename copies and then deletes the whole folder, so a folder SKF did not generate is never offered. A listed skill whose `name` is absent from `manifest.exports` is a draft/orphan the rename workflow can still handle: annotate it "(not in manifest)". The §4a rename check decides whether the skill the user picks can move. Bind `{not_skf_output}` ← `not_skf_output` (folders holding a skill SKF did not generate); when it is non-empty, show one line under the list: "Not offered (not SKF output): {not_skf_output}". When the call prints no JSON, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:list-skills`) with "**Rename Skill cannot list the skills:** {the helper's stderr}. Nothing was changed. Re-install SKF, then re-run." An interactive run reads that stderr in `{run_dir}/call.err`.
 
 **If the list to display is empty** (no `skills[]` entry whose `skf_skill` is true):
 
-- When `{old_name_arg}` is set and it is in `{not_skf_output}`, take the §4a refusal for a folder SKF did not generate first, in either mode (exit code 5, `halt_reason: "not-skf-output"`, `emit-halt` phase `select:ownership-check`, with `old_name: "{old_name}"` in its payload).
+- When `{old_name_arg}` is set and it is in `{not_skf_output}`, take the §4a refusal for a folder SKF did not generate first, in either mode (exit code 5, `halt_reason: "not-skf-output"`, `emit-halt` phase `select:ownership-check`, with `--old-name "{old_name}"`).
 - Otherwise halt with "**Rename Skill: nothing to rename.** No skill SKF generated was found in `{skills_output_folder}/`. Run `[CS] Create Skill` first." When `{not_skf_output}` is non-empty, append: "Left untouched (not SKF output): {not_skf_output}." HALT (exit code 3, `halt_reason: "nothing-to-rename"`, `emit-halt` phase `select:list-skills`).
 
 Display the list only when §4 asks for the skill, one line per skill as `{name} ({n} versions, active: {active_version})` (append "(not in manifest)" for orphans):
@@ -149,7 +155,7 @@ uv run {skillInventoryHelper} "{skills_output_folder}" --skill {old_name} --rena
 
 From its `rename_check`, bind `{rename_verdict}` ← `verdict`, `{rename_reason}` ← `reason`, `{rename_detail}` ← `detail`, `{rename_entries}` ← `offending_entries`, `{target_errors}` ← `errors`, `{forge_move}` ← `forge_move`, `{forge_left_in_place}` ← `forge_left_in_place` and `{same_folder}` ← `same_folder`. The helper applies the rules below in order, to the skill folder and, unless both settings name one folder, to its forge folder, and returns the first that refuses. When the call exits non-zero, or its result has no `rename_check` (an installed `skf-skill-inventory.py` older than the flag), refuse with rule 1.
 
-When `{rename_verdict}` is not `"ok"`, display the message of the rule that applies and HALT (exit code 5, `halt_reason: "{rename_verdict}"`, `emit-halt` phase `select:ownership-check`, with `old_name: "{old_name}"` in its payload): `not-skf-output`, or `flat-layout` for rule 4. No lock is held yet (§4b takes it), so the halt releases none.
+When `{rename_verdict}` is not `"ok"`, display the message of the rule that applies and HALT (exit code 5, `halt_reason: "{rename_verdict}"`, `emit-halt` phase `select:ownership-check`, with `--old-name "{old_name}"`): `not-skf-output`, or `flat-layout` for rule 4. No lock is held yet (§4b takes it), so the halt releases none.
 
 1. No verdict (a failed call, or no `rename_check`) → `not-skf-output`: "**SKF cannot check that it generated `{old_name}`:** the rename check of `skf-skill-inventory.py` failed, or the installed one has none. Nothing was changed. Re-install SKF and re-run the rename."
 2. `{rename_reason}` is `foreign`, `reserved-name` or `absent` (no skill SKF generated at `{skills_output_folder}/{old_name}`) → `not-skf-output`: "**`{old_name}` is not SKF output: nothing was changed.** `{skills_output_folder}/{old_name}/` has no SKF marker in its `metadata.json`, so SKF will not rename it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{old_name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When `{target_errors}` is non-empty (for example, the folder is a link), or the reason is `reserved-name` or `absent`, show `{rename_detail}` in place of the marker sentence.
@@ -170,7 +176,7 @@ Two concurrent rename runs against the same `old_name` would corrupt state mid-c
 uv run {runLockHelper} acquire \
     --lock "{forge_data_folder}/.skf-rename-{old_name}.lock" \
     --owner "rename-skill:{old_name}:{run_id}" \
-    --stale-after 60
+    --stale-after 60 2> "{run_dir}/call.err"
 ```
 
 The lock sits beside the forge folders, never inside one: a skill can have no forge folder, or one SKF did not generate, and a lock inside it would be copied into the new one. The helper creates `{forge_data_folder}` when it is missing.
@@ -186,7 +192,7 @@ It prints one JSON line. Dispatch on its exit code:
   When `record` exits non-zero, show its message and go on: the warning is advisory.
 
 - **3** (`acquired` false): another rename of `{old_name}` holds a lock that has not gone stale. Display "**Another rename of `{old_name}` is in progress.** {message}", with the helper's `message`, and HALT (exit code 5, `halt_reason: "halted-for-concurrent-run"`, `emit-halt` phase `select:concurrency-guard`, with the lock file as `path`). This run took no lock, so the halt releases none.
-- **Any other exit, or no JSON:** HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:concurrency-guard`, with the lock file as `path`): "**The run lock could not be taken:** {the `message` the helper printed on stderr}. Nothing was changed." No lock was taken, so none is released.
+- **Any other exit, or no JSON:** HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:concurrency-guard`, with the lock file as `path`): "**The run lock could not be taken:** {the `message` the helper printed on stderr}. Nothing was changed." An interactive run reads that stderr in `{run_dir}/call.err`. No lock was taken, so none is released.
 
 A crashed run's lock goes stale 60 minutes after it was taken or last renewed, so step 2 §1 renews it before the copy.
 
@@ -207,10 +213,10 @@ Wait for user input. Trim whitespace.
 uv run {renameNameValidator} \
   --old-name {old_name} --new-name {candidate} \
   --skills-output-folder {skills_output_folder} \
-  --forge-data-folder {forge_data_folder}
+  --forge-data-folder {forge_data_folder} 2> "{run_dir}/call.err"
 ```
 
-When it prints no JSON, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:validate-new-name`) with "**Rename Skill cannot check the new name:** {the validator's stderr}. Nothing was changed. Re-install SKF, then re-run."
+When it prints no JSON, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:validate-new-name`) with "**Rename Skill cannot check the new name:** {the validator's stderr}. Nothing was changed. Re-install SKF, then re-run." An interactive run reads that stderr in `{run_dir}/call.err`.
 
 Read `valid`, `first_failure`, `checks`, `interrupted_rename`, `interrupted_after_rekey` and `leftover_folders`. If `valid` is true, store the input as `new_name` and proceed to §6. When `interrupted_after_rekey` is true, take the recovery halt below the list, in both modes. Otherwise branch on `first_failure`. Interactive: display the message and ask the question above again, also when the candidate came from `{new_name_arg}`. Headless: HALT with the mapped code:
 
@@ -255,10 +261,10 @@ Wait for response.
 cat > "{run_dir}/decision.json" <<'SKF_DECISION'
 {"gate": "source-authority", "default_action": "halt", "taken_action": "proceed", "reason": "{source_authority_reason}"}
 SKF_DECISION
-uv run {emitEnvelopeHelper} record --workflow skf-rename-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"
+uv run {emitEnvelopeHelper} record --workflow skf-rename-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json" 2> "{run_dir}/call.err"
 ```
 
-When `record` exits non-zero, the decision cannot reach the audit trail: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:source-authority`) with its message.
+When `record` exits non-zero, the decision cannot reach the audit trail: HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:source-authority`) with its message, which an interactive run reads in `{run_dir}/call.err`.
 
 **If `source_authority` is absent, or any value other than `"official"`:** skip the warning and proceed.
 
@@ -267,10 +273,10 @@ When `record` exits non-zero, the decision cannot reach the audit trail: HALT (e
 Enumerate every version the rename must touch, the manifest's and the ones on disk, through the `affected-versions` action of `{manifestOpsHelper}`:
 
 ```bash
-uv run {manifestOpsHelper} {skills_output_folder} affected-versions {old_name}
+uv run {manifestOpsHelper} {skills_output_folder} affected-versions {old_name} 2> "{run_dir}/call.err"
 ```
 
-Store `affected_versions` = `result.affected_versions` (newest first) and `affected_versions_count` = `result.count`. When it prints no JSON, or its `status` is not `"ok"`, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:affected-versions`) with "**Rename Skill cannot list the versions of `{old_name}`:** {its `error`, or the helper's stderr}. Nothing was changed."
+Store `affected_versions` = `result.affected_versions` (newest first) and `affected_versions_count` = `result.count`. When it prints no JSON, or its `status` is not `"ok"`, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:affected-versions`) with "**Rename Skill cannot list the versions of `{old_name}`:** {its `error`, or the helper's stderr}. Nothing was changed." An interactive run reads that stderr in `{run_dir}/call.err`.
 
 Also bind the four outer paths, each without a trailing `/`:
 
@@ -316,7 +322,7 @@ to rebuild afterwards is reported and never undoes the rename.
 Proceed? [Y/N]
 ```
 
-**GATE [default: Y]**: If `{headless_mode}`: auto-proceed with [Y] (log line: "headless: auto-confirmed rename {old_name} → {new_name}") and record `{"gate": "confirm-rename", "default_action": "proceed", "taken_action": "proceed", "reason": "headless auto-confirm"}` in the run sink with §6's two commands, staged as `{run_dir}/decision.json`; when `record` exits non-zero, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:confirm`) with its message. Skip the record when `--dry-run` is set: a dry run does not execute the rename, so there is no confirmation to record.
+**GATE [default: Y]**: If `{headless_mode}`: auto-proceed with [Y] (log line: "headless: auto-confirmed rename {old_name} → {new_name}") and record `{"gate": "confirm-rename", "default_action": "proceed", "taken_action": "proceed", "reason": "headless auto-confirm"}` in the run sink with §6's two commands, staged as `{run_dir}/decision.json`; when `record` exits non-zero, HALT (exit code 4, `halt_reason: "write-failed"`, `emit-halt` phase `select:confirm`) with its message, which an interactive run reads in `{run_dir}/call.err`. Skip the record when `--dry-run` is set: a dry run does not execute the rename, so there is no confirmation to record.
 
 Wait for explicit user response.
 
@@ -332,7 +338,7 @@ uv run {emitEnvelopeHelper} emit --workflow skf-rename-skill --run-dir "{run_dir
 Without `--result-dir` it writes no result file. It prints the complete line, `SKF_RENAME_SKILL_RESULT_JSON: {"status":"dry-run","old_name":"{old_name}","new_name":"{new_name}","versions_renamed":[<affected_versions>],"manifest_rekeyed":false,"context_files_updated":[],"exit_code":0,"halt_reason":null,"headless_decisions":[<the §6 source-authority decision, when it fired>],"run_id":"{run_id}","result_path":null}` (with `warnings` after `headless_decisions` when the run recorded one): display it verbatim. When it exits non-zero or prints no line, display its error, keep `{run_dir}` and say in one line that it holds the run's decisions, its warnings and the payload the emitter refused. Otherwise, in both modes, delete the run folder:
 
 ```bash
-rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" "{run_dir}/warnings.jsonl" && rmdir "{run_dir}"
+rm -f "{run_dir}/result-context.json" "{run_dir}/decision.json" "{run_dir}/headless-decisions.jsonl" "{run_dir}/warnings.jsonl" "{run_dir}/call.err" && rmdir "{run_dir}"
 ```
 
 Then end the run with exit code 0: no copy, no manifest re-key, no delete.

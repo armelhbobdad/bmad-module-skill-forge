@@ -1,0 +1,6 @@
+type: fixed
+scope: skf-rename-skill
+summary: |
+  Rename Skill's headless halts no longer have the model escape a helper's error into a hand-typed JSON payload. Each halt now passes its phase, halt reason, path and skill names to `skf-emit-result-envelope.py emit-halt` as options and its message on stdin through a quoted heredoc, and a halt that quotes a failed command's error first saves that command's stderr in the run folder (`call.err`) for the emitter to read. A traceback, a quote, a backtick, `$( )` or a Windows path in the error no longer breaks the `SKF_RENAME_SKILL_RESULT_JSON` line or runs as a command: the emitter puts the error's diagnostic line on it, folded to one line (a JSON error's `message`, else the first line, such as a traceback's), and the whole stderr stays in `call.err`. A halt call the emitter refuses is fixed once and run again. A run lock the halt could not release is still named in the envelope's `warnings` (`run-lock-not-released: <lock>`). `emit-halt` takes `--phase`, `--halt-reason`, `--reason` (`-` reads it on stdin), `--path`, `--stderr-from`, `--old-name` and `--new-name`; without `--phase` it reads its payload on stdin as before.
+issues: [1119]
+prs: [1205]

@@ -430,3 +430,9 @@ def test_rename_steps_state_the_halt_procedure(step):
     blocks = _blocks(text)
     procedure = [_with_followers(blocks, i) for i, b in enumerate(blocks) if b[2].startswith("**Halt procedure")]
     assert len(procedure) == 1 and _emits("skf-rename-skill", procedure[0]), step
+    # #1119: the halt passes its fields as options and its message in a quoted heredoc, and the
+    # emitter reads the failed call's stderr from a file, so the model escapes nothing into JSON.
+    for option in ("--phase '<phase>'", "--halt-reason '<halt_reason>'", '--stderr-from "{run_dir}/call.err"',
+                   "--reason - <<'SKF_REASON'"):
+        assert option in procedure[0], (step, option)
+    assert "Write each string as JSON" not in text and "<<'SKF_HALT'" not in text, step

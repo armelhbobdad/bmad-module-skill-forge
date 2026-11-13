@@ -599,6 +599,278 @@ class TestPreflightCli:
         assert "[--allow-missing-sidecar]" in done.stderr
 
 
+# ---------------------------------------------------------------- --helpers (#1117)
+
+INSTALLED = "{project-root}/_bmad/skf/shared/scripts/"
+DEV = "{project-root}/src/shared/scripts/"
+RESOLVER = "skf-resolve-customization.py"
+
+
+def probe_order(name, *prefixes):
+    """A frontmatter `*ProbeOrder` list for `name`, installed path then dev path by default."""
+    return "".join(f"  - '{prefix}{name}'\n" for prefix in (prefixes or (INSTALLED, DEV)))
+
+
+def make_skill(root, stages):
+    """A skill folder whose references/ holds each {relative path: frontmatter body}."""
+    skill = Path(root) / "skill"
+    for rel, frontmatter in stages.items():
+        path = skill / "references" / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"---\n{frontmatter}---\n\n# {rel}\n", encoding="utf-8")
+    return skill
+
+
+def place(root, name, installed=False, dev=True):
+    """Put a stub helper at its installed path, its dev path, or both."""
+    for wanted, folder in ((installed, ("_bmad", "skf", "shared", "scripts")), (dev, ("src", "shared", "scripts"))):
+        if wanted:
+            path = Path(root).joinpath(*folder, name)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("# stub\n", encoding="utf-8")
+
+
+DETECT = "detectToolsProbeOrder:\n" + probe_order("skf-detect-tools.py")
+
+
+class TestPreflightHelpers:
+    """Suite 11: --helpers resolves every `*ProbeOrder` of a skill's stages into one map."""
+
+    def test_installed_path_wins(self, tmp_path):
+        root = make_project(tmp_path)
+        place(root, "skf-detect-tools.py", installed=True, dev=True)
+        place(root, RESOLVER)
+        result = run_preflight(str(root), helpers_root=make_skill(root, {"a.md": DETECT}))
+        assert result["status"] == "ok", result
+        assert result["helpers"]["detectTools"] == str(root.resolve() / "_bmad/skf/shared/scripts/skf-detect-tools.py")
+        assert "helpers_missing" not in result
+
+    def test_dev_path_when_not_installed(self, tmp_path):
+        root = make_project(tmp_path)
+        place(root, "skf-detect-tools.py")
+        place(root, RESOLVER)
+        result = run_preflight(str(root), helpers_root=make_skill(root, {"a.md": DETECT}))
+        assert result["status"] == "ok", result
+        assert result["helpers"] == {
+            "detectTools": str(root.resolve() / "src/shared/scripts/skf-detect-tools.py"),
+            "resolveCustomization": str(root.resolve() / "src/shared/scripts" / RESOLVER),
+        }
+
+    def test_missing_helper_halts_naming_it_with_the_config_still_printed(self, tmp_path):
+        root = make_project(tmp_path, preferences={"headless_mode": True})
+        place(root, RESOLVER)
+        skill = make_skill(root, {"a.md": DETECT, "b.md": "emitEnvelopeProbeOrder:\n"
+                                  + probe_order("skf-emit-result-envelope.py")})
+        done = run_cli(str(root), "--helpers", str(skill))
+        assert done.returncode == 1, done.stdout + done.stderr
+        out = json.loads(done.stdout)
+        assert out["status"] == "hard-halt" and out["code"] == "HELPERS_MISSING"
+        assert out["helpers"]["detectTools"] is None and out["helpers"]["emitEnvelope"] is None
+        assert out["helpers_missing"] == ["skf-detect-tools.py", "skf-emit-result-envelope.py"]
+        assert out["error"] == ("Cannot initialize. SKF helpers not found: skf-detect-tools.py, "
+                                "skf-emit-result-envelope.py. Reinstall SKF, then retry.")
+        assert out["config"]["project_name"] == "test-project"
+        assert out["derived"]["headless_mode"] is True
+        assert out["sidecar"]["missing"] is False
+
+    def test_a_stem_two_stages_share_is_one_key(self, tmp_path):
+        root = make_project(tmp_path)
+        place(root, "skf-detect-tools.py")
+        place(root, RESOLVER)
+        skill = make_skill(root, {"a.md": DETECT, "nested/b.md": "nextStepFile: 'a.md'\n" + DETECT})
+        result = run_preflight(str(root), helpers_root=skill)
+        assert result["status"] == "ok", result
+        assert sorted(result["helpers"]) == ["detectTools", "resolveCustomization"]
+
+    def test_a_stem_only_a_nested_stage_declares_is_read(self, tmp_path):
+        root = make_project(tmp_path)
+        place(root, "skf-detect-tools.py")
+        place(root, "skf-fetch-temporal.py")
+        place(root, RESOLVER)
+        skill = make_skill(root, {"a.md": DETECT, "sub/deeper/b.md": "fetchTemporalProbeOrder:\n"
+                                  + probe_order("skf-fetch-temporal.py")})
+        result = run_preflight(str(root), helpers_root=skill)
+        assert result["status"] == "ok", result
+        assert result["helpers"]["fetchTemporal"] == str(root.resolve() / "src/shared/scripts/skf-fetch-temporal.py")
+
+    def test_a_nested_stage_with_another_list_for_a_stem_is_malformed(self, tmp_path):
+        root = make_project(tmp_path)
+        place(root, "skf-detect-tools.py")
+        place(root, RESOLVER)
+        skill = make_skill(root, {"a.md": DETECT, "sub/b.md": "detectToolsProbeOrder:\n"
+                                  + probe_order("skf-detect-tools.py", DEV)})
+        result = run_preflight(str(root), helpers_root=skill)
+        assert result["code"] == "HELPERS_MALFORMED" and result["helpers"] is None, result
+        assert str(skill / "references" / "sub" / "b.md") in result["error"]
+
+    def test_one_stem_with_two_lists_is_malformed(self, tmp_path):
+        root = make_project(tmp_path)
+        place(root, "skf-detect-tools.py")
+        place(root, RESOLVER)
+        skill = make_skill(root, {"a.md": DETECT, "b.md": "detectToolsProbeOrder:\n"
+                                  + probe_order("skf-detect-tools.py", DEV)})
+        done = run_cli(str(root), "--helpers", str(skill))
+        assert done.returncode == 1
+        out = json.loads(done.stdout)
+        assert out["code"] == "HELPERS_MALFORMED" and out["helpers"] is None
+        assert "detectToolsProbeOrder differs between " in out["error"]
+        assert str(skill / "references" / "a.md") in out["error"] and str(skill / "references" / "b.md") in out["error"]
+
+    def test_a_stage_that_redeclares_the_built_in_differently_is_malformed(self, tmp_path):
+        root = make_project(tmp_path)
+        place(root, RESOLVER)
+        skill = make_skill(root, {"a.md": "resolveCustomizationProbeOrder:\n" + probe_order(RESOLVER, DEV)})
+        result = run_preflight(str(root), helpers_root=skill)
+        assert result["code"] == "HELPERS_MALFORMED"
+        assert "resolveCustomizationProbeOrder differs between skf-preflight.py and " in result["error"]
+
+    @pytest.mark.parametrize("stages", [
+        None,
+        {"a.md": "a: [\n"},
+        {"a.md": "xProbeOrder: 3\n"},
+        {"a.md": "xProbeOrder: []\n"},
+        {"a.md": "xProbeOrder:\n  - 3\n"},
+        {"a.md": "- xProbeOrder\n"},
+    ], ids=["skill-root-not-a-folder", "not-yaml", "a-number", "an-empty-list", "not-strings", "not-a-mapping"])
+    def test_bad_input_is_malformed(self, tmp_path, stages):
+        root = make_project(tmp_path)
+        place(root, RESOLVER)
+        if stages is None:
+            skill = root / "skill.md"
+            skill.write_text("not a folder\n", encoding="utf-8")
+        else:
+            skill = make_skill(root, stages)
+        done = run_cli(str(root), "--helpers", str(skill))
+        assert done.returncode == 1, done.stdout
+        out = json.loads(done.stdout)
+        assert out["status"] == "hard-halt" and out["code"] == "HELPERS_MALFORMED"
+        assert out["error"].startswith("Cannot initialize. ") and out["error"].endswith(". Reinstall SKF, then retry.")
+        assert "\n" not in out["error"]
+        assert str(skill if stages is None else skill / "references" / "a.md") in out["error"]
+        assert out["config"]["project_name"] == "test-project"
+
+    def test_the_config_halts_first_and_keeps_its_code(self, tmp_path):
+        """No config.yaml and a missing helper: the installer is the remedy, with the map attached."""
+        skill = make_skill(tmp_path, {"a.md": DETECT})
+        done = run_cli(str(tmp_path), "--allow-missing-sidecar", "--helpers", str(skill))
+        assert done.returncode == 1
+        out = json.loads(done.stdout)
+        assert out["code"] == "CONFIG_MISSING"
+        assert "npx bmad-module-skill-forge install" in out["error"]
+        assert out["helpers"] == {"detectTools": None, "resolveCustomization": None}
+        assert out["helpers_missing"] == ["skf-detect-tools.py", RESOLVER]
+
+    def test_the_customization_resolver_is_always_resolved(self, tmp_path):
+        root = make_project(tmp_path)
+        skill = tmp_path / "bare-skill"
+        skill.mkdir()
+        result = run_preflight(str(root), helpers_root=skill)
+        assert result["code"] == "HELPERS_MISSING"
+        assert result["helpers"] == {"resolveCustomization": None}
+        place(root, RESOLVER, installed=True)
+        result = run_preflight(str(root), helpers_root=skill)
+        assert result["status"] == "ok"
+        assert result["helpers"] == {
+            "resolveCustomization": str(root.resolve() / "_bmad/skf/shared/scripts" / RESOLVER)}
+
+    def test_entries_resolve_from_the_project_root(self, tmp_path):
+        """A relative entry joins the project root, and one with any other placeholder never matches."""
+        root = make_project(tmp_path)
+        place(root, RESOLVER)
+        (root / "tools").mkdir()
+        (root / "tools" / "relative.py").write_text("# stub\n", encoding="utf-8")
+        (root / "{skill-root}").mkdir()
+        (root / "{skill-root}" / "other.py").write_text("# stub\n", encoding="utf-8")
+        skill = make_skill(root, {"a.md": "relativeProbeOrder:\n  - 'tools/relative.py'\n"
+                                  "otherProbeOrder:\n  - '{skill-root}/other.py'\n"})
+        result = run_preflight(str(root), helpers_root=skill)
+        assert result["helpers"]["relative"] == str(root.resolve() / "tools" / "relative.py")
+        assert result["helpers"]["other"] is None
+        assert result["helpers_missing"] == ["other.py"]
+
+    def test_crlf_frontmatter_and_keys_that_are_not_probe_orders(self, tmp_path):
+        root = make_project(tmp_path)
+        place(root, "skf-detect-tools.py")
+        place(root, RESOLVER)
+        skill = tmp_path / "skill"
+        (skill / "references").mkdir(parents=True)
+        (skill / "references" / "a.md").write_bytes(
+            ("---\r\nnextStepFile: 'b.md'\r\nProbeOrder: 3\r\n# a comment\r\n" + DETECT.replace("\n", "\r\n")
+             + "---\r\n\r\n# A\r\n").encode("utf-8"))
+        (skill / "references" / "b.md").write_text("# No frontmatter\n\nxProbeOrder: 3\n", encoding="utf-8")
+        (skill / "references" / "c.md").write_text("---\n# comments only\n---\n", encoding="utf-8")
+        (skill / "references" / "d.txt").write_text("---\nxProbeOrder: 3\n---\n", encoding="utf-8")
+        result = run_preflight(str(root), helpers_root=skill)
+        assert result["status"] == "ok", result
+        assert sorted(result["helpers"]) == ["detectTools", "resolveCustomization"]
+
+    def test_the_keys_come_sorted(self, tmp_path):
+        root = make_project(tmp_path)
+        for name in ("skf-b.py", "skf-a.py", RESOLVER):
+            place(root, name)
+        skill = make_skill(root, {"a.md": "zedProbeOrder:\n" + probe_order("skf-b.py")
+                                  + "alphaProbeOrder:\n" + probe_order("skf-a.py")})
+        done = run_cli(str(root), "--helpers", str(skill))
+        assert done.returncode == 0, done.stdout
+        assert list(json.loads(done.stdout)["helpers"]) == ["alpha", "resolveCustomization", "zed"]
+
+    def test_helpers_with_no_value_prints_the_usage(self, tmp_path):
+        root = make_project(tmp_path)
+        for args in (("--helpers",), ("--helpers", "--allow-missing-sidecar")):
+            done = run_cli(str(root), *args)
+            assert done.returncode == 1, args
+            assert done.stdout == "", args
+            assert "[--helpers <skill-root>]" in done.stderr, args
+
+    def test_without_the_flag_the_output_is_unchanged(self, tmp_path):
+        root = make_project(tmp_path, **RETURNING_USER)
+        done = run_cli(str(root))
+        assert done.returncode == 0
+        out = json.loads(done.stdout)
+        assert "helpers" not in out and "helpers_missing" not in out
+        assert list(out) == ["status", "config", "sidecar", "derived"]
+        assert done.stdout == json.dumps(mod.load_config_and_sidecar(str(root)), indent=2) + "\n"
+        assert run_preflight(str(root)) == mod.load_config_and_sidecar(str(root))
+
+
+SKILL_ROOTS = sorted(p for p in (REPO / "src").glob("skf-*") if (p / "references").is_dir())
+SETUP_HELPERS = ["detectTools", "emitEnvelope", "forgeTierRw", "mergeCccExclusions", "qmdClassify",
+                 "resolveCustomization"]
+
+
+def _real_helpers(tmp_path, skill):
+    config = tmp_path / "config.yaml"
+    config.write_text(f"project_name: repo\nsidecar_path: {tmp_path.as_posix()}/sidecar\n", encoding="utf-8")
+    done = run_cli(str(REPO), "--config-path", str(config), "--allow-missing-sidecar", "--helpers", str(skill))
+    assert done.returncode == 0, done.stdout + done.stderr
+    return json.loads(done.stdout)["helpers"]
+
+
+@pytest.mark.parametrize("skill", SKILL_ROOTS, ids=lambda p: p.name)
+def test_every_shipped_skill_resolves_every_helper(tmp_path, skill):
+    """Every stage frontmatter in src/ parses, no stem has two lists, every stem a stage at any
+    depth declares is in the map, and every helper ships."""
+    helpers = _real_helpers(tmp_path, skill)
+    declared = {"resolveCustomization"}
+    for md in (skill / "references").rglob("*.md"):
+        front = re.match(r"\A---\r?\n(.*?)^---", md.read_text(encoding="utf-8"), re.M | re.S)
+        declared |= set(re.findall(r"^([A-Za-z][A-Za-z0-9]*)ProbeOrder:", front.group(1), re.M)) if front else set()
+    assert set(helpers) == declared
+    for stem, path in helpers.items():
+        assert path is not None, stem
+        assert Path(path).is_file() and Path(path).is_absolute(), (stem, path)
+
+
+def test_setup_and_quick_skill_resolve_the_helpers_their_stages_declare(tmp_path):
+    assert sorted(_real_helpers(tmp_path, REPO / "src" / "skf-setup")) == SETUP_HELPERS
+    stems = set()
+    for md in (REPO / "src" / "skf-quick-skill" / "references").glob("*.md"):
+        stems |= set(re.findall(r"^([A-Za-z]+)ProbeOrder:", md.read_text(encoding="utf-8"), re.M))
+    # No fixed count: a stage that gains a probe order (#1120) needs no edit here.
+    assert stems and "resolveCustomization" not in stems
+    assert sorted(_real_helpers(tmp_path, REPO / "src" / "skf-quick-skill")) == sorted(stems | {"resolveCustomization"})
+
+
 # ---------------------------------------------------------------- Ferris runs this script
 
 FORGER_SKILL = REPO / "src" / "skf-forger" / "SKILL.md"
@@ -746,8 +1018,10 @@ class TestForgerActivation:
     def test_names_every_halt_its_call_can_return(self):
         codes = set(re.findall(r'"code": "([A-Z_]+)"', _read(SCRIPT)))
         # MISSING_DEPENDENCY carries no status (the no-JSON branch covers it),
-        # and --allow-missing-sidecar turns SIDECAR_MISSING into defaults.
-        reachable = codes - {"MISSING_DEPENDENCY", "SIDECAR_MISSING"}
+        # --allow-missing-sidecar turns SIDECAR_MISSING into defaults, and
+        # Ferris passes no --helpers, the only source of the HELPERS_ codes.
+        reachable = codes - {"MISSING_DEPENDENCY", "SIDECAR_MISSING", "HELPERS_MISSING", "HELPERS_MALFORMED"}
+        assert "--helpers" not in _step("Preflight.")
         named = set(re.findall(r"`([A-Z]+(?:_[A-Z]+)+)`", _step("Preflight.")))
         assert named == reachable
 

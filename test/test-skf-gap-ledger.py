@@ -3486,6 +3486,114 @@ class TestAppendFrom:
         assert json.loads(proc.stdout)["appended"] == ["GAP-001", "GAP-002"]
 
 
+def external(**lists) -> dict:
+    """combine-external-scores.py's file-mode result (external.json), with the given finding lists."""
+    data = {"externalScore": None, "toolsUsed": [], "available": False, "skillCheckScore": None,
+            "skillCheckErrorCount": None, "skillCheckWarningCount": None, "descriptionIssues": False,
+            "tesslReviewScore": None, "tesslDescriptionScore": None}
+    for key in ("skillCheckDiagnostics", "tesslValidationFindings", "tesslDescriptionSuggestions",
+                "tesslContentSuggestions"):
+        data[key] = lists.get(key, [])
+    return data
+
+
+class TestExternalAdapter:
+    """#1120: external-validators §5b records the validators' findings from the external.json §4 wrote."""
+
+    RESULT = external(
+        skillCheckDiagnostics=[
+            {"ruleId": "description.use_when_phrase", "severity": "warn", "message": "no Use when phrase",
+             "file": "SKILL.md", "line": 2, "suggestion": "Start the description with \"Use when\"."},
+            {"ruleId": "links.references_resolve", "severity": "error", "message": "dead link",
+             "file": "references/api.md", "line": 0, "suggestion": None},
+            {"ruleId": "file.trailing_newline_single", "severity": "warn", "message": "two newlines",
+             "file": None, "line": None, "suggestion": None}],
+        tesslValidationFindings=[{"name": "frontmatter_unknown_keys", "status": "warning",
+                                  "message": "unknown key `x`"}],
+        tesslDescriptionSuggestions=["Name the trigger phrases a user types."],
+        tesslContentSuggestions=["Add a worked example.", "Drop the provenance citations.", "Split the body."])
+
+    def test_each_finding_is_a_record_in_order(self, ledger: Path, tmp_path: Path):
+        """Adapter marks: three content suggestions, one marked, give two Info records; a rerun dedupes."""
+        result = write_json(tmp_path / "external.json", self.RESULT)
+        first = from_file(ledger, "external-validators", "external", result, not_applicable="1:keep-provenance")
+        assert first.returncode == 0, first.stdout
+        records = ledger_records(ledger)
+        assert brief(records) == [
+            ("Low", "external-validator", "skill-check: description.use_when_phrase", "SKILL.md:2", None),
+            ("Low", "external-validator", "skill-check: links.references_resolve", "references/api.md", None),
+            ("Low", "external-validator", "skill-check: file.trailing_newline_single", "SKILL.md", None),
+            ("Low", "external-validator", "Tessl Review: frontmatter_unknown_keys", "SKILL.md", None),
+            ("Low", "description", "Name the trigger phrases a user types.", "SKILL.md frontmatter description",
+             None),
+            ("Info", "external-validator", "Add a worked example.", "SKILL.md", None),
+            ("Info", "external-validator", "Split the body.", "SKILL.md", None)]
+        assert [r["group"] for r in records] == ["External"] * 4 + ["Discovery"] + ["External"] * 2
+        assert records[0]["issue"] == "no Use when phrase"
+        assert records[0]["remediation"] == 'Start the description with "Use when".'
+        assert records[1]["remediation"] == ("Fix what skill-check's `links.references_resolve` rule reports at "
+                                             "references/api.md, then re-run Test Skill.")
+        assert records[3]["issue"] == "unknown key `x`"
+        assert records[3]["remediation"] == ("Fix what Tessl Review's `frontmatter_unknown_keys` check reports in "
+                                             "SKILL.md, then re-run Test Skill.")
+        assert records[4]["remediation"] == ("Edit the SKILL.md frontmatter description as this suggestion says, "
+                                             "then re-run Test Skill. When the skill has a brief, edit the "
+                                             "description there too, so the next Create Skill run keeps it.")
+        assert records[5]["remediation"] == ("Apply this Tessl Review suggestion to SKILL.md only if you agree: it "
+                                             "is advisory.")
+        again = json.loads(from_file(ledger, "external-validators", "external", result,
+                                     not_applicable="1:keep-provenance").stdout)
+        assert (again["appended"], len(again["duplicates"])) == ([], 7)
+        # Two other marks leave only the suggestion the first run left out, which is new.
+        both = json.loads(from_file(ledger, "external-validators", "external", result,
+                                    not_applicable=["0:keep-both-tiers", "2:keep-tier2-inline"]).stdout)
+        assert (both["appended"], len(both["duplicates"])) == (["GAP-008"], 5)
+        assert ledger_records(ledger)[-1]["title"] == "Drop the provenance citations."
+
+    def test_nothing_ran_still_records_the_stage(self, ledger: Path, tmp_path: Path):
+        """TS nothing ran: an external.json with empty lists appends no record and records the stage."""
+        proc = from_file(ledger, "external-validators", "external", write_json(tmp_path / "e.json", external()))
+        assert proc.returncode == 0, proc.stdout
+        assert json.loads(ledger.read_bytes()) == {"schema_version": 1, "run_id": RUN_ID,
+                                                   "stages": ["external-validators"], "records": []}
+
+    @pytest.mark.parametrize("mark", ["5:x", "3:keep-provenance", "1:Keep", "1:", ":keep", "x:keep", "-1:keep",
+                                      "1:keep_provenance", "1:keep provenance"])
+    def test_a_mark_of_another_form_or_index_is_refused(self, ledger: Path, tmp_path: Path, mark: str):
+        result = write_json(tmp_path / "external.json", self.RESULT)
+        proc = from_file(ledger, "external-validators", "external", result, not_applicable=mark)
+        assert proc.returncode == 2, proc.stdout
+        out = json.loads(proc.stdout)
+        assert out["code"] == "INVALID_INPUT" and "--not-applicable" in out["error"]
+        assert not ledger.exists()
+
+    @pytest.mark.parametrize("data", [
+        {"externalScore": 80.0, "toolsUsed": ["skill-check"], "available": True},
+        {**external(), "tesslContentSuggestions": "not a list"},
+        {**external(), "skillCheckDiagnostics": ["not an object"]},
+        {**external(), "tesslDescriptionSuggestions": [3]},
+    ], ids=["json-mode-result", "content-not-a-list", "diagnostic-not-an-object", "suggestion-not-text"])
+    def test_a_result_that_is_not_the_file_mode_one_is_refused(self, ledger: Path, tmp_path: Path, data):
+        """Adapter input: a JSON-mode external.json lacks the finding lists, so nothing is written."""
+        proc = from_file(ledger, "external-validators", "external", write_json(tmp_path / "external.json", data))
+        assert proc.returncode == 2, proc.stdout
+        assert json.loads(proc.stdout)["code"] == "INVALID_INPUT"
+        assert not ledger.exists()
+
+    def test_the_mark_is_an_adapter_option(self, ledger: Path, tmp_path: Path):
+        result = write_json(tmp_path / "external.json", external())
+        stray = from_file(ledger, "external-validators", "external", result, metadata="m.json")
+        assert json.loads(stray.stdout)["error"] == "--from external does not read --metadata"
+        other = from_file(ledger, "coherence-check", "coherence", write_json(tmp_path / "c.json", {
+            "invalidReferences": []}), not_applicable="0:keep-provenance")
+        assert json.loads(other.stdout)["error"] == "--from coherence does not read --not-applicable"
+        records = write_json(tmp_path / "records.json", [record()])
+        bare = run("append", "--ledger", str(ledger), "--stage", "external-validators", "--input", str(records),
+                   "--not-applicable", "0:keep-provenance")
+        assert bare.returncode == 2 and json.loads(bare.stdout)["error"] == "--not-applicable work only with --from"
+        assert not ledger.exists()
+
+
 def prose_calls(path: Path, start: str, end: str) -> list[str]:
     """The fenced `uv run {gapLedgerScript} append` calls between two markers,
     every bracketed group kept, without the heredoc's."""

@@ -85,6 +85,9 @@ FLAG_ONLY = frozenset({
     SRC / "shared" / "scripts" / "skf-extract-public-api.py",
     SRC / "shared" / "scripts" / "skf-validate-brief-inputs.py",
     SRC / "shared" / "scripts" / "skf-resolve-customization.py",
+    # Quick Skill's validation summary and Test Skill's external score read the saved validator outputs (#1120).
+    SRC / "shared" / "scripts" / "skf-summarize-validation.py",
+    SRC / "skf-test-skill" / "scripts" / "combine-external-scores.py",
 })
 
 FRONTMATTER_RE = re.compile(r"\A---\n(.*?)\n---\n", re.S)
@@ -535,6 +538,9 @@ FLAG_ONLY_MUST_FIND = [
      ("--skill", "--project-root", "--key")),
     ("src/skf-campaign/references/step-05-skill-loop.md", "skf-resolve-customization.py",
      ("--skill", "--project-root", "--key")),
+    # Quick Skill step 5 §6 summarizes the four saved validator outputs for its skill package (#1120).
+    ("src/skf-quick-skill/references/write-and-validate.md", "skf-summarize-validation.py",
+     ("--skill-check", "--frontmatter", "--output", "--security", "--skill-dir")),
 ]
 
 
