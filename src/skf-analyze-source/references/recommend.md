@@ -1,7 +1,6 @@
 ---
 nextStepFile: 'generate-briefs.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
-schemaFile: 'assets/skill-brief-schema.md'
 discoverFile: 'references/discover-additional-source.md'
 advancedElicitationSkill: '/bmad-advanced-elicitation'
 partyModeSkill: '/bmad-party-mode'
@@ -41,8 +40,6 @@ Read {outputFile} completely to obtain:
 - `intent_hint` from frontmatter (the goal the user stated at init; empty when none)
 - `scope_hint` from frontmatter (the folders or packages to focus on or skip; empty when none)
 - `refs` from frontmatter: a unit's ref is its project path's entry there (none without one)
-
-Load {schemaFile} for reference on what skill-brief.yaml requires (so recommendations are actionable).
 
 **Apply `intent_hint` when ranking units.** If `intent_hint` is non-empty, use it to bias the order in which recommendation cards are presented and to soften the rationale for units that fall outside the stated intent (e.g., when `intent_hint` mentions "authentication and authorization", rank auth-related units first and flag unrelated units with a one-line rationale acknowledging the mismatch). If `intent_hint` is empty, present in the deterministic order from the export map.
 

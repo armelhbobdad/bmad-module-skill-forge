@@ -44,6 +44,9 @@ run the commands it documents, filled in as an agent fills them:
 - step-auto-scope.md loads its coexistence, split and corpora branches
   from their own files, and honours the hints.
 - customize.toml keeps only the settings a stage reads.
+- #1127: generate-briefs section 3b checks names and sources with one
+  helper call and no longer checks the forge tier or a language list,
+  and its headless halt stays.
 """
 
 from __future__ import annotations
@@ -691,12 +694,17 @@ def test_every_interactive_menu_can_cancel():
     assert "steps 2/3/4/5/6" in row
 
 
-def test_a_headless_brief_failing_a_semantic_check_halts():
-    """No one corrects a 3b failure in a headless run: it halts as 3a does."""
-    checks = _section(_read(GENERATE), "**3b. Semantic cross-checks**", "### 4.")
+def test_a_headless_brief_failing_a_batch_check_halts():
+    """No one corrects a 3b failure in a headless run: it halts as 3a does. The batch checks names and
+    sources only (#1127): no forge tier match, which a tier_override failed on a correct headless run,
+    no language list, and no aside on the scope.include rule the 3a gate owns."""
+    checks = _section(_read(GENERATE), "**3b. Batch checks.**", "### 4.")
     line = next(line for line in checks.splitlines() if line.startswith("- In headless mode"))
     assert 'HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `generate-briefs:3`' in line
     assert "a brief still failing a 3b check" in line
+    for gone in ("Forge tier match", "forge_tier", "Language recognized", "language", "scope.include",
+                 "Semantic cross-checks"):
+        assert gone not in checks, gone
 
 
 # --------------------------------------------------------------------------

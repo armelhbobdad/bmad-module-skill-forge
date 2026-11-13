@@ -1,0 +1,5 @@
+type: fixed
+scope: skf-analyze-source
+summary: |
+  Analyze Source's step-by-step brief step now checks its briefs' names and sources with one `skf-validate-brief-schema.py batch` call: a name another brief of the run or an existing skill already has, and a `source_repo` that is neither an existing folder nor a project path whose scan root exists. It no longer checks the forge tier, a check that could stop a correct headless run with exit `4` (`write-failed`) when `tier_override` set a tier other than the one in `forge-tier.yaml`, and no longer checks the language, a check that named no list of languages. A Python package whose version is computed at build time now gets its version from `skf-extract-public-api.py --resolve-version`, and the brief preview names where that version came from (a version file or a release tag). The brief steps read the parts of the brief schema they use instead of loading all of it, and the recommendation step no longer loads it.
+issues: [1127]

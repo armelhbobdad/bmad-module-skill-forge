@@ -29,6 +29,9 @@ writeSkillBriefProbeOrder:
 validateBriefSchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
+extractPublicApiProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
+  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -351,7 +354,7 @@ For single-scope:
 
 ### 8. Write Skill Briefs
 
-The brief writer renders, checks and writes every brief, and applies the version precedence (`target_version`, then `detected_version`, then `1.0.0`) and the rule that `target_version` equals `version`. This section supplies values and never writes YAML. **Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}` and **`{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:8`): "`{the missing script}` is missing. Re-install SKF."
+The brief writer renders, checks and writes every brief, and applies the version precedence (`target_version`, then `detected_version`, then `1.0.0`) and the rule that `target_version` equals `version`. This section supplies values and never writes YAML. **Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`, **`{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}` and **`{extractPublicApiHelper}`** from `{extractPublicApiProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:8`): "`{the missing script}` is missing. Re-install SKF."
 
 **For each confirmed unit** (1 for single-scope, N for decomposition), write its context as `{run_dir}/brief-{skill_name}.json`, a file and never an echo'd string (the language caveat holds an apostrophe):
 
@@ -372,19 +375,11 @@ The brief writer renders, checks and writes every brief, and applies the version
   "scope_include": ["{include_patterns}"],
   "scope_exclude": ["{exclude_patterns}"],
   "scope_notes": "{scope.notes}",
-  "scope_rationale": null,
-  "scope_tier_a_include": null,
-  "scope_amendments": null,
-  "scope_registry_path": null,
-  "scope_ui_variants": null,
-  "scope_demo_patterns": null,
-  "doc_urls": null,
-  "scripts_intent": null,
-  "assets_intent": null,
-  "source_authority": null,
-  "source_ref": null
+  "doc_urls": null
 }
 ```
+
+Leave out every other optional key: the writer reads an absent key as unset.
 
 Only `description` and `scope_notes` are in your words. Every other value comes from an earlier section:
 

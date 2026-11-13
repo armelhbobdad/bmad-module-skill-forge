@@ -66,6 +66,13 @@ fixtures:
   build each project path's units JSON from the units file with
   skf-count-imports.py units-from, then print the summary and the
   cross-reference matrix: the documented blocks run on a fixture.
+- #1127: generate-briefs section 3b is one skf-validate-brief-schema.py
+  batch call, run here as documented on the contexts section 2's template
+  gives; a version computed at build time comes from the schema asset's
+  skf-extract-public-api.py --resolve-version call (run on a dynamic
+  pyproject.toml), whose probe order both brief steps resolve; the asset
+  keeps only the sections the steps read, recommend loads none of it, and
+  the three brief templates leave out the keys the writer drops.
 """
 
 from __future__ import annotations
@@ -95,6 +102,8 @@ VALIDATOR = SCRIPTS / "skf-validate-brief-schema.py"
 SHAPE = SCRIPTS / "skf-shape-detect.py"
 LANGUAGE = SCRIPTS / "skf-detect-language.py"
 WORKSPACES = SCRIPTS / "skf-detect-workspaces.py"
+SCAN_MANIFESTS = SCRIPTS / "skf-scan-manifests.py"
+EXTRACT = SCRIPTS / "skf-extract-public-api.py"
 GATE = SRC / "skf-forger" / "scripts" / "pipeline-gate.py"
 SCHEMA_PATH = SCRIPTS / "schemas" / "skf-analyze-result-envelope.v1.json"
 SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -114,6 +123,7 @@ SHAPE_REF = REFS / "step-shape-detect.md"
 IDENTIFY = REFS / "identify-units.md"
 MAP = REFS / "map-and-detect.md"
 GENERATE = REFS / "generate-briefs.md"
+RECOMMEND = REFS / "recommend.md"
 DISCOVER = REFS / "discover-additional-source.md"
 BRIEF_SCHEMA_DOC = AN / "assets" / "skill-brief-schema.md"
 TEMPLATE = AN / "templates" / "analysis-report-template.md"
@@ -585,7 +595,7 @@ def _gate_and_write(tmp_path: Path, path: Path, context: dict, name: str):
     values = {"writeSkillBriefHelper": str(WRITER), "validateBriefSchemaHelper": str(VALIDATOR),
               "run_dir": str(run_dir), "forge_data_folder": str(forge), stem: name}
     stage = _one_command(text, f'--target "{{run_dir}}/briefs/{{{stem}}}/skill-brief.yaml"')
-    check = _one_command(text, "uv run {validateBriefSchemaHelper}")
+    check = _one_command(text, 'uv run {validateBriefSchemaHelper} "{run_dir}/briefs/')
     final = _one_command(text, f'--target "{{forge_data_folder}}/{{{stem}}}/skill-brief.yaml"')
     staged = _run(stage, values)
     verdict = _run(check, values) if staged.returncode == 0 else None
@@ -738,6 +748,227 @@ def test_a_detected_version_that_is_not_semver_writes_the_default(tmp_path, dete
     assert any("falling through to default 1.0.0" in w for w in json.loads(staged.stdout)["warnings"])
     assert written is not None and written.returncode == 0, written.stderr if written else verdict.stdout
     assert yaml.safe_load(target.read_text(encoding="utf-8"))["version"] == "1.0.0"
+
+
+# --------------------------------------------------------------------------
+# The brief checks and a dynamic version are helper calls (#1127)
+# --------------------------------------------------------------------------
+
+BATCH_CALL = "uv run {validateBriefSchemaHelper} batch"
+ABSENT_KEY_LINE = "Leave out every other optional key: the writer reads an absent key as unset."
+# The optional keys the brief writer drops when they are null (#1127 leanness-9).
+DROPPED_KEYS = ("scope_rationale", "scope_tier_a_include", "scope_amendments", "scope_registry_path",
+                "scope_ui_variants", "scope_demo_patterns", "scripts_intent", "assets_intent", "source_ref")
+
+
+def _generate_context(name: str, source_repo: str) -> dict:
+    """A context generate-briefs section 2's template gives."""
+    [template] = _fenced(_section(_read(GENERATE), "### 2. Build Each Brief's Context", "### 3."), "json")
+    values = {"unit-name": name, "version, or null": None, "source_repo": source_repo,
+              "the unit's ref, or null": None, "language": "typescript",
+              "description": "Helpers. Use when testing.", "forge_tier": "Forge", "current_date": "2026-11-13",
+              "user_name": "armel", "scope.type": "full-library", "scope.include": "src/**",
+              "scope.exclude": "**/tests/**", "scope.notes": "One package."}
+    return _fill(template, values)
+
+
+def _batch_call(run_dir: Path, existing: list[str], paths: list[str], roots: list[str]):
+    """Section 3b's documented call, its lists filled in quoted, its glob left for the script."""
+    command = _one_command(_section(_read(GENERATE), "**3b. Batch checks.**", "### 4."), BATCH_CALL)
+    assert '--contexts "{run_dir}"/brief-*.json' in command
+    for placeholder, words in (("<each existing_skills name>", existing),
+                               ("<each project_paths entry, quoted>", paths),
+                               ("<the scan_roots entry of each, quoted, in the same order>", roots)):
+        assert placeholder in command, placeholder
+        command = command.replace(placeholder, " ".join(shlex.quote(word) for word in words))
+    return _run(command, {"validateBriefSchemaHelper": str(VALIDATOR), "run_dir": str(run_dir)})
+
+
+def test_the_documented_batch_check_runs_on_the_brief_contexts(tmp_path):
+    """#1127 determinism-8: section 3b's one call checks the contexts section 2 writes, its
+    `brief-*.json` word as no shell expanded it: a clean batch passes, a remote unit through the scan
+    root this run cloned, and a step 5 rename onto an existing skill's name fails on that brief."""
+    run_dir = _run_dir(tmp_path)
+    local = tmp_path / "mono"
+    local.mkdir()
+    remote = "https://github.com/acme/core"
+    root = run_dir / "source-2"
+    root.mkdir()
+    for name, source in (("auth", str(local)), ("core", remote)):
+        (run_dir / f"brief-{name}.json").write_bytes(json.dumps(_generate_context(name, source)).encode("utf-8"))
+    lists = (["billing"], [str(local), remote], [str(local), str(root)])
+    proc = _batch_call(run_dir, *lists)
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert json.loads(proc.stdout) == {"valid": True, "errors": [], "warnings": []}
+    (run_dir / "brief-core.json").write_bytes(json.dumps(_generate_context("billing", remote)).encode("utf-8"))
+    proc = _batch_call(run_dir, *lists)
+    assert proc.returncode == 1, (proc.stdout, proc.stderr)
+    [error] = json.loads(proc.stdout)["errors"]
+    assert (Path(error["context"]).name, error["name"], error["field"]) == ("brief-core.json", "billing", "name")
+    assert error["message"].startswith("Brief validation failed: ")
+
+
+def test_the_documented_batch_check_passes_with_no_existing_skill(tmp_path):
+    """A first run has an empty `existing_skills`: the filled call then holds a bare
+    `--existing-skills` before `--project-paths`, and still passes a clean batch."""
+    run_dir = _run_dir(tmp_path)
+    local = tmp_path / "mono"
+    local.mkdir()
+    (run_dir / "brief-auth.json").write_bytes(json.dumps(_generate_context("auth", str(local))).encode("utf-8"))
+    proc = _batch_call(run_dir, [], [str(local)], [str(local)])
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert json.loads(proc.stdout) == {"valid": True, "errors": [], "warnings": []}
+
+
+def test_section_3b_runs_the_batch_once_every_brief_passed_the_gate():
+    text = _read(GENERATE)
+    checks = _section(text, "**3b. Batch checks.**", "### 4.")
+    assert checks.startswith("**3b. Batch checks.** When every brief passed §3a, check them together")
+    assert [line for block in _fenced(checks, "bash") for line in block.split("\n") if line.strip()] == [
+        _one_command(checks, BATCH_CALL)]
+    assert ("Its `errors[]` have §3a's shape and are 3b failures: each names its `context` file, and its brief "
+            "`name`, `field` and `message` are the {unit-name}, {check} and reason below.") in checks
+    assert ("a second exit 2 counts as a failed `batch` check of the first unit in `confirmed_units`, its reason "
+            "the first stderr line") in checks
+    assert "{unit-name}" in checks.split("**If any check fails:**")[1] and "{check}" in checks
+    modify = _section(text, "**IF user modifies (M):**", "**IF user skips writing (N):**")
+    assert "run §3a on it and §3b again" in modify, "an [M] rename is checked against the batch too"
+    assert "`existing_skills`" in _section(text, "### 1. Load Context", "### 2.")
+    opening = _section(text, "### 3. Validate Each Brief", "**3a.")
+    assert "**batch check**" in opening and "semantic" not in opening
+    row = next(line for line in _read(HEADLESS).splitlines() if line.startswith("| 4 "))
+    assert "fails the batch check of step 6 §3 in headless mode" in row and "semantic" not in row
+
+
+@pytest.mark.parametrize("path, phase", [(GENERATE, "generate-briefs:2"), (AUTO, "step-auto-scope:8")],
+                         ids=["interactive", "auto"])
+def test_both_brief_steps_resolve_the_extractor_or_halt(path, phase):
+    """#1127 determinism-9: the version lookup's extractor is resolved with the brief writer and the
+    validator, so a missing script halts there."""
+    text = _read(path)
+    assert ("extractPublicApiProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'\n"
+            "  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'\n") in text.split("\n---\n", 1)[0] + "\n"
+    [line] = [line for line in text.splitlines()
+              if "**`{extractPublicApiHelper}`** from `{extractPublicApiProbeOrder}`" in line]
+    assert "**`{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}`" in line
+    assert f'HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `{phase}`)' in line
+
+
+@pytest.mark.parametrize("files, expected", [
+    ({"acme/__init__.py": '__version__ = "2.3.1"\n'}, ("2.3.1", "file:acme/__init__.py")),
+    ({"acme/__init__.py": "from ._version import __version__\n", "acme/_version.py": '__version__ = "2.4.0"\n'},
+     ("2.4.0", "file:acme/_version.py")),
+    ({"acme.py": "x = 1\n", "setup.py": 'from setuptools import setup\nsetup(name="acme", version="3.1.0")\n'},
+     ("3.1.0", "file:setup.py")),
+], ids=["init", "version-file", "single-module"])
+def test_a_dynamic_python_version_comes_from_the_extractor(tmp_path, files, expected):
+    """#1127 determinism-9: the scan gives a `version_dynamic` manifest no version, and the schema
+    asset's documented call finds it, with where it came from; for a package with no `__init__.py`
+    the call leaves `--entry-file` out, as the rule says, so setup.py is still read."""
+    root = tmp_path / "acme-src"
+    root.mkdir()
+    (root / "pyproject.toml").write_text('[project]\nname = "acme"\ndynamic = ["version"]\n', encoding="utf-8")
+    for rel, body in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(body, encoding="utf-8")
+    scan = subprocess.run([sys.executable, str(SCAN_MANIFESTS), "scan", str(root)], capture_output=True, timeout=120)
+    assert scan.returncode == 0, scan.stderr
+    [manifest] = [m for m in json.loads(scan.stdout)["manifests"] if m["path"] == "pyproject.toml"]
+    assert (manifest["version_dynamic"], manifest["version"]) == (True, None)
+    rule = _section(_read(BRIEF_SCHEMA_DOC), "## Version Detection", "## Scope Object")
+    command = _one_command(rule, "--resolve-version")
+    assert command == ('uv run {extractPublicApiHelper} --mode quick --language python --source-root "{scan_root}" '
+                       '--manifest-file "<the manifest>" --entry-file "<package>/__init__.py" --resolve-version')
+    if not (root / "acme" / "__init__.py").is_file():
+        assert "Leave `--entry-file` out when the scan root holds no `<package>/__init__.py`" in rule
+        command = command.replace(' --entry-file "<package>/__init__.py"', "")
+    command = command.replace("<the manifest>", manifest["path"]).replace("<package>", "acme")
+    proc = _run(command, {"extractPublicApiHelper": str(EXTRACT), "scan_root": str(root)})
+    assert proc.returncode == 0, proc.stderr
+    result = json.loads(proc.stdout)
+    assert (result["version"], result["version_source"]) == expected
+
+
+def test_the_schema_asset_keeps_only_what_the_brief_steps_read():
+    """#1127 leanness-1, leanness-2 and determinism-9: Required Fields, Version Detection, Scope Object,
+    Scope Types and the documented-language note stay; no tier or language list is checked; the
+    version lookup is the extractor's, not a chain to walk."""
+    text = _read(BRIEF_SCHEMA_DOC)
+    assert re.findall(r"^#{2,3} (.+)$", text, flags=re.M) == [
+        "Required Fields", "Version Detection", "Scope Object", "Scope Types"]
+    assert text.count("> **Documented vs source language.**") == 1
+    assert "forge-tier.yaml" not in text
+    rows = {line.split("|")[1].strip(): line.split("|") for line in text.splitlines() if line.startswith("| ")}
+    assert rows["language"][3].strip() == "Non-empty"
+    assert "The analysis report's `forge_tier`" in rows["forge_tier"][4]
+    rule = _section(text, "## Version Detection", "## Scope Object")
+    assert "\u2192" not in rule, "no chain to walk by hand"
+    assert "Look a version up only in two cases" in rule
+    assert "`skf-extract-public-api.py --help` gives its order" in rule
+    dynamic = _section(rule, "- **A `version_dynamic` manifest**", "- **A private workspace root")
+    sparse = "sparse-checkout add '/<package>/__init__.py' '/<package>/_version.py' '/<the setup.py beside the manifest>'"
+    assert dynamic.index(sparse) < dynamic.index("--resolve-version")
+    assert "A non-zero exit or a null `version` leaves `detected_version` null." in dynamic
+    assert "Read those files in the scan root" not in rule
+    recommend = _read(RECOMMEND)
+    assert "schemaFile" not in recommend and "skill-brief-schema" not in recommend
+    generate = _read(GENERATE)
+    assert "Load {schemaFile}" not in generate
+    pointer = next(line for line in generate.splitlines() if line.startswith("Read {schemaFile}'s"))
+    assert "**Version Detection** section only when" in pointer
+    assert "no other part" not in pointer, "the language row still points to the documented-language note"
+    assert "`version_dynamic`" in pointer and "a private workspace root without a `version`" in pointer
+    preview = _section(generate, "### 4. Present Generation Preview", "### 5.")
+    assert "`{version_source}`" in preview
+    assert "found the `version` the brief shows" in preview, "a version the writer replaced names no source"
+
+
+@pytest.mark.parametrize("path, start, end, kept", [
+    (GENERATE, "### 2. Build Each Brief's Context", "### 3.", ()),
+    (AUTO, "### 8. Write Skill Briefs", "**Gate every brief", ("doc_urls",)),
+    (DOCS, "### 4. Write skill brief via canonical writer", "### 5.", ("doc_urls", "source_authority",
+                                                                       "version_resolved")),
+], ids=["interactive", "auto", "docs-only"])
+def test_the_brief_templates_leave_out_the_keys_the_writer_drops(path, start, end, kept):
+    """#1127 leanness-9: a null optional key is dropped by the writer, so no template pins one, and one
+    line under each template says so; the version-precedence inputs stay."""
+    section = _section(_read(path), start, end)
+    [template] = _fenced(section, "json")
+    keys = re.findall(r'^\s*"([a-z_]+)"\s*:', template, flags=re.M)
+    for key in DROPPED_KEYS:
+        assert key not in keys, key
+    for key in ("target_version", "detected_version", *kept):
+        assert key in keys, key
+    if path != DOCS:
+        assert "source_authority" not in keys and "version_resolved" not in keys
+    assert f"```\n\n{ABSENT_KEY_LINE}\n" in section
+    assert "scope.tier_a_include" not in _read(GENERATE)
+
+
+def test_the_docs_only_brief_is_written_from_its_trimmed_context(tmp_path):
+    """#1127 leanness-9: the docs-only context, without the keys the writer drops, still gives a valid
+    brief through the documented write."""
+    text = _read(DOCS)
+    [template] = _fenced(_section(text, "### 4. Write skill brief via canonical writer", "### 5."), "json")
+    url = "https://docs.example.com/guide"
+    context = _fill(template, {"skill_name": "example-guide", "url": url, "forge_tier": "Quick",
+                               "current_date": "2026-11-13", "user_name": "armel"})
+    assert not set(DROPPED_KEYS) & set(context) and "target_ref" not in context, sorted(context)
+    run_dir = _run_dir(tmp_path)
+    forge = tmp_path / "forge-data"
+    (run_dir / "brief-example-guide.json").write_bytes(json.dumps(context).encode("utf-8"))
+    write = _one_command(text, '--target "{forge_data_folder}/{skill_name}/skill-brief.yaml"')
+    proc = _run(write, {"writeSkillBriefHelper": str(WRITER), "forge_data_folder": str(forge),
+                        "skill_name": "example-guide", "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    target = forge / "example-guide" / "skill-brief.yaml"
+    brief = yaml.safe_load(target.read_text(encoding="utf-8"))
+    # The writer leaves out the default `source_authority`, community.
+    assert (brief["source_type"], brief.get("source_authority", "community"), brief["version"]) == (
+        "docs-only", "community", "1.0.0")
+    assert brief["doc_urls"][0]["url"] == url
+    verdict = subprocess.run([sys.executable, str(VALIDATOR), str(target)], capture_output=True, timeout=60)
+    assert verdict.returncode == 0, verdict.stdout
 
 
 # --------------------------------------------------------------------------
