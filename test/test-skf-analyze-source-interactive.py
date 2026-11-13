@@ -494,6 +494,12 @@ def test_the_scan_roots_are_recorded_once_and_read_by_every_step():
     generate = _read(GENERATE)
     gone = _section(generate, "**A scan root that is gone.**", "The brief writer renders")
     assert "its `{run_dir}/manifests-{i}.json` is missing" in gone, "a manifest scan already there fetches nothing"
+    # The batch check needs the scan root of every path a brief names, a path whose units have no
+    # manifest of their own (no version lookup) too (#1124 lane review).
+    assert ("For each project path a confirmed unit was found under whose recorded scan root no longer exists, "
+            "make it again") in gone
+    assert "§3b checks each brief's `source_repo` against it" in gone
+    assert "When the version row below needs" not in gone
     assert generate.index("**A scan root that is gone.**") < generate.index("| version |")
     assert "`scan_roots`" in _section(generate, "### 1. Load Context", "### 2.")
     assert "identify-units, map-and-detect and generate-briefs make one again" in _read(SCAN_ROOT)
