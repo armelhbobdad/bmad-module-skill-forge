@@ -8,9 +8,13 @@ with write_bytes, so a Windows checkout reads the same bytes and lines.
 The last classes pin the step's prose (#605): Phase 1 lets the helper list
 the brief's files and count the demo files, Phase 2 reads its score and
 the headless gate its `headless_accept`, Phase 2b writes back only what a
-user answered through the brief writer, Phase 3 maps the helper's entries,
-Phase 4 runs the component-library recipes in one runner call, and a brief
-the write-back produced validates and shadows no other workflow's decision.
+user answered through the brief writer, Phase 3 writes the helper's entries
+for Phase 4's sort, Phase 4 runs the component-library recipes in one runner
+call and sorts, links and counts their exports with `components` (#1146),
+Phases 5 and 6 read that call's JSON, and a brief the write-back produced
+validates and shadows no other workflow's decision. `components` itself is
+tested one row of the spec's I/O matrix at a time, from synthetic runner
+JSON (no ast-grep).
 """
 
 from __future__ import annotations
@@ -524,6 +528,494 @@ class TestGivenPath:
 
 
 # --------------------------------------------------------------------------
+# components: sort, link, catalog and count (#1146)
+# --------------------------------------------------------------------------
+
+
+def _export(name: str, rel: str, line: int, recipe: str | None, kind: str | None, signature: str = "",
+            declaration: str | None = None) -> dict:
+    """An export as the runner records it (ast_recipe set) or as it is read by eye (none)."""
+    entry = {"export_name": name, "source_file": rel, "source_line": line, "ast_recipe": recipe,
+             "export_type": kind, "signature": signature,
+             "citation": f"[{'AST' if recipe else 'SRC'}:{rel}:L{line}]"}
+    if declaration is not None:
+        entry["declaration_signature_line"] = declaration
+    return entry
+
+
+def _links(result: dict) -> dict[str, tuple[str | None, str | None, str]]:
+    return {f"{link['props_file']}:{link['props']}": (link["component"], link["component_file"],
+                                                      link["link_method"]) for link in result["links"]}
+
+
+def _names(result: dict, key: str) -> list[str]:
+    return [item["name"] for item in result[key]]
+
+
+class TestComponents:
+    """`components` sorts, links, maps the registry and counts in place of the
+    model (#1146 determinism-4), one test per row of the spec's I/O matrix
+    from Naming to Bad input, the CLI's payload fed to the inventory's `set`."""
+
+    def _runner(self, tmp_path: Path, exports: list[dict]) -> Path:
+        return _write(tmp_path, "extraction.json", json.dumps({"status": "ok", "exports": exports}))
+
+    def _brief(self, tmp_path: Path, variants: list[dict] | None = None) -> Path:
+        scope = {"type": "component-library"}
+        if variants is not None:
+            scope["ui_variants"] = variants
+        return _write(tmp_path, "skill-brief.yaml", json.dumps({"name": "acme-ui", "scope": scope}))
+
+    def _registry(self, tmp_path: Path, rows: list[str]) -> Path:
+        _write(tmp_path / "src-root", "registry/index.ts", "export const registry = [\n" + "\n".join(rows) + "\n];\n")
+        result = _mod().detect_registry(tmp_path / "src-root", [], "registry/index.ts", entries=True)
+        return _write(tmp_path, "registry.json", json.dumps(result))
+
+    def _cli(self, *args: str) -> dict:
+        proc = _run("components", *args)
+        assert proc.returncode == 0, proc.stderr
+        return json.loads(proc.stdout)
+
+    def test_naming_convention(self):
+        result = _mod().detect_components([
+            _export("ButtonProps", "ui/button.tsx", 1, "react-props-interfaces", "interface"),
+            _export("Button", "ui/button.tsx", 5, "react-component-functions", "function"),
+            _export("Badge", "ui/button.tsx", 9, "react-component-functions", "function")], [])
+        assert _links(result) == {"ui/button.tsx:ButtonProps": ("Button", "ui/button.tsx", "naming-convention")}
+
+    def test_the_nearest_candidate_wins(self):
+        """Two components share the name: the one in the contract's file, then its folder."""
+        result = _mod().detect_components([
+            _export("Button", "a/button.tsx", 3, "react-component-functions", "function"),
+            _export("Button", "b/button.tsx", 3, "react-component-functions", "function"),
+            _export("ButtonProps", "b/button.tsx", 1, "react-props-interfaces", "interface"),
+            _export("Button", "b/x/button.tsx", 3, "react-component-functions", "function"),
+            _export("ButtonProps", "b/x/types.ts", 1, "ts-exported-types", "interface")], [])
+        links = _links(result)
+        assert links["b/button.tsx:ButtonProps"][1] == "b/button.tsx"
+        assert links["b/x/types.ts:ButtonProps"][1] == "b/x/button.tsx"
+
+    def test_a_local_list_sorts_by_what_it_names(self):
+        result = _mod().detect_components([
+            _export("Card", "ui/card.tsx", 8, "js-local-exports", "function", "export { Card, cardVariants }"),
+            _export("cardVariants", "ui/card.tsx", 8, "js-local-exports", "const", "export { Card, cardVariants }"),
+            _export("CardProps", "ui/card.tsx", 9, "js-local-exports", "re-export", "export type { CardProps }"),
+            _export("DialogProps", "ui/dialog.tsx", 1, "js-local-exports", "re-export",
+                    "export { type DialogProps, Dialog }"),
+            _export("Dialog", "ui/dialog.tsx", 1, "js-local-exports", "function",
+                    "export { type DialogProps, Dialog }"),
+            _export("Theme", "ui/card.tsx", 10, "js-local-exports", "re-export", "export type { Theme }"),
+            _export("Size", "ui/card.tsx", 11, "ts-exported-types", "enum"),
+            # an imported type a value list passes on with a bare `type` specifier, no `Props` in its name
+            _export("Tone", "ui/badge.tsx", 2, "js-local-exports", "re-export", "export { type Tone, Badge }"),
+            _export("Badge", "ui/badge.tsx", 2, "js-local-exports", "function", "export { type Tone, Badge }")], [])
+        assert _names(result, "components") == ["Badge", "Card", "Dialog"]
+        assert _names(result, "props_contracts") == ["CardProps", "DialogProps"]
+        assert _names(result, "shared_exports") == ["cardVariants"]
+        assert _names(result, "shared_types") == ["Tone", "Theme", "Size"]
+        assert {link["link_method"] for link in result["links"]} == {"naming-convention"}
+
+    def test_co_location_then_the_next_rule(self):
+        one = _mod().detect_components([
+            _export("Props", "ui/slider.tsx", 1, "ts-exported-types", "type", "export type Props = { min: number }"),
+            _export("Slider", "ui/slider.tsx", 3, "react-wrapped-components", "const")], [])
+        assert _links(one) == {"ui/slider.tsx:Props": ("Slider", "ui/slider.tsx", "co-location")}
+        two = _mod().detect_components([
+            _export("Props", "ui/slider.tsx", 1, "ts-exported-types", "type", "export type Props = { min: number }"),
+            _export("Slider", "ui/slider.tsx", 3, "react-wrapped-components", "const"),
+            _export("SliderThumb", "ui/slider.tsx", 7, "react-wrapped-components", "const")], [])
+        assert _links(two) == {"ui/slider.tsx:Props": (None, None, "none")}
+
+    def test_generic_param(self):
+        result = _mod().detect_components([
+            _export("Props", "ui/slider.tsx", 1, "ts-exported-types", "type",
+                    "export type Props = React.ComponentProps<typeof Slider>"),
+            _export("Slider", "ui/slider.tsx", 3, "react-wrapped-components", "const",
+                    "export const Slider = React.forwardRef((props, ref) => null)"),
+            _export("SliderThumb", "ui/slider.tsx", 7, "react-wrapped-components", "const"),
+            _export("Props", "ui/range.tsx", 1, "ts-exported-types", "type", "export type Props = { to: number }"),
+            _export("Range", "ui/range.tsx", 3, "react-wrapped-components", "const",
+                    "export const Range = forwardRef<HTMLDivElement, Props>((p, r) => null)"),
+            _export("RangeTrack", "ui/range.tsx", 7, "react-component-arrow-functions", "const",
+                    "export const RangeTrack = (p: { on: boolean }) => <div />"),
+            # a member after `typeof` names no component of that name
+            _export("RootProps", "ui/root.ts", 1, "ts-exported-types", "type",
+                    "export type RootProps = ComponentProps<typeof Primitive.Slider>")], [])
+        links = _links(result)
+        assert links["ui/slider.tsx:Props"] == ("Slider", "ui/slider.tsx", "generic-param")
+        assert links["ui/range.tsx:Props"] == ("Range", "ui/range.tsx", "generic-param")
+        assert links["ui/root.ts:RootProps"] == (None, None, "none")
+
+    def test_generic_param_reads_a_local_list_items_declaration_line(self):
+        """A local list item's `signature` is the list line; its `declaration_signature_line` holds the `typeof`
+        or the `<...>` that names the link."""
+        slider = "export { type Props, Slider, SliderThumb }"
+        range_list = "export { type Props, Range, RangeTrack }"
+        result = _mod().detect_components([
+            _export("Props", "ui/slider.tsx", 9, "js-local-exports", "type", slider,
+                    declaration="type Props = React.ComponentProps<typeof Slider>"),
+            _export("Slider", "ui/slider.tsx", 9, "js-local-exports", "function", slider,
+                    declaration="function Slider() {"),
+            _export("SliderThumb", "ui/slider.tsx", 9, "js-local-exports", "function", slider,
+                    declaration="function SliderThumb() {"),
+            _export("Props", "ui/range.tsx", 9, "js-local-exports", "interface", range_list,
+                    declaration="interface Props {"),
+            _export("Range", "ui/range.tsx", 9, "js-local-exports", "const", range_list,
+                    declaration="const Range = forwardRef<HTMLDivElement, Props>((p, r) => null)"),
+            _export("RangeTrack", "ui/range.tsx", 9, "js-local-exports", "function", range_list,
+                    declaration="function RangeTrack() {")], [])
+        links = _links(result)
+        assert links["ui/slider.tsx:Props"] == ("Slider", "ui/slider.tsx", "generic-param")
+        assert links["ui/range.tsx:Props"] == ("Range", "ui/range.tsx", "generic-param")
+
+    def test_a_vue_file_is_named_by_its_name_before_its_first_dot(self):
+        """`button.client.vue` defines `Button`, and a name's non-ASCII letters stay in it."""
+        result = _mod().detect_components([
+            _export("Props", "vue/button.client.vue", 3, "vue-define-props", "type", "defineProps<Props>()"),
+            _export("Props", "vue/sélect-menu.vue", 3, "vue-define-props", "type", "defineProps<Props>()")], [])
+        assert sorted(_names(result, "components")) == ["Button", "SélectMenu"]
+
+    def test_a_vue_contract_adds_its_file_component(self):
+        result = _mod().detect_components([
+            _export("Props", "vue/my-button.vue", 3, "vue-define-props", "type", "defineProps<Props>()"),
+            _export("Props", "vue/IconBadge.vue", 2, "react-props-interfaces", "interface")], [])
+        assert _names(result, "props_contracts") == ["Props", "Props"]
+        assert _names(result, "components") == ["IconBadge", "MyButton"]
+        assert _links(result) == {"vue/my-button.vue:Props": ("MyButton", "vue/my-button.vue", "co-location"),
+                                  "vue/IconBadge.vue:Props": ("IconBadge", "vue/IconBadge.vue", "co-location")}
+        component = result["components"][1]
+        assert (component["source_line"], component["citation"]) == (3, "[AST:vue/my-button.vue:L3]")
+
+    def test_a_props_interface_read_by_eye_is_a_contract(self, tmp_path):
+        exports = _write(tmp_path, "read-by-eye.json", json.dumps([
+            {"export_name": "InputProps", "export_type": "interface", "source_file": "ui/input.tsx",
+             "source_line": 1, "citation": "[SRC:ui/input.tsx:L1]"},
+            {"export_name": "inputVariants", "export_type": "const", "source_file": "ui/input.tsx",
+             "source_line": 9, "citation": "[SRC:ui/input.tsx:L9]"}]))
+        extraction = self._runner(tmp_path, [_export("Input", "ui/input.tsx", 4, "react-component-functions",
+                                                     "function")])
+        result = self._cli("--extraction", str(extraction), "--exports", str(exports))
+        assert _names(result, "props_contracts") == ["InputProps"]
+        assert result["props_contracts"][0]["ast_recipe"] is None
+        assert _names(result, "shared_exports") == ["inputVariants"]
+        assert _links(result) == {"ui/input.tsx:InputProps": ("Input", "ui/input.tsx", "naming-convention")}
+
+    def test_a_constant_is_a_shared_export_and_a_props_alias_a_contract(self):
+        """The Constant and alias row: a value export no component recipe matched is a component only when its
+        name is PascalCase, and a `*Props` item a local list passes on (`re-export`, or `type <local> as <name>`)
+        is a type."""
+        list_items = "export { List, MAX_ITEMS, ListContext }"
+        alias = "export { type Props as ButtonProps, Button }"
+        theme = "export { type Theme as AppTheme, Button }"
+        result = _mod().detect_components([
+            _export("List", "ui/list.tsx", 9, "js-local-exports", "function", list_items),
+            _export("MAX_ITEMS", "ui/list.tsx", 9, "js-local-exports", "const", list_items),
+            _export("ListContext", "ui/list.tsx", 9, "js-local-exports", "const", list_items),
+            _export("ButtonProps", "ui/button.tsx", 9, "js-local-exports", "re-export", alias),
+            _export("Button", "ui/button.tsx", 9, "js-local-exports", "function", alias),
+            _export("AppTheme", "ui/theme.tsx", 9, "js-local-exports", "re-export", theme),
+            # read by eye: no recipe, and an imported Props passed on
+            _export("DialogProps", "ui/dialog.tsx", 2, None, "re-export"),
+            _export("Dialog", "ui/dialog.tsx", 5, None, "function")], [])
+        assert _names(result, "shared_exports") == ["MAX_ITEMS"]
+        assert _names(result, "components") == ["Button", "Dialog", "List", "ListContext"]
+        assert _names(result, "props_contracts") == ["ButtonProps", "DialogProps"]
+        assert _names(result, "shared_types") == ["AppTheme"]
+        assert _links(result) == {"ui/button.tsx:ButtonProps": ("Button", "ui/button.tsx", "naming-convention"),
+                                  "ui/dialog.tsx:DialogProps": ("Dialog", "ui/dialog.tsx", "naming-convention")}
+        assert result["stats_extra"]["components_unique"] == 4
+
+    def test_a_bare_name_in_another_file_links_nothing(self):
+        """The Generic elsewhere row: `Props` in `ui/range.tsx`'s `forwardRef<HTMLDivElement, Props>` is that
+        file's own type, so `ui/slider.tsx`'s `Props`, beside two components, links none."""
+        result = _mod().detect_components([
+            _export("Props", "ui/slider.tsx", 1, "ts-exported-types", "interface", "export interface Props {}"),
+            _export("Slider", "ui/slider.tsx", 3, "react-wrapped-components", "const",
+                    "export const Slider = forwardRef((p, r) => null)"),
+            _export("SliderThumb", "ui/slider.tsx", 7, "react-wrapped-components", "const"),
+            _export("Range", "ui/range.tsx", 3, "react-wrapped-components", "const",
+                    "export const Range = forwardRef<HTMLDivElement, Props>((p, r) => null)")], [])
+        assert _links(result) == {"ui/slider.tsx:Props": (None, None, "none")}
+
+    def test_an_index_vue_is_named_by_its_folder(self):
+        """The Vue index row: `Button/index.vue` and `Card/index.vue` define `Button` and `Card`, 2 units."""
+        result = _mod().detect_components([
+            _export("Props", "src/Button/index.vue", 3, "vue-define-props", "type", "defineProps<Props>()"),
+            _export("Props", "src/Card/index.vue", 3, "vue-define-props", "type", "defineProps<Props>()")], [])
+        assert _names(result, "components") == ["Button", "Card"]
+        assert _links(result) == {"src/Button/index.vue:Props": ("Button", "src/Button/index.vue", "co-location"),
+                                  "src/Card/index.vue:Props": ("Card", "src/Card/index.vue", "co-location")}
+        assert result["stats_extra"]["components_unique"] == 2
+
+    def test_a_vue_file_that_exports_its_component_adds_none(self):
+        result = _mod().detect_components([
+            _export("Props", "vue/my-button.vue", 3, "vue-define-props", "type", "defineProps<Props>()"),
+            _export("MyButton", "vue/my-button.vue", 9, None, "const")], [])
+        assert [(c["name"], c["source_line"]) for c in result["components"]] == [("MyButton", 9)]
+        assert _links(result) == {"vue/my-button.vue:Props": ("MyButton", "vue/my-button.vue", "co-location")}
+
+    def test_the_runner_export_wins_over_the_same_one_read_by_eye(self, tmp_path):
+        """The Overlap row, through the CLI: `InputProps` in both inputs is one contract, the runner's."""
+        extraction = self._runner(tmp_path, [
+            _export("InputProps", "ui/input.tsx", 1, "react-props-interfaces", "interface"),
+            _export("Input", "ui/input.tsx", 4, "react-component-functions", "function")])
+        exports = _write(tmp_path, "read-by-eye.json", json.dumps([
+            {"export_name": "InputProps", "export_type": "interface", "source_file": "ui/input.tsx",
+             "source_line": 1, "citation": "[SRC:ui/input.tsx:L1]", "signature": "export interface InputProps",
+             "params": None, "return_type": None}]))
+        result = self._cli("--extraction", str(extraction), "--exports", str(exports))
+        [contract] = result["props_contracts"]
+        assert (contract["citation"], contract["ast_recipe"]) == ("[AST:ui/input.tsx:L1]", "react-props-interfaces")
+        assert len(result["links"]) == 1 and result["stats_extra"]["props_interfaces_extracted"] == 1
+
+    def _two_variants(self, tmp_path: Path, exports: list[dict]) -> dict:
+        registry = self._registry(tmp_path, ['  { id: "button", name: "button" },'])
+        brief = self._brief(tmp_path, [{"name": "radix", "package": "packages/radix"},
+                                       {"name": "base", "package": "packages/base"}])
+        return self._cli("--extraction", str(self._runner(tmp_path, exports)), "--registry", str(registry),
+                         "--brief", str(brief))
+
+    def test_the_primary_variant_comes_first_when_its_path_sorts_later(self, tmp_path):
+        """The Primary sorts later row: `radix` is primary though `packages/base` sorts first."""
+        exports = []
+        for v in ("radix", "base"):
+            exports += [_export("ButtonProps", f"packages/{v}/button.tsx", 1, "react-props-interfaces", "interface"),
+                        _export("Button", f"packages/{v}/button.tsx", 5, "react-component-functions", "function")]
+        [entry] = self._two_variants(tmp_path, exports)["component_catalog"]
+        assert (entry["name"], entry["props"], entry["props_file"]) == ("Button", "ButtonProps",
+                                                                        "packages/radix/button.tsx")
+        assert entry["code_paths"] == ["packages/radix/button.tsx", "packages/base/button.tsx"]
+        assert entry["available_in"] == ["radix", "base"]
+
+    def test_a_contract_links_the_component_of_its_own_variant(self, tmp_path):
+        """The Variant link row: each `ButtonProps` in `src/types/` links its own variant's `Button`."""
+        exports = []
+        for v in ("radix", "base"):
+            exports += [
+                _export("ButtonProps", f"packages/{v}/src/types/button.ts", 1, "ts-exported-types", "interface"),
+                _export("Button", f"packages/{v}/src/components/button.tsx", 5, "react-component-functions",
+                        "function")]
+        result = self._two_variants(tmp_path, exports)
+        assert _links(result) == {
+            f"packages/{v}/src/types/button.ts:ButtonProps": ("Button", f"packages/{v}/src/components/button.tsx",
+                                                              "naming-convention") for v in ("radix", "base")}
+        [entry] = result["component_catalog"]
+        assert entry["props_file"] == "packages/radix/src/types/button.ts"
+
+    def test_the_canonical_contract_is_the_naming_convention_one(self, tmp_path):
+        """The Canonical row: `ButtonGroupProps` links `Button` by co-location and sorts first by name, but the
+        `button` entry's contract is `ButtonProps`, linked by naming convention."""
+        registry = self._registry(tmp_path, ['  { id: "button" },'])
+        extraction = self._runner(tmp_path, [
+            _export("ButtonProps", "ui/button.tsx", 1, "react-props-interfaces", "interface"),
+            _export("ButtonGroupProps", "ui/button.tsx", 4, "react-props-interfaces", "interface"),
+            _export("Button", "ui/button.tsx", 9, "react-component-functions", "function")])
+        result = self._cli("--extraction", str(extraction), "--registry", str(registry))
+        assert _links(result)["ui/button.tsx:ButtonGroupProps"] == ("Button", "ui/button.tsx", "co-location")
+        [entry] = result["component_catalog"]
+        assert (entry["props"], entry["link_method"]) == ("ButtonProps", "naming-convention")
+
+    def test_an_entry_no_component_names_takes_the_components_of_its_file(self, tmp_path):
+        """The File join row: `ui/sonner.tsx`'s `Toaster` joins `sonner`, an `index` file by its folder, and the
+        entry no component joins is left in `unmatched_entries`."""
+        registry = self._registry(tmp_path, ['  { id: "sonner" },', '  { id: "toast", name: "toast" },',
+                                             '  { id: "tooltip" },'])
+        extraction = self._runner(tmp_path, [
+            _export("Toaster", "ui/sonner.tsx", 3, "react-component-functions", "function"),
+            _export("ToastViewport", "ui/toast/index.tsx", 3, "react-component-functions", "function"),
+            _export("ToastProps", "ui/toast/index.tsx", 1, "react-props-interfaces", "interface")])
+        result = self._cli("--extraction", str(extraction), "--registry", str(registry))
+        catalog = {entry["id"]: entry for entry in result["component_catalog"]}
+        assert (catalog["sonner"]["name"], catalog["sonner"]["code_paths"]) == ("Sonner", ["ui/sonner.tsx"])
+        assert catalog["toast"]["code_paths"] == ["ui/toast/index.tsx"]
+        assert catalog["toast"]["props"] == "ToastProps"
+        assert result["unmatched_entries"] == ["tooltip"]
+        assert result["stats_extra"]["components_unique"] == 3
+
+    def test_an_entry_a_component_joins_by_name_takes_no_other_by_file(self, tmp_path):
+        """`Dialog` joins `dialog` by name, so `DialogTrigger` in the same `ui/dialog.tsx` does not join it by
+        file name, and its `DialogTriggerProps` is not the entry's contract."""
+        registry = self._registry(tmp_path, ['  { id: "dialog" },'])
+        extraction = self._runner(tmp_path, [
+            _export("Dialog", "ui/dialog.tsx", 3, "react-component-functions", "function"),
+            _export("DialogTriggerProps", "ui/dialog.tsx", 7, "react-props-interfaces", "interface"),
+            _export("DialogTrigger", "ui/dialog.tsx", 9, "react-component-functions", "function")])
+        result = self._cli("--extraction", str(extraction), "--registry", str(registry))
+        [entry] = result["component_catalog"]
+        assert (entry["props"], entry["link_method"], entry["code_paths"]) == (None, None, ["ui/dialog.tsx"])
+        assert result["stats_extra"]["components_documented"] == 0
+
+    def test_a_registry_with_no_array_lists_no_entries_and_the_call_runs_without_it(self, tmp_path):
+        """The Registry without entries row: an object-map registry gives a selected candidate with no `entries`,
+        which `components` refuses, so Phase 3 goes on with no registry and Step 4's call still sorts and counts."""
+        _write(tmp_path / "src-root", "registry/index.ts",
+               'export const registry = {\n  button: { name: "Button", category: "forms" },\n};\n')
+        listed = _mod().detect_registry(tmp_path / "src-root", [], "registry/index.ts", entries=True)
+        [chosen] = [c for c in listed["candidates"] if c["path"] == listed["selected"]]
+        assert "entries" not in chosen
+        registry = _write(tmp_path, "registry.json", json.dumps(listed))
+        extraction = self._runner(tmp_path, [
+            _export("ButtonProps", "ui/button.tsx", 1, "react-props-interfaces", "interface"),
+            _export("Button", "ui/button.tsx", 5, "react-component-functions", "function")])
+        refused = _run("components", "--extraction", str(extraction), "--registry", str(registry))
+        assert refused.returncode == 2 and refused.stdout == b""
+        result = self._cli("--extraction", str(extraction))
+        assert result["stats_extra"]["components_unique"] == 1 and result["stats_extra"]["components_documented"] == 1
+
+    def test_registry_and_variants(self, tmp_path):
+        exports = []
+        for variant in ("a", "b"):
+            exports += [
+                _export("ButtonProps", f"packages/{variant}/button.tsx", 1, "react-props-interfaces", "interface"),
+                _export("Button", f"packages/{variant}/button.tsx", 5, "react-component-functions", "function"),
+                _export("AlertDialog", f"packages/{variant}/alert-dialog.tsx", 3, "react-component-functions",
+                        "function")]
+        registry = self._registry(tmp_path, [
+            '  { id: "button", name: "Button", category: "forms", description: "A button.", tags: ["form"] },',
+            '  { id: "alert-dialog", name: "Alert Dialog", category: "overlay", tags: "modal" },',
+            '  { id: "tooltip", name: "Tooltip", category: "overlay" },',
+            '  { id: "button", name: "Button again" },',
+            '  { label: "no key" },'])
+        brief = self._brief(tmp_path, [{"name": "a", "package": "packages/a"}, {"name": "b", "package": "packages/b"}])
+        result = self._cli("--extraction", str(self._runner(tmp_path, exports)), "--registry", str(registry),
+                           "--brief", str(brief), "--demo-excluded", "4")
+        assert result["variants"] == [{"name": "a", "package": "packages/a", "primary": True},
+                                      {"name": "b", "package": "packages/b", "primary": False}]
+        catalog = {entry["id"]: entry for entry in result["component_catalog"]}
+        assert list(catalog) == ["button", "alert-dialog", "tooltip"]
+        assert catalog["button"] == {
+            "id": "button", "name": "Button", "description": "A button.", "category": "forms", "tags": ["form"],
+            "citation": "[SRC:registry/index.ts:L2]", "available_in": ["a", "b"],
+            "code_paths": ["packages/a/button.tsx", "packages/b/button.tsx"],
+            "props": "ButtonProps", "props_file": "packages/a/button.tsx", "link_method": "naming-convention"}
+        assert catalog["alert-dialog"]["available_in"] == ["a", "b"]
+        assert (catalog["alert-dialog"]["tags"], catalog["alert-dialog"]["props"]) == (["modal"], None)
+        assert catalog["tooltip"]["available_in"] == [] and catalog["tooltip"]["description"] == ""
+        assert result["unmatched_entries"] == ["tooltip"]
+        assert result["catalog_by_category"] == [
+            {"category": "overlay", "count": 2, "components": ["AlertDialog", "Tooltip"]},
+            {"category": "forms", "count": 1, "components": ["Button"]}]
+        assert [w for w in result["warnings"] if "no id, name or component" in w]
+        assert (result["components_unique"], result["components_total_with_variants"]) == (3, 5)
+        assert result["stats_extra"] == {"components_registered": 5, "components_documented": 1,
+                                         "props_interfaces_extracted": 2, "components_unique": 3,
+                                         "demo_files_excluded": 4, "design_variants": {"a": 2, "b": 2}}
+
+    def test_the_spec_registry_row(self, tmp_path):
+        """Entries `button` and `alert-dialog`, Button and AlertDialog in variants a and b, the second found by
+        its folder name."""
+        exports = [_export("Button", f"src/{v}/button.tsx", 1, "react-component-functions", "function")
+                   for v in ("a", "b")]
+        exports += [_export("AlertDialog", f"src/{v}/alert-dialog.tsx", 1, "react-component-functions", "function")
+                    for v in ("a", "b")]
+        registry = self._registry(tmp_path, ['  { id: "button" },', '  { id: "alert-dialog" },'])
+        brief = self._brief(tmp_path, [{"name": "a", "package": "src/a"}, {"name": "b"}])
+        result = self._cli("--extraction", str(self._runner(tmp_path, exports)), "--registry", str(registry),
+                           "--brief", str(brief))
+        assert [e["available_in"] for e in result["component_catalog"]] == [["a", "b"], ["a", "b"]]
+        assert [e["name"] for e in result["component_catalog"]] == ["Button", "AlertDialog"]
+        stats = result["stats_extra"]
+        assert (stats["components_registered"], stats["components_unique"]) == (2, 2)
+        assert result["components_total_with_variants"] == 4
+        assert stats["design_variants"] == {"a": 2, "b": 2}
+
+    def test_a_missing_category_comes_from_categories(self, tmp_path):
+        registry = self._registry(tmp_path, ['  { id: "button", name: "Button" },',
+                                             '  { id: "dialog", name: "Dialog", category: "overlay" },'])
+        extraction = self._runner(tmp_path, [_export("Button", "ui/button.tsx", 1, "react-component-functions",
+                                                     "function")])
+        first = self._cli("--extraction", str(extraction), "--registry", str(registry))
+        assert [e["category"] for e in first["component_catalog"]] == [None, "overlay"]
+        assert first["catalog_by_category"][-1] == {"category": None, "count": 1, "components": ["Button"]}
+        categories = _write(tmp_path, "categories.json", json.dumps({"button": "forms", "dialog": "modals",
+                                                                     "nope": "misc"}))
+        second = self._cli("--extraction", str(extraction), "--registry", str(registry), "--categories",
+                           str(categories))
+        assert [e["category"] for e in second["component_catalog"]] == ["forms", "overlay"]
+        assert second["catalog_by_category"] == [{"category": "forms", "count": 1, "components": ["Button"]},
+                                                 {"category": "overlay", "count": 1, "components": ["Dialog"]}]
+        assert len(second["warnings"]) == 2
+        assert any("nope" in w for w in second["warnings"]) and any("dialog" in w for w in second["warnings"])
+
+    def test_no_registry(self, tmp_path):
+        exports = [_export("Button", f"{v}/button.tsx", 1, "react-component-functions", "function")
+                   for v in ("shadcn", "base")]
+        exports += [_export("ButtonProps", "shadcn/button.tsx", 0, "react-props-interfaces", "interface"),
+                    _export("Card", "shadcn/card.tsx", 1, "react-component-functions", "function")]
+        # a variant with no package holds the files under a folder of its name, matched case-insensitively
+        brief = self._brief(tmp_path, [{"name": "shadcn"}, {"name": "Base", "package": None}])
+        result = self._cli("--extraction", str(self._runner(tmp_path, exports)), "--brief", str(brief))
+        assert (result["component_catalog"], result["catalog_by_category"], result["unmatched_entries"]) == ([], [], [])
+        assert (result["components_unique"], result["components_total_with_variants"]) == (2, 3)
+        assert result["stats_extra"] == {"components_registered": 0, "components_documented": 1,
+                                         "props_interfaces_extracted": 1, "components_unique": 2,
+                                         "demo_files_excluded": 0, "design_variants": {"shadcn": 2, "Base": 1}}
+        plain = self._cli("--extraction", str(self._runner(tmp_path, exports)))
+        assert (plain["variants"], plain["stats_extra"]["design_variants"]) == ([], {})
+        assert plain["components_total_with_variants"] == 2
+
+    def test_the_payload_is_what_the_inventory_sets(self, tmp_path):
+        registry = self._registry(tmp_path, ['  { id: "button", name: "Button", category: "forms" },'])
+        extraction = self._runner(tmp_path, [
+            _export("ButtonProps", "ui/button.tsx", 1, "react-props-interfaces", "interface"),
+            _export("Button", "ui/button.tsx", 5, "react-component-functions", "function")])
+        target = tmp_path / "stage" / "acme-ui.components.json"
+        result = self._cli("--extraction", str(extraction), "--registry", str(registry), "--set-to", str(target))
+        payload = json.loads(target.read_text(encoding="utf-8"))
+        assert payload == {"component_catalog": result["component_catalog"], "component_stats": result["stats_extra"]}
+        inventory = tmp_path / "acme-ui.inventory.json"
+        script = SCRIPTS / "skf-extraction-inventory.py"
+        for args, stdin in ((["init", "--skill", "acme-ui", "--mode", "component-library", "--tier", "Forge"], None),
+                            (["set"], target.read_bytes())):
+            proc = subprocess.run([sys.executable, str(script), *args, "--inventory", str(inventory)], input=stdin,
+                                  capture_output=True, timeout=60)
+            assert proc.returncode == 0, proc.stderr
+        data = json.loads(inventory.read_text(encoding="utf-8"))
+        assert (data["component_catalog"], data["component_stats"]) == (payload["component_catalog"],
+                                                                         payload["component_stats"])
+
+    def test_a_failed_write_prints_nothing(self, tmp_path):
+        blocker = _write(tmp_path, "blocker", "a file, not a folder")
+        extraction = self._runner(tmp_path, [_export("Button", "ui/button.tsx", 5, "react-component-functions",
+                                                     "function")])
+        proc = _run("components", "--extraction", str(extraction), "--set-to", str(blocker / "out.json"))
+        assert proc.returncode == 2 and proc.stdout == b""
+        assert proc.stderr.decode("utf-8").startswith("skf-detect-registry: cannot write")
+
+    @pytest.mark.parametrize("case", ["no-exports", "export-without-file", "registry-without-entries",
+                                      "categories-not-strings", "variants-not-a-list", "variant-without-name",
+                                      "negative-demo", "unreadable-json", "unreadable-brief"])
+    def test_bad_input_exits_2_and_writes_nothing(self, tmp_path, case):
+        good = self._runner(tmp_path, [_export("Button", "ui/button.tsx", 5, "react-component-functions",
+                                               "function")])
+        target = tmp_path / "out.json"
+
+        def bad(text: str) -> str:
+            return str(_write(tmp_path, "bad.json", text))
+
+        args = {
+            "no-exports": lambda: ["--extraction", bad(json.dumps({"status": "ok"}))],
+            "export-without-file": lambda: ["--exports", bad(json.dumps([{"export_name": "InputProps"}]))],
+            "registry-without-entries": lambda: ["--extraction", str(good), "--registry", bad(json.dumps(
+                {"selected": "r.ts", "candidates": [{"path": "r.ts"}]}))],
+            "categories-not-strings": lambda: ["--extraction", str(good), "--categories",
+                                               bad(json.dumps({"button": ""}))],
+            "variants-not-a-list": lambda: ["--extraction", str(good), "--brief",
+                                            str(self._brief(tmp_path, {"name": "a"}))],
+            "variant-without-name": lambda: ["--extraction", str(good), "--brief",
+                                             str(self._brief(tmp_path, [{"package": "packages/a"}]))],
+            "negative-demo": lambda: ["--extraction", str(good), "--demo-excluded", "-1"],
+            "unreadable-json": lambda: ["--extraction", bad("{not json")],
+            "unreadable-brief": lambda: ["--extraction", str(good), "--brief", str(tmp_path / "no-brief.yaml")],
+        }[case]()
+        proc = _run("components", *args, "--set-to", str(target))
+        assert proc.returncode == 2, (case, proc.stderr)
+        assert proc.stdout == b"" and not target.exists()
+        assert proc.stderr.decode("utf-8").startswith("skf-detect-registry: ")
+        assert len(proc.stderr.decode("utf-8").strip().splitlines()) == 1
+
+
+# --------------------------------------------------------------------------
 # component-extraction.md: the prose reads the helper
 # --------------------------------------------------------------------------
 
@@ -594,6 +1086,105 @@ class TestComponentExtractionProse:
         phase_3 = _phase(3)
         assert 'uv run {detectRegistryHelper} registry --source-root "{source_root}" --path "{registry_file}" --entries' in phase_3
         assert "`[SRC:{registry_file}:L{line}]`, with the entry's `line`" in phase_3
+        # #1146: Step 4's call maps the entries it wrote; with no helper there is no by-eye read, since the call
+        # needs the same script
+        assert ('--entries > "{component_scan}/registry.json"') in phase_3
+        flat = " ".join(phase_3.split())
+        assert "Phase 4's Step 4 call maps each entry, keyed by its `id` (else `name`, else `component`)" in flat
+        assert ("When the command exits non-zero, no candidate resolves, or its selected candidate lists no `entries` "
+                "(the file holds no array of object literals, such as an object map), warn \"The registry was not "
+                "parsed: {its stderr, or 'skf-detect-registry.py is missing, so re-install SKF', or '{registry_file} "
+                "holds no array of entries'}.\" and go on with no registry: Step 4's call reads the registry through "
+                "the same script and exits 2 on one with no `entries`.") in flat
+        assert "by eye" not in phase_3 and "from the directory structure" not in _text()
+
+    def test_step_1_reads_the_fields_after_step_4s_call(self):
+        """Step 1 reads each Props contract's fields once Step 4's call has listed them, and from what Steps 1 and
+        2 found when the call printed nothing, so a failed call still leaves every contract its `params`."""
+        phase_4 = _phase(4)
+        step_1 = phase_4[phase_4.index("**Step 1 (extract Props interfaces):**"):phase_4.index("**Step 2 ")]
+        assert ("Once Step 4's call has run, for each Props contract it lists in `props_contracts`, or, when it "
+                "printed no JSON, each Props contract Steps 1 and 2 found (a `*Props` interface or type, or a Vue "
+                "props type):") in " ".join(step_1.split())
+        step_4 = phase_4.index("**Step 4 (sort, link and count):**")
+        assert phase_4.index("**Step 1 (extract Props interfaces):**") < step_4
+
+    def test_step_4_sorts_links_and_counts_through_the_helper(self):
+        """#1146 determinism-4: Phase 4 sorts, links, maps and counts through
+        one `components` call whose payload step 3 §5's `set` reads; with no
+        helper or a failed call it warns and counts nothing by hand."""
+        phase_4 = _phase(4)
+        step_4 = phase_4[phase_4.index("**Step 4 (sort, link and count):**"):]
+        [call] = [line for line in step_4.splitlines() if line.startswith("uv run {detectRegistryHelper} components")]
+        assert call == ('uv run {detectRegistryHelper} components [--extraction "{extraction_json}"] '
+                        '[--exports "{read_by_eye_json}"] [--registry "{component_scan}/registry.json"] '
+                        '[--categories "{component_scan}/categories.json"] --brief "{brief_file}" '
+                        '--demo-excluded {demo_files_excluded} --set-to "{components_json}" '
+                        '> "{component_scan}/components.json"')
+        words = re.sub(r'[\[\]"]', "", call.split(" > ")[0].replace("{demo_files_excluded}", "0")).split()
+        args = _mod()._build_parser().parse_args(words[3:])
+        assert (args.command, args.demo_excluded, args.set_to) == ("components", 0, "{components_json}")
+        flat = " ".join(step_4.split())
+        for phrase in ("write those entries, as Phase 6 lists them, each with the `export_name`, `export_type`, "
+                       "`signature`, `params`, `return_type`, `source_file`, `source_line` and `citation` step 3 §5's "
+                       "`add --field exports` takes, as one JSON list to `{read_by_eye_json}`",
+                       "a Props contract's `params` null (Step 1 reads its fields after the call, and step 3 §5 "
+                       "sends them with `patch`)",
+                       "`--registry` when Phase 3's JSON lists `entries`, `--categories` only on the rerun below,",
+                       "When it lists `unmatched_entries` (the registry entries no component joined, by name or by "
+                       "file name), warn \"No component was found for {each of them}: their `available_in`, "
+                       "`code_paths` and `props` stay empty.\"",
+                       "name one from the folders of its `code_paths` (from its `name` and `description` when it has "
+                       "none)",
+                       "With a registry, display: \"**Parsed component catalog: {N} components across {M} "
+                       "categories.**\"",
+                       "{M} the `catalog_by_category` rows whose `category` is not null",
+                       "When an entry's `category` is null, name one from the folders of its `code_paths`",
+                       "run the command once more with `--categories`",
+                       "warn \"Components were not sorted or counted: {its stderr, or 'skf-detect-registry.py is "
+                       "missing, so re-install SKF'}.\", send the warning with step 3 §5's `add --field warnings`, and "
+                       "go on with no `{components_json}`: never sort, link or count by hand."):
+            assert phrase in flat, phrase
+        # the sort and link rules live in the helper's docstring, not in the prose
+        text = _text()
+        for gone in ("Naming convention (primary)", "stripping the `Props` suffix", "A PascalCase value item",
+                     "A type-only item", "Use a 3-level fallback chain"):
+            assert gone not in text, gone
+        doc = " ".join(_mod().__doc__.split())
+        for rule in ("naming-convention a component named as the contract less its `Props` suffix",
+                     "co-location a `.vue` contract's file component, or the only component in the contract's file",
+                     "generic-param a component the contract's `declaration_signature_line` (else `signature`) "
+                     "names right after `typeof`",
+                     "or one in the contract's file whose own line names the contract inside `<...>`",
+                     "Of several candidates, the one in the contract's file wins, then one in its folder, then one in "
+                     "its variant, then the first by path.",
+                     "whose name is PascalCase: upper-case first and not all upper-case (`MAX_ITEMS` is a shared "
+                     "export)",
+                     "an export whose `export_type` is `re-export` and whose name ends in `Props`",
+                     "an `index.vue` its folder's name, so `Button/index.vue` gives `Button`",
+                     "in PascalCase (`alert-dialog` gives `AlertDialog`)",
+                     "a naming-convention link before a co-location one before a generic-param one",
+                     "then a null category after the named ones of the same count, then category"):
+            assert rule in doc, rule
+
+    def test_phases_5_and_6_read_the_call(self):
+        flat = " ".join(_phase(5).split())
+        assert "**Skip this phase unless Step 4's call printed JSON whose `variants` is not empty**" in flat
+        for token in ("**Variant consolidation: {components_unique} unique components across {variant_count} variants**",
+                      "({components_total_with_variants} total including variants)",
+                      "Primary variant: {the `variants` entry whose `primary` is true}",
+                      "compare the Props contracts `links` gives for its files, and record each variant-specific "
+                      "prop as a note"):
+            assert token in flat, token
+        for gone in ("Count unique components", "Use the primary variant", "no variant directories detected"):
+            assert gone not in _text(), gone
+        text = _text()
+        six = text[text.index("### Phase 6:"):text.index("## RETURN PROTOCOL")]
+        assert ("`component_stats` is Step 4's `stats_extra`, which the call wrote with `component_catalog` to "
+                "`{components_json}`") in " ".join(six.split())
+        for key in _mod().STATS_KEYS:
+            assert f"`{key}`:" not in text, key
+        assert "Linked component name" not in six and "Linked Props interface" not in six
 
     def test_phase_4_runs_the_component_library_recipes_once(self):
         phase_4 = _phase(4)

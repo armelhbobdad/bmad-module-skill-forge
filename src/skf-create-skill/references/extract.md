@@ -41,6 +41,16 @@ mergeCccExclusionsProbeOrder:
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
+# §4's co-import count, and the file pairs its suggestions may read.
+scanManifestsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
+  - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
+countImportsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-count-imports.py'
+  - '{project-root}/src/shared/scripts/skf-count-imports.py'
+pairIntersectProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-pair-intersect.py'
+  - '{project-root}/src/shared/scripts/skf-pair-intersect.py'
 # Steps 5 and 6 bind it the same way.
 extractionPatternsDataProbeOrder:
   - '{project-root}/_bmad/skf/skf-create-skill/references/extraction-patterns.md'
@@ -72,7 +82,7 @@ To extract all public exports, function signatures, type definitions, and co-imp
 ## Rules
 
 - Focus only on extracting exports, signatures, types from source code — do not compile SKILL.md
-- Write only beside the staging folder (the recipe runner's JSON, §4, the detector's JSON, §4c, and the extraction inventory, §2a and §5), and the brief only through §2b's protocol
+- Write only beside the staging folder (the recipe runner's JSON and the co-import counts, §4, the detector's JSON, §4c, and the extraction inventory, §2a and §5), and the brief only through §2b's protocol
 - Every extracted item must have a provenance citation: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`
 - A HARD HALT, once step 3 §2a has bound `{source_tree}`, first runs `uv run {sourceTreeHelper} close --tree "{source_tree}"` from `{project-root}` (resolved from `{sourceTreeProbeOrder}`) and goes on whatever it prints, and emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound. After its envelope, under `--batch` it ends only this brief: return to `references/batch-mode.md` §3, even when the halt reads as the end of the run.
 
@@ -94,7 +104,7 @@ At Forge tier and above the recipe runner (§4) applies these globs to the sourc
 
 ### 2a. Resolve Source Access
 
-**Start clean:** first, for every brief, docs-only included, set `{source_tree}`, `{workspace_clone}` and `{remote_clone_path}` to null and `{resolved-source-path}` to `{source_root}` (null for a docs-only brief), so that in a `--batch` run one brief's source never carries into the next. Bind `{extraction_inventory}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`, `{detected_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.detected.json` and `{extraction_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.extraction.json`, and run `rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" "{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json"`: the run record below, §4 (or step 3d), §4c, §5 and step 3c write this run's, so §5 never seeds from an earlier run's runner JSON and step 5 never reads an earlier run's Language Guide.
+**Start clean:** first, for every brief, docs-only included, set `{source_tree}`, `{workspace_clone}` and `{remote_clone_path}` to null and `{resolved-source-path}` to `{source_root}` (null for a docs-only brief), so that in a `--batch` run one brief's source never carries into the next. Bind `{extraction_inventory}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`, `{detected_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.detected.json`, `{extraction_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.extraction.json`, `{co_imports_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.co-imports.json`, `{components_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.components.json` and `{read_by_eye_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.read-by-eye.json`, and run `rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" "{co_imports_json}" "{components_json}" "{read_by_eye_json}" "{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json"`: the run record below, §4 (or step 3d), §4c, §5 and step 3c write this run's, so §5 never seeds from an earlier run's runner JSON, counts or components and step 5 never reads an earlier run's Language Guide.
 
 **If `source_type: "docs-only"`:** skip the rest of §2a but **Record the run** below, with every source field `null` and `version` the brief's `target_version`, else its `version`: there is no source to resolve. Then proceed directly to §2c (component library delegation, which is itself skipped for docs-only) and then §3 (Check for Docs-Only Mode). Tag resolution, reading the source into a tree, source-commit capture, version reconciliation, and deferred CCC discovery all require a source tree and have nothing to do in docs-only mode.
 
@@ -226,7 +236,13 @@ uv run {extractPublicApiHelper} --mode full \
 
 **When `truncated` is true,** a recipe matched more exports than its head cap keeps, and the matches past the cap are missing: a public name among them comes back as an extraction gap (§4b), read by eye, and the others are left out. Warn, and keep the warning for §6 and the evidence report: "**Extraction hit the head cap:** {each `recipes[]` id whose `truncated` is true} matched more than {head_cap} exports, so some exports were read by eye or left out. Narrow `scope.include` in the brief until no recipe reaches the cap."
 
-**Co-import detection (Forge tier and above):** use `ast_bridge.detect_co_imports(path, libraries[])` to find integration points: `find_code_by_rule` with a co-import YAML rule scoped to the libraries list, or `ast-grep scan -r {rule_file} --json=stream` (see `knowledge/tool-resolution.md`).
+**Co-import counts (Forge tier and above, AST tools or not):** resolve `{scanManifestsHelper}`, `{countImportsHelper}` and `{pairIntersectHelper}` ← first existing path in `{scanManifestsProbeOrder}`, `{countImportsProbeOrder}` and `{pairIntersectProbeOrder}`. From `{project-root}`, count the files of `{source_root}` that import each runtime dependency its manifests declare, matched on module boundaries (`react-dom` is not `react`), with one `--exclude` for each glob of the brief's `scope.exclude` (none when it lists none), so the files the brief leaves out, such as an `examples/` app, are not counted:
+
+```bash
+uv run {scanManifestsHelper} scan "{source_root}" | uv run {countImportsHelper} count "{source_root}" --deps - --threshold 2 [--exclude "<glob>"]... > "{co_imports_json}"
+```
+
+Each `dependencies[]` entry of `{co_imports_json}` has its `file_count`, its `files` (each with the line that imports it) and `above_threshold` (2 or more files), which §5's `co_imports` reads. When the files that import two of them together would help an integration point suggestion, `uv run {pairIntersectHelper} intersect --counts "{co_imports_json}" --only "{a},{b}"` lists them. When `{scanManifestsHelper}` or `{countImportsHelper}` does not resolve, or the call exits non-zero (a `{source_root}` that is no local folder included), run `rm -f "{co_imports_json}"`, warn "Co-imports were not counted: {the first stderr line, or '`{the missing script}` is missing; re-install SKF'}." and send the warning with §5's `add --field warnings`: never count imports by hand.
 
 **If AST tools are unavailable at Forge, Forge+ or Deep tier** (no ast-grep can run the recipes: see `{tierDegradationRulesData}` for full rules):
 
@@ -294,9 +310,9 @@ Pass `--mode component-library` for a component library (§2c), else `source`. P
 **Then send what you produced**, each call with its JSON payload on stdin, leaving out a call with nothing to send:
 
 - **Signatures** (`patch`): for each function export whose `params` the runner left null (and each Props interface of a component library), the full signature, the parameters (each as `{"name", "type", "default", "optional"}`, as the runner records them) and the return type you read from the source at its `source_line`. It sets only those three fields, matches each entry on `export_name` and `source_file`, and lists in `unmatched` and `ambiguous` the entries it could not place: correct those and send them again. An export marked `public: false` needs no signature: it is not documented.
-- **Exports read by eye** (`add --field exports`): each export §4 or §4b read by eye (an extraction gap, a `file_issues` file, a file an `errors[]` item lists in `unread`, a language no recipe reads, or every export when the runner did not run), with its `export_name`, `export_type`, `signature`, `params`, `return_type`, `source_file` (relative to `{source_root}`, with `/` separators, as the runner writes its files, so §4b's public surface can match it), `source_line` and `[SRC:...]` citation. The helper marks it `public` by §4b's public surface, as `init` marks the runner's, and labels it T1-low (`source-read`, with `ast_node_type` and `ast_recipe` null) unless the entry carries its own labels, as a `find_code` match of the protocol's fallback does (T1, `ast-grep`, the `kind` its recipe or pattern declares, and the pattern as its `ast_recipe`). A component library (§2c) sends here only the exports step 3d read by eye (Quick tier, a `file_issues` file, a file an `errors[]` item lists in `unread`, or the runner's fallback); it sends each Props interface's fields with `patch` as `params`, and `component_catalog` with `set`.
+- **Exports read by eye** (`add --field exports`): each export §4 or §4b read by eye (an extraction gap, a `file_issues` file, a file an `errors[]` item lists in `unread`, a language no recipe reads, or every export when the runner did not run), with its `export_name`, `export_type`, `signature`, `params`, `return_type`, `source_file` (relative to `{source_root}`, with `/` separators, as the runner writes its files, so §4b's public surface can match it), `source_line` and `[SRC:...]` citation. The helper marks it `public` by §4b's public surface, as `init` marks the runner's, and labels it T1-low (`source-read`, with `ast_node_type` and `ast_recipe` null) unless the entry carries its own labels, as a `find_code` match of the protocol's fallback does (T1, `ast-grep`, the `kind` its recipe or pattern declares, and the pattern as its `ast_recipe`). A component library (§2c) sends here only the exports step 3d read by eye (Quick tier, a `file_issues` file, a file an `errors[]` item lists in `unread`, or the runner's fallback), with the `< "{read_by_eye_json}"` call below when step 3d wrote that file; it sends each Props interface's fields with `patch` as `params`, and its `component_catalog` and `component_stats` with the `< "{components_json}"` call below when step 3d wrote that file.
 - **Warnings you raise** (`add --field warnings`): a list of strings, such as a degradation reason (§2a, §4), the runner's failure (§4), the detector's failure (§4c) or a file you could not read.
-- **The rest** (`set`), in one JSON object: `top_exports`, the 10 to 20 public API function names by prominence (import frequency or documentation position), none marked `public: false`, which step 3b's targeted temporal fetch reads; `co_imports` (Forge tier and above), the libraries commonly imported alongside the exports, with integration point suggestions; `promoted_docs` and `authoritative_files_scan`, §2b's records; `intent_mapping` for a free-text intent (§4c); a component library's `component_catalog` and `component_stats` (step 3d's Phase 6); and, when the runner did not run, `files_scanned` (§2's filtered file count) and the `counts` and `arms` §4b recorded. `counts` and `arms` merge into what is there, so after the runner send only a count you changed.
+- **The rest** (`set`), in one JSON object: `top_exports`, the 10 to 20 public API function names by prominence (import frequency or documentation position), none marked `public: false`, which step 3b's targeted temporal fetch reads; `co_imports` (Forge tier and above), from `{co_imports_json}` when §4 left it, else `[]`: one `{"name", "file_count", "integration"}` per `dependencies[]` entry whose `above_threshold` is true, in the file's order, with `name` and `file_count` as written there and `integration` your one-line integration point suggestion, null when its files show none; `promoted_docs` and `authoritative_files_scan`, §2b's records; `intent_mapping` for a free-text intent (§4c); and, when the runner did not run, `files_scanned` (§2's filtered file count) and the `counts` and `arms` §4b recorded. `counts` and `arms` merge into what is there, so after the runner send only a count you changed.
 
 ```bash
 uv run {extractionInventoryHelper} patch --inventory "{extraction_inventory}" <<'SKF_INVENTORY'
@@ -312,6 +328,13 @@ uv run {extractionInventoryHelper} set --inventory "{extraction_inventory}" <<'S
 {"top_exports": [], "co_imports": [], "promoted_docs": [], "authoritative_files_scan": null}
 SKF_INVENTORY
 uv run {extractionInventoryHelper} summary --inventory "{extraction_inventory}"
+```
+
+A component library's two file-fed calls, each run before `summary` when step 3d wrote its file:
+
+```bash
+uv run {extractionInventoryHelper} add --inventory "{extraction_inventory}" --field exports < "{read_by_eye_json}"
+uv run {extractionInventoryHelper} set --inventory "{extraction_inventory}" < "{components_json}"
 ```
 
 A call that exits non-zero changes nothing: fix what its `message` names and run it again. An entry the inventory already holds is not added twice (`duplicates`), so a call run again is safe. When a call fails twice, **HARD HALT** (exit code 4, `write-failed`, phase `extract`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path": "{extraction_inventory}"`: "Cannot write the extraction inventory `{extraction_inventory}`: {the helper's message}. Check permissions and disk space."

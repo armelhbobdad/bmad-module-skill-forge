@@ -663,9 +663,13 @@ def test_the_inventory_is_written_at_the_end_of_extraction():
     extract = _read(REFS / "extract.md")
     assert "extraction stays in context" not in extract
     assert ("Bind `{extraction_inventory}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.inventory.json`, "
-            "`{detected_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.detected.json` and "
-            "`{extraction_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.extraction.json`, and run "
-            '`rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" '
+            "`{detected_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.detected.json`, "
+            "`{extraction_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.extraction.json`, "
+            "`{co_imports_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.co-imports.json`, "
+            "`{components_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.components.json` and "
+            "`{read_by_eye_json}` ← `{project-root}/_bmad-output/.skf-stage/{skill-name}.read-by-eye.json`, and run "
+            '`rm -f "{extraction_inventory}" "{detected_json}" "{extraction_json}" "{co_imports_json}" '
+            '"{components_json}" "{read_by_eye_json}" '
             '"{project-root}/_bmad-output/.skf-stage/{skill-name}.language-guide.json"`') in extract
     five = _section(extract, "### 5. Build Extraction Inventory", "### 6.")
     helper = 'uv run {extractionInventoryHelper} '

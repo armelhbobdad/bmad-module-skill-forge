@@ -2,7 +2,7 @@
 returnToStep: 'extract.md'
 extractionPatternsData: 'references/extraction-patterns.md'
 # If neither path exists, Phase 1 goes on without demo exclusion or
-# registry detection.
+# registry detection, and Phase 4 without the component sort and counts.
 detectRegistryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'
   - '{project-root}/src/shared/scripts/skf-detect-registry.py'
@@ -28,7 +28,7 @@ When `scope.type: "component-library"`, perform specialized extraction that trea
 ## Rules
 
 - Focus only on extracting component catalog, props interfaces, and shared types
-- Do not compile SKILL.md content (Step 05). Write only the scratch files under `{component_scan}`, Phase 4's runner JSON at `{extraction_json}` and, in Phase 2b, the brief
+- Do not compile SKILL.md content (Step 05). Write only the scratch files under `{component_scan}`, Phase 4's runner JSON at `{extraction_json}`, its by-eye exports at `{read_by_eye_json}` and its sort at `{components_json}` and, in Phase 2b, the brief
 - Every extracted item must have a provenance citation: `[AST:{file}:L{line}]` or `[SRC:{file}:L{line}]`
 
 ## MANDATORY SEQUENCE
@@ -123,28 +123,17 @@ It reads the brief again (step 3 §2b may have amended it since step 1 loaded it
 
 ### Phase 3: Parse Registry
 
-If a registry was confirmed, bind `{registry_file}` ← its path (the brief's `scope.registry_path`, `selected` or the path the user gave) and list its entries, from `{project-root}`, with the `--source-root` Phase 2 used:
+If a registry was confirmed, bind `{registry_file}` ← its path (the brief's `scope.registry_path`, `selected` or the path the user gave) and write its entries to `{component_scan}/registry.json`, from `{project-root}`, with the `--source-root` Phase 2 used:
 
 ```bash
-uv run {detectRegistryHelper} registry --source-root "{source_root}" --path "{registry_file}" --entries
+uv run {detectRegistryHelper} registry --source-root "{source_root}" --path "{registry_file}" --entries > "{component_scan}/registry.json"
 ```
 
-Map each of its `entries[]` (one per object literal of the registry's array, each with its `line`, its `keys` and the `id`, `name`, `component`, `category`, `tags` and `description` it has) to one `component_catalog[]` entry:
+Its selected candidate lists `entries[]`, one per object literal of the registry's array, each with its `line`, its `keys` and the `id`, `name`, `component`, `category`, `tags` and `description` it has. Phase 4's Step 4 call maps each entry, keyed by its `id` (else `name`, else `component`), to one `component_catalog[]` entry: its `name`, `description`, `category` and `tags`, the variants that hold its components (`available_in`) and their files (`code_paths`), and its citation, `[SRC:{registry_file}:L{line}]`, with the entry's `line`.
 
-- `id`: the entry's `id` (used for the CLI `add` command)
-- `name`: display name (PascalCase), from `name` or `component`
-- `description`: `description`, or empty
-- `category`: `category`, or from the directory structure
-- `available_in[]`: which design system variants include this component
-- `code_paths[]`: source file path for each variant (from the entry's other `keys`, read at its `line` in the registry file, or from the directory structure)
-- `tags[]`: `tags`, or empty
-- Provenance citation: `[SRC:{registry_file}:L{line}]`, with the entry's `line`
+When the command exits non-zero, no candidate resolves, or its selected candidate lists no `entries` (the file holds no array of object literals, such as an object map), warn "The registry was not parsed: {its stderr, or 'skf-detect-registry.py is missing, so re-install SKF', or '{registry_file} holds no array of entries'}." and go on with no registry: Step 4's call reads the registry through the same script and exits 2 on one with no `entries`.
 
-When the command exits non-zero, or no candidate resolves, read the entries from the registry file by eye instead.
-
-Display: "**Parsed component catalog: {N} components across {M} categories.**"
-
-**If no registry:** Set `component_catalog: []` and proceed to Phase 4.
+**If no registry:** proceed to Phase 4. The catalog stays empty.
 
 ### Phase 4: Props-First Extraction
 
@@ -158,7 +147,7 @@ rm -f "{extraction_json}"
 uv run {extractPublicApiHelper} --mode full --source-root "{source_root}" --files-from "{scan_list}" --recipe-set component-library --scope-type component-library --tier {tier} -o "{extraction_json}"
 ```
 
-Act on the JSON's `status`, never on the exit code. **On `incomplete`**, remove the JSON and run the command once more, then act on the second run's JSON. **On `ok` or `incomplete`**, each of the `exports[]` in `{extraction_json}` is T1: it carries its `citation` (`[AST:{file}:L{line}]`), `ast_recipe`, `ast_node_type`, `export_type`, `confidence` and `extraction_method`, and the steps below sort the exports by `ast_recipe`, and an export read by eye, which has none, by its shape, as at Quick tier (a `*Props` interface read by eye is a Props contract for Steps 1 and 3). Read by eye, as T1-low, each file its `file_issues` lists as `syntax-errors` or `not-utf8`, where a recipe can miss an export, and, when the run is still incomplete, each file an `errors[]` item lists in `unread` (a failed call can keep some of a file's exports and lose the rest). A `no-recipes` issue is a file no recipe reads, such as a stylesheet: there is nothing to extract from it. A `missing` or `unreadable` issue is a listed file the runner could not read: record it for the evidence report as not extracted. Step 3 §5's `init` records the runner's warnings, and Gate 2 shows them: the head-cap warning when `truncated` is true (a recipe, which `recipes[]` marks, found more matches than the head cap keeps), and each `errors[]` item of an `incomplete` run (an ast-grep run failed or timed out, so its files were read by eye).
+Act on the JSON's `status`, never on the exit code. **On `incomplete`**, remove the JSON and run the command once more, then act on the second run's JSON. **On `ok` or `incomplete`**, each of the `exports[]` in `{extraction_json}` is T1: it carries its `citation` (`[AST:{file}:L{line}]`), `ast_recipe`, `ast_node_type`, `export_type`, `confidence` and `extraction_method`, and Step 4's call sorts the exports by `ast_recipe`, and an export read by eye, which has none, by its `export_type` and name (a `*Props` interface read by eye is a Props contract). Read by eye, as T1-low, each file its `file_issues` lists as `syntax-errors` or `not-utf8`, where a recipe can miss an export, and, when the run is still incomplete, each file an `errors[]` item lists in `unread` (a failed call can keep some of a file's exports and lose the rest). A `no-recipes` issue is a file no recipe reads, such as a stylesheet: there is nothing to extract from it. A `missing` or `unreadable` issue is a listed file the runner could not read: record it for the evidence report as not extracted. Step 3 §5's `init` records the runner's warnings, and Gate 2 shows them: the head-cap warning when `truncated` is true (a recipe, which `recipes[]` marks, found more matches than the head cap keeps), and each `errors[]` item of an `incomplete` run (an ast-grep run failed or timed out, so its files were read by eye).
 
 **On `no-ast-grep`, or with no JSON at `{extraction_json}`** (an input error, or no candidate resolves): load `{extractionPatternsData}`, which holds every recipe the steps below name and the forms each does not cover (Known Limitation #11), and run each of them as its AST Extraction Protocol says: its **When the Runner Cannot Run** loads the recipes' notes, the languages each runs in among them. When that section warns that the runner failed (no JSON, and a stderr line that holds `error:`), send the warning with step 3 §5's `add --field warnings`, so Gate 2 and the evidence report show it.
 
@@ -166,7 +155,7 @@ Act on the JSON's `status`, never on the exit code. **On `incomplete`**, remove 
 
 The Props contracts are the exports `react-props-interfaces` finds (`typescript` for `.ts` files, `tsx` for `.tsx` files) and, in a Vue component library, those `vue-define-props` finds in the `.vue` files (`vue-define-props-tsx` for a `<script setup lang="tsx">` block): each such match's `$NAME` is the props type of the component its `.vue` file defines. Without the runner, the Vue recipes run through the CLI with the scratch `sgconfig.yml` the Vue note in `extraction-patterns-by-hand.md` describes.
 
-For each Props contract found (a `*Props` interface, or a Vue props type):
+Once Step 4's call has run, for each Props contract it lists in `props_contracts`, or, when it printed no JSON, each Props contract Steps 1 and 2 found (a `*Props` interface or type, or a Vue props type):
 - Extract all fields with types, optionality, and default values (for a Vue props type, from the interface or type literal it names)
 - Extract JSDoc descriptions per field (if present)
 - Record: interface name, fields[], source file, line number
@@ -174,57 +163,43 @@ For each Props contract found (a `*Props` interface, or a Vue props type):
 
 **Step 2 (extract component exports):**
 
-The component exports are those `react-component-functions` (its `javascript` form for `.js` and `.jsx` files), `react-component-arrow-functions` and `react-wrapped-components` (for `memo`, `forwardRef` and `lazy` components) find, and the items of a local list such as the `export { Button, buttonVariants }` that ends a shadcn/ui component file, which `js-local-exports` finds. Sort a local list's items by what they name: the runner records an item's `export_type` as the kind of the declaration it names (`interface`, `type` or `enum` for a type). A type-only item (one in an `export type { ... }` list, or a `type X` specifier) is a type: one whose name ends in `Props` is a Props contract for Steps 1 and 3 (read its fields from the interface or type the list names), and any other is a shared type for Step 4. A PascalCase value item is a component, and any other value item (such as `buttonVariants`) is a shared export: record it with the shared types of Step 4.
+The component exports are those `react-component-functions` (its `javascript` form for `.js` and `.jsx` files), `react-component-arrow-functions` and `react-wrapped-components` (for `memo`, `forwardRef` and `lazy` components) find, and the items of a local list such as the `export { Button, buttonVariants }` that ends a shadcn/ui component file, which `js-local-exports` finds. Step 4's call sorts a local list's items by what they name: a `*Props` type among them is a Props contract (read its fields from the interface or type the list names), a value such as `buttonVariants` a shared export.
 
-For each component export: record name, source file, line number. Do not document the function signature in detail (a component's contract is its Props interface: Test Skill compares the props a form writes, never its return type or wrapper).
+Step 4's call lists each component with its file and line. Do not document the function signature in detail (a component's contract is its Props interface: Test Skill compares the props a form writes, never its return type or wrapper).
 
-**Step 3 (link Props to components):**
+**Step 3 (extract shared types):**
 
-Use a 3-level fallback chain:
+The shared types are the exports `ts-exported-types` finds: the exported interfaces, type aliases and enums, generic, `extends` and `export declare` forms included, less the Props contracts. It returns top-level exports only: a member of an `export namespace` block is not a module export.
 
-1. **Naming convention (primary):** Match `FooProps` → `Foo` component by stripping the `Props` suffix
-2. **File co-location (fallback):** If naming doesn't match, check if a Props interface and a component are defined in the same file
-3. **Generic parameter (deep fallback):** Look for `ComponentProps<typeof Foo>` or similar generic patterns that reference the component
+**Step 4 (sort, link and count):**
 
-For each linked pair, record the association. For unlinked Props interfaces, include them as standalone type exports. Include an unlinked component export with a note that no Props interface was found (signature-only, T1-low confidence for API contract).
+When any export was read by eye, write those entries, as Phase 6 lists them, each with the `export_name`, `export_type`, `signature`, `params`, `return_type`, `source_file`, `source_line` and `citation` step 3 §5's `add --field exports` takes, as one JSON list to `{read_by_eye_json}` (bound in step 3 §2a), a Props contract's `params` null (Step 1 reads its fields after the call, and step 3 §5 sends them with `patch`). Then, from `{project-root}`, run `{detectRegistryHelper}`, with `--extraction` when `{extraction_json}` exists, `--exports` when you wrote `{read_by_eye_json}`, `--registry` when Phase 3's JSON lists `entries`, `--categories` only on the rerun below, and `{demo_files_excluded}` Phase 1's count (0 when it excluded nothing):
 
-**Step 4 (extract shared types):**
+```bash
+uv run {detectRegistryHelper} components [--extraction "{extraction_json}"] [--exports "{read_by_eye_json}"] [--registry "{component_scan}/registry.json"] [--categories "{component_scan}/categories.json"] --brief "{brief_file}" --demo-excluded {demo_files_excluded} --set-to "{components_json}" > "{component_scan}/components.json"
+```
 
-The shared types are the exports `ts-exported-types` finds: the exported interfaces, type aliases and enums, generic, `extends` and `export declare` forms included, less the `*Props` interfaces Step 1 took. It returns top-level exports only: a member of an `export namespace` block is not a module export.
+It sorts the exports into `props_contracts`, `components`, `shared_types` and `shared_exports`, links each Props contract to its component in `links` (its `link_method` is `naming-convention`, `co-location`, `generic-param` or `none`), maps the registry to `component_catalog` and `catalog_by_category`, and counts: `uv run {detectRegistryHelper} --help` gives the rules. It writes `component_catalog` and `component_stats` to `{components_json}`, which step 3 §5's `set` reads. Show its `warnings`. With a registry, display: "**Parsed component catalog: {N} components across {M} categories.**" ({N} the `component_catalog` entries, {M} the `catalog_by_category` rows whose `category` is not null). When it lists `unmatched_entries` (the registry entries no component joined, by name or by file name), warn "No component was found for {each of them}: their `available_in`, `code_paths` and `props` stay empty." When an entry's `category` is null, name one from the folders of its `code_paths` (from its `name` and `description` when it has none), write each as `{"<id>": "<category>"}` to `{component_scan}/categories.json`, and run the command once more with `--categories`; when that run exits non-zero, fix `categories.json` as its stderr says and run it again.
+
+**If no `{detectRegistryHelper}` candidate resolves, or the command exits non-zero:** warn "Components were not sorted or counted: {its stderr, or 'skf-detect-registry.py is missing, so re-install SKF'}.", send the warning with step 3 §5's `add --field warnings`, and go on with no `{components_json}`: never sort, link or count by hand.
 
 ### Phase 5: Variant Consolidation
 
-**Skip this phase if `scope.ui_variants` is not specified and no variant directories detected.**
+**Skip this phase unless Step 4's call printed JSON whose `variants` is not empty** (the brief's `scope.ui_variants`).
 
-When multiple design system variants exist:
+The call grouped the components by registry entry (by name with no registry), put each file in its variant, took each entry's canonical Props contract (`props`: the primary variant's, else the first variant's that has one) and counted `components_unique` and `components_total_with_variants`. For each catalog entry whose `available_in` holds 2 or more variants (with no registry, each component name whose `components` sit in 2 or more variants), compare the Props contracts `links` gives for its files, and record each variant-specific prop as a note (e.g., "Base UI variant adds `slots` prop").
 
-1. **Group components by registry `id`** (not by filename — registry is source of truth):
-   - For each `id` in `component_catalog[]`, collect all variant paths from `available_in[]` and `code_paths[]`
-
-2. **Select canonical props definition:**
-   - Use the primary variant (first in `scope.ui_variants` list) as canonical
-   - If primary variant's props are unavailable, use the first available variant
-
-3. **Detect props differences between variants:**
-   - For components available in 2+ variants, compare Props interfaces
-   - Record any variant-specific props as notes (e.g., "Base UI variant adds `slots` prop")
-
-4. **Deduplicate export counts:**
-   - Count unique components (by registry `id`), not total files across variants
-   - Record: `components_unique: {N}`, `components_total_with_variants: {M}`
-
-Display: "**Variant consolidation: {unique} unique components across {variant_count} variants** ({total} total including variants). Primary variant: {primary_name}."
+Display: "**Variant consolidation: {components_unique} unique components across {variant_count} variants** ({components_total_with_variants} total including variants). Primary variant: {the `variants` entry whose `primary` is true}."
 
 ### Phase 6: Build Component Extraction Results
 
-Step 3 §5 takes the runner's exports from `{extraction_json}` as it wrote them. Prepare what it sends on top: an entry below for each export read by eye (Quick tier, a `file_issues` file, a file an `errors[]` item lists in `unread`, or the runner's fallback), each Props interface's fields as its `params`, `component_catalog[]`, and `component_stats`, the aggregate counts below, which step 3 §5's `set` records beside `component_catalog` for step 5's `metadata.json` stats:
+Step 3 §5 takes the runner's exports from `{extraction_json}` as it wrote them. Prepare what it sends on top: an entry below for each export read by eye (Quick tier, a `file_issues` file, a file an `errors[]` item lists in `unread`, or the runner's fallback), the list Step 4 writes to `{read_by_eye_json}`, and each Props interface's fields as its `params`:
 
 **Per-export entry (for Props interfaces — primary API):**
 
 - Interface name (e.g., `NativeLiquidButtonProps`)
 - Full interface with all fields and types
 - `params`: each field as `{name, type, default, optional, description}`, sent with `patch`
-- Linked component name (e.g., `NativeLiquidButton`)
 - Source file and line number
 - Provenance citation
 - Confidence tier: T1 when an ast-grep rule matched the interface, T1-low when it was read by eye
@@ -235,7 +210,6 @@ Step 3 §5 takes the runner's exports from `{extraction_json}` as it wrote them.
 **Per-export entry (for component functions):**
 
 - Component name
-- Linked Props interface (if found)
 - Source file and line number
 - Provenance citation
 - Confidence tier, `extraction_method`, `ast_node_type` and `ast_recipe`, labeled by the tool that produced the entry as for Props interfaces above (a component `js-local-exports` found records `export_specifier`, the kind that recipe declares)
@@ -244,16 +218,7 @@ Step 3 §5 takes the runner's exports from `{extraction_json}` as it wrote them.
 
 - Same as standard extraction format
 
-**Component library aggregate counts** (`component_stats`, one object, sent with step 3 §5's `set`):
-
-- `components_registered`: count from registry (or 0)
-- `components_documented`: count of components with linked Props
-- `props_interfaces_extracted`: count of `*Props` interfaces
-- `components_unique`: deduplicated count (after variant consolidation)
-- `demo_files_excluded`: count from Phase 1
-- `design_variants`: map of variant name → component count (if variants exist)
-
-Step 3 §5's `set` records `component_catalog[]` and `component_stats` in the inventory, where step 5 reads them for the Component Catalog section and the metadata stats.
+Each Props contract's component is its `links` row, and each catalog entry's contract its `props`. `component_stats` is Step 4's `stats_extra`, which the call wrote with `component_catalog` to `{components_json}`: step 3 §5's `set` reads that file into the inventory, where step 5 reads both for the Component Catalog section and the metadata stats.
 
 Remove this step's scratch folder, from `{project-root}` (the `case` guard deletes nothing unless `{component_scan}` is the folder Phase 1 made):
 
