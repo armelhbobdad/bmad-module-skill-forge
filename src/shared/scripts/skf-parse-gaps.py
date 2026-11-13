@@ -83,7 +83,7 @@ Subcommands:
 `source_citation` is set only when the whole Source is a `file:line` pair
 (`file:line-line`, `file:line:col` and `file#Lline` read the same).
 
-Map match (update-skill gap-driven.md §4's lookup of a gap's export in the
+Map match (update-skill gap-spot-check.md §4's lookup of a gap's export in the
 provenance map): for a gap with an `export` (null for one with none),
 
   {"status": "found" | "ambiguous" | "not-found",

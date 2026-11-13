@@ -9,7 +9,8 @@ Owns the line counting, the section boundaries, the size sort, the file
 writes and the blockquote replacements of `skf-create-skill`'s
 `references/step-auto-shard.md` §0 (which runs it on every pass and keeps no
 by-hand fallback) and `references/validate.md` §4, and of
-`skf-update-skill`'s `references/write.md` §7 when skill-check reports
+`skf-update-skill`'s `references/body-split.md`, which
+`references/verify-publish.md` §7 loads when skill-check reports
 `body.max_lines` or `body.max_tokens`: counted by eye, an over-budget body
 ships silently or the step halts for nothing.
 

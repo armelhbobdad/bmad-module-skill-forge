@@ -247,7 +247,7 @@ classify
   Says, with no network call and no tree, how open would take the source:
   classify()'s verdict, which open reads first. update-skill runs it to
   refuse a --source-root override for a skill read from a remote
-  repository (init.md §6), in every mode, before any tree is read.
+  repository (load-baseline.md §6), in every mode, before any tree is read.
 
   Output (one ASCII line):
     {"remote": true | false,   true when --source-repo names a remote

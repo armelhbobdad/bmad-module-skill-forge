@@ -4,7 +4,7 @@
 # ///
 """SKF Provenance Gap Dispatch — Major-Version Scope Reconciliation feeder.
 
-`skf-update-skill/references/detect-changes.md §1c` performs three
+`skf-update-skill/references/reconcile-scope.md §1c` performs three
 deterministic operations before the LLM can prompt the user:
 
   1. **Locate** the latest finished audit drift report under

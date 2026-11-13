@@ -2933,7 +2933,7 @@ def test_a_public_api_create_maps_the_names_update_keeps_on_cognees_shape(tmp_pa
 
 
 # --------------------------------------------------------------------------
-# gap-records: update-skill gap-driven.md §3, §4 and §4a
+# gap-records: update-skill gap-spot-check.md §3b, §4 and §4a
 # --------------------------------------------------------------------------
 
 API_SOURCE = b"import os\n\n\n@decorate\ndef search(q):\n    return q\n"

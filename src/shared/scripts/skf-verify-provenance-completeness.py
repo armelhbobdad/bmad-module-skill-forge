@@ -5,7 +5,7 @@
 # ///
 """SKF Verify Provenance Completeness — deterministic Check D for update-skill.
 
-update-skill's Check D (Provenance Completeness, now in write.md §6)
+update-skill's Check D (Provenance Completeness, now in verify-publish.md §6)
 previously asked the model to perform three deterministic set/citation
 operations by eye, against in-context data:
 
@@ -46,11 +46,11 @@ Both inputs are machine-readable — `metadata.json` (`exports[]`, a list of
 export-name strings) and `provenance-map.json` (`entries[]` with
 `export_name` / `source_file` / `source_line`, plus an optional
 `reexport_map` for stack-skill barrel renames) are written by
-`write.md` §2 and §3. This script diffs the two sets and re-checks the
+`write.md` §3b and §3. This script diffs the two sets and re-checks the
 citations exactly, so Check D consumes JSON rather than computing it.
 
-Timing: update-skill runs it **post-write**, in write.md §6, after
-`metadata.json` (§2) and `provenance-map.json` (§3) are on disk.
+Timing: update-skill runs it **post-write**, in verify-publish.md §6, after
+write.md's `provenance-map.json` (§3) and `metadata.json` (§3b) are on disk.
 create-skill runs it too, at validate §7a against the staged package (with
 `--skill-dir` and `--check-node-kinds`, as update-skill does), and
 test-skill at coverage-check §4c (line check only); test-skill's

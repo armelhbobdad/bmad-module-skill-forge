@@ -170,7 +170,9 @@ SOURCE_FACTS = ("source_repo", "source_root", "source_commit", "source_ref", "so
 
 # Every file that says which keys metadata.json and provenance-map.json carry.
 # Most write them as JSON ("key": ...); update-skill's write step names each key
-# it writes in backticks, in its metadata.json and provenance-map.json sections.
+# it writes in backticks, in its metadata.json and provenance-map.json sections,
+# and its write-metadata.md writes metadata.json's source keys with the
+# `metadata` call's --source-* flags.
 WRITERS = (
     "src/skf-create-skill/assets/skill-sections.md",
     "src/skf-quick-skill/assets/skill-template.md",
@@ -180,8 +182,11 @@ WRITERS = (
     "src/skf-create-stack-skill/assets/metadata-contract.md",
     "src/knowledge/provenance-tracking.md",
     "src/skf-update-skill/references/write.md",
+    "src/skf-update-skill/references/write-metadata.md",
 )
 UPDATE_WRITE = "src/skf-update-skill/references/write.md"
+UPDATE_WRITE_METADATA = "src/skf-update-skill/references/write-metadata.md"
+UPDATE_METADATA_CALL = "uv run {buildChangeManifestHelper} metadata"
 UPDATE_WRITE_SECTIONS = ("### 2. Prepare the Write Inputs", "### 4. Write Updated evidence-report.md")
 # Names in those sections of update-skill's write step that are not keys it
 # writes (none since #1192 cut the version bullet that named step 1's
@@ -195,6 +200,14 @@ NOT_SOURCE_NAMES = {"source_authority", "source_file", "source_line"}
 def _writer_keys(rel):
     """The source_* keys the writer `rel` puts in metadata.json or provenance-map.json."""
     text = (REPO / rel).read_text(encoding="utf-8")
+    if rel == UPDATE_WRITE_METADATA:
+        # the `metadata` call's --source-* flags, each the key it writes (--source-root writes source_root),
+        # and any key the file names in backticks
+        assert text.count(UPDATE_METADATA_CALL) == 1
+        call = text[text.index(UPDATE_METADATA_CALL):]
+        call = call[:call.index("```")]
+        flags = {flag.replace("-", "_") for flag in re.findall(r"--(source-[a-z-]+)", call)}
+        return flags | set(re.findall(r"`(source_[a-z_]+)`", text))
     if rel != UPDATE_WRITE:
         return set(re.findall(r'"(source_[a-z_]+)"\s*:', text))
     start, end = UPDATE_WRITE_SECTIONS
@@ -237,6 +250,8 @@ class TestSourceFacts:
         # quality gate run 1, skf-update-skill determinism-1); `source_library` is the library `apply` gives a new
         # provenance entry, which write.md names for its warning (#808)
         assert _writer_keys(UPDATE_WRITE) == {"source_commit", "source_ref", "source_root", "source_library"}
+        # #1196 moved the `metadata` call, which writes these three, to write-metadata.md, which the pin reads too
+        assert _writer_keys(UPDATE_WRITE_METADATA) == {"source_commit", "source_ref", "source_root"}
 
     @pytest.mark.parametrize("nested", [False, True], ids=["top-level", "nested"])
     @pytest.mark.parametrize("key", SOURCE_FACTS)

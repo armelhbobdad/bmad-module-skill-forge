@@ -345,7 +345,7 @@ Apply (update-skill write.md §3):
     moved (map_entry)       source_line (and source_file) from new_location,
                             and a NEW_EXPORT's or MODIFIED_EXPORT's
                             signature (below) when its record was found
-    re-extracted            the entry from its `files` record (gap-driven.md §4a);
+    re-extracted            the entry from its `files` record (gap-spot-check.md §4a);
                             none when its reachability is internal-unreachable;
                             a record with a `local` name (matched by the
                             public name a re-export gives it) writes
@@ -489,7 +489,7 @@ Metadata (update-skill write.md §3b):
   source_commit, source_ref and source_root when --source-commit,
   --source-ref or --source-root is given (an empty one sets null), else as
   they stand (--source-root: the local folder a run's --source-root
-  override read, init.md §6); exports, scripts and
+  override read, load-baseline.md §6); exports, scripts and
   assets from --lists (apply's --lists-out), scripts or assets left out
   when its list is empty; confidence_distribution from --stats (the JSON
   skf-render-metadata-stats.py writes with -o), and stats: the stats
@@ -539,7 +539,7 @@ Metadata (update-skill write.md §3b):
   or {"status": "refused",
   "blocking_unresolved": [{export_name, severity}]} with exit 3.
 
-Records (update-skill re-extract.md §4, and gap-driven.md §4a for the files
+Records (update-skill re-extract.md §4, and gap-spot-check.md §4a for the files
 it scans):
 
   Writes {"mode": "normal", "files": [{file_path, exports: [...]}]}, one
@@ -599,7 +599,7 @@ it scans):
   one with errors or one whose entry_points.unresolved is not empty mark
   nothing.
 
-Gap records (update-skill gap-driven.md §3, §4 and §4a):
+Gap records (update-skill gap-spot-check.md §3b, §4 and §4a):
 
   Reads the change manifest skf-parse-gaps.py translate wrote. Its
   STRUCTURAL_FIX and metadata update entries are forwarded to merge as
@@ -799,7 +799,7 @@ Gap records (update-skill gap-driven.md §3, §4 and §4a):
      An internal one keeps its outcome in its verification record (with no
      signature), its record is not in `files`, `counts` tallies it under
      `reclassified` instead of its outcome, and it is listed in
-     `reclassified` (gap-driven.md §4 records it for the evidence report;
+     `reclassified` (gap-spot-check.md §4 records it for the evidence report;
      apply writes no entry for it).
 
   Any answer missing in step 3 or 5 (a `docstring` too, for each
@@ -2744,7 +2744,7 @@ def _write_json_atomic(path: Path, value) -> None:
 
 
 # --------------------------------------------------------------------------
-# Records (update-skill re-extract.md §4, gap-driven.md §4a)
+# Records (update-skill re-extract.md §4, gap-spot-check.md §4a)
 # --------------------------------------------------------------------------
 
 
@@ -2884,14 +2884,14 @@ def build_records(extraction: dict | None, details: dict | None, files: list | N
 
 
 # --------------------------------------------------------------------------
-# Gap records (update-skill gap-driven.md §3, §4 and §4a)
+# Gap records (update-skill gap-spot-check.md §3b, §4 and §4a)
 # --------------------------------------------------------------------------
 
 
 EXPORT_CATEGORIES = ("NEW_EXPORT", "MODIFIED_EXPORT", "MOVED_EXPORT", "DELETED_EXPORT")
 DOCUMENT_CATEGORIES = ("missing-export", "missing-type")  # routed to §4a by category, never halting
 DRIFT_STATUSES = ("ok", "skipped", "overridden")
-# The drift gate's reasons, gap-driven.md §3: the first that fits.
+# The drift gate's reasons, gap-spot-check.md §3b: the first that fits.
 DRIFT_RESCOPE = "a public API recount from the tree (rule R1)"
 DRIFT_COMPLETENESS = "a line from the tree (rule R3)"
 DRIFT_NOT_IN_MAP = "a line and a signature from the tree"

@@ -1367,7 +1367,7 @@ def _docstring(path: Path, start: str, end: str) -> str:
 
 
 def _gap_records_doc() -> str:
-    return _docstring(BUILD_MANIFEST, "Gap records (update-skill gap-driven.md", "Exit codes:")
+    return _docstring(BUILD_MANIFEST, "Gap records (update-skill gap-spot-check.md", "Exit codes:")
 
 
 def _translate_doc() -> str:
@@ -6668,7 +6668,7 @@ def test_every_repair_record_has_a_slot_in_both_reports():
     assert "effective_denominator_note" in info["dropped_stats"] and "effective_denominator_note" not in kept["stats"]
     # the helper names the reclassified export's new home, not the merge route it no longer takes
     assert "merge queues it as a metadata update" not in _read(BUILD_MANIFEST)
-    assert "`reclassified` (gap-driven.md §4 records it for the evidence report;" in _read(BUILD_MANIFEST)
+    assert "`reclassified` (gap-spot-check.md §4 records it for the evidence report;" in _read(BUILD_MANIFEST)
 
 
 def test_the_invocation_contract_is_lifted_from_skill_md():
@@ -7040,7 +7040,7 @@ def test_a_degraded_run_binds_its_mode():
     detect = _read(DETECT)
     block = _fence(detect, 'cat > "{run_dir}/categories.json"')
     assert '{"degraded_mode": <bool>, "update_mode": "{update_mode}"}' in block and '"normal"' not in block
-    assert "`update_mode` (`normal` or `degraded`, as init.md bound it)" in detect
+    assert "`update_mode` (`normal` or `degraded`, as init.md and load-baseline.md §4 bound it)" in detect
     assert '"update_mode": "normal" | "gap-driven" | "degraded"' in _read(BUILD_MANIFEST)
     assert "| **Mode** | {update_mode}{mode_fallback_note} |" in _read(REPORT)
     assert "`full` for `degraded`" in _slice(_read(WRITE), "`{update_type}` follows the run's mode", "\n")

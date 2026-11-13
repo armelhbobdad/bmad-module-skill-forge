@@ -37,8 +37,8 @@ Subcommands:
           not kept (the .bak copy holds them). create-skill step 3d
           records its answers so, and step 3's authoritative-files
           protocol its promote, skip and headless-deferral decisions;
-          update-skill records its scope decisions (detect-changes.md
-          §1b and §1c) and a repair's rescopes (merge.md §6b) so.
+          update-skill records its scope decisions (reconcile-scope.md
+          §1b and §1c) and a repair's rescopes (merge-write.md §6b) so.
 
 Context payload shape (consumed by `write`):
 

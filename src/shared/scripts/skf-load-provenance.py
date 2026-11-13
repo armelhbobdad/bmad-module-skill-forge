@@ -93,7 +93,7 @@ Subcommand:
           below 0), or from the file's modification time when the map has
           no usable `generated_at` (`age_source` says which; null when
           neither is known). `--now` fixes "now" for a reproducible run.
-        - `--age-from-last-update` (update-skill init.md §4, the days
+        - `--age-from-last-update` (update-skill load-baseline.md §4, the days
           since the last extraction): `age_days` counts from the map's
           top-level `last_update` when it is an ISO-8601 date or
           date-time (`age_source` `last_update`), else as above. The
