@@ -251,7 +251,7 @@ def test_export_version_runs_from_the_contract_to_the_flip():
     rows = {row.split("|")[1].strip(): row for row in contract.splitlines() if FLAG_ROW_RE.match(row)}
     assert "`version` [optional, `--version <v>`, one skill only]" in rows["**Inputs**"]
     flag = rows["**Flags**"][rows["**Flags**"].index("`--version <v>`"):]
-    for token in ("points `{skills_output_folder}/{skill-name}/active` at it", "archives the version it replaces",
+    for token in ("points `{skills_output_folder}/{skill-name}/active` at it", "archives the version the manifest had active",
                   "the export manifest does not mark deprecated",
                   "refused with `--all` or with several skills, with exit code 3, `resolution-failure`"):
         assert token in flag, token
@@ -298,8 +298,8 @@ def test_export_version_runs_from_the_contract_to_the_flip():
     codes = {line.split("|")[1].strip(): line for line in _read(EXPORT_REFS / "result-envelope.md").splitlines()
              if re.match(r"\| \d ", line)}
     for code, site in (("3", "`--version` comes with `--all` or with several skills"),
-                       ("3", "the `--version` version has no package on disk or the export manifest marks it "
-                             "deprecated"),
+                       ("3", "the `--version` version has no package on disk, is not a version folder of the skill (such as "
+                             "`active`) or the export manifest marks it deprecated"),
                        ("4", "step 3 §9b (with `--version`, the `active` link cannot be moved"),
                        ("4", "step 1 §1 (with `--version`, `skf-atomic-write.py` is missing)")):
         assert site in codes[code], (code, site)

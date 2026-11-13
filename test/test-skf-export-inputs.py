@@ -7,7 +7,8 @@ commands it documents:
 - #594: On Activation resolves every helper steps 1 to 4 cannot run without,
   the skill inventory included, before any prompt or write, and no step
   resolves one again (the test-report lookup is advisory and stays in step
-  1); every flag the contract lists is parsed, `--context-file` included;
+  1, and step 1 §1 resolves `skf-atomic-write.py`, which only a `--version`
+  run needs, before its first prompt); every flag the contract lists is parsed, `--context-file` included;
   the snippet-root probe takes only roots an earlier export chose as
   evidence, asks one layout question when there is none, and resolves a
   mismatch headless by the folder on disk that holds the skills; option (d)
@@ -250,6 +251,13 @@ def test_no_step_resolves_an_activation_helper_again():
     assert "### 2. Stage Folder" in update and "### 2. Resolve the Helpers" not in update
     assert "manifest-write-failed\"`): \"`skf-manifest-ops.py` is missing" not in update
     assert "`{countTokensProbeOrder}` candidate" not in _read(SNIPPET)
+    # The two helpers a step resolves itself, both in step 1: the advisory test-report lookup, and the flip helper
+    # only a `--version` run needs, which §1 resolves before the skill-selection prompt.
+    orders = {key for path in (EXPORT / "references").glob("*.md")
+              for key in re.findall(r"^(\w+ProbeOrder):", path.read_text(encoding="utf-8"), re.M)}
+    assert orders == {"findTestReportProbeOrder", "atomicWriteProbeOrder"}, orders
+    early = _read(LOAD).split("**Skill Path Discovery", 1)[0]
+    assert "resolve `{atomicWriteHelper}`" in early and "only a `--version` run needs it" in early
 
 
 def test_each_activation_helper_has_a_step_that_calls_it():

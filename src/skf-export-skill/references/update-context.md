@@ -8,7 +8,7 @@ nextStepFile: 'token-report.md'
 
 ## STEP GOAL:
 
-To update the SKF managed section in each target context file (CLAUDE.md, AGENTS.md or .cursorrules) through `skf-rebuild-managed-sections.py`, which builds the section from every exported skill and writes it by the four cases of ADR-J (Create, Append, Regenerate, Malformed Markers halt), to record every skill of the batch in the export manifest, and then to write each skill's staged `context-snippet.md` into its package.
+To update the SKF managed section in each target context file (CLAUDE.md, AGENTS.md or .cursorrules) through `skf-rebuild-managed-sections.py`, which builds the section from every exported skill and writes it by the four cases of ADR-J (Create, Append, Regenerate, Malformed Markers halt), to record every skill of the batch in the export manifest (a `--version` run first points the skill's `active` link at that version), and then to write each skill's staged `context-snippet.md` into its package.
 
 ## Rules
 
@@ -171,7 +171,7 @@ Display one prompt that names every target, then each file in `orphans_to_clear`
 
 #### Gate handling
 
-- **[C]**: write the targets (§9), record the export (§9b) and write the snippets (§9c), then load, read entirely, and execute `{nextStepFile}`. §9 clears each file in `orphans_to_clear` once the targets are written.
+- **[C]**: write the targets (§9), record the export (§9b) and write the snippets (§9c), then load, read entirely, and execute `{nextStepFile}`. §9 clears each file in `orphans_to_clear` once the targets are written, and with `--version` §9b points the `active` link at `{requested_version}` before it records the export.
 - **[X]** / `cancel` / `exit` / `:q`: delete the `{export_stage_dir}` folder, display "Cancelled: no context files were written." and HALT (exit code 6, `halt_reason: "user-cancelled"`, phase `update-context §8`).
 - **Any other input** — help the user respond, then redisplay this gate.
 - **Dry-run**: auto-proceed without writing.
@@ -225,7 +225,7 @@ python3 {rebuildManagedSectionsHelper} "{context_path}" clear
 uv run {atomicWriteHelper} flip-link --link "{skills_output_folder}/{skill-name}/active" --target "{requested_version}"
 ```
 
-It exits 0 and prints `points_to` once the link names the version: report "**`active` now points at v{requested_version}** for {skill-name}, in place of v{replaced_version}.", without the `in place of` clause when `{replaced_version}` is null or equals `{requested_version}`, then run `set` below, which records the version as `active_version` and archives the version the manifest had active. On a non-zero exit or no JSON (another run holds the flip lock, or `active` is a real folder, not a link), HALT (exit code 4, `halt_reason: "write-failed"`, phase `update-context §9b`) with the helper's error, before any `set`: the export manifest is unchanged, the context files §9 wrote stay written, and no snippet is written. Fix the cause, then re-run `[EX] Export Skill {skill-name} --version {requested_version}`.
+It exits 0 and prints `points_to` once the link names the version: report "**`active` now points at v{requested_version}** for {skill-name}, in place of v{replaced_version}.", without the `in place of` clause when `{replaced_version}` is null or equals `{requested_version}`, then run `set` below, which records the version as `active_version` and archives the version the manifest had active. On a non-zero exit or no JSON (another run holds the flip lock, or `active` is a real folder, not a link), HALT (exit code 4, `halt_reason: "write-failed"`, phase `update-context §9b`) with the helper's error, before any `set`: the export manifest is unchanged, the context files §9 wrote or cleared stay so, and no snippet is written. Fix the cause, then re-run `[EX] Export Skill {skill-name} --version {requested_version}`.
 
 For each skill, run `set`, with `--ides` only when `ides_written` is not empty:
 
@@ -237,7 +237,7 @@ python3 {manifestOpsHelper} {skills_output_folder} set {skill-name} {version} [-
 
 **Dry-run mode:** Do NOT update the manifest or move the `active` link. Display: "**[DRY RUN] Export manifest would be updated for {skill-name-list}: ides: {ides_written}.**" (list every skill in `skill_batch`; `ides_written` is empty with passive context off, so show `none`), and with `--version` also "**[DRY RUN] `active` would point at v{requested_version} for {skill-name}.**". A dry run with passive context on displayed this line at §8 and never reaches this section. Then auto-proceed to {nextStepFile}.
 
-**Error handling:** If `set` exits non-zero, HALT (exit code 4, `halt_reason: "manifest-write-failed"`, phase `update-context §9b`) with the helper's `error` (its stderr when stdout holds no JSON). The context files §9 wrote stay written, and no snippet is written: re-run `[EX] Export Skill` on the batch, which writes the same sections again, records the manifest and writes the snippets.
+**Error handling:** If `set` exits non-zero, HALT (exit code 4, `halt_reason: "manifest-write-failed"`, phase `update-context §9b`) with the helper's `error` (its stderr when stdout holds no JSON). The context files §9 wrote or cleared stay so, the `active` link a `--version` run moved stays on v{requested_version}, and no snippet is written: re-run `[EX] Export Skill` on the batch, which writes the same sections again, records the manifest and writes the snippets (after a `--version` flip, the Manifest-lag guard makes it export the version the link now names).
 
 ### 9c. Write the Snippets
 

@@ -19,7 +19,7 @@ To load the target skill's artifacts, validate they meet agentskills.io spec com
 ## Rules
 
 - Focus only on loading, validating, and confirming the skill — this is read-only, except the flat-to-versioned migration in §2
-- Do not write any output files yet: step 3 writes them, after its own gate
+- Do not write any output files yet: step 3 writes them, after its own gate, or, with passive context off, which skips that gate, after §6's [C]
 - Every HALT names its exit code, `halt_reason` and phase; in headless mode it first emits its envelope as `references/result-envelope.md` states
 
 ## MANDATORY SEQUENCE
@@ -38,7 +38,7 @@ python3 {manifestOpsHelper} {skills_output_folder} read
 
 On `status: "error"` (the file does not parse), HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §1`): "**Export manifest is corrupt** at `{skills_output_folder}/.export-manifest.json`: {error}. Fix or remove the file, then re-run."
 
-**With `--version`**, resolve `{atomicWriteHelper}` ← the first existing path in `{atomicWriteProbeOrder}` now, before the skill-selection prompt below, as On Activation resolves every other helper before any prompt: step 3 §9b runs it. When neither exists, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `load-skill §1`): "`skf-atomic-write.py` is missing. Nothing was changed. Re-install SKF."
+**With `--version`**, resolve `{atomicWriteHelper}` ← the first existing path in `{atomicWriteProbeOrder}` now, before the skill-selection prompt below, as On Activation resolves the helpers every run needs before any prompt: step 3 §9b runs it, and only a `--version` run needs it. When neither exists, HALT (exit code 4, `halt_reason: "context-rebuild-failed"`, phase `load-skill §1`): "`skf-atomic-write.py` is missing. Nothing was changed. Re-install SKF."
 
 **Skill Path Discovery (version-aware — see `knowledge/version-paths.md`):**
 - If user provided one or more skill names or paths as arguments, use that list directly
@@ -117,7 +117,7 @@ Pass `--version` only when §1 bound `{requested_version}`. Bind from its `resol
    - Run `uv run {skillInventoryHelper} {skills_output_folder} --skill {skill-name}`, and bind `{group_flat_skf}` ← `skills[0].flat_skf` and `{group_errors}` ← `skills[0].errors`.
    - **`{group_flat_skf}` is true:** if `--dry-run` is set, do not migrate: use the flat folder as the resolved path (the `skill_package` bound above; `{resolved_version}` and `{forge_version}` stay null) and note "would migrate {skill-name} to the versioned layout". Otherwise run `uv run {skillInventoryHelper} migrate "{skills_output_folder}" --skill {skill-name} --forge-data-folder "{forge_data_folder}"` and show its `message` as an Info note, then run the `resolve` command above again and bind its values anew: they now name the version folder. When `migrate` exits 1, HALT as item 5 says, with its `error`.
    - **Otherwise** (`{group_flat_skf}` is false, the status is not `ok`, or `skills[]` has no entry): do not migrate. HALT before anything moves, with `halt_reason: "not-skf-output"` and this message: "**`{skill-name}` is not SKF output: nothing was moved.** `{skills_output_folder}/{skill-name}/SKILL.md` has no SKF marker in the `metadata.json` beside it, so SKF will not move or export it. A shared `{skills_output_folder}` is supported: SKF leaves the skills it did not generate alone, so manage `{skill-name}` yourself. Only if `{skills_output_folder}` holds a module's own source rather than skills, set `skills_output_folder` in `{project-root}/_bmad/skf/config.yaml` to a folder of its own, move your SKF skills there and re-run `/skf-setup`." When there is another reason, show it in place of the marker sentence: `{group_errors}` when it is non-empty (for example, the folder is a link, which SKF never moves), or the helper's `error` when the status is not `ok`. HALT with exit code 3 and phase `load-skill §2`.
-4. `missing`, `newest-on-disk`, or the helper stops with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`: no version named for export is on disk. `newest-on-disk` means version folders exist but neither the export manifest nor a working `active` link names one, and export publishes only a version one of them names. HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §2`): "**`{skill-name}` has no version to export.** {the helper's `detail`, or its `error`}. Run create-skill first, or point `{skills_output_folder}/{skill-name}/active` at the version to export, then re-run."
+4. `missing`, `newest-on-disk`, or the helper stops with `SKILL_NOT_FOUND` or `DIR_NOT_FOUND`: no version named for export is on disk. `newest-on-disk` means version folders exist but neither the export manifest nor a working `active` link names one, and export publishes only a version one of them names. HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §2`): "**`{skill-name}` has no version to export.** {the helper's `detail`, or its `error`}. Run create-skill first, or, to export a version folder already on disk, re-run with `--version <version>`, which points `active` at it."
 5. Any other error, or no JSON: HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `load-skill §2`) with the helper's message.
 
 Every later step reads the skill from `{resolved_skill_package}`.
