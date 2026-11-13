@@ -1,6 +1,7 @@
 ---
 nextStepFile: 'recommend.md'
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
+unitsFile: '{forge_data_folder}/analyze-source-units-{project_name}.json'
 heuristicsFile: 'references/unit-detection-heuristics.md'
 discoverFile: 'references/discover-additional-source.md'
 unitExportsFile: 'references/map-unit-exports.md'
@@ -39,7 +40,6 @@ To analyze each qualifying unit's export surface and import graph, detect cross-
 ## Rules
 
 - Delegate per-unit deep analysis to a subagent when available (parallelizes across units; main-thread fallback is fine)
-- For each qualifying unit, perform thorough export surface analysis — do not shortcut
 - Do not make recommendations (Step 05)
 
 ## MANDATORY SEQUENCE
@@ -54,27 +54,19 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 
 ### 1. Load Context
 
-Read {outputFile} to obtain:
-- Qualifying units from the Identified Units section: names, project paths, paths, scope types, languages, file counts, statuses and each unit's own manifest (path, name and ecosystem). A unit whose status is `deferred` (outside the goal the user stated) stays in the report and is not analyzed here
-- `forge_tier`, `scan_roots` (each project path's scan root) and `refs` from frontmatter
+Read {unitsFile} to obtain the qualifying units, its `units[]`: each one's `name`, `project_path`, `path`, `scope_type`, `language`, `files_count`, `status`, own `manifest` and `scope` (`include` and `exclude`). A unit whose status is `deferred` (outside the goal the user stated) stays in the report and is not analyzed here.
 
-**A scan root that is gone.** A session that resumed this report runs in a new run folder, and the folder of the session that made a copy may be gone. When a recorded scan root no longer exists, make it again by {scanRootFile} into this run's `{run_dir}/source-{i}` and update `scan_roots` in {outputFile}'s frontmatter. If a command there fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:1`, path `{path}`): "{path} could not be fetched: {the first stderr line}."
+Read `forge_tier`, `scan_roots` (each project path's scan root) and `refs` from {outputFile}'s frontmatter.
+
+**A scan root that is gone.** A session that resumed this report without its earlier run folder works in a new one, without the copies that folder held. When a recorded scan root no longer exists, make it again by {scanRootFile} into this run's `{run_dir}/source-{i}` and update `scan_roots` in {outputFile}'s frontmatter. If a command there fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:1`, path `{path}`): "{path} could not be fetched: {the first stderr line}."
 
 Load {heuristicsFile} for stack skill candidate detection rules.
 
 ### 2. Map Export Surfaces Per Unit (Subagent Fan-Out)
 
-For each qualifying unit, delegate deep analysis to a subagent so per-unit work runs in parallel and the parent's context stays clean.
-
 **Resolve `{extractPublicApiHelper}`** from `{extractPublicApiProbeOrder}` and **`{checkUnitRecordsHelper}`** from `{checkUnitRecordsProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:2`): "`{the missing script}` is missing. Re-install SKF."
 
-**Subagent fan-out protocol:**
-
-1. **Build the qualifying-unit list.** Read the unit list produced upstream (names, project paths, paths, scope types, languages, file counts), leaving out the deferred units. Do not re-scan the project here.
-
-2. **Map each unit's exports.** Load, read the entire file, then execute {unitExportsFile} for the qualifying units: it delegates each one to a subagent with `{unit_root}` its path under the scan root of its project path and its file count from Identified Units, has the subagent write the unit's record to `{run_dir}/unit-records/{unit_name}.json`, checks the records and returns them.
-
-3. **Aggregate.** Collect the checked `records` into `per_unit_findings[]` in workflow context for use by §3 (import graph), §4 (integration points), §5 (composites and stack candidates), §6 (findings presentation), and downstream stages (recommend.md, generate-briefs.md).
+Load, read the entire file, then execute {unitExportsFile} for the qualifying units, leaving out the deferred units, each with `{unit_root}` its path under the scan root of its project path and its scope type, language and file count from {unitsFile}: its checked records are `per_unit_findings[]`, which sections 3 to 6 read.
 
 **Per-unit export summary (built from `per_unit_findings[]`):**
 
@@ -88,36 +80,26 @@ Which unit imports which, how many files import each unit, which units are impor
 
 **Resolve `{scanManifestsHelper}`, `{countImportsHelper}`, `{findCyclesHelper}` and `{pairIntersectHelper}`** from their probe orders; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `map-and-detect:3`): "`{the missing script}` is missing. Re-install SKF."
 
-**Units JSON.** One entry per qualifying unit, from its Identified Units row: `{"name": "<unit name>", "path": "<its path, relative to the source root>", "manifest_name": "<its own manifest's name>", "ecosystem": "<its own manifest's ecosystem>"}`, with `manifest_name` and `ecosystem` left out for a unit without a manifest. The import helper works out the names other code imports each unit by from what the unit declares. Add `"modules"` only for a folder without a manifest that code imports by name: a Python package folder (`["acme"]`) or a Go package inside a module (`["example.com/svc/internal/auth"]`).
-
-Run this once per project path, the `{i}`-th entry of `project_paths[]`, with `{source_root}` its scan root, over the units under it. `{run_dir}/manifests-{i}.json` is the manifest scan scan-project wrote; when it is missing, as in a session that resumed the report, run `uv run {scanManifestsHelper} scan "{source_root}" > "{run_dir}/manifests-{i}.json"` first.
+Run this once per project path with a qualifying unit, the `{i}`-th entry of `project_paths[]` (`{project_path}`), with `{source_root}` its scan root. `units-from` writes the units JSON of that project path from {unitsFile}: each qualifying unit's name, path and own manifest's name and ecosystem, from which the import helper works out the names other code imports the unit by. Add `--module <unit name>=<import name>` to it (repeatable) only for a folder without a manifest that code imports by name: a Python package folder (`auth=acme`) or a Go package inside a module (`auth=example.com/svc/internal/auth`). `{run_dir}/manifests-{i}.json` is the manifest scan scan-project wrote; when it is missing, as in a session that resumed the report without its earlier run folder, run `uv run {scanManifestsHelper} scan "{source_root}" > "{run_dir}/manifests-{i}.json"` first.
 
 ```bash
-cat > "{run_dir}/units-{i}.json" <<'SKF_UNITS'
-{"units": [<one entry per qualifying unit under {source_root}>]}
-SKF_UNITS
+uv run {countImportsHelper} units-from --units-file "{unitsFile}" --project-path "{project_path}" > "{run_dir}/units-{i}.json"
 uv run {countImportsHelper} count "{source_root}" --units "{run_dir}/units-{i}.json" --deps "{run_dir}/manifests-{i}.json" > "{run_dir}/imports-{i}.json"
 uv run {countImportsHelper} summary "{run_dir}/imports-{i}.json" --manifests "{run_dir}/manifests-{i}.json"
+uv run {countImportsHelper} summary "{run_dir}/imports-{i}.json" --format markdown
 uv run {findCyclesHelper} find --edges "{run_dir}/imports-{i}.json"
 uv run {countImportsHelper} count "{source_root}" --units "{run_dir}/units-{i}.json" --format libraries > "{run_dir}/importers-{i}.json"
 uv run {pairIntersectHelper} intersect --libraries "{run_dir}/importers-{i}.json"
 ```
 
-A helper that exits non-zero names the problem on stderr (a unit name or path given twice, a malformed entry): fix the units JSON and run the block again.
+A helper that exits non-zero names the problem on stderr (a project path with no unit in {unitsFile}, a `--module` that names no listed unit, a unit name or path given twice): fix the call and run the block again.
 
-Read the output. The `summary` line prints the graph without the file lists, which stay in `{run_dir}/imports-{i}.json`:
+Read the output. The first `summary` line prints the graph without the file lists, which stay in `{run_dir}/imports-{i}.json`, and the second the cross-reference matrix:
 
-- **Imports From / Imported By:** each summary `units[]` entry's `imports_from` and `imported_by`. Its `file_count` is the number of import sites (files outside the unit that import it).
-- **External Deps:** each summary `units[]` entry's `external_dep_count`, the number of manifest dependencies its files import.
+- **Cross-reference matrix:** the second `summary` line's table, as printed: each summary `units[]` entry's `imports_from` and `imported_by`, its `file_count` (the import sites: files outside the unit that import it) and its `external_dep_count` (the manifest dependencies its files import).
 - **Mutual dependencies:** each `cycles[]` entry (`["a", "b", "a"]` is two units that import each other).
 - **Co-imported units:** each `pairs[]` entry: `intersection_count` files import both units, listed in `files`. When `truncated` is true, run that last call again with `--top-k` set to its `total_pairs`, so no pair is left out.
 - **Cohesion evidence:** the summary's `umbrella_candidates[]` and `manifests[]` (each manifest's `name`, `private` and `internal_deps`), which §5 reads.
-
-**Build cross-reference matrix:**
-
-| Unit | Imports From | Imported By | Import Sites | External Deps |
-|------|-------------|-------------|--------------|---------------|
-| {name} | {imports_from} | {imported_by} | {file_count} | {external_dep_count, or --} |
 
 ### 4. Detect Integration Points
 
@@ -143,6 +125,7 @@ Decide both here, in one pass over §3's graph and §4's integration map, so eac
 1. **Composite merge proposals.** Apply the Composite Boundary triggers in {heuristicsFile} (mutual hard dependency, shared integration surface, and the Cohesion Triggers: umbrella facade, shared runtime contract, internal building blocks) to the qualifying units. The evidence comes from the helpers: `cycles[]` for a mutual dependency, `edge_files[]` and §4's shared types for a shared integration surface, and the §3 summary's `umbrella_candidates[]` and each manifest's `internal_deps` and `private` for the cohesion triggers. For each group that meets a trigger, propose one composite:
    - **Constituents:** the unit names and paths merged
    - **Heuristic and evidence:** the trigger and what showed it (the cycle, the umbrella candidate and the members its `internal_deps` cover, the `private` flags, the shared types and their files)
+   - **Scope patterns:** the union of its constituents' `include` patterns and the union of their `exclude` patterns, each pattern once, in constituent order
    - **Name:** name every proposal in one call to the helper that names every unit and brief ({heuristicsFile}'s Unit Names), one entry each: `target` is its constituents' project path, `manifest_name` the facade's manifest name when an umbrella facade triggered the merge (else null), and `members` the constituents' manifest names:
      ```bash
      uv run {skillInventoryHelper} derive-name --from - <<'SKF_COMPOSITE_NAMES'
@@ -170,7 +153,7 @@ Then display:
 
 "Accept or reject each composite merge proposal (every one is accepted unless you reject it), or name an integration pattern to investigate further. **Select:** [C] Continue to Recommendations | [D] Discover Additional Source | [X] Cancel and exit"
 
-An approved composite replaces its constituents as one unit: `Boundary Type: Composite`, its constituents' paths as its Path, the project path they share, the scope type and language of its dominant constituent (the one with the most exports), and confidence from the strength of its trigger. A rejected one leaves its constituents as separate units.
+An approved composite replaces its constituents as one unit: `Boundary Type: Composite`, its constituents' paths as its Path, the project path they share, the scope type and language of its dominant constituent (the one with the most exports), its scope patterns (the union above), and confidence from the strength of its trigger. A rejected one leaves its constituents as separate units.
 
 #### Menu Handling Logic:
 
@@ -189,17 +172,17 @@ If the command fails, go on: only that entry is lost.
 
 ### 7. Append to Report and Continue
 
-Replace `[Appended by map-and-detect]` under Export Map in {outputFile} with:
+Replace `[Appended by map-and-detect]` under Export Map in {outputFile} (or, when continue.md sent back a report without {unitsFile}, what that section holds) with:
 - Per-unit export summary table
 - Export pattern analysis
 
-Replace `[Appended by map-and-detect]` under Integration Points with:
+Replace `[Appended by map-and-detect]` under Integration Points (or what that section holds, as above) with:
 - Cross-reference matrix
 - Integration point details
 - Composite merge proposals and decisions: name, constituents with their paths, heuristic, evidence
 - Stack skill candidate flags
 
-In the Identified Units classification table, replace the constituent rows of each approved composite with the composite's one row (its Path the constituents' paths), so recommend builds one card for it.
+In the Identified Units classification table, replace the constituent rows of each approved composite with the composite's one row (its Path the constituents' paths), and record its scope patterns with the language results, so recommend builds one card for it.
 
 Update {outputFile} frontmatter:
 ```yaml
@@ -209,6 +192,6 @@ confirmed_composites: [{list of approved composites: {name, constituents: [{name
 stack_skill_candidates: [{list flagged candidate groupings}]
 ```
 
-(`confirmed_composites` is an empty array when no composite was proposed or all were rejected. generate-briefs puts every constituent's path in the composite brief's `scope.include`.)
+(`confirmed_composites` is an empty array when no composite was proposed or all were rejected. The composite brief's `scope.include` and `scope.exclude` are its scope patterns, the union of its constituents', which recommend's card carries.)
 
 Then load, read the entire file, then execute {nextStepFile}.

@@ -11,6 +11,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import types
 from pathlib import Path
 
 import importlib.util
@@ -3117,7 +3118,7 @@ def test_probe_git_asks_git_without_a_prompt(monkeypatch, returncode, stderr, ra
     huge ref list answers in time, and exit 2 is a repository with no branch (fix round 8)."""
     fake = _FakeGit(returncode, stderr, raises)
     monkeypatch.setattr(mod.subprocess, "run", fake)
-    assert mod.probe_git("https://git.acme.internal/team/mono") == verdict
+    assert mod.probe_git("https://git.acme.internal/team/mono") == (verdict, None)
     [(argv, kwargs)] = fake.calls
     assert argv == ["git", "ls-remote", "--exit-code", "--heads", "https://git.acme.internal/team/mono"]
     env = kwargs["env"]
@@ -3127,21 +3128,169 @@ def test_probe_git_asks_git_without_a_prompt(monkeypatch, returncode, stderr, ra
         mod.GIT_PROBE_TIMEOUT, subprocess.DEVNULL, subprocess.DEVNULL)
 
 
+class _FakeGitByAddress:
+    """Stands in for subprocess.run under probe_git with one answer per address: `answers` maps an
+    address to git's exit code (0 or 2), its stderr (on exit 128) or the exception it raises; git
+    finds no repository at any other address."""
+
+    def __init__(self, answers=None):
+        self.answers, self.calls = dict(answers or {}), []
+
+    def __call__(self, argv, **kwargs):
+        self.calls.append((argv, kwargs))
+        answer = self.answers.get(argv[-1], b"fatal: repository not found\n")
+        if isinstance(answer, BaseException):
+            raise answer
+        if isinstance(answer, int):
+            return subprocess.CompletedProcess(argv, answer)
+        kwargs["stderr"].write(answer)
+        return subprocess.CompletedProcess(argv, 128)
+
+
+PROMPTS_OFF = b"fatal: could not read Username for 'https://gitlab.example.com': terminal prompts disabled\n"
+
+
+@pytest.mark.parametrize(
+    ("url", "answers", "tried", "result"),
+    [pytest.param("https://codeberg.org/forgejo/forgejo/src/branch/forgejo",
+                  {"https://codeberg.org/forgejo/forgejo.git": 0},
+                  ["https://codeberg.org/forgejo/forgejo/src/branch.git", "https://codeberg.org/forgejo/forgejo/src.git",
+                   "https://codeberg.org/forgejo/forgejo.git"],
+                  ("repository-page", "https://codeberg.org/forgejo/forgejo.git"), id="codeberg-branch"),
+     pytest.param("https://gitlab.example.com/group/repo/-/tree/main",
+                  {"https://gitlab.example.com/group/repo/-/tree.git": PROMPTS_OFF,
+                   "https://gitlab.example.com/group/repo.git": 2},
+                  ["https://gitlab.example.com/group/repo/-/tree.git", "https://gitlab.example.com/group/repo/-.git",
+                   "https://gitlab.example.com/group/repo.git"],
+                  ("repository-page", "https://gitlab.example.com/group/repo.git"), id="gitlab-tree"),
+     pytest.param("https://bb.acme.internal/projects/PROJ/repos/my-repo/browse?at=main",
+                  {"https://bb.acme.internal/scm/proj/my-repo.git": 0},
+                  ["https://bb.acme.internal/scm/proj/my-repo.git"],
+                  ("repository-page", "https://bb.acme.internal/scm/proj/my-repo.git"), id="bitbucket-dc"),
+     pytest.param("https://git.acme.internal/bitbucket/projects/PROJ/repos/my-repo",
+                  {"https://git.acme.internal/bitbucket/scm/proj/my-repo.git": 0},
+                  ["https://git.acme.internal/bitbucket/scm/proj/my-repo.git"],
+                  ("repository-page", "https://git.acme.internal/bitbucket/scm/proj/my-repo.git"),
+                  id="bitbucket-dc-context-path"),
+     pytest.param("https://git.acme.internal/team/mono.git/tree/main", {"https://git.acme.internal/team/mono.git": 0},
+                  ["https://git.acme.internal/team/mono.git/tree.git", "https://git.acme.internal/team/mono.git"],
+                  ("repository-page", "https://git.acme.internal/team/mono.git"), id="prefix-ends-in-git"),
+     pytest.param("https://git.example.com/team/Mono.GIT/tree/main", {"https://git.example.com/team/Mono.GIT": 0},
+                  ["https://git.example.com/team/Mono.GIT/tree.git", "https://git.example.com/team/Mono.GIT"],
+                  ("repository-page", "https://git.example.com/team/Mono.GIT"), id="prefix-ends-in-upper-case-git"),
+     pytest.param("https://git.acme.internal/projects/app/-/tree/main", {"https://git.acme.internal/projects/app.git": 0},
+                  ["https://git.acme.internal/projects/app/-/tree.git", "https://git.acme.internal/projects/app/-.git",
+                   "https://git.acme.internal/projects/app.git"],
+                  ("repository-page", "https://git.acme.internal/projects/app.git"), id="projects-without-repos"),
+     pytest.param("https://docs.example.com/guide/install/linux", {},
+                  ["https://docs.example.com/guide/install.git"], ("docs", None), id="deep-docs-url"),
+     pytest.param("https://codeberg.org/forgejo/forgejo/wiki/Home", {"https://codeberg.org/forgejo/forgejo.git": 0},
+                  [], ("docs", None), id="forgejo-wiki"),
+     pytest.param("https://gitlab.example.com/group/sub/project/-/wikis/Home",
+                  {"https://gitlab.example.com/group/sub/project.git": 0}, [], ("docs", None), id="gitlab-wiki"),
+     pytest.param("https://gitee.com/acme/repo/wikis/Home", {"https://gitee.com/acme/repo.git": 0},
+                  [], ("docs", None), id="gitee-wiki"),
+     pytest.param("https://git.acme.internal/team/mono/src/branch/main/wiki",
+                  {"https://git.acme.internal/team/mono.git": 0},
+                  ["https://git.acme.internal/team/mono/src/branch/main.git",
+                   "https://git.acme.internal/team/mono/src/branch.git", "https://git.acme.internal/team/mono/src.git",
+                   "https://git.acme.internal/team/mono.git"],
+                  ("repository-page", "https://git.acme.internal/team/mono.git"), id="wiki-folder-in-a-repository"),
+     pytest.param("https://codeberg.org/forgejo/forgejo/src/branch/forgejo",
+                  {"https://codeberg.org/forgejo/forgejo/src/branch.git": FileNotFoundError("git")},
+                  ["https://codeberg.org/forgejo/forgejo/src/branch.git"], ("docs", None), id="git-cannot-start"),
+     pytest.param("http://git.acme.internal/team/mono/src/branch/main", {"http://git.acme.internal/team/mono.git": 0},
+                  ["http://git.acme.internal/team/mono/src/branch.git", "http://git.acme.internal/team/mono/src.git",
+                   "http://git.acme.internal/team/mono.git"],
+                  ("repository-page", "http://git.acme.internal/team/mono.git"), id="http-page"),
+     pytest.param("https://git.acme.internal:8443/team/mono/-/tree/main",
+                  {"https://git.acme.internal:8443/team/mono.git": 0},
+                  ["https://git.acme.internal:8443/team/mono/-/tree.git", "https://git.acme.internal:8443/team/mono/-.git",
+                   "https://git.acme.internal:8443/team/mono.git"],
+                  ("repository-page", "https://git.acme.internal:8443/team/mono.git"), id="custom-port-page"),
+     pytest.param("https://gitlab.example.com/group/repo/-/tree/main",
+                  {"https://gitlab.example.com/group/repo/-/tree.git": PROMPTS_OFF,
+                   "https://gitlab.example.com/group/repo/-.git": PROMPTS_OFF,
+                   "https://gitlab.example.com/group/repo.git": PROMPTS_OFF},
+                  ["https://gitlab.example.com/group/repo/-/tree.git", "https://gitlab.example.com/group/repo/-.git",
+                   "https://gitlab.example.com/group/repo.git"], ("docs", None), id="every-candidate-asks-credentials")],
+)
+def test_probe_git_finds_the_repository_behind_a_browser_page(monkeypatch, url, answers, tried, result):
+    """#1123 determinism-1: a repository browser page git cannot read at its address is not
+    documentation when git reads a repository at a shorter part of it (Codeberg, GitLab, a file
+    link) or at the /scm/ address of a Bitbucket Data Center page. Each address is probed as the
+    `.git` clone URL the halt hands back, so the rerun is a repository, under the same prompt-free
+    git; one that asks for credentials moves on (a page whose every address asks stays "docs"),
+    and a git that cannot start ends the search on "docs", since the page itself answered. The
+    hint keeps the page's scheme and port, so an http:// or :8443 page reruns on its own server.
+    Only a `projects/<p>/repos/<r>` path gives a /scm/ address (a GitLab group named `projects`
+    gives none), and a prefix ending in `.git`, in any case, gets no second one (#1123 review 2).
+    A project wiki page (`<owner>/<repo>/wiki`, `/wikis`, GitLab's `/-/wikis`) is documentation
+    and tries no address, so a wiki still makes a docs-only brief; a folder named `wiki` inside a
+    repository's code browser is still a repository page (#1123 lane review)."""
+    fake = _FakeGitByAddress(answers)
+    monkeypatch.setattr(mod.subprocess, "run", fake)
+    assert mod.probe_git(url) == result
+    page = url.partition("?")[0]
+    assert [argv for argv, _ in fake.calls] == [
+        ["git", "ls-remote", "--exit-code", "--heads", address] for address in (page, *tried)]
+    assert fake.calls[0][1]["timeout"] == mod.GIT_PROBE_TIMEOUT
+    for _, kwargs in fake.calls:
+        env = kwargs["env"]
+        assert (env["GIT_TERMINAL_PROMPT"], env["GIT_ASKPASS"], env["GCM_INTERACTIVE"], env["LC_ALL"]) == (
+            "0", "", "never", "C")
+        assert 0 < kwargs["timeout"] <= mod.GIT_PROBE_TIMEOUT
+    if result[1] is not None:
+        assert (mod.target_kind(result[1]), mod.clone_url(result[1])) == ("remote", result[1])
+
+
+@pytest.mark.parametrize(("took", "timeouts"), [pytest.param(15, [mod.GIT_PROBE_TIMEOUT, 5], id="5-s-left"),
+                                                pytest.param(20, [mod.GIT_PROBE_TIMEOUT], id="spent")])
+def test_probe_git_shares_one_budget(monkeypatch, took, timeouts):
+    """#1123: the page and every address behind it share GIT_PROBE_TIMEOUT, so a probe never waits
+    longer than the 20 s the "no answer" message names: a later call gets what is left, none starts
+    once it is spent, and a timeout behind the page ends the search on "docs"."""
+    now, calls = [1000.0], []
+
+    def git(argv, **kwargs):
+        calls.append(kwargs["timeout"])
+        if len(calls) == 1:
+            now[0] += took
+            kwargs["stderr"].write(b"fatal: repository not found\n")
+            return subprocess.CompletedProcess(argv, 128)
+        now[0] += kwargs["timeout"]
+        raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+    monkeypatch.setattr(mod, "time", types.SimpleNamespace(monotonic=lambda: now[0]))
+    monkeypatch.setattr(mod.subprocess, "run", git)
+    assert mod.probe_git("https://codeberg.org/forgejo/forgejo/src/branch/forgejo") == ("docs", None)
+    assert calls == timeouts
+
+
 REMEDY = "use its `.git` clone URL, its address without https:// or its SSH address"
+HTTP_REMEDY = "use its `.git` clone URL with http:// or its SSH address"
 
 
-def test_git_probe_halt_gives_the_message_a_run_stops_with():
+@pytest.mark.parametrize(("url", "remedy"), [
+    pytest.param("https://git.acme.internal/team/mono", REMEDY, id="https"),
+    pytest.param("http://git.acme.internal/team/mono", HTTP_REMEDY, id="http"),
+    pytest.param("HTTP://git.acme.internal/team/mono", HTTP_REMEDY, id="http-upper-case")])
+def test_git_probe_halt_gives_the_message_a_run_stops_with(url, remedy):
     """A run stops for a repository, a login and a probe git left unanswered (fix round 8: an
     unanswered probe no longer goes docs-only); it goes on as documentation on "docs" and on
-    "no-git", since a documentation URL needs no git."""
-    url = "https://git.acme.internal/team/mono"
-    assert mod.git_probe_halt(url, "repository") == f"{url} is a git repository: {REMEDY}."
+    "no-git", since a documentation URL needs no git. An http:// address is never told to drop
+    https:// (SKF clones an address without a scheme over https), and a repository browser page
+    names the clone URL git read behind it (#1123)."""
+    assert mod.git_probe_halt(url, "repository") == f"{url} is a git repository: {remedy}."
     assert mod.git_probe_halt(url, "credentials") == (
         f"{url} asks for credentials: SKF reads no documentation behind a login; "
-        f"if it is a private git repository, {REMEDY}.")
+        f"if it is a private git repository, {remedy}.")
     assert mod.git_probe_halt(url, "unanswered") == (
-        f"{url} gave git no answer in {mod.GIT_PROBE_TIMEOUT} s: if it is a git repository, {REMEDY}; "
+        f"{url} gave git no answer in {mod.GIT_PROBE_TIMEOUT} s: if it is a git repository, {remedy}; "
         "if it is documentation, give a documentation URL that answers.")
+    page = f"{url}/src/branch/main"
+    assert mod.git_probe_halt(page, "repository-page", f"{url}.git") == (
+        f"{page} is a page of the git repository {url}.git: rerun with that clone URL.")
     for verdict in ("docs", "no-git", None):
         assert mod.git_probe_halt(url, verdict) is None, verdict
 
@@ -3160,7 +3309,7 @@ def test_cli_derive_name_probe_git(monkeypatch, capsys):
     code, out = run("--probe-git", "--target", target)
     assert (code, out) == (0, {"status": "ok", "command": "derive-name", "name": "codeberg-org",
                                "basis": "docs-host", "kind": "docs", "clone_url": None, "git_probe": "repository",
-                               "halt_message": f"{target} is a git repository: {REMEDY}."})
+                               "clone_hint": None, "halt_message": f"{target} is a git repository: {REMEDY}."})
     # git appends /info/refs to the address, so the probe drops a query and a fragment; the
     # message names the address as given.
     code, out = run("--target", f"{target}/?tab=readme#top", "--probe-git")
@@ -3183,12 +3332,22 @@ def test_cli_derive_name_probe_git(monkeypatch, capsys):
     code, out = run("--target", "https://docs.example.com/guide", "--probe-git")
     assert (code, out["kind"], out["git_probe"], out["halt_message"]) == (0, "docs", "no-git", None)
     assert len(fake.calls) == 6
-    for other in ("https://github.com/acme/mono", "https://git.acme.internal/team/mono.git", "./mono"):
+    for other in ("https://github.com/acme/mono", "https://git.acme.internal/team/mono.git", "./mono",
+                  "https://github.com/acme/mono/tree/main/src"):
         code, out = run("--target", other, "--probe-git")
-        assert (code, out["git_probe"], out["halt_message"]) == (0, None, None), other
+        assert (code, out["git_probe"], out["clone_hint"], out["halt_message"]) == (0, None, None, None), other
     code, out = run("--target", "https://docs.example.com/guide")
-    assert "git_probe" not in out and "halt_message" not in out
+    assert "git_probe" not in out and "clone_hint" not in out and "halt_message" not in out
     assert len(fake.calls) == 6, "only a docs target with --probe-git runs git"
+    # A repository browser page: git reads the repository at a shorter part of the address, and
+    # the message names that clone URL (#1123).
+    page, fake = f"{target}/src/branch/forgejo", _FakeGitByAddress({f"{target}.git": 0})
+    monkeypatch.setattr(mod.subprocess, "run", fake)
+    code, out = run("--target", page, "--probe-git")
+    assert (code, out["name"], out["kind"], out["clone_url"]) == (0, "codeberg-org", "docs", None)
+    assert (out["git_probe"], out["clone_hint"], out["halt_message"]) == (
+        "repository-page", f"{target}.git", f"{page} is a page of the git repository {target}.git: rerun with that clone URL.")
+    assert len(fake.calls) == 4
 
 
 def test_cli_derive_name_batch_private_and_members(tmp_path):

@@ -1,5 +1,6 @@
 ---
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
+unitsFile: '{forge_data_folder}/analyze-source-units-{project_name}.json'
 heuristicsFile: 'references/unit-detection-heuristics.md'
 scanRootFile: 'references/scan-root.md'
 unitExportsFile: 'references/map-unit-exports.md'
@@ -12,9 +13,9 @@ disqualifyCandidatesProbeOrder:
 skillInventoryProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-skill-inventory.py'
   - '{project-root}/src/shared/scripts/skf-skill-inventory.py'
-detectLanguageProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
-  - '{project-root}/src/shared/scripts/skf-detect-language.py'
+detectRegistryProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'
+  - '{project-root}/src/shared/scripts/skf-detect-registry.py'
 extractPublicApiProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
   - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
@@ -56,7 +57,7 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-analyze-source --run-dir "{
 
 and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
 
-**Resolve every helper first**, each from its probe order in the frontmatter (first existing path wins): `{scanManifestsHelper}`, `{disqualifyCandidatesHelper}`, `{skillInventoryHelper}`, `{detectLanguageHelper}`, `{extractPublicApiHelper}`, `{checkUnitRecordsHelper}`, `{countImportsHelper}`, `{findCyclesHelper}` and `{pairIntersectHelper}`. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `discover-additional-source:0`): "`{the missing script}` is missing. Re-install SKF."
+**Resolve every helper first**, each from its probe order in the frontmatter (first existing path wins): `{scanManifestsHelper}`, `{disqualifyCandidatesHelper}`, `{skillInventoryHelper}`, `{detectRegistryHelper}`, `{extractPublicApiHelper}`, `{checkUnitRecordsHelper}`, `{countImportsHelper}`, `{findCyclesHelper}` and `{pairIntersectHelper}`. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `discover-additional-source:0`): "`{the missing script}` is missing. Re-install SKF."
 
 ### 1. Take the New Path
 
@@ -74,48 +75,56 @@ Its candidate boundaries are that envelope's `candidates[]` ({heuristicsFile}'s 
 
 ### 3. Classify and Name the New Units
 
-List each candidate's files and apply the deterministic disqualification rules in one call, one entry per candidate with its path relative to the scan root:
+List each candidate's files and apply the deterministic disqualification rules in one call, one entry per candidate with its path relative to the scan root, `{project_path}` the new path:
 
 ```bash
-uv run {disqualifyCandidatesHelper} filter --boundaries - --source-root "{scan_root}" --tree-dir "{run_dir}/unit-trees/{i}" <<'SKF_BOUNDARIES'
+uv run {disqualifyCandidatesHelper} filter --boundaries - --source-root "{scan_root}" --tree-dir "{run_dir}/unit-trees/{i}" --project-path "{project_path}" > "{run_dir}/filter-{i}.json" <<'SKF_BOUNDARIES'
 [{"name": "<candidate folder name>", "path": "<candidate path>"}, ...]
 SKF_BOUNDARIES
 ```
 
-Each record of `kept[]` and `dropped[]` gives the evidence {heuristicsFile}'s Disqualification Rules judge: `files_count`, `loc_total`, `generated_files`, `generated_ratio`, `passes_with_generated`, `manifest`, `signals` and `tree_file` (the candidate's file list). Then judge what the script cannot: drop a mixed candidate only when its own code is no more than glue around its generated files; restore a candidate dropped over files you judge its own code when `passes_with_generated` is true; drop pure configuration and test-only candidates. Name every kept one in one call, by {heuristicsFile}'s Unit Names (`target` is its path, or the new project path itself for a candidate at the root):
+Each record of `kept[]` and `dropped[]` in `{run_dir}/filter-{i}.json` gives the evidence {heuristicsFile}'s Disqualification Rules judge: `files_count`, `loc_total`, `generated_files`, `generated_ratio`, `passes_with_generated`, `manifest`, `signals` and `tree_file` (the candidate's file list). Then judge what the script cannot: drop a mixed candidate only when its own code is no more than glue around its generated files; restore a candidate dropped over files you judge its own code when `passes_with_generated` is true; drop pure configuration and test-only candidates. Name every kept one in one call, by {heuristicsFile}'s Unit Names (`target` is its path, or the new project path itself for a candidate at the root):
 
 ```bash
-uv run {skillInventoryHelper} derive-name --from - <<'SKF_UNIT_NAMES'
+uv run {skillInventoryHelper} derive-name --from - > "{run_dir}/discover-{i}-names.json" <<'SKF_UNIT_NAMES'
 [{"target": "<candidate path>", "manifest_name": <manifest.name>, "private": <manifest.private>}, ...]
 SKF_UNIT_NAMES
 ```
 
-Give the entries `unnamed` and `duplicates` list a name of your own, from their folder, and never a name a unit of the report already has. A unit whose name is in `existing_skills` is already skilled: drop it (recommend update-skill); one in `existing_briefs` keeps the status `briefed`. Classify each unit's boundary type and scope type by {heuristicsFile}'s Boundary Classification, and detect its language from its file list:
+Give the entries `unnamed` and `duplicates` list a name of your own, from their folder, in the unit's judgment `name`, and never a name a unit of the report already has. A unit whose name is in `existing_skills` is already skilled: drop it (recommend update-skill); one in `existing_briefs` keeps the status `briefed`. Classify each unit's boundary type and scope type by {heuristicsFile}'s Boundary Classification, with its demo files and registry candidates counted and scored as identify-units Step E counts them:
 
 ```bash
-uv run {detectLanguageHelper} --tree-file "{the unit's tree_file}"
+uv run {detectRegistryHelper} demo --files-from "{the unit's tree_file}"
+uv run {detectRegistryHelper} registry --files-from "{the unit's tree_file}" --source-root "{scan_root}"
 ```
 
-When `detected_languages` has more than one entry, choose the language the unit documents from its own manifest, or `.source_language` without one. When `intent_hint` is not empty, mark a unit the stated goal clearly leaves out `deferred`, as the report's other deferred units are: it is listed and not analyzed, and the user can restore it.
+When `intent_hint` is not empty, mark a unit the stated goal clearly leaves out `deferred`, as the report's other deferred units are: it is listed and not analyzed, and the user can restore it.
+
+Write each judgment to `{run_dir}/discover-{i}-judgments.json` as identify-units §3 writes them, then add the new units to {unitsFile}, which keeps the report's other units:
+
+```bash
+uv run {disqualifyCandidatesHelper} units --filter "{run_dir}/filter-{i}.json" --names "{run_dir}/discover-{i}-names.json" --judgments "{run_dir}/discover-{i}-judgments.json" --out "{unitsFile}" --add
+```
+
+It detects each new unit's language and takes its scope patterns, its brief `include` and `exclude`, from its file list as identify-units §4 says, and prints the new units' rows of the three tables. When a unit's `language_detection.detected_languages` has more than one entry, choose the language the unit documents from its own manifest, or `.source_language` without one, write it in its judgment's `language` (the call passes `unknown` for one outside the helper's choices) and run the call again. On a name a unit of the report already has, or a judgment it cannot place, it exits 1 and writes nothing: correct the judgments and run it again.
 
 ### 4. Map the New Units
 
-Load, read the entire file, then execute {unitExportsFile} for the new units that are not deferred, each with `{unit_root}` its path under the new scan root and its file count the `files_count` of its §3 record. It writes each unit's record to `{run_dir}/unit-records/{unit_name}.json`, checks the records, records their problems and warnings, and returns them.
+Load, read the entire file, then execute {unitExportsFile} for the new units that are not deferred, each with `{unit_root}` its path under the new scan root and, from {unitsFile}, its scope type, its language from §3 and its file count the `files_count` of its §3 record. It writes each unit's record to `{run_dir}/unit-records/{unit_name}.json`, checks the records, records their problems and warnings, and returns them.
 
-**Import graph.** Write the units JSON for the new units, one entry each: `{"name": "<unit name>", "path": "<its path, relative to the scan root>", "manifest_name": "<its own manifest's name>", "ecosystem": "<its own manifest's ecosystem>"}` (no `manifest_name` or `ecosystem` without a manifest; `"modules"` only for a folder without a manifest that code imports by name), then:
+**Import graph.** Run this block only when §3 kept a new unit that is not deferred: without one, the new path has no import graph. `units-from` writes the units JSON of the new units from {unitsFile} (add `--module <unit name>=<import name>` to it only for a folder without a manifest that code imports by name), then:
 
 ```bash
-cat > "{run_dir}/discover-{i}-units.json" <<'SKF_UNITS'
-{"units": [<one entry per new unit that is not deferred>]}
-SKF_UNITS
+uv run {countImportsHelper} units-from --units-file "{unitsFile}" --project-path "{project_path}" > "{run_dir}/discover-{i}-units.json"
 uv run {countImportsHelper} count "{scan_root}" --units "{run_dir}/discover-{i}-units.json" --deps "{run_dir}/manifests-{i}.json" > "{run_dir}/discover-{i}-imports.json"
 uv run {countImportsHelper} summary "{run_dir}/discover-{i}-imports.json" --manifests "{run_dir}/manifests-{i}.json"
+uv run {countImportsHelper} summary "{run_dir}/discover-{i}-imports.json" --format markdown
 uv run {findCyclesHelper} find --edges "{run_dir}/discover-{i}-imports.json"
 uv run {countImportsHelper} count "{scan_root}" --units "{run_dir}/discover-{i}-units.json" --format libraries > "{run_dir}/discover-{i}-importers.json"
 uv run {pairIntersectHelper} intersect --libraries "{run_dir}/discover-{i}-importers.json"
 ```
 
-Read each `units[]` entry's `imports_from`, `imported_by`, `file_count` and `external_dep_count` and each `edge_files[]` entry from the summary line (the full file lists stay in the imports file, for an edge that needs them), each `cycles[]` entry (units that import each other) and each `pairs[]` entry (units imported together in `intersection_count` files; when `truncated` is true, run the last call again with `--top-k` set to its `total_pairs`). A helper that exits non-zero names the problem on stderr: fix the units JSON and run the block again.
+Read each `units[]` entry's `imports_from`, `imported_by`, `file_count` and `external_dep_count` and each `edge_files[]` entry from the first summary line (the full file lists stay in the imports file, for an edge that needs them), the new units' cross-reference matrix rows from the second, each `cycles[]` entry (units that import each other) and each `pairs[]` entry (units imported together in `intersection_count` files; when `truncated` is true, run the last call again with `--top-k` set to its `total_pairs`). A helper that exits non-zero names the problem on stderr: fix the call and run the block again.
 
 ### 5. Propose Composites and Stack Skill Candidates
 
@@ -127,11 +136,11 @@ uv run {skillInventoryHelper} derive-name --from - <<'SKF_COMPOSITE_NAMES'
 SKF_COMPOSITE_NAMES
 ```
 
-Check the four indicators of {heuristicsFile}'s Stack Skill Candidate Detection against the new units no proposal groups (co-import frequency is a `pairs[]` entry with an `intersection_count` of 3 or more).
+A composite's scope patterns are the union of its constituents' `include` patterns and of their `exclude` patterns, each pattern once, as map-and-detect section 5 takes them. Check the four indicators of {heuristicsFile}'s Stack Skill Candidate Detection against the new units no proposal groups (co-import frequency is a `pairs[]` entry with an `intersection_count` of 3 or more).
 
 ### 6. Merge Into the Report and Return
 
-Add to {outputFile}: the new units, with their project path, to the Identified Units classification table (deferred units included), and the dropped candidates to its Disqualification table. Then:
+Add to {outputFile} the rows §3's call printed last: the new units to the Identified Units classification table (deferred units included), their language and scope rows to its language results, and the dropped candidates to its Disqualification table. Then:
 
 - **Loaded by map-and-detect:** write nothing more. Its Export Map and Integration Points still hold their placeholders, and its §7 writes both sections from the findings these units join.
 - **Loaded by recommend:** both sections are already written: add the new units' export rows to the Export Map, and their imports, composite proposals and stack skill candidates to Integration Points.

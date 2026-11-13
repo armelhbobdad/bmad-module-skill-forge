@@ -2,42 +2,48 @@
 
 # Map Each Unit's Exports
 
-The per-unit export analysis, stated once for the two files that run it: map-and-detect section 2, for every qualifying unit, and discover-additional-source section 4, for the units it adds. The file that loads this one has resolved `{extractPublicApiHelper}` and `{checkUnitRecordsHelper}` and gives each unit its name, its scope type (`{unit_scope_type}`), its language, its folder (`{unit_root}`: its path under the scan root of its project path) and its file count (the `files_count` of its disqualification record, which the Files column of Identified Units shows); `{forge_tier}` is the report's. This file returns to it with the checked records.
+The per-unit export analysis, stated once for the two files that run it: map-and-detect section 2, for every qualifying unit, and discover-additional-source section 4, for the units it adds. The file that loads this one has resolved `{extractPublicApiHelper}` and `{checkUnitRecordsHelper}` and gives each unit its name (`{unit_name}`), its scope type (`{unit_scope_type}`), its language (`{language}`), its folder (`{unit_root}`: its path under the scan root of its project path) and its file count (`{files_count}`: the `files_count` of its disqualification record, which the Files column of Identified Units shows); `{forge_tier}` is the report's. This file returns to it with the checked records.
 
-## 1. Delegate Each Unit to a Subagent
+## 1. Write Each Record, Then Delegate What Is Left
 
-For each unit, launch a subagent task with these explicit constraints:
+For each unit, the parent runs §2's line itself: the extraction, then the script that writes the unit's record (§3) from it. It reads only the one JSON line the script prints, never the extraction's output and never the unit's source files (the implicit-read trap: the whole point of the fan-out is to keep large source bodies out of the parent's context).
 
-- The subagent reads only that unit's directory tree
-- The subagent analyzes exports / usage / CCC signals for that one unit
-- **The parent does not read the unit's source files before delegating** (avoid the implicit-read trap: the whole point of fan-out is to keep large source bodies out of the parent's context)
-- The subagent writes its record (§3) to a file of the run folder and returns only that file's path, so the parent never copies a record: pass it `{run_dir}` and the resolved `{extractPublicApiHelper}`
+Launch a subagent task only for a unit whose printed `to_read` is not empty, or for every unit when `tools.ccc` is true (the ccc search of §2): a unit with nothing to read and no ccc search needs none. Give it these explicit constraints:
 
-**Graceful degradation.** If subagents are unavailable in the current runtime, the parent performs the per-unit analysis sequentially in the main thread with the same export-surface call and tier-aware extras. Each main-thread analysis still writes the same JSON record, so the later steps do not depend on the execution mode.
+- The subagent reads only that unit's directory tree, and there only what §2 says its `to_read` asks for
+- It edits the record the line printed (`record`) in place and returns only that file's path, so the parent never copies a record: pass it that path and the `to_read` list
+
+**Graceful degradation.** If subagents are unavailable in the current runtime, the parent does the same reading and the same ccc search sequentially in the main thread, in the same record file, so the later steps do not depend on the execution mode.
 
 ## 2. Analyze One Unit
 
-**Export surface (every tier):** run the recipe runner on the unit's own folder. For the languages it has ast-grep recipes for (Python, JavaScript and TypeScript, Rust, Go, Vue) it lists the files, runs the recipes, follows the entry points and counts the public API, so the subagent neither greps nor counts those exports by hand:
+**Export surface (every tier):** one line per unit, which the parent runs (§1). The extractor writes its output to the run folder, and `from-extract` writes the unit's record from it to `{run_dir}/unit-records/{unit_name}.json` with every field of §3 set (a namespace given as its members' names), so no one maps the extractor's JSON into the record by hand. A Java, Kotlin or Swift unit runs quick mode's parser over every source file the language's scope patterns include (`--all-sources`, its tests left out), with `strategy_used: "parser"` and `confidence: "T1"`:
 
 ```bash
-uv run {extractPublicApiHelper} --mode full --source-root "{unit_root}" --scope-type {unit_scope_type} --tier {forge_tier}
+mkdir -p "{run_dir}/extract" && uv run {extractPublicApiHelper} --mode quick --language {language} --source-root "{unit_root}" --all-sources > "{run_dir}/extract/{unit_name}.json"; uv run {checkUnitRecordsHelper} from-extract --extract "{run_dir}/extract/{unit_name}.json" --exit-code $? --unit-name "{unit_name}" --files-count {files_count} --language {language} --dir "{run_dir}/unit-records"
 ```
 
-**No recipe for the unit's language:** when `files_in_scope` is 0, or `files_without_recipes` lists the extension of the unit's language (Java, Kotlin, Swift, C#, PHP, Ruby and C or C++ have no recipe), the run counted none of its exports, whatever its exit code. Read the public declarations of the unit's source files by eye, as on exit 3: `exports_count`, `api_surface` and `export_pattern` from what you read (for example "public classes: 14, interfaces: 3"), `strategy_used: "source-read"`, `confidence: "T1-low"`.
+Every other unit runs the recipe runner on its own folder. For the languages it has ast-grep recipes for (Python, JavaScript and TypeScript, Rust, Go, Vue) it lists the files, runs the recipes, follows the entry points and counts the public API, with `strategy_used: "ast-grep"` and `confidence: "T1"`:
 
-Otherwise read the JSON by the exit code:
+```bash
+mkdir -p "{run_dir}/extract" && uv run {extractPublicApiHelper} --mode full --source-root "{unit_root}" --scope-type {unit_scope_type} --tier {forge_tier} -o "{run_dir}/extract/{unit_name}.json"; uv run {checkUnitRecordsHelper} from-extract --extract "{run_dir}/extract/{unit_name}.json" --exit-code $? --unit-name "{unit_name}" --files-count {files_count} --language {language} --dir "{run_dir}/unit-records"
+```
 
-- **0 or 1:** `exports_count` ← `counts.exports_public_api`, `api_surface` ← the names in `entry_point_diff.public[]` (a `namespace` item with a `members` list given as its members' names, the names its module passes on), `export_pattern` ← `entry_points.status` with `aggregates.by_type` (for example "barrel: 12 functions, 5 classes", marked "capped" when `truncated` is true), `strategy_used: "ast-grep"`, `confidence: "T1"`. Then read by eye what the recipes could not, and name each one in `warnings`: every `entry_point_diff.extraction_gaps[]` name (public, but no recipe found its definition: read it at its `file` and `line`) and every `file_issues[]` file (one the parser could not fully read: add the exports it shows to `api_surface`). Exit 1 (`status: "incomplete"`) means an ast-grep run failed on some files: keep what it returned and put its `errors[]` in `warnings`.
-- **3** (no ast-grep the runner can run): the JSON still lists `entry_points.files`. Read the exports from those entry-point files by eye (from the unit's source files when it lists none), with `strategy_used: "source-read"` and `confidence: "T1-low"`.
-- **2:** an input error, named on stderr (a wrong path or flag): fix the call and run it again.
+The script prints one JSON line: `record` (the file it wrote), `strategy_used`, `exports_count` and `to_read`. It exits 2 and writes nothing on the extractor's own input error (a wrong path or flag) and on a wrong argument of its own, naming either on stderr: fix what it names and run the line again.
+
+**What is left to read** (`to_read`), each item by its `why`:
+
+- `extraction-gap` (an `entry_point_diff.extraction_gaps[]` row): a public name no recipe found the definition of, already in `api_surface` and `warnings`. Read it at its `file` and `line`.
+- `file-issue` (a `file_issues[]` item): a file the parser could not fully read (`issue` says why), named in `warnings`. Add the exports it shows to `api_surface`.
+- `entry-point` or `unit-sources`: no script counted the unit's exports, so the record has `strategy_used: "source-read"`, `confidence: "T1-low"` and no export. The runner found no ast-grep it could run (exit 3, and `entry-point` names each entry-point file it listed), read no file of the unit (for the parser, `--all-sources` found no source file of the language), or the unit's language has neither a recipe nor the parser (C#, PHP, Ruby, C or C++ and the rest). Read the public declarations by eye, of those entry-point files or of the unit's source files, and fill `exports_count`, `api_surface` and `export_pattern` from what you read (for example "public classes: 14, interfaces: 3").
 
 **Tier-aware extras:** when `tools.ccc` is true (Forge+, or Deep with ccc installed), search `"{unit_name} exports public API"` (top 15) with the ccc tool the runtime offers (the `/ccc` skill, a ccc MCP server or the `ccc search` CLI) and record the top 3 files in `ccc_signals.top_files`, with `available: true`; with no ccc tool, record `available: false`.
 
-The subagent also records the export-surface call's `strategy_used`, `confidence` and `warnings`.
+The subagent changes no other field: the script set `unit_name`, `files_count`, `strategy_used`, `confidence` and `warnings`.
 
 ## 3. Record Contract
 
-Each subagent writes only this JSON object, with no prose, no commentary and no markdown fence, to `{run_dir}/unit-records/{unit_name}.json` (creating the folder), and returns that path:
+`from-extract` writes this JSON object to `{run_dir}/unit-records/{unit_name}.json` (creating the folder). A subagent that edits it keeps it this object only, with no prose, no commentary and no markdown fence, and returns its path:
 
 ```json
 {
@@ -47,7 +53,7 @@ Each subagent writes only this JSON object, with no prose, no commentary and no 
   "export_pattern": "...",
   "api_surface": ["..."],
   "ccc_signals": {"top_files": [], "available": <bool>},
-  "strategy_used": "ast-grep|source-read",
+  "strategy_used": "ast-grep|parser|source-read",
   "confidence": "T1|T1-low",
   "warnings": []
 }

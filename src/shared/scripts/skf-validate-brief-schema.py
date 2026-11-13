@@ -33,6 +33,9 @@ CLI:
   uv run skf-validate-brief-schema.py <path/to/skill-brief.yaml>
   cat brief.yaml | uv run skf-validate-brief-schema.py -
   uv run skf-validate-brief-schema.py --yaml '<inline yaml>'
+  uv run skf-validate-brief-schema.py batch --contexts FILE [FILE ...]
+      [--existing-skills [NAME ...]] [--project-paths [PATH ...]]
+      [--scan-roots [ROOT ...]]
 
 Output (JSON on stdout):
   {
@@ -46,14 +49,45 @@ Output (JSON on stdout):
 Exit codes:
   0 — valid (errors empty)
   1 — invalid (errors non-empty) OR file/yaml load failed
+
+`batch` checks the brief contexts (the flat JSON skf-write-skill-brief.py
+--from-flat reads) of one Analyze Source run together, for what no single
+brief shows. In context order, each context's:
+
+  - `name`, when it is a non-empty string, must not be the name of an
+    earlier context (the error names both files) or one of
+    --existing-skills (a compiled skill: rename the unit, or run
+    update-skill on that skill);
+  - `source_repo`, when it is a non-empty string, must be an existing
+    folder (a leading `~` expanded), or a --project-paths entry whose
+    --scan-roots entry (the two lists pair by position) is an existing
+    folder: a remote project path is reachable through the scan root the
+    run cloned it into.
+
+A value that is absent or no string is left to the schema check of each
+brief. A --contexts value that is no file and holds `*` or `?` is expanded
+here (sorted), its file name the pattern and its folder read as written,
+so the call works where no shell expands it. Its output:
+
+  {"valid": bool,
+   "errors": [{"context": "<file>", "name": "<brief name>", "field": "name" | "source_repo",
+               "message": "Brief validation failed: ..."}, ...],
+   "warnings": []}
+
+and it exits 0 when valid, 1 with errors, and 2 on a usage error, named
+on stderr with nothing on stdout: lists of different lengths, a context
+that cannot be read or is no JSON object, or a pattern that matches no
+file.
 """
 
 from __future__ import annotations
 
 import argparse
 import datetime
+import glob
 import importlib.util
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -396,10 +430,140 @@ def _envelope_valid(brief: dict, warnings: list[dict]) -> dict:
     }
 
 
+# --------------------------------------------------------------------------
+# batch: the checks across one run's brief contexts
+# --------------------------------------------------------------------------
+
+
+class BatchUsageError(Exception):
+    """A batch call that cannot be checked: exit 2, the message on stderr."""
+
+
+def _expand_contexts(values: list[str]) -> list[Path]:
+    """Each --contexts value as a path, a pattern no shell expanded expanded here (sorted)."""
+    paths: list[Path] = []
+    for value in values:
+        if not Path(value).is_file() and any(ch in value for ch in "*?"):
+            folder, pattern = os.path.split(value)  # a folder holding [ ] * ? is no pattern
+            matches = sorted(glob.glob(os.path.join(glob.escape(folder), pattern)))
+            if not matches:
+                raise BatchUsageError(f"--contexts pattern `{value}` matches no file")
+            paths.extend(Path(m) for m in matches)
+        else:
+            paths.append(Path(value))
+    return paths
+
+
+def _read_context(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+    except (OSError, UnicodeDecodeError) as exc:
+        raise BatchUsageError(f"context `{path}` cannot be read: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise BatchUsageError(f"context `{path}` is not JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise BatchUsageError(f"context `{path}` is not a JSON object")
+    return data
+
+
+def _non_empty(value: Any) -> bool:
+    return isinstance(value, str) and value.strip() != ""
+
+
+def _is_folder(value: str) -> bool:
+    try:
+        return Path(value).expanduser().is_dir()
+    except (OSError, RuntimeError, ValueError):  # RuntimeError: a `~user` with no home
+        return False
+
+
+def check_batch(contexts: list[tuple[str, dict]], existing_skills: list[str],
+                project_paths: list[str], scan_roots: list[str]) -> dict:
+    """The batch checks over (file, context) pairs, in order. Raises
+    BatchUsageError when the two path lists differ in length."""
+    if len(project_paths) != len(scan_roots):
+        raise BatchUsageError(
+            f"--project-paths gives {len(project_paths)} path(s) and --scan-roots {len(scan_roots)}: "
+            "give one scan root per project path, in the same order")
+    roots: dict[str, list[str]] = {}
+    for path, root in zip(project_paths, scan_roots):
+        roots.setdefault(path, []).append(root)
+    reachable = {path for path, listed in roots.items() if any(_is_folder(root) for root in listed)}
+    existing = set(existing_skills)
+    seen: dict[str, str] = {}
+    errors: list[dict] = []
+
+    def error(context: str, name: Any, field: str, message: str) -> None:
+        errors.append({"context": context, "name": name if isinstance(name, str) else None,
+                       "field": field, "message": f"Brief validation failed: {message}"})
+
+    for context, data in contexts:
+        name = data.get("name")
+        if _non_empty(name):
+            if name in existing:
+                error(context, name, "name",
+                      f"`name` `{name}` in `{context}` is the name of an existing skill. Rename the unit, "
+                      f"or run update-skill on that skill.")
+            elif name in seen:
+                error(context, name, "name",
+                      f"`name` `{name}` in `{context}` is also the name of the brief in `{seen[name]}`. "
+                      f"Rename one of the two units and re-run.")
+            seen.setdefault(name, context)
+        source = data.get("source_repo")
+        if _non_empty(source) and not _is_folder(source) and source not in reachable:
+            if source in roots:
+                listed = ", ".join(f"`{root}`" for root in roots[source])
+                message = (f"`source_repo` `{source}` in `{context}` is a project path whose scan root "
+                           f"{listed} is not an existing folder. Restore that folder, or make the scan root "
+                           f"again from the project path, and re-run.")
+            else:
+                message = (f"`source_repo` `{source}` in `{context}` is neither an existing folder nor a "
+                           f"project path of this run. Set it to the unit's project path and re-run.")
+            error(context, name, "source_repo", message)
+    return {"valid": not errors, "errors": errors, "warnings": []}
+
+
+def _batch_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="skf-validate-brief-schema batch",
+        description="Check one run's brief contexts together: names shared with another brief or an "
+                    "existing skill, and a source_repo that is neither an existing folder nor a project "
+                    "path whose scan root exists.",
+    )
+    parser.add_argument("--contexts", nargs="+", required=True, metavar="FILE",
+                        help="the brief context JSON files; a pattern no shell expanded is expanded here")
+    parser.add_argument("--existing-skills", nargs="*", default=[], metavar="NAME",
+                        help="the names of the skills that already exist")
+    parser.add_argument("--project-paths", nargs="*", default=[], metavar="PATH",
+                        help="the run's project paths, in order")
+    parser.add_argument("--scan-roots", nargs="*", default=[], metavar="ROOT",
+                        help="the scan root of each --project-paths entry, in the same order")
+    return parser
+
+
+def batch_main(argv: list[str]) -> int:
+    args = _batch_parser().parse_args(argv)
+    try:
+        paths = _expand_contexts(args.contexts)
+        contexts = [(str(path), _read_context(path)) for path in paths]
+        result = check_batch(contexts, args.existing_skills, args.project_paths, args.scan_roots)
+    except BatchUsageError as exc:
+        sys.stderr.write(f"skf-validate-brief-schema batch: {exc}\n")
+        return 2
+    _emit(result)
+    return 0 if result["valid"] else 1
+
+
 def main(argv: list[str] | None = None) -> int:
+    if argv is None:
+        argv = sys.argv[1:]
+    if argv[:1] == ["batch"]:
+        return batch_main(argv[1:])
     parser = argparse.ArgumentParser(
         prog="skf-validate-brief-schema",
         description="Validate a skill-brief.yaml against the SKF brief schema.",
+        epilog="`skf-validate-brief-schema.py batch --contexts FILE ...` checks one Analyze Source run's brief "
+               "contexts together instead; `batch --help` lists its options.",
     )
     src = parser.add_mutually_exclusive_group(required=True)
     src.add_argument(

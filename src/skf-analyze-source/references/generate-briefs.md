@@ -1,12 +1,16 @@
 ---
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
 schemaFile: 'assets/skill-brief-schema.md'
+scanRootFile: 'references/scan-root.md'
 writeSkillBriefProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-write-skill-brief.py'
   - '{project-root}/src/shared/scripts/skf-write-skill-brief.py'
 validateBriefSchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-validate-brief-schema.py'
   - '{project-root}/src/shared/scripts/skf-validate-brief-schema.py'
+extractPublicApiProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'
+  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'
 scanManifestsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-scan-manifests.py'
   - '{project-root}/src/shared/scripts/skf-scan-manifests.py'
@@ -43,12 +47,11 @@ and display the line it prints verbatim. Write the payload as valid JSON: in the
 
 Read {outputFile} completely to obtain:
 - `confirmed_units` from frontmatter (names of units approved in step 05)
-- `confirmed_composites` from frontmatter (composites approved in step 04, each with its constituents' names and paths)
-- `project_paths`, `refs`, `forge_tier`, `user_name`, `forge_data_folder` from frontmatter
+- `project_paths`, `scan_roots` (each project path's scan root), `refs`, `forge_tier`, `existing_skills`, `user_name`, `forge_data_folder` from frontmatter
 - Recommendation cards from "## Recommendations" section (proposed brief fields and the project path of each unit)
 - Export map and integration data from prior sections
 
-Load {schemaFile} for validation reference.
+Read {schemaFile}'s **Version Detection** section only when a unit's own manifest in its scan is `version_dynamic` or a private workspace root without a `version`: the scan's `version` of any other manifest is passed as found.
 
 **No confirmed unit:** If `confirmed_units` is empty, present:
 "**No confirmed units to generate briefs for.** The analysis produced no skill briefs. Run analyze-source again with different scope or parameters if needed."
@@ -56,7 +59,9 @@ The run still ends through the same sequence as one that wrote briefs: skip §2 
 
 ### 2. Build Each Brief's Context
 
-**Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}` and **`{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `generate-briefs:2`): "`{the missing script}` is missing. Re-install SKF."
+**Resolve `{writeSkillBriefHelper}`** from `{writeSkillBriefProbeOrder}`, **`{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}` and **`{extractPublicApiHelper}`** from `{extractPublicApiProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `generate-briefs:2`): "`{the missing script}` is missing. Re-install SKF."
+
+**A scan root that is gone.** A session that resumed this report without its earlier run folder works in a new one, without the copies that folder held. For each project path a confirmed unit was found under whose recorded scan root no longer exists, make it again by {scanRootFile} into this run's `{run_dir}/source-{i}` and update `scan_roots` in {outputFile}'s frontmatter: §3b checks each brief's `source_repo` against it, and the version row below scans it when its `{run_dir}/manifests-{i}.json` is missing. If a command there fails, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `generate-briefs:2`, path `{path}`): "{path} could not be fetched: {the first stderr line}."
 
 The brief writer renders, checks and writes each brief, and applies the version precedence (`target_version`, then `detected_version`, then `1.0.0`): this step supplies the values. For each unit in `confirmed_units`, take them from:
 
@@ -65,14 +70,13 @@ The brief writer renders, checks and writes each brief, and applies the version 
 | Field | Source |
 |-------|--------|
 | name | Confirmed name from step 05 recommendation card: the name identify-units Step C derived, unless step 5 renamed the unit |
-| version | Not set here: `detected_version` comes by {schemaFile}'s **Version Detection**, for the unit's own manifest in its project path's manifest scan, `{run_dir}/manifests-{i}.json` (scan-project and discover-additional-source write it). When that file is missing, as in a session that resumed the report, run `uv run {scanManifestsHelper} scan "{scan_root}" > "{run_dir}/manifests-{i}.json"` first, `{scanManifestsHelper}` the first existing path of `{scanManifestsProbeOrder}` |
+| version | Not set here: `detected_version` comes by {schemaFile}'s **Version Detection**, for the unit's own manifest in its project path's manifest scan, `{run_dir}/manifests-{i}.json` (scan-project and discover-additional-source write it). When that file is missing, as in a session that resumed the report without its earlier run folder, run `uv run {scanManifestsHelper} scan "{scan_root}" > "{run_dir}/manifests-{i}.json"` first, `{scanManifestsHelper}` the first existing path of `{scanManifestsProbeOrder}` |
 | source_repo | The unit's project path, the `project_paths[]` entry it was found under (a composite's constituents share one) |
 | target_ref | The unit's ref: its project path's entry in `refs`, else null. Never a version: `target_version` stays null |
 | language | Language the skill **documents** (primary language detected in step 03). For a language / spec reference this is the *documented* language, which may differ from the source language it is extracted from — e.g. a SurrealQL reference extracted from a Rust engine records `surrealql`, not `rust` (see {schemaFile} "Documented vs source language") |
 | scope.type | Scope type from step 05 recommendation card |
-| scope.include | Include patterns from step 05 recommendation card, plus, for a composite (`Boundary: Composite` on its card), `<path>/**` for every constituent path of its `confirmed_composites` entry (such as `crates/animato-core/**`), so the brief spans every constituent. Find the entry by those paths, which the card's Path lists, not by name: step 05 may rename the unit |
-| scope.exclude | Inferred from heuristics (test files, generated code) |
-| scope.tier_a_include | Optional — narrower tier-A surface for stratified-scope monorepos and `reference-app` pattern surfaces; usually left to skf-brief-skill to refine |
+| scope.include | The `scope.include` patterns of the step 05 recommendation card (a composite's, the union of its constituents', so the brief spans every constituent) |
+| scope.exclude | The `scope.exclude` patterns of the step 05 recommendation card |
 | scope.notes | Rationale from step 05 recommendation card |
 | description | Description from step 05 recommendation card |
 | forge_tier | `{forge_tier}` from frontmatter |
@@ -97,24 +101,15 @@ Write each unit's context as `{run_dir}/brief-{unit-name}.json`, a file and neve
   "scope_type": "{scope.type}",
   "scope_include": ["{scope.include}"],
   "scope_exclude": ["{scope.exclude}"],
-  "scope_notes": "{scope.notes}",
-  "scope_rationale": null,
-  "scope_tier_a_include": null,
-  "scope_amendments": null,
-  "scope_registry_path": null,
-  "scope_ui_variants": null,
-  "scope_demo_patterns": null,
-  "doc_urls": null,
-  "scripts_intent": null,
-  "assets_intent": null,
-  "source_authority": null,
-  "source_ref": null
+  "scope_notes": "{scope.notes}"
 }
 ```
 
+Leave out every other optional key: the writer reads an absent key as unset.
+
 ### 3. Validate Each Brief
 
-Validation has two parts: a **deterministic gate** (authoritative for structure) and **semantic cross-checks** the schema cannot express. Run the gate first.
+Validation has two parts: a **deterministic gate** on each brief (§3a), then a **batch check** across them (§3b). Run the gate first.
 
 **3a. Deterministic gate.** Render each brief into the run folder, then run on it the schema check `skf-brief-skill` runs when it reads a brief, so a brief that passes here is not rejected there for structural reasons:
 
@@ -126,18 +121,17 @@ uv run {validateBriefSchemaHelper} "{run_dir}/briefs/{unit-name}/skill-brief.yam
 - **The writer exits non-zero, or the validator answers `valid: false`:** the `message` and `field` of the writer's stderr JSON, or the validator's `errors[]`, name the offending field. Correct that value in `{run_dir}/brief-{unit-name}.json` when it is a value you mistyped from the recommendation card, and run both commands again; a value the user must decide is presented in §4 for correction (`M`). In headless mode a brief still rejected after one correction is a HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `generate-briefs:3`, path `{forge_data_folder}/{unit-name}/skill-brief.yaml`, with `unit_counts` from step 5): "The brief for {unit-name} was rejected: {the message}." A brief is written only after it passes this gate.
 - **Both pass:** carry the writer's and the validator's non-empty `warnings` into the §4 preview, then proceed.
 
-**3b. Semantic cross-checks** (not expressible in the JSON schema — apply in addition to 3a):
+**3b. Batch checks.** When every brief passed §3a, check them together, for a name another brief or `existing_skills` has (a step 5 rename can collide) and a `source_repo` that is neither an existing folder nor a project path whose scan root exists:
 
-1. **Name uniqueness** — no duplicate names within the batch or existing skills
-2. **Source accessible** — project_path exists
-3. **Language recognized** — valid programming language identifier
-4. **Forge tier match** — matches forge_tier from config
+```bash
+uv run {validateBriefSchemaHelper} batch --contexts "{run_dir}"/brief-*.json --existing-skills <each existing_skills name> --project-paths <each project_paths entry, quoted> --scan-roots <the scan_roots entry of each, quoted, in the same order>
+```
 
-(The non-empty `scope.include` constraint — at least one glob pattern for every scope type except `docs-only` — is enforced deterministically by the §3a gate, so it is not re-checked here.)
+Its `errors[]` have §3a's shape and are 3b failures: each names its `context` file, and its brief `name`, `field` and `message` are the {unit-name}, {check} and reason below. An exit 2 is a call it could not check, named on its stderr: correct the call and run it again; a second exit 2 counts as a failed `batch` check of the first unit in `confirmed_units`, its reason the first stderr line.
 
 **If any check fails:**
 - Document the failure with specific field and reason
-- Correct the context (3a) or present to user for correction (3b semantic issues) before writing: an invalid brief is not written
+- Correct the context (3a) or present to user for correction (3b issues) before writing: an invalid brief is not written
 - In headless mode no one corrects it: correct what the recommendation card and the report settle and check again, once; a brief still failing a 3b check is a HARD HALT (exit code 4, `halt_reason: "write-failed"`, phase `generate-briefs:3`, path `{forge_data_folder}/{unit-name}/skill-brief.yaml`, with `unit_counts` from step 5), as in 3a: "The brief for {unit-name} failed the {check} check: {the reason}."
 
 ### 4. Present Generation Preview
@@ -148,7 +142,7 @@ uv run {validateBriefSchemaHelper} "{run_dir}/briefs/{unit-name}/skill-brief.yam
 
 {For each unit:}
 ---
-**{unit-name}** → `{forge_data_folder}/{unit-name}/skill-brief.yaml`{, replacing the earlier brief there when the unit is in `existing_briefs`}
+**{unit-name}** → `{forge_data_folder}/{unit-name}/skill-brief.yaml`{, replacing the earlier brief there when the unit is in `existing_briefs`}{, its version read from `{version_source}` when Version Detection's extractor call found the `version` the brief shows}
 ```yaml
 {the content of {run_dir}/briefs/{unit-name}/skill-brief.yaml, as the writer rendered it}
 ```
@@ -183,7 +177,7 @@ Keep each `brief_path` it prints for §9. If it exits non-zero, HARD HALT (exit 
 
 **IF user modifies (M):**
 - Ask which brief and what to change
-- Update `{run_dir}/brief-{unit-name}.json`, run the §3 gate again, present again
+- Update `{run_dir}/brief-{unit-name}.json`, run §3a on it and §3b again (a rename can collide), present again
 - Return to confirmation prompt
 
 **IF user skips writing (N):**
@@ -236,30 +230,7 @@ nextWorkflow: '{primary recommendation}'
 
 ### 8. Present Summary
 
-"**Analyze-Source Summary**
-
-**Project:** {project_name}
-**Forge Tier:** {forge_tier}
-
-**Results:**
-- **Scanned:** {boundary count} boundaries detected
-- **Identified:** {unit count} qualifying units classified
-- **Confirmed:** {confirmed count} units approved for brief generation
-- **Generated:** {brief count} skill-brief.yaml files written
-
-**Files Created:**
-{List each skill-brief.yaml with full path}
-
-**Analysis Report:** {outputFile}
-
-**Recommended Next Steps:**
-{For each unit, the recommended next workflow with brief explanation}
-
-{If stack skill candidates exist:}
-**Stack Skill Candidates:**
-{List candidates with recommendation to run create-stack-skill after individual skills are created}
-
-To refine any brief, run the recommended next workflow. To re-analyze with different scope, run analyze-source again."
+Tell the user each brief written (or that none was), with its path and its unit's §6 next workflow, the analysis report's path ({outputFile}), and the §6 stack skill candidates, if any, with create-stack-skill to run once their skills exist.
 
 ### 9. End the Run
 
@@ -291,22 +262,8 @@ The emitter stamps the UTC time and the run id into the record, writes `{forge_d
 
 ### 9b. On-Complete Hook (pipeline integration)
 
-If `{onCompleteCommand}` is non-empty, the §9 line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` entry naming `analyze-source-result-latest.json` (the emitter wrote the timestamped result JSON and its `analyze-source-result-latest.json` copy), invoke it now from `{project-root}`:
-
-```
-{onCompleteCommand} --result-path="{forge_data_folder}/analyze-source-result-latest.json"
-```
-
-The stable `-latest` path is preferred over the timestamped copy so downstream consumers don't need to discover the timestamp.
-
-- On success: display the hook's stderr, if it wrote any, as information (`on_complete hook stderr: …`).
-- On non-zero exit / process error: display the hook failure (`on_complete hook failed (exit {code}): {stderr_snippet}`); it never fails the run.
-- **Never fail the workflow on hook errors** — the hook is for pipeline integration (Slack, dashboards, CI), not for gating skill-brief production.
-
-When `{onCompleteCommand}` is non-empty but `result_path` is null or a `result_file_write_failed` warning names `analyze-source-result-latest.json` (the copy alone failed), skip the hook and say so: "on_complete skipped: `analyze-source-result-latest.json` was not written." The hook never gets a `-latest` copy this run failed to write.
-
-If `{onCompleteCommand}` is empty, skip this section entirely (default behavior — no hook configured).
+If `{onCompleteCommand}` is non-empty, the §9 line's `result_path` is not null and its `warnings` hold no `result_file_write_failed` entry naming `analyze-source-result-latest.json`, invoke it now from `{project-root}`: `{onCompleteCommand} --result-path="{forge_data_folder}/analyze-source-result-latest.json"`. Display a hook failure; it never fails the run. When `{onCompleteCommand}` is non-empty but `result_path` is null or a `result_file_write_failed` warning names `analyze-source-result-latest.json` (the copy alone failed), skip the hook and say so: "on_complete skipped: `analyze-source-result-latest.json` was not written."
 
 ### 10. Chain to Health Check
 
-After the briefs are written (or skipped, or none was confirmed), the report updated, the summary presented, the run ended in §9 and the on-complete hook invoked (or skipped as §9b says), delete the run folder, whose payloads the emitter has read: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`. The health-check step is the true terminal step: continue past the summary even though it reads as final.
+Delete the run folder, whose payloads the emitter has read: `rm -rf "{run_dir}"`. Then load, read the full file, and execute `{nextStepFile}`, the run's terminal step, so continue past the summary.

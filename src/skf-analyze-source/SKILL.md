@@ -7,14 +7,13 @@ description: Discover what to skill in a large repo and produce recommended skil
 
 ## Overview
 
-Analyzes a large repo or multi-service project to identify discrete skillable units, map exports and integration points, and produce recommended skill-brief.yaml files as the primary entry point for brownfield onboarding. The analysis must be thorough enough to produce actionable briefs, but scoped enough to avoid overwhelming the user with false positives. Exports come from the ast-grep recipe runner at every forge tier (read by eye where ast-grep is missing or the language has no recipe).
+Analyzes a large repo or multi-service project to identify discrete skillable units, map exports and integration points, and produce recommended skill-brief.yaml files as the primary entry point for brownfield onboarding. The analysis must be thorough enough to produce actionable briefs, but scoped enough to avoid overwhelming the user with false positives.
 
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile`, `continueFile` and `nextStepOptions` name a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root; e.g. `shared/health-check.md`, which the terminal step chains to.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
-- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `assets/` holds the brief schema and `templates/` the analysis report skeleton.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
@@ -48,21 +47,11 @@ These rules apply to every step in this workflow:
 
 **Auto mode path:** With `[auto]` present, init routes directly to step 1a, which loads a branch file only when its branch fires: `references/step-auto-scope-coexistence.md` (a skill already matches), `references/step-auto-scope-split.md` (a monorepo splits into N briefs) and `references/step-auto-scope-corpora.md` (a whole-language reference), and routes docs-only targets to `references/auto-docs-only.md`.
 
-**[D] Discover Additional Source** (steps 4 and 5) loads `references/discover-additional-source.md`. Step 2 and [D] make each project path's scan root by `references/scan-root.md` (steps 3 and 4 make one again when a resumed session no longer finds it), and step 4 and [D] map each unit's exports by `references/map-unit-exports.md`.
-
-**Shape detection reference:** `references/step-shape-detect.md` — loaded by step 1a as a reference doc (not a chained step).
+**[D] Discover Additional Source** (steps 4 and 5) loads `references/discover-additional-source.md`. Step 2 and [D] make each project path's scan root by `references/scan-root.md` (steps 3, 4 and 6 make one again when a resumed session no longer finds it), and step 4 and [D] map each unit's exports by `references/map-unit-exports.md`.
 
 ## Invocation Contract
 
-| Aspect | Detail |
-|--------|--------|
-| **Inputs** | project_path [required], intent_hint, scope_hint, target_ref or target_refs [optional]. `project_path` is a repository URL or a local path, or in `[auto]` mode a documentation URL (routed docs-only). An interactive run reads them from the invocation and asks at most one opening question. |
-| **Headless inputs** | `--project-path <path>` (comma-separated for several), `--scope-hint <text>` (folders or packages to focus on or skip, `[auto]` included), `--intent-hint <text>` (the goal: ranks the step 5 recommendations; an interactive run also defers the units outside it before step 4, restorable, a headless run never; `[auto]` keeps a merged repo's facets it names), `--target-ref <ref>` (a tag or branch for every project path, written into every brief; not `[auto]`, which pins with `--pin`), `--target-refs <path:ref,...>` (one ref per path, written into each unit's brief; not with `--target-ref`, and not `[auto]`), `--pin <version>` (`[auto]` only: a tag or branch; absent, the latest release tag; a step-by-step analysis an `[auto]` run falls back to keeps its pin) |
-| **Headless flag** | `--headless` / `-H` flips every confirm gate to auto-proceed |
-| **Auto flag** | `[auto]` bracket modifier — activates auto-scope mode (step 1a; see **Auto mode path** above). Pipelines pass this as `AN[auto]`. Requires `--project-path`. |
-| **Gates** | one per step: steps 2 to 4 [C] (step 4 also takes composite merges, default accept); step 5 [C] after the decisions (default: confirm every card, flag every stack skill candidate); step 6 [Y] (write briefs). Headless takes each default and records it in `headless_decisions`. Auto mode: only the step 1a coexistence gate (default [A]longside) |
-| **Outputs** | analysis-report.md, skill-brief.yaml files (one per recommended unit) and the run's result files, written by every run that ends, zero confirmed units included; final `SKF_ANALYZE_RESULT_JSON` line on stdout when `{headless_mode}` is true. In auto mode, the envelope includes `"mode":"auto"`. |
-| **Exit codes** | Envelope, emitter, result files, `halt_reason` enum and exit codes: `references/headless-contract.md` |
+Headless callers: the inputs, flags, gates, outputs and exit codes live in `references/invocation-contract.md`. Interactive runs do not need it.
 
 ## On Activation
 
@@ -96,7 +85,7 @@ These rules apply to every step in this workflow:
 
    Run `workflow.activation_steps_prepend` now, and treat `workflow.persistent_facts` as standing context for the run (the bundled default loads every `project-context.md` under `{project-root}`, none in `{project-root}/_bmad-output/.skf-run/`; if the resolver ran, `--facts` has applied each `!` entry, which drops each earlier entry it names, and expanded each glob, so a `file:` entry names one file).
 
-5. **Create the run folder.** It holds what the run stages for its helpers (the tree listing, each brief's context, the subagents' unit records, the halt and result payloads) and the sink of its auto-decisions:
+5. **Create the run folder.** It holds what the run stages for its helpers (the tree listing, each brief's context, the unit records, the halt and result payloads) and the sink of its auto-decisions:
 
    ```bash
    mkdir -p "{project-root}/_bmad-output/.skf-run" && mktemp -d "{project-root}/_bmad-output/.skf-run/skf-analyze-source-XXXXXXXX"

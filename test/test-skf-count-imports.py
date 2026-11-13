@@ -26,7 +26,11 @@ Covers:
     that holds it
   - summary: a saved units envelope and its manifest scan read back as the
     unit graph without the file lists, and inputs that are not those
-    envelopes refused
+    envelopes refused; --format markdown prints the cross-reference matrix
+    alone (#1126)
+  - units-from: one project path's --units input from skf-analyze-source's
+    units file, deferred units left out, --module import names, and a
+    project path or --module that names nothing refused (#1126)
 """
 
 from __future__ import annotations
@@ -1310,3 +1314,138 @@ class TestSummary:
         proc = _run_cli("summary", *args, stdin='{"units": [], "edge_files": []}')
         assert proc.returncode == 1
         assert message in proc.stderr
+
+
+# --------------------------------------------------------------------------
+# The cross-reference matrix and units-from (skf-analyze-source, #1126)
+# --------------------------------------------------------------------------
+
+
+def _mutual(tmp_path: Path) -> Path:
+    """Two packages that import each other, `a` also importing zod, and a third nobody imports: the saved
+    `count --units` envelope."""
+    _write(tmp_path / "packages" / "a" / "package.json", '{"name": "@acme/a", "dependencies": {"zod": "3"}}')
+    _write(tmp_path / "packages" / "b" / "package.json", '{"name": "@acme/b"}')
+    _write(tmp_path / "packages" / "a" / "src" / "index.ts", "import { b } from '@acme/b';\nimport { z } from 'zod';\n")
+    _write(tmp_path / "packages" / "b" / "src" / "index.ts", "import { a } from '@acme/a';\n")
+    units = [{"name": "a", "path": "packages/a", "manifest_name": "@acme/a", "ecosystem": "npm"},
+             {"name": "b", "path": "packages/b", "manifest_name": "@acme/b", "ecosystem": "npm"}]
+    units_file = _write(tmp_path / "run" / "units-1.json", json.dumps({"units": units}))
+    deps = _write(tmp_path / "run" / "deps.json", json.dumps({"dependencies": [{"name": "zod", "ecosystem": "npm"}]}))
+    proc = _run_cli("count", str(tmp_path), "--units", str(units_file), "--deps", str(deps))
+    assert proc.returncode == 0, proc.stderr
+    return _write(tmp_path / "run" / "imports-1.json", proc.stdout)
+
+
+class TestMatrix:
+    def test_the_markdown_summary_prints_the_matrix_alone(self, tmp_path: Path) -> None:
+        imports = _mutual(tmp_path)
+        proc = _run_cli("summary", str(imports), "--format", "markdown")
+        assert proc.returncode == 0, proc.stderr
+        lines = proc.stdout.splitlines()
+        assert lines == [
+            "**Cross-reference matrix:**",
+            "",
+            "| Unit | Imports From | Imported By | Import Sites | External Deps |",
+            "|---|---|---|---|---|",
+            "| a | b | b | 1 | 1 |",
+            "| b | a | a | 1 | -- |",
+        ]
+
+    def test_an_empty_list_is_two_dashes(self) -> None:
+        summary = {"units": [{"name": "c", "imports_from": [], "imported_by": ["a", "b|x"], "file_count": 0,
+                              "external_dep_count": 0}], "edge_files": []}
+        assert mod.render_matrix(summary).splitlines()[-1] == "| c | -- | a, b\\|x | 0 | -- |"
+        assert mod.render_matrix({"units": [], "edge_files": []}).splitlines() == [
+            "**Cross-reference matrix:**", "", "None."]
+
+    def test_the_json_summary_is_the_default(self, tmp_path: Path) -> None:
+        imports = _mutual(tmp_path)
+        plain = _run_cli("summary", str(imports))
+        assert json.loads(plain.stdout) == json.loads(_run_cli("summary", str(imports), "--format", "json").stdout)
+        assert list(json.loads(plain.stdout)) == ["units", "edge_files"]
+        assert _run_cli("summary", str(imports), "--format", "html").returncode == 2
+
+
+UNITS_FILE = {
+    "units": [
+        {"name": "a", "project_path": "/r", "path": "packages/a", "status": "new",
+         "manifest": {"path": "packages/a/package.json", "ecosystem": "npm", "name": "@acme/a", "private": False}},
+        {"name": "b", "project_path": "/r", "path": "packages/b", "status": "briefed", "manifest": None},
+        {"name": "c", "project_path": "/r", "path": "packages/c", "status": "deferred",
+         "manifest": {"path": "packages/c/package.json", "ecosystem": "npm", "name": "@acme/c", "private": False}},
+        {"name": "s", "project_path": "/s", "path": ".", "status": "new",
+         "manifest": {"path": "requirements.txt", "ecosystem": "python", "name": None, "private": None}},
+    ],
+    "dropped": [],
+}
+
+
+class TestUnitsFrom:
+    def test_one_project_path_without_its_deferred_units(self, tmp_path: Path) -> None:
+        units_file = _write(tmp_path / "analyze-source-units-mono.json", json.dumps(UNITS_FILE))
+        proc = _run_cli("units-from", "--units-file", str(units_file), "--project-path", "/r/", "--module", "b=acme.b")
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout) == {"units": [
+            {"name": "a", "path": "packages/a", "manifest_name": "@acme/a", "ecosystem": "npm"},
+            {"name": "b", "path": "packages/b", "modules": ["acme.b"]},
+        ]}
+        repeated = _run_cli("units-from", "--units-file", str(units_file), "--project-path", "/r",
+                            "--module", "b=acme.b", "--module", "b=acme.b2=x")
+        assert json.loads(repeated.stdout)["units"][1]["modules"] == ["acme.b", "acme.b2=x"], "split on the first ="
+        other = json.loads(_run_cli("units-from", "--units-file", str(units_file), "--project-path", "/s").stdout)
+        assert other == {"units": [{"name": "s", "path": ".", "ecosystem": "python"}]}
+
+    def test_its_output_is_what_count_reads(self, tmp_path: Path) -> None:
+        _write(tmp_path / "packages" / "b" / "acme" / "b" / "__init__.py", "X = 1\n")
+        _write(tmp_path / "packages" / "a" / "src" / "index.ts", "export const a = 1;\n")
+        _write(tmp_path / "tools" / "use.py", "import acme.b\n")
+        units_file = _write(tmp_path / "run" / "units.json", json.dumps(UNITS_FILE))
+        proc = _run_cli("units-from", "--units-file", str(units_file), "--project-path", "/r", "--module", "b=acme.b")
+        units = _write(tmp_path / "run" / "units-1.json", proc.stdout)
+        count = _run_cli("count", str(tmp_path), "--units", str(units))
+        assert count.returncode == 0, count.stderr
+        by_name = {u["name"]: u for u in json.loads(count.stdout)["units"]}
+        assert set(by_name) == {"a", "b"} and by_name["b"]["file_count"] == 1
+
+    @pytest.mark.parametrize(
+        ("args", "message"),
+        [
+            pytest.param(["--project-path", "/t"], "holds no unit of the project path '/t'", id="unknown-path"),
+            pytest.param(["--project-path", "/r", "--module", "c=x"], "--module 'c=x' names no unit listed",
+                         id="module-of-a-deferred-unit"),
+            pytest.param(["--project-path", "/r", "--module", "b"], "is not <unit name>=<import name>",
+                         id="module-without-equals"),
+        ],
+    )
+    def test_a_path_or_module_naming_nothing_exits_1(self, tmp_path: Path, args: list[str], message: str) -> None:
+        units_file = _write(tmp_path / "units.json", json.dumps(UNITS_FILE))
+        proc = _run_cli("units-from", "--units-file", str(units_file), *args)
+        assert proc.returncode == 1 and message in proc.stderr, proc.stderr
+        assert proc.stdout == ""
+
+    def test_entries_parse_units_refuses_exit_1(self, tmp_path: Path) -> None:
+        clash = {"units": [{**UNITS_FILE["units"][0]}, {**UNITS_FILE["units"][0], "path": "packages/a2"}]}
+        proc = _run_cli("units-from", "--units-file", str(_write(tmp_path / "u.json", json.dumps(clash))),
+                        "--project-path", "/r")
+        assert proc.returncode == 1 and "repeats unit name 'a'" in proc.stderr
+        proc = _run_cli("units-from", "--units-file", str(_write(tmp_path / "v.json", '{"units": 3}')),
+                        "--project-path", "/r")
+        assert proc.returncode == 1 and "holds no `units` list" in proc.stderr
+
+    def test_the_units_file_can_come_from_stdin(self) -> None:
+        proc = _run_cli("units-from", "--units-file", "-", "--project-path", "/s", stdin=json.dumps(UNITS_FILE))
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout) == {"units": [{"name": "s", "path": ".", "ecosystem": "python"}]}
+
+
+def test_the_matrix_prints_as_utf8_on_a_cp1252_console(tmp_path: Path) -> None:
+    import os
+
+    imports = _write(tmp_path / "imports.json", json.dumps({"units": [
+        {"name": "caf\u00e9-\u2192", "imports_from": [], "imported_by": [], "file_count": 0, "external_deps": []}],
+        "edge_files": []}))
+    proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "summary", str(imports), "--format", "markdown"],
+                          capture_output=True, timeout=60, env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout.decode("utf-8").splitlines()[-1] == "| caf\u00e9-\u2192 | -- | -- | 0 | -- |"

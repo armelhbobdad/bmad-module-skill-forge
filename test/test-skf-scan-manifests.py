@@ -16,6 +16,10 @@ Covers:
   - folders: each manifest folder with the package names it holds
   - searched_filenames, and manifest-patterns.md in skf-create-stack-skill
     kept equal to MANIFEST_ECOSYSTEMS and EXCLUDED_DIRS
+  - --format markdown: the manifests and service configurations catalogs
+    skf-analyze-source's scan-project shows, each service with its kind,
+    `None.` for an empty one, and the JSON envelope still the default
+    (#1126)
 """
 
 from __future__ import annotations
@@ -722,6 +726,85 @@ class TestServices:
         for name in sorted(mod.SERVICE_DEFINITION_NAMES) + ["Dockerfile.dev", "API.Dockerfile", "Containerfile"]:
             assert mod.is_service_definition(name), name
         assert not mod.is_service_definition("dockerfiles.md")
+
+
+class TestCatalogs:
+    """#1126: scan-project section 4 prints both catalogs with `scan --format markdown`."""
+
+    def test_the_markdown_scan_prints_both_catalogs(self, tmp_path: Path) -> None:
+        _write(tmp_path / "package.json", '{"name": "acme", "private": true, "workspaces": ["packages/*"]}')
+        _write(tmp_path / "packages" / "auth" / "package.json", '{"name": "@acme/auth"}')
+        _write(tmp_path / "services" / "api" / "Dockerfile", "FROM node:20\n")
+        _write(tmp_path / "services" / "api" / "requirements.txt", "flask\n")
+        _write(tmp_path / "deploy" / "docker-compose.yaml", "services: {}\n")
+        proc = _run_cli("scan", str(tmp_path), "--format", "markdown")
+        assert proc.returncode == 0, proc.stderr
+        assert proc.stdout.splitlines() == [
+            "**Manifests found:**",
+            "",
+            "| Path | Ecosystem | Package | Private |",
+            "|---|---|---|---|",
+            "| package.json | npm | acme | yes |",
+            "| packages/auth/package.json | npm | @acme/auth | no |",
+            "| services/api/requirements.txt | python | -- | -- |",
+            "",
+            "**Service configurations found:**",
+            "",
+            "| Path | Kind |",
+            "|---|---|",
+            "| deploy/docker-compose.yaml | compose |",
+            "| services/api/Dockerfile | docker |",
+        ]
+
+    def test_an_empty_catalog_says_none(self, tmp_path: Path) -> None:
+        _write(tmp_path / "src" / "main.py", "print(1)\n")
+        lines = _run_cli("scan", str(tmp_path), "--format", "markdown").stdout.splitlines()
+        assert lines == ["**Manifests found:**", "", "None.", "", "**Service configurations found:**", "", "None."]
+
+    @pytest.mark.parametrize(
+        ("path", "kind"),
+        [("Dockerfile", "docker"), ("a/Containerfile", "docker"), ("web/Dockerfile.prod", "docker"),
+         ("jobs/worker.dockerfile", "docker"), ("deploy/docker-compose.yml", "compose"),
+         ("compose.yaml", "compose"), ("fn/serverless.yml", "serverless"), ("fn/Serverless.YAML", "serverless")],
+    )
+    def test_each_service_definition_has_its_kind(self, path: str, kind: str) -> None:
+        assert mod.is_service_definition(path.rsplit("/", 1)[-1])
+        assert mod.service_kind(path) == kind
+
+    def test_the_json_envelope_stays_the_default(self, tmp_path: Path) -> None:
+        _write(tmp_path / "package.json", '{"name": "acme"}')
+        plain = json.loads(_run_cli("scan", str(tmp_path)).stdout)
+        assert plain == json.loads(_run_cli("scan", str(tmp_path), "--format", "json").stdout)
+        assert plain["manifests"][0]["name"] == "acme"
+        assert _run_cli("scan", str(tmp_path), "--format", "yaml").returncode == 2
+
+    def test_the_catalogs_print_as_utf8_on_a_cp1252_console(self, tmp_path: Path) -> None:
+        import os
+
+        _write(tmp_path / "p" / "package.json", json.dumps({"name": "caf\u00e9-\u2192"}))
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "scan", str(tmp_path), "--format", "markdown"],
+                              capture_output=True, timeout=60, env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+        assert proc.returncode == 0, proc.stderr
+        assert "| p/package.json | npm | caf\u00e9-\u2192 | no |" in proc.stdout.decode("utf-8").splitlines()
+
+    @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="a file name that is not UTF-8 needs Linux")
+    def test_a_folder_name_that_is_not_utf8_prints_with_a_question_mark(self, tmp_path: Path) -> None:
+        import os
+
+        folder = os.path.join(os.fsencode(tmp_path), b"caf\xe9")
+        os.makedirs(folder)
+        with open(os.path.join(folder, b"package.json"), "wb") as fh:
+            fh.write(b'{"name": "a"}')
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "scan", str(tmp_path), "--format", "markdown"],
+                              capture_output=True, timeout=60)
+        assert proc.returncode == 0, proc.stderr
+        assert "| caf?/package.json | npm | a | no |" in proc.stdout.decode("utf-8").splitlines()
+
+    def test_a_kind_follows_the_service_definition_names(self, monkeypatch) -> None:
+        """One list of names: a compose name added to SERVICE_DEFINITION_NAMES reads as `compose`."""
+        names = mod.SERVICE_DEFINITION_NAMES | {"docker-compose.override.yml"}
+        monkeypatch.setattr(mod, "SERVICE_DEFINITION_NAMES", names)
+        assert mod.service_kind("deploy/docker-compose.override.yml") == "compose"
 
 
 def _candidates(root: Path, workspaces: set[str] | None = None) -> dict[str, dict]:

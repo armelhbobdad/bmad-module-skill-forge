@@ -1,0 +1,8 @@
+type: breaking
+scope: skf-analyze-source
+summary: |
+  `AN[auto]` (forge-auto included) now analyzes one target, and a call that passes several `--project-path` entries, or `--target-ref` or `--target-refs`, now exits `2` (`input-missing`, `error.phase` `init:2b`) before any analysis. Before, it analyzed the first path alone and reported success, after fetching the others and dropping them, a documentation URL among them included, and it ignored the ref flags.
+migration: |
+  Run `AN[auto]` once for each path, or analyze several paths together without `[auto]`. Pin an `[auto]` run on a GitHub repository with `--pin <tag-or-branch>` in place of `--target-ref` or `--target-refs`; to read another repository or a local path at a ref, analyze it without `[auto]`, where `--target-ref` and `--target-refs` still work.
+issues: [1123]
+prs: [1211]

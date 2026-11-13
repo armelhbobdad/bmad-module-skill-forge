@@ -1,5 +1,6 @@
 ---
 outputFile: '{forge_data_folder}/analyze-source-report-{project_name}.md'
+unitsFile: '{forge_data_folder}/analyze-source-units-{project_name}.json'
 nextStepOptions:
   step 2: 'scan-project.md'
   step 3: 'identify-units.md'
@@ -16,39 +17,25 @@ nextStepOptions:
 
 To resume an unfinished analyze-source run from where a previous session left off, by reading the analysis report's progress state and routing to the correct next step. Init section 1 sends only an unfinished report of the step-by-step analysis here: it archives a finished report and one whose `mode` is `'auto'` and starts a fresh analysis instead.
 
-## Rules
-
-- Focus only on reading state and routing — do not perform any analysis
-- Do not re-run completed steps
-- Present progress summary to user before resuming
-
 ## MANDATORY SEQUENCE
-
-### 1. Welcome Back
-
-"**Welcome back!** Let me check where we left off with the source analysis..."
 
 ### 2. Read Progress State
 
-Load {outputFile} and read frontmatter:
-- `stepsCompleted` array
-- `project_paths`
-- `project_name`
-- `forge_tier`
-- `existing_skills`
-- `confirmed_units`
+Read {outputFile}'s frontmatter `stepsCompleted` and `run_dir`: `{earlier_run_dir}` ← `run_dir`, empty when the report has none (one an older SKF wrote has none). It is the run folder of the session before this one when this exits 0:
 
-### 3. Present Progress Summary
+```bash
+case "{earlier_run_dir}" in "{project-root}/_bmad-output/.skf-run/skf-analyze-source-"*/*) false ;; "{project-root}/_bmad-output/.skf-run/skf-analyze-source-"?*) [ -d "{earlier_run_dir}" ] ;; *) false ;; esac
+```
 
-"**Analysis Progress for {project_name}:**
+A `run_dir` that holds a double quote, a backtick or a `$` names no run folder: skip the check and go on as when it exits non-zero.
 
-**Project:** {project_paths}
-**Forge Tier:** {forge_tier}
-**Steps Completed:** {list stepsCompleted}
-**Last Step:** {last entry in stepsCompleted}
+- **It exits 0:** take that folder over. Append this session's sink files to it and delete this session's folder (`{run_dir}`, made at SKILL.md On Activation), then bind `{run_dir}` ← `{earlier_run_dir}`, so the result keeps the decisions and warnings recorded before this session, and the step that ends the run deletes the one folder:
 
-**Progress:**
-{For each completed step, summarize what was accomplished — read the relevant sections from the report}"
+  ```bash
+  for f in headless-decisions.jsonl warnings.jsonl resolver-warning.txt; do if [ -f "{run_dir}/$f" ]; then cat "{run_dir}/$f" >> "{earlier_run_dir}/$f"; fi; done; rm -rf "{run_dir}"
+  ```
+
+- **It exits non-zero** (the folder is gone, or the value names no run folder of this workflow): keep this session's `{run_dir}` and delete nothing. Run `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning 'resumed-without-run-folder: <the run_dir the report names, or none>: the decisions and warnings recorded before this session are not in this result'`, a single quote in it written as a backtick (if it fails, go on).
 
 ### 4. Determine Next Step
 
@@ -62,14 +49,16 @@ Map the last completed step to the next step file:
 | map-and-detect | recommend |
 | recommend | generate-briefs |
 
+A report whose last completed step is identify-units, map-and-detect or recommend and that has no {unitsFile} beside it (an older SKF wrote it, without the scope patterns recommend and generate-briefs read) goes back to identify-units, whose §7 then replaces what its Identified Units section holds, as map-and-detect §7 and recommend §6 then replace what theirs hold.
+
 ### 5. Update and Route
 
 Update {outputFile} frontmatter:
 ```yaml
 lastContinued: '{current_date}'
+run_dir: '{run_dir}'
 ```
 
-"**Resuming from {next_step_name}...**"
+"**Resuming from {next_step_name}** (last completed: {the last entry of `stepsCompleted`})."
 
-Auto-proceed: immediately load, read the entire file, then execute the next incomplete step from {nextStepOptions}.
-
+Then load, read the entire file, and execute the next step from {nextStepOptions}.

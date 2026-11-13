@@ -5,6 +5,13 @@ Each subagent of map-and-detect section 2 writes its record as a file and
 returns only its path; the script strips a wrapping fence, parses and checks
 every record against the contract, so the parent neither copies a record
 nor checks one by hand (#592, analyze-source determinism-11).
+
+#1125 (analyze-source determinism-2 and -5): `from-extract` writes each
+unit's record from the extractor's output, the recipe run's -o file or the
+parser's stdout, so the model maps no extractor JSON into a record: every
+I/O row of the spec (exit 0 with a namespace, 1, 3, no recipe,
+files_in_scope 0, the parser, the input errors) writes a record the check
+passes with no problem, and `parser` is a strategy the contract accepts.
 """
 
 from __future__ import annotations
@@ -137,3 +144,267 @@ def test_map_and_detect_runs_the_check_instead_of_stripping_fences_by_hand():
     block = text.split("## 3. Record Contract", 1)[1].split("```json\n", 1)[1].split("```", 1)[0]
     keys = re.findall(r'^\s*"([a-z_]+)":', block, re.M)
     assert keys == list(mod.CONTRACT)
+
+
+# --------------------------------------------------------------------------
+# from-extract: a unit's record from the extractor's output (#1125)
+# --------------------------------------------------------------------------
+
+
+def _full(**over) -> dict:
+    """A --mode full output: public login, logout and namespace ns (a, b), a
+    gap, a file issue, four public names, a barrel, capped."""
+    out = {
+        "mode": "full",
+        "status": "ok",
+        "files_in_scope": 6,
+        "files_without_recipes": {},
+        "file_issues": [{"file": "src/x.ts", "issue": "syntax-errors", "count": 1, "line": 3}],
+        "truncated": True,
+        "aggregates": {"exports": 4, "by_type": {"class": 1, "function": 3}, "t1": 4, "t1_low": 0},
+        "entry_points": {"status": "barrel", "files": [{"language": "javascript", "file": "src/index.ts",
+                                                       "package": "auth", "subpath": ".", "resolution": "file",
+                                                       "in_scope": True}]},
+        "entry_point_diff": {
+            "public": [
+                {"name": "login", "language": "javascript", "entry": "src/index.ts", "via": "declaration",
+                 "file": "src/index.ts", "line": 1},
+                {"name": "logout", "language": "javascript", "entry": "src/index.ts", "via": "declaration",
+                 "file": "src/index.ts", "line": 2},
+                {"name": "ns", "language": "javascript", "entry": "src/index.ts", "via": "namespace",
+                 "file": "src/ns.ts", "line": None,
+                 "members": [{"name": "a", "local": None, "file": "src/ns.ts", "line": 1},
+                             {"name": "b", "local": None, "file": "src/ns.ts", "line": 2}]},
+                {"name": "login", "language": "javascript", "entry": "src/other.ts", "via": "re-export",
+                 "file": "src/index.ts", "line": 1},
+            ],
+            "extraction_gaps": [{"name": "refresh", "language": "javascript", "entry": "src/index.ts",
+                                 "file": "src/token.ts", "line": 40}],
+        },
+        "counts": {"exports_public_api": 4},
+        "errors": [],
+    }
+    out.update(over)
+    return out
+
+
+def _from_extract(tmp_path: Path, data, exit_code: int, language: str = "typescript", unit: str = "auth",
+                  files_count: int = 9) -> tuple[subprocess.CompletedProcess, Path]:
+    extract = tmp_path / "extract" / "unit.json"
+    extract.parent.mkdir(exist_ok=True)
+    extract.write_bytes(data if isinstance(data, bytes) else json.dumps(data, indent=2).encode("utf-8"))
+    folder = tmp_path / "unit-records"
+    proc = _run("from-extract", "--extract", str(extract), "--exit-code", str(exit_code), "--unit-name", unit,
+                "--files-count", str(files_count), "--language", language, "--dir", str(folder))
+    return proc, folder
+
+
+def _written(tmp_path: Path, data, exit_code: int, **kw) -> tuple[dict, dict]:
+    """(the printed line, the record written), the record passing the check with no problem."""
+    proc, folder = _from_extract(tmp_path, data, exit_code, **kw)
+    assert proc.returncode == 0, proc.stderr
+    line = json.loads(proc.stdout.decode("utf-8"))
+    checked = mod.check_folder(folder)
+    assert (checked["problems"], checked["unreadable"]) == ([], [])
+    [record] = checked["records"]
+    assert list(record) == list(mod.CONTRACT), "every contract key, in order"
+    assert Path(line["record"]) == folder / f"{record['unit_name']}.json"
+    assert (line["strategy_used"], line["exports_count"]) == (record["strategy_used"], record["exports_count"])
+    return line, record
+
+
+GAP = {"why": "extraction-gap", "name": "refresh", "file": "src/token.ts", "line": 40}
+ISSUE = {"why": "file-issue", "file": "src/x.ts", "issue": "syntax-errors"}
+
+
+def test_a_recipe_run_gives_the_whole_record_and_leaves_only_the_gaps_to_read(tmp_path):
+    line, record = _written(tmp_path, _full(), 0)
+    assert record == {
+        "unit_name": "auth",
+        "files_count": 9,
+        "exports_count": 4,
+        "export_pattern": "barrel: function 3, class 1, capped",
+        "api_surface": ["login", "logout", "a", "b"],
+        "ccc_signals": {"top_files": [], "available": False},
+        "strategy_used": "ast-grep",
+        "confidence": "T1",
+        "warnings": ["extraction gap: refresh at src/token.ts:40", "file issue: src/x.ts (syntax-errors)"],
+    }
+    assert line["to_read"] == [GAP, ISSUE]
+
+
+def test_an_incomplete_run_adds_a_warning_per_error(tmp_path):
+    error = {"reason": "ast-grep-timeout", "files": 12, "first_file": "src/big.ts", "detail": "x",
+             "unread": ["src/big.ts"]}
+    line, record = _written(tmp_path, _full(status="incomplete", errors=[error]), 1)
+    assert (record["strategy_used"], record["confidence"], record["exports_count"]) == ("ast-grep", "T1", 4)
+    assert record["warnings"] == ["extraction gap: refresh at src/token.ts:40", "file issue: src/x.ts (syntax-errors)",
+                                  "ast-grep run incomplete: ast-grep-timeout (12 files, first src/big.ts)"]
+    assert line["to_read"] == [GAP, ISSUE]
+
+
+def test_a_namespace_the_trace_cannot_read_counts_as_its_own_name_and_a_gap_may_have_no_file(tmp_path):
+    data = _full(truncated=False)
+    data["entry_point_diff"]["public"][2]["members"] = None
+    data["entry_point_diff"]["extraction_gaps"][0].update(file=None, line=None)
+    line, record = _written(tmp_path, data, 0)
+    assert record["api_surface"] == ["login", "logout", "ns"]
+    assert record["export_pattern"] == "barrel: function 3, class 1"
+    assert record["warnings"][0] == "extraction gap: refresh (no file)"
+    assert line["to_read"][0] == {"why": "extraction-gap", "name": "refresh", "file": None, "line": None}
+
+
+def test_no_ast_grep_leaves_the_entry_points_to_read(tmp_path):
+    data = _full(status="no-ast-grep", entry_point_diff={}, counts={}, aggregates={}, file_issues=[])
+    data["entry_points"]["status"] = None
+    line, record = _written(tmp_path, data, 3)
+    assert (record["strategy_used"], record["confidence"], record["exports_count"]) == ("source-read", "T1-low", 0)
+    assert (record["api_surface"], record["export_pattern"], record["warnings"]) == ([], "", [])
+    assert line["to_read"] == [{"why": "entry-point", "file": "src/index.ts"}]
+    # No entry point listed: the unit's sources are read instead.
+    data["entry_points"]["files"] = []
+    line, _ = _written(tmp_path, data, 3)
+    assert line["to_read"] == [{"why": "unit-sources"}]
+
+
+@pytest.mark.parametrize(
+    "language,over",
+    [
+        pytest.param("csharp", {"files_in_scope": 0, "files_without_recipes": {".cs": 7}}, id="no-recipe"),
+        pytest.param("typescript", {"files_in_scope": 0}, id="no-file-in-scope"),
+        pytest.param("ruby", {}, id="a-language-without-a-recipe"),
+    ],
+)
+def test_a_run_that_counted_no_export_of_the_unit_leaves_its_sources_to_read(tmp_path, language, over):
+    line, record = _written(tmp_path, _full(**over), 0, language=language)
+    assert (record["strategy_used"], record["confidence"], record["exports_count"]) == ("source-read", "T1-low", 0)
+    assert (record["api_surface"], record["warnings"]) == ([], [])
+    assert line["to_read"] == [{"why": "unit-sources"}]
+
+
+PARSER = {
+    "language": "java",
+    "package_name": None,
+    "exports": [{"name": "Api", "type": "class", "source_file": "src/main/java/com/acme/Api.java"},
+                {"name": "Store", "type": "interface", "source_file": "src/main/java/com/acme/Store.java"},
+                {"name": "Api", "type": "class", "source_file": "src/main/java/com/acme/v2/Api.java"}],
+    "warnings": ["no manifest content provided; metadata will be empty", "src/x.java: a note"],
+    "unlisted": [],
+}
+
+
+def test_the_parser_gives_a_parser_record_with_nothing_to_read(tmp_path):
+    assert "parser" in mod.STRATEGIES
+    line, record = _written(tmp_path, PARSER, 0, language="java")
+    assert record == {
+        "unit_name": "auth",
+        "files_count": 9,
+        "exports_count": 3,
+        "export_pattern": "parser: class 2, interface 1",
+        "api_surface": ["Api", "Store"],
+        "ccc_signals": {"top_files": [], "available": False},
+        "strategy_used": "parser",
+        "confidence": "T1",
+        "warnings": ["src/x.java: a note"],
+    }
+    assert line["to_read"] == []
+
+
+def test_a_parser_run_that_found_no_source_file_leaves_the_sources_to_read(tmp_path):
+    """A Kotlin unit built with Maven reads as java: --all-sources finds no .java file and exits 0 with no
+    export. That run read nothing, so the record is source-read with its warning, never a T1 zero."""
+    unit = tmp_path / "unit"
+    for rel, text in {"pom.xml": "<project/>\n", "src/main/kotlin/acme/Api.kt": "package acme\nclass Api\n"}.items():
+        (unit / rel).parent.mkdir(parents=True, exist_ok=True)
+        (unit / rel).write_bytes(text.encode("utf-8"))
+    extractor = SCRIPT.parent / "skf-extract-public-api.py"
+    run = subprocess.run([sys.executable, str(extractor), "--mode", "quick", "--language", "java", "--source-root",
+                          str(unit), "--all-sources"], capture_output=True, timeout=60)
+    assert run.returncode == 0, run.stderr
+    assert json.loads(run.stdout)["exports"] == []
+    line, record = _written(tmp_path, run.stdout, 0, language="java")
+    assert (record["strategy_used"], record["confidence"], record["exports_count"]) == ("source-read", "T1-low", 0)
+    assert [w for w in record["warnings"] if w.startswith(mod.ALL_SOURCES_FOUND_NONE)] == record["warnings"] != []
+    assert line["to_read"] == [{"why": "unit-sources"}]
+
+
+def test_the_runs_own_warnings_reach_the_record(tmp_path):
+    """The extractor's own warnings come first, in the ast-grep record and in a source-read one."""
+    warning = "src/legacy.py: this Python cannot parse it (invalid syntax, line 3); its names are read from its text"
+    _, record = _written(tmp_path, _full(warnings=[warning, warning]), 0)
+    assert record["warnings"] == [warning, "extraction gap: refresh at src/token.ts:40",
+                                  "file issue: src/x.ts (syntax-errors)"]
+    data = _full(status="no-ast-grep", warnings=["ast-grep is not on PATH: no recipe ran; extract by source reading"])
+    _, record = _written(tmp_path, data, 3)
+    assert (record["strategy_used"], record["warnings"]) == (
+        "source-read", ["ast-grep is not on PATH: no recipe ran; extract by source reading"])
+
+
+def test_the_checks_help_names_from_extract():
+    proc = subprocess.run([sys.executable, str(SCRIPT), "--help"], capture_output=True, timeout=60,
+                          env={**os.environ, "COLUMNS": "200"})
+    assert proc.returncode == 0 and b"from-extract --help" in proc.stdout
+
+
+def test_a_parser_error_leaves_the_sources_to_read(tmp_path):
+    line, record = _written(tmp_path, {"_error": "unknown language: 'cobol'"}, 1, language="cobol")
+    assert (record["strategy_used"], record["exports_count"], line["to_read"]) == ("source-read", 0,
+                                                                                  [{"why": "unit-sources"}])
+
+
+@pytest.mark.parametrize(
+    "data,exit_code,unit,message",
+    [
+        pytest.param(_full(), 2, "auth", b"exited 2", id="extractor-input-error"),
+        pytest.param(_full(), 0, "a/b", b"--unit-name must name one file", id="slash"),
+        pytest.param(_full(), 0, "a\\b", b"--unit-name must name one file", id="backslash"),
+        pytest.param(_full(), 0, "..", b"--unit-name must name one file", id="dot-dot"),
+        pytest.param(b"", 0, "auth", b"is empty", id="empty"),
+        pytest.param(b"{not json", 0, "auth", b"is not JSON", id="not-json"),
+        pytest.param({"mode": "entries", "entry_files": []}, 0, "auth", b"neither", id="another-mode"),
+        pytest.param([1, 2], 0, "auth", b"neither", id="a-list"),
+    ],
+)
+def test_an_input_error_exits_2_and_writes_nothing(tmp_path, data, exit_code, unit, message):
+    proc, folder = _from_extract(tmp_path, data, exit_code, unit=unit)
+    assert (proc.returncode, proc.stdout) == (2, b"")
+    assert message in proc.stderr
+    assert not folder.exists()
+
+
+def test_a_missing_extract_exits_2(tmp_path):
+    folder = tmp_path / "unit-records"
+    proc = _run("from-extract", "--extract", str(tmp_path / "absent.json"), "--exit-code", "0", "--unit-name", "a",
+                "--files-count", "1", "--language", "go", "--dir", str(folder))
+    assert proc.returncode == 2 and b"does not exist" in proc.stderr
+    assert not folder.exists()
+
+
+def test_the_record_keeps_a_non_ascii_name_on_a_cp1252_console(tmp_path):
+    data = _full()
+    data["entry_point_diff"]["public"][0]["name"] = "café"
+    extract = tmp_path / "x.json"
+    extract.write_bytes(json.dumps(data).encode("utf-8"))
+    proc = subprocess.run([sys.executable, str(SCRIPT), "from-extract", "--extract", str(extract), "--exit-code", "0",
+                           "--unit-name", "café", "--files-count", "1", "--language", "typescript",
+                           "--dir", str(tmp_path / "records")],
+                          capture_output=True, timeout=60, env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout.decode("utf-8"))["exports_count"] == 4
+    [record] = mod.check_folder(tmp_path / "records")["records"]
+    assert (record["unit_name"], record["api_surface"][0]) == ("café", "café")
+
+
+def test_map_unit_exports_runs_from_extract_after_each_extraction():
+    text = UNIT_EXPORTS.read_text(encoding="utf-8")
+    lines = [line for line in text.splitlines() if "{checkUnitRecordsHelper} from-extract" in line]
+    assert len(lines) == 2, lines
+    for line in lines:
+        extraction, _, record = line.partition("; ")
+        assert record == ('uv run {checkUnitRecordsHelper} from-extract --extract "{run_dir}/extract/{unit_name}.json" '
+                          '--exit-code $? --unit-name "{unit_name}" --files-count {files_count} '
+                          '--language {language} --dir "{run_dir}/unit-records"')
+        assert extraction.endswith('"{run_dir}/extract/{unit_name}.json"')
+    assert '"strategy_used": "ast-grep|parser|source-read"' in text
+    for gone in ("`exports_count` ← `counts.exports_public_api`", "`api_surface` ← the names in"):
+        assert gone not in text, gone

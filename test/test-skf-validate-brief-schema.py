@@ -10,6 +10,10 @@ Covers:
   - version non-empty rule (whitespace-only version)
   - load errors: missing file, malformed YAML, non-mapping YAML
   - CLI: path argument, stdin via `-`, --yaml inline
+  - batch (#1127): a name another context or an existing skill has, a
+    source_repo that is neither a folder nor a project path whose scan
+    root exists, no language or forge tier check, usage errors, and an
+    unexpanded glob
 """
 
 from __future__ import annotations
@@ -17,6 +21,7 @@ from __future__ import annotations
 import datetime
 import importlib.util
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -728,7 +733,207 @@ class TestComponentLibraryScopeSchema:
         assert re.findall(r"`([a-z-]+)`", row.split("One of:", 1)[1].split(".", 1)[0]) == documented
 
     def test_both_prose_copies_document_the_fields(self) -> None:
-        for copy in self.PROSE_COPIES:
-            text = copy.read_text(encoding="utf-8")
-            for field in ("registry_path", "ui_variants", "demo_patterns"):
-                assert f"| `scope.{field}` |" in text, (copy, field)
+        """brief-skill's copy lists them as optional fields; analyze-source's, which keeps only what
+        its stages read (#1127), names them in its Scope Object block."""
+        brief_skill, analyze_source = self.PROSE_COPIES
+        text = brief_skill.read_text(encoding="utf-8")
+        for field in ("registry_path", "ui_variants", "demo_patterns"):
+            assert f"| `scope.{field}` |" in text, (brief_skill, field)
+        scope = analyze_source.read_text(encoding="utf-8").split("## Scope Object", 1)[1].split("### Scope Types", 1)[0]
+        for field in ("registry_path", "ui_variants", "demo_patterns"):
+            assert f"# {field}:" in scope, (analyze_source, field)
+
+
+# --------------------------------------------------------------------------
+# batch: one run's brief contexts checked together (#1127)
+# --------------------------------------------------------------------------
+
+
+def _context(name: object, source_repo: object, **extra: object) -> dict:
+    """A flat brief context as Analyze Source's generate-briefs writes one."""
+    context = {"name": name, "target_version": None, "target_ref": None, "detected_version": None,
+               "source_type": "source", "source_repo": source_repo, "language": "python",
+               "description": "Helpers. Use when testing.", "forge_tier": "Forge", "created": "2026-11-13",
+               "created_by": "armel", "scope_type": "full-library", "scope_include": ["src/**"],
+               "scope_exclude": [], "scope_notes": ""}
+    context.update(extra)
+    return {key: value for key, value in context.items() if value is not ...}
+
+
+def _write_contexts(folder: Path, contexts: dict[str, object]) -> list[str]:
+    folder.mkdir(parents=True, exist_ok=True)
+    paths = []
+    for file_name, context in contexts.items():
+        path = folder / file_name
+        path.write_bytes(json.dumps(context).encode("utf-8"))
+        paths.append(str(path))
+    return paths
+
+
+def _batch(*args: str, env: dict | None = None) -> subprocess.CompletedProcess:
+    return subprocess.run([sys.executable, str(SCRIPT_PATH), "batch", *args], capture_output=True,
+                          check=False, env=env, timeout=60)
+
+
+def _verdict(proc: subprocess.CompletedProcess) -> dict:
+    payload = json.loads(proc.stdout.decode("utf-8"))
+    assert set(payload) == {"valid", "errors", "warnings"}, payload
+    assert payload["warnings"] == []
+    for error in payload["errors"]:
+        assert set(error) == {"context", "name", "field", "message"}, error
+        assert error["message"].startswith("Brief validation failed: "), error
+    return payload
+
+
+class TestBatch:
+    """skf-validate-brief-schema.py batch: the checks generate-briefs section 3b runs across a run's
+    brief contexts, in place of the model's name, source, language and forge tier checks."""
+
+    def test_a_clean_batch_passes(self, tmp_path: Path) -> None:
+        local = tmp_path / "mono"
+        local.mkdir()
+        root = tmp_path / "run" / "source-2"
+        root.mkdir(parents=True)
+        contexts = _write_contexts(tmp_path / "run", {
+            "brief-auth.json": _context("auth", str(local)),
+            "brief-core.json": _context("core", "https://github.com/acme/core"),
+        })
+        proc = _batch("--contexts", *contexts, "--existing-skills", "billing",
+                      "--project-paths", str(local), "https://github.com/acme/core",
+                      "--scan-roots", str(local), str(root))
+        assert proc.returncode == 0, proc.stderr
+        assert _verdict(proc) == {"valid": True, "errors": [], "warnings": []}
+
+    def test_a_name_another_brief_has_fails_on_the_second(self, tmp_path: Path) -> None:
+        first, second = _write_contexts(tmp_path, {
+            "brief-auth.json": _context("auth", str(tmp_path)),
+            "brief-login.json": _context("auth", str(tmp_path)),
+        })
+        proc = _batch("--contexts", first, second)
+        assert proc.returncode == 1
+        [error] = _verdict(proc)["errors"]
+        assert (error["context"], error["name"], error["field"]) == (second, "auth", "name")
+        assert f"`{first}`" in error["message"] and f"`{second}`" in error["message"]
+
+    def test_a_name_an_existing_skill_has_fails(self, tmp_path: Path) -> None:
+        [path] = _write_contexts(tmp_path, {"brief-auth.json": _context("auth", str(tmp_path))})
+        proc = _batch("--contexts", path, "--existing-skills", "billing", "auth")
+        assert proc.returncode == 1
+        [error] = _verdict(proc)["errors"]
+        assert (error["context"], error["name"], error["field"]) == (path, "auth", "name")
+        assert "existing skill" in error["message"] and "update-skill" in error["message"]
+
+    def test_each_source_that_is_gone_fails_once(self, tmp_path: Path) -> None:
+        gone_root = tmp_path / "run" / "source-1"  # never made
+        contexts = _write_contexts(tmp_path / "run", {
+            "brief-a.json": _context("a", str(tmp_path / "no-such-folder")),
+            "brief-b.json": _context("b", "https://github.com/acme/other"),
+            "brief-c.json": _context("c", "https://github.com/acme/core"),
+            "brief-d.json": _context("d", str(tmp_path)),
+        })
+        proc = _batch("--contexts", *contexts, "--project-paths", "https://github.com/acme/core",
+                      "--scan-roots", str(gone_root))
+        assert proc.returncode == 1
+        errors = _verdict(proc)["errors"]
+        assert [(e["name"], e["field"]) for e in errors] == [("a", "source_repo"), ("b", "source_repo"),
+                                                              ("c", "source_repo")]
+        assert "neither an existing folder nor a project path" in errors[0]["message"]
+        assert "neither an existing folder nor a project path" in errors[1]["message"]
+        assert f"`{gone_root}`" in errors[2]["message"]
+        assert "Restore that folder, or make the scan root again" in errors[2]["message"]
+
+    def test_a_home_relative_source_is_expanded(self, tmp_path: Path) -> None:
+        (tmp_path / "home" / "code" / "mono").mkdir(parents=True)
+        [path] = _write_contexts(tmp_path / "run", {"brief-a.json": _context("a", "~/code/mono")})
+        env = {**os.environ, "HOME": str(tmp_path / "home"), "USERPROFILE": str(tmp_path / "home")}
+        proc = _batch("--contexts", path, env=env)
+        assert proc.returncode == 0, proc.stdout
+        assert _verdict(proc)["valid"] is True
+
+    def test_no_language_or_forge_tier_check(self, tmp_path: Path) -> None:
+        """A language outside skf-detect-language.py's set, or a tier forge-tier.yaml does not hold
+        (a tier_override), is no batch error: the schema accepts any non-empty language."""
+        [path] = _write_contexts(tmp_path, {
+            "brief-a.json": _context("a", str(tmp_path), language="zig", forge_tier="Deep")})
+        proc = _batch("--contexts", path)
+        assert proc.returncode == 0, proc.stdout
+        assert _verdict(proc)["valid"] is True
+
+    def test_a_value_that_is_absent_or_no_string_is_left_to_the_schema(self, tmp_path: Path) -> None:
+        contexts = _write_contexts(tmp_path, {
+            "brief-a.json": _context(..., ...),
+            "brief-b.json": _context(["auth"], 42),
+            "brief-c.json": _context("", ""),
+            "brief-d.json": _context("", ""),
+        })
+        proc = _batch("--contexts", *contexts)
+        assert proc.returncode == 0, proc.stdout
+        assert _verdict(proc)["errors"] == []
+
+    @pytest.mark.parametrize("case, named", [
+        ("paths-without-roots", b"give one scan root per project path"),
+        ("a-json-array", b"is not a JSON object"),
+        ("not-json", b"is not JSON"),
+        ("missing-file", b"cannot be read"),
+    ])
+    def test_a_usage_error_exits_2_with_nothing_on_stdout(self, tmp_path: Path, case: str, named: bytes) -> None:
+        [path] = _write_contexts(tmp_path, {"brief-a.json": _context("a", str(tmp_path))})
+        args = ["--contexts", path]
+        if case == "paths-without-roots":
+            args += ["--project-paths", str(tmp_path), "https://github.com/acme/core", "--scan-roots", str(tmp_path)]
+        elif case == "a-json-array":
+            Path(path).write_bytes(b'[{"name": "a"}]')
+        elif case == "not-json":
+            Path(path).write_bytes(b"name: a\n")
+        else:
+            args = ["--contexts", str(tmp_path / "brief-gone.json")]
+        proc = _batch(*args)
+        assert proc.returncode == 2
+        assert proc.stdout == b""
+        assert named in proc.stderr, proc.stderr
+
+    def test_an_unexpanded_pattern_is_expanded_in_sorted_order(self, tmp_path: Path) -> None:
+        """A shell that expands no glob passes `brief-*.json` as written: the script reads every match,
+        sorted, so the later file in that order is the one a shared name is reported on."""
+        _write_contexts(tmp_path, {
+            "brief-zeta.json": _context("auth", str(tmp_path)),
+            "brief-alpha.json": _context("auth", str(tmp_path)),
+            "notes.json": _context("auth", str(tmp_path)),
+        })
+        proc = _batch("--contexts", str(tmp_path / "brief-*.json"))
+        assert proc.returncode == 1
+        [error] = _verdict(proc)["errors"]
+        assert Path(error["context"]).name == "brief-zeta.json"
+        assert "brief-alpha.json" in error["message"]
+        none = _batch("--contexts", str(tmp_path / "brief-?.json"))
+        assert none.returncode == 2 and none.stdout == b"" and b"matches no file" in none.stderr
+
+    def test_only_the_file_name_of_an_unexpanded_pattern_is_a_pattern(self, tmp_path: Path) -> None:
+        """A run folder under a project root named `proj[1]` is read as written, not as a character class."""
+        folder = tmp_path / "proj[1]" / "run"
+        _write_contexts(folder, {"brief-a.json": _context("a", str(tmp_path)),
+                                 "brief-b.json": _context("b", str(tmp_path))})
+        proc = _batch("--contexts", str(folder / "brief-*.json"))
+        assert proc.returncode == 0, proc.stderr
+        assert _verdict(proc)["valid"] is True
+
+    def test_the_path_cli_help_names_the_batch(self) -> None:
+        proc = _run_cli("--help")
+        assert proc.returncode == 0
+        assert "`batch --help` lists its options" in " ".join(proc.stdout.split())  # the help wraps
+
+    def test_only_a_first_argument_batch_runs_the_batch(self, tmp_path: Path) -> None:
+        """`batch` first runs the batch; the path CLI is unchanged: a brief file named batch, given as
+        a path, and an inline YAML text `batch` go through the single-brief check as before."""
+        [context] = _write_contexts(tmp_path / "run", {"brief-a.json": _context("a", str(tmp_path))})
+        proc = _batch("--contexts", context)
+        assert proc.returncode == 0, proc.stderr
+        assert _verdict(proc)["valid"] is True
+        brief = tmp_path / "batch"
+        brief.write_text(_valid_yaml_text(), encoding="utf-8")
+        proc = _run_cli(str(brief))
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["brief"]["name"] == "my-skill"
+        inline = _run_cli("--yaml", "batch")
+        assert inline.returncode == 1
+        assert json.loads(inline.stdout)["halt_reason"] == "brief-malformed"

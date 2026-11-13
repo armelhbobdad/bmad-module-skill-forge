@@ -124,9 +124,18 @@ Input: a JSON payload on stdin,
 or the files, read from disk (stdin is then never read):
 
   --mode quick --language <language> [--source-root <dir>]
-      [--manifest-file <path>] [--entry-file <path>]...
+      [--manifest-file <path>] [--entry-file <path>]... [--all-sources]
       [--follow-file <path>]... [--tree-file <listing>] [--fetch-list <file>]
       [--follow] [--resolve-version] [--repo <owner/repo> [--ref <ref>]]
+
+--all-sources (java, kotlin or swift, whose public declarations are public
+in whatever file they sit, with --source-root) reads as entries, after any
+--entry-file and each once, every file under --source-root (listed as full
+mode lists a tree) that skf-detect-language.py scope-patterns includes for
+the language over that listing and no exclude glob of it matches, in path
+order: the package's sources less its tests, with no --entry-file per file.
+A warning says when it finds none. Another mode or language, or no
+--source-root, is an input error (exit 2).
 
 An entry with `followed` true (a --follow-file) is a module an `unlisted[]`
 record named, read as an entry is, less a JS/TS `export default`, which
@@ -5450,6 +5459,10 @@ def _build_parser() -> argparse.ArgumentParser:
                        help="the package manifest (relative to --source-root when given); needs --language")
     quick.add_argument("--entry-file", action="append", metavar="PATH",
                        help="an entry-point file (relative to --source-root when given), repeatable; needs --language")
+    quick.add_argument("--all-sources", action="store_true",
+                       help="read as entries every source file under --source-root that skf-detect-language.py "
+                            "scope-patterns includes for the language (tests left out); java, kotlin or swift "
+                            "only, whose public declarations are public wherever they sit; needs --source-root")
     quick.add_argument("--follow-file", action="append", metavar="PATH",
                        help="a module an unlisted[] record named (a --fetch-list path), read as an entry less "
                             "its JS/TS default export, which `export *` does not pass on; repeatable")
@@ -5591,11 +5604,32 @@ def _quick_files_payload(args: argparse.Namespace) -> dict:
         entry = _read_quick_file(root, value, "--entry-file")
         if all(e["path"] != entry["path"] for e in entries):
             entries.append(entry)
+    found = None
+    if getattr(args, "all_sources", False):
+        # Every file of the listing scope-patterns includes for the language and no exclude glob matches.
+        language = args.language[0].lower()
+        try:
+            patterns = _sibling("skf-detect-language.py").scope_patterns
+            glob_match = _sibling("skf-resolve-authoritative-files.py").glob_match
+        except RunnerError as exc:
+            raise QuickInputError(str(exc)) from exc
+        tree = list_tree(root)
+        scope = patterns(tree, language)
+        found = [path for path in tree if any(glob_match(path, g) for g in scope["include"])
+                 and not any(glob_match(path, g) for g in scope["exclude"])]
+        for value in found:
+            entry = _read_quick_file(root, value, "--all-sources")
+            if all(e["path"] != entry["path"] for e in entries):
+                entries.append(entry)
     for value in getattr(args, "follow_file", None) or []:
         entry = _read_quick_file(root, value, "--follow-file")
         if all(e["path"] != entry["path"] for e in entries):
             entries.append({**entry, "followed": True})
     payload = {"language": args.language[0], "manifest": manifest, "entries": entries, "mode": "quick"}
+    if found == []:
+        # extract() starts its own warnings: main() puts these first.
+        payload["warnings"] = [f"--all-sources found no {args.language[0].lower()} source file under --source-root "
+                               f"(skf-detect-language.py scope-patterns' include, less its exclude)"]
     if getattr(args, "tree_file", None) is not None:
         payload["tree"] = _read_listing(args.tree_file)[0]
     return payload
@@ -6018,7 +6052,15 @@ def _main_entries(args: argparse.Namespace, parser: argparse.ArgumentParser) -> 
 def main(argv: list[str]) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
-    files = args.manifest_file is not None or bool(args.entry_file) or bool(args.follow_file)
+    files = args.manifest_file is not None or bool(args.entry_file) or bool(args.follow_file) or args.all_sources
+    if args.all_sources:
+        if args.mode != "quick":
+            parser.error("--all-sources: quick mode only (--mode quick)")
+        if not args.language or len(args.language) != 1 or args.language[0].lower() not in ("java", "kotlin", "swift"):
+            parser.error("--all-sources takes one --language of java, kotlin or swift: their public declarations "
+                         "are public wherever they sit")
+        if args.source_root is None:
+            parser.error("--all-sources lists the files under --source-root: pass it")
     listing = [f"--{flag.replace('_', '-')}" for flag in LISTING_FLAGS if getattr(args, flag) is not None]
     following = [f"--{flag.replace('_', '-')}" for flag in FOLLOW_FLAGS if getattr(args, flag) not in (None, False)]
     if following and (args.mode != "quick" or not files):
@@ -6069,6 +6111,8 @@ def main(argv: list[str]) -> int:
         try:
             payload = _quick_files_payload(args)
             result = extract(payload)
+            if "_error" not in result:
+                result["warnings"][:0] = payload.get("warnings", [])
             if args.follow and "_error" not in result:
                 result = _follow(args, result)
             if args.resolve_version and "_error" not in result:

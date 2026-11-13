@@ -33,12 +33,54 @@ fixtures:
 - Step 5b gate run 7 determinism-1: both derive-name call sites pass
   --probe-git, and an address git reads as a repository, asks credentials
   for or leaves unanswered halts the [auto] path in section 0, before
-  coexistence, for every project path (and fails the scan root) with the
-  helper's message; a missing git goes docs-only with a warning.
+  coexistence (and fails the scan root), with the helper's message; a
+  missing git goes docs-only with a warning.
+- #1123: a repository browser page whose repository git reads at the .git
+  clone URL of a shorter part of its address (down to owner/repo), or at a
+  Bitbucket Data Center /scm/ address, halts the same way and names that
+  clone URL, and an http:// address is never
+  told to drop https://. An [auto] call given several project paths (a
+  documentation URL first or later among them), --target-ref or
+  --target-refs halts in init section 2b with exit 2 before any analysis,
+  and step 1a section 2 fetches its one target into clone-1.
 - Step 5b gate run 7 architecture-1: an unfinished report whose `mode` is
   'auto' is archived like one an [auto] invocation finds, and continue.md
   never routes a resume back into auto-scope; the fallback report, marked
   interactive, still resumes.
+- #1124: every report names its run folder in `run_dir`, and continue.md
+  takes that folder over (this session's sink files appended, its own
+  folder deleted), so the resumed run's envelope carries the decisions and
+  warnings of both sessions; a report whose `run_dir` is missing, empty or
+  names no folder of this workflow directly inside `.skf-run` deletes
+  nothing and records `resumed-without-run-folder`. A clone into the folder
+  taken over first deletes the copy a session cut short left there.
+  continue.md reads two keys and announces its next step in one line.
+- #1125: each unit's record is written by skf-check-unit-records.py
+  from-extract from the extractor's output, a Java, Kotlin or Swift unit's
+  from quick mode's parser over every source file (--all-sources), and the
+  documented parser line and the record check run on a fixture. Step E
+  counts the demo files and scores the registry candidates by
+  skf-detect-registry.py, and the heuristics name those outputs.
+- #1126: identify-units section 3's units call detects each unit's language
+  with no workspace signal, as section 4 says, and map-and-detect and [D]
+  build each project path's units JSON from the units file with
+  skf-count-imports.py units-from, then print the summary and the
+  cross-reference matrix: the documented blocks run on a fixture.
+- #1127: generate-briefs section 3b is one skf-validate-brief-schema.py
+  batch call, run here as documented on the contexts section 2's template
+  gives; a version computed at build time comes from the schema asset's
+  skf-extract-public-api.py --resolve-version call (run on a dynamic
+  pyproject.toml), whose probe order both brief steps resolve; the asset
+  keeps only the sections the steps read, recommend loads none of it, and
+  the three brief templates leave out the keys the writer drops.
+- #1128: the split's section 4a lists each workspace package's files and
+  classifies the package with one skf-shape-detect.py --member call, run
+  here as documented on a fixture monorepo: the script's scope_type gives
+  each boundary's scope type and its source_file_count leaves out a package
+  with no source file, and the model judges only the framework and parser
+  signals, the two rows step-shape-detect.md keeps beside the ladder.
+  SKILL.md and step-auto-scope.md stay under their token budgets, and
+  step-auto-scope.md and generate-briefs.md state each rule once.
 """
 
 from __future__ import annotations
@@ -68,6 +110,8 @@ VALIDATOR = SCRIPTS / "skf-validate-brief-schema.py"
 SHAPE = SCRIPTS / "skf-shape-detect.py"
 LANGUAGE = SCRIPTS / "skf-detect-language.py"
 WORKSPACES = SCRIPTS / "skf-detect-workspaces.py"
+SCAN_MANIFESTS = SCRIPTS / "skf-scan-manifests.py"
+EXTRACT = SCRIPTS / "skf-extract-public-api.py"
 GATE = SRC / "skf-forger" / "scripts" / "pipeline-gate.py"
 SCHEMA_PATH = SCRIPTS / "schemas" / "skf-analyze-result-envelope.v1.json"
 SCHEMA = json.loads(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -75,6 +119,7 @@ SETTINGS = SCHEMA["$defs"]["skf-envelope"]["const"]
 PREFIX = "SKF_ANALYZE_RESULT_JSON: "
 
 SKILL = AN / "SKILL.md"
+CONTRACT = REFS / "invocation-contract.md"
 HEADLESS = REFS / "headless-contract.md"
 INIT = REFS / "init.md"
 CONTINUE = REFS / "continue.md"
@@ -87,8 +132,10 @@ SHAPE_REF = REFS / "step-shape-detect.md"
 IDENTIFY = REFS / "identify-units.md"
 MAP = REFS / "map-and-detect.md"
 GENERATE = REFS / "generate-briefs.md"
+RECOMMEND = REFS / "recommend.md"
 DISCOVER = REFS / "discover-additional-source.md"
 BRIEF_SCHEMA_DOC = AN / "assets" / "skill-brief-schema.md"
+TEMPLATE = AN / "templates" / "analysis-report-template.md"
 STEP_FILES = sorted(p for p in REFS.glob("*.md") if p.name != "headless-contract.md")
 
 # A HALT site: "HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `x`)".
@@ -412,10 +459,10 @@ def test_the_hook_reads_the_latest_record_only_when_one_was_written():
             path.name
         assert hook.index("hold no `result_file_write_failed` entry") < hook.index("{onCompleteCommand} --result-path=")
         assert "an earlier run's `-latest` copy" not in hook, path.name
-    # §9b: the skip follows the hook's success and failure bullets, so they read as the hook run's outcomes
+    # §9b states the hook rule once, in step-auto-scope.md §9's two sentences (#1128 leanness-5)
     nine_b = _section(_read(GENERATE), "### 9b.", "### 10.")
-    assert nine_b.index("**Never fail the workflow on hook errors**") < nine_b.index("on_complete skipped:")
-    assert "The hook never gets a `-latest` copy this run failed to write." in nine_b
+    assert nine_b.count("never fails the run") == 1 and "**Never fail the workflow" not in nine_b
+    assert "the §9 line's `result_path` is not null" in nine_b
     for path in (AUTO, DOCS, GENERATE, HEADLESS):
         text = _read(path)
         assert "A result file that could not be written" not in text, path.name
@@ -557,7 +604,7 @@ def _gate_and_write(tmp_path: Path, path: Path, context: dict, name: str):
     values = {"writeSkillBriefHelper": str(WRITER), "validateBriefSchemaHelper": str(VALIDATOR),
               "run_dir": str(run_dir), "forge_data_folder": str(forge), stem: name}
     stage = _one_command(text, f'--target "{{run_dir}}/briefs/{{{stem}}}/skill-brief.yaml"')
-    check = _one_command(text, "uv run {validateBriefSchemaHelper}")
+    check = _one_command(text, 'uv run {validateBriefSchemaHelper} "{run_dir}/briefs/')
     final = _one_command(text, f'--target "{{forge_data_folder}}/{{{stem}}}/skill-brief.yaml"')
     staged = _run(stage, values)
     verdict = _run(check, values) if staged.returncode == 0 else None
@@ -713,6 +760,227 @@ def test_a_detected_version_that_is_not_semver_writes_the_default(tmp_path, dete
 
 
 # --------------------------------------------------------------------------
+# The brief checks and a dynamic version are helper calls (#1127)
+# --------------------------------------------------------------------------
+
+BATCH_CALL = "uv run {validateBriefSchemaHelper} batch"
+ABSENT_KEY_LINE = "Leave out every other optional key: the writer reads an absent key as unset."
+# The optional keys the brief writer drops when they are null (#1127 leanness-9).
+DROPPED_KEYS = ("scope_rationale", "scope_tier_a_include", "scope_amendments", "scope_registry_path",
+                "scope_ui_variants", "scope_demo_patterns", "scripts_intent", "assets_intent", "source_ref")
+
+
+def _generate_context(name: str, source_repo: str) -> dict:
+    """A context generate-briefs section 2's template gives."""
+    [template] = _fenced(_section(_read(GENERATE), "### 2. Build Each Brief's Context", "### 3."), "json")
+    values = {"unit-name": name, "version, or null": None, "source_repo": source_repo,
+              "the unit's ref, or null": None, "language": "typescript",
+              "description": "Helpers. Use when testing.", "forge_tier": "Forge", "current_date": "2026-11-13",
+              "user_name": "armel", "scope.type": "full-library", "scope.include": "src/**",
+              "scope.exclude": "**/tests/**", "scope.notes": "One package."}
+    return _fill(template, values)
+
+
+def _batch_call(run_dir: Path, existing: list[str], paths: list[str], roots: list[str]):
+    """Section 3b's documented call, its lists filled in quoted, its glob left for the script."""
+    command = _one_command(_section(_read(GENERATE), "**3b. Batch checks.**", "### 4."), BATCH_CALL)
+    assert '--contexts "{run_dir}"/brief-*.json' in command
+    for placeholder, words in (("<each existing_skills name>", existing),
+                               ("<each project_paths entry, quoted>", paths),
+                               ("<the scan_roots entry of each, quoted, in the same order>", roots)):
+        assert placeholder in command, placeholder
+        command = command.replace(placeholder, " ".join(shlex.quote(word) for word in words))
+    return _run(command, {"validateBriefSchemaHelper": str(VALIDATOR), "run_dir": str(run_dir)})
+
+
+def test_the_documented_batch_check_runs_on_the_brief_contexts(tmp_path):
+    """#1127 determinism-8: section 3b's one call checks the contexts section 2 writes, its
+    `brief-*.json` word as no shell expanded it: a clean batch passes, a remote unit through the scan
+    root this run cloned, and a step 5 rename onto an existing skill's name fails on that brief."""
+    run_dir = _run_dir(tmp_path)
+    local = tmp_path / "mono"
+    local.mkdir()
+    remote = "https://github.com/acme/core"
+    root = run_dir / "source-2"
+    root.mkdir()
+    for name, source in (("auth", str(local)), ("core", remote)):
+        (run_dir / f"brief-{name}.json").write_bytes(json.dumps(_generate_context(name, source)).encode("utf-8"))
+    lists = (["billing"], [str(local), remote], [str(local), str(root)])
+    proc = _batch_call(run_dir, *lists)
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert json.loads(proc.stdout) == {"valid": True, "errors": [], "warnings": []}
+    (run_dir / "brief-core.json").write_bytes(json.dumps(_generate_context("billing", remote)).encode("utf-8"))
+    proc = _batch_call(run_dir, *lists)
+    assert proc.returncode == 1, (proc.stdout, proc.stderr)
+    [error] = json.loads(proc.stdout)["errors"]
+    assert (Path(error["context"]).name, error["name"], error["field"]) == ("brief-core.json", "billing", "name")
+    assert error["message"].startswith("Brief validation failed: ")
+
+
+def test_the_documented_batch_check_passes_with_no_existing_skill(tmp_path):
+    """A first run has an empty `existing_skills`: the filled call then holds a bare
+    `--existing-skills` before `--project-paths`, and still passes a clean batch."""
+    run_dir = _run_dir(tmp_path)
+    local = tmp_path / "mono"
+    local.mkdir()
+    (run_dir / "brief-auth.json").write_bytes(json.dumps(_generate_context("auth", str(local))).encode("utf-8"))
+    proc = _batch_call(run_dir, [], [str(local)], [str(local)])
+    assert proc.returncode == 0, (proc.stdout, proc.stderr)
+    assert json.loads(proc.stdout) == {"valid": True, "errors": [], "warnings": []}
+
+
+def test_section_3b_runs_the_batch_once_every_brief_passed_the_gate():
+    text = _read(GENERATE)
+    checks = _section(text, "**3b. Batch checks.**", "### 4.")
+    assert checks.startswith("**3b. Batch checks.** When every brief passed §3a, check them together")
+    assert [line for block in _fenced(checks, "bash") for line in block.split("\n") if line.strip()] == [
+        _one_command(checks, BATCH_CALL)]
+    assert ("Its `errors[]` have §3a's shape and are 3b failures: each names its `context` file, and its brief "
+            "`name`, `field` and `message` are the {unit-name}, {check} and reason below.") in checks
+    assert ("a second exit 2 counts as a failed `batch` check of the first unit in `confirmed_units`, its reason "
+            "the first stderr line") in checks
+    assert "{unit-name}" in checks.split("**If any check fails:**")[1] and "{check}" in checks
+    modify = _section(text, "**IF user modifies (M):**", "**IF user skips writing (N):**")
+    assert "run §3a on it and §3b again" in modify, "an [M] rename is checked against the batch too"
+    assert "`existing_skills`" in _section(text, "### 1. Load Context", "### 2.")
+    opening = _section(text, "### 3. Validate Each Brief", "**3a.")
+    assert "**batch check**" in opening and "semantic" not in opening
+    row = next(line for line in _read(HEADLESS).splitlines() if line.startswith("| 4 "))
+    assert "fails the batch check of step 6 §3 in headless mode" in row and "semantic" not in row
+
+
+@pytest.mark.parametrize("path, phase", [(GENERATE, "generate-briefs:2"), (AUTO, "step-auto-scope:8")],
+                         ids=["interactive", "auto"])
+def test_both_brief_steps_resolve_the_extractor_or_halt(path, phase):
+    """#1127 determinism-9: the version lookup's extractor is resolved with the brief writer and the
+    validator, so a missing script halts there."""
+    text = _read(path)
+    assert ("extractPublicApiProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-extract-public-api.py'\n"
+            "  - '{project-root}/src/shared/scripts/skf-extract-public-api.py'\n") in text.split("\n---\n", 1)[0] + "\n"
+    [line] = [line for line in text.splitlines()
+              if "**`{extractPublicApiHelper}`** from `{extractPublicApiProbeOrder}`" in line]
+    assert "**`{validateBriefSchemaHelper}`** from `{validateBriefSchemaProbeOrder}`" in line
+    assert f'HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `{phase}`)' in line
+
+
+@pytest.mark.parametrize("files, expected", [
+    ({"acme/__init__.py": '__version__ = "2.3.1"\n'}, ("2.3.1", "file:acme/__init__.py")),
+    ({"acme/__init__.py": "from ._version import __version__\n", "acme/_version.py": '__version__ = "2.4.0"\n'},
+     ("2.4.0", "file:acme/_version.py")),
+    ({"acme.py": "x = 1\n", "setup.py": 'from setuptools import setup\nsetup(name="acme", version="3.1.0")\n'},
+     ("3.1.0", "file:setup.py")),
+], ids=["init", "version-file", "single-module"])
+def test_a_dynamic_python_version_comes_from_the_extractor(tmp_path, files, expected):
+    """#1127 determinism-9: the scan gives a `version_dynamic` manifest no version, and the schema
+    asset's documented call finds it, with where it came from; for a package with no `__init__.py`
+    the call leaves `--entry-file` out, as the rule says, so setup.py is still read."""
+    root = tmp_path / "acme-src"
+    root.mkdir()
+    (root / "pyproject.toml").write_text('[project]\nname = "acme"\ndynamic = ["version"]\n', encoding="utf-8")
+    for rel, body in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(body, encoding="utf-8")
+    scan = subprocess.run([sys.executable, str(SCAN_MANIFESTS), "scan", str(root)], capture_output=True, timeout=120)
+    assert scan.returncode == 0, scan.stderr
+    [manifest] = [m for m in json.loads(scan.stdout)["manifests"] if m["path"] == "pyproject.toml"]
+    assert (manifest["version_dynamic"], manifest["version"]) == (True, None)
+    rule = _section(_read(BRIEF_SCHEMA_DOC), "## Version Detection", "## Scope Object")
+    command = _one_command(rule, "--resolve-version")
+    assert command == ('uv run {extractPublicApiHelper} --mode quick --language python --source-root "{scan_root}" '
+                       '--manifest-file "<the manifest>" --entry-file "<package>/__init__.py" --resolve-version')
+    if not (root / "acme" / "__init__.py").is_file():
+        assert "Leave `--entry-file` out when the scan root holds no `<package>/__init__.py`" in rule
+        command = command.replace(' --entry-file "<package>/__init__.py"', "")
+    command = command.replace("<the manifest>", manifest["path"]).replace("<package>", "acme")
+    proc = _run(command, {"extractPublicApiHelper": str(EXTRACT), "scan_root": str(root)})
+    assert proc.returncode == 0, proc.stderr
+    result = json.loads(proc.stdout)
+    assert (result["version"], result["version_source"]) == expected
+
+
+def test_the_schema_asset_keeps_only_what_the_brief_steps_read():
+    """#1127 leanness-1, leanness-2 and determinism-9: Required Fields, Version Detection, Scope Object,
+    Scope Types and the documented-language note stay; no tier or language list is checked; the
+    version lookup is the extractor's, not a chain to walk."""
+    text = _read(BRIEF_SCHEMA_DOC)
+    assert re.findall(r"^#{2,3} (.+)$", text, flags=re.M) == [
+        "Required Fields", "Version Detection", "Scope Object", "Scope Types"]
+    assert text.count("> **Documented vs source language.**") == 1
+    assert "forge-tier.yaml" not in text
+    rows = {line.split("|")[1].strip(): line.split("|") for line in text.splitlines() if line.startswith("| ")}
+    assert rows["language"][3].strip() == "Non-empty"
+    assert "The analysis report's `forge_tier`" in rows["forge_tier"][4]
+    rule = _section(text, "## Version Detection", "## Scope Object")
+    assert "\u2192" not in rule, "no chain to walk by hand"
+    assert "Look a version up only in two cases" in rule
+    assert "`skf-extract-public-api.py --help` gives its order" in rule
+    dynamic = _section(rule, "- **A `version_dynamic` manifest**", "- **A private workspace root")
+    sparse = "sparse-checkout add '/<package>/__init__.py' '/<package>/_version.py' '/<the setup.py beside the manifest>'"
+    assert dynamic.index(sparse) < dynamic.index("--resolve-version")
+    assert "A non-zero exit or a null `version` leaves `detected_version` null." in dynamic
+    assert "Read those files in the scan root" not in rule
+    recommend = _read(RECOMMEND)
+    assert "schemaFile" not in recommend and "skill-brief-schema" not in recommend
+    generate = _read(GENERATE)
+    assert "Load {schemaFile}" not in generate
+    pointer = next(line for line in generate.splitlines() if line.startswith("Read {schemaFile}'s"))
+    assert "**Version Detection** section only when" in pointer
+    assert "no other part" not in pointer, "the language row still points to the documented-language note"
+    assert "`version_dynamic`" in pointer and "a private workspace root without a `version`" in pointer
+    preview = _section(generate, "### 4. Present Generation Preview", "### 5.")
+    assert "`{version_source}`" in preview
+    assert "found the `version` the brief shows" in preview, "a version the writer replaced names no source"
+
+
+@pytest.mark.parametrize("path, start, end, kept", [
+    (GENERATE, "### 2. Build Each Brief's Context", "### 3.", ()),
+    (AUTO, "### 8. Write Skill Briefs", "**Gate every brief", ("doc_urls",)),
+    (DOCS, "### 4. Write skill brief via canonical writer", "### 5.", ("doc_urls", "source_authority",
+                                                                       "version_resolved")),
+], ids=["interactive", "auto", "docs-only"])
+def test_the_brief_templates_leave_out_the_keys_the_writer_drops(path, start, end, kept):
+    """#1127 leanness-9: a null optional key is dropped by the writer, so no template pins one, and one
+    line under each template says so; the version-precedence inputs stay."""
+    section = _section(_read(path), start, end)
+    [template] = _fenced(section, "json")
+    keys = re.findall(r'^\s*"([a-z_]+)"\s*:', template, flags=re.M)
+    for key in DROPPED_KEYS:
+        assert key not in keys, key
+    for key in ("target_version", "detected_version", *kept):
+        assert key in keys, key
+    if path != DOCS:
+        assert "source_authority" not in keys and "version_resolved" not in keys
+    assert f"```\n\n{ABSENT_KEY_LINE}\n" in section
+    assert "scope.tier_a_include" not in _read(GENERATE)
+
+
+def test_the_docs_only_brief_is_written_from_its_trimmed_context(tmp_path):
+    """#1127 leanness-9: the docs-only context, without the keys the writer drops, still gives a valid
+    brief through the documented write."""
+    text = _read(DOCS)
+    [template] = _fenced(_section(text, "### 4. Write skill brief via canonical writer", "### 5."), "json")
+    url = "https://docs.example.com/guide"
+    context = _fill(template, {"skill_name": "example-guide", "url": url, "forge_tier": "Quick",
+                               "current_date": "2026-11-13", "user_name": "armel"})
+    assert not set(DROPPED_KEYS) & set(context) and "target_ref" not in context, sorted(context)
+    run_dir = _run_dir(tmp_path)
+    forge = tmp_path / "forge-data"
+    (run_dir / "brief-example-guide.json").write_bytes(json.dumps(context).encode("utf-8"))
+    write = _one_command(text, '--target "{forge_data_folder}/{skill_name}/skill-brief.yaml"')
+    proc = _run(write, {"writeSkillBriefHelper": str(WRITER), "forge_data_folder": str(forge),
+                        "skill_name": "example-guide", "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    target = forge / "example-guide" / "skill-brief.yaml"
+    brief = yaml.safe_load(target.read_text(encoding="utf-8"))
+    # The writer leaves out the default `source_authority`, community.
+    assert (brief["source_type"], brief.get("source_authority", "community"), brief["version"]) == (
+        "docs-only", "community", "1.0.0")
+    assert brief["doc_urls"][0]["url"] == url
+    verdict = subprocess.run([sys.executable, str(VALIDATOR), str(target)], capture_output=True, timeout=60)
+    assert verdict.returncode == 0, verdict.stdout
+
+
+# --------------------------------------------------------------------------
 # The auto path reads one file list (determinism-1 and determinism-2)
 # --------------------------------------------------------------------------
 
@@ -729,11 +997,17 @@ def test_the_auto_path_has_no_grep_pre_filter_and_no_echoed_tree():
 
 
 def test_identify_units_passes_no_workspace_signal():
+    """#1126: section 3's units call detects each unit's language from its own listing, with no workspace
+    signal, as section 4 says."""
     text = _read(IDENTIFY)
-    calls = [line for block in _fenced(text, "bash") for line in block.split("\n") if "{detectLanguageHelper}" in line]
-    assert calls and not any("--workspace-signal" in line for line in calls)
-    assert "Pass no `--workspace-signal` here" in text
-    assert "`.source_language`" in text
+    assert "{detectLanguageHelper}" not in text
+    call = _one_command(_section(text, "### 3. Build Unit Classification Table", "### 4."),
+                        "{disqualifyCandidatesHelper} units")
+    assert "workspace" not in call
+    language = _section(text, "### 4. Detect Primary Language Per Unit", "### 5.")
+    assert ("It passes no workspace signal: a workspace root's language would answer for every unit of the "
+            "workspace") in language
+    assert "`.source_language`" in language
 
 
 def _git(*args: str, cwd: Path) -> None:
@@ -768,14 +1042,14 @@ def test_the_documented_listing_feeds_shape_and_language_detection(tmp_path):
     tree = subprocess.run(argv, capture_output=True, check=True, timeout=60).stdout
     (Path(out.strip('"').replace("{run_dir}", str(run_dir)))).write_bytes(tree)
     values = {"run_dir": str(run_dir), "shapeDetectHelper": str(SHAPE), "detectLanguageHelper": str(LANGUAGE),
-              "project_path": repo.as_posix(), "scan_root": repo.as_posix(), "i": "1",
+              "project_path": repo.as_posix(), "scan_root": repo.as_posix(),
               "scanManifestsHelper": str(SCRIPTS / "skf-scan-manifests.py")}
     # The §2 scan of a local path writes the envelope shape detection reads.
     scan_cmd = _one_command(_section(text, "### 2. Manifest Scan", "### 3."), '<the path\'s scan root>')
     scan_cmd, _, scan_out = scan_cmd.replace("<the path's scan root>", "{scan_root}").partition(" > ")
     scanned = _run(scan_cmd, values)
     assert scanned.returncode == 0, scanned.stderr
-    Path(scan_out.strip('"').replace("{run_dir}", str(run_dir)).replace("{i}", "1")).write_bytes(scanned.stdout)
+    Path(scan_out.strip('"').replace("{run_dir}", str(run_dir))).write_bytes(scanned.stdout)
     shape = _run(_one_command(text, "uv run {shapeDetectHelper}"), values)
     assert shape.returncode == 0, shape.stderr
     assert any(s.startswith("grammar_file:") for s in json.loads(shape.stdout)["signals"])
@@ -804,8 +1078,8 @@ def test_a_remote_target_takes_its_patterns_from_the_listing(tmp_path):
     _git("config", "uploadpack.allowFilter", "true", cwd=origin)
     text = _read(AUTO)
     run_dir = _run_dir(tmp_path)
-    [fetch] = _fenced(_section(text, "- **`kind` is `remote`:**", "Each `{run_dir}/manifests-{i}.json`"), "bash")
-    values = {"clone_url": origin.as_uri(), "run_dir": run_dir.as_posix(), "i": "1", "pinned_branch_flag": ""}
+    [fetch] = _fenced(_section(text, "- **`kind` is `remote`:**", "`{run_dir}/manifests-1.json` holds"), "bash")
+    values = {"clone_url": origin.as_uri(), "run_dir": run_dir.as_posix(), "pinned_branch_flag": ""}
     for line in [line for line in fetch.strip().split("\n") if line.startswith("git ")]:
         argv = shlex.split(re.sub(r"\{(\w+)\}", lambda m: values[m.group(1)], line))
         subprocess.run(argv, check=True, capture_output=True, timeout=60)
@@ -848,31 +1122,260 @@ def test_a_merged_monorepo_takes_patterns_over_every_member(tmp_path):
     assert (out["language"], out["include"], out["exclude"][-1]) == ("typescript", ["**/*.ts"], "scripts/**")
 
 
+def _split_block() -> tuple[str, str]:
+    """The awk line and the shape detection call of the split's §4a block."""
+    [block, *_] = _fenced(_section(_read(SPLIT), "### 4a.", "### 5a."), "bash")
+    awk, call = block.strip().split("\n")
+    return awk, call
+
+
+def _list_boundary(awk: str, tree: list[str], boundary: str, run_dir: Path, c: int) -> None:
+    """Run the documented awk line for candidate `c`, writing `{run_dir}/tree-{c}.txt`."""
+    awk = awk.replace("<boundary path>", boundary).replace("{run_dir}", run_dir.as_posix())
+    command, _, out = awk.partition(" > ")
+    if shutil.which("awk"):
+        listed = subprocess.run(shlex.split(command), capture_output=True, check=True, timeout=60).stdout
+    else:  # the paths awk keeps: those that start with "<boundary path>/", every one for "."
+        listed = "".join(f"{p}\n" for p in tree if boundary == "." or p.startswith(boundary + "/")).encode("utf-8")
+    Path(out.strip('"').replace("{c}", str(c))).write_bytes(listed)
+
+
 def test_each_boundary_takes_its_patterns_from_its_own_listing(tmp_path):
-    """Split §5a lists a boundary's files, detects its language from them and prints the
+    """Split §4a lists a boundary's files; §5a detects its language from them and prints the
     patterns rooted at its source folder; §6a reuses that language."""
     split = _read(SPLIT)
     [block] = _fenced(_section(split, "### 5a.", "### 6a."), "bash")
-    awk, detect, patterns = block.strip().split("\n")
-    assert detect == 'uv run {detectLanguageHelper} --tree-file "{run_dir}/tree-{i}.txt"', "no --workspace-signal"
+    detect, patterns = block.strip().split("\n")
+    assert detect == 'uv run {detectLanguageHelper} --tree-file "{run_dir}/tree-{c}.txt"', "no --workspace-signal"
+    # A left-out candidate never shifts a listing onto another boundary: §5a reads its candidate's file.
+    assert "from `tree-{c}.txt`, the file list §4a wrote for it as candidate `{c}`" in split
     assert "{detectLanguageHelper}" not in _section(split, "### 6a.", "### 7."), "6a reuses the language 5a detected"
     assert "default pattern table" not in split
+    assert "list its files" not in _section(split, "### 5a.", "### 6a."), "§4a listed them"
     run_dir = _run_dir(tmp_path)
     tree = ["package.json", "packages/auth/package.json", "packages/auth/tsconfig.json", "packages/auth/lib/index.ts",
             "packages/auth/test/index.test.ts", "packages/auth-ui/package.json", "packages/auth-ui/src/a.ts"]
     (run_dir / "tree.txt").write_bytes("".join(f"{p}\n" for p in tree).encode("utf-8"))
-    awk = awk.replace("<boundary path>", "packages/auth").replace("{run_dir}", run_dir.as_posix())
-    command, _, out = awk.partition(" > ")
-    if shutil.which("awk"):
-        listed = subprocess.run(shlex.split(command), capture_output=True, check=True, timeout=60).stdout
-    else:  # the paths awk keeps: those that start with "<boundary path>/"
-        listed = "".join(f"{p}\n" for p in tree if p.startswith("packages/auth/")).encode("utf-8")
-    Path(out.strip('"').replace("{i}", "1")).write_bytes(listed)
-    values = {"run_dir": str(run_dir), "detectLanguageHelper": str(LANGUAGE), "i": "1"}
+    awk, _ = _split_block()
+    _list_boundary(awk, tree, "packages/auth", run_dir, 1)
+    values = {"run_dir": str(run_dir), "detectLanguageHelper": str(LANGUAGE), "c": "1"}
     language = json.loads(_run(detect, values).stdout)["language"]
     printed = _run(patterns.replace("<its language>", language), values)
     assert printed.returncode == 0, printed.stderr
     assert (language, json.loads(printed.stdout)["include"]) == ("typescript", ["packages/auth/lib/**/*.ts"])
+
+
+SPLIT_WARNING = ("`uv run {emitEnvelopeHelper} record --run-dir \"{run_dir}\" --warning 'split: <boundary path> left "
+                 "out: no source file in a language SKF detects'`")
+SPLIT_CALL = ('uv run {shapeDetectHelper} --repo-url "{project_path}" --manifests-file "{run_dir}/manifests-1.json" '
+              '--manifest-dir "{scan_root}" --member "<boundary path>" --tree-file "{run_dir}/tree-{c}.txt"')
+
+
+def test_each_boundary_is_classified_by_one_documented_call(tmp_path):
+    """#1128 determinism-4: §4a lists each workspace package's files and classifies it with one
+    skf-shape-detect.py call, so its shape, its scope type and the trivial-member cut come from the
+    script. Run on a monorepo of a CLI, a library, a package with no source file and a setup.py
+    package: the CLI and the library take the printed scope type, the source-less package is left
+    out by its count, the setup.py package (exit 1) takes full-library, and a package git does not
+    track yet (its listing is empty, so the call exits 2) is left out without halting."""
+    awk, call = _split_block()
+    assert awk == ("awk -v p=\"<boundary path>/\" 'p == \"./\" || index($0, p) == 1' \"{run_dir}/tree.txt\" > "
+                   "\"{run_dir}/tree-{c}.txt\"")
+    assert call == SPLIT_CALL
+    section = _section(_read(SPLIT), "### 4a.", "### 5a.")
+    for needle in ("- **Exit 2:** when `tree-{c}.txt` is empty (git tracks none of the member's files: an untracked "
+                   "or submodule folder), a trivial member; leave it out.",
+                   'Otherwise HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase '
+                   '`step-auto-scope-split:4a`): "Shape detection failed for <boundary path>: {the `error` its stderr '
+                   'JSON names}."',
+                   "sparse-checkout add '/<boundary path>/README*'",
+                   "the case you choose sets this boundary's shape, never the run's `{shape}`",
+                   "`shape`, `confidence`, `export_count`, `package_count` and `{scope_type}` feed §6a",
+                   "- **`source_file_count` 0** (on exit 0 or 1): no file in a language `skf-detect-language.py` "
+                   "reads: a trivial member, or one whose code is all `.vue`, `.svelte`, C or another language it "
+                   "does not read; leave it out and record it as a warning, so it reaches the envelope: "
+                   + SPLIT_WARNING,
+                   "- **Exit 0:** `{scope_type}` ← its `scope_type`. When its `signals` hold "
+                   "`app_or_library:framework_dep` or `language_or_user:parser_dep`, judge and record it as "
+                   "step-auto-scope.md §4 does",
+                   "- **Exit 1** (no shape, but source files): `{scope_type}` ← `full-library`, with shape `unknown`.",
+                   "outside the folders `scope_hint` focuses on"):
+        assert needle in section, needle
+    for gone in ("no source files, no exports", "re-running the shape-to-scope ladder", "Per-boundary shape to scope"):
+        assert gone not in _read(SPLIT), gone
+    assert section.index(SPLIT_CALL) < section.index("derive-name"), "only the kept boundaries are named"
+    assert "`scope.type` ← its §4a `{scope_type}`" in _section(_read(SPLIT), "### 6a.", "### 7.")
+    # The contract names the split's halt beside step 1a §3's (#1128 lane review).
+    [row3] = [line for line in _read(HEADLESS).splitlines() if line.startswith("| 3 ")]
+    assert ("step 1a §3 (shape detection script error, exit code 2), and its split branch §4a (shape detection "
+            "fails on a package whose files git tracks);") in row3
+    front = _read(SPLIT).split("\n---\n", 1)[0]
+    assert "shapeDetectProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-shape-detect.py'" in front
+    assert "**`{shapeDetectHelper}`** from `{shapeDetectProbeOrder}`" in _read(SPLIT)
+
+    repo = tmp_path / "mono"
+    files = {
+        "package.json": {"name": "mono", "private": True, "workspaces": ["packages/*"]},
+        "packages/cli/package.json": {"name": "@mono/cli", "bin": {"mono": "bin/mono.js"},
+                                      "dependencies": {"commander": "^12"}},
+        "packages/cli/bin/mono.js": "require('commander');\n",
+        "packages/core/package.json": {"name": "@mono/core", "main": "src/index.js"},
+        "packages/core/src/index.ts": "export const core = 1;\n",
+        "packages/types/package.json": {"name": "@mono/types", "exports": {".": "./schema.json"}},
+        "packages/types/schema.json": "{}\n",
+        "packages/legacy/setup.py": 'from setuptools import setup\nsetup(name="mono-legacy")\n',
+        "packages/legacy/legacy/api.py": "def api():\n    return 1\n",
+    }
+    for rel, data in files.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_bytes((json.dumps(data) if isinstance(data, dict) else data).encode("utf-8"))
+    run_dir = _run_dir(tmp_path)
+    tree = sorted(files)
+    (run_dir / "tree.txt").write_bytes("".join(f"{p}\n" for p in tree).encode("utf-8"))
+    # On disk, so the scan finds its manifest, but not in git's listing: an untracked package.
+    (repo / "packages/fresh/src").mkdir(parents=True)
+    (repo / "packages/fresh/package.json").write_bytes(b'{"name": "@mono/fresh", "main": "src/index.js"}')
+    (repo / "packages/fresh/src/index.js").write_bytes(b"module.exports = 1;\n")
+    scan = subprocess.run([sys.executable, str(SCAN_MANIFESTS), "scan", str(repo)], capture_output=True, timeout=60)
+    assert scan.returncode == 0, scan.stderr
+    (run_dir / "manifests-1.json").write_bytes(scan.stdout)
+    values = {"shapeDetectHelper": str(SHAPE), "project_path": repo.as_posix(), "run_dir": str(run_dir),
+              "scan_root": str(repo)}
+    kept = {}
+    for c, boundary in enumerate(("packages/cli", "packages/core", "packages/fresh", "packages/types",
+                                  "packages/legacy"), 1):
+        _list_boundary(awk, tree, boundary, run_dir, c)
+        proc = _run(call.replace("<boundary path>", boundary), {**values, "c": str(c)})
+        if not (run_dir / f"tree-{c}.txt").read_bytes().strip():
+            assert proc.returncode == 2 and json.loads(proc.stderr)["code"] == "TREE_FILE_ERROR"
+            continue
+        assert proc.returncode in (0, 1), proc.stderr
+        out = json.loads(proc.stdout)
+        if out["source_file_count"] == 0:
+            command = SPLIT_WARNING.strip("`").replace("<boundary path>", boundary)
+            record = _run(command, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+            assert record.returncode == 0, record.stderr
+            continue
+        kept[boundary] = (proc.returncode, out["shape"], out["scope_type"] if proc.returncode == 0 else "full-library")
+    assert kept == {"packages/cli": (0, "reference-app", "reference-app"),
+                    "packages/core": (0, "library-API", "full-library"),
+                    "packages/legacy": (1, "unknown", "full-library")}
+    # The package left out by its count is named in the run's warnings, so it is not dropped unseen
+    # (#1128 lane review: a package of .vue or C files counts no source file either).
+    warnings = (run_dir / "warnings.jsonl").read_text(encoding="utf-8")
+    assert "split: packages/types left out: no source file in a language SKF detects" in warnings
+    assert "packages/fresh" not in warnings, "an untracked package is left out by its empty listing"
+    proc = _run(call.replace("<boundary path>", "packages/nope"), {**values, "c": "9"})
+    assert proc.returncode == 2 and json.loads(proc.stderr)["code"] == "MEMBER_NOT_FOUND", "§4a halts"
+
+
+def test_a_root_package_is_listed_whole_and_kept_by_its_count(tmp_path):
+    """#1128 lane review: a Cargo root `[package]` beside its `[workspace]` is a split boundary at the
+    scan root (`.`), which the scan's `candidates[]` lists. Its listing is every file, so the script
+    counts its source files instead of finding an empty `./` prefix listing, and its patterns leave
+    the other boundaries out."""
+    section = _section(_read(SPLIT), "### 4a.", "### 5a.")
+    assert ("the scan root's own package (boundary path `.`) too when its manifest is not `private` and the scan's "
+            "`candidates[]` lists `.`") in section
+    assert "list its files (every file for the scan root's package)" in section
+    assert ("the scan root's package, which lists every file, also excludes `<path>/**` for each other kept "
+            "boundary") in _section(_read(SPLIT), "### 5a.", "### 6a.")
+    repo = tmp_path / "ws"
+    files = {
+        "Cargo.toml": '[package]\nname = "root"\nversion = "0.1.0"\n\n[workspace]\nmembers = ["crates/a"]\n',
+        "src/lib.rs": "pub fn r() {}\n",
+        "src/z.rs": "pub fn z() {}\n",
+        "crates/a/Cargo.toml": '[package]\nname = "a"\nversion = "0.1.0"\n',
+        "crates/a/src/lib.rs": "pub fn a() {}\n",
+    }
+    for rel, text in files.items():
+        (repo / rel).parent.mkdir(parents=True, exist_ok=True)
+        (repo / rel).write_bytes(text.encode("utf-8"))
+    run_dir = _run_dir(tmp_path)
+    tree = sorted(files)
+    (run_dir / "tree.txt").write_bytes("".join(f"{p}\n" for p in tree).encode("utf-8"))
+    scan = subprocess.run([sys.executable, str(SCAN_MANIFESTS), "scan", str(repo)], capture_output=True, timeout=60)
+    assert scan.returncode == 0, scan.stderr
+    (run_dir / "manifests-1.json").write_bytes(scan.stdout)
+    envelope = json.loads(scan.stdout)
+    assert [c["path"] for c in envelope["candidates"]] == [".", "crates/a"]
+    assert next(m for m in envelope["manifests"] if m["path"] == "Cargo.toml")["private"] is False
+    awk, call = _split_block()
+    values = {"shapeDetectHelper": str(SHAPE), "project_path": repo.as_posix(), "run_dir": str(run_dir),
+              "scan_root": str(repo)}
+    for c, boundary in enumerate((".", "crates/a"), 1):
+        _list_boundary(awk, tree, boundary, run_dir, c)
+        listed = (run_dir / f"tree-{c}.txt").read_text(encoding="utf-8").split()
+        assert listed == (tree if boundary == "." else [p for p in tree if p.startswith("crates/a/")])
+        proc = _run(call.replace("<boundary path>", boundary), {**values, "c": str(c)})
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert (out["shape"], out["package_count"]) == ("library-API", 1), "its own manifest alone"
+        assert out["source_file_count"] > 0, boundary
+
+
+def test_the_shape_reference_keeps_only_the_judged_rows_and_the_ladder():
+    """#1128 leanness-3: step-auto-scope.md §3 owns the call, its output and its exit codes, and the
+    script prints the scope type, so step-shape-detect.md keeps the two signals a model judges."""
+    text = _read(SHAPE_REF)
+    assert not text.startswith("---"), "no frontmatter: nothing resolves a helper from it"
+    for gone in ("## Exit Codes", "--manifests-file", "## Output Schema", "## Invocation Contract",
+                 "## Decomposition Thresholds", "| `library-API` | `full-library` |", "Corpora-dependent"):
+        assert gone not in text, gone
+    assert "## Judged Signals" in text and "## Heuristic Ladder" in text
+    rows = [line for line in text.splitlines() if line.startswith("| ") and "signal |" in line]
+    assert len(rows) == 2, rows
+    framework = next(row for row in rows if "`app_or_library:framework_dep` signal |" in row)
+    shape_detect = importlib.util.spec_from_file_location("skf_shape_detect", SHAPE)
+    module = importlib.util.module_from_spec(shape_detect)
+    shape_detect.loader.exec_module(module)
+    assert f"`public-api` over {module._PUBLIC_API_EXPORTS} exports" in framework
+    for row in rows:
+        assert "step-auto-scope.md §4 judges which" in row and "the printed `scope_type`" in row
+    auto = _read(AUTO)
+    assert "Load `references/step-shape-detect.md`: it holds the two judgments §4 makes and the shape ladder." in auto
+    assert "`{scope_type}` ← §3's `scope_type`." in auto
+    assert "When a judgment changes `{shape}`, `{scope_type}` is the type that row gives the chosen case." in auto
+
+
+def test_skill_md_and_the_auto_step_stay_under_their_token_budgets():
+    """#1128 architecture-5 and leanness-4: 3,000 and 9,000 cl100k tokens, held in characters at 3.8
+    a token (this prose measures 3.9 to 4.1), since no tokenizer is among the test dependencies."""
+    assert len(_read(SKILL)) < 11_400
+    assert len(_read(AUTO)) < 34_200
+
+
+def test_the_auto_step_states_each_rule_once():
+    """#1128 leanness-4: no rule restates a section, section 0c is one paragraph, and the narration of
+    what each helper does inside is gone."""
+    auto = _read(AUTO)
+    rules = _section(auto, "## Rules", "## MANDATORY SEQUENCE")
+    assert "exit code 1" not in rules and "exit code 2" not in rules and "Auto-proceed step" not in rules
+    coexistence = _section(auto, "### 0c. Coexistence Detection", "### 1. Load Context")
+    assert "do not re-match" not in coexistence and "```json" not in coexistence
+    assert "**1. Load skill inventory:**" not in coexistence
+    assert "On a non-zero exit or an empty top-level `matches[]`, go on to the route silently." in coexistence
+    assert _section(auto, "### 7. Write Analysis Report", "### 8.").count("N = 1") == 1
+    assert "Classify the repository from the §2 manifest scan and file list:" in auto
+    assert "`{shape, signals, confidence, export_count, package_count, scope_type}`" in auto
+    assert ("A *single* package with a large API surface is **not** a trigger: only a genuine multi-package "
+            "monorepo is.") in auto
+    for gone in ("so members are found without hand-listing", "**Decomposition Thresholds** ladder",
+                 "Shape → Scope Type Mapping", "The helper owns the `tsconfig.json`",
+                 "It keeps the manifest types it classifies"):
+        assert gone not in auto, gone
+    skill = _read(SKILL)
+    for gone in ("Exports come from the ast-grep recipe runner", "`references/` holds prompt content",
+                 "**Shape detection reference:**"):
+        assert gone not in skill, gone
+    generate = _read(GENERATE)
+    assert "**Analyze-Source Summary**" not in generate
+    summary = _section(generate, "### 8. Present Summary", "### 9.")
+    for needle in ("each brief written (or that none was), with its path and its unit's §6 next workflow",
+                   "create-stack-skill to run once their skills exist"):
+        assert needle in summary, needle
+    assert _section(generate, "### 10. Chain to Health Check", None).split("\n\n")[1].startswith(
+        "Delete the run folder, whose payloads the emitter has read")
 
 
 # --------------------------------------------------------------------------
@@ -902,13 +1405,15 @@ def test_a_home_relative_target_is_listed(tmp_path):
     assert (run_dir / "tree.txt").read_bytes().decode("utf-8").split() == ["src/core.py"]
 
 
-def test_each_remote_path_is_fetched_into_its_own_folder():
-    """Two remote project paths never clone into one folder, and a failed fetch halts."""
+def test_the_remote_target_is_fetched_into_the_run_folder():
+    """[auto] takes one target (#1123), fetched into clone-1, the folder §3 and §5 read, and a
+    failed fetch halts naming it."""
     section = _section(_read(AUTO), "### 2. Manifest Scan", "### 3.")
     clone = _one_command(section, "git clone")
-    assert clone.endswith('"{run_dir}/clone-{i}"')
+    assert clone.endswith('"{run_dir}/clone-1"')
     assert '"{run_dir}/clone"' not in section
-    assert 'HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`, path `{path}`)' in section
+    assert ('HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope:2`, '
+            'path `{project_path}`): "{project_path} could not be fetched: {the first stderr line}."') in section
     assert all('"{scan_root}"' in line for line in _fenced(section, "bash")[-1].strip().split("\n"))
 
 
@@ -960,7 +1465,8 @@ def test_the_archive_command_renames_and_never_overwrites(tmp_path):
 def test_continue_resumes_only_unfinished_reports():
     text = _read(CONTINUE)
     for gone in ("already complete", "appears to be complete", "| generate-briefs | health-check |",
-                 "Would you like to start a new analysis?"):
+                 "Would you like to start a new analysis?", "Welcome back", "## Rules", "`existing_skills`",
+                 "`confirmed_units`", "Present Progress Summary"):
         assert gone not in text, gone
     assert "only an unfinished report" in text
     assert "health-check.md" not in text.split("\n---\n", 1)[0], "nothing routes a resume to the health check"
@@ -968,10 +1474,175 @@ def test_continue_resumes_only_unfinished_reports():
     assert "it archives a finished report and one whose `mode` is `'auto'`" in text, "the fallback report resumes"
 
 
+def test_every_report_names_the_run_folder_it_was_made_in():
+    """#1124: a resumed session finds the earlier session's run folder through the report's `run_dir`."""
+    text = _read(INIT)
+    for start, end in (("### 2b. Auto Mode Check", "### 3. Opening Question"),
+                       ("### 6. Create Analysis Report", "### 7.")):
+        [block] = _fenced(_section(text, start, end), "yaml")
+        lines = [line.strip() for line in block.splitlines()]
+        assert lines[lines.index("lastContinued: ''") + 1] == "run_dir: '{run_dir}'", start
+    frontmatter = _read(TEMPLATE).split("\n---\n", 1)[0].splitlines()
+    assert frontmatter[frontmatter.index("lastContinued: ''") + 1] == "run_dir: ''"
+
+
+def test_a_resume_reads_two_keys_and_announces_its_next_step_in_one_line():
+    """#1124 leanness-6: no greeting, progress template or Rules block; section 5 writes the folder the
+    session kept, so a later resume finds it."""
+    text = _read(CONTINUE)
+    assert "### 1." not in text and "### 3." not in text
+    assert "### 4. Determine Next Step" in text
+    read = _section(text, "### 2. Read Progress State", "### 4. Determine Next Step")
+    assert "Read {outputFile}'s frontmatter `stepsCompleted` and `run_dir`:" in read
+    body = text.split("\n---\n", 1)[1]
+    for key in ("project_paths", "project_name", "forge_tier"):
+        assert key not in body, key
+    route = _section(text, "### 5. Update and Route", None)
+    [block] = _fenced(route, "yaml")
+    assert block.strip().split("\n") == ["lastContinued: '{current_date}'", "run_dir: '{run_dir}'"]
+    assert '"**Resuming from {next_step_name}** (last completed: {the last entry of `stepsCompleted`})."' in route
+    assert route.index("Resuming from {next_step_name}") < route.index("{nextStepOptions}")
+
+
+TAKE_OVER_NOTE = "A `run_dir` that holds a double quote, a backtick or a `$` names no run folder"
+
+
+def _continue_shell() -> tuple[str, str, str]:
+    """continue.md section 2, its run-folder check and its take-over line."""
+    read = _section(_read(CONTINUE), "### 2. Read Progress State", "### 4. Determine Next Step")
+    check, take_over = (block.strip() for block in _fenced(read, "bash"))
+    assert TAKE_OVER_NOTE in read
+    return read, check, take_over
+
+
+def _bash(command: str, values: dict) -> subprocess.CompletedProcess:
+    """Fill a documented shell line's `{placeholders}` and run it under bash."""
+    filled = re.sub(r"\{([\w-]+)\}", lambda m: values[m.group(1)], command)
+    return subprocess.run(["bash", "-c", filled], capture_output=True, timeout=60)
+
+
+def _zero_unit_payload() -> dict:
+    """Step 6 section 9's result context for a run that confirmed no unit."""
+    [template] = _fenced(_section(_read(GENERATE), "### 9. End the Run", "### 9b."), "json")
+    filled = template.replace('["{the brief_path of each brief §5 wrote}"]', "[]")
+    filled = filled.replace(', {"type": "brief", "path": "{each brief_path}"}', "")
+    return _fill(filled, VALUES)
+
+
+SCAN_DECISION = 'uv run {emitEnvelopeHelper} record --workflow skf-analyze-source --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"'
+WARNING_RECORD = "uv run {emitEnvelopeHelper} record --run-dir \"{run_dir}\" --warning '<the warning>'"
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
+def test_a_resumed_session_takes_the_earlier_run_folder_over(tmp_path):
+    """#1124: the decision and warning the earlier session recorded reach the resumed run's envelope with
+    this session's warning, and this session's folder is gone, so step 6 section 10 deletes the one folder."""
+    _, check, take_over = _continue_shell()
+    earlier = _run_dir(tmp_path)
+    fresh = earlier.parent / "skf-analyze-source-Fr3sh9Kq"
+    fresh.mkdir()
+    emitter = {"emitEnvelopeHelper": str(EMITTER)}
+    assert SCAN_DECISION in _read(REFS / "scan-project.md")
+    decision = {"gate": "scan-project.scan", "default_action": "C", "taken_action": "C",
+                "reason": "headless: auto-continue past scan results",
+                "evidence": {"project_paths": 1, "boundaries": 2}}
+    (earlier / "decision.json").write_bytes(json.dumps(decision).encode("utf-8"))
+    proc = _run(SCAN_DECISION, {**emitter, "run_dir": str(earlier)})
+    assert proc.returncode == 0, proc.stderr
+    resolver = "customization_resolver_unavailable: no JSON"
+    for folder, warning in ((earlier, "hono: missing key api_surface"), (fresh, resolver)):
+        proc = _run(WARNING_RECORD.replace("<the warning>", warning), {**emitter, "run_dir": str(folder)})
+        assert proc.returncode == 0, proc.stderr
+    (fresh / "resolver-warning.txt").write_bytes(resolver.encode("utf-8"))
+    values = {"project-root": str(tmp_path), "earlier_run_dir": str(earlier), "run_dir": str(fresh)}
+    assert _bash(check, values).returncode == 0, "the earlier session's folder is taken over"
+    proc = _bash(take_over, values)
+    assert proc.returncode == 0, proc.stderr
+    assert not fresh.exists(), "this session's own folder is deleted"
+    assert (earlier / "resolver-warning.txt").read_bytes() == resolver.encode("utf-8")
+    # {run_dir} is now the earlier folder: step 6 section 9 ends the run in it.
+    forge = tmp_path / "forge-data"
+    forge.mkdir()
+    (earlier / "result-context.json").write_bytes(json.dumps(_zero_unit_payload()).encode("utf-8"))
+    proc = _run(EMIT_COMMAND, {**emitter, "run_dir": str(earlier), "forge_data_folder": str(forge)})
+    assert proc.returncode == 0, proc.stderr
+    envelope = _envelope(proc.stdout)
+    assert [d["gate"] for d in envelope["headless_decisions"]] == ["scan-project.scan"]
+    assert envelope["warnings"] == ["hono: missing key api_surface", resolver]
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
+@pytest.mark.parametrize("named", ["missing", "empty", "outside-skf-run", "subfolder", "parent", "other-workflow"])
+def test_a_report_with_no_run_folder_to_take_keeps_the_fresh_one(tmp_path, named):
+    """#1124: a gone, empty or unsafe `run_dir` deletes nothing, and the documented record line puts a
+    `resumed-without-run-folder` warning in the envelope, so the reader knows the earlier entries are lost."""
+    read, check, _ = _continue_shell()
+    earlier = _run_dir(tmp_path)
+    (earlier / "source-1").mkdir()
+    elsewhere = tmp_path / "elsewhere" / "skf-analyze-source-Ab3dE5gH"
+    elsewhere.mkdir(parents=True)
+    other = earlier.parent / "skf-update-skill-Ab3dE5gH"
+    other.mkdir()
+    fresh = earlier.parent / "skf-analyze-source-Fr3sh9Kq"
+    fresh.mkdir()
+    value = {"missing": str(earlier.parent / "skf-analyze-source-G0neG0ne"), "empty": "",
+             "outside-skf-run": str(elsewhere), "subfolder": str(earlier / "source-1"),
+             "parent": f"{earlier}/..", "other-workflow": str(other)}[named]
+    values = {"project-root": str(tmp_path), "earlier_run_dir": value, "run_dir": str(fresh)}
+    assert _bash(check, values).returncode != 0, value
+    for folder in (earlier, earlier / "source-1", elsewhere, other, fresh):
+        assert folder.is_dir(), folder
+    [record] = re.findall(r"`(uv run \{emitEnvelopeHelper\} record [^`]*)`", read)
+    [placeholder] = re.findall(r"<[^<>]+>", record)
+    named_dir = value or "none"
+    proc = _run(record.replace(placeholder, named_dir), {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(fresh)})
+    assert proc.returncode == 0, proc.stderr
+    (fresh / "halt.json").write_bytes(json.dumps(
+        {"phase": "scan-project:2", "reason": "x", "halt_reason": "resolution-failure"}).encode("utf-8"))
+    envelope = _envelope(_run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(fresh)}).stderr)
+    assert envelope["warnings"] == [f"resumed-without-run-folder: {named_dir}: the decisions and warnings "
+                                    "recorded before this session are not in this result"]
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None or shutil.which("git") is None,
+                    reason="needs a POSIX shell and git")
+def test_a_clone_into_a_taken_over_run_folder_replaces_the_copy_left_there(tmp_path):
+    """#1124 review 1: a session cut short after scan-project section 2 (or [D] section 2) made `source-1` and
+    before the step was recorded leaves the copy in its run folder, which the resume takes over. git clone
+    refuses a folder that is not empty, so the resumed clone would halt on every try; it deletes the copy first."""
+    _, check, take_over = _continue_shell()
+    earlier = _run_dir(tmp_path)
+    (earlier / "source-1").mkdir()
+    (earlier / "source-1" / "stale.txt").write_bytes(b"left by the session before\n")
+    fresh = earlier.parent / "skf-analyze-source-Fr3sh9Kq"
+    fresh.mkdir()
+    values = {"project-root": str(tmp_path), "earlier_run_dir": str(earlier), "run_dir": str(fresh)}
+    assert _bash(check, values).returncode == 0, "the earlier session's folder is taken over"
+    proc = _bash(take_over, values)
+    assert proc.returncode == 0, proc.stderr
+    upstream = tmp_path / "upstream"
+    upstream.mkdir()
+    (upstream / "core.py").write_bytes(b"x = 1\n")
+    _git("init", "-q", cwd=upstream)
+    _git("add", "-A", cwd=upstream)
+    _git("-c", "user.email=a@b.c", "-c", "user.name=a", "-c", "commit.gpgsign=false", "commit", "-qm", "one",
+         cwd=upstream)
+    clones = [line.strip() for block in _fenced(_read(SCAN_ROOT), "bash") for line in block.split("\n")
+              if "git clone" in line]
+    [remote] = [line for line in clones if "{clone_url}" in line]
+    # {run_dir} is the earlier folder now: scan-project runs again and clones the path into it.
+    proc = _bash(remote, {"run_dir": str(earlier), "i": "1", "ref_flag": "", "clone_url": upstream.as_uri()})
+    assert proc.returncode == 0, proc.stderr
+    assert not (earlier / "source-1" / "stale.txt").exists(), "the copy left there is gone"
+    assert (earlier / "source-1" / "core.py").read_bytes() == b"x = 1\n"
+    assert len(clones) == 2, clones
+    for line in clones:
+        assert line.startswith('rm -rf "{run_dir}/source-{i}" && git clone '), line
+
+
 def test_the_fallback_to_the_interactive_chain_resets_the_mode():
     branch = _section(_read(AUTO), "- **Exit 1 (unknown shape):**", "- **Exit 2 (error):**")
     assert "Set `mode: 'interactive'`" in branch and "`{auto_mode}` to false" in branch
-    assert "set the report's `mode: 'interactive'` first" in _read(SHAPE_REF)
     # The fallback report still resumes: init archives a mode 'auto' report
     # only, and continue.md routes an unfinished report from its last step.
     assert "init archives an unfinished `'auto'` report" in branch
@@ -1039,9 +1710,8 @@ def test_the_per_boundary_brief_rules_are_stated_once():
 # --------------------------------------------------------------------------
 
 GRAPH_STEPS = (
-    pytest.param(MAP, "{source_root}", "<one entry per qualifying unit under {source_root}>", "imports-1.json",
-                 id="map-and-detect"),
-    pytest.param(DISCOVER, "{scan_root}", "<one entry per new unit that is not deferred>", "discover-1-imports.json",
+    pytest.param(MAP, "{source_root}", "units-1.json", "imports-1.json", id="map-and-detect"),
+    pytest.param(DISCOVER, "{scan_root}", "discover-1-units.json", "discover-1-imports.json",
                  id="discover-additional-source"),
 )
 
@@ -1055,11 +1725,17 @@ def _graph_block(path: Path) -> str:
 def test_the_import_graph_is_read_through_the_summary(path, root, units, imports):
     """The import envelope is kept in the run folder, never printed whole: the step reads the summary line."""
     block = _graph_block(path)
-    for gone in ("mktemp", "trap ", "$work", "cat \""):
+    for gone in ("mktemp", "trap ", "$work", "cat ", "SKF_UNITS"):
         assert gone not in block, gone
-    [summary] = [line for line in block.split("\n") if "{countImportsHelper} summary" in line]
-    assert summary == (f'uv run {{countImportsHelper}} summary "{{run_dir}}/{imports.replace("1", "{i}", 1)}" '
-                       '--manifests "{run_dir}/manifests-{i}.json"')
+    imports = imports.replace("1", "{i}", 1)
+    first = block.strip().split("\n")[0]
+    assert first == ('uv run {countImportsHelper} units-from --units-file "{unitsFile}" --project-path '
+                     f'"{{project_path}}" > "{{run_dir}}/{units.replace("1", "{i}", 1)}"')
+    summaries = [line for line in block.split("\n") if "{countImportsHelper} summary" in line]
+    assert summaries == [
+        f'uv run {{countImportsHelper}} summary "{{run_dir}}/{imports}" --manifests "{{run_dir}}/manifests-{{i}}.json"',
+        f'uv run {{countImportsHelper}} summary "{{run_dir}}/{imports}" --format markdown',
+    ]
     for line in block.strip().split("\n"):
         if line.startswith("uv run {countImportsHelper} count"):
             assert f'count "{root}"' in line and " > " in line, line
@@ -1071,8 +1747,9 @@ def test_the_import_graph_is_read_through_the_summary(path, root, units, imports
 @pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
 @pytest.mark.parametrize("path, root, units, imports", GRAPH_STEPS)
 def test_the_documented_graph_block_prints_only_the_summary(tmp_path, path, root, units, imports):
-    """The block, run as documented on two packages that import each other: the summary line, the cycle and
-    the pairs reach the step, and the import envelope stays in its file."""
+    """The block, run as documented on two packages that import each other: the units JSON comes from the
+    units file (its deferred unit left out), the summary line, the matrix, the cycle and the pairs reach the
+    step, and the import envelope stays in its file."""
     source = tmp_path / "mono"
     files = {
         "package.json": b'{"name": "acme", "private": true, "workspaces": ["packages/*"]}\n',
@@ -1089,13 +1766,19 @@ def test_the_documented_graph_block_prints_only_the_summary(tmp_path, path, root
                           capture_output=True, timeout=60)
     assert scan.returncode == 0, scan.stderr
     (run_dir / "manifests-1.json").write_bytes(scan.stdout)
-    entries = [{"name": name, "path": f"packages/{name}", "manifest_name": f"@acme/{name}", "ecosystem": "npm"}
-               for name in ("a", "b")]
-    script = _graph_block(path).replace(f"[{units}]", json.dumps(entries)).replace(root, source.as_posix())
+    units_file = tmp_path / "forge" / "analyze-source-units-mono.json"
+    units_file.parent.mkdir(parents=True)
+    units_file.write_bytes(json.dumps({"units": [
+        {"name": name, "project_path": "https://github.com/acme/mono", "path": f"packages/{name}", "status": status,
+         "manifest": {"path": f"packages/{name}/package.json", "ecosystem": "npm", "name": f"@acme/{name}",
+                      "private": False}}
+        for name, status in (("a", "new"), ("b", "briefed"), ("c", "deferred"))], "dropped": []}).encode("utf-8"))
+    script = _graph_block(path).replace(root, source.as_posix())
     helpers = {"countImportsHelper": "skf-count-imports.py", "findCyclesHelper": "skf-find-cycles.py",
                "pairIntersectHelper": "skf-pair-intersect.py"}
     for placeholder, name in helpers.items():
         script = script.replace(f"uv run {{{placeholder}}}", f'"{sys.executable}" "{SCRIPTS / name}"')
+    script = script.replace("{unitsFile}", units_file.as_posix()).replace("{project_path}", "https://github.com/acme/mono/")
     script = script.replace("{run_dir}", run_dir.as_posix()).replace("{i}", "1")
     assert not re.findall(r"\{[A-Za-z_]+\}", script), script
     proc = subprocess.run(["bash", "-c", script], capture_output=True, timeout=120)
@@ -1106,6 +1789,11 @@ def test_the_documented_graph_block_prints_only_the_summary(tmp_path, path, root
     assert [(u["name"], u["imports_from"], u["external_dep_count"]) for u in summary["units"]] == \
         [("a", ["b"], 1), ("b", ["a"], 0)]
     assert {m["name"]: m["internal_deps"] for m in summary["manifests"]}["@acme/a"] == ["@acme/b"]
+    assert [u["name"] for u in json.loads((run_dir / units).read_text(encoding="utf-8"))["units"]] == ["a", "b"]
+    lines = out.splitlines()
+    matrix = lines[lines.index("**Cross-reference matrix:**"):]
+    assert matrix[2:6] == ["| Unit | Imports From | Imported By | Import Sites | External Deps |",
+                           "|---|---|---|---|---|", "| a | b | b | 1 | 1 |", "| b | a | a | 1 | -- |"]
     assert '"dependencies"' not in out and '"import_names"' not in out, "the envelope stays in its file"
     assert '"cycles"' in out and '"pairs"' in out
     assert "dependencies" in json.loads((run_dir / imports).read_text(encoding="utf-8"))
@@ -1122,7 +1810,7 @@ def test_every_warning_a_step_raises_goes_to_the_run_sink(tmp_path):
     for path in [SKILL, *STEP_FILES]:
         assert "workflow_warnings" not in _read(path), path.name
     text = _read(REFS / "map-unit-exports.md")  # map-and-detect and [D] map units through it
-    assert "returns that path" in text and "pass it `{run_dir}`" in text
+    assert "returns only that file's path" in text and "pass it that path and the `to_read` list" in text
     assert "Save each subagent's reply as it came" not in text
     record = next(line.strip("` ") for line in re.findall(r"`uv run \{emitEnvelopeHelper\} record [^`]*`", text))
     assert record == "uv run {emitEnvelopeHelper} record --run-dir \"{run_dir}\" --warning '<the warning>'"
@@ -1136,6 +1824,156 @@ def test_every_warning_a_step_raises_goes_to_the_run_sink(tmp_path):
         {"phase": "map-and-detect:3", "reason": "x", "halt_reason": "resolution-failure"}).encode("utf-8"))
     envelope = _envelope(_run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)}).stderr)
     assert envelope["warnings"] == [warning]
+
+
+UNIT_EXPORTS = REFS / "map-unit-exports.md"
+HEURISTICS = REFS / "unit-detection-heuristics.md"
+
+
+def _record_lines() -> tuple[str, str]:
+    """map-unit-exports.md section 2's two lines: (the parser's, the recipe runner's)."""
+    lines = [line for block in _fenced(_read(UNIT_EXPORTS), "bash") for line in block.split("\n")
+             if "{checkUnitRecordsHelper} from-extract" in line]
+    [parser_line] = [line for line in lines if "--mode quick" in line]
+    [recipe_line] = [line for line in lines if "--mode full" in line]
+    return parser_line, recipe_line
+
+
+def test_each_record_is_written_from_the_extractors_output():
+    """#1125 determinism-2 and -5: the parent runs the extraction and from-extract as one line per unit,
+    a Java, Kotlin or Swift unit through the parser over every source file."""
+    parser_line, recipe_line = _record_lines()
+    # Each line makes the folder its extraction writes to, so the line runs as it stands.
+    assert parser_line.startswith('mkdir -p "{run_dir}/extract" && uv run {extractPublicApiHelper} --mode quick '
+                                  '--language {language} --source-root "{unit_root}" --all-sources '
+                                  '> "{run_dir}/extract/{unit_name}.json"; ')
+    assert recipe_line.startswith('mkdir -p "{run_dir}/extract" && uv run {extractPublicApiHelper} --mode full '
+                                  '--source-root "{unit_root}" --scope-type {unit_scope_type} --tier {forge_tier} '
+                                  '-o "{run_dir}/extract/{unit_name}.json"; ')
+    for line in (parser_line, recipe_line):
+        assert '--exit-code $? --unit-name "{unit_name}" --files-count {files_count} --language {language}' in line
+    text = _read(UNIT_EXPORTS)
+    assert "Java, Kotlin, Swift, C#" not in text
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
+def test_the_documented_parser_line_and_check_give_a_java_unit_its_parser_record(tmp_path):
+    """The parser line, run as documented on a Java unit, then the section 4 check: a parser record with
+    the two main classes, nothing left to read and no problem; the test classes stay out."""
+    unit_root = tmp_path / "mono" / "services" / "billing"
+    for rel, data in {"pom.xml": b"<project><groupId>com.acme</groupId></project>\n",
+                      "src/main/java/com/acme/Api.java": b"package com.acme;\npublic class Api {}\n",
+                      "src/main/java/com/acme/Store.java": b"package com.acme;\npublic interface Store {}\n",
+                      "src/test/java/com/acme/ApiTest.java": b"package com.acme;\npublic class ApiTest {}\n"}.items():
+        (unit_root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (unit_root / rel).write_bytes(data)
+    run_dir = _run_dir(tmp_path)
+    parser_line, _ = _record_lines()
+    values = {"extractPublicApiHelper": SCRIPTS / "skf-extract-public-api.py",
+              "checkUnitRecordsHelper": SCRIPTS / "skf-check-unit-records.py",
+              "language": "java", "unit_root": unit_root.as_posix(), "run_dir": run_dir.as_posix(),
+              "unit_name": "billing", "files_count": "4"}
+    script = parser_line.replace("uv run ", f"{shlex.quote(sys.executable)} ")
+    for key, value in values.items():
+        script = script.replace(f"{{{key}}}", str(value))
+    assert not re.findall(r"\{[A-Za-z_]+\}", script), script
+    assert not (run_dir / "extract").exists(), "the line makes the folder itself"
+    proc = subprocess.run(["bash", "-c", script], capture_output=True, timeout=120)
+    assert proc.returncode == 0, proc.stderr
+    line = json.loads(proc.stdout.decode("utf-8"))
+    assert (line["strategy_used"], line["exports_count"], line["to_read"]) == ("parser", 2, [])
+    check = _one_command(_read(UNIT_EXPORTS), "{checkUnitRecordsHelper} --dir")
+    checked = _run(check, {"checkUnitRecordsHelper": str(SCRIPTS / "skf-check-unit-records.py"),
+                           "run_dir": str(run_dir)})
+    assert checked.returncode == 0, checked.stderr
+    out = json.loads(checked.stdout)
+    assert (out["problems"], out["unreadable"], out["warnings"]) == ([], [], [])
+    [record] = out["records"]
+    assert (record["unit_name"], record["files_count"], record["strategy_used"], record["confidence"]) == (
+        "billing", 4, "parser", "T1")
+    assert (record["api_surface"], record["export_pattern"]) == (["Api", "Store"], "parser: class 1, interface 1")
+
+
+# A TypeScript unit whose entry point names two functions, passes on a module as a namespace and declares
+# a name in a form no recipe matches (a destructuring export): an extraction gap.
+TS_UNIT = {
+    "package.json": b'{"name": "@acme/auth", "exports": {".": "./src/index.ts"}}\n',
+    "src/index.ts": b'export { login, logout } from "./session";\nexport * as ns from "./ns";\n'
+                    b'export const { refresh } = make();\n',
+    "src/session.ts": b"export function login(): void {}\nexport function logout(): void {}\n",
+    "src/ns.ts": b"export function a(): void {}\nexport function b(): void {}\n",
+}
+
+
+def _run_recipe_line(tmp_path: Path, env: dict | None = None) -> tuple[dict, dict]:
+    """map-unit-exports.md section 2's recipe line, run as documented on TS_UNIT: (the printed line,
+    the record written)."""
+    unit_root = tmp_path / "mono" / "packages" / "auth"
+    for rel, data in TS_UNIT.items():
+        (unit_root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (unit_root / rel).write_bytes(data)
+    run_dir = _run_dir(tmp_path)
+    _, recipe_line = _record_lines()
+    values = {"extractPublicApiHelper": SCRIPTS / "skf-extract-public-api.py",
+              "checkUnitRecordsHelper": SCRIPTS / "skf-check-unit-records.py",
+              "language": "typescript", "unit_root": unit_root.as_posix(), "run_dir": run_dir.as_posix(),
+              "unit_name": "auth", "files_count": "4", "unit_scope_type": "full-library", "forge_tier": "Forge"}
+    script = recipe_line.replace("uv run ", f"{shlex.quote(sys.executable)} ")
+    for key, value in values.items():
+        script = script.replace(f"{{{key}}}", str(value))
+    assert not re.findall(r"\{[A-Za-z_]+\}", script), script
+    proc = subprocess.run(["bash", "-c", script], capture_output=True, timeout=300, env=env)
+    assert proc.returncode == 0, proc.stderr
+    line = json.loads(proc.stdout.decode("utf-8"))
+    return line, json.loads(Path(line["record"]).read_text(encoding="utf-8"))
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
+@pytest.mark.skipif(shutil.which("ast-grep") is None, reason="no ast-grep on PATH")
+def test_the_documented_recipe_line_gives_a_typescript_unit_its_record(tmp_path):
+    """#1125: the recipe line on a real --mode full run, not a hand-written output: the namespace's members
+    and the gap are in api_surface, and only the gap is left to read."""
+    line, record = _run_recipe_line(tmp_path)
+    assert (line["strategy_used"], line["exports_count"]) == ("ast-grep", 5)
+    assert line["to_read"] == [{"why": "extraction-gap", "name": "refresh", "file": "src/index.ts", "line": 3}]
+    assert (record["strategy_used"], record["confidence"]) == ("ast-grep", "T1")
+    assert record["api_surface"] == ["login", "logout", "a", "b", "refresh"]
+    assert record["export_pattern"].startswith("barrel: function 4")
+    assert record["warnings"] == ["extraction gap: refresh at src/index.ts:3"]
+
+
+@pytest.mark.skipif(os.name == "nt" or shutil.which("bash") is None, reason="needs a POSIX shell")
+def test_the_documented_recipe_line_without_ast_grep_leaves_the_entry_point_to_read(tmp_path):
+    """#1125: with no ast-grep on PATH the run exits 3 and still writes its output, so the record is
+    source-read with the run's warning, and the entry point it listed is what is left to read."""
+    path = os.pathsep.join(d for d in os.environ.get("PATH", "").split(os.pathsep)
+                           if d and not os.access(os.path.join(d, "ast-grep"), os.X_OK))
+    line, record = _run_recipe_line(tmp_path, env={**os.environ, "PATH": path})
+    assert (line["strategy_used"], line["exports_count"]) == ("source-read", 0)
+    assert line["to_read"] == [{"why": "entry-point", "file": "src/index.ts"}]
+    assert (record["confidence"], record["api_surface"]) == ("T1-low", [])
+    assert any("ast-grep is not on PATH" in warning for warning in record["warnings"]), record["warnings"]
+
+
+def test_step_e_counts_the_demo_files_and_scores_the_registry():
+    """#1125 determinism-6: identify-units resolves skf-detect-registry.py and runs both subcommands per kept
+    unit, and the heuristics name their outputs as the component-library tests."""
+    text = _read(IDENTIFY)
+    assert "detectRegistryProbeOrder:\n  - '{project-root}/_bmad/skf/shared/scripts/skf-detect-registry.py'\n" \
+        "  - '{project-root}/src/shared/scripts/skf-detect-registry.py'" in text.split("\n---\n", 1)[0]
+    step_e = _section(text, "**Step E: Classify boundary type**", "### 3. Build Unit Classification Table")
+    assert _one_command(step_e, "{detectRegistryHelper} demo") == \
+        'uv run {detectRegistryHelper} demo --files-from "{the unit\'s tree_file}"'
+    assert _one_command(step_e, "{detectRegistryHelper} registry") == \
+        'uv run {detectRegistryHelper} registry --files-from "{the unit\'s tree_file}" --source-root "{scan_root}"'
+    heuristics = _section(_read(HEURISTICS), "### Component Library Boundary", "### Composite Boundary")
+    registry = next(line for line in heuristics.splitlines() if "registry or catalog file" in line)
+    for needle in ("`skf-detect-registry.py registry`", "`qualifies`", "Judge only whether it is the registry",
+                   "`selected` when `headless_accept` is true",
+                   "no registry when it is false, as create-skill's registry gate does"):
+        assert needle in registry, needle
+    demo = next(line for line in heuristics.splitlines() if "demo/story/example" in line)
+    assert "`skf-detect-registry.py demo`'s `excluded` over 30% of its `files_listed`" in demo
 
 
 def test_the_language_rules_are_stated_once():
@@ -1183,6 +2021,9 @@ PROMPTS_OFF = b"fatal: could not read Username for 'https://codeberg.org': termi
 HALTS = {"repository": f"{PAGE_ADDRESS} is a git repository: {REMEDY}.",
          "credentials": f"{PAGE_ADDRESS} {CREDENTIALS}.",
          "unanswered": f"{PAGE_ADDRESS} {UNANSWERED}."}
+# A browser page of that repository, which git reads only at its `.git` clone URL (#1123).
+BROWSER_PAGE = f"{PAGE_ADDRESS}/src/branch/forgejo"
+PAGE_HALT = f"{BROWSER_PAGE} is a page of the git repository {PAGE_ADDRESS}.git: rerun with that clone URL."
 
 
 @pytest.mark.parametrize("path", [AUTO, SCAN_ROOT], ids=["step-auto-scope", "scan-root"])
@@ -1220,15 +2061,43 @@ def test_both_call_sites_probe_the_page_address_with_git(path, exit_code, stderr
     out = json.loads(capsys.readouterr().out)
     assert (out["kind"], out["name"], out["clone_url"], out["git_probe"], out["halt_message"]) == (
         "docs", "codeberg-org", None, verdict, HALTS.get(verdict))
+    assert out["clone_hint"] is None
     assert calls == [["git", "ls-remote", "--exit-code", "--heads", PAGE_ADDRESS]]
 
 
-@pytest.mark.parametrize("verdict", sorted(HALTS))
+@pytest.mark.parametrize("path", [AUTO, SCAN_ROOT], ids=["step-auto-scope", "scan-root"])
+def test_both_call_sites_name_the_repository_behind_a_browser_page(path, monkeypatch, capsys):
+    """#1123 determinism-1: a Codeberg branch page, which git cannot read at its address, gives
+    the documented call the `.git` clone URL git reads at a shorter part of it, and the message a
+    run stops with names it; before, the page went docs-only and an [auto] run reported success."""
+    [call] = [line for block in _fenced(_read(path), "bash") for line in block.split("\n")
+              if " derive-name --target " in line]
+    argv = _argv(call, {"skillInventoryHelper": INVENTORY.as_posix(), "project_path": BROWSER_PAGE,
+                        "path": BROWSER_PAGE})
+    inventory, calls = _inventory(), []
+
+    def git(cmd, **kwargs):
+        calls.append(cmd[-1])
+        if cmd[-1] == f"{PAGE_ADDRESS}.git":
+            return subprocess.CompletedProcess(cmd, 0)
+        kwargs["stderr"].write(b"fatal: repository not found\n")
+        return subprocess.CompletedProcess(cmd, 128)
+
+    monkeypatch.setattr(inventory.subprocess, "run", git)
+    assert inventory._main_derive_name(argv[3:]) == 0
+    out = json.loads(capsys.readouterr().out)
+    assert (out["kind"], out["name"], out["clone_url"], out["git_probe"], out["clone_hint"], out["halt_message"]) == (
+        "docs", "codeberg-org", None, "repository-page", f"{PAGE_ADDRESS}.git", PAGE_HALT)
+    assert calls == [BROWSER_PAGE, f"{PAGE_ADDRESS}/src/branch.git", f"{PAGE_ADDRESS}/src.git", f"{PAGE_ADDRESS}.git"]
+
+
+@pytest.mark.parametrize("verdict", [*sorted(HALTS), "repository-page"])
 def test_section_0_halts_with_the_helpers_message_before_any_docs_only_work(tmp_path, verdict):
     """The [auto] path halts in section 0 with the message the helper gives, before coexistence
     (section 0c) can offer a merge into an unrelated skill named after the same host, and before
-    the docs-only branch can write a brief; section 2 halts the same way for every other path
-    (gate run 7 fix round 8). The step-by-step chain's scan root fails with the same message."""
+    the docs-only branch can write a brief; a repository browser page halts the same way (#1123).
+    [auto] takes one target, so section 2 probes no other path (#1123). The step-by-step chain's
+    scan root fails with the same message."""
     auto = _read(AUTO)
     [row] = [line for line in auto.splitlines() if line.startswith("| `docs` | Documentation URL |")]
     assert row == ('| `docs` | Documentation URL | HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, '
@@ -1239,27 +2108,33 @@ def test_section_0_halts_with_the_helpers_message_before_any_docs_only_work(tmp_
     coexistence = _section(auto, "### 0c. Coexistence Detection", "### 1. Load Context")
     assert ("then goes on to its **route**: load, read fully, then execute `references/auto-docs-only.md` for a "
             "documentation URL, §1 for every other kind.") in coexistence
-    assert coexistence.count("go on to the route") == 2 and coexistence.count("goes on to the route") == 1
+    assert coexistence.count("go on to the route") == 1 and coexistence.count("goes on to the route") == 1
     assert coexistence.count("auto-docs-only.md") == 1
-    # Every other project path halts the same way, under section 2's phase and with its own address.
-    manifest_scan = _section(auto, "### 2. Manifest Scan", "**For each path in `project_paths[]`:**")
-    assert ("§0's `derive-name --target` call gives them for any other path, and its `halt_message` halts the run "
-            "as in §0, with phase `step-auto-scope:2` and that path as `{project_path}`.") in manifest_scan
-    # The docs-only branch holds no halt of its own on git's verdict any more.
+    # [auto] takes one target (#1123): section 0 classifies it, and section 2 classifies no other path.
+    assert ("The helper classifies `{project_path}`, the one entry of `project_paths[]` (init halts an `[auto]` "
+            "run given several):") in auto
+    assert "the first of `project_paths[]`" not in auto
+    manifest_scan = _section(auto, "### 2. Manifest Scan", "### 3.")
+    assert "how you point it at the target depends on the `{kind}` §0 gave:" in manifest_scan
+    for gone in ("{i}", "derive-name", "For each path", "any other path", "as in §0"):
+        assert gone not in manifest_scan, gone
+    # The docs-only branch holds no halt of its own on git's verdict any more, and no step restates
+    # the helper's messages.
     for path in (AUTO, DOCS, SCAN_ROOT):
         text = _read(path)
-        for gone in ("git_repository", "git_credentials", "asks for credentials", "is a git repository"):
+        for gone in ("git_repository", "git_credentials", "asks for credentials", "is a git repository",
+                     "is a page of the git repository"):
             assert gone not in text, (path.name, gone)
-    for phase in ("step-auto-scope:0", "step-auto-scope:2"):
-        run_dir = _run_dir(tmp_path / phase.replace(":", "-"))
-        (run_dir / "halt.json").write_bytes(json.dumps(
-            {"phase": phase, "reason": HALTS[verdict], "halt_reason": "resolution-failure", "mode": "auto",
-             "path": PAGE_ADDRESS}).encode("utf-8"))
-        proc = _run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
-        assert proc.returncode == 0, proc.stderr
-        envelope = _envelope(proc.stderr)
-        assert (envelope["halt_reason"], envelope["exit_code"]) == ("resolution-failure", 3)
-        assert envelope["error"] == {"phase": phase, "reason": HALTS[verdict], "path": PAGE_ADDRESS}
+    target, reason = (BROWSER_PAGE, PAGE_HALT) if verdict == "repository-page" else (PAGE_ADDRESS, HALTS[verdict])
+    run_dir = _run_dir(tmp_path)
+    (run_dir / "halt.json").write_bytes(json.dumps(
+        {"phase": "step-auto-scope:0", "reason": reason, "halt_reason": "resolution-failure", "mode": "auto",
+         "path": target}).encode("utf-8"))
+    proc = _run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    envelope = _envelope(proc.stderr)
+    assert (envelope["halt_reason"], envelope["exit_code"]) == ("resolution-failure", 3)
+    assert envelope["error"] == {"phase": "step-auto-scope:0", "reason": reason, "path": target}
     docs = _section(_read(SCAN_ROOT), "- **A documentation URL**", "When a command fails")
     assert ("Treat it as a command that failed with its `halt_message` as the first stderr line when it gives one "
             "(the message the [auto] path halts with), else with \"{path} is a documentation URL: run the analysis "
@@ -1267,33 +2142,173 @@ def test_section_0_halts_with_the_helpers_message_before_any_docs_only_work(tmp_
 
 
 def test_the_contract_and_the_guide_say_which_addresses_are_a_repository():
-    """An address git reads as a repository stops the run; a repository browser page git cannot
-    read at its address is still documentation, and both texts say to give its clone URL (gate
-    run 7 fix round 8: SKF reads no browser page for the clone URL it advertises)."""
+    """An address git reads as a repository stops the run; so does a repository browser page whose
+    repository git reads at the `.git` clone URL of a shorter part of its address that keeps at
+    least owner/repo, or at a Bitbucket Data Center /scm/ address, and the run names that clone URL
+    (#1123). A page whose repository git finds neither way (a repository one folder below the host,
+    or one git reads only without `.git`, among them), or does not reach in the 20 s the address and
+    its shorter parts share, is still documentation, and the texts say to give its clone URL (gate
+    run 7 fix round 8, #1123 reviews 1 and 2: no text promises a stop the helper never makes). An http:// address is never told to drop https://, which SKF puts back (#1123
+    round8-2). A project wiki page is documentation, which the texts say too (#1123 lane review)."""
     [row3] = [line for line in _read(HEADLESS).splitlines() if line.startswith("| 3 ")]
     for site in ("step 1a §0 (a documentation URL that git reads as a repository, which on most hosts is the "
                  "repository's main page, one whose server asks for credentials, or one that gives git no answer "
-                 "in 20 s: rerun with its `.git` clone URL, its address without https:// or its SSH address, or a "
-                 "documentation URL that answers; a repository browser page git cannot read at that address, such "
-                 "as a Bitbucket Data Center `/projects/<p>/repos/<r>` page, a SourceForge or Launchpad code page "
-                 "or a link to a file or folder inside a repository, is still read as documentation, so give its "
-                 "clone URL)",
+                 "in 20 s: rerun with its `.git` clone URL, its address without https:// (an https address only) "
+                 "or its SSH address, or a documentation URL that answers; a repository browser page whose "
+                 "repository git reads at the `.git` clone URL of a shorter part of its address that keeps at "
+                 "least `owner/repo`, such as a Codeberg `/src/branch/...` or GitLab `/-/tree/...` link or a link "
+                 "to a file or folder inside a repository, or a Bitbucket Data Center `/projects/<p>/repos/<r>` "
+                 "page, whose repository git reads at `/scm/<p>/<r>.git`: rerun with the clone URL the message "
+                 "names; a page whose repository git finds neither way, such as a SourceForge or Launchpad code "
+                 "page, a page of a repository one folder below the host or of one git reads only without `.git`, "
+                 "is still read as documentation, and so is one whose repository git does not reach within the "
+                 "20 s the address and its shorter parts share, so give its clone URL; a project wiki page "
+                 "(`/wiki/...` or `/wikis/...` after `owner/repo`, or GitLab's `/-/wikis/...`) is read as "
+                 "documentation)",
                  "step 1a §0a (docs-only URL unreachable);",
-                 "another path halts as in §0"):
+                 "step 1a §2 (the remote target cannot be fetched, or its files cannot be listed);"):
         assert site in row3, site
-    [doc_url] = [line for line in _read(REPO / "docs" / "forge-auto.md").splitlines()
-                 if line.startswith("- **Doc URL**")]
-    fragment = yaml.safe_load(_read(REPO / "changes" / "analyze-source-git-url-any-host.yaml"))["summary"]
-    for text in (doc_url, fragment):
-        for claim in ("which on most hosts", "the repository's main page", "asks for credentials",
-                      "gets no answer from the address in 20 seconds", "a documentation URL that answers",
-                      "Bitbucket Data Center `/projects/<p>/repos/<r>` page", "SourceForge or Launchpad code page",
-                      "a link to a file or folder inside a repository"):
+    assert "another path halts as in §0" not in row3
+    guide = _read(REPO / "docs" / "forge-auto.md").splitlines()
+    [repo_url] = [line for line in guide if line.startswith("- **Repo URL**")]
+    assert "its address without `https://` (on a server that takes https) or its SSH address" in repo_url
+    [doc_url] = [line for line in guide if line.startswith("- **Doc URL**")]
+    for claim in ("stops in four cases", "which on most hosts", "the repository's main page", "asks for credentials",
+                  "gets no answer from the address in 20 seconds", "a documentation URL that answers",
+                  "(for an `http://` address, its `.git` clone URL with `http://`, or its SSH address)",
+                  "When git cannot read the address but reads a repository at the `.git` clone URL of a shorter "
+                  "part of it that keeps at least `owner/repo`, as for a Codeberg",
+                  "SKF stops and names that clone URL.",
+                  "A repository page whose repository git finds neither way, such as a SourceForge or Launchpad code "
+                  "page, a page of a repository one folder below the host (`https://git.example.com/<repo>/tree/...`) "
+                  "or of one git reads only without `.git` (a sourcehut page), is still read as documentation: give "
+                  "its clone URL instead.",
+                  # The address and every shorter part share one budget (#1123 review 2).
+                  "The address and the shorter parts SKF tries share one 20-second limit, so a long link on a slow "
+                  "server can run out of time before its repository is found and is then read as documentation too.",
+                  # A wiki is documentation, though its repository answers git (#1123 lane review).
+                  "A project wiki page (`/wiki/...` or `/wikis/...` after `owner/repo`, or a GitLab `/-/wikis/...` "
+                  "page) is read as documentation too, so a wiki still makes a docs-only skill.",
+                  "Without git installed, SKF reads the address as documentation and warns"):
+        assert claim in doc_url, claim
+    fragment = yaml.safe_load(_read(REPO / "changes" / "analyze-source-repository-page-clone-url.yaml"))
+    assert (fragment["type"], fragment["scope"], fragment["issues"]) == ("breaking", "skf-analyze-source", [1123])
+    assert fragment["migration"].strip() == "Rerun with the clone URL the message names."
+    for claim in ("Codeberg `/src/branch/...`", "GitLab `/-/tree/...`", "a link to a file or folder inside a repository",
+                  "Bitbucket Data Center `/projects/<p>/repos/<r>` page", "`/scm/<p>/<r>.git`",
+                  "that keeps at least `owner/repo`", "SourceForge or Launchpad code page",
+                  "a page of a repository one folder below the host", "of one git reads only without `.git`",
+                  "is still read as documentation"):
+        for text in (row3, doc_url, fragment["summary"]):
             assert claim in text, claim
-    assert ("A repository browser page that git cannot read at its address is still read as documentation: "
-            "a Bitbucket Data Center") in doc_url and "inside a repository. Give its clone URL instead." in doc_url
-    assert "is still read as documentation: give its clone URL." in fragment
-    assert "Without git installed, SKF reads the address as documentation and warns" in doc_url
+    assert ("names the repository's `.git` clone URL when git reads the repository at a shorter part of the "
+            "address that keeps at least `owner/repo` (given with `.git`) or, for Bitbucket Data Center, at its "
+            "`/scm/<p>/<r>.git` address.") in fragment["summary"]
+    assert ("So is a page whose repository git does not reach within the 20 seconds the address and the shorter "
+            "parts tried share, and so is a project wiki page (a `/wiki/` or `/wikis/` page after `owner/repo`, or "
+            "a GitLab `/-/wikis/` page), which git is not asked about past its own address, so a wiki still makes a "
+            "docs-only brief.") in fragment["summary"]
+    for text in (row3, doc_url, fragment["summary"]):
+        assert "reads a repository at a shorter part" not in text and "at a shorter part of its address," not in text
+    assert "`.git` clone URL with `http://`" in fragment["summary"] and "exit `3`" in fragment["summary"]
+
+
+# The flags of an [auto] call init section 2b halts on, and the halt each gets (#1123).
+AUTO_CALLS = [
+    pytest.param({"--project-path": "https://docs.example.com/guide,https://github.com/acme/mono"}, "paths",
+                 id="docs-first"),
+    pytest.param({"--project-path": "https://github.com/acme/mono,https://docs.example.com/guide"}, "paths",
+                 id="docs-later"),
+    pytest.param({"--project-path": "acme/mono", "--target-ref": "v1.2.0"}, "refs", id="target-ref"),
+    pytest.param({"--project-path": "acme/mono", "--target-refs": "acme/mono:v1"}, "refs", id="target-refs"),
+    pytest.param({"--project-path": "acme/mono,"}, None, id="trailing-comma"),
+]
+
+
+@pytest.mark.parametrize(("flags", "halt"), AUTO_CALLS)
+def test_an_auto_call_given_several_paths_or_a_ref_flag_halts_in_init(tmp_path, flags, halt):
+    """#1123 architecture-2 and round8-1: [auto] analyzes one target and pins it with --pin, so a
+    call naming several project paths, a documentation URL first or later among them, or passing
+    --target-ref or --target-refs halts in init section 2b with exit 2, before the report is
+    created and step 1a loads. Before, it analyzed the first path alone, dropped the others and
+    the ref, and reported success. An empty entry a trailing comma leaves is not a path."""
+    init = _read(INIT)
+    section = _section(init, "### 2b. Auto Mode Check", "### 3.")
+    [item] = [line for line in section.splitlines() if line.startswith("1. **Resolve project path:**")]
+    sites = [(m.group(1), m.group(2), m.group(4), re.match(r'\): "([^"]+)"', item[m.end():]).group(1))
+             for m in HALT_SITE.finditer(item)]
+    assert [site[:3] for site in sites] == [("2", "input-missing", "init:2b")] * 3, sites
+    no_path, several, refs = (site[3] for site in sites)
+    assert no_path == "**Auto mode requires `--project-path`: no project path available.**"
+    assert several == ("**Auto mode analyzes one target, and `--project-path` names {N}.** Run `[auto]` once "
+                       "for each, or analyze them together without `[auto]`.")
+    # --pin takes a GitHub repository's tag or branch only (skf-validate-pins.py), so every other
+    # target is sent to the step-by-step chain, which reads it at --target-ref (#1123 review 1).
+    assert refs == ("**Auto mode pins with `--pin`, not `--target-ref` or `--target-refs`.** Pass a GitHub "
+                    "repository's tag or branch as `--pin <ref>`; to read another repository or a local path at a "
+                    "ref, analyze it without `[auto]`, with `--target-ref`.")
+    # The count halt reads project_paths[], so it holds whether init split --project-path or took
+    # the list a continuation left, and a value of empty entries alone is no path (#1123 review 1).
+    assert ("set `project_paths[]` from it (comma-split if multiple; an empty entry, as a trailing comma leaves, "
+            "is dropped). If `project_paths[]` is still empty, HARD HALT") in item
+    assert "When `project_paths[]` holds more than one path, `{N}` of them, HARD HALT" in item
+    assert "the split gives" not in item and "If neither is available" not in item
+    assert "When `--target-ref` or `--target-refs` was passed" in item
+    # Both halts come before the report is created and before the route to step 1a.
+    assert (section.index(item) < section.index("**Create the analysis report**")
+            < section.index("execute `references/step-auto-scope.md`"))
+    # The split, as the prose says: comma-separated, an empty entry dropped.
+    paths = [entry.strip() for entry in flags["--project-path"].split(",") if entry.strip()]
+    if halt is None:
+        assert paths == ["acme/mono"], "one target: the run goes on"
+        return
+    message = {"paths": several.replace("{N}", str(len(paths))), "refs": refs}[halt]
+    assert (len(paths) > 1) == (halt == "paths")
+    assert ("--target-ref" in flags or "--target-refs" in flags) == (halt == "refs")
+    [template] = re.findall(r"stage `\{run_dir\}/halt\.json` as `(\{[^`]*\})`",
+                            _section(init, "## MANDATORY SEQUENCE", "### "))
+    # The message goes in once the template is filled: `<ref>` in it is no placeholder.
+    payload = _fill(template, {"phase": "init:2b", "the halt message": "", "halt_reason": "input-missing",
+                               "auto": "auto"})
+    assert payload == {"phase": "init:2b", "reason": "", "halt_reason": "input-missing", "mode": "auto"}
+    payload["reason"] = message
+    run_dir = _run_dir(tmp_path)
+    (run_dir / "halt.json").write_bytes(json.dumps(payload).encode("utf-8"))
+    proc = _run(HALT_COMMAND, {"emitEnvelopeHelper": str(EMITTER), "run_dir": str(run_dir)})
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stdout == b"", "the only envelope is the halt on stderr"
+    envelope = _envelope(proc.stderr)
+    assert (envelope["exit_code"], envelope["halt_reason"], envelope["mode"]) == (2, "input-missing", "auto")
+    assert envelope["error"] == {"phase": "init:2b", "reason": message}
+    assert envelope["brief_paths"] == [] and not list(tmp_path.rglob("analyze-source-result-*.json"))
+    # The contract and the Invocation Contract say the same.
+    [row2] = [line for line in _read(HEADLESS).splitlines() if line.startswith("| 2 ")]
+    assert ("step 1 §2b (auto mode without `--project-path`, with more than one project path, or with "
+            "`--target-ref` or `--target-refs`)") in row2
+    contract = _read(CONTRACT).splitlines()
+    [auto_flag] = [line for line in contract if line.startswith("| **Auto flag** |")]
+    assert "Requires `--project-path` naming one target." in auto_flag
+    [inputs] = [line for line in contract if line.startswith("| **Headless inputs** |")]
+    assert "`--project-path <path>` (comma-separated for several; one for `[auto]`)" in inputs
+    # The user guide and step 1a's own context list say one target too (#1123 lane review).
+    assert ("Analyze Source takes `--project-path` (one path for an `AN[auto]` run, which exits 2 when given "
+            "several), `--scope-hint` and `--intent-hint`.") in _read(REPO / "docs" / "workflows.md")
+    load = _section(_read(AUTO), "### 1. Load Context", "### 2.")
+    assert "- `project_paths[]`: its one entry, `{project_path}`, the target to analyze" in load
+    assert "root(s)" not in _read(AUTO)
+    fragment = yaml.safe_load(_read(REPO / "changes" / "analyze-source-auto-one-target.yaml"))
+    assert (fragment["type"], fragment["scope"], fragment["issues"]) == ("breaking", "skf-analyze-source", [1123])
+    assert "now exits `2` (`input-missing`, `error.phase` `init:2b`)" in fragment["summary"]
+    # Without a ref flag, [auto] read a GitHub repository at its latest release tag, any other
+    # remote at its latest commit and a local path as it stood, so the summary names no ref the
+    # ignored flags gave way to (#1123 review 2).
+    assert fragment["summary"].rstrip().endswith("and it ignored the ref flags.")
+    assert "latest release" not in fragment["summary"]
+    assert fragment["migration"].strip() == (
+        "Run `AN[auto]` once for each path, or analyze several paths together without `[auto]`. Pin an `[auto]` "
+        "run on a GitHub repository with `--pin <tag-or-branch>` in place of `--target-ref` or `--target-refs`; "
+        "to read another repository or a local path at a ref, analyze it without `[auto]`, where `--target-ref` "
+        "and `--target-refs` still work.")
 
 
 def test_a_missing_git_goes_docs_only_with_a_warning_naming_it(tmp_path):

@@ -194,12 +194,19 @@ for the `owner/repo` shorthand. Both are null without a --target.
 hosts a repository's main page, such as a self-hosted GitLab, Gitea or
 Codeberg page), "credentials" when the server asks git for credentials (a
 private repository, or any page behind a login), "unanswered" when git
-gives no answer in time, "no-git" when git is missing, else "docs". It also
-adds `halt_message`, the message analyze-source stops with on
-"repository", "credentials" and "unanswered" (see `git_probe_halt`), else
-null. Both are null for the other kinds, which it does not probe. The name,
-`kind` and `clone_url` never depend on them, so the name stays the one
-coexistence matching compares offline.
+gives no answer in time, "no-git" when git is missing, "repository-page"
+when git reads no repository at the URL but reads one at the `.git` clone
+URL of a shorter part of its address that keeps at least two segments or,
+for a Bitbucket Data Center `/projects/<p>/repos/<r>` page, at
+`/scm/<p>/<r>.git` (a repository browser page, such as a Codeberg
+`/src/branch/...` or GitLab `/-/tree/...` link, but never a project wiki
+page, which stays documentation), else "docs". It also adds
+`clone_hint`, the `.git` clone URL git read on "repository-page" (else
+null), and `halt_message`, the message analyze-source stops with on
+"repository", "repository-page", "credentials" and "unanswered" (see
+`git_probe_halt`), else null. All three are null for the other kinds,
+which it does not probe. The name, `kind` and `clone_url` never depend on
+them, so the name stays the one coexistence matching compares offline.
 `derive-name --from <file|->` takes a JSON
 array of {"target", "manifest_name", "private", "members"} (all optional)
 and returns `names[]`, each entry's `target` and `manifest_name` with its
@@ -243,6 +250,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
@@ -2320,18 +2328,100 @@ def clone_url(target):
     return f"https://{path}" if ("." in first or ":" in first) else f"https://github.com/{path}"
 
 
-# How long `probe_git` waits for git, in seconds.
+# How long `probe_git` waits for git, in seconds, the address and every
+# address it tries behind it together.
 GIT_PROBE_TIMEOUT = 20
 # What git prints (in the C locale) when the server asks for credentials and
 # none can be given without a prompt, or refuses the stored ones: a private
 # repository, or any other page behind a login.
 _GIT_CREDENTIAL_ERRORS = ("terminal prompts disabled", "Authentication failed")
-# What a run asks for in place of an address git reads as a repository.
-_CLONE_REMEDY = "use its `.git` clone URL, its address without https:// or its SSH address"
+
+
+def _clone_remedy(target):
+    """What a run asks for in place of ``target`` when git reads it as a repository.
+
+    :func:`clone_url` clones an address given without a scheme over
+    ``https://``, so an ``http://`` target is offered its ``.git`` clone URL
+    with ``http://`` or its SSH address alone.
+    """
+    if str(target).strip().lower().startswith("http://"):
+        return "use its `.git` clone URL with http:// or its SSH address"
+    return "use its `.git` clone URL, its address without https:// or its SSH address"
+
+
+def _ls_remote(address, timeout):
+    """git's verdict on one address: "repository", "credentials", "unanswered", "no-git" or "docs".
+
+    See :func:`probe_git`; ``timeout`` is how long git may take, in seconds.
+    """
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "",
+           "GCM_INTERACTIVE": "never", "LC_ALL": "C"}
+    with tempfile.TemporaryFile() as err:
+        try:
+            proc = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", address], env=env,
+                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err,
+                                  timeout=timeout)
+        except subprocess.TimeoutExpired:
+            return "unanswered"
+        except OSError:
+            return "no-git"
+        if proc.returncode in (0, 2):
+            return "repository"
+        err.seek(0)
+        message = err.read().decode("utf-8", errors="replace")
+    return "credentials" if any(text in message for text in _GIT_CREDENTIAL_ERRORS) else "docs"
+
+
+def _is_wiki_page(segments):
+    """Whether the path ``segments`` of an address name a project wiki page.
+
+    A Gitea, Forgejo or Codeberg ``<owner>/<repo>/wiki/...`` page, a Gitee
+    or older GitLab ``<owner>/<repo>/wikis/...`` page, or a GitLab
+    ``.../-/wikis/...`` page at any group depth. A folder named ``wiki``
+    deeper in a repository (``<owner>/<repo>/src/branch/main/wiki/...``) is
+    not one.
+    """
+    if len(segments) > 2 and segments[2].lower() in ("wiki", "wikis"):
+        return True
+    return any(seg == "-" and nxt.lower() == "wikis" for seg, nxt in zip(segments, segments[1:]))
+
+
+def _repository_addresses(address):
+    """The clone URLs the repository behind the browser page ``address`` may answer at, in order.
+
+    A Bitbucket Data Center page (its path holds ``projects/<p>/repos/<r>``,
+    after any context path) first gives ``<base>/scm/<p>/<r>.git``, the
+    project key and the repository slug lower-cased. Then each shorter part
+    of the path gives its ``.git`` clone URL (no second ``.git`` when it ends
+    in one), longest first, down to two segments (``owner/repo``): a Codeberg
+    ``/src/branch/...`` or a GitLab ``/-/tree/...`` link, or a link to a file
+    inside a repository. An address of two segments or fewer gives none, and
+    so does a project wiki page (:func:`_is_wiki_page`): it is documentation,
+    though its repository answers git.
+    """
+    parts = urlsplit(address)
+    root = f"{parts.scheme}://{parts.netloc}"
+    segments = [seg for seg in parts.path.split("/") if seg]
+    if _is_wiki_page(segments):
+        return []
+    addresses = []
+    for i in range(len(segments) - 3):
+        if segments[i] == "projects" and segments[i + 2] == "repos":
+            base = "".join(f"/{seg}" for seg in segments[:i])
+            addresses.append(f"{root}{base}/scm/{segments[i + 1].lower()}/{segments[i + 3].lower()}.git")
+            break
+    for end in range(len(segments) - 1, 1, -1):
+        prefix = "".join(f"/{seg}" for seg in segments[:end])
+        addresses.append(root + prefix if prefix.lower().endswith(".git") else f"{root}{prefix}.git")
+    return list(dict.fromkeys(addresses))
 
 
 def probe_git(url):
-    """git's verdict on ``url``: "repository", "credentials", "unanswered", "no-git" or "docs".
+    """git's verdict on ``url`` and the clone URL it found there: ``(verdict, clone_hint)``.
+
+    The verdict is "repository", "repository-page", "credentials",
+    "unanswered", "no-git" or "docs"; ``clone_hint`` is None except on
+    "repository-page".
 
     Runs ``git ls-remote --exit-code --heads <url>``, the URL less its query
     and fragment (git appends ``/info/refs`` to the address it is given),
@@ -2349,40 +2439,53 @@ def probe_git(url):
     seconds; "no-git" when git is missing or cannot run. stderr goes to a
     file, not a pipe, so a timeout returns at once even while git's transport
     helper still runs.
+
+    On "docs", the address may still be a repository browser page git cannot
+    read: it asks git the same way about each address of
+    :func:`_repository_addresses`, in order, and the first that git reads as
+    a repository gives "repository-page" with that address as the hint. One
+    that answers "docs" or "credentials" moves on to the next; a timeout or a
+    git that cannot run stops the search. The address and every one tried
+    behind it share :data:`GIT_PROBE_TIMEOUT`: each later call gets what is
+    left, and none starts once it is spent. A search that finds no
+    repository gives "docs".
     """
     address = urlunsplit(urlsplit(str(url).strip())._replace(query="", fragment=""))
-    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0", "GIT_ASKPASS": "",
-           "GCM_INTERACTIVE": "never", "LC_ALL": "C"}
-    with tempfile.TemporaryFile() as err:
-        try:
-            proc = subprocess.run(["git", "ls-remote", "--exit-code", "--heads", address], env=env,
-                                  stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=err,
-                                  timeout=GIT_PROBE_TIMEOUT)
-        except subprocess.TimeoutExpired:
-            return "unanswered"
-        except OSError:
-            return "no-git"
-        if proc.returncode in (0, 2):
-            return "repository"
-        err.seek(0)
-        message = err.read().decode("utf-8", errors="replace")
-    return "credentials" if any(text in message for text in _GIT_CREDENTIAL_ERRORS) else "docs"
+    deadline = time.monotonic() + GIT_PROBE_TIMEOUT
+    verdict = _ls_remote(address, GIT_PROBE_TIMEOUT)
+    if verdict != "docs":
+        return verdict, None
+    for candidate in _repository_addresses(address):
+        left = deadline - time.monotonic()
+        if left <= 0:
+            break
+        answer = _ls_remote(candidate, left)
+        if answer == "repository":
+            return "repository-page", candidate
+        if answer in ("unanswered", "no-git"):
+            break
+    return "docs", None
 
 
-def git_probe_halt(target, verdict):
+def git_probe_halt(target, verdict, clone_hint=None):
     """The message a run stops with for ``target`` on :func:`probe_git`'s ``verdict``, or None.
 
-    A run stops when git reads the address as a repository, when the server
-    asks for credentials and when git gives no answer; it goes on as
-    documentation on "docs" and on "no-git" (nothing could ask git, and a
-    documentation URL needs no git).
+    A run stops when git reads the address as a repository, when git reads a
+    repository behind it (``clone_hint``, the clone URL the message names),
+    when the server asks for credentials and when git gives no answer; it
+    goes on as documentation on "docs" and on "no-git" (nothing could ask
+    git, and a documentation URL needs no git). The remedy offers the address
+    without ``https://`` only to a target that is not ``http://``
+    (:func:`_clone_remedy`).
     """
+    remedy = _clone_remedy(target)
     return {
-        "repository": f"{target} is a git repository: {_CLONE_REMEDY}.",
+        "repository": f"{target} is a git repository: {remedy}.",
+        "repository-page": f"{target} is a page of the git repository {clone_hint}: rerun with that clone URL.",
         "credentials": f"{target} asks for credentials: SKF reads no documentation behind a login; "
-                       f"if it is a private git repository, {_CLONE_REMEDY}.",
+                       f"if it is a private git repository, {remedy}.",
         "unanswered": f"{target} gave git no answer in {GIT_PROBE_TIMEOUT} s: if it is a git repository, "
-                      f"{_CLONE_REMEDY}; if it is documentation, give a documentation URL that answers.",
+                      f"{remedy}; if it is documentation, give a documentation URL that answers.",
     }.get(verdict)
 
 
@@ -3011,8 +3114,8 @@ def _main_derive_name(argv):
             return 1
         del result["target"], result["manifest_name"]
         if probe:
-            verdict = probe_git(target) if result["kind"] == "docs" else None
-            result.update(git_probe=verdict, halt_message=git_probe_halt(target, verdict))
+            verdict, hint = probe_git(target) if result["kind"] == "docs" else (None, None)
+            result.update(git_probe=verdict, clone_hint=hint, halt_message=git_probe_halt(target, verdict, hint))
         print(json.dumps({"status": "ok", "command": "derive-name", **with_existing(result)}, indent=2))
         return 0
     try:

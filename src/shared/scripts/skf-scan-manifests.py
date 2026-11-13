@@ -30,6 +30,7 @@ ecosystem matrix as new languages land.
 
 Subcommand:
   scan <root> [--ecosystems=auto] [--include-dev] [--workspaces-file <file>]
+       [--format json|markdown]
       Walk `<root>` (every depth, pruning the excluded and hidden
       directories) for recognised manifests, parse each one and emit:
         {
@@ -83,6 +84,14 @@ Subcommand:
       for the same root (its `--snapshot` output too): each candidate's
       `workspace_member` says whether its folder is one of that JSON's
       `workspaces[]` paths. Without it `workspace_member` is null.
+
+      `--format markdown` prints, as UTF-8, the two catalogs
+      skf-analyze-source's scan-project shows in place of the JSON:
+      `**Manifests found:**` (`| Path | Ecosystem | Package | Private |`,
+      the package its `name`, `--` when null, and `private` as yes or no)
+      and `**Service configurations found:**` (`| Path | Kind |`, the kind
+      `docker` for a Dockerfile, a Containerfile or a Dockerfile variant,
+      `compose` or `serverless`), each `None.` when the scan found none.
 
 Manifest fields:
   name           the name the manifest gives its own package: package.json,
@@ -288,6 +297,54 @@ def is_service_definition(name: str) -> bool:
         or lname.startswith("dockerfile.")
         or lname.endswith(".dockerfile")
     )
+
+
+def service_kind(path: str) -> str:
+    """The kind of a service definition, by its file name: `compose` for a
+    SERVICE_DEFINITION_NAMES name holding `compose`, `serverless` for one
+    starting `serverless`, else `docker` (a Dockerfile, a Containerfile or
+    a Dockerfile variant)."""
+    lname = path.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if lname in SERVICE_DEFINITION_NAMES and "compose" in lname:
+        return "compose"
+    if lname in SERVICE_DEFINITION_NAMES and lname.startswith("serverless"):
+        return "serverless"
+    return "docker"
+
+
+def _cell(value: object) -> str:
+    """A markdown table cell: None `--`, true and false as yes and no, `|`
+    escaped, line breaks as spaces."""
+    if isinstance(value, bool):
+        value = "yes" if value else "no"
+    text = "" if value is None else str(value)
+    text = " ".join(text.split("\r\n")).replace("\r", " ").replace("\n", " ")
+    return text.replace("|", "\\|") if text.strip() else "--"
+
+
+def _table(title: str, header: tuple[str, ...], rows: list[tuple]) -> list[str]:
+    lines = [f"**{title}:**", ""]
+    if not rows:
+        return [*lines, "None."]
+    lines.append("| " + " | ".join(header) + " |")
+    lines.append("|" + "|".join("---" for _ in header) + "|")
+    return lines + ["| " + " | ".join(_cell(v) for v in row) + " |" for row in rows]
+
+
+def render_catalogs(result: dict) -> str:
+    """The manifests catalog and the service configurations catalog of a
+    scan, as markdown tables."""
+    manifests = _table(
+        "Manifests found",
+        ("Path", "Ecosystem", "Package", "Private"),
+        [(m.get("path"), m.get("ecosystem"), m.get("name"), m.get("private")) for m in result["manifests"]],
+    )
+    services = _table(
+        "Service configurations found",
+        ("Path", "Kind"),
+        [(path, service_kind(path)) for path in result["services"]],
+    )
+    return "\n".join([*manifests, "", *services]) + "\n"
 
 
 _DETECT_LANGUAGE = None
@@ -1628,6 +1685,16 @@ def _cmd_scan(args: argparse.Namespace) -> int:
     except ImportError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
+    if args.format == "markdown":
+        text = render_catalogs(result)
+        buffer = getattr(sys.stdout, "buffer", None)
+        if buffer is None:
+            sys.stdout.write(text)
+        else:
+            sys.stdout.flush()
+            buffer.write(text.encode("utf-8", errors="replace"))  # `?` for a name byte that is not UTF-8
+            buffer.flush()
+        return 0
     json.dump(result, sys.stdout, indent=2)
     sys.stdout.write("\n")
     return 0
@@ -1663,6 +1730,13 @@ def _build_parser() -> argparse.ArgumentParser:
         metavar="PATH",
         help="the JSON skf-detect-workspaces.py printed for the same root: sets each "
              "candidate's workspace_member",
+    )
+    p_scan.add_argument(
+        "--format",
+        choices=("json", "markdown"),
+        default="json",
+        help="the JSON envelope (default) or the manifests and service configurations catalogs "
+             "as markdown tables",
     )
     p_scan.set_defaults(func=_cmd_scan)
 

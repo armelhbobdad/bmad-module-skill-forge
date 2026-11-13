@@ -1625,7 +1625,8 @@ class TestTreeFile:
         proc = run_tree(tmp_path, [".github/workflows/ci.yml", "docs/index.md", "tests/test_a.py"])
         assert proc.returncode == 1, proc.stderr
         assert json.loads(proc.stdout) == {"shape": "unknown", "signals": [], "confidence": 0.0,
-                                           "export_count": 0, "package_count": 0}
+                                           "export_count": 0, "package_count": 0,
+                                           "scope_type": None, "source_file_count": 1}
 
     @pytest.mark.parametrize(
         "listing",
@@ -1842,6 +1843,182 @@ class TestManifestsFile:
         proc = run_manifests_file()
         assert proc.returncode == 2
         assert json.loads(proc.stderr)["code"] == "MISSING_MANIFESTS"
+
+
+# --------------------------------------------------------------------------
+# --member: one package of a split monorepo, classified from its own manifest
+# and file list, with the scope type and source count the split reads (#1128)
+# --------------------------------------------------------------------------
+
+MEMBERS = {
+    "package.json": json.dumps({"name": "root", "private": True, "workspaces": ["packages/*", "tools/*"]}),
+    "packages/core/package.json": json.dumps({"name": "@acme/core", "main": "src/a.js"}),
+    "packages/core/src/a.ts": "export const a = 1;\n",
+    "packages/cli/package.json": json.dumps({"name": "@acme/cli", "bin": {"acme": "bin/acme.js"},
+                                             "dependencies": {"commander": "^12"}}),
+    "packages/cli/bin/acme.js": "require('commander');\n",
+    "packages/big/package.json": json.dumps({"name": "@acme/big",
+                                             "exports": {f"./m{i}": f"./m{i}.js" for i in range(201)}}),
+    "packages/big/m0.js": "module.exports = 0;\n",
+    "packages/edge/package.json": json.dumps({"name": "@acme/edge",
+                                              "exports": {f"./m{i}": f"./m{i}.js" for i in range(200)}}),
+    "packages/edge/m0.js": "module.exports = 0;\n",
+    "packages/types/package.json": json.dumps({"name": "@acme/types", "exports": {".": "./index.d.json"}}),
+    "packages/types/index.d.json": "{}\n",
+    "packages/legacy/setup.py": 'from setuptools import setup\nsetup(name="acme-legacy")\n',
+    "packages/legacy/legacy/core.py": "x = 1\n",
+    "tools/gen/package.json": json.dumps({"name": "@acme/gen", "main": "index.js"}),
+    "tools/gen/index.js": "module.exports = 1;\n",
+    # Below a member's folder, not in it: never part of packages/core's classification.
+    "packages/core/templates/app/package.json": json.dumps({"name": "@acme/template", "bin": {"app": "app.js"},
+                                                            "dependencies": {"next": "^14"}}),
+    "tools/run/package.json": json.dumps({"name": "@acme/run", "bin": {"run": "bin/run.js"},
+                                          "dependencies": {"commander": "^12"}}),
+    "tools/run/bin/run.js": "require('commander');\n",
+    "packages/lang/package.json": json.dumps({"name": "@acme/lang", "main": "src/index.js"}),
+    "packages/lang/src/index.js": "module.exports = 1;\n",
+    "packages/lang/src/grammar/Lang.g4": "grammar Lang;\n",
+}
+
+
+def _member_repo(base: Path) -> tuple[Path, str, str]:
+    """(the scan root, the scan envelope file, the root's file list) of a monorepo
+    whose members are a library (with a nested app template), a CLI, two
+    export-surface sizes, a source-less package, a setup.py package, a library and
+    a CLI under tools/, and a language whose grammar sits deep in the monorepo."""
+    root = base / "repo"
+    for rel, text in MEMBERS.items():
+        _write_bytes(root, rel, text.encode("utf-8"))
+    scan = subprocess.run([sys.executable, str(SCAN_SCRIPT), "scan", str(root)], capture_output=True, timeout=60)
+    assert scan.returncode == 0, scan.stderr
+    envelope = base / "manifests-1.json"
+    envelope.write_bytes(scan.stdout)
+    return root, str(envelope), _tree_file(base, sorted(MEMBERS))
+
+
+def run_member(root: Path, envelope: str, member: str, tree: str | None) -> subprocess.CompletedProcess:
+    """The documented per-boundary call: the member's own listing is what awk keeps of the root's."""
+    extra = []
+    if tree is not None:
+        listed = [line for line in Path(tree).read_text(encoding="utf-8").splitlines()
+                  if line.startswith(mod.member_folder(member) + "/")]
+        extra = ["--tree-file", _tree_file(Path(tree).parent, listed, name="tree-member.txt")]
+    return run_manifests_file("--manifests-file", envelope, "--manifest-dir", str(root), "--member", member, *extra)
+
+
+class TestMemberCall:
+    @pytest.mark.parametrize(
+        "member, code, shape, scope_type, sources",
+        [
+            pytest.param("packages/core", 0, "library-API", "full-library", 1, id="library"),
+            pytest.param("packages/cli", 0, "reference-app", "reference-app", 1, id="cli"),
+            pytest.param("packages/big", 0, "library-API", "public-api", 1, id="201-exports"),
+            pytest.param("packages/edge", 0, "library-API", "full-library", 1, id="200-exports"),
+            pytest.param("packages/types", 0, "library-API", "full-library", 0, id="no-source-file"),
+            pytest.param("packages/legacy", 1, "unknown", None, 2, id="setup-py"),
+            pytest.param("tools/gen", 0, "library-API", "full-library", 1, id="under-tools"),
+            pytest.param("tools/run", 0, "reference-app", "reference-app", 1, id="cli-under-tools"),
+            pytest.param("packages/lang", 0, "language-reference", "full-library", 1, id="grammar-below-its-folder"),
+        ],
+    )
+    def test_each_member_is_classified_from_its_own_manifest_and_files(
+            self, tmp_path, member, code, shape, scope_type, sources):
+        root, envelope, tree = _member_repo(tmp_path)
+        proc = run_member(root, envelope, member, tree)
+        assert proc.returncode == code, proc.stderr
+        out = json.loads(proc.stdout)
+        assert_result_shape(out)
+        assert (out["shape"], out["scope_type"], out["source_file_count"]) == (shape, scope_type, sources)
+        assert out["package_count"] == (0 if shape == "unknown" else 1), "only the member's own manifest"
+        assert list(out)[-3:] == ["package_count", "scope_type", "source_file_count"]
+
+    def test_the_export_cut_is_the_module_constant(self, tmp_path):
+        root, envelope, tree = _member_repo(tmp_path)
+        assert mod._PUBLIC_API_EXPORTS == 200
+        big = json.loads(run_member(root, envelope, "packages/big", tree).stdout)
+        edge = json.loads(run_member(root, envelope, "packages/edge", tree).stdout)
+        assert (big["export_count"], edge["export_count"]) == (201, 200)
+
+    def test_a_root_under_examples_reads_the_member_path(self, tmp_path):
+        """The core check reads the member's own paths, so a CLI member of a
+        repository checked out under examples/ is still an app."""
+        root, envelope, tree = _member_repo(tmp_path / "examples")
+        proc = run_member(root, envelope, "packages/cli", tree)
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["shape"] == "reference-app"
+
+    @pytest.mark.parametrize("spelling", ["./packages/cli/", "packages\\cli", "packages/cli/"])
+    def test_the_member_folder_is_normalized(self, tmp_path, spelling):
+        root, envelope, tree = _member_repo(tmp_path)
+        proc = run_manifests_file("--manifests-file", envelope, "--manifest-dir", str(root), "--member", spelling)
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(proc.stdout)["shape"] == "reference-app"
+
+    def test_without_a_listing_the_count_is_null(self, tmp_path):
+        root, envelope, _ = _member_repo(tmp_path)
+        proc = run_member(root, envelope, "packages/core", None)
+        assert proc.returncode == 0, proc.stderr
+        out = json.loads(proc.stdout)
+        assert (out["scope_type"], out["source_file_count"]) == ("full-library", None)
+
+    def test_a_folder_with_no_manifest_exits_2(self, tmp_path):
+        root, envelope, tree = _member_repo(tmp_path)
+        proc = run_member(root, envelope, "packages/nope", tree)
+        assert proc.returncode == 2
+        assert proc.stdout == ""
+        err = json.loads(proc.stderr)
+        assert err["code"] == "MEMBER_NOT_FOUND" and "packages/nope" in err["error"]
+
+    @pytest.mark.parametrize(
+        "args",
+        [pytest.param(["--manifests", "package.json", "--member", "packages/cli"], id="with-manifests"),
+         pytest.param(["--manifests-file", "MANIFESTS", "--manifests", "package.json", "--member", "packages/cli"],
+                      id="with-both"),
+         pytest.param(["--member", "packages/cli"], id="alone")],
+    )
+    def test_the_member_goes_with_the_envelope_alone(self, tmp_path, args):
+        root, envelope, _ = _member_repo(tmp_path)
+        args = [envelope if a == "MANIFESTS" else a for a in args]
+        proc = run_manifests_file(*args, "--manifest-dir", str(root))
+        assert proc.returncode == 2
+        assert json.loads(proc.stderr)["code"] == "INVALID_ARGS"
+
+
+class TestScopeType:
+    """The Shape to Scope mapping in one place: every output carries it."""
+
+    @pytest.mark.parametrize(
+        "shape, exports, scope_type",
+        [
+            ("library-API", 200, "full-library"),
+            ("library-API", 201, "public-api"),
+            ("reference-app", 500, "reference-app"),
+            ("language-reference", 500, "full-library"),
+            ("stack-compose", 500, "full-library"),
+            ("unknown", 0, None),
+        ],
+    )
+    def test_each_shape_maps_to_its_scope_type(self, shape, exports, scope_type):
+        assert mod.scope_type_for(shape, exports) == scope_type
+
+    def test_the_whole_repository_output_carries_it(self, tmp_path):
+        root, envelope, tree = _member_repo(tmp_path)
+        proc = run_manifests_file("--manifests-file", envelope, "--manifest-dir", str(root), "--tree-file", tree)
+        out = json.loads(proc.stdout)
+        assert out["scope_type"] == mod.scope_type_for(out["shape"], out["export_count"]) is not None
+        assert out["source_file_count"] == sum(1 for p in MEMBERS if p.endswith((".ts", ".js", ".py")))
+
+    def test_a_language_reference_and_a_stack_compose_take_full_library(self, tmp_path):
+        lang = run_tree(tmp_path, CPYTHON_FILES)
+        assert lang.returncode == 0, lang.stderr
+        assert (json.loads(lang.stdout)["shape"], json.loads(lang.stdout)["scope_type"]) == (
+            "language-reference", "full-library")
+        _write_bytes(tmp_path, "a/package.json", json.dumps({"name": "a", "main": "i.js"}).encode("utf-8"))
+        _write_bytes(tmp_path, "b/Cargo.toml", b'[package]\nname = "b"\n\n[lib]\npath = "src/lib.rs"\n')
+        both = run_manifests_file("--manifests", f"{tmp_path / 'a' / 'package.json'},{tmp_path / 'b' / 'Cargo.toml'}")
+        assert both.returncode == 0, both.stderr
+        out = json.loads(both.stdout)
+        assert (out["shape"], out["scope_type"], out["source_file_count"]) == ("stack-compose", "full-library", None)
 
 
 # --------------------------------------------------------------------------

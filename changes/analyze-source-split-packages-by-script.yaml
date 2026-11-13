@@ -1,0 +1,6 @@
+type: changed
+scope: skf-analyze-source
+summary: |
+  When `AN[auto]` splits a monorepo into one brief per package, `skf-shape-detect.py` now classifies each package from its own manifest and file list (its new `--member` option), so each package's shape and scope type come from the script instead of the model's reading. A package with no source file in a language `skf-detect-language.py` reads (so also one whose code is all `.vue`, `.svelte` or C files) is left out by that count, and the run's warnings name it. A published root package with code of its own beside its workspace, such as a Cargo root `[package]`, is one of the split's packages too, its scope leaving the other packages out. A package the script cannot classify (a `setup.py` package with source files, for example) gets a `full-library` brief. When the script fails on a package whose files git tracks, the run stops with exit code `3` (`resolution-failure`) and names the package. Shape detection also prints `scope_type`, the scope type its shape maps to, and `source_file_count`, the number of source files in the file list it was given.
+issues: [1128]
+prs: [1211]

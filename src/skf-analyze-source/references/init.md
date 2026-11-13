@@ -74,14 +74,15 @@ and use the path it prints as `<name>`. If the rename fails, HARD HALT (exit cod
 
 **IF `{auto_mode}` is true:**
 
-1. **Resolve project path:** If `project_paths[]` is already populated (from §1 continuation detection or `--project-path` arg), use it. Otherwise, if `--project-path <path>` was passed at invocation, set `project_paths[]` from it (comma-split if multiple). If neither is available, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:2b`): "**Auto mode requires `--project-path`: no project path available.**"
-2. **Validate the path(s):** For each provided path/URL, check that it exists (local) or is accessible (remote). If any invalid: HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `init:2b`, path `{path}`): "**Path `{path}` doesn't appear to be valid.**"
+1. **Resolve project path:** If `project_paths[]` is already populated (from §1 continuation detection or `--project-path` arg), use it. Otherwise, if `--project-path <path>` was passed at invocation, set `project_paths[]` from it (comma-split if multiple; an empty entry, as a trailing comma leaves, is dropped). If `project_paths[]` is still empty, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:2b`): "**Auto mode requires `--project-path`: no project path available.**" `[auto]` analyzes one target and pins it with `--pin`. When `project_paths[]` holds more than one path, `{N}` of them, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:2b`): "**Auto mode analyzes one target, and `--project-path` names {N}.** Run `[auto]` once for each, or analyze them together without `[auto]`." When `--target-ref` or `--target-refs` was passed, HARD HALT (exit code 2, `halt_reason: "input-missing"`, phase `init:2b`): "**Auto mode pins with `--pin`, not `--target-ref` or `--target-refs`.** Pass a GitHub repository's tag or branch as `--pin <ref>`; to read another repository or a local path at a ref, analyze it without `[auto]`, with `--target-ref`."
+2. **Validate the path:** check that it exists (local) or is accessible (remote). If it is not: HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `init:2b`, path `{path}`): "**Path `{path}` doesn't appear to be valid.**"
 3. **Take the hints:** `intent_hint` ← the `--intent-hint` value and `scope_hint` ← the `--scope-hint` value (empty when the flag is absent). Step 1a reads both, and so does the interactive chain it may fall back to.
 4. **Create the analysis report** from {templateFile}. First build `existing_skills` and `existing_briefs` as section 5 does, without its messages: the step-by-step analysis an unclassified repository falls back to reads them. Populate frontmatter:
    ```yaml
    stepsCompleted: ['init']
    lastStep: 'init'
    lastContinued: ''
+   run_dir: '{run_dir}'
    date: '{current_date}'
    user_name: '{user_name}'
    project_name: '{project_name}'
@@ -155,6 +156,7 @@ Create {outputFile} from {templateFile}. If the write fails, HARD HALT (exit cod
 stepsCompleted: ['init']
 lastStep: 'init'
 lastContinued: ''
+run_dir: '{run_dir}'
 date: '{current_date}'
 user_name: '{user_name}'
 project_name: '{project_name}'

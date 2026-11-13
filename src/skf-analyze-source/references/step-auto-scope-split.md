@@ -5,6 +5,9 @@ skillInventoryProbeOrder:
 detectLanguageProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-detect-language.py'
   - '{project-root}/src/shared/scripts/skf-detect-language.py'
+shapeDetectProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-shape-detect.py'
+  - '{project-root}/src/shared/scripts/skf-shape-detect.py'
 ---
 
 <!-- Config: communicate in {communication_language}. -->
@@ -23,11 +26,23 @@ uv run {emitEnvelopeHelper} emit-halt --workflow skf-analyze-source --run-dir "{
 
 and display the line it prints verbatim. Write the payload as valid JSON: in the halt message and `path`, replace each backslash with / and each double quote with a backtick. If the emitter exits non-zero or prints no line, display the halt message alone. An interactive HALT displays its message and emits nothing.
 
-**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}` and **`{detectLanguageHelper}`** from `{detectLanguageProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope-split:0`): "`{the missing script}` is missing. Re-install SKF."
+**Resolve `{skillInventoryHelper}`** from `{skillInventoryProbeOrder}`, **`{detectLanguageHelper}`** from `{detectLanguageProbeOrder}` and **`{shapeDetectHelper}`** from `{shapeDetectProbeOrder}`; first existing path wins for each. If one has no candidate, HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope-split:0`): "`{the missing script}` is missing. Re-install SKF."
 
 ### 4a. Decompose by Workspace Package
 
-Each workspace package of the §2 manifest scan with its own manifest becomes a separate skill boundary; trivial workspace members (no source files, no exports) are excluded, and so is a member outside the folders `scope_hint` focuses on or under a folder it skips. Name the boundaries in one call to the helper that names every brief, one entry per boundary with its manifest `name` and `private` from §2:
+Each workspace package of the §2 manifest scan with its own manifest is a candidate boundary, the scan root's own package (boundary path `.`) too when its manifest is not `private` and the scan's `candidates[]` lists `.` (code of its own beside the workspace, as a Cargo root `[package]` holds), less a member outside the folders `scope_hint` focuses on or under a folder it skips. For candidate `{c}`, list its files (every file for the scan root's package) and classify it from its own manifest and files:
+
+```bash
+awk -v p="<boundary path>/" 'p == "./" || index($0, p) == 1' "{run_dir}/tree.txt" > "{run_dir}/tree-{c}.txt"
+uv run {shapeDetectHelper} --repo-url "{project_path}" --manifests-file "{run_dir}/manifests-1.json" --manifest-dir "{scan_root}" --member "<boundary path>" --tree-file "{run_dir}/tree-{c}.txt"
+```
+
+- **Exit 2:** when `tree-{c}.txt` is empty (git tracks none of the member's files: an untracked or submodule folder), a trivial member; leave it out. Otherwise HARD HALT (exit code 3, `halt_reason: "resolution-failure"`, phase `step-auto-scope-split:4a`): "Shape detection failed for <boundary path>: {the `error` its stderr JSON names}."
+- **`source_file_count` 0** (on exit 0 or 1): no file in a language `skf-detect-language.py` reads: a trivial member, or one whose code is all `.vue`, `.svelte`, C or another language it does not read; leave it out and record it as a warning, so it reaches the envelope: `uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning 'split: <boundary path> left out: no source file in a language SKF detects'` (if the command fails, go on).
+- **Exit 0:** `{scope_type}` ← its `scope_type`. When its `signals` hold `app_or_library:framework_dep` or `language_or_user:parser_dep`, judge and record it as step-auto-scope.md §4 does, from the boundary manifest's `description` or its folder's README (a remote fetch brings it in with `git -C "{scan_root}" sparse-checkout add '/<boundary path>/README*'`), with the boundary path in the `reason`: the case you choose sets this boundary's shape, never the run's `{shape}`, and when it changes that shape, its `{scope_type}` is the type the case's row gives.
+- **Exit 1** (no shape, but source files): `{scope_type}` ← `full-library`, with shape `unknown`.
+
+Each kept boundary's `shape`, `confidence`, `export_count`, `package_count` and `{scope_type}` feed §6a and its §7 `confirmed_units` entry. Name the kept boundaries in one call to the helper that names every brief, one entry per boundary with its manifest `name` and `private` from §2:
 
 ```bash
 uv run {skillInventoryHelper} derive-name --from - --skills-folder "{skills_output_folder}" <<'SKF_BOUNDARY_NAMES'
@@ -43,16 +58,13 @@ uv run {emitEnvelopeHelper} record --run-dir "{run_dir}" --warning 'coexistence:
 
 (a single quote in the name written as a backtick; if the command fails, go on). Then append `{coexistence_suffix}` to every name that does not already end with it, when it is non-empty.
 
-**Per-boundary shape to scope mapping:** for each boundary, apply the §4 mapping independently, re-running the shape-to-scope ladder of `step-shape-detect.md` per package with each package's own manifest data. Packages may have different shapes (for example a `library-API` core and a `reference-app` CLI).
-
 ### 5a. Generate Multi-Scope Patterns
 
-For boundary `{i}`, list its files, detect its language from them without `--workspace-signal` (the workspace root's language would answer for every boundary) and read it as §5 says, the boundary's own manifest standing for the scan-root manifest. Its include and exclude patterns are the ones `scope-patterns` prints for that language, rooted at the boundary's source folder (`packages/auth/src/**/*.ts`):
+For boundary `{i}`, detect its language from `tree-{c}.txt`, the file list §4a wrote for it as candidate `{c}`, without `--workspace-signal` (the workspace root's language would answer for every boundary) and read it as §5 says, the boundary's own manifest standing for the scan-root manifest. Its include and exclude patterns are the ones `scope-patterns` prints for that language, rooted at the boundary's source folder (`packages/auth/src/**/*.ts`); the scan root's package, which lists every file, also excludes `<path>/**` for each other kept boundary:
 
 ```bash
-awk -v p="<boundary path>/" 'index($0, p) == 1' "{run_dir}/tree.txt" > "{run_dir}/tree-{i}.txt"
-uv run {detectLanguageHelper} --tree-file "{run_dir}/tree-{i}.txt"
-uv run {detectLanguageHelper} scope-patterns --tree-file "{run_dir}/tree-{i}.txt" --language <its language>
+uv run {detectLanguageHelper} --tree-file "{run_dir}/tree-{c}.txt"
+uv run {detectLanguageHelper} scope-patterns --tree-file "{run_dir}/tree-{c}.txt" --language <its language>
 ```
 
 ### 6a. Build Multi-Scope
@@ -60,7 +72,7 @@ uv run {detectLanguageHelper} scope-patterns --tree-file "{run_dir}/tree-{i}.txt
 This is the one statement of what each boundary's brief holds; §8 writes these values and the ones every brief shares (version, `source_repo`, `forge_tier`, `created`, `created_by` and the §0b pin: the pin targets a repo-level ref, not a package-level version). For boundary `{i}` of `{N}`:
 
 - **Name:** the one §4a gave it, suffix included.
-- **Scope:** `scope.type` from its §4a mapping, `scope.include` and `scope.exclude` from §5a, and `scope.notes` ← `Decomposed from {project_name} ({N} skills): boundary {i}/{N}, {boundary role}.`, where `{boundary role}` says in a few words what the boundary is for (for example `core library` or `CLI`).
+- **Scope:** `scope.type` ← its §4a `{scope_type}`, `scope.include` and `scope.exclude` from §5a, and `scope.notes` ← `Decomposed from {project_name} ({N} skills): boundary {i}/{N}, {boundary role}.`, where `{boundary role}` says in a few words what the boundary is for (for example `core library` or `CLI`).
 - **Language:** the one §5a detected.
 - **Description:** one to three sentences naming the parent project and the boundary's role (for example "Core library package of the my-monorepo project, providing..."), worded toward `intent_hint` when it is not empty.
 

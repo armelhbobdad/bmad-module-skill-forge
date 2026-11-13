@@ -36,12 +36,22 @@ Covers:
     the Python 3.11 floor), and identify-units.md, map-and-detect.md,
     generate-briefs.md and unit-detection-heuristics.md describe the
     helpers as they work
+  - units (#1126): --project-path in the filter envelope, and the units
+    file merged from the saved envelopes, derive-name's names and the
+    judgments, each unit's language and scope patterns from skf-detect-
+    language.py over a real listing, a judged language (an unknown one
+    takes `unknown`'s patterns), restores and drops, every judgment and
+    name problem exiting 1 without writing, --add (again for one project
+    path, and with no file yet), the three markdown tables read line by
+    line, a script drop's generated files as its evidence, and the tables
+    printed as UTF-8 on a cp1252 console
 """
 
 from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -1291,20 +1301,28 @@ def test_heuristics_state_the_script_thresholds() -> None:
 
 
 def test_map_and_detect_reads_exports_by_eye_where_no_recipe_runs() -> None:
-    """The runner reads no Java, Kotlin or Swift: exit 0 is no T1 result there.
-    map-and-detect and the [D] file map each unit through map-unit-exports.md."""
+    """The runner reads no Java, Kotlin or Swift: those units run quick mode's
+    parser over every source file (#1125, determinism-5), and only a language
+    with neither a recipe nor the parser is read by eye. map-and-detect and
+    the [D] file map each unit through map-unit-exports.md."""
     assert "execute {unitExportsFile}" in _read(MAP_AND_DETECT)
     text = _read(UNIT_EXPORTS)
-    branch = text.split("**No recipe for the unit's language:**", 1)[1]
+    parser_branch = text.split("A Java, Kotlin or Swift unit runs quick mode's parser", 1)[1]
+    parser_line = parser_branch.split("```bash\n", 1)[1].split("\n", 1)[0]
+    for needle in ("--mode quick --language {language}", "--all-sources", "from-extract"):
+        assert needle in parser_line, needle
+    assert '`strategy_used: "parser"`' in parser_branch.split("```", 1)[0]
+    branch = text.split("- `entry-point` or `unit-sources`:", 1)[1]
     branch = branch.split("\n", 1)[0]
-    for needle in ("`files_in_scope` is 0", "`files_without_recipes`", "Java",
-                   "whatever its exit code", '`strategy_used: "source-read"`',
-                   '`confidence: "T1-low"`'):
+    for needle in ("no script counted the unit's exports", "exit 3", "read no file of the unit",
+                   "C#, PHP, Ruby, C or C++", '`strategy_used: "source-read"`', '`confidence: "T1-low"`'):
         assert needle in branch, needle
+    for gone in ("Java", "Kotlin", "Swift"):
+        assert gone not in branch, gone
     for field in ("entry_point_diff.extraction_gaps[]", "file_issues[]"):
         assert field in text, field
     assert "`files_count` is the unit's file count the loading file gave" in text
-    assert "its file count from Identified Units" in _read(MAP_AND_DETECT)
+    assert "its scope type, language and file count from {unitsFile}" in _read(MAP_AND_DETECT)
     assert "`files_count` is the runner's `files_in_scope`" not in text
 
 
@@ -1318,11 +1336,15 @@ def test_composites_are_decided_after_the_import_graph_and_reach_the_brief() -> 
         "### 5. Decide Composites")
     assert "confirmed_composites: [{list of approved composites: {name, " \
            "constituents: [{name, path}], heuristic}}]" in mapping
+    # #1125: the composite's brief takes its scope patterns from the card, the
+    # union of its constituents' that map-and-detect section 5 computes.
+    assert "- **Scope patterns:** the union of its constituents' `include` patterns" in mapping
     briefs = _read(GENERATE_BRIEFS)
     include = next(line for line in briefs.splitlines()
                    if line.startswith("| scope.include |"))
-    assert "`confirmed_composites` entry" in include
-    assert "`<path>/**` for every constituent path" in include
+    assert "The `scope.include` patterns of the step 05 recommendation card" in include
+    assert "the union of its constituents'" in include
+    assert "`<path>/**` for every constituent path" not in include
 
 
 # --------------------------------------------------------------------------
@@ -1477,10 +1499,496 @@ class TestListing:
 
 def test_identify_units_lets_the_helper_list_the_files() -> None:
     """No file list passes through the model: Step A sends name and path, and
-    section 4 hands the record's tree_file to the language helper."""
+    section 3's units call reads each record's tree_file (#1126)."""
     text = _read(IDENTIFY_UNITS)
     assert '--source-root "{scan_root}" --tree-dir "{run_dir}/unit-trees/{i}"' in text
     assert '"files": [' not in text
     assert 'echo \'{"tree"' not in text
-    assert 'uv run {detectLanguageHelper} --tree-file "{the unit\'s tree_file}"' in text
+    assert ('uv run {disqualifyCandidatesHelper} units --filter "{run_dir}/filter-{i}.json" '
+            '--names "{run_dir}/unit-names.json"') in text
+    assert "{detectLanguageHelper}" not in text and "detectLanguageProbeOrder" not in text
     assert "project_paths[0]" not in text, "each unit is named under its own project path"
+
+
+# --------------------------------------------------------------------------
+# The units file (#1126 determinism-7): the filter's records, derive-name's
+# names and the model's judgments merged by the script, which prints the
+# report's unit tables
+# --------------------------------------------------------------------------
+
+
+INVENTORY_PATH = REPO_ROOT / "src" / "shared" / "scripts" / "skf-skill-inventory.py"
+language = _load("skf_detect_language_for_units", DETECT_LANGUAGE_PATH)
+TS = ("export const x = 1;\n" * 40).encode("utf-8")
+UNIT_SOURCE = {
+    "package.json": b'{"name": "mono", "private": true}\n',
+    "tsconfig.json": b"{}\n",
+    "index.ts": TS,
+    "server.ts": TS,
+    "main.ts": TS,
+    "packages/auth/package.json": b'{"name": "@acme/auth"}\n',
+    "packages/auth/tsconfig.json": b"{}\n",
+    "packages/auth/src/a.ts": TS,
+    "packages/auth/src/b.ts": TS,
+    "packages/auth/src/c.ts": TS,
+    "packages/testkit/src/one.ts": TS,
+    "packages/testkit/src/two.ts": TS,
+    "packages/testkit/src/three.ts": TS,
+    "packages/tiny/src/only.ts": TS,
+}
+UNIT_BOUNDARIES = [
+    {"name": "auth", "path": "packages/auth"},
+    {"name": "mono", "path": "."},
+    {"name": "testkit", "path": "packages/testkit"},
+    {"name": "tiny", "path": "packages/tiny"},
+]
+
+
+def _saved_filter(tmp_path: Path, project_path: str = "/r", index: int = 1) -> tuple[Path, dict]:
+    """Step A's call, its envelope saved as identify-units saves it."""
+    source = tmp_path / f"source-{index}"
+    _tree(source, UNIT_SOURCE)
+    run = tmp_path / "run"
+    proc = _run_cli("filter", "--boundaries", "-", "--source-root", str(source),
+                    "--tree-dir", str(run / "unit-trees" / str(index)), "--project-path", project_path,
+                    stdin_text=json.dumps(UNIT_BOUNDARIES))
+    assert proc.returncode == 0, proc.stderr
+    path = run / f"filter-{index}.json"
+    path.write_text(proc.stdout, encoding="utf-8")
+    return path, json.loads(proc.stdout)
+
+
+def _saved_names(tmp_path: Path, envelope: dict, name: str = "unit-names.json") -> Path:
+    """Step C's derive-name call over the kept records, saved."""
+    entries = [{"target": envelope["project_path"] if r["path"] == "." else r["path"],
+                "manifest_name": (r["manifest"] or {}).get("name"),
+                "private": (r["manifest"] or {}).get("private")} for r in envelope["kept"]]
+    proc = subprocess.run([sys.executable, str(INVENTORY_PATH), "derive-name", "--from", "-"],
+                          input=json.dumps(entries), capture_output=True, text=True, check=False)
+    assert proc.returncode == 0, proc.stdout
+    path = tmp_path / "run" / name
+    path.write_text(proc.stdout, encoding="utf-8")
+    return path
+
+
+def _judge(path: str, status: str = "new", project_path: str = "/r", **extra) -> dict:
+    row = {"project_path": project_path, "path": path, "status": status}
+    if status == "dropped":
+        row.update(reason="test-only", rationale="test utilities, no production code")
+    else:
+        row.update(boundary_type="package", scope_type="full-library", confidence="high",
+                   rationale=f"strong: 2 ({path}); demo 0/3")
+    return {**row, **extra}
+
+
+def _units(tmp_path: Path, filters: list[Path], names: Path, judgments: list[dict], *extra: str,
+           out: Path | None = None) -> tuple[subprocess.CompletedProcess, Path]:
+    j_path = tmp_path / "run" / "unit-judgments.json"
+    j_path.write_text(json.dumps(judgments), encoding="utf-8")
+    out = out or tmp_path / "forge" / "analyze-source-units-mono.json"
+    args = ["units"]
+    for f in filters:
+        args += ["--filter", str(f)]
+    proc = _run_cli(*args, "--names", str(names), "--judgments", str(j_path), "--out", str(out), *extra)
+    return proc, out
+
+
+def _tree_of(record: dict) -> list[str]:
+    return language.read_tree_file(record["tree_file"])[0]
+
+
+class TestUnitsFile:
+    def test_filter_names_its_project_path_and_keeps_the_records(self, tmp_path: Path) -> None:
+        _, envelope = _saved_filter(tmp_path, "https://github.com/acme/mono")
+        assert list(envelope)[:1] == ["project_path"]
+        assert envelope["project_path"] == "https://github.com/acme/mono"
+        assert [r["path"] for r in envelope["kept"]] == ["packages/auth", ".", "packages/testkit"]
+        assert [(r["path"], r["reason"]) for r in envelope["dropped"]] == [("packages/tiny", "too-few-files")]
+        without = _run_cli("filter", "--boundaries", "-", "--source-root", str(tmp_path / "source-1"),
+                           stdin_text=json.dumps(UNIT_BOUNDARIES))
+        assert "project_path" not in json.loads(without.stdout)
+
+    def test_the_merge_takes_names_languages_and_scope_from_the_helpers(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        proc, out = _units(tmp_path, [filter_file], names,
+                           [_judge("packages/auth"), _judge(".", "briefed", boundary_type="service"),
+                            _judge("packages/testkit")])
+        assert proc.returncode == 0, proc.stderr
+        data = json.loads(out.read_text(encoding="utf-8"))
+        auth, root, _ = data["units"]
+        record = envelope["kept"][0]
+        assert {k: auth[k] for k in ("name", "project_path", "path", "status", "boundary_type", "scope_type",
+                                     "confidence", "rationale")} == {
+            "name": "acme-auth", "project_path": "/r", "path": "packages/auth", "status": "new",
+            "boundary_type": "package", "scope_type": "full-library", "confidence": "high",
+            "rationale": "strong: 2 (packages/auth); demo 0/3"}
+        for field in ("files_count", "loc_total", "manifest", "generated_files", "generated_ratio", "signals",
+                      "tree_file"):
+            assert auth[field] == record[field], field
+        assert auth["files_count"] == 3 and auth["manifest"]["name"] == "@acme/auth"
+        assert (auth["language"], auth["language_detection"]["confidence"]) == ("typescript", "high")
+        assert auth["scope"]["include"] == ["packages/auth/src/**/*.ts"]
+        assert "**/*.test.ts" in auth["scope"]["exclude"]
+        assert (root["name"], root["path"], root["status"], root["language"]) == ("r", ".", "briefed", "typescript")
+        assert list(auth) == ["name", "project_path", "path", "status", "boundary_type", "scope_type", "confidence",
+                              "rationale", "files_count", "loc_total", "manifest", "generated_files",
+                              "generated_ratio", "signals", "tree_file", "language", "language_detection", "scope"]
+        assert data["dropped"] == [{"project_path": "/r", "path": "packages/tiny", "name": None,
+                                    "reason": "too-few-files", "context": {"threshold": 3}, "rationale": None}]
+
+    def test_the_three_tables_are_printed_line_by_line(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        proc, _ = _units(tmp_path, [filter_file], names,
+                         [_judge("packages/auth", rationale="strong: 2 | demo 0/3\nregistry none"),
+                          _judge("."), _judge("packages/testkit", "dropped")])
+        assert proc.returncode == 0, proc.stderr
+        lines = proc.stdout.splitlines()
+        titles = [line for line in lines if line.startswith("**")]
+        assert titles == ["**Identified units:**", "**Language and scope:**", "**Disqualified:**"]
+        assert ("| Unit Name | Project Path | Path | Boundary Type | Scope Type | Files | Own Manifest | Signals "
+                "| Confidence | Status |") in lines
+        assert ("| acme-auth | /r | packages/auth | package | full-library | 3 | "
+                "packages/auth/package.json (@acme/auth, npm) | strong: 2 \\| demo 0/3 registry none | high | new |"
+                ) in lines
+        assert "| Unit Name | Language | Detected | Language Confidence | Include | Exclude | tree_file |" in lines
+        tree = envelope["kept"][0]["tree_file"]
+        row = next(line for line in lines if line.startswith("| acme-auth | typescript |"))
+        assert row == (f"| acme-auth | typescript | typescript | high | packages/auth/src/**/*.ts | "
+                       f"{', '.join(language.scope_patterns(_tree_of(envelope['kept'][0]), 'typescript')['exclude'])}"
+                       f" | {tree} |")
+        assert "| Project Path | Path | Reason | Evidence |" in lines
+        assert "| /r | packages/testkit | test-only | test utilities, no production code |" in lines
+        assert "| /r | packages/tiny | too-few-files | threshold=3 |" in lines
+        assert not any(line.startswith("| #") for line in lines), "the # column is gone"
+
+    def test_an_empty_table_says_none(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        judgments = [_judge(r["path"], "dropped") for r in envelope["kept"]]
+        proc, _ = _units(tmp_path, [filter_file], names, judgments)
+        assert proc.returncode == 0, proc.stderr
+        lines = proc.stdout.splitlines()
+        assert lines[lines.index("**Identified units:**") + 2] == "None."
+        assert lines[lines.index("**Language and scope:**") + 2] == "None."
+
+    def test_a_judged_language_takes_its_patterns_and_keeps_the_detection(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        proc, out = _units(tmp_path, [filter_file], names,
+                           [_judge("packages/auth", language="javascript"), _judge(".", language="surrealql"),
+                            _judge("packages/testkit")])
+        assert proc.returncode == 0, proc.stderr
+        auth, root, _ = json.loads(out.read_text(encoding="utf-8"))["units"]
+        auth_tree, root_tree = _tree_of(envelope["kept"][0]), _tree_of(envelope["kept"][1])
+        js = language.scope_patterns(auth_tree, "javascript")
+        assert auth["language"] == "javascript"
+        assert auth["scope"] == {"include": js["include"], "exclude": js["exclude"]}
+        detected = language.detect({"tree": auth_tree})
+        assert auth["language_detection"] == {k: detected[k] for k in (
+            "language", "confidence", "detection_source", "detected_languages", "source_language")}
+        assert auth["language_detection"]["language"] == "typescript"
+        unknown = language.scope_patterns(root_tree, "unknown")
+        assert root["language"] == "surrealql"
+        assert root["scope"] == {"include": unknown["include"], "exclude": unknown["exclude"]}
+
+    def test_a_restore_and_a_drop_are_judgments(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        proc, out = _units(tmp_path, [filter_file], names,
+                           [_judge("packages/tiny", name="tiny"), _judge("packages/testkit", "dropped"),
+                            _judge("packages/auth"), _judge(".")])
+        assert proc.returncode == 0, proc.stderr
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert [u["path"] for u in data["units"]] == ["packages/auth", ".", "packages/tiny"], "restored last"
+        assert data["units"][2]["name"] == "tiny" and data["units"][2]["files_count"] == 1
+        assert data["dropped"] == [{"project_path": "/r", "path": "packages/testkit", "name": "testkit",
+                                    "reason": "test-only", "context": None,
+                                    "rationale": "test utilities, no production code"}]
+
+    def test_an_unjudged_script_drop_keeps_its_context(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        proc, out = _units(tmp_path, [filter_file], names,
+                           [_judge("packages/auth"), _judge("."), _judge("packages/testkit")])
+        assert proc.returncode == 0, proc.stderr
+        [drop] = json.loads(out.read_text(encoding="utf-8"))["dropped"]
+        assert (drop["reason"], drop["context"], drop["rationale"]) == ("too-few-files", {"threshold": 3}, None)
+
+    @pytest.mark.parametrize(
+        ("judgments", "needles"),
+        [
+            pytest.param([{"drop": "packages/testkit"}], ["/r packages/testkit: the kept record has no judgment"],
+                         id="kept-record-unjudged"),
+            pytest.param([{"add": _judge("packages/ghost")}],
+                         ["/r packages/ghost: the judgment names no record"], id="judgment-for-no-record"),
+            pytest.param([{"add": _judge("./packages/auth/", "briefed")}],
+                         ["/r packages/auth: the record is judged twice"], id="record-judged-twice"),
+            pytest.param([{"replace": _judge("packages/auth", scope_type=None, confidence="certain")}],
+                         ["/r packages/auth: a new judgment needs scope_type",
+                          "/r packages/auth: unknown confidence 'certain'"], id="missing-field-and-confidence"),
+            pytest.param([{"replace": _judge("packages/auth", "kept")}],
+                         ["/r packages/auth: unknown status 'kept'"], id="unknown-status"),
+            pytest.param([{"replace": {**_judge("packages/auth", "dropped"), "reason": ""}}],
+                         ["/r packages/auth: a dropped judgment needs reason"], id="drop-without-reason"),
+        ],
+    )
+    def test_a_judgment_problem_exits_1_and_writes_nothing(self, tmp_path: Path, judgments: list[dict],
+                                                           needles: list[str]) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        rows = [_judge("packages/auth"), _judge("."), _judge("packages/testkit")]
+        for change in judgments:
+            if "drop" in change:
+                rows = [r for r in rows if r["path"] != change["drop"]]
+            if "add" in change:
+                rows.append(change["add"])
+            if "replace" in change:
+                rows = [change["replace"] if r["path"] == change["replace"]["path"] else r for r in rows]
+        out = tmp_path / "forge" / "analyze-source-units-mono.json"
+        proc, _ = _units(tmp_path, [filter_file], names, rows, out=out)
+        assert proc.returncode == 1
+        for needle in needles:
+            assert needle in proc.stderr, (needle, proc.stderr)
+        assert not out.exists() and proc.stdout == ""
+
+    def test_an_input_problem_exits_1_and_writes_nothing(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        rows = [_judge("packages/auth"), _judge("."), _judge("packages/testkit")]
+        bare = dict(envelope)
+        del bare["project_path"]
+        no_tree = json.loads(json.dumps(envelope))
+        del no_tree["kept"][0]["tree_file"]
+        for name, data, needle in (("bare.json", bare, "has no `project_path`"),
+                                   ("no-tree.json", no_tree, "/r packages/auth: the record has no `tree_file`")):
+            path = tmp_path / name
+            path.write_text(json.dumps(data), encoding="utf-8")
+            proc, out = _units(tmp_path, [path], names, rows)
+            assert proc.returncode == 1 and needle in proc.stderr, proc.stderr
+            assert not out.exists()
+
+    def test_a_missing_language_detector_exits_1(self, tmp_path: Path, monkeypatch, capsys) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        j_path = tmp_path / "judgments.json"
+        j_path.write_text(json.dumps([_judge("packages/auth"), _judge("."), _judge("packages/testkit")]),
+                          encoding="utf-8")
+        monkeypatch.setattr(mod, "DETECT_LANGUAGE", tmp_path / "absent.py")
+        monkeypatch.setattr(mod, "_DETECT_LANGUAGE_MODULE", None)
+        out = tmp_path / "units.json"
+        code = mod.main(["units", "--filter", str(filter_file), "--names", str(names), "--judgments", str(j_path),
+                         "--out", str(out)])
+        assert code == 1 and "absent.py" in capsys.readouterr().err
+        assert not out.exists()
+
+    def test_a_unit_without_a_name_or_sharing_one_exits_1(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        rows = [_judge("packages/auth"), _judge("."), _judge("packages/testkit")]
+        # The restored record has no names[] entry: it needs a judgment name.
+        proc, out = _units(tmp_path, [filter_file], names, [*rows, _judge("packages/tiny")])
+        assert proc.returncode == 1 and not out.exists()
+        assert "/r packages/tiny: the unit has no name (no names[] entry" in proc.stderr
+        # A null name, and an entry two records match, need one too.
+        data = json.loads(names.read_text(encoding="utf-8"))
+        data["names"][0]["name"] = None
+        data["names"].append({**data["names"][1]})
+        names.write_text(json.dumps(data), encoding="utf-8")
+        proc, out = _units(tmp_path, [filter_file], names, rows)
+        assert proc.returncode == 1 and not out.exists()
+        assert "/r packages/auth: the unit has no name (its names[] entry has no name)" in proc.stderr
+        assert "/r .: the unit has no name (2 names[] entries" in proc.stderr
+        # A judgment name answers both; two units with one name do not pass.
+        rows = [_judge("packages/auth", name="auth"), _judge(".", name="auth"), _judge("packages/testkit")]
+        proc, out = _units(tmp_path, [filter_file], names, rows)
+        assert proc.returncode == 1 and not out.exists()
+        assert "/r .: the name 'auth' is the name of /r packages/auth too" in proc.stderr
+
+    def test_add_keeps_the_other_project_paths_first(self, tmp_path: Path) -> None:
+        filter_r, envelope_r = _saved_filter(tmp_path, "/r", 1)
+        names_r = _saved_names(tmp_path, envelope_r)
+        proc, out = _units(tmp_path, [filter_r], names_r,
+                           [_judge("packages/auth"), _judge("."), _judge("packages/testkit")])
+        assert proc.returncode == 0, proc.stderr
+        filter_s, envelope_s = _saved_filter(tmp_path, "/s", 2)
+        names_s = _saved_names(tmp_path, envelope_s, "discover-2-names.json")
+        s_rows = [_judge("packages/auth", project_path="/s", name="s-auth"),
+                  _judge(".", project_path="/s", name="s-root"),
+                  _judge("packages/testkit", "dropped", project_path="/s")]
+        proc, _ = _units(tmp_path, [filter_s], names_s, s_rows, "--add", out=out)
+        assert proc.returncode == 0, proc.stderr
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert [(u["project_path"], u["name"]) for u in data["units"]] == [
+            ("/r", "acme-auth"), ("/r", "r"), ("/r", "testkit"), ("/s", "s-auth"), ("/s", "s-root")]
+        assert [(d["project_path"], d["path"]) for d in data["dropped"]] == [
+            ("/r", "packages/tiny"), ("/s", "packages/testkit"), ("/s", "packages/tiny")]
+        cells = [line.split(" | ") for line in proc.stdout.splitlines() if line.startswith("| ")]
+        assert {row[0] for row in cells} == {"| Unit Name", "| s-auth", "| s-root", "| Project Path", "| /s"}
+        assert not any("| /r |" in line for line in proc.stdout.splitlines()), "stdout holds the rows of /s only"
+        # Without --add the file holds this call's project path alone.
+        proc, _ = _units(tmp_path, [filter_s], names_s, s_rows, out=out)
+        assert {u["project_path"] for u in json.loads(out.read_text(encoding="utf-8"))["units"]} == {"/s"}
+
+    def test_add_refuses_a_name_the_file_already_holds(self, tmp_path: Path) -> None:
+        filter_r, envelope_r = _saved_filter(tmp_path, "/r", 1)
+        names_r = _saved_names(tmp_path, envelope_r)
+        proc, out = _units(tmp_path, [filter_r], names_r,
+                           [_judge("packages/auth"), _judge("."), _judge("packages/testkit")])
+        before = out.read_bytes()
+        filter_s, envelope_s = _saved_filter(tmp_path, "/s", 2)
+        names_s = _saved_names(tmp_path, envelope_s, "discover-2-names.json")
+        proc, _ = _units(tmp_path, [filter_s], names_s,
+                         [_judge("packages/auth", project_path="/s"), _judge(".", project_path="/s", name="s"),
+                          _judge("packages/testkit", project_path="/s", name="s-testkit")], "--add", out=out)
+        assert proc.returncode == 1
+        assert "/s packages/auth: the name 'acme-auth' is the name of /r packages/auth too" in proc.stderr
+        assert out.read_bytes() == before, "the file is left as it was"
+
+    def test_two_project_paths_in_one_call_keep_filter_order(self, tmp_path: Path) -> None:
+        filter_r, envelope_r = _saved_filter(tmp_path, "/r", 1)
+        filter_s, envelope_s = _saved_filter(tmp_path, "/s/", 2)
+        names = _saved_names(tmp_path, envelope_r)
+        rows = [_judge("packages/auth"), _judge("."), _judge("packages/testkit"),
+                _judge("packages/auth", project_path="/s", name="s-auth"),
+                _judge(".", project_path="/s", name="s-root"),
+                _judge("packages/testkit", "dropped", project_path="/s")]
+        proc, out = _units(tmp_path, [filter_s, filter_r], names, rows)
+        assert proc.returncode == 0, proc.stderr
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert [u["project_path"] for u in data["units"]] == ["/s/", "/s/", "/r", "/r", "/r"]
+
+    def test_add_again_for_one_project_path_replaces_its_entries(self, tmp_path: Path) -> None:
+        """[D]'s correction loop: a second --add for /s (here with a judged language) replaces the units and
+        drops of /s, and keeps those of /r."""
+        filter_r, envelope_r = _saved_filter(tmp_path, "/r", 1)
+        proc, out = _units(tmp_path, [filter_r], _saved_names(tmp_path, envelope_r),
+                           [_judge("packages/auth"), _judge("."), _judge("packages/testkit")])
+        assert proc.returncode == 0, proc.stderr
+        filter_s, envelope_s = _saved_filter(tmp_path, "/s", 2)
+        names_s = _saved_names(tmp_path, envelope_s, "discover-2-names.json")
+        s_rows = [_judge("packages/auth", project_path="/s", name="s-auth"),
+                  _judge(".", project_path="/s", name="s-root"),
+                  _judge("packages/testkit", "dropped", project_path="/s")]
+        for rows in (s_rows, [{**s_rows[0], "language": "javascript"}, *s_rows[1:]]):
+            proc, _ = _units(tmp_path, [filter_s], names_s, rows, "--add", out=out)
+            assert proc.returncode == 0, proc.stderr
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert [(u["project_path"], u["name"]) for u in data["units"]] == [
+            ("/r", "acme-auth"), ("/r", "r"), ("/r", "testkit"), ("/s", "s-auth"), ("/s", "s-root")]
+        assert data["units"][3]["language"] == "javascript"
+        assert [(d["project_path"], d["path"]) for d in data["dropped"]] == [
+            ("/r", "packages/tiny"), ("/s", "packages/testkit"), ("/s", "packages/tiny")]
+
+    def test_add_without_a_file_writes_this_call_alone(self, tmp_path: Path) -> None:
+        filter_s, envelope_s = _saved_filter(tmp_path, "/s", 2)
+        out = tmp_path / "forge" / "analyze-source-units-mono.json"
+        proc, _ = _units(tmp_path, [filter_s], _saved_names(tmp_path, envelope_s),
+                         [_judge("packages/auth", project_path="/s"), _judge(".", project_path="/s"),
+                          _judge("packages/testkit", project_path="/s")], "--add", out=out)
+        assert proc.returncode == 0, proc.stderr
+        data = json.loads(out.read_text(encoding="utf-8"))
+        assert [(u["project_path"], u["name"]) for u in data["units"]] == [
+            ("/s", "acme-auth"), ("/s", "s"), ("/s", "testkit")]
+
+    def test_a_script_drop_with_generated_files_shows_them_as_its_evidence(self, tmp_path: Path) -> None:
+        source = tmp_path / "source-1"
+        body = ("export const x = 1;\n" * 40).encode("utf-8")
+        _tree(source, {"packages/gen/src/a.ts": body, "packages/gen/dist/b.js": body, "packages/gen/dist/c.js": body})
+        proc = _run_cli("filter", "--boundaries", "-", "--source-root", str(source), "--tree-dir",
+                        str(tmp_path / "trees"), "--project-path", "/r",
+                        stdin_text=json.dumps([{"name": "gen", "path": "packages/gen"}]))
+        assert proc.returncode == 0, proc.stderr
+        filter_file = _write(tmp_path / "run" / "filter-1.json", proc.stdout)
+        names = _write(tmp_path / "run" / "unit-names.json", '{"names": []}')
+        proc, out = _units(tmp_path, [filter_file], names, [])
+        assert proc.returncode == 0, proc.stderr
+        assert ("| /r | packages/gen | too-few-files | threshold=3, generated_ratio=0.667, packages/gen/dist/b.js |"
+                in proc.stdout.splitlines())
+        [drop] = json.loads(out.read_text(encoding="utf-8"))["dropped"]
+        assert (drop["reason"], drop["context"], drop["rationale"]) == ("too-few-files", {"threshold": 3}, None)
+
+    def test_the_tables_print_as_utf8_on_a_cp1252_console(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        judgments = _write(tmp_path / "run" / "unit-judgments.json", json.dumps(
+            [_judge("packages/auth", rationale="strong: 2 \u2192 caf\u00e9"), _judge("."), _judge("packages/testkit")]))
+        out = tmp_path / "units.json"
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), "units", "--filter", str(filter_file), "--names",
+                               str(names), "--judgments", str(judgments), "--out", str(out)],
+                              capture_output=True, timeout=60, env={**os.environ, "PYTHONIOENCODING": "cp1252"})
+        assert proc.returncode == 0, proc.stderr
+        rows = proc.stdout.decode("utf-8").splitlines()
+        assert any(row.startswith("| acme-auth |") and "| strong: 2 \u2192 caf\u00e9 |" in row for row in rows), rows
+
+    def test_a_file_name_that_is_not_utf8_is_written_with_a_question_mark(self, tmp_path: Path) -> None:
+        """A name byte that is not UTF-8 reaches the envelope as a surrogate escape: the units file and the
+        tables take `?` for it, as the tree files do."""
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        envelope["kept"][0]["signals"]["readme"] = "packages/auth/caf\udce9.md"
+        envelope["dropped"][0]["generated_files"] = [
+            {"path": "packages/tiny/dist/caf\udce9.js", "reason": "generated-code", "match": "dist/"}]
+        filter_file.write_text(json.dumps(envelope), encoding="utf-8")
+        proc, out = _units(tmp_path, [filter_file], names,
+                           [_judge("packages/auth"), _judge("."), _judge("packages/testkit")])
+        assert proc.returncode == 0, proc.stderr
+        assert json.loads(out.read_text(encoding="utf-8"))["units"][0]["signals"]["readme"] == "packages/auth/caf?.md"
+        assert "packages/tiny/dist/caf?.js |" in proc.stdout
+
+    def test_a_judged_language_is_read_in_lower_case(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        proc, out = _units(tmp_path, [filter_file], names,
+                           [_judge("packages/auth", language="TypeScript"), _judge("."), _judge("packages/testkit")])
+        assert proc.returncode == 0, proc.stderr
+        auth = json.loads(out.read_text(encoding="utf-8"))["units"][0]
+        assert (auth["language"], auth["scope"]["include"]) == ("typescript", ["packages/auth/src/**/*.ts"])
+
+    def test_a_filter_names_or_add_file_problem_exits_1(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        rows = [_judge("packages/auth"), _judge("."), _judge("packages/testkit")]
+        again = _write(tmp_path / "again.json", json.dumps({**envelope, "project_path": "/r/"}))
+        error_names = _write(tmp_path / "error-names.json", '{"status": "error", "error": "bad input"}')
+        bad_out = _write(tmp_path / "forge" / "bad.json", '{"units": 3}')
+        for filters, names_file, extra, out, needle in (
+                ([filter_file, again], names, (), None, "/r/: two --filter files give this project path"),
+                ([filter_file], error_names, (), None, "the names file holds a derive-name error: bad input"),
+                ([filter_file], names, ("--add",), bad_out, "the --out file holds no `units` and `dropped` lists")):
+            proc, _ = _units(tmp_path, filters, names_file, rows, *extra, out=out)
+            assert proc.returncode == 1 and needle in proc.stderr, proc.stderr
+        assert bad_out.read_text(encoding="utf-8") == '{"units": 3}'
+        assert not (tmp_path / "forge" / "analyze-source-units-mono.json").exists()
+
+    def test_the_judgments_can_come_from_stdin(self, tmp_path: Path) -> None:
+        filter_file, envelope = _saved_filter(tmp_path)
+        names = _saved_names(tmp_path, envelope)
+        out = tmp_path / "units.json"
+        rows = [_judge("packages/auth"), _judge("."), _judge("packages/testkit")]
+        proc = _run_cli("units", "--filter", str(filter_file), "--names", str(names), "--judgments", "-",
+                        "--out", str(out), stdin_text=json.dumps({"judgments": rows}))
+        assert proc.returncode == 0, proc.stderr
+        assert [u["name"] for u in json.loads(out.read_text(encoding="utf-8"))["units"]] == [
+            "acme-auth", "r", "testkit"]
+
+    def test_a_package_in_a_cargo_workspace_keeps_its_own_language(self, tmp_path: Path) -> None:
+        """No workspace signal: a TypeScript package of a Cargo workspace reads as typescript, not rust."""
+        source = tmp_path / "source-1"
+        _tree(source, {"Cargo.toml": b'[workspace]\nmembers = ["crates/core"]\n',
+                       "crates/core/Cargo.toml": b'[package]\nname = "core"\n',
+                       "crates/core/src/lib.rs": b"pub fn x() {}\n" * 40,
+                       "packages/web/package.json": b'{"name": "web"}\n', "packages/web/tsconfig.json": b"{}\n",
+                       **{f"packages/web/src/{n}.ts": TS for n in "abc"}})
+        proc = _run_cli("filter", "--boundaries", "-", "--source-root", str(source), "--tree-dir",
+                        str(tmp_path / "trees"), "--project-path", "/w",
+                        stdin_text=json.dumps([{"name": "web", "path": "packages/web"}]))
+        assert proc.returncode == 0, proc.stderr
+        filter_file = _write(tmp_path / "run" / "filter-1.json", proc.stdout)
+        names = _write(tmp_path / "run" / "unit-names.json",
+                       json.dumps({"names": [{"target": "packages/web", "manifest_name": "web", "name": "web"}]}))
+        proc, out = _units(tmp_path, [filter_file], names, [_judge("packages/web", project_path="/w")])
+        assert proc.returncode == 0, proc.stderr
+        [unit] = json.loads(out.read_text(encoding="utf-8"))["units"]
+        assert (unit["language"], unit["scope"]["include"]) == ("typescript", ["packages/web/src/**/*.ts"])

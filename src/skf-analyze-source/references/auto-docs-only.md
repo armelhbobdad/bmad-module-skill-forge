@@ -97,18 +97,13 @@ Write the flat context below as `{run_dir}/brief-{skill_name}.json`, a file and 
   "scope_include":    [],
   "scope_exclude":    [],
   "scope_notes":      "Docs-only skill created from documentation URL",
-  "scope_rationale":  null,
-  "scope_tier_a_include": null,
-  "scope_amendments":     null,
   "doc_urls":         [{"url": "{url}", "label": "Primary Documentation"}],
-  "scripts_intent":   null,
-  "assets_intent":    null,
   "source_authority": "community",
-  "target_ref":       null,
-  "source_ref":       null,
   "version_resolved": "1.0.0"
 }
 ```
+
+Leave out every other optional key: the writer reads an absent key as unset.
 
 Then hand it to the writer, which checks it, creates the folder and writes the brief atomically:
 
