@@ -364,7 +364,7 @@ async function runTests() {
     'verify-stack': {
       steps: ['init.md', 'coverage.md', 'integrations.md', 'requirements.md', 'synthesize.md', 'report.md', 'health-check.md'],
       assets: ['feasibility-report-template.md'],
-      references: ['coverage-patterns.md', 'integration-verification-rules.md'],
+      references: ['integration-verification-rules.md'],
     },
     'refine-architecture': {
       steps: ['init.md', 'gap-analysis.md', 'issue-detection.md', 'improvements.md', 'compile.md', 'report.md', 'health-check.md'],

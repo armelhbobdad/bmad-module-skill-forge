@@ -14,7 +14,7 @@ Cross-references generated skills against architecture and PRD documents to prod
 ## Conventions
 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` names a file beside it.
-- `references/` holds prompt content carved out of SKILL.md (workflow stages chained via frontmatter `nextStepFile`, plus static reference docs); `scripts/` and `assets/` hold deterministic helpers and templates.
+- `references/` holds the workflow stages, chained by frontmatter `nextStepFile`; the rules file a stage loads (`integrations.md` loads `integration-verification-rules.md`); the halt reference the stages point to (`exit-codes.md`); and the caller contract (`invocation-contract.md`). `scripts/` holds this skill's deterministic helpers and `assets/` the report template.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
 - `{skill-name}` resolves to the skill directory's basename.
@@ -36,7 +36,7 @@ These rules apply to every step in this workflow:
 - Run every subagent in the foreground, passing `run_in_background: false` on every Agent call (Claude Code runs a subagent in the background when the flag is left out), with parallel ones as several such calls in one message, and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
 - Always communicate in `{communication_language}`
 - At any interactive prompt, the inputs `cancel`, `exit`, `[X]`, `q`, or `:q` exit cleanly with exit code 6 (`halt_reason: "user-cancelled"`)
-- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision; a gate that picks its default for the user (step 1's offer of the newest earlier report) also records that decision in the run sink the moment it decides
+- If `{headless_mode}` is true, auto-proceed through confirmation gates with their default action and log each auto-decision; a gate that picks its default for the user (step 1's default of the newest earlier report) also records that decision in the run sink the moment it decides
 - Every helper a stage runs (a `scripts/` file, or a shared helper from the stage's probe order) is required: if the probe order resolves to no path, or the helper cannot start, HALT (exit code 3, `halt_reason: "resolution-failure"`) at the stage's phase, through the stage's halt envelope. Never recompute a helper's result by hand: the main-thread rule above covers subagent work, not helpers.
 - Every HARD HALT names its exit code, `halt_reason` and phase, and in headless mode prints its envelope through the shared emitter, with the command each stage file shows (`references/exit-codes.md` describes the envelope).
 - Stages 1 to 5 write only the timestamped report `{outputFile}`, and each write that fails halts (exit code 4, `halt_reason: "write-failed"`). Step 6 copies the report to `{outputFileLatest}` only after it passes the feasibility-report check, so a run that halts before then leaves the previous finished copy, the one consumers read, in place.
@@ -46,7 +46,7 @@ These rules apply to every step in this workflow:
 
 | # | Step | File | Auto-proceed |
 |---|------|------|--------------|
-| 1 | Initialize & Load Inputs | references/init.md | No (confirm) |
+| 1 | Initialize & Load Inputs | references/init.md | Conditional (asks only for inputs no flag gave, or whose path was not found) |
 | 2 | Coverage Analysis | references/coverage.md | Yes |
 | 3 | Integration Verification | references/integrations.md | Yes |
 | 4 | Requirements Mapping | references/requirements.md | Yes |
@@ -56,18 +56,7 @@ These rules apply to every step in this workflow:
 
 ## Invocation Contract
 
-| Aspect | Detail |
-|--------|--------|
-| **Inputs** | architecture_doc_path [required], prd_path [optional], previous_report_path [optional] |
-| **Flags** | `--headless` / `-H` (auto-resolve all gates); `--architecture-doc <path>` (skip step 1 prompt for the required input); `--prd <path>` (skip step 1 prompt for the optional PRD); `--previous-report <path>` (skip step 1 prompt for delta comparison) |
-| **Gates** | step 1 Input Gate (use args), including the offer to compare against the newest earlier report (headless default: use it). No later stage waits for input: a run with 0% coverage or only Blocked pairs prints one warning and continues, so its report still carries the recommendations. |
-| **Outputs** | `feasibility-report-{project_slug}-{timestamp}.md` and its `feasibility-report-{project_slug}-latest.md` copy (not a symlink), written by step 6 once the finished report passes the feasibility-report check, both per the SKF shared feasibility report schema (`{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md`; `{project-root}/src/shared/references/feasibility-report-schema.md` in a dev checkout), with integration verdicts, coverage analysis, recommendations, and evidence sources; plus `verify-stack-result-{YYYYMMDD-HHmmss}.json` and `verify-stack-result-latest.json` in `{forge_data_folder}` |
-| **Headless** | All gates auto-resolve with default action when `{headless_mode}` is true. Per-flag args (`--architecture-doc`, `--prd`, `--previous-report`) consumed at the gates that would otherwise prompt. A caller reads the run's own `SKF_VERIFY_STACK_RESULT_JSON` line. A run that printed no envelope line has no result to read, whatever the process exit code: it was cut off, or could not write its result, and `verify-stack-result-latest.json` may then describe an earlier run, so it is never read in its place. |
-| **Exit codes** | See `references/exit-codes.md` |
-
-## Result Contract (Headless)
-
-When `{headless_mode}` is true, step 6 prints one `SKF_VERIFY_STACK_RESULT_JSON: {...}` line on **stdout**, which the shared health check displays as the run's last line, and every HARD HALT one on **stderr**, built by the shared emitter: `references/exit-codes.md` gives its fields, the `halt_reason` values and the halt command.
+`references/invocation-contract.md` holds the inputs, flags, gates, outputs and headless rules, and the `SKF_VERIFY_STACK_RESULT_JSON` result contract; `references/exit-codes.md` the exit codes.
 
 ## On Activation
 

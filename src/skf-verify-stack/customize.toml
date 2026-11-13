@@ -63,10 +63,12 @@ on_complete = ""
 # The template step 1 (references/init.md section 4) creates the feasibility
 # report from: a path from the skill root, or a {project-root}/... path.
 # Default: assets/feasibility-report-template.md. A house-style copy may
-# reword the prose and add sections of its own, and must keep what the shared
-# feasibility report schema (feasibility-report-schema.md under
-# shared/references/) fixes, since the next run, create-stack-skill and
-# refine-architecture read the report through it:
+# reword the prose and add sections of its own (the stages replace all that
+# sits under `## Executive Summary` and `## Coverage Analysis`, so prose kept
+# there is dropped), and must keep what the shared feasibility report schema
+# (feasibility-report-schema.md under shared/references/) fixes, since the
+# next run, create-stack-skill and refine-architecture read the report
+# through it:
 #   - the frontmatter keys with their starting values, `schemaVersion: "1.0"`
 #     included;
 #   - the `## Executive Summary`, `## Coverage Analysis`,
@@ -78,10 +80,9 @@ on_complete = ""
 #     table under `## Evidence Sources`: the stages fill both in place.
 # Step 1 halts (`resolution-failure`) when the path names no readable file,
 # and checks the report it creates from the copy (frontmatter schemaVersion,
-# the five headings in order, one verdict table, no unknown verdict token),
-# halting (`schema-violation`) on one that breaks it; step 6 checks the
-# finished report again. Nothing checks the Evidence Sources table, which the
-# next run's delta reads.
+# the five headings in order, one verdict table, no unknown verdict token, a
+# table under `## Evidence Sources`), halting (`schema-violation`) on one that
+# breaks it; step 6 checks the finished report again.
 
 report_template_path = ""
 
@@ -89,9 +90,6 @@ report_template_path = ""
 #   - the integration verification rules: they hold the obligations the shared
 #     schema puts on this report's producer (Check 4's literal citation and the
 #     Plausible cap), which the report's readers rely on;
-#   - the coverage patterns: the shared mentions helper finds the skills the
-#     architecture document names, and a fact (see persistent_facts) adds the
-#     other names a skill goes by;
 #   - the report folder: the report always lands in {forge_data_folder}, where
 #     create-stack-skill and refine-architecture look for it. Change
 #     forge_data_folder in config.yaml to move the report and its readers

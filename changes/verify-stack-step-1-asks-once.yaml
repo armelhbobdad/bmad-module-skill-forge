@@ -1,0 +1,6 @@
+type: changed
+scope: skf-verify-stack
+summary: |
+  Verify Stack's first step now checks the skills folder and stops on fewer than two skills before it asks for or checks any document, in a headless run too, so a forge with too few skills no longer has you type paths first. A previous report it finds is now the Enter default of the prompt's previous-report line, offered once instead of a second time after the prompt, and `none` there, or `--previous-report none`, runs without a comparison. A PRD or previous-report path that is not found is asked for again once; a headless run goes on without it and lists `prd_not_found: <path>` or `previous_report_not_found: <path>` in the envelope's `warnings`. A PRD that was not found keeps its path in the report's `prdDoc`, and the requirements section says that PRD was not found instead of saying none was given.
+issues: [1200]
+prs: [1208]

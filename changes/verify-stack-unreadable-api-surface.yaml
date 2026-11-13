@@ -1,0 +1,6 @@
+type: changed
+scope: skf-verify-stack
+summary: |
+  When the integration step cannot use a skill's API-surface summary (no reply, a reply that is not JSON, or a key missing or of the wrong type), Verify Stack now reads that skill's `SKILL.md` once more before it counts the read as failed. A skill it still cannot read no longer drops out of the run unseen: each of its integration pairs gets a `Risky` row with the rationale "API surface unreadable: re-run [VS]" and a recommendation, the envelope's `warnings` list `skill_summary_unreadable: <skill>` once, and the requirements section names the skill as not read. Those pairs used to have no row, so readers saw them as unrated. Now each counts as a `Risky` pair, though no compatibility check ran: the run's verdict is `CONDITIONALLY_FEASIBLE` at best, Refine Architecture raises a Major issue for each such pair, and Stack Skill annotates it `[VS: Risky]`, until a re-run reads the skill. Exit `7` (`inventory-unreliable`, phase `integrations:api-surfaces`), which a first malformed reply used to count toward, now counts a skill a subagent read only when its second read fails too, and its message no longer asks you to wait for the skills to stabilize: it says the reads failed, the skills themselves may be fine, and to re-run [VS].
+issues: [1197]
+prs: [1208]

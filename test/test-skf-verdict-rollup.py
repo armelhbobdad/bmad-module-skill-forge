@@ -5,10 +5,10 @@ delegates to instead of an in-prompt threshold cascade (zero-coverage
 short-circuit, blocked/missing/risky conditions, plausible cap, requirements
 gaps, zero-pairs guard, the recommendation count derived from the same
 counts, and CLI exit codes), the --report mode that reads those counts from
-the report frontmatter itself and fails on a count a stage never wrote or a
-stage stepsCompleted does not list (while rollup()'s defaults stay for the
-callers that pass JSON), and the one
-call synthesize.md makes.
+the report frontmatter itself and fails on a count a stage never wrote, a
+stage stepsCompleted does not list, or pair counts the canonical verdict table
+does not hold (while rollup()'s defaults stay for the callers that pass JSON),
+and the one call synthesize.md makes.
 """
 
 import importlib.util
@@ -32,6 +32,9 @@ spec = importlib.util.spec_from_file_location("rollup_mod", SCRIPT)
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 rollup = mod.rollup
+spec = importlib.util.spec_from_file_location("report_update_rollup", SKILL / "scripts" / "skf-report-update.py")
+update = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(update)
 
 
 def base(**kw):
@@ -233,8 +236,9 @@ def _rollup_call():
 
 def test_synthesize_runs_the_rollup_on_the_report():
     section, call = _rollup_call()
-    assert call == 'uv run {verdictRollupScript} --report "{outputFile}"'
-    args = mod._build_parser().parse_args(shlex.split(call.split("uv run {verdictRollupScript}", 1)[1]))
+    assert call == 'uv run {verdictRollupScript} --report "{outputFile}" > "{run_dir}/rollup.json"'
+    command = call.split(" > ", 1)[0]
+    args = mod._build_parser().parse_args(shlex.split(command.split("uv run {verdictRollupScript}", 1)[1]))
     assert args.report == "{outputFile}" and not args.stdin
     # The script reads the frontmatter, and --help lists its keys: the stage names
     # the two the workflow-state test pins and the stage list, and assembles no input itself.
@@ -251,14 +255,28 @@ def test_synthesize_runs_the_rollup_on_the_report():
     assert '(exit code 3, `halt_reason: "resolution-failure"`) at phase `synthesize:rollup`' in section
     assert '(exit code 5, `halt_reason: "schema-violation"`) at phase `synthesize:rollup`' in section
     synthesize = SYNTHESIZE.read_text(encoding="utf-8")
-    assert "coverageTallyScript" not in synthesize
+    # The tally renders only the Evidence Sources rows here, never a count.
+    tally = [line for line in synthesize.splitlines() if "coverageTallyScript" in line]
+    assert tally[0] == "coverageTallyScript: 'scripts/skf-coverage-tally.py'"
+    assert [line.split(" < ", 1)[0] for line in tally[1:]] == [
+        'uv run {coverageTallyScript} --kind evidence --render --skills-root "{skills_output_folder}" --stdin']
     assert "serialize the Coverage Analysis table" not in synthesize
+
+
+def _set_counts_keys(kind):
+    """{frontmatter key: tally field} of one skf-report-update.py set-counts kind."""
+    return {key: field for field, key, _ in update.KINDS[kind].fields}
 
 
 def test_coverage_persists_the_counts_the_rollup_reads():
     write = _synthesize_section("### 6. Append to Report", "### 7.", path=SKILL / "references" / "coverage.md")
-    assert "`coverageCovered` \u2190 `covered_count`" in write
-    assert "`coverageMissing` \u2190 `missing_count`" in write
+    assert ('uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind coverage '
+            '< "{run_dir}/coverage-tally.json"') in write
+    # The helper, not the prose, maps the tally's fields onto the keys --report reads.
+    keys = _set_counts_keys("coverage")
+    assert keys["coverageCovered"] == "covered_count" and keys["coverageMissing"] == "missing_count"
+    assert {key for key, _ in mod.REPORT_COUNTS if key.startswith("coverage")} == set(keys)
+    assert update.KINDS["coverage"].stage == "coverage" and "\u2190" not in write
     template = (SKILL / "assets" / "feasibility-report-template.md").read_text(encoding="utf-8")
     frontmatter = template.split("\n---\n", 1)[0]
     assert "\ncoverageCovered: null\n" in frontmatter and "\ncoverageMissing: null\n" in frontmatter
@@ -336,10 +354,14 @@ def test_synthesize_takes_the_recommendation_count_from_the_rollup():
     write = _synthesize_section("### 5. Append to Report", "### 6.")
     # No circular check of the frontmatter's pair counts against themselves.
     assert "Verify that `pairsVerified`" not in write
-    coverage = _synthesize_section("### 6. Append to Report", "### 7.", path=SKILL / "references" / "coverage.md")
-    assert "`coverageReplaced` \u2190 `replaced_count`" in coverage
+    assert _set_counts_keys("coverage")["coverageReplaced"] == "replaced_count"
     template = (SKILL / "assets" / "feasibility-report-template.md").read_text(encoding="utf-8")
     assert "\ncoverageReplaced: null\n" in template.split("\n---\n", 1)[0]
+    # Section 5 records the rollup's own count and verdict, as the rollup wrote them.
+    assert ('uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind synthesize '
+            '< "{run_dir}/rollup.json"') in write
+    assert _set_counts_keys("synthesize") == {"overallVerdict": "overallVerdict",
+                                              "recommendationCount": "recommendationCount"}
 
 
 def test_synthesize_zero_pairs_recommendation_keys_on_the_guard():
@@ -359,8 +381,22 @@ STAGE_COUNTS = {"coveragePercentage": "75", "coverageCovered": "3", "coverageMis
                 "stepsCompleted": "['init', 'coverage', 'integrations', 'requirements']"}
 
 
-def _report(tmp_path, name="feasibility-report-my-app-20261002-101500.md", drop=(), **values):
-    """The report template with its frontmatter keys set as the stages set them."""
+CANONICAL_HEADER = "| lib_a | lib_b | verdict | rationale |"
+
+
+def _table(wanted):
+    """Canonical rows holding the pair counts of `wanted`, as the integrations stage fills them."""
+    rows = []
+    for key, verdict in mod.TABLE_COUNTS:
+        count = re.match(r"\s*['\"]?([0-9]+)", wanted.get(key, ""))
+        for i in range(int(count.group(1)) if count else 0):
+            rows.append(f"| {verdict.lower()}-{i} | partner-{i} | {verdict} | why {i} |")
+    return rows
+
+
+def _report(tmp_path, name="feasibility-report-my-app-20261002-101500.md", drop=(), rows=None, **values):
+    """The report template with its frontmatter keys set as the stages set them, and its
+    canonical table holding `rows` (by default, rows that match the pair counts)."""
     lines = TEMPLATE.read_text(encoding="utf-8").split("\n")
     wanted = {**STAGE_COUNTS, **values}
     end = lines.index("---", 1)
@@ -370,6 +406,8 @@ def _report(tmp_path, name="feasibility-report-my-app-20261002-101500.md", drop=
         if 0 < i < end and key in drop:
             continue
         out.append(f"{key}: {wanted[key]}" if 0 < i < end and key in wanted else line)
+    at = out.index(CANONICAL_HEADER) + 2
+    out[at:at] = _table(wanted) if rows is None else rows
     path = tmp_path / name
     path.write_bytes("\n".join(out).encode("utf-8"))
     return path
@@ -445,6 +483,56 @@ def test_quotes_and_comments_around_a_count_are_read(tmp_path):
 def test_counts_that_disagree_are_invalid_input(tmp_path):
     code, out = _run_report(_report(tmp_path, coverageCovered="0", coverageMissing="4"))
     assert (code, out["code"]) == (2, "INVALID_INPUT")
+
+
+# --- --report: the pair counts the canonical table holds -------------------------
+
+
+@pytest.mark.parametrize("key, verdict", list(mod.TABLE_COUNTS))
+def test_a_pair_count_the_table_does_not_hold_fails(tmp_path, key, verdict):
+    """A set-counts call fed the wrong tally leaves counts the table never held."""
+    one_row = [f"| a | b | {verdict} | x |"]
+    others = {other: "0" for other, _ in mod.TABLE_COUNTS if other != key}
+    code, out = _run_report(_report(tmp_path, rows=one_row, **others, **{key: "2"}))
+    assert (code, out["code"]) == (2, "INVALID_REPORT"), out
+    assert f"{key} is 2" in out["error"] and f"holds 1 {verdict} row" in out["error"], out["error"]
+    # The same row with the count it holds reads.
+    assert _run_report(_report(tmp_path, name="ok.md", rows=one_row, **others, **{key: "1"}))[0] == 0
+
+
+def test_a_cycle_row_counts_as_risky(tmp_path):
+    rows = ["| a | b | Verified | b cites a |",
+            "| cycle | a \u2192 b \u2192 c \u2192 a | Risky | circular integration dependency detected |"]
+    path = _report(tmp_path, rows=rows, pairsVerified="1", pairsPlausible="0", pairsRisky="1")
+    code, out = _run_report(path)
+    assert code == 0, out
+    assert out["recommendations"]["risky"] == 1
+
+
+@pytest.mark.parametrize("case, needle", [
+    ("no-table", "has no `| lib_a | lib_b | verdict | rationale |` table"),
+    ("two-tables", "twice"),
+    ("unknown-token", "'Unverified'"),
+])
+def test_the_canonical_table_must_be_there_once_with_known_tokens(tmp_path, case, needle):
+    path = _report(tmp_path, rows=["| a | b | Unverified | x |"] if case == "unknown-token" else None)
+    text = path.read_text(encoding="utf-8")
+    table = CANONICAL_HEADER + "\n|-------|-------|---------|-----------|\n| verified-0 | partner-0 | Verified | why 0 |"
+    if case == "no-table":
+        text = text.replace(CANONICAL_HEADER, "No table here.")
+    elif case == "two-tables":
+        text = text.replace("## Recommendations", table + "\n\n## Recommendations")
+    path.write_bytes(text.encode("utf-8"))
+    code, out = _run_report(path)
+    assert (code, out["code"]) == (2, "INVALID_REPORT"), out
+    assert needle in out["error"], out["error"]
+    # The error names the file line to fix: the unknown row, or the second table's header.
+    lines = text.split("\n")
+    if case == "unknown-token":
+        assert f"line {lines.index('| a | b | Unverified | x |') + 1}:" in out["error"], out["error"]
+    elif case == "two-tables":
+        second = [i + 1 for i, line in enumerate(lines) if line == CANONICAL_HEADER][1]
+        assert f"again at line {second})" in out["error"], out["error"]
 
 
 def test_a_report_it_cannot_read_is_invalid(tmp_path):

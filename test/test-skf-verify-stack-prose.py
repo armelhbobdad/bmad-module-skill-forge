@@ -15,7 +15,8 @@ No test runs a stage file, so these pin what the stages promise:
 - the integrations stage takes each skill's language, exports and evidence
   tier from the inventory, never from metadata.json, and its pairs from the
   document's prose alone (no stack-manifest source, tag or column);
-- the Plausible recommendation says what Check 4 reads;
+- the Plausible recommendation says what Check 4 reads, and the rules file
+  keeps Checks 1 to 3 short around its two nudges (#1199);
 - each fact has one home (the single-technology note, where each run
   variable is fixed);
 - module-help.csv and skill-lifecycle.md name the file the skill writes.
@@ -158,9 +159,25 @@ def test_stages_table_matches_the_gate_annotations():
     assert len(rows) == 7
     for file, auto_proceed in rows.items():
         gated = "**GATE [default:" in _read(SKILL / file)
-        assert auto_proceed == ("No (confirm)" if gated else "Yes"), f"{file}: {auto_proceed}"
-    gates = next(line for line in _read(SKILL / "SKILL.md").splitlines() if line.startswith("| **Gates** |"))
+        # Step 1 waits only for the inputs no flag gave, so it never reads "No (confirm)" (#1200), and for a
+        # path a flag gave that an interactive run does not find.
+        expected = "Conditional (asks only for inputs no flag gave, or whose path was not found)" if gated else "Yes"
+        assert auto_proceed == expected, f"{file}: {auto_proceed}"
+    contract = _read(REFERENCES / "invocation-contract.md")
+    flags = next(line for line in contract.splitlines() if line.startswith("| **Flags** |"))
+    assert flags.endswith("; an interactive run still asks for another path when the one a flag gives is not "
+                          "found |"), flags
+    assert ("unless an interactive run finds no file there (the validation below then asks once)"
+            in _read(REFERENCES / "init.md"))
+    gates = next(line for line in contract.splitlines() if line.startswith("| **Gates** |"))
     assert "step 1 Input Gate" in gates and "step 6" not in gates
+    assert "whose previous-report line offers the newest earlier report as its Enter default" in gates
+    assert "| **Gates** |" not in _read(SKILL / "SKILL.md")
+    # The envelope schema names the gate as its sibling copies do: no separate offer is left (#1200).
+    schema = _read(REPO / "src" / "shared" / "scripts" / "schemas" / "skf-verify-stack-result-envelope.v1.json")
+    assert "step 1's offer" not in schema
+    assert ("step 1's default of comparing against the newest earlier report (the previous-report line's Enter "
+            "default)") in schema
 
 
 # --- The slug comes from the shared helper ----------------------------------------
@@ -172,7 +189,7 @@ def test_the_slug_rule_lives_in_the_shared_helper():
     assert "never slugify `project_name` by hand" in skill
     init = _read(REFERENCES / "init.md")
     assert "validateFeasibilityReportProbeOrder:" in init.split("\n---\n", 1)[0]
-    bind = _section(init, "**Bind `{project_slug}`.**", "### 1. Accept Input Documents")
+    bind = _section(init, "**Bind `{project_slug}`.**", "**Pre-flight: skills folder existence.**")
     call = next(line for line in bind.splitlines() if line.startswith("uv run {validateFeasibilityReportHelper}"))
     assert call == 'uv run {validateFeasibilityReportHelper} --locate "{outputFolderPath}" --project-name "{project_name}"'
     assert "Bind `{project_slug}` ← `projectSlug`" in bind
@@ -202,9 +219,14 @@ def test_the_report_fills_the_templates_one_verdict_table():
     assert "fill it in place instead of appending another one" in write
     assert "With zero integration pairs, leave the table with its header and delimiter rows only." in write
     assert "Emit the canonical" not in write
-    # The canonical table ends at its first line that does not start with a
-    # pipe, so the display table needs a blank line above it.
-    assert "After one blank line, add the display table" in write
+    # The display table goes in its own subsection below the canonical one,
+    # after the fill, so the reader never takes it for the canonical table.
+    assert "the §5 display table with the extra Context and Evidence columns" in write
+    details = ("uv run {reportUpdateScript} replace-section --report \"{outputFile}\" --heading 'Integration Verdicts' "
+               "--subsection 'Integration Details' < \"{run_dir}/integration-details.md\"")
+    fill = "uv run {reportUpdateScript} fill-table --report \"{outputFile}\" --heading 'Integration Verdicts'"
+    assert write.index(fill) < write.index(details)
+    assert "After one blank line, add the display table" not in write
 
 
 # --- One tier scale for the evidence strength -------------------------------------
@@ -213,7 +235,12 @@ def test_the_report_fills_the_templates_one_verdict_table():
 def test_integrations_reads_the_inventory_not_metadata():
     integrations = _read(REFERENCES / "integrations.md")
     surfaces = _section(integrations, "### 3. Load Skill API Surfaces", "### 4.")
-    assert "**From `skill_inventory` (step 1 §2), also take**" in surfaces
+    # #1197: the merge helper joins the inventory's fields to each summary.
+    assert 'merge --dir "{run_dir}/summaries" --inventory "{inventoryFile}"' in surfaces
+    assert "**From `skill_inventory` (step 1 §2), also take**" not in surfaces
+    for field in ("`language`", "`exports_documented`", "`inventory_exports`"):
+        assert field in surfaces, field
+    assert "so the parent never opens it" in surfaces
     assert "From metadata.json (read in parent" not in surfaces
     assert "`confidence_tier`" not in surfaces
     pairs = _section(integrations, "### 4. Cross-Reference Each Integration Pair", "**Cycle detection")
@@ -254,11 +281,45 @@ def test_the_plausible_recommendation_names_what_check_4_reads():
     assert "SKILL.md names the other" in plausible
     assert "[SS]" not in plausible and "integration_patterns" not in plausible
     assert "promote" not in plausible
-    check4 = _section(_read(RULES), "### 4. Documentation Cross-Reference", "---")
+    rules = _read(RULES)
+    check4 = rules[rules.index("### 4. Documentation Cross-Reference"):]
     assert "Skill A's SKILL.md" in check4 and "Skill B's SKILL.md" in check4
 
 
+def test_the_rules_file_keeps_the_two_nudges_around_short_checks():
+    """#1199 leanness-8: Checks 1 to 3 are short definitions around the bridge-library and
+    lock-file nudges, with no general interop advice and no Purpose block."""
+    rules = _read(RULES)
+    assert "## Purpose" not in rules
+    check1 = _section(rules, "### 1. Language Boundary Check", "### 2.")
+    check2 = _section(rules, "### 2. Protocol Compatibility Check", "### 3.")
+    check3 = _section(rules, "### 3. Type Compatibility Check", "### 4.")
+    assert "**check whether a bridge library already exists in the stack**" in check1
+    assert "**two embedded databases may conflict on lock files" in check2
+    for check in (check1, check2, check3):
+        assert len([line for line in check.splitlines() if line.startswith("- ")]) <= 2, check
+    for gone in ("Common patterns: JSON serialization", "both WebSocket", "C/C++ exposes FFI"):
+        assert gone not in rules, gone
+
+
 # --- One home for each fact -----------------------------------------------------------
+
+
+REPORT_STAGES = ("coverage.md", "integrations.md", "requirements.md", "synthesize.md")
+
+
+def test_the_stages_restate_no_helper_and_state_the_replaced_rule_once():
+    """#1198: SKILL.md's Workflow Rules say why a stage runs a helper, and the
+    stages hand their counts to the report-update helper instead of mapping them."""
+    texts = {name: _read(REFERENCES / name) for name in REPORT_STAGES}
+    for name, text in texts.items():
+        for gone in ("one correct answer", "so delegate", "is judgment", "in-prose DFS", "Store the verdict",
+                     "Technologies marked **Replaced**", "Write the `overallVerdict`", "Update frontmatter",
+                     "Pipe the updated", "\u2190"):
+            assert gone not in text, (name, gone)
+    rule = "Do not emit a [CS]/[QS] recommendation for a Replaced technology"
+    assert sum(text.count(rule) for text in texts.values()) == 1
+    assert rule in _section(texts["synthesize.md"], "### 2. Generate Prescriptive Recommendations", "### 3.")
 
 
 def test_the_single_technology_fact_lives_in_synthesize_only():

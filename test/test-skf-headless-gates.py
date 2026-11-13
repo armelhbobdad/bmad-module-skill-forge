@@ -461,7 +461,7 @@ HEADLESS_CONTRACTS = {
     "skf-setup": "references/invocation-contract.md",
     "skf-test-skill": "references/invocation-contract.md",
     "skf-update-skill": "references/invocation-contract.md",
-    "skf-verify-stack": "SKILL.md",
+    "skf-verify-stack": "references/invocation-contract.md",
 }
 # The batch reading rule (#889), word for word in each --batch contract: a batch is read from its own summary event.
 BATCH_NO_RESULT = "A batch that printed no `batch_summary` event has no batch result, whatever the process exit code"

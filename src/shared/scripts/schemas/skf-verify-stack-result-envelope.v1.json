@@ -123,12 +123,12 @@
           "gate": {
             "type": "string",
             "enum": ["init.previous-report"],
-            "description": "The gate that auto-resolved: step 1's offer to compare against the newest earlier report. The gate records its decision in the run sink the moment it decides."
+            "description": "The gate that auto-resolved: step 1's default of comparing against the newest earlier report (the previous-report line's Enter default), which a headless run takes once the architecture document has passed its checks. The gate records its decision in the run sink the moment it decides."
           },
           "default_action": {
             "type": "string",
             "minLength": 1,
-            "description": "The action documented as the gate's default ('Y' for [Y] use it)."
+            "description": "The action documented as the gate's default ('Y' for comparing against the newest earlier report, the previous-report line's Enter default)."
           },
           "taken_action": {
             "type": "string",
@@ -152,7 +152,7 @@
     "warnings": {
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
-      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each, starting with its code: no_technology_referenced, no_live_technology or zero_coverage when the coverage step found no Covered technology (the architecture names none, marks each one for removal, or no skill matches one), skill_modified_mid_run when a paired skill changed after step 1 read it, all_pairs_blocked when every integration pair is Blocked, and result_file_write_failed when a result file could not be written (the emitter's own, or step 6's when it cannot create the forge data folder). Present only when there is at least one."
+      "description": "Optional. Non-fatal anomalies the run recorded in its sink or the emitter raised, one string each, starting with its code: prd_not_found or previous_report_not_found when a PRD or previous report path given in a headless run was not found, no_technology_referenced, no_live_technology or zero_coverage when the coverage step found no Covered technology (the architecture names none, marks each one for removal, or no skill matches one), skill_summary_unreadable when the integration step could not read a skill's API surface, even on a second read, skill_modified_mid_run when a paired skill changed after step 1 read it, all_pairs_blocked when every integration pair is Blocked, and result_file_write_failed when a result file could not be written (the emitter's own, or step 6's when it cannot create the forge data folder). Present only when there is at least one."
     },
     "error": {
       "type": "object",

@@ -11,8 +11,9 @@ run left unfinished or unchecked), the not-found path (a path it cannot read
 included), the missing shared reader (exit 3), a report whose tables hold the rows
 skf-coverage-tally.py --render prints counting as finished, the installed
 layout, usage errors, the CLI exit codes, and the init.md prose that calls the helper, asks
-again on an interactive collision, maps a headless one to the exit 5 halt and
-records the headless pick.
+again on an interactive collision, maps a headless one to the exit 5 halt,
+records the headless pick, offers a found report once as line 3's Enter default
+and skips the helper on `none` (#1200).
 """
 
 from __future__ import annotations
@@ -531,23 +532,43 @@ def test_init_binds_the_helper_and_calls_it_once():
         parser.parse_args(words)
 
 
+def _find_block(text):
+    """init.md §1's run of the helper with no path given, before the prompt."""
+    return text[text.index("**Find the previous report first.**"):text.index("**Ask only for what no flag answered.**")]
+
+
+def _headless_gate(text):
+    """init.md §1's headless gate on a found report, after the architecture document's checks."""
+    return text[text.index("**GATE [default: Y]**"):text.index("**Validate the PRD")]
+
+
+def _given_block(text):
+    """init.md §1's run of the helper on a path the flag or the prompt gave."""
+    return text[text.index("**Resolve a given previous report**"):text.index("**Record a path that was not found.**")]
+
+
 def test_init_maps_each_status_and_halts_exit_5_on_a_collision():
     text = _init_text()
-    section = text[text.index("**Resolve the previous report"):text.index("### 2.")]
-    for status in ("`collision`", "`not-found`", "`provided`", "`discovered`", "`none`"):
-        assert status in section, status
-    collision = section[section.index("`collision`"):section.index("`not-found`")]
+    found, given = _find_block(text), _given_block(text)
+    for status in ("`discovered`", "`none`", "`reader-missing`"):
+        assert status in found, status
+    for status in ("`collision`", "`not-found`", "`provided`"):
+        assert status in given, status
+    collision = given[given.index("`collision`"):given.index("`not-found`")]
     # Interactive: ask for another path and run the helper again. Headless,
     # where no one can answer: the exit 5 halt.
     assert "Interactive: wait for the answer, run the helper again" in collision
+    assert "or type `none` to skip." in collision
     headless = collision[collision.index("In headless"):]
     assert '(exit code 5, `halt_reason: "previous-report-collision"`)' in headless
-    assert "`{outputFile}`" in section and "`{outputFileLatest}`" in section
+    assert "`{outputFile}`" in found and "`{outputFileLatest}`" in found
     # The usage error (exit 2, no JSON) has its own branch.
-    assert "When it prints no JSON (exit 2, a usage error)" in section
-    # The discovery offer can cancel, as every prompt of the run can.
-    discovered = section[section.index("`discovered`"):section.index("`none`")]
-    assert "**[X]** cancel" in discovered and "(exit code 6)" in discovered
+    assert "When it prints no JSON (exit 2, a usage error)" in found
+    # Line 3 and each ask for another path can cancel, as every prompt of the run can.
+    accept = text[text.index("**Ask only for what no flag answered.**"):text.index("### 4.")]
+    cancel = accept.index('"Cancelled: no analysis was performed." and HALT (exit code 6')
+    assert accept.index("3. **Previous feasibility report** (OPTIONAL)") < cancel
+    assert cancel < accept.index("**Resolve a given previous report**")
     # The file-identity procedure now lives in the helper, not in prose.
     assert "st_ino" not in text and "stat(2)" not in text
     assert "provide a backup copy" not in text
@@ -555,7 +576,7 @@ def test_init_maps_each_status_and_halts_exit_5_on_a_collision():
 
 def test_init_skips_unfinished_reports_and_records_the_headless_pick():
     text = _init_text()
-    section = text[text.index("**Resolve the previous report"):text.index("### 2.")]
+    section = _find_block(text)
     # Discovery takes only a finished report; what finished means is the
     # helper's rule (stepsCompleted lists synthesize, the report passes the
     # check), stated in its docstring and not again in prose.
@@ -564,13 +585,62 @@ def test_init_skips_unfinished_reports_and_records_the_headless_pick():
     assert "lists `synthesize`" in mod.__doc__ and "read_report()" in mod.__doc__
     assert "§4 overwrites `{outputFile}` and `{outputFileLatest}`" not in section
     # The headless pick is recorded in the run sink, so the envelope lists it.
-    discovered = section[section.index("`discovered`"):section.index("`none`")]
-    assert '"gate": "init.previous-report"' in discovered
+    gate = _headless_gate(text)
+    assert '"gate": "init.previous-report"' in gate
     assert ('uv run {emitEnvelopeHelper} record --workflow skf-verify-stack --run-dir "{run_dir}" '
-            '--decision < "{run_dir}/decision.json"') in discovered
+            '--decision < "{run_dir}/decision.json"') in gate
     # A missing shared reader halts as any helper that cannot run does.
     missing = section[section.index("`reader-missing` (exit 3)"):]
     assert '(exit code 3, `halt_reason: "resolution-failure"`) at phase `init:previous-report`' in missing
+
+
+def test_init_offers_a_found_report_once_and_none_skips_it(tmp_path, monkeypatch):
+    """#1200: with no path given the helper runs before the prompt, so line 3 offers the report it found as its
+    Enter default and nothing offers it again; `none` there, or `--previous-report none`, skips the comparison in
+    every mode and never reaches the helper."""
+    text = _init_text()
+    found = _find_block(text)
+    assert text.index("**Find the previous report first.**") < text.index("**Ask only for what no flag answered.**")
+    assert ("When `{previous_report_path}` is null, run the previous-report helper without `--provided` before the "
+            "prompt") in found
+    discovered = found[found.index("`discovered`"):found.index("`none`")]
+    assert ("line 3 of the prompt below offers the returned `previousReport` as its Enter default, and an empty "
+            "answer there sets `previousReport` to it") in discovered
+    # No second offer once line 3 settled it, but the headless default and its decision record stay.
+    assert "compare against it? **[Y]**" not in text and "**[skip]**" not in text
+    assert ("A headless run takes that default at the gate after the architecture document's validation below."
+            in discovered)
+    assert "**GATE [default: Y]**" not in found and text.count("**GATE [default: Y]**") == 1
+    gate = _headless_gate(text)
+    assert gate.startswith("**GATE [default: Y]**: when the find block above returned `discovered` and "
+                           "`{headless_mode}` is true, set `previousReport` to the returned")
+    assert '`{"gate": "init.previous-report", "default_action": "Y", "taken_action": "Y", ' in gate
+    assert ('uv run {emitEnvelopeHelper} record --workflow skf-verify-stack --run-dir "{run_dir}" '
+            '--decision < "{run_dir}/decision.json"') in gate
+    # The decision is recorded only once the architecture document passed, so a headless run that halts on a
+    # missing or invalid one lists no comparison it never made (a halt reports the decisions taken before it).
+    at = text.index(gate)
+    assert text.index('(exit code 2, `halt_reason: "input-missing"`) at phase `init:input-documents`') < at
+    assert text.index('(exit code 2, `halt_reason: "input-invalid"`) at phase `init:architecture-doc`') < at
+    prompt = text[text.index("**Ask only for what no flag answered.**"):text.index("**Validate the architecture")]
+    assert ("3. **Previous feasibility report** (OPTIONAL), for delta comparison: {IF the helper found one:}Found the "
+            "report from {previousTimestamp}: press Enter to compare against it, paste another path, or type `none` "
+            "to skip.{ELSE:}a timestamped report from an earlier run, or leave it empty to skip.{END IF}") in prompt
+    assert ("An empty line 3 takes the found report; `none` there, like `--previous-report none`, skips the "
+            "comparison in every mode.") in prompt
+    # `none` is settled before the helper runs on a given path ...
+    given = _given_block(text)
+    skip = given.index("`none`, in any case, leaves `previousReport` empty and runs no helper.")
+    assert skip < given.index("A path runs the command above with `--provided` set to it")
+    # ... because the helper would take it for a file that is not there, a not-found path the run warns about.
+    monkeypatch.chdir(tmp_path)
+    result, code = resolve(str(tmp_path), SLUG, NOW, "none")
+    assert (code, result["status"], result["previousReport"]) == (0, "not-found", None)
+    # The timestamp line 3 names is the one the helper returns with the report it found.
+    earlier = _report(tmp_path, "20260930-110000")
+    result, code = resolve(str(tmp_path), SLUG, NOW)
+    assert (code, result["status"], result["previousTimestamp"]) == (0, "discovered", "20260930-110000")
+    assert _posix(result["previousReport"]) == earlier.as_posix()
 
 
 def test_exit_codes_name_both_files_for_the_collision():

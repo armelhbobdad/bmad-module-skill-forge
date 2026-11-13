@@ -1,18 +1,17 @@
 ---
 nextStepFile: 'synthesize.md'
 coverageTallyScript: 'scripts/skf-coverage-tally.py'
+reportUpdateScript: 'scripts/skf-report-update.py'
 feasibilitySchemaProbeOrder:
   - '{project-root}/_bmad/skf/shared/references/feasibility-report-schema.md'
   - '{project-root}/src/shared/references/feasibility-report-schema.md'
-atomicWriteProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
-  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
 outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md'
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
-# The skill summaries integrations.md §3 wrote: one per skill matched to a
-# Covered technology, with its exports and capabilities.
+# The skill summaries integrations.md §3 merged: `summaries`, one per skill
+# matched to a Covered technology that it could read, with its exports and
+# capabilities, and `unread`, the skills it could not read.
 skillSummariesFile: '{run_dir}/skill-summaries.json'
 ---
 
@@ -42,19 +41,23 @@ Display the line it prints, then stop with the halt's exit code (`references/exi
 
 ### 1. Check PRD Availability
 
-**Resolve `{atomicWriteHelper}`** from `{atomicWriteProbeOrder}`; first existing path wins. If no candidate exists: HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `requirements:report`.
-
-**Read `prdAvailable` from `{outputFile}` frontmatter (set in Step 01). If `prdAvailable` is false (no PRD/vision document was provided):**
+**Read `prdAvailable` from `{outputFile}` frontmatter (set in Step 01). If `prdAvailable` is false (no PRD/vision document was provided, or the one given was not found):**
 
 "**Pass 3: Requirements Coverage — Skipped**
 
-No PRD or vision document was provided. Requirements coverage analysis requires a document describing project capabilities and constraints.
+{IF `prdDoc` in the `{outputFile}` frontmatter names a path, not `none`:}The PRD at `{prdDoc}` was not found.{ELSE:}No PRD or vision document was provided.{END IF} Requirements coverage analysis requires a document describing project capabilities and constraints.
 
 To include this pass, re-run **[VS]** with a PRD or vision document path.
 
 **Proceeding to synthesis...**"
 
-Update `{outputFile}` frontmatter: append `'requirements'` to `stepsCompleted`; set `requirementsPass: "skipped"`. Pipe the updated content through `python3 {atomicWriteHelper} write --target {outputFile}`. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `requirements:report`, with `"path": "{outputFile}"`.
+Record the skipped pass in `{outputFile}`:
+
+```bash
+uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind requirements-skipped
+```
+
+On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `requirements:report`. On exit 2 with `INVALID_INPUT`, or with no JSON (a usage error), fix the file or the call its `error` or usage line names, then run that call and the ones after it again. On exit 2 with `INVALID_REPORT`, HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `requirements:report`, naming its `error`. On exit 3, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `requirements:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
 
 Load, read the full file and then execute `{nextStepFile}`. The no-PRD path ends here — sections 2-6 are the PRD-present branch and do not run.
 
@@ -62,14 +65,7 @@ Load, read the full file and then execute `{nextStepFile}`. The no-PRD path ends
 
 ### 2. Extract Requirements
 
-Parse the PRD/vision document for capability requirements.
-
-**Look for:**
-- **Feature descriptions** — explicit capabilities the product must have
-- **Technical requirements** — performance targets, scalability needs, platform support
-- **Non-functional requirements** — offline-first, real-time sync, multi-language support, accessibility, security constraints
-- **Integration requirements** — third-party service dependencies, API contracts
-- **Infrastructure requirements** — deployment targets, CI/CD needs, monitoring
+Take the PRD's path from `prdDoc` in the `{outputFile}` frontmatter, then parse that document for capability requirements.
 
 **Build a requirements list** with each entry containing:
 - `requirement_id` — sequential identifier (R1, R2, R3...)
@@ -79,32 +75,22 @@ Parse the PRD/vision document for capability requirements.
 
 ### 3. Assess Stack Coverage
 
-For each requirement, evaluate whether the combined capabilities of the generated skills address it. Work from the summaries step 3 wrote to `{skillSummariesFile}`, one per skill matched to a Covered technology (its `exports`, `capabilities`, `protocols_inferred` and `data_formats_inferred`), never from a SKILL.md read in this context: step 3 already read each one in a subagent.
+For each requirement, evaluate whether the combined capabilities of the generated skills address it. Work from the `summaries` step 3 wrote to `{skillSummariesFile}`, one per skill matched to a Covered technology that it could read (its `exports`, `capabilities`, `protocols_inferred` and `data_formats_inferred`), never from a SKILL.md read in this context: step 3 already read each one. A skill its `unread` list names counts toward no verdict.
 
-**Assessment method:**
-- Match each requirement against the skills' `capabilities` and `exports`
-- Check if skill exports provide functions, types, or patterns relevant to the requirement
-- Consider combinations of multiple skills that together address a requirement
-- For non-functional requirements, check if the summaries name relevant configuration or patterns
-- When a verdict turns on a detail no summary holds, delegate it: one subagent reads that skill's SKILL.md and returns only `{"requirement_id": "…", "verdict": "Fulfilled|Partially Fulfilled|Not Addressed", "evidence": "…"}`
+When a verdict turns on a detail no summary holds, delegate it: one subagent reads that skill's SKILL.md and returns only `{"requirement_id": "…", "verdict": "Fulfilled|Partially Fulfilled|Not Addressed", "evidence": "…"}`.
 
 **Assign verdict per requirement:**
 - **Fulfilled** — one or more skills clearly provide the needed capability, with specific exports or patterns identified
 - **Partially Fulfilled** — skills provide related capability but gaps remain (specify what is covered and what is not)
 - **Not Addressed** — no skill in the stack provides capability relevant to this requirement
 
-**Each verdict includes:**
-- Which skills contribute (if any)
-- Specific exports or capabilities from those skills that are relevant
-- For Partially Fulfilled: what gap remains
-
-**Count the verdicts deterministically.** Assigning each verdict is judgment; counting them has one correct answer, so delegate it. Write `{run_dir}/requirement-rows.json` as `{"rows": [{"requirement_id": "R1", "verdict": "Fulfilled|Partially Fulfilled|Not Addressed"}, …]}`, one row per requirement, and run:
+**Count the verdicts deterministically.** Write `{run_dir}/requirement-rows.json` as `{"rows": [{"requirement_id": "R1", "verdict": "Fulfilled|Partially Fulfilled|Not Addressed"}, …]}`, one row per requirement, and run:
 
 ```bash
-uv run {coverageTallyScript} --kind requirements --stdin < "{run_dir}/requirement-rows.json"
+uv run {coverageTallyScript} --kind requirements --stdin < "{run_dir}/requirement-rows.json" > "{run_dir}/requirement-tally.json"
 ```
 
-It returns `requirements_fulfilled`, `requirements_partial`, `requirements_not_addressed` and `requirement_count` (run `uv run {coverageTallyScript} --help` for the contract). When it exits non-zero, it rejected its input and says why (its JSON `error`): fix the rows and run it again. Section 4 displays these counts and section 5 persists them.
+`{run_dir}/requirement-tally.json` holds `requirements_fulfilled`, `requirements_partial`, `requirements_not_addressed` and `requirement_count` (run `uv run {coverageTallyScript} --help` for the contract). When it exits non-zero, it rejected its input and the file says why (its JSON `error`): fix the rows and run it again.
 
 ### 4. Display Requirements Results
 
@@ -114,7 +100,10 @@ It returns `requirements_fulfilled`, `requirements_partial`, `requirements_not_a
 |----|-------------|----------|---------|-------------------|
 | {id} | {requirement_text} | {category} | {Fulfilled/Partially Fulfilled/Not Addressed} | {skill_names or '—'} |
 
-**Coverage: {requirements_fulfilled} Fulfilled, {requirements_partial} Partially Fulfilled, {requirements_not_addressed} Not Addressed**
+**Coverage: {requirements_fulfilled} Fulfilled, {requirements_partial} Partially Fulfilled, {requirements_not_addressed} Not Addressed** (from `{run_dir}/requirement-tally.json`)
+
+{IF the `unread` list of `{skillSummariesFile}` names a skill, one line for each:}
+**Not read:** `{skill}`: its API surface could not be read, so no requirement was checked against it: re-run **[VS]**.
 
 {IF any Not Addressed:}
 **Unaddressed Requirements — Recommendations:**
@@ -128,13 +117,18 @@ It returns `requirements_fulfilled`, `requirements_partial`, `requirements_not_a
 
 ### 5. Append to Report
 
-Write the Requirements Coverage content under the `## Recommendations` section (or as a clearly-titled subsection preceding Recommendations — the shared schema's fixed top-level headings are Executive Summary, Coverage Analysis, Integration Verdicts, Recommendations, Evidence Sources; requirements detail lives under Recommendations):
-- Include the full requirements coverage table
-- Include recommendations for Not Addressed and Partially Fulfilled items
-- Update frontmatter: append `'requirements'` to `stepsCompleted`
-- Set `requirementsPass: "completed"`
-- From the §3 tally, set `requirementsFulfilled` ← `requirements_fulfilled`, `requirementsPartial` ← `requirements_partial` and `requirementsNotAddressed` ← `requirements_not_addressed`
-- Pipe the updated full content through `python3 {atomicWriteHelper} write --target {outputFile}`. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `requirements:report`, with `"path": "{outputFile}"`.
+Write `{run_dir}/requirements-section.md`, the Requirements Coverage content that goes under `## Recommendations` (the shared schema's fixed top-level headings are Executive Summary, Coverage Analysis, Integration Verdicts, Recommendations, Evidence Sources; requirements detail lives under Recommendations):
+- Include the full requirements coverage table, with its **Not read:** lines
+- Include the gap §4 shows for each Partially Fulfilled requirement, and no recommendation: synthesize writes one for each Not Addressed and Partially Fulfilled requirement, in its prioritized list
+
+The helper writes the `### Requirements Coverage` line, so the file holds no `#`, `##` or `###` heading. Then run the calls in order, stopping at the first that exits non-zero:
+
+```bash
+uv run {reportUpdateScript} replace-section --report "{outputFile}" --heading 'Recommendations' --subsection 'Requirements Coverage' < "{run_dir}/requirements-section.md"
+uv run {reportUpdateScript} set-counts --report "{outputFile}" --kind requirements < "{run_dir}/requirement-tally.json"
+```
+
+On exit 1, HALT (exit code 3, `halt_reason: "resolution-failure"`) at phase `requirements:report`. On exit 2 with `INVALID_INPUT`, or with no JSON (a usage error), fix the file or the call its `error` or usage line names, then run that call and the ones after it again. On exit 2 with `INVALID_REPORT`, HALT (exit code 5, `halt_reason: "schema-violation"`) at phase `requirements:report`, naming its `error`. On exit 3, HALT (exit code 4, `halt_reason: "write-failed"`) at phase `requirements:report`, with `"path": "{outputFile}"`, naming its JSON `error`.
 
 ### 6. Auto-Proceed to Next Step
 

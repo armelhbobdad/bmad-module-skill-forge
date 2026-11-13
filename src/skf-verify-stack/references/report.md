@@ -72,7 +72,7 @@ python3 {atomicWriteHelper} write --target "{outputFileLatest}" < "{outputFile}"
 
 It is a copy, not a symlink (per the shared schema). This is the run's only write of `{outputFileLatest}`: every stage before this one wrote only `{outputFile}`, so a run that halted earlier left the previous finished report at the stable path. On a non-zero exit: HALT (exit code 4, `halt_reason: "write-failed"`) at phase `report:publish`, with `"path": "{outputFileLatest}"`; the atomic write leaves the previous copy intact.
 
-With the deterministic gate passed, **extract metrics from `{outputFile}` frontmatter** (per shared schema in `{feasibilitySchemaRef}`): `skillsAnalyzed`, `coveragePercentage`, `pairsVerified` (as `verified_count`), `pairsPlausible` (as `plausible_count`), `pairsRisky` (as `risky_count`), `pairsBlocked` (as `blocked_count`), `requirementsFulfilled` (as `fulfilled_count`), `requirementsPartial` (as `partial_count`), `requirementsNotAddressed` (as `not_addressed_count`), `requirementsPass`, `overallVerdict`, and `recommendationCount`. Use these mapped display names in the summary table and next steps below.
+With the deterministic gate passed, **extract metrics from `{outputFile}` frontmatter** (per shared schema in `{feasibilitySchemaRef}`): `skillsAnalyzed`, `coveragePercentage`, `pairsVerified`, `pairsPlausible`, `pairsRisky`, `pairsBlocked`, `requirementsFulfilled`, `requirementsPartial`, `requirementsNotAddressed`, `requirementsPass`, `overallVerdict`, and `recommendationCount`.
 
 ### 2. Present Summary
 
@@ -86,13 +86,13 @@ With the deterministic gate passed, **extract metrics from `{outputFile}` frontm
 |--------|-------|
 | **Skills Analyzed** | {skillsAnalyzed} |
 | **Coverage** | {coveragePercentage}% |
-| **Integrations Verified** | {verified_count} |
-| **Integrations Plausible** | {plausible_count} |
-| **Integrations Risky** | {risky_count} |
-| **Integrations Blocked** | {blocked_count} |
-| **Requirements Fulfilled** | {fulfilled_count or 'N/A — no PRD'} |
-| **Requirements Partially Fulfilled** | {partial_count or 'N/A — no PRD'} |
-| **Requirements Not Addressed** | {not_addressed_count or 'N/A — no PRD'} |
+| **Integrations Verified** | {pairsVerified} |
+| **Integrations Plausible** | {pairsPlausible} |
+| **Integrations Risky** | {pairsRisky} |
+| **Integrations Blocked** | {pairsBlocked} |
+| **Requirements Fulfilled** | {requirementsFulfilled, or 'N/A (no PRD)' when `requirementsPass` is "skipped"} |
+| **Requirements Partially Fulfilled** | {requirementsPartial, or 'N/A (no PRD)' when `requirementsPass` is "skipped"} |
+| **Requirements Not Addressed** | {requirementsNotAddressed, or 'N/A (no PRD)' when `requirementsPass` is "skipped"} |
 
 {IF deltaImproved is not null (delta from previous run exists):}
 **Delta from Previous Run:**
@@ -103,17 +103,15 @@ With the deterministic gate passed, **extract metrics from `{outputFile}` frontm
 
 ---"
 
-### 3. Present Detailed Findings
+### 4. Present Findings and Next Steps
 
-Walk through the highlights: coverage gaps, risky/blocked integrations, and partial/unaddressed requirements (when a PRD pass ran). Cite specific items by name; cap at the top ~5 per category to keep the summary scannable. The full detail is in `{outputFile}`.
-
-### 4. Present Next Steps
-
-Step 05 already wrote a **Suggested next workflow** block (keyed on the case-sensitive `overallVerdict` token) at the end of `## Recommendations`. Surface that block from the §1 load rather than re-deriving it, prefixed with the one-line verdict-specific framing:
+Present the findings and next steps in one pass from the §1 load, re-deriving nothing, opening with the verdict line for the case-sensitive `overallVerdict` token:
 
 - **`FEASIBLE`:** "**Your stack is verified.**" Then give the verdict rationale from the report's `## Executive Summary`: synthesize wrote there what was verified, including when there was no integration pair to verify.
-- **`CONDITIONALLY_FEASIBLE`:** "**Your stack is conditionally feasible.** There are {recommendationCount} items to address before proceeding." — then list the specific recommendations from the report's `## Recommendations` section.
-- **`NOT_FEASIBLE`:** "**Critical blockers must be resolved.** The stack cannot support the architecture as described." — then list the blocked-integration and missing-skill recommendations from the report's `## Recommendations` section.
+- **`CONDITIONALLY_FEASIBLE`:** "**Your stack is conditionally feasible.**"
+- **`NOT_FEASIBLE`:** "**Critical blockers must be resolved.** The stack cannot support the architecture as described."
+
+Then walk the list under `### Prioritized Recommendations` in its order, which ends at the `#### Delta from Previous Run` heading when the subsection has one (§2 showed its counts). `{run_dir}/rollup.json`, the verdict rollup synthesize wrote, gives under `recommendations` how many items of each kind the list holds, in the list's order: name about 5 of each kind, and for a kind with more, say how many more `{outputFile}` lists, from that count. Last, show the **Suggested next workflow** block that ends that subsection, as synthesize wrote it, and add no count of your own.
 
 ### 4b. Result Contract
 
