@@ -46,13 +46,24 @@ It takes core's long flags only (core's -s, -p and -k are refused):
    in place of `{project-root}`, and stderr says why in a
    `persistent_facts: <reason>` line. Campaign's kickoff script loads its
    facts with the same functions.
+4. When core's resolver is missing, as in a project with SKF alone, it
+   looks for the override files core would merge,
+   `<project-root>/_bmad/custom/<name>.toml` and `<name>.user.toml`
+   (`<name>`: the skill folder's name, its links followed, as core takes
+   it). With either one a file, only core can merge it, so it stops with
+   `not found`. With neither, core would print the bundled values alone,
+   so it reads `<skill-root>/customize.toml` itself and prints what core
+   would: the whole table, or `{key: value}` for each `--key` the table
+   holds (a dotted key names a nested value; a key it lacks is left out),
+   in core's layout, which `--facts` then resolves as above.
 
 Output:
   stdout  on exit 0, core's stdout byte for byte (the JSON core prints), or
           with `--facts` that JSON with `persistent_facts` resolved, in core's
           layout (two-space indent, UTF-8, a closing newline), except that a
-          path that is not UTF-8 goes out as its own bytes; on any other
-          exit, nothing.
+          path that is not UTF-8 goes out as its own bytes; with no core and
+          no override file, the JSON item 4 builds, in the same layout; on
+          any other exit, nothing.
   stderr  the stderr of the core run whose result is the helper's: on a
           rerun without the flag, the rerun's only (the rejected call's is
           dropped). A failure of the helper's own prints one line first: the
@@ -61,16 +72,21 @@ Output:
           written.
 
 Exit codes:
-  0  core resolved the customization
-  1  core's resolver is missing (first stderr line: `not found`), could
-     not start, did not finish or was stopped by a signal, or core exited 1
-     (a customize.toml or an override it cannot read); with `--facts`, core
-     printed no JSON object (first stderr line: `BMAD core's customization
-     resolver printed no JSON object`)
+  0  core resolved the customization, or core's resolver is missing and no
+     override file exists, so the bundled customize.toml is the result
+  1  core's resolver is missing and an override file exists (first stderr
+     line: `not found`); core's resolver could not start, did not finish
+     or was stopped by a signal, or core exited 1 (a customize.toml or an
+     override it cannot read); with no core and no override file, the
+     bundled customize.toml is missing, cannot be read or parsed, or holds
+     a value JSON cannot carry (one `error: <file>: <why>` line); with
+     `--facts`, core printed no JSON object (first stderr line: `BMAD
+     core's customization resolver printed no JSON object`)
   2  a core before 6.11.0 would read the overrides under another folder
      (first stderr line: `BMAD core before 6.11.0: ...`), a usage error of
      the helper's, or core's own exit 2 (a core from 6.11.0), passed through
-  3  core found no Python 3.11 or later (`tomllib`)
+  3  core found no Python 3.11 or later (`tomllib`), or, with no core and
+     no override file, this helper's Python has no `tomllib`
   Any other exit code is core's own, passed through.
 """
 
@@ -92,6 +108,11 @@ FIRST_CORE_WITH_FLAG = "6.11.0"
 CORE_TIMEOUT_SEC = 120
 PROJECT_ROOT_FLAG = "--project-root"
 MISSING = "not found"
+# The layers core merges over the bundled customize.toml: <project-root>/_bmad/custom/<name>.toml and .user.toml.
+CUSTOM_DIR = ("_bmad", "custom")
+OVERRIDE_SUFFIXES = (".toml", ".user.toml")
+BUNDLED = "customize.toml"
+NO_TOMLLIB = "error: Python 3.11+ is required (stdlib `tomllib` not found)."
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 # argparse's line for a flag it does not know, wherever the usage line wraps.
 REJECTED_FLAG_RE = re.compile(r"error: unrecognized arguments: (?:.*\s)?--project-root(?:[=\s]|$)", re.M)
@@ -117,7 +138,8 @@ def _build_parser() -> argparse.ArgumentParser:
         description=(
             "Run BMAD core's customization resolver with --project-root. On a core before "
             f"{FIRST_CORE_WITH_FLAG}, which rejects that flag, run it again without the flag when "
-            "core would read this project's overrides anyway, and refuse otherwise."
+            "core would read this project's overrides anyway, and refuse otherwise. With no core's resolver and "
+            "no override file, print the bundled customize.toml as core would."
         ),
     )
     parser.add_argument("--skill", required=True, help="the skill folder that holds customize.toml")
@@ -447,17 +469,76 @@ def _finish(proc: subprocess.CompletedProcess, facts_root: Path | None = None) -
     return 0
 
 
+def has_override(root: Path, name: str) -> bool:
+    """True when <root>/_bmad/custom/<name>.toml or <name>.user.toml is a file, as core's has_override tests."""
+    custom = root.joinpath(*CUSTOM_DIR)
+    return any((custom / f"{name}{suffix}").is_file() for suffix in OVERRIDE_SUFFIXES)
+
+
+def _extract(table: dict, dotted: str) -> tuple[bool, Any]:
+    """(True, the value) a dotted key names in the table, as core's extract_key finds it, else (False, None)."""
+    value: Any = table
+    for part in dotted.split("."):
+        if not (isinstance(value, dict) and part in value):
+            return False, None
+        value = value[part]
+    return True, value
+
+
+def _bundled(skill: Path, keys: list[str]) -> subprocess.CompletedProcess:
+    """What core prints when no override file is there to merge, as a finished core run.
+
+    Exit 0 with the skill's customize.toml alone in core's layout, the whole
+    table or one entry for each key it holds; exit 1 with one `error: <file>:
+    <why>` line when the file is missing, cannot be read or parsed, or holds
+    a value JSON cannot carry; exit 3 with core's line when this Python has
+    no tomllib.
+    """
+    argv = [BUNDLED, *keys]
+    try:
+        import tomllib
+    except ImportError:
+        return subprocess.CompletedProcess(argv, 3, b"", (NO_TOMLLIB + "\n").encode("utf-8"))
+    path = skill / BUNDLED
+
+    def failed(why: str) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(argv, 1, b"", f"error: {path}: {' '.join(why.split())}\n".encode("utf-8"))
+
+    try:
+        with path.open("rb") as stream:
+            table = tomllib.load(stream)
+    except OSError as exc:
+        return failed(exc.strerror or str(exc))
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError) as exc:
+        return failed(f"not TOML: {exc}")
+    output: dict = table
+    if keys:
+        output = {}
+        for key in keys:
+            found, value = _extract(table, key)
+            if found:
+                output[key] = value
+    try:
+        stdout = (json.dumps(output, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    except (TypeError, ValueError) as exc:
+        return failed(f"holds a value JSON cannot carry: {exc}")
+    return subprocess.CompletedProcess(argv, 0, stdout, b"")
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     root = Path(os.path.abspath(args.project_root))
     skill = Path(os.path.abspath(args.skill))
     core = root.joinpath(*CORE_RESOLVER)
+    facts_root = root if args.facts else None
     if not core.is_file():
+        if not has_override(root, _real(skill).name):
+            # Nothing for core to merge: the bundled values are what it would print.
+            return _finish(_bundled(skill, args.key), facts_root)
         _say(MISSING, f"BMAD core's customization resolver is not at {core}: the BMAD Method installer adds it.")
         return 1
     command = [sys.executable, str(core), "--skill", str(skill)]
     keys = [word for key in args.key for word in ("--key", key)]
-    facts_root = root if args.facts else None
     try:
         first = _run_core([*command, PROJECT_ROOT_FLAG, str(root), *keys], root)
         if not rejects_project_root(first.returncode, first.stdout, first.stderr):

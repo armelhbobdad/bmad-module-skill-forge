@@ -1,10 +1,7 @@
 ---
 nextStepFile: 'health-check.md'
 # `{emitEnvelopeHelper}` = first existing path in `{emitEnvelopeProbeOrder}`;
-# halt if neither exists when section 4 emits the envelope. The script is the
-# source of truth for the SKF_SETUP_RESULT_JSON contract: do not render the
-# envelope from prose (LLM schema drift is the bug this script exists to
-# prevent).
+# halt if neither exists when section 4 emits the envelope.
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
@@ -20,13 +17,11 @@ Display the FORGE STATUS banner that `{emitEnvelopeHelper}` renders from the run
 
 ## Rules
 
-- Focus only on display + envelope emission
 - The FORGE STATUS lines come from `render-report`: display them (translated when needed), and never compose, add or drop a line yourself
 - Never inline-render the envelope JSON — the script owns the schema; drift breaks pipelines
-- Chains to the local health-check step via `{nextStepFile}` after completion — the user-facing status report is not the terminal step
 - Display messages only when `{quiet_mode}` is false; the one exception is the envelope line section 4 builds, which section 5 displays last
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief
-- If section 4 finds no existing path in `emitEnvelopeProbeOrder`, halt with phase `step 4:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-emit-result-envelope.py was not found. Reinstall SKF, then re-run /skf-setup.` With no envelope helper to call, display that reason alone as the run's one line (the SKILL.md halt contract)
+- If section 4 finds no existing path in `emitEnvelopeProbeOrder`, halt with phase `step 4:helper-missing`, `path` set to its first entry, and reason `Setup cannot proceed: skf-emit-result-envelope.py was not found. Reinstall SKF, then re-run /skf-setup.` With no envelope helper to call, display that reason alone as the run's one line (`references/halt-contract.md`)
 
 ## MANDATORY SEQUENCE
 
@@ -58,7 +53,7 @@ If section 2 displayed `FORGE STATUS could not be rendered` and `{require_tier_s
 
 ### 4. Emit Headless JSON Envelope
 
-When `{quiet_mode}` is `true`, run `{emitEnvelopeHelper}` with section 1's options; `--run-dir` makes it read the staged helper outputs, and the three path options give it the run's paths. It writes the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` to `{run_dir}/envelope.line`, so the line waits on disk and this section displays nothing. It is the only line a quiet run displays, and in a standalone run it must be the run's final message, because `claude -p` prints only the final message: section 5 ends the run with the tool call that prints it, and that output is displayed verbatim as its own line (no code fence, no preface, no commentary), with nothing of setup's after it. When `{pipeline_mode}` is true, control then returns to the forger, which keeps chaining.
+When `{quiet_mode}` is `true`, run `{emitEnvelopeHelper}` with section 1's options; `--run-dir` makes it read the staged helper outputs, and the three path options give it the run's paths. It writes the single prefixed line `SKF_SETUP_RESULT_JSON: {…}` to `{run_dir}/envelope.line`, so the line waits on disk and this section displays nothing. It is the only line a quiet run displays, and in a standalone run it must be the run's final message, because `claude -p` prints only the final message: section 5 ends the run with the tool call that prints it, and that output is displayed verbatim as its own line (no code fence, no preface, no commentary), with nothing of setup's after it.
 
 ```bash
 uv run {emitEnvelopeHelper} emit --run-dir "{run_dir}" --project-root "{project-root}" \
@@ -83,4 +78,4 @@ Then:
 - If `{require_tier_satisfied}` is `false`, halt the workflow here without chaining to step 5. When `{quiet_mode}` is true, end with one tool call, `cat "{run_dir}/envelope.line" && rm -f "{run_dir}/envelope.line" && rmdir "{run_dir}"`, and display its output verbatim as the run's final message in a standalone run (nothing when it printed nothing); when `{pipeline_mode}` is true, control then returns to the forger, which reads the envelope's `tier_failure` status. This halt emits no blocked envelope: the `tier_failure` envelope is its one line. The tier miss is terminal; `{onCompleteCommand}` does not fire on a failed run.
 - Otherwise the forge is fully configured. If `{onCompleteCommand}` (resolved from `workflow.on_complete` at activation) is non-empty, carry out that instruction now: this is the workflow's terminal skill-specific action (for example, notify an onboarding channel); when `{quiet_mode}` is true, display nothing about it. When `{quiet_mode}` is true, then end with one tool call, `cat "{run_dir}/envelope.line" && rm -f "{run_dir}/envelope.line" && rmdir "{run_dir}"`, and display its output verbatim as the run's final message in a standalone run (nothing when it printed nothing); when `{pipeline_mode}` is true, control then returns to the forger, which keeps chaining. A quiet run stops there, without loading `{nextStepFile}`: it runs no health check. When `{quiet_mode}` is false, load `{nextStepFile}`, read it fully, and execute it.
 
-On a success where `{quiet_mode}` is false, the health-check step is the true terminal step: do not stop after the report on a passing run even though it reads as final. Step 5 in turn delegates to `shared/health-check.md`; after that returns, the setup workflow is fully done.
+On a success where `{quiet_mode}` is false, the health-check step is the true terminal step: do not stop after the report on a passing run even though it reads as final.

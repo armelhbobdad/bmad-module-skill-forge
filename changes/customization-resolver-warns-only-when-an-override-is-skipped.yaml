@@ -1,0 +1,5 @@
+type: changed
+scope: all workflows, skf-forger
+summary: |
+  In a project with SKF alone, where BMAD Method's customization script is missing, a workflow or Ferris with no override file for it (`_bmad/custom/<skill>.toml` or `_bmad/custom/<skill>.user.toml`) no longer warns `customization_resolver_unavailable: not found`. SKF's customization helper, `skf-resolve-customization.py`, now reads the bundled `customize.toml` itself in that case, so the warning is gone from the screen, from the `warnings` of the result envelope and result file, and from Campaign's decision log. The run uses the same bundled values as before, and the helper now resolves their `persistent_facts` as it does when BMAD Method's script runs: a `**` never enters a hidden folder or a folder reached through a link, so a `project-context.md` found only that way is not loaded. When an override file exists, the run still warns `customization_resolver_unavailable: not found` and uses the bundled values, since only BMAD Method's script can merge that file.
+issues: [1184]

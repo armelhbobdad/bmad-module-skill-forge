@@ -14,7 +14,7 @@ Detects the available tools, sets the capability tier (Quick/Forge/Forge+/Deep) 
 - Bare paths (e.g. `references/<name>.md`) resolve from the skill root, inside a `references/` file too: only a stage's frontmatter `nextStepFile` names a file beside it.
 - **Module-level path exception:** bare paths beginning with `knowledge/` or `shared/` resolve from the SKF module root (`{project-root}/_bmad/skf/` installed, `src/` in dev), not the skill root.
 - **Sibling skills:** a path that names another SKF skill's folder (`skf-<name>/...`) resolves from the SKF module root, and that skill must be installed with this one.
-- `references/` holds the workflow stages (chained by frontmatter `nextStepFile`), the invocation contract and `tier-rules.md`, the tier table `report.md` passes to the emitter's banner.
+- `references/` holds the workflow stages (chained by frontmatter `nextStepFile`), the invocation contract, `halt-contract.md`, which a halt that names a phase loads, and `tier-rules.md`, the tier table `report.md` passes to the emitter's banner.
 - Shared Python helpers do the deterministic work, with no prose fallback: each step's frontmatter `*ProbeOrder` array lists a helper's installed path (`{project-root}/_bmad/skf/shared/scripts/<name>`) then its dev path (`{project-root}/src/shared/scripts/<name>`). On Activation item 4 resolves them all and halts (`on-activation:helper-missing`) on any helper with neither path.
 - `{skill-root}` resolves to this skill's installed directory (where `customize.toml` lives, if present).
 - `{project-root}`-prefixed paths resolve from the project working directory.
@@ -29,7 +29,6 @@ You are a system executor: run each step in sequence, write the configuration fi
 - Only load one step file at a time — never preload future steps.
 - Run every subagent in the foreground, passing `run_in_background: false` on every Agent call (Claude Code runs a subagent in the background when the flag is left out), with parallel ones as several such calls in one message, and wait for every long-running command to exit before the next instruction; in a headless run, never end a turn while either still runs, since under `claude -p` a run stops when its turn ends.
 - Communicate in `{communication_language}`.
-- If `{orphan_action}` is non-null or `{quiet_mode}` is true, resolve the step 3 orphan-removal gate without prompting; step 4 passes the flags that decided it, and the emitter records the decision for the envelope's `warnings`.
 - When `{quiet_mode}` is true, the one line setup displays is the `SKF_SETUP_RESULT_JSON: {…}` envelope that step 4 builds, or the blocked envelope from a halt. In a standalone run that line is the run's final message, so it is all `claude -p` prints (step 4 holds it until then).
 - When `{quiet_mode}` is true, write no assistant text at all between tool calls: no status, progress or step-transition notes, however brief.
 - When `{pipeline_mode}` is true, the forger runs setup as one step of a pipeline: display the same envelope line, then return control to the forger, which keeps chaining. The final-message rule above is for a standalone run.
@@ -51,16 +50,7 @@ You are a system executor: run each step in sequence, write the configuration fi
 
 ## On Activation
 
-> **Halt contract.** Every halt in this workflow that names a phase, below and in the step files, follows this contract; the step 4 tier-miss halt names none and displays its `tier_failure` envelope instead. When `{quiet_mode}` is true, run `<runner> <helper> emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>"` (`<path>` written with `/`; no `--path` for a halt without one): `<helper>` is `{emitEnvelopeHelper}` once item 4 bound it, and for the halts of items 1 to 4 `skf-emit-result-envelope.py` at its installed path, else its dev path (Conventions); `<runner>` is `uv run` in the step files. The halts in this list can fire before `uv` is proven present, so they run the loop below as written, dropping `--path` or the `--stderr-from -` heredoc as the halt needs: it stops at the first runner that exits 0 and prints a line starting `SKF_SETUP_RESULT_JSON:`, and prints that line (the helper is stdlib-only). Display that line verbatim, nothing else. If neither path exists, or no runner exits 0 and prints that line, display the reason alone as that one line. Interactive runs display the reason as their diagnostic and emit no envelope. Text from the user or a helper never goes into the single-quoted `--reason`: write `<message>` there and pass the text on stdin with `--stderr-from -` and a quoted `<<'SKF_TEXT'` heredoc, one per runner tried, for the emitter to fold to one line and escape. Once item 6 binds `{customization_resolver_unavailable}` to a reason, every later halt also passes `--customization-resolver-unavailable-from "{run_dir}/resolver.err"`, which the emitter folds to one line and escapes.
-
-```bash
-for r in "uv run" python3 python "py -3"; do
-  line=$($r "<helper>" emit-blocked --phase '<phase>' --reason '<reason>' --path "<path>" --stderr-from - <<'SKF_TEXT'
-<text>
-SKF_TEXT
-) && case "$line" in "SKF_SETUP_RESULT_JSON: "*) printf '%s\n' "$line"; break ;; esac
-done
-```
+On any halt that names a phase, load `references/halt-contract.md` and follow it.
 
 1. **Parse invocation flags first**, so every halt below knows whether to emit. `<parser>` is `skf-setup-args.py` at its installed path, else its dev path (Conventions); run it on the invocation's arguments exactly as given (keep the heredoc, empty, when there are none):
 

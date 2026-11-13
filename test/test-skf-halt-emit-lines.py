@@ -77,7 +77,7 @@ RULE_HOMES = {
     "skf-campaign": ("`references/campaign-contracts.md`",),
     "skf-drop-skill": ("Halt Envelope section of `references/invocation-contract.md`",),
     "skf-export-skill": ("`references/result-envelope.md`",),
-    "skf-setup": ("SKILL.md halt contract",),
+    "skf-setup": ("`references/halt-contract.md`",),
     "skf-verify-stack": ("`references/exit-codes.md`",),
 }
 

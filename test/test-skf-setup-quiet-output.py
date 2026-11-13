@@ -36,6 +36,8 @@ REFS = SETUP_DIR / "references"
 SKILL_MD = SETUP_DIR / "SKILL.md"
 # The headless contract lifted out of SKILL.md (#600).
 INVOCATION_CONTRACT = REFS / "invocation-contract.md"
+# The halt contract, which only a halt that names a phase loads (#1184).
+HALT_CONTRACT = REFS / "halt-contract.md"
 SHARED_HEALTH_CHECK = SRC / "shared" / "health-check.md"
 EMIT_HELPER = SRC / "shared" / "scripts" / "skf-emit-result-envelope.py"
 PREFLIGHT = SRC / "shared" / "scripts" / "skf-preflight.py"
@@ -123,6 +125,12 @@ def _section(text: str, prefix: str) -> str:
 
 def _on_activation(text: str) -> str:
     return _section(text, "## On Activation")
+
+
+def _halt_contract() -> str:
+    """The halt-contract paragraph of references/halt-contract.md, which On Activation points at (#1184)."""
+    [line] = [line for line in _read(HALT_CONTRACT).splitlines() if "follows this contract" in line]
+    return line
 
 
 # ---------------------------------------------------------------- setup step files
@@ -233,12 +241,12 @@ def test_activation_checks_uv_before_a_helper_parses_the_config():
     assert [t for t in order if t in expected] == expected
     assert [int(n) for n, _ in items] == list(range(1, len(items) + 1))
     # The preference no longer changes {quiet_mode}, so the halts need no clause on when it is known.
-    halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    halt_contract = _halt_contract()
     assert "preferences.yaml" not in halt_contract and "known at every halt" not in halt_contract
 
 
 def test_halts_display_only_the_blocked_envelope():
-    halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    halt_contract = _halt_contract()
     assert "nothing else" in halt_contract
     assert "verbatim" in halt_contract
     assert "Interactive runs display the reason as their diagnostic and emit no envelope" in halt_contract
@@ -247,7 +255,7 @@ def test_halts_display_only_the_blocked_envelope():
 
 def test_halt_contract_falls_back_to_the_reason_when_the_helper_fails():
     """A payload emit-blocked rejects must not leave a quiet run with no line at all."""
-    halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    halt_contract = _halt_contract()
     assert ("If neither path exists, or no runner exits 0 and prints that line, "
             "display the reason alone as that one line.") in halt_contract
     fallback = _section(_read(REFS / "write-config.md"), "### 1.")
@@ -255,9 +263,9 @@ def test_halt_contract_falls_back_to_the_reason_when_the_helper_fails():
 
 
 def _runner_loop() -> str:
-    """The fenced runner loop right after the halt-contract paragraph (#1117)."""
-    text = _read(SKILL_MD)
-    halt_contract = next(line for line in text.splitlines() if "Halt contract" in line)
+    """The fenced runner loop right after the halt-contract paragraph (#1117), in its own file (#1184)."""
+    text = _read(HALT_CONTRACT)
+    halt_contract = _halt_contract()
     m = re.match(r"\n\n```bash\n(.*?\n)```\n", text[text.index(halt_contract) + len(halt_contract):], re.S)
     assert m, "no runner loop right after the halt contract"
     return m.group(1)
@@ -268,7 +276,7 @@ def test_halt_contract_names_a_runner_chain_for_the_activation_halts():
     often has `python` or `py` but only a store alias for `python3`; by the
     time a step file runs, activation has proven uv present. The chain is one
     loop the halts run as written (#1117)."""
-    halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    halt_contract = _halt_contract()
     assert "`<runner>` is `uv run` in the step files" in halt_contract
     assert ("so they run the loop below as written, dropping `--path` or the `--stderr-from -` heredoc as the "
             "halt needs") in halt_contract
@@ -277,7 +285,13 @@ def test_halt_contract_names_a_runner_chain_for_the_activation_halts():
     prefix = re.search(r'^ENVELOPE_PREFIX = "(.+)"$', _read(EMIT_HELPER), re.M).group(1)
     assert f"it stops at the first runner that exits 0 and prints a line starting `{prefix.strip()}`" in halt_contract
     assert ("`<helper>` is `{emitEnvelopeHelper}` once item 4 bound it, and for the halts of items 1 to 4 "
-            "`skf-emit-result-envelope.py` at its installed path, else its dev path (Conventions)") in halt_contract
+            "`skf-emit-result-envelope.py` at its installed path, else its dev path "
+            "(`{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py`, else "
+            "`{project-root}/src/shared/scripts/skf-emit-result-envelope.py`)") in halt_contract
+    # #1184: the file a halt loads names the emitter's paths and the items it means, not SKILL.md's Conventions.
+    assert "(Conventions)" not in halt_contract
+    assert "Item numbers name SKILL.md On Activation items." in halt_contract
+    assert "The halts of items 1 to 4 can fire before `uv` is proven present" in halt_contract
     assert "try the runners" not in halt_contract and "`python3` for the halts in this list" not in halt_contract
     loop = _runner_loop()
     assert f'case "$line" in "{prefix}"*) printf' in loop
@@ -303,7 +317,7 @@ def _emit_blocked(payload: dict, *flags: str, env=None) -> subprocess.CompletedP
 def test_activation_halt_runners_can_run_the_envelope_helper():
     """Every runner the halt contract names for the activation halts is a bare
     interpreter except `uv run`, so the helper must stay stdlib-only."""
-    halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    halt_contract = _halt_contract()
     chain = ACTIVATION_RUNNERS.search(_runner_loop())
     assert chain, "no runner chain for the activation halts"
     assert shlex.split(chain.group(1)) == ["uv run", "python3", "python", "py -3"]
@@ -414,7 +428,7 @@ def test_blocked_reason_rules_stated():
     quote, and match the troubleshooting headings users search for; text from
     the user or a helper goes in on stdin, never typed into the argument."""
     text = _read(SKILL_MD)
-    halt_contract = next(line for line in text.splitlines() if "Halt contract" in line)
+    halt_contract = _halt_contract()
     assert QUOTE_RULE in halt_contract
     assert "a backtick for either quote" not in halt_contract and "single-quoted shell payload" not in halt_contract
     # A Windows path keeps the envelope's posix form, and a trailing `\` cannot escape the closing quote.
@@ -487,7 +501,7 @@ def _contract_call(text: str, run_dir: pathlib.Path | None = None) -> str:
     """The halt contract's emit-blocked call for the config-malformed halt, as a
     bash command: single-quoted phase and reason, the text in a quoted heredoc,
     and, with `run_dir`, the file option that names item 6's saved reason."""
-    halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    halt_contract = _halt_contract()
     call = re.search(r"run `(<runner> <helper> emit-blocked [^`]+)`", halt_contract).group(1)
     assert call == "<runner> <helper> emit-blocked --phase '<phase>' --reason '<reason>' --path \"<path>\"", call
     runner = f"{shlex.quote(sys.executable)} {shlex.quote(EMIT_HELPER.as_posix())}"
@@ -513,7 +527,7 @@ def test_a_malformed_config_halt_still_emits_its_blocked_envelope(tmp_path):
     """skf-preflight.py's YAML parse error names the file between double
     quotes. Passed on stdin, as the halt contract says, never typed into an
     argument, it reaches a quiet run's blocked envelope whole."""
-    assert QUOTE_RULE in next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    assert QUOTE_RULE in _halt_contract()
     config = tmp_path / "_bmad" / "skf" / "config.yaml"
     config.parent.mkdir(parents=True)
     config.write_bytes(b"project_name: demo\nbad: key: here\n")
@@ -567,7 +581,7 @@ def test_a_halt_after_item_6_carries_the_resolver_reason(tmp_path, saved, reason
     """#595, #1119: once item 6 bound a resolver reason, the halt names the file
     item 6 saved it in, and the blocked envelope warns, the reason on one line,
     that the overrides were not applied. Nothing in the reason runs."""
-    halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    halt_contract = _halt_contract()
     assert RESOLVER_RULE in halt_contract
     assert "escaping each" not in halt_contract
     run_dir = tmp_path / "run"
@@ -592,6 +606,9 @@ def test_every_step_halt_passes_the_resolver_reason():
     for name in ("detect-and-tier.md", "write-config.md", "ccc-index.md", "auto-index.md"):
         text = _read(REFS / name)
         rule = next(line for line in _section(text, "## Rules").splitlines() if "emit-blocked" in line)
+        # #1184: the contract is its own file, which a halt loads.
+        assert rule.startswith("- Every halt follows `references/halt-contract.md`:"), name
+        assert "SKILL.md halt contract" not in text, name
         assert (f"and `{RESOLVER_FILE}` once SKILL.md On Activation item 6 bound "
                 "`{customization_resolver_unavailable}` to a reason)") in rule, name
         assert "escaped as the halt contract says" not in text, name
@@ -923,7 +940,7 @@ def test_report_holds_the_envelope_for_the_final_message():
 def test_tier_miss_halt_emits_no_blocked_envelope():
     """The tier_failure envelope is that halt's one line; a second, blocked
     envelope would give a pipeline two conflicting statuses."""
-    halt_contract = next(line for line in _read(SKILL_MD).splitlines() if "Halt contract" in line)
+    halt_contract = _halt_contract()
     assert "Every halt in this workflow that names a phase" in halt_contract
     assert "tier-miss halt names none" in halt_contract
     chain = _section(_read(REFS / "report.md"), "### 5.")
@@ -1149,7 +1166,6 @@ def test_unprompted_orphan_removals_are_recorded_by_name():
             "decision with its `source` (`orphan-action-flag`, `headless-default` or `quiet-default`), the count "
             "and, after a removal, the collections removed and not removed") in gate
     assert "{orphan_auto_resolution" not in _read(REFS / "auto-index.md")
-    assert "step 4 passes the flags that decided it, and the emitter records the decision" in _read(SKILL_MD)
     assert "Auto-decision (--orphan-action=remove): removed {removed, comma-separated}" in gate
     assert "qmd collection remove <name>" not in gate and "len(" not in gate
     doc = ast.get_docstring(ast.parse(_read(EMIT_HELPER)))
@@ -1788,14 +1804,11 @@ def test_step_4_passes_a_null_error_and_step_2_binds_none():
 
 
 def test_skill_md_lifts_its_invocation_contract():
-    """#600: the headless-only contract lives behind a one-line pointer, so
-    SKILL.md stays under its 3,500-token budget (len // 4, the SKF convention).
-    The budget was 3,000 until #1119 moved the run folder into On Activation
-    (item 5b), where item 6 saves the resolver's stderr."""
+    """#600: the headless-only contract lives behind a one-line pointer
+    (test_stage_files_stay_under_their_budgets holds SKILL.md's budget)."""
     skill = _read(SKILL_MD)
     pointer = _section(skill, "## Invocation Contract")
     assert "`references/invocation-contract.md`" in pointer and "| **" not in pointer
-    assert len(skill) // 4 < 3500, len(skill) // 4
     contract = _section(_read(INVOCATION_CONTRACT), "## Invocation Contract")
     rows = re.findall(r"^\| \*\*([A-Za-z ]+)\*\* \|", contract, re.MULTILINE)
     assert rows == ["Inputs", "Flags", "Gates", "Outputs", "Headless", "Failure modes"]
@@ -1805,6 +1818,53 @@ def test_skill_md_lifts_its_invocation_contract():
     convention = _read(HEADLESS_CONVENTION)
     assert "skf-setup's `references/invocation-contract.md` states this" in convention
     assert "Its SKILL.md Invocation Contract" not in convention
+
+
+# On Activation's one sentence for the halt contract (#1184).
+HALT_POINTER = "On any halt that names a phase, load `references/halt-contract.md` and follow it."
+
+
+def test_stage_files_stay_under_their_budgets():
+    """#1184: the halt contract, which only a halt reads, has its own file, so SKILL.md stays under 3,000 tokens
+    and the single-purpose reference under 9,000, on the chars/4 fallback (len // 4, the SKF convention)."""
+    for path, budget in ((SKILL_MD, 3000), (HALT_CONTRACT, 9000)):
+        assert len(_read(path)) // 4 < budget, (path.name, len(_read(path)) // 4)
+
+
+def test_on_activation_loads_the_halt_contract_only_on_a_halt():
+    """#1184: On Activation keeps one sentence that loads references/halt-contract.md, ahead of item 1, and no
+    copy of the contract or its runner loop; Conventions names the file, and no Setup file points at a halt
+    contract in SKILL.md any more."""
+    activation = _on_activation(_read(SKILL_MD))
+    assert activation.count(HALT_POINTER) == 1
+    assert activation.index(HALT_POINTER) < activation.index("1. **Parse invocation flags first**")
+    assert "SKF_TEXT" not in activation and "Halt contract" not in activation
+    assert "follows this contract" not in activation
+    conventions = _section(_read(SKILL_MD), "## Conventions")
+    assert ("the invocation contract, `halt-contract.md`, which a halt that names a phase loads, and "
+            "`tier-rules.md`") in conventions
+    assert _read(HALT_CONTRACT).startswith("# Halt Contract\n\n")
+    for path in [SKILL_MD, *sorted(REFS.glob("*.md"))]:
+        assert "SKILL.md halt contract" not in _read(path), path.name
+    assert "display that reason alone as the run's one line (`references/halt-contract.md`)" in \
+        _read(REFS / "report.md")
+
+
+def test_each_rule_is_stated_once():
+    """#1184: step 3 resolves its orphan gate from its own section 3, so Workflow Rules no longer restates it,
+    and report.md and write-config.md drop the rules their own sections state."""
+    rules = _section(_read(SKILL_MD), "## Workflow Rules")
+    assert "orphan-removal gate" not in rules and "{orphan_action}" not in rules
+    report = _read(REFS / "report.md")
+    for gone in ("Focus only on display + envelope emission", "Chains to the local health-check step",
+                 "LLM schema drift", "Step 5 in turn delegates to `shared/health-check.md`"):
+        assert gone not in report, gone
+    frontmatter, _ = _split_frontmatter(report)
+    assert frontmatter.splitlines()[1:3] == [
+        "# `{emitEnvelopeHelper}` = first existing path in `{emitEnvelopeProbeOrder}`;",
+        "# halt if neither exists when section 4 emits the envelope."]
+    assert "control then returns to the forger" not in _section(report, "### 4.")
+    assert "File write failures are errors" not in _read(REFS / "write-config.md")
 
 
 def test_description_trigger_names_its_object():
