@@ -5352,6 +5352,18 @@ def test_scope_reconciliation_skips_a_skill_with_no_brief(tmp_path):
     assert proc.returncode == 1 and "brief not found" in proc.stderr
 
 
+def test_scope_reconciliation_reads_only_a_finished_drift_report():
+    """Audit Skill's 74533c33 has the dispatch helper take the newest report whose `stepsCompleted` lists `report`;
+    #1196 moved §1c to reconcile-scope.md, which states that rule in its step 1 and its `no-report` bullet."""
+    one_c = _slice(_read(RECONCILE), "### 1c.", "This step auto-proceeds")
+    assert ("(glob, timestamp-DESC sort, latest finished report wins: one whose frontmatter `stepsCompleted` lists "
+            "`report`, so the partial report a halted or stopped audit leaves never hides the last finished one)"
+            in one_c)
+    assert ("- **`no-report`**: no finished drift report under `{forge_data_folder}/{skill_name}/{baseline_version}/` "
+            "(a report a halted audit left counts as none).") in one_c
+    assert "latest wins)" not in one_c
+
+
 def test_a_headless_rescope_answer_is_recorded(tmp_path):
     """Rule R1's [D]/[R] gate records each `rescope` a headless run answers, under its own gate id that the
     emitter's schema check accepts, and the Gates row and the report's decision sources name it (step 5b gate
