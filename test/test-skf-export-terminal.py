@@ -1096,6 +1096,21 @@ def test_both_skill_types_use_one_gotchas_resolution():
     assert "Same one-cycle expiry logic" not in text and "See the single-skill steps" not in text
 
 
+def test_the_stack_fill_rule_reads_fields_a_stack_metadata_json_has():
+    """Review of #1164: §3c reads the libraries and pairs create-stack-skill writes, the fields the export gate
+    counts, not `components` and `integrations`, which a stack's metadata.json does not have."""
+    stack = _section(_read(SNIPPET), "#### 3c. Stack Skills", "### 4. Verify Token Count")
+    contract = (SRC / "skf-create-stack-skill" / "assets" / "metadata-contract.md").read_text(encoding="utf-8")
+    keys = json.loads(re.search(r"```json\n(.*?)```", contract, re.S).group(1)).keys()
+    named = re.findall(r"metadata\.json `(\w+)`", stack)
+    assert named == ["version", "libraries", "integration_pairs"]
+    assert set(named) <= keys
+    assert "each `@` the `**Version:**` its `references/{library}.md` gives (bare when it gives none)" in stack
+    gate = SCRIPTS.joinpath("skf-validate-output.py").read_text(encoding="utf-8")
+    assert '_stack_count(data, "library_count", "libraries")' in gate
+    assert '_stack_count(data, "integration_count", "integration_pairs")' in gate
+
+
 # --------------------------------------------------------------------------
 # #810, #811, #818: the snippet's gotchas sources, api ranking and anchors
 # --------------------------------------------------------------------------
@@ -1162,7 +1177,8 @@ def test_the_snippet_format_holds_only_its_templates():
     for block in blocks:
         assert block[-1] == GOTCHAS_PLACEHOLDER
     note = prose[0]
-    assert _in_order(note, "line 1 with its `root:` field", "line 2's `|IMPORTANT:` start and skill name",
+    assert _in_order(note, "line 1, which names the skill at its metadata.json version, with its `root:` field",
+                     "line 2's `|IMPORTANT:` start and skill name",
                      "the `|api:` label", "the `|gotchas:` label with its `; ` separator and its `[CARRIED]` marker",
                      "the rebuild helper's `gotchas` action", "no bare `|` line")
 
@@ -1222,8 +1238,15 @@ def test_the_gotchas_line_has_one_selection():
     fmt = _read(SNIPPET_FORMAT)
     assert fmt.count(GOTCHAS_PLACEHOLDER) == 2 and "- **Line 6 (gotchas):**" not in fmt
     trigger = _line(_regeneration(), "- **Gotchas changed**")
-    assert "(at most 3 pitfalls, in its order) differs from the prior snippet's `|gotchas:` line, " \
+    assert "the `line` `gotchas resolve` returned" in trigger
+    assert "at most 3 pitfalls, in its order) differs from the prior snippet's `|gotchas:` line, " \
            "`[CARRIED]` markers aside" in trigger
+    # Review of #1164: the two calls run before any trigger is checked, not only once one fired.
+    five = _regeneration()
+    assert _in_order(five, "**Staleness triggers:** run the two `gotchas` calls of the regeneration paragraph below "
+                     "first, before you check any trigger", "- **Headline exports changed**", "**If no trigger fired:**",
+                     "**If at least one trigger fired:**", "run before the staleness triggers above, which read them")
+    assert "the **Gotchas changed** trigger reads them too" not in five
 
 
 def test_the_api_line_has_one_ranking():

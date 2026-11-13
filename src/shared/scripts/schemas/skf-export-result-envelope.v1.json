@@ -54,7 +54,7 @@
       "type": "array",
       "items": { "type": "string", "minLength": 1 },
       "uniqueItems": true,
-      "description": "The context files (CLAUDE.md, AGENTS.md, .cursorrules) whose managed section this run wrote and verified. Empty on a dry run, with passive context off, and when a halt came before any write."
+      "description": "The context files (CLAUDE.md, AGENTS.md, .cursorrules) whose managed section this run wrote and verified, or cleared (an orphaned context file after orphan-context (a)). Empty on a dry run, with passive context off, and when a halt came before any write."
     },
     "manifest_path": {
       "type": ["string", "null"],

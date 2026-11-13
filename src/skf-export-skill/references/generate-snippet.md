@@ -109,7 +109,7 @@ Emit the single-skill template from {snippetFormatData} (loaded in §2), filling
 
 #### 3c. Stack Skills (`skill_type: "stack"`)
 
-Emit the stack-skill template from {snippetFormatData}, filling `version` from metadata.json `version`, `stack` from metadata.json `components`, `integrations` from metadata.json `integrations` and `gotchas` from `{gotchas_line}` (omit the line when it is null).
+Emit the stack-skill template from {snippetFormatData}, filling `version` from metadata.json `version`, `stack` from metadata.json `libraries`, each `@` the `**Version:**` its `references/{library}.md` gives (bare when it gives none), `integrations` from metadata.json `integration_pairs`, each pair as `{a}+{b}`, and `gotchas` from `{gotchas_line}` (omit the line when it is null).
 
 ### 4. Verify Token Count
 

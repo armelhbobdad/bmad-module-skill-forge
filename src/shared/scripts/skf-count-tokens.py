@@ -31,7 +31,7 @@ as UTF-8 text is skipped.
 package_total sums context-snippet.md + SKILL.md + metadata.json + references_total and
 DELIBERATELY EXCLUDES the managed-section row — the managed section is a shared all-skills
 cost reported separately, and including it would double-count this skill's own snippet
-(see references/token-report.md §1).
+(see references/token-report.md §2).
 
 context_budget gives the token report's Context Budget Impact values, in tokens:
   - always_on:       the managed section (loaded in every session); null when no
@@ -276,7 +276,7 @@ def main(argv: list[str] | None = None) -> int:
         description=(
             "Deterministic per-artifact word/token metrics for a skill package. Emits JSON "
             "with per-file rows, references_total, the shared managed-section block, and a "
-            "package_total that excludes the managed section (see references/token-report.md §1). "
+            "package_total that excludes the managed section (see references/token-report.md §2). "
             "tokens = len(text)//4 (SKF-wide convention); words = whitespace-split count."
         ),
     )

@@ -1,6 +1,6 @@
 # Context Snippet Format (Vercel-Aligned Indexed Format)
 
-**A house-style copy** of this file (`snippet_format_path` in `customize.toml`) keeps the lines scripts parse: line 1 with its `root:` field, line 2's `|IMPORTANT:` start and skill name, the `|api:` label, the `|gotchas:` label with its `; ` separator and its `[CARRIED]` marker, which the rebuild helper's `gotchas` action reads back, and no bare `|` line. That setting's comment says which script reads each one.
+**A house-style copy** of this file (`snippet_format_path` in `customize.toml`) keeps the lines scripts parse: line 1, which names the skill at its metadata.json version, with its `root:` field, line 2's `|IMPORTANT:` start and skill name, the `|api:` label, the `|gotchas:` label with its `; ` separator and its `[CARRIED]` marker, which the rebuild helper's `gotchas` action reads back, and no bare `|` line. That setting's comment says which script reads each one. Each `SKILL.md#slug` or `references/<file>.md#slug` anchor names a heading of the package too: step 2 checks each draft for line 1, line 2, bare `|` lines and anchors, and stops the export (exit 4) on a draft that still fails after one correction.
 
 ## Single Skill Snippet Template
 

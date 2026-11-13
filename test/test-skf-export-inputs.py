@@ -761,13 +761,21 @@ def test_snippet_format_path_names_the_lines_scripts_parse():
     flat = _flat_comment(toml, "snippet_format_path")
     assert ("- the `|api:` label, and the `|gotchas:` label with its `; ` separator and its `[CARRIED]` marker: the "
             "rebuild helper's `gotchas` action reads them back in step 2") in flat
-    assert ("The quick-start and key-types lines, and the stack and integrations lines, are free to change."
-            ) in flat
+    assert ("The quick-start and key-types lines, and the stack and integrations lines, are free to change, as long "
+            "as each anchor they hold resolves.") in flat
     assert "quick-start, api and key-types" not in flat
+    # Review of #1166: step 2's draft check stops the export before assemble could leave the skill out.
+    assert ("Step 2 checks each draft with skf-validate-output.py --snippet-check, which fails, among other things, "
+            "a line 1 that does not start with the skill at its metadata.json version") in flat
+    assert ("a draft that still fails after one correction stops the export with exit 4 (context-rebuild-failed)."
+            ) in flat
+    assert "leaves out a snippet whose first line differs" not in flat
     note = _read(SNIPPET_FORMAT)
     assert "`snippet_format_path` in `customize.toml`" in note
     assert ("the `|api:` label, the `|gotchas:` label with its `; ` separator and its `[CARRIED]` marker, which the "
             "rebuild helper's `gotchas` action reads back") in note
+    assert "line 1, which names the skill at its metadata.json version, with its `root:` field" in note
+    assert "stops the export (exit 4) on a draft that still fails after one correction" in note
 
 
 def _template(heading: str) -> str:
