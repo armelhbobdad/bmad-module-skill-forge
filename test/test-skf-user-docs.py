@@ -2393,7 +2393,8 @@ def test_the_result_table_says_what_a_security_pass_shows(code, prefix, field):
 def _first_run_sentences() -> tuple[str, str]:
     """Step 6 of the forger's activation, and its first-run sentences (#1170), which end at the two-code question."""
     greeting = _slice(_read(FORGER_SKILL), "6. **Greet, then dispatch or wait.**", "\n")
-    return greeting, _slice(greeting, "When `derived.is_first_run` is true and the pick holds",
+    return greeting, _slice(greeting, "When `derived.tier` is null (no forge tier yet: SF has set none and "
+                                      "`preferences.yaml` has no `tier_override`) and the pick holds",
                             "When a request fits two codes")
 
 
@@ -2414,8 +2415,9 @@ def test_a_first_run_pick_asks_to_set_the_tier_first_and_a_headless_one_halts():
                   "both leave out `--headless` and `-H`",
                   "`/skf-forger forge-auto <url> --headless` halts naming `SF forge-auto <url>`"):
         assert token in first, token
-    for absent in ("On a first run", "present the menu", "When `{headless_mode}` is true", "and no pick, HARD HALT"):
-        assert absent not in first, absent
+    for absent in ("On a first run", "present the menu", "When `{headless_mode}` is true", "and no pick, HARD HALT",
+                   "derived.is_first_run"):
+        assert absent not in first, absent  # a `tier_override` with no SF run is a tier (lane review finding 9)
     assert greeting.index("dispatch the pick at once with its arguments.") < greeting.index(first)
     # A pick that needs no tier (QS, SF, KI, WS, ...) or one led by SF is dispatched at once, as before.
     condition = _slice(first, "the pick holds", "say in that greeting line")

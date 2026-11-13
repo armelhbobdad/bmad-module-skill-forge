@@ -274,6 +274,13 @@ class TestPreflightTierOverride:
         result = run_preflight(str(root))
         assert result["derived"]["tier_source"] == "override"
 
+    def test_an_override_before_any_sf_run_is_a_tier(self, tmp_path):
+        """The installer seeds `tier: ~`, and the workflows apply a valid `tier_override` over it, so Ferris's
+        first-run gate reads `derived.tier`, not `is_first_run` (lane review finding 9)."""
+        root = make_project(tmp_path, preferences={"tier_override": "Forge"}, forge_tier={"tier": None})
+        derived = run_preflight(str(root))["derived"]
+        assert (derived["tier"], derived["tier_source"], derived["is_first_run"]) == ("Forge", "override", True)
+
 
 class TestPreflightLiteralSidecarPath:
     """Suite 6: Literal sidecar_path string."""
@@ -1173,7 +1180,7 @@ class TestForgerMenu:
                       "its Workflow Selection table (Example 1) recommends for that goal, written as a pick Dispatch "
                       "runs, with a `<...>` placeholder for each input it needs (the table's `AN → CS (batch)` reads "
                       "`AN[<project-path>] CS`), then wait for the pick",
-                      "On a first run (`derived.is_first_run` true), a recommendation that holds AN, BS, CS, SS, TS, "
+                      "With no forge tier yet (`derived.tier` null), a recommendation that holds AN, BS, CS, SS, TS, "
                       "US or AS (every alias does) puts SF ahead of it as step 6 writes a first-run pick",
                       "When the invocation carries `--headless` or `-H`, run nothing and HARD HALT: \"**No workflow "
                       "named.** A headless start runs the code, alias or chain it names. For that goal, start me with "
