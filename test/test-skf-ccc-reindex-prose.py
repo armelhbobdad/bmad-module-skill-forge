@@ -17,11 +17,12 @@ step files and the ccc knowledge fragment on that contract:
 - a reused workspace index still gets the standard exclusions and a plain
   `ccc index`, and the deferred discovery block needs no `--refresh`;
 - the verify-and-repair procedure is written once, in
-  references/ccc-index-check.md, which step 3 and step 7 both load: its
-  repairs fix `settings.yml` (a project of its own, or a missing language in
-  `include_patterns`, skipped when no extension is missing), it waits for a
-  running pass with `ccc index` rather than a sleep, and it edits only a
-  clone SKF made;
+  references/ccc-index-check.md, which step 3 and step 7 both load: it
+  branches on the verdict of `skf-merge-ccc-exclusions.py --check-index`
+  (which waits for a running pass with `ccc index` rather than a sleep and
+  states the threshold), its repairs fix `settings.yml` (a project of its
+  own, or a missing language in `include_patterns`, skipped when no
+  extension is missing), and it edits only a clone SKF made;
 - step 7 indexes SKF's workspace clone of a remote source, never the private
   tree, and checks the project-root exception before any `ccc init`;
 - create-skill discovery branches on every `ccc_index.status` value setup
@@ -128,7 +129,7 @@ def _generate_repair() -> str:
 def _check_repair() -> str:
     """The one verify-and-repair procedure, from its repair section to its end."""
     text = _read(CCC_CHECK)
-    return text[text.index("## 3. Repair"):]
+    return text[text.index("## 2. Repair"):]
 
 
 def _check_branch(owner: str) -> str:
@@ -256,13 +257,12 @@ def test_deferred_discovery_needs_no_refresh_flag():
 def test_degraded_index_repair_targets_settings():
     section = _read(CCC_CHECK)
     for token in (
-        "Indexing in progress:",
-        "ccc index` again, which waits for the running pass to finish",
-        "after 3 such runs",
+        'uv run {mergeCccExclusionsHelper} --check-index "{ccc_root}" --language "{brief.language}" '
+        "--include-ext {ext}",
+        "runs `ccc index` again (which waits for that pass, then makes a quick incremental one), up to 3 times",
         "index unverified",
-        "Languages:",
         ".cocoindex_code/settings.yml",
-        "`Project:` line",
+        "`project.settings_yml` and `project.is_root` are both false",
         "ccc init -f",
         "include_patterns",
         "**/*.{ext}",
@@ -277,6 +277,11 @@ def test_degraded_index_repair_targets_settings():
         "Project already initialized",
         "at most 20 times",
         "seconds apart",
+        # #1145: the helper reads ccc status and states the threshold; the step never reads counts by eye.
+        "Languages:",
+        "`Project:` line",
+        "non-trivial",
+        "Indexing in progress:",
     ):
         assert gone not in section, gone
     assert section.index("ccc init -f") < section.index("**/*.{ext}"), "repairs are out of order"
@@ -298,15 +303,33 @@ def test_language_repair_skips_when_no_extension_is_missing():
     assert "has no `include_patterns` list to add the `{brief.language}` file types to" in no_list
     assert "return **degraded**" in no_list
     user = _check_branch("user")
-    assert "If there are none, " + none in user and covers in user
+    assert "Read §1's last `unmatched_exts`, the extensions no `include_patterns` entry matches." in user
+    assert "If it is empty, " + none in user and covers in user
     assert user.index(none) < user.index(QUOTED_INCLUDE_ITEM)
 
 
+def test_the_check_branches_on_the_helper_verdict():
+    """#1145: the helper states the threshold; the step reads `verdict`, never `ccc status`."""
+    check = _slice(_read(CCC_CHECK), "## 1. Check the Index", "## 2.")
+    assert "at least 10 chunks of it, or above 0 and at least 5% of all chunks in a smaller index" in check
+    assert "Branch on its `verdict`:" in check
+    assert "- **`verified`:** return **verified**." in check
+    unverified = _slice(check, "- **`unverified`**", "\n")
+    assert "also when no path resolves or the call prints no JSON: return **index unverified** to the caller and skip §2" in unverified
+    assert "- **`degraded`:** repair the settings in §2." in check
+    # The helper may run `ccc index` 3 times: a call the shell's default timeout stops prints no JSON.
+    assert ("up to 3 times, so run the call in the foreground with the shell's longest timeout: "
+            "a call the shell stops prints no JSON.") in check
+    # `unverified` also covers a failed ccc command and a call with no JSON, so step 3 says no more than that.
+    deferred = _deferred_block()
+    assert 'On **index unverified**, display "CCC index unverified, skipping the language check."' in deferred
+    assert "still building" not in deferred
+    repair = _check_repair()
+    assert "then §1's call again; stop at the first one after which its `verdict` is `verified`" in repair
+    assert repair.rstrip().endswith("If the `verdict` is still not `verified` after these repairs, return **degraded** to the caller.")
+
+
 def test_generate_6b_skips_language_check_when_unverified():
-    wait = _slice(_read(CCC_CHECK), "## 1. Wait for the Pass", "## 2.")
-    assert "return **index unverified** to the caller and skip §2 and §3" in wait
-    check = _slice(_read(CCC_CHECK), "## 2. Check the Languages", "## 3.")
-    assert "Once the line is gone, read the `Languages:` breakdown" in check
     section = _generate_repair()
     assert 'On **index unverified**, log "index unverified" and continue with **Keep the index out of git**' in section
 

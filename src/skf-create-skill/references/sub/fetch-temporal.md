@@ -3,9 +3,10 @@ nextStepFile: 'fetch-docs.md'
 forgeTierConfig: '{sidecar_path}/forge-tier.yaml'
 # Resolve `{forgeTierRwHelper}` by probing `{forgeTierRwProbeOrder}` in order
 # (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. §2 reads the registry through it and §4 changes the registry only
-# through it. If neither resolves, §2 finds no cached entry and §4 skips the
-# registry change with a warning: temporal enrichment never halts the workflow.
+# path wins. §2 and §4 read the collection's freshness through it and §4
+# changes the registry only through it. If neither resolves, §2 finds no fresh
+# collection and §4 skips the registry change with a warning: temporal
+# enrichment never halts the workflow.
 forgeTierRwProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-forge-tier-rw.py'
   - '{project-root}/src/shared/scripts/skf-forge-tier-rw.py'
@@ -50,23 +51,22 @@ Both conditions must pass to proceed to section 2. Then bind `{temporal_feeder}`
 
 ### 2. Check Cache (Skip If Fresh)
 
-Resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}` and read the registry as JSON, from `{project-root}`:
+Resolve `{forgeTierRwHelper}` from `{forgeTierRwProbeOrder}` and ask the registry whether the `{skill-name}-temporal` collection is fresh, from `{project-root}`:
 
 ```bash
-uv run {forgeTierRwHelper} read --target "{forgeTierConfig}"
+uv run {forgeTierRwHelper} read --target "{forgeTierConfig}" --fresh-within-hours 168 --name "{skill-name}-temporal"
 ```
 
-Bind `{registry_collections}` ← its `data.qmd_collections`: an empty list when `exists` is false, the list is missing, the command fails or no candidate resolves. Section 4 reads it again for its embed check.
+The helper reads the entry's `created_at` against the clock. 168 hours is a week: temporal context (issues, PRs, changelogs) rarely changes meaningfully on shorter horizons, and a week balances freshness against re-fetch cost and GitHub rate limits. Bind `{temporal_fresh}` ← its `fresh` and `{temporal_age_hours}` ← its `age_hours`: false and null when the command fails or no candidate resolves.
 
-- Look for a `{registry_collections}` entry where `skill_name` matches the current brief AND `type` is `"temporal"`.
 - If `{temporal_feeder}` holds no `.md` file, continue to section 3 even when that entry is fresh: a cache hit must leave step 5c files to read, and an earlier SKF release deleted the folder once it was indexed.
-- If found AND `created_at` is within the last **7 days** (rationale: temporal context — issues, PRs, changelogs — rarely changes meaningfully on shorter horizons; a 7-day window balances freshness against re-fetch cost and GitHub rate limits): the temporal collection is fresh. Display:
+- If `{temporal_fresh}` is true: the temporal collection is fresh. Display:
 
-"**Temporal context: cached.** Collection `{skill-name}-temporal` is fresh ({days} days old). Skipping re-fetch."
+"**Temporal context: cached.** Collection `{skill-name}-temporal` is fresh ({temporal_age_hours} hours old). Skipping re-fetch."
 
 Skip to section 5 (auto-proceed).
 
-- If not found OR `created_at` is older than 7 days: continue to section 3.
+- Otherwise: continue to section 3.
 
 ### 3. Fetch Temporal Context
 
@@ -103,15 +103,15 @@ fi
 
 **Rollback rule:** if the `qmd collection add` step fails (non-zero exit, network error, parse error) after the prior `remove` succeeded, the `remove-qmd-collection` call above removes the registry entry, to match QMD's actual state. A dangling registry entry that points at a non-existent QMD collection poisons subsequent cache-hit checks in §2. Emit a warning in evidence-report and skip the embed and the registration below: enrichment degrades to no-QMD for this run.
 
-**Scope the embed:** Always pass `--collection {skill-name}-temporal` to `qmd embed`. An unscoped `qmd embed` re-embeds every collection in the QMD store, which can take minutes per run in batch mode and generates wasteful GPU/API cost. If the installed `qmd` CLI does not accept `--collection` (older upstream versions), gate the embed behind a per-skill check: if the `{skill-name}-temporal` entry section 2 found in `{registry_collections}` has a `created_at` within 24 hours, skip the embed entirely and warn "qmd embed skipped: upstream qmd lacks --collection scope; re-embedding all collections would be wasteful in batch mode". Log the skip in the evidence report.
+**Scope the embed:** Always pass `--collection {skill-name}-temporal` to `qmd embed`. An unscoped `qmd embed` re-embeds every collection in the QMD store, which can take minutes per run in batch mode and generates wasteful GPU/API cost. If the installed `qmd` CLI does not accept `--collection` (older upstream versions), gate the embed behind a per-skill check: before the block above, run `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}" --fresh-within-hours 24 --name "{skill-name}-temporal"`, and when its `fresh` is true skip the embed entirely and warn "qmd embed skipped: upstream qmd lacks --collection scope; re-embedding all collections would be wasteful in batch mode". Log the skip in the evidence report.
 
 **Note:** `qmd embed` generates vector embeddings required for semantic (`type:'vec'`) and HyDE (`type:'hyde'`) sub-queries inside the QMD `query` tool. Without embeddings, only BM25 (`type:'lex'`) keyword search works. Run `qmd embed` after every `qmd collection add`.
 
-**Register the collection** only when `qmd collection add` succeeded. The helper replaces the entry with `name: "{skill-name}-temporal"` or appends it, and its lock keeps concurrent batch runs from losing each other's entries:
+**Register the collection** only when `qmd collection add` succeeded. The helper replaces the entry with `name: "{skill-name}-temporal"` or appends it, stamps its `created_at` from the clock, and its lock keeps concurrent batch runs from losing each other's entries:
 
 ```bash
 uv run {forgeTierRwHelper} register-qmd-collection --target "{forgeTierConfig}" <<'SKF_REGISTRY_ENTRY'
-{"name": "{skill-name}-temporal", "type": "temporal", "source_workflow": "create-skill", "skill_name": "{skill-name}", "created_at": "{current ISO date}"}
+{"name": "{skill-name}-temporal", "type": "temporal", "source_workflow": "create-skill", "skill_name": "{skill-name}"}
 SKF_REGISTRY_ENTRY
 ```
 

@@ -223,12 +223,12 @@ SKF_T3
    uv run {forgeTierRwHelper} remove-qmd-collection --target "{forgeTierConfig}" --name {skill-name}-docs
    ```
 
-3. Generate embeddings scoped to this collection (only if step 2 `add` succeeded): `qmd embed --collection {skill-name}-docs` (required for semantic `type:'vec'` and HyDE `type:'hyde'` sub-queries within the QMD `query` tool). If the installed `qmd` CLI does not accept `--collection`, gate the embed behind a freshness check: read the registry with `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}"`, skip re-embedding when the `{skill-name}-docs` entry in its `data.qmd_collections` was created within the last 24 hours, and log the skip in the evidence report to prevent unbounded batch-mode re-embedding.
-4. Register the collection in the `qmd_collections` array (only if step 2 `add` succeeded). The helper replaces the entry with the same `name` or appends it:
+3. Generate embeddings scoped to this collection (only if step 2 `add` succeeded): `qmd embed --collection {skill-name}-docs` (required for semantic `type:'vec'` and HyDE `type:'hyde'` sub-queries within the QMD `query` tool). If the installed `qmd` CLI does not accept `--collection`, gate the embed behind a freshness check: run `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}" --fresh-within-hours 24 --name "{skill-name}-docs"`, skip re-embedding when its `fresh` is true, and log the skip in the evidence report to prevent unbounded batch-mode re-embedding.
+4. Register the collection in the `qmd_collections` array (only if step 2 `add` succeeded). The helper replaces the entry with the same `name` or appends it, and stamps its `created_at` from the clock:
 
    ```bash
    uv run {forgeTierRwHelper} register-qmd-collection --target "{forgeTierConfig}" <<'SKF_REGISTRY_ENTRY'
-   {"name": "{skill-name}-docs", "type": "docs", "source_workflow": "create-skill", "skill_name": "{skill-name}", "created_at": "{current ISO date}"}
+   {"name": "{skill-name}-docs", "type": "docs", "source_workflow": "create-skill", "skill_name": "{skill-name}"}
    SKF_REGISTRY_ENTRY
    ```
 

@@ -803,18 +803,18 @@ def _create_skill_json(name: str, repo: str = "acme/lib"):
     cloned where SKF keeps its workspace. Each provenance entry's
     source_library takes the template's own default, the skill name; a single
     skill omits integrations and constituents; doc_sources holds the README
-    entry step-doc-sources §3 adds for every repository.
+    entry step-doc-sources §3's record-sources call adds for every repository.
     """
     sections = (REPO / CREATE_SECTIONS).read_text(encoding="utf-8")
     assert '"source_library": "{library-name — defaults to skill name for single skills}"' in sections
     doc_step = DOC_SOURCES_STEP.read_text(encoding="utf-8")
-    assert "uv run {detectDocsHelper} readme-entry" in doc_step
+    assert "uv run {detectDocsHelper} record-sources" in doc_step and '--source-repo "{source_repo}"' in doc_step
     source = {"source_repo": f"https://github.com/{repo}",
               "source_commit": "2b5553f32895739befe549da1ceb6dee4fa1cd0b", "source_ref": "v1.0.0"}
     metadata = _fill(_template_json(CREATE_SECTIONS, "## metadata.json Structure"))
     metadata.update(name=name, source_root=f"/home/me/.skf/workspace/repos/github.com/{repo}", **source)
     readme = _fill(_template_optional(CREATE_SECTIONS, "## metadata.json Structure", "doc_sources")[0])
-    # The URL readme-entry builds from a tree whose README is README.md, as this checkout's is.
+    # The URL record-sources adds from a tree whose README is README.md, as this checkout's is.
     readme.update(url=detect_docs.readme_url(source["source_repo"], source["source_ref"], str(REPO)),
                   detected_via=detect_docs.README_ALWAYS_DETECTED_VIA)
     assert readme["url"] == f"https://raw.githubusercontent.com/{repo}/{source['source_ref']}/README.md"

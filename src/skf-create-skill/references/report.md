@@ -1,12 +1,14 @@
 ---
 nextStepFile: 'health-check.md'
-# Resolve `{atomicWriteHelper}` by probing `{atomicWriteProbeOrder}` in order
-# (installed SKF module path first, src/ dev-checkout fallback); first existing
-# path wins. §5 rewrites metadata.json through it only when the emitter is
-# missing; if neither resolves, that write is skipped.
-atomicWriteProbeOrder:
-  - '{project-root}/_bmad/skf/shared/scripts/skf-atomic-write.py'
-  - '{project-root}/src/shared/scripts/skf-atomic-write.py'
+# Resolve `{renderMetadataStatsHelper}` by probing
+# `{renderMetadataStatsProbeOrder}` in order (installed SKF module path first,
+# src/ dev-checkout fallback); first existing path wins. §1 reads the headline
+# confidence from it, and §5 writes validation_status through it only when the
+# emitter is missing. If neither resolves, the banner names no confidence and
+# that write is skipped.
+renderMetadataStatsProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
+  - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
 # The result-contract emitter (Rules).
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
@@ -32,7 +34,7 @@ To display the final compilation summary (skill name, version, source, export co
 
 ## Rules
 
-- Write only the brief's result files (through the emitter, §5) and, outside `--batch`, the removal of the brief's run folder. Change no skill artifact, except in §5's fallback when no path in `{emitEnvelopeProbeOrder}` exists: `validation_status` in `{skill_package}/metadata.json` and one warning appended to `{forge_version}/evidence-report.md`
+- Write only the brief's result files (through the emitter, §5) and, outside `--batch`, the removal of the brief's run folder. Change no skill artifact, except in §5's fallback when no path in `{emitEnvelopeProbeOrder}` exists: `validation_status` in `{skill_package}/metadata.json`, which `{renderMetadataStatsHelper}` writes, and one warning appended to `{forge_version}/evidence-report.md`
 - §5 emits through `{emitEnvelopeHelper}`, resolved from `{emitEnvelopeProbeOrder}` when it is not bound.
 - §5's post-completion hook runs `{resolveCustomizationHelper}`, resolved from `{resolveCustomizationProbeOrder}` when it is not bound.
 - Deliver structured report with confidence breakdown
@@ -44,7 +46,13 @@ To display the final compilation summary (skill name, version, source, export co
 
 "**Skill forged: {name} v{version} — {export_count} functions, {primary_confidence} confidence.**"
 
-Where `{primary_confidence}` is the `confidence` label most provenance-map entries carry, counted from the entries' own labels. Never infer it from the forge tier: a Forge or Deep run whose exports were read by eye is T1-low. On a tie, report the weaker label (T1-low over T1), so the headline never overstates confidence.
+Bind `{export_count}` as the paragraph after §2's block says. Resolve `{renderMetadataStatsHelper}` from `{renderMetadataStatsProbeOrder}` and, from `{project-root}`, run it in check mode, which writes nothing:
+
+```bash
+uv run {renderMetadataStatsHelper} "{forge_version}/provenance-map.json" --check "{skill_package}/metadata.json"
+```
+
+Bind `{primary_confidence}` ← its `primary_confidence`: the label of the largest `confidence_distribution` bin, the weaker label on a tie, so the headline never overstates confidence and never follows the forge tier. When it is null, no path resolves or the call prints no JSON, end the banner after `{export_count} functions`, with no confidence.
 
 ### 2. Display Compilation Summary
 
@@ -76,6 +84,8 @@ Where `{primary_confidence}` is the `confidence` label most provenance-map entri
 - `{forge_version}/evidence-report.md` — Build audit trail
 - `{forge_version}/extraction-rules.yaml` — Reproducible extraction schema
 - `{skill_group}/active` -> `{version}` — Symlink to current version"
+
+Before §1's banner, bind the counts from the promoted `{skill_package}/metadata.json`: `{export_count}` and `{documented_count}` ← `stats.exports_documented`, `{total_count}` ← `stats.exports_total`, `{public_api_coverage}` and `{total_coverage}` ← `stats.public_api_coverage` and `stats.total_coverage` times 100 (`n/a` when null), and `{t1_count}`, `{t1_low_count}`, `{t2_count}` and `{t3_count}` ← `confidence_distribution.t1`, `t1_low`, `t2` and `t3`.
 
 ### 3. Display Warnings (If Any)
 
@@ -133,7 +143,7 @@ uv run {emitEnvelopeHelper} emit --workflow skf-create-skill --run-dir "{run_dir
 
 The evidence report in `outputs` carries the `## Auto-Decisions` audit table: a pipeline consumer follows its path to audit the run. When `{headless_mode}` is true and the run is not `--batch`, bind `{result_envelope_line}` ← the line and do not display it here: the shared health check displays it verbatim as the run's last line (empty when no `emit` succeeded, the incomplete-install branch below included). Otherwise display the line the emitter prints. If it exits non-zero, fix `result-context.json` once (its `message` names the problem) and run it again. When it fails again, display its `message` and, in a headless run that is not `--batch`, bind `{result_envelope_line}` empty: this brief has no result contract.
 
-**If no path in `{emitEnvelopeProbeOrder}` exists** (an incomplete install), write no result contract and, in a headless run that is not `--batch`, bind `{result_envelope_line}` empty: append "Result contract skipped: skf-emit-result-envelope.py is missing." under `{forge_version}/evidence-report.md`'s `## Remaining Warnings`, and set `validation_status: 'schema-unavailable'` in `{skill_package}/metadata.json`, rewritten through `python3 {atomicWriteHelper} write --target {skill_package}/metadata.json` when `{atomicWriteHelper}` resolves. A caller sees no `SKF_CREATE_SKILL_RESULT_JSON` line for this brief and the metadata flag; a `create-skill-result-latest.json` already there is an earlier compile's.
+**If no path in `{emitEnvelopeProbeOrder}` exists** (an incomplete install), write no result contract and, in a headless run that is not `--batch`, bind `{result_envelope_line}` empty: append "Result contract skipped: skf-emit-result-envelope.py is missing." under `{forge_version}/evidence-report.md`'s `## Remaining Warnings`, and, when `{renderMetadataStatsHelper}` resolves, set `validation_status` in `{skill_package}/metadata.json` from `{project-root}` with `uv run {renderMetadataStatsHelper} "{forge_version}/provenance-map.json" --check "{skill_package}/metadata.json" --validation-status schema-unavailable`. A caller sees no `SKF_CREATE_SKILL_RESULT_JSON` line for this brief and the metadata flag; a `create-skill-result-latest.json` already there is an earlier compile's.
 
 **Post-completion hook.** When `{onCompleteCommand}` is not bound, bind it to the `workflow.on_complete` value this prints, or to the one in `{skill-root}/customize.toml` when the resolver cannot run:
 

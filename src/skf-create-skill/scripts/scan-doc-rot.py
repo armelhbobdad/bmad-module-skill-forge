@@ -76,9 +76,16 @@ CLI usage:
   Missing or empty files are skipped silently (not an error), matching §1's
   "attempt to load; if it does not exist or is empty, skip it."
 
+  A feeder (positional or --feeder, never --skill-md) named issues.md or
+  targeted-issues.md is not scanned: it holds reports anyone can open, never
+  the project's own announcement of a change, so its lines would only take
+  places under the cap. One that exists and is non-empty is listed in
+  `scanned_skipped`; a missing or empty one is skipped silently as above.
+
 Output (stdout, one object):
   {
     "scanned": ["<path>", ...],        # feeders that existed and were non-empty
+    "scanned_skipped": ["<path>", ...],  # issue feeders left unscanned, in the given order
     "matches": [                        # the candidates step 5c's judgment pass reviews
       {"source": "<path>", "pattern": "deprecated" | null,  # null: an export mention
        "candidate_category": "Deprecation" | null,
@@ -140,9 +147,12 @@ PATTERN_TABLE: list[tuple[str, str]] = [
 _MIGRATION_HEADING = re.compile(r"^\s*##\s+Migration & Deprecation Warnings\s*$")
 
 # The temporal feeder files that carry the project's own announcements: a line
-# of one that names a known export is a candidate (issues.md and
-# targeted-issues.md hold reports anyone can open, which §2 drops anyway).
+# of one that names a known export is a candidate.
 EXPORT_FEEDERS = frozenset({"changelog.md", "releases.md", "prs.md"})
+# The temporal feeder files that hold reports anyone can open, never the
+# project's own announcement of a change: they are not scanned, so their lines
+# take no place under the cap, and are listed in `scanned_skipped`.
+SKIPPED_FEEDERS = frozenset({"issues.md", "targeted-issues.md"})
 # An export name too common to mean the export when a line says it.
 IGNORED_EXPORT_NAMES = frozenset({"default"})
 _HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*\s*$")
@@ -441,6 +451,7 @@ def scan_files(
     exclusions, collapse duplicates, cap the candidate pool, and return the
     result object. Deterministic: feeders scanned in the given order."""
     scanned: list[str] = []
+    scanned_skipped: list[str] = []
     matches: list[dict] = []
     skill_md_text = None
     exports = load_exports(provenance)
@@ -452,6 +463,9 @@ def scan_files(
     for path in ordered:
         text = _load(path)
         if text is None:
+            continue
+        if path != skill_md and Path(path).name in SKIPPED_FEEDERS:
+            scanned_skipped.append(path)
             continue
         scanned.append(path)
         if path == skill_md:
@@ -468,6 +482,7 @@ def scan_files(
     matches, capped = apply_cap(matches, max_candidates, skill_md)
     return {
         "scanned": scanned,
+        "scanned_skipped": scanned_skipped,
         "matches": matches,
         "match_count": len(matches),
         "excluded_count": front_excluded + section_excluded,

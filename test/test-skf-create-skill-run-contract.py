@@ -371,10 +371,61 @@ def test_every_documented_decision_fits_the_schema():
     gates = {json.loads(re.sub(r"\{[A-Za-z_]+\}", "x", text))["gate"] for _, text in examples}
     assert {"tier-override", "tag-choice", "review-gate", "zero-exports", "authoritative-file:x", "demo-exclusion",
             "registry-confirm", "provide-or-skip-registry"} <= gates
+    # `record` stamps the time (#1145): no documented decision types one, and SKILL.md says so.
+    assert "timestamp" in item["required"] and "timestamp" in item["properties"]
     for name, text in examples:
         decision = json.loads(re.sub(r"\{[A-Za-z_]+\}", "x", text))
-        assert set(item["required"]) <= set(decision), (name, text)
-        assert set(decision) <= set(item["properties"]), (name, text)
+        assert set(item["required"]) - {"timestamp"} <= set(decision), (name, text)
+        assert set(decision) <= set(item["properties"]) and "timestamp" not in decision, (name, text)
+    rule = next(line for line in _read(SKILL).splitlines()
+                if line.startswith("- Every decision the run takes without asking"))
+    assert '"timestamp"' not in rule and "which stamps the decision's `timestamp` from the clock" in rule
+    for path in [SKILL, *STEP_FILES, *sorted((CS / "assets").glob("*.md"))]:
+        for typed in ('"timestamp": "{ISO}"', '"timestamp": "<ISO-8601>"', '"{current ISO date}"',
+                      '"created_at": "', '"indexed_at": "'):
+            assert typed not in _read(path), (path.name, typed)
+
+
+def test_validate_checks_frontmatter_with_the_validator():
+    """#1145: §3's fallback runs the validator skf-validate-frontmatter.py, never a checklist by hand."""
+    three = _section(_read(REFS / "validate.md"), "### 3. Validate Frontmatter (Fallback)", "### 4.")
+    [fence] = re.findall(r"```bash\n(.*?)```", three, re.DOTALL)
+    assert fence.strip() == 'uv run {frontmatterValidator} "<staging-skill-dir>/SKILL.md"'
+    assert "Fix in the staged SKILL.md what each `high` issue of `issues` names, then run the command once more." in three
+    assert ('When that run\'s `status` is not `fail`, record "Frontmatter: PASS", with its `medium` and `low` issues '
+            'under Remaining Warnings; otherwise record "Frontmatter: FAIL" with the `high` issues left.') in three
+    assert "HALT" not in three and "never halts" in three
+    for by_hand in ("- [ ]", "lowercase alphanumeric", "1-1024 characters"):
+        assert by_hand not in three, by_hand
+
+
+def test_validate_writes_metadata_through_the_stats_helper():
+    """#1145: §1 and §7 write no metadata.json field by hand: --fix and --validation-status do."""
+    validate = _read(REFS / "validate.md")
+    one = _section(validate, "### 1. Check Tool Availability", "### 2.")
+    assert "§7's call passes `--validation-status manual-only`" in one
+    seven = _section(validate, "### 7. Validate metadata.json", "### 7a.")
+    [fence] = re.findall(r"```bash\n(.*?)```", seven, re.DOTALL)
+    assert fence.split() == ["uv", "run", "{renderMetadataStatsHelper}", "<staging-skill-dir>/provenance-map.json",
+                             "\\", "--check", "<staging-skill-dir>/metadata.json", "--fix",
+                             "[--validation-status", "manual-only]"]
+    assert "Pass `--validation-status manual-only` when §1 found skill-check unavailable" in seven
+    assert "lists those fields in `fixed`" in seven
+    assert 'record "Metadata: auto-fixed {N} computed-value discrepanc(y|ies)" listing its fields' in seven
+    # A fix the first --fix call wrote before a relabel re-run is still recorded.
+    assert "listing its fields and those of the earlier calls" in seven
+    assert "or the auto-fixed line below when an earlier call of this section listed fields in `fixed`" in seven
+    for path in (REFS / "validate.md", REFS / "report.md"):
+        assert "{atomicWriteHelper} write --target <staging-skill-dir>/metadata.json" not in _read(path)
+        assert "write --target {skill_package}/metadata.json" not in _read(path)
+    report = _read(REFS / "report.md")
+    assert ('uv run {renderMetadataStatsHelper} "{forge_version}/provenance-map.json" --check '
+            '"{skill_package}/metadata.json" --validation-status schema-unavailable') in report
+    one = _section(report, "### 1. Display Forge Completion Banner", "### 2.")
+    assert "Bind `{primary_confidence}` ← its `primary_confidence`" in one
+    assert "counted from the entries' own labels" not in report
+    assert _frontmatter(REFS / "report.md")["renderMetadataStatsProbeOrder"][-1] == (
+        "{project-root}/src/shared/scripts/skf-render-metadata-stats.py")
 
 
 def test_every_decision_site_spells_out_its_record_command():

@@ -986,6 +986,101 @@ def test_clean_stale_live_sources_are_mutually_exclusive(tmp_target):
     assert result.returncode == 2
 
 
+# ─── read --fresh-within-hours: the freshness the embed gates branch on (#1145) ─
+
+
+def _read_fresh(target: Path, *argv: str) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        [sys.executable, str(SCRIPT_PATH), "read", "--target", str(target), *argv],
+        capture_output=True, text=True, timeout=10,
+    )
+
+
+def _sidecar_with(target: Path, collections: list) -> None:
+    payload = _baseline_payload()
+    payload["qmd_collections"] = collections
+    _write_tools(target, payload)
+
+
+def _iso(delta: timedelta) -> str:
+    return (datetime.now(timezone.utc) - delta).isoformat(timespec="seconds")
+
+
+def test_read_a_collection_registered_hours_ago_is_fresh(tmp_target):
+    _sidecar_with(tmp_target, [{"name": "lib-extraction", "created_at": _iso(timedelta(hours=3))},
+                               {"name": "lib-extraction", "created_at": _iso(timedelta(days=9))}])
+    result = _read_fresh(tmp_target, "--fresh-within-hours", "24", "--name", "lib-extraction")
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload["fresh"] is True and payload["age_hours"] == pytest.approx(3.0, abs=0.1)
+    assert payload["exists"] is True and payload["data"]["tier"] == "Deep"
+    stale = _read_fresh(tmp_target, "--fresh-within-hours", "2", "--name", "lib-extraction")
+    assert json.loads(stale.stdout)["fresh"] is False
+
+
+def test_read_a_date_only_created_at_counts_from_midnight_utc(tmp_target):
+    month_ago = (datetime.now(timezone.utc) - timedelta(days=30)).date()
+    _write_tools(tmp_target, _baseline_payload())
+    text = tmp_target.read_text(encoding="utf-8").replace(
+        "qmd_collections: []", f"qmd_collections:\n- name: lib-temporal\n  created_at: {month_ago.isoformat()}")
+    tmp_target.write_text(text, encoding="utf-8")
+    assert isinstance(yaml.safe_load(text)["qmd_collections"][0]["created_at"], type(month_ago))
+    payload = json.loads(_read_fresh(tmp_target, "--fresh-within-hours", "168", "--name", "lib-temporal").stdout)
+    assert payload["fresh"] is False and 30 * 24 - 24 < payload["age_hours"] <= 30 * 24 + 24
+    assert payload["data"]["qmd_collections"][0]["created_at"] == month_ago.isoformat()
+
+
+@pytest.mark.parametrize("collections", [
+    [],
+    [{"name": "other", "created_at": _iso(timedelta(hours=1))}],
+    [{"name": "lib-extraction"}],
+    [{"name": "lib-extraction", "created_at": "yesterday"}],
+], ids=["no-collections", "no-entry", "no-time", "unreadable-time"])
+def test_read_no_entry_or_no_time_is_not_fresh(tmp_target, collections):
+    _sidecar_with(tmp_target, collections)
+    payload = json.loads(_read_fresh(tmp_target, "--fresh-within-hours", "24", "--name", "lib-extraction").stdout)
+    assert payload["fresh"] is False and payload["age_hours"] is None
+
+
+def test_read_a_future_time_is_not_fresh(tmp_target):
+    _sidecar_with(tmp_target, [{"name": "lib-extraction", "created_at": _iso(-timedelta(hours=5))}])
+    payload = json.loads(_read_fresh(tmp_target, "--fresh-within-hours", "24", "--name", "lib-extraction").stdout)
+    assert payload["fresh"] is False and payload["age_hours"] < 0
+
+
+def test_read_no_file_is_not_fresh(tmp_target):
+    result = _read_fresh(tmp_target, "--fresh-within-hours", "24", "--name", "lib-extraction")
+    assert result.returncode == 0
+    assert json.loads(result.stdout) == {"exists": False, "data": None, "fresh": False, "age_hours": None,
+                                         "status": "ok", "version": "v1"}
+
+
+def test_read_naive_times_are_utc():
+    now = datetime(2026, 11, 13, 12, 0, tzinfo=timezone.utc)
+    data = {"qmd_collections": [{"name": "a", "created_at": datetime(2026, 11, 13, 9, 0)},
+                                {"name": "b", "created_at": "2026-11-13T09:00:00Z"},
+                                {"name": "c", "created_at": "2026-11-13T10:00:00+01:00"}]}
+    assert mod.collection_freshness(data, "a", 24, now) == {"fresh": True, "age_hours": 3.0}
+    assert mod.collection_freshness(data, "b", 24, now) == {"fresh": True, "age_hours": 3.0}
+    assert mod.collection_freshness(data, "c", 2, now) == {"fresh": False, "age_hours": 3.0}
+
+
+@pytest.mark.parametrize("argv", [["--fresh-within-hours", "24"], ["--name", "lib-extraction"],
+                                  ["--fresh-within-hours", "-1", "--name", "x"],
+                                  ["--fresh-within-hours", "nan", "--name", "x"]],
+                         ids=["hours-alone", "name-alone", "negative", "nan"])
+def test_read_freshness_flags_go_together(tmp_target, argv):
+    _write_tools(tmp_target, _baseline_payload())
+    result = _read_fresh(tmp_target, *argv)
+    assert result.returncode == 1 and result.stdout == ""
+
+
+def test_read_without_the_flags_prints_no_freshness(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    payload = json.loads(_read_fresh(tmp_target).stdout)
+    assert "fresh" not in payload and "age_hours" not in payload
+
+
 # ─── End-to-end: register-qmd-collection subcommand via subprocess ──────────
 
 
@@ -1058,6 +1153,52 @@ def test_register_qmd_preserves_unrelated_state(tmp_target):
     assert persisted["ccc_index_registry"] == [{"path": "/some/abs/path", "indexed_at": "2025-01-01"}]
     assert persisted["ccc_index"]["staleness_threshold_hours"] == 99
     assert persisted["tier"] == payload["tier"]
+
+
+def _just_now(stamp: str) -> bool:
+    when = datetime.fromisoformat(stamp)
+    return (when.utcoffset() == timedelta(0) and when.microsecond == 0
+            and abs((datetime.now(timezone.utc) - when).total_seconds()) < 120)
+
+
+@pytest.mark.parametrize("given", [{}, {"created_at": None}, {"created_at": ""}], ids=["absent", "null", "empty"])
+def test_register_qmd_stamps_a_missing_created_at(tmp_target, given):
+    _write_tools(tmp_target, _baseline_payload())
+    code, _, stderr = _register_qmd(tmp_target, {"name": "lib-temporal", "type": "temporal", **given})
+    assert code == 0, stderr
+    [entry] = _read_yaml_file(tmp_target)["qmd_collections"]
+    assert isinstance(entry["created_at"], str) and _just_now(entry["created_at"])
+    assert entry["created_at"].endswith("+00:00")
+
+
+def test_register_qmd_keeps_a_given_created_at(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    _register_qmd(tmp_target, {"name": "lib-brief", "type": "brief", "created_at": "2025-01-01"})
+    assert _read_yaml_file(tmp_target)["qmd_collections"][0]["created_at"] == "2025-01-01"
+
+
+@pytest.mark.parametrize("given", [{}, {"indexed_at": None}, {"indexed_at": " "}], ids=["absent", "null", "empty"])
+def test_register_ccc_stamps_a_missing_indexed_at(tmp_target, given):
+    _write_tools(tmp_target, _baseline_payload())
+    code, _, stderr = _register_ccc(tmp_target, {"source_repo": "https://github.com/x/y", "skill_name": "y",
+                                                 "path": "/y", **given})
+    assert code == 0, stderr
+    [entry] = _read_yaml_file(tmp_target)["ccc_index_registry"]
+    assert _just_now(entry["indexed_at"])
+
+
+def test_register_ccc_keeps_a_given_indexed_at(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    _register_ccc(tmp_target, {"source_repo": "https://github.com/x/y", "skill_name": "y", "path": "/y",
+                               "indexed_at": "2026-05-25T14:00:00Z"})
+    assert _read_yaml_file(tmp_target)["ccc_index_registry"][0]["indexed_at"] == "2026-05-25T14:00:00Z"
+
+
+def test_a_stamped_collection_reads_as_fresh(tmp_target):
+    _write_tools(tmp_target, _baseline_payload())
+    _register_qmd(tmp_target, {"name": "lib-extraction", "type": "extraction"})
+    payload = json.loads(_read_fresh(tmp_target, "--fresh-within-hours", "24", "--name", "lib-extraction").stdout)
+    assert payload["fresh"] is True and payload["age_hours"] == 0.0
 
 
 def test_register_qmd_rejects_missing_name(tmp_target):

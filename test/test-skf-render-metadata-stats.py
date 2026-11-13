@@ -867,5 +867,167 @@ class TestPatternSurfaceCount:
         assert code == 2 and "skf-no-such-helper.py not found" in capsys.readouterr().err
 
 
+# --------------------------------------------------------------------------
+# --fix, --validation-status and primary_confidence: validate §1 and §7 and
+# report §1 and §5 read and write these through the helper (#1145)
+# --------------------------------------------------------------------------
+
+
+def _metadata_bytes(data: dict) -> bytes:
+    """metadata.json as the extraction inventory writes it."""
+    return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+
+
+def _staged(tmp_path, prov_doc, meta_doc):
+    prov = _write_json(tmp_path / "provenance-map.json", prov_doc)
+    meta = tmp_path / "metadata.json"
+    meta.write_bytes(_metadata_bytes(meta_doc))
+    return prov, meta
+
+
+class TestFixAndValidationStatus:
+    PROV = {"entries": _entries(3, 1)}
+
+    def _clean(self):
+        meta = _metadata(self.PROV)
+        meta["stats"]["notes"] = "Größe: kept"
+        return {"name": "lib", **meta, "generated_by": "skf-create-skill"}
+
+    def test_fix_writes_the_drifted_fields_and_keeps_the_rest(self, tmp_path):
+        clean = self._clean()
+        drifted = json.loads(json.dumps(clean))
+        drifted["stats"]["exports_total"] = 99
+        drifted["confidence_distribution"]["t1"] = 7
+        prov, meta = _staged(tmp_path, self.PROV, drifted)
+        res = _run([str(prov), "--check", str(meta), "--fix"])
+        assert res.returncode == 1, res.stderr  # the check's own code
+        out = json.loads(res.stdout)
+        assert out["fixed"] == ["stats.exports_total", "confidence_distribution.t1"]
+        assert meta.read_bytes() == _metadata_bytes(clean)
+        again = _run([str(prov), "--check", str(meta), "--fix"])
+        assert again.returncode == 0 and json.loads(again.stdout)["fixed"] == []
+        assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []
+
+    @pytest.mark.parametrize("row, field", [
+        (_row("read", "source-read", "T1-low", "T1"), "signature_source"),
+        (_row("made", "made-up", "T1", "T1"), "extraction_method"),
+    ], ids=["signature_source", "extraction_method"])
+    def test_a_binning_label_violation_holds_back_only_the_distribution(self, tmp_path, row, field):
+        prov_doc = {"entries": _entries(3) + [row]}
+        clean = _metadata(prov_doc)
+        drifted = json.loads(json.dumps(clean))
+        drifted["stats"]["exports_total"] = 99
+        drifted["confidence_distribution"]["t1"] = 7
+        prov, meta = _staged(tmp_path, prov_doc, drifted)
+        res = _run([str(prov), "--check", str(meta), "--fix"])
+        assert res.returncode == 1
+        out = json.loads(res.stdout)
+        labels = [v["field"] for v in out["coherence"]["violations"] if v["field"].startswith("provenance.")]
+        assert labels == [f"provenance.entries[3].{field}"]
+        assert out["fixed"] == ["stats.exports_total"]
+        written = json.loads(meta.read_text(encoding="utf-8"))
+        assert written["stats"] == clean["stats"]
+        assert written["confidence_distribution"] == drifted["confidence_distribution"]
+
+    def test_the_rerun_after_a_relabel_writes_the_distribution(self, tmp_path):
+        prov_doc = {"entries": _entries(3) + [_row("read", "source-read", "T1-low", "T1")]}
+        drifted = _metadata(prov_doc)
+        drifted["stats"]["exports_total"] = 99
+        prov, meta = _staged(tmp_path, prov_doc, drifted)
+        assert json.loads(_run([str(prov), "--check", str(meta), "--fix"]).stdout)["fixed"] == [
+            "stats.exports_total"]
+        prov_doc["entries"][3]["signature_source"] = "T1-low"  # the Relabel Rule
+        _write_json(prov, prov_doc)
+        rerun = _run([str(prov), "--check", str(meta), "--fix"])
+        assert json.loads(rerun.stdout)["fixed"] == [
+            "confidence_distribution.t1", "confidence_distribution.t1_low"]
+        assert _run([str(prov), "--check", str(meta)]).returncode == 0
+
+    @pytest.mark.parametrize("row, field", [
+        (_row("ast", "ast-grep", "T1", "T1", None), "ast_node_type"),
+        (_row("ast", "ast-grep", "T1-low", "T1", "function_declaration"), "confidence"),
+    ], ids=["ast_node_type", "confidence"])
+    def test_a_warn_left_holds_back_no_fix(self, tmp_path, row, field):
+        prov_doc = {"entries": _entries(3) + [row]}
+        clean = _metadata(prov_doc)
+        drifted = json.loads(json.dumps(clean))
+        drifted["stats"]["exports_total"] = 99
+        drifted["confidence_distribution"]["t1"] = 7
+        prov, meta = _staged(tmp_path, prov_doc, drifted)
+        res = _run([str(prov), "--check", str(meta), "--fix"])
+        assert res.returncode == 1  # the label violation is still there
+        out = json.loads(res.stdout)
+        labels = [v["field"] for v in out["coherence"]["violations"] if v["field"].startswith("provenance.")]
+        assert labels == [f"provenance.entries[3].{field}"]
+        assert out["fixed"] == ["stats.exports_total", "confidence_distribution.t1"]
+        assert meta.read_bytes() == _metadata_bytes(clean)
+
+    @pytest.mark.parametrize("status", ["manual-only", "schema-unavailable"])
+    def test_validation_status_is_written_whatever_the_violations(self, tmp_path, status):
+        drifted = self._clean()
+        drifted["stats"]["exports_total"] = 99
+        prov, meta = _staged(tmp_path, self.PROV, drifted)
+        res = _run([str(prov), "--check", str(meta), "--validation-status", status])
+        assert res.returncode == 1
+        assert "fixed" not in json.loads(res.stdout)
+        assert meta.read_bytes() == _metadata_bytes({**drifted, "validation_status": status})
+
+    def test_fix_and_status_share_one_write(self, tmp_path):
+        clean = self._clean()
+        drifted = json.loads(json.dumps(clean))
+        drifted["stats"]["total_coverage"] = 0.5
+        prov, meta = _staged(tmp_path, self.PROV, drifted)
+        res = _run([str(prov), "--check", str(meta), "--fix", "--validation-status", "manual-only"])
+        assert json.loads(res.stdout)["fixed"] == ["stats.total_coverage"]
+        assert meta.read_bytes() == _metadata_bytes({**clean, "validation_status": "manual-only"})
+
+    @pytest.mark.parametrize("flags", [["--fix"], ["--validation-status", "manual-only"]])
+    def test_the_write_flags_need_check(self, tmp_path, flags):
+        prov = _write_json(tmp_path / "provenance-map.json", self.PROV)
+        res = _run([str(prov), *flags], stdin="{}")
+        assert res.returncode == 2 and "need --check" in res.stderr
+
+    def test_an_unknown_status_is_refused(self, tmp_path):
+        prov, meta = _staged(tmp_path, self.PROV, self._clean())
+        res = _run([str(prov), "--check", str(meta), "--validation-status", "passed"])
+        assert res.returncode == 2 and "invalid choice" in res.stderr
+
+    def test_a_failed_write_exits_2_and_leaves_the_file(self, tmp_path, monkeypatch, capsys):
+        drifted = self._clean()
+        drifted["stats"]["exports_total"] = 99
+        prov, meta = _staged(tmp_path, self.PROV, drifted)
+
+        def fail(src, dst):
+            raise OSError("disk full")
+
+        monkeypatch.setattr(mod.os, "replace", fail)
+        assert mod.main([str(prov), "--check", str(meta), "--fix"]) == 2
+        assert "cannot write" in capsys.readouterr().err
+        assert meta.read_bytes() == _metadata_bytes(drifted)
+        assert [p.name for p in tmp_path.iterdir() if p.name.startswith(".")] == []
+
+
+class TestPrimaryConfidence:
+    @pytest.mark.parametrize("bins, label", [
+        ((4, 4, 0, 0), "T1-low"),
+        ((0, 0, 0, 0), None),
+        ((5, 1, 2, 0), "T1"),
+        ((1, 0, 3, 3), "T3"),
+        ((0, 0, 2, 1), "T2"),
+    ], ids=["tie-to-weaker", "empty", "t1", "tie-t2-t3", "t2"])
+    def test_largest_bin_ties_to_the_weaker_label(self, bins, label):
+        assert mod.primary_confidence(dict(zip(("t1", "t1_low", "t2", "t3"), bins))) == label
+
+    def test_both_modes_print_it(self, tmp_path):
+        prov_doc = {"entries": _entries(4, 4)}
+        prov, meta = _staged(tmp_path, prov_doc, _metadata(prov_doc))
+        compute = _run([str(prov)], stdin=json.dumps(_judgment(prov_doc)))
+        check = _run([str(prov), "--check", str(meta)])
+        assert json.loads(compute.stdout)["primary_confidence"] == "T1-low"
+        assert json.loads(check.stdout)["primary_confidence"] == "T1-low"
+        empty = _write_json(tmp_path / "empty.json", {"entries": []})
+        assert json.loads(_run([str(empty)], stdin="{}").stdout)["primary_confidence"] is None
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-v"]))

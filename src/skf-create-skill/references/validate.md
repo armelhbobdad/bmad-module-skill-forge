@@ -129,7 +129,7 @@ The deterministic phases are executed via `{descriptionGuardHelper}`: the callin
 Run: `timeout 30s npx skill-check -h` — the short timeout protects against a cold `npx` download blocking the workflow indefinitely on a slow network.
 
 - If succeeds: Continue to automated validation (section 2)
-- If fails or times out: Perform manual fallback (section 3); add note to evidence-report: "Spec validation performed manually: skill-check tool unavailable". Also set `metadata.validation_status: 'manual-only'` in `metadata.json` (write via `python3 {atomicWriteHelper} write --target <staging-skill-dir>/metadata.json`), and in the evidence-report's `Validation Results` section mark the Body row explicitly as `skipped: skill-check unavailable` (§5, §6 and §6b do not depend on skill-check). Downstream consumers (pipeline, forger, test-skill) check `validation_status` to decide how much weight to put on the artifact; leaving it unset would make a manual-only run look equivalent to a fully automated PASS.
+- If fails or times out: Perform manual fallback (section 3); add note to evidence-report: "Spec validation performed manually: skill-check tool unavailable". Validation is then manual-only: §7's call passes `--validation-status manual-only`, which records `validation_status: manual-only` in `metadata.json`. In the evidence-report's `Validation Results` section mark the Body row explicitly as `skipped: skill-check unavailable` (§5, §6 and §6b do not depend on skill-check). Downstream consumers (pipeline, forger, test-skill) check `validation_status` to decide how much weight to put on the artifact; leaving it unset would make a manual-only run look equivalent to a fully automated PASS.
 
 **Important:** Do not assume availability — empirical check required.
 
@@ -190,16 +190,13 @@ Run the second `hash` call after the last `verify-restore`, a §0 re-run include
 
 **If skill-check was available:** Skip — already validated in step 2.
 
-**If skill-check not available (fallback):** Perform manual frontmatter compliance check:
+**If skill-check not available (fallback):** check the frontmatter with `{frontmatterValidator}`. It checks the delimiters, the `name` rule and its match with the staging folder's name, the `description` length and the fields the specification allows (`version` and `author` belong in metadata.json). §4 and §6 check the body and the angle brackets, so pass neither flag:
 
-- [ ] Frontmatter present — file starts with `---` and has closing `---`
-- [ ] `name` field — present, non-empty, lowercase alphanumeric + hyphens only, 1-64 chars
-- [ ] `name` matches skill output directory name
-- [ ] `description` field — present, non-empty, 1-1024 characters
-- [ ] No unknown fields — only `name`, `description`, `license`, `compatibility`, `metadata`, `allowed-tools` permitted
-- [ ] `version` and `author` are not in frontmatter (they belong in metadata.json)
+```bash
+uv run {frontmatterValidator} "<staging-skill-dir>/SKILL.md"
+```
 
-If fails: auto-fix (deterministic), re-validate once, record result. If passes: record "Frontmatter: PASS".
+Rely on the parsed JSON, not the exit code. Fix in the staged SKILL.md what each `high` issue of `issues` names, then run the command once more. When that run's `status` is not `fail`, record "Frontmatter: PASS", with its `medium` and `low` issues under Remaining Warnings; otherwise record "Frontmatter: FAIL" with the `high` issues left. This check never halts the run.
 
 ### 4. Split Oversized Body (if needed)
 
@@ -311,14 +308,16 @@ Every key is always present: the scores and `{tessl_validation}` are null and th
 
 ```bash
 uv run {renderMetadataStatsHelper} <staging-skill-dir>/provenance-map.json \
-    --check <staging-skill-dir>/metadata.json
+    --check <staging-skill-dir>/metadata.json --fix [--validation-status manual-only]
 ```
+
+Pass `--validation-status manual-only` when §1 found skill-check unavailable: the helper writes `validation_status` into `metadata.json` in the same write as its fixes, whatever it finds.
 
 The helper re-bins `entries[]` by `signature_source`, recomputes `exports_documented`, `exports_total`, and `public_api_coverage` / `total_coverage` (null when the denominator is 0), and cross-checks `stats.scripts_count` / `stats.assets_count` against the `scripts[]` / `assets[]` array lengths and the provenance-map `file_entries` counts. It also checks that each T1 or T1-low provenance entry's `confidence`, `signature_source` and `ast_node_type` match its `extraction_method`, and that no entry read by eye (`source-read`) carries `signature_source: "T1"` at any confidence. It takes the judgment values (`exports_public_api`, `exports_internal`, `effective_denominator`) from `metadata.json` itself and infers the shape from `scope_type` / `skill_type` (pass `--shape` to override). Parse the emitted JSON (rely on the JSON, not the exit code):
 
-- **`coherence.ok: true`** — the computed fields are internally consistent; record "Metadata: PASS".
+- **`coherence.ok: true`**: the computed fields are internally consistent; record "Metadata: PASS", or the auto-fixed line below when an earlier call of this section listed fields in `fixed`.
 - **A `provenance.entries[<i>].*` violation** (handle these before any other): entry `<i>` of the staged provenance map (its `export_name` is in the violation) carries a label its `extraction_method` does not allow (one compile §4 did not settle): relabel it by the Relabel Rule in `{relabelRuleData}`, resolving `{verifyProvenanceCompletenessHelper}` ← first existing path in `{verifyProvenanceCompletenessProbeOrder}` for its `kind-at` lookup. Write the relabeled map with `python3 {atomicWriteHelper} write --target <staging-skill-dir>/provenance-map.json`, then re-run the check above and act on its new result: a relabeled `signature_source` moves the distribution, so the computed-value fixes below come from the re-run, and a violation left as a WARN does not block them. Record the relabeled export names, and each WARN left, on the evidence report's `Provenance labels` line (§8).
-- **`coherence.ok: false`**: each `violations[]` entry is `{field, expected, actual}` where `expected` is the correct value. **Auto-fix each computed-value violation** (`field` starting `stats.` or `confidence_distribution.`) by setting that field in `metadata.json` to `expected` (write via `python3 {atomicWriteHelper} write --target <staging-skill-dir>/metadata.json`), leaving every other stats field (e.g. `stats.notes` on a reference app) untouched. Record "Metadata: auto-fixed {N} computed-value discrepanc(y|ies)" listing the fields. These are computed values, so the helper is authoritative: a `confidence_distribution` violation is the per-entry mis-binning compile.md §4 describes (T2 annotations + T3 doc items counted on top of the per-export tiers); the helper's per-entry counts replace them. The carve-out is handled by `--shape`: a **reference-app** distribution sums to the per-citation count, a consistent state, not a violation. A `provenance.file_entries.*` violation is not a computed metadata field: it means the provenance-map `file_entries` and metadata counts disagree; record it as a warning for manual reconciliation rather than auto-editing the count.
+- **`coherence.ok: false`**: each `violations[]` entry is `{field, expected, actual}` where `expected` is the correct value. `--fix` already wrote the `expected` of each computed-value violation (`field` starting `stats.` or `confidence_distribution.`) into `metadata.json`, leaving every other field (e.g. `stats.notes` on a reference app) untouched, and lists those fields in `fixed`. While a `provenance.entries[<i>].signature_source` or `.extraction_method` violation is present it holds back the `confidence_distribution.*` fixes, since the distribution is binned from that label, and the re-run after the relabel above writes them; any other label violation holds back no fix. When `fixed` is not empty, in this call or an earlier one of this section, record "Metadata: auto-fixed {N} computed-value discrepanc(y|ies)" listing its fields and those of the earlier calls, {N} their count. These are computed values, so the helper is authoritative: a `confidence_distribution` violation is the per-entry mis-binning compile.md §4 describes (T2 annotations + T3 doc items counted on top of the per-export tiers); the helper's per-entry counts replace them. The carve-out is handled by `--shape`: a **reference-app** distribution sums to the per-citation count, a consistent state, not a violation. A `provenance.file_entries.*` violation is not a computed metadata field: it means the provenance-map `file_entries` and metadata counts disagree; record it as a warning for manual reconciliation rather than auto-editing the count.
 
 Then verify the two fields the helper does not own (genuine constants/contract):
 - `spec_version` is `"1.3"`.

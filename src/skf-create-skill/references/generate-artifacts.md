@@ -202,13 +202,13 @@ else
 fi
 ```
 
-`qmd embed` generates the vector embeddings for semantic (`vec`) and HyDE query sub-types; scope it to this collection to avoid re-embedding others. If the installed qmd CLI lacks `--collection`, gate the embed behind a per-skill freshness check: read the registry with `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}"`, skip the embed when the `{name}-extraction` entry in its `data.qmd_collections` was created within the last 24 hours, and warn in evidence-report. An unscoped embed re-runs over every collection, which in a populated QMD store can cost minutes of GPU time per create-skill run; 24 hours is long enough to absorb rapid re-forges from the same brief without losing meaningful content freshness.
+`qmd embed` generates the vector embeddings for semantic (`vec`) and HyDE query sub-types; scope it to this collection to avoid re-embedding others. If the installed qmd CLI lacks `--collection`, gate the embed behind a per-skill freshness check: before the block above, run `uv run {forgeTierRwHelper} read --target "{forgeTierConfig}" --fresh-within-hours 24 --name {name}-extraction`, skip the embed when its `fresh` is true, and warn in evidence-report. An unscoped embed re-runs over every collection, which in a populated QMD store can cost minutes of GPU time per create-skill run; a day is long enough to absorb rapid re-forges from the same brief without losing meaningful content freshness.
 
-**Registry update:** only when `qmd collection add` succeeded, register the collection. The helper replaces the entry with the same `name`, or appends one:
+**Registry update:** only when `qmd collection add` succeeded, register the collection. The helper replaces the entry with the same `name`, or appends one, and stamps its `created_at` from the clock:
 
 ```bash
 uv run {forgeTierRwHelper} register-qmd-collection --target "{forgeTierConfig}" <<'SKF_REGISTRY_ENTRY'
-{"name": "{name}-extraction", "type": "extraction", "source_workflow": "create-skill", "skill_name": "{name}", "created_at": "{current ISO date}"}
+{"name": "{name}-extraction", "type": "extraction", "source_workflow": "create-skill", "skill_name": "{name}"}
 SKF_REGISTRY_ENTRY
 ```
 
@@ -256,11 +256,11 @@ Then run `cd "{ccc_root}" && ccc index` in the foreground with the shell's longe
 
 **Resolve `{forgeTierRwHelper}`** from `{forgeTierRwProbeOrder}`; first existing path wins. If no candidate exists, log it and skip the registry update.
 
-Register the indexed folder with `register-ccc-index`, a comment-preserving round-trip on `forge-tier.yaml` that keeps the `ccc_index_registry` deduplication in the script. Like every registry change of §6, the helper holds `{sidecar_path}/forge-tier.yaml.lock` for its one read-modify-write. Write `{ccc_root}` with `/` separators, so the JSON stays valid on Windows:
+Register the indexed folder with `register-ccc-index`, a comment-preserving round-trip on `forge-tier.yaml` that keeps the `ccc_index_registry` deduplication in the script and stamps the entry's `indexed_at` from the clock. Like every registry change of §6, the helper holds `{sidecar_path}/forge-tier.yaml.lock` for its one read-modify-write. Write `{ccc_root}` with `/` separators, so the JSON stays valid on Windows:
 
 ```bash
 uv run {forgeTierRwHelper} register-ccc-index --target "{forgeTierConfig}" <<'SKF_REGISTRY_ENTRY'
-{"source_repo": "{brief.source_repo}", "path": "{ccc_root}", "skill_name": "{name}", "indexed_at": "{current ISO date}", "source_workflow": "create-skill"}
+{"source_repo": "{brief.source_repo}", "path": "{ccc_root}", "skill_name": "{name}", "source_workflow": "create-skill"}
 SKF_REGISTRY_ENTRY
 ```
 

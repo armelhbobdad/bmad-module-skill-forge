@@ -450,7 +450,7 @@ MUST_FIND = [
     ("src/skf-rename-skill/references/execute.md", "skf-atomic-write.py", "flip-link"),
     ("src/skf-rename-skill/references/execute.md", "skf-atomic-write.py", "write"),
     ("src/skf-rename-skill/references/execute.md", "skf-manifest-ops.py", "rename"),
-    ("src/skf-create-skill/references/report.md", "skf-atomic-write.py", "write"),
+    ("src/skf-create-skill/references/validate.md", "skf-atomic-write.py", "write"),
     ("src/skf-create-skill/references/authoritative-files-protocol.md", "skf-write-skill-brief.py", "amend"),
     ("src/shared/references/description-guard-protocol.md", "skf-description-guard.py", "capture"),
     ("src/skf-quick-skill/references/finalize.md", "skf-atomic-write.py", "flip-link"),
@@ -538,7 +538,12 @@ def test_a_skill_md_binds_the_helper_it_resolves_for_every_stage():
 # that drops the map, misspells a flag or names no real shape fails.
 FLAG_ONLY_MUST_FIND = [
     ("src/skf-create-skill/references/compile.md", "skf-render-metadata-stats.py", ()),
-    ("src/skf-create-skill/references/validate.md", "skf-render-metadata-stats.py", ("--check",)),
+    ("src/skf-create-skill/references/validate.md", "skf-render-metadata-stats.py",
+     ("--check", "--fix", "[--validation-status")),
+    # Step 8 reads the headline confidence, and writes validation_status when the emitter is missing (#1145).
+    ("src/skf-create-skill/references/report.md", "skf-render-metadata-stats.py", ("--check",)),
+    ("src/skf-create-skill/references/report.md", "skf-render-metadata-stats.py",
+     ("--check", "--validation-status", "schema-unavailable")),
     ("src/skf-update-skill/references/write-metadata.md", "skf-render-metadata-stats.py", ("--shape", "reference-app")),
     ("src/skf-create-stack-skill/references/generate-output.md", "skf-names-present.py",
      ("--provenance", "--skill-dir")),

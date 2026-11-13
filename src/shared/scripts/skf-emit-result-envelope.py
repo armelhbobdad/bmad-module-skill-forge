@@ -99,7 +99,10 @@ Subcommands:
              with no `warnings` list exits 1 and writes nothing; an empty
              list writes nothing and exits 0. With --workflow a decision is
              checked against that workflow's headless_decisions item schema
-             first.
+             first; when that schema declares a `timestamp` and the decision
+             gives none (absent, null or empty), the call stamps the clock's
+             time in the envelope's own form (`2026-01-01T00:00:00Z`) before
+             the check, and keeps a given one.
 
   validate   Read an envelope (without the prefix) as JSON on stdin and
              verify it against the workflow's schema (skf-setup's without
@@ -2127,6 +2130,10 @@ def cmd_record(args) -> None:
             item_schema = _decision_schema(schema)
             if item_schema is None:
                 _die(1, f"record: {schema_path.name} has no headless_decisions")
+            stamped = value.get("timestamp")
+            if "timestamp" in item_schema.get("properties", {}) and (
+                    stamped is None or (isinstance(stamped, str) and not stamped.strip())):
+                value = {**value, "timestamp": _stamps(int(time.time()))[0]}
             errors = _validate_against_schema(value, item_schema)
             if errors:
                 _die(1, f"record: the decision fails {schema_path.name}: {'; '.join(errors)}")

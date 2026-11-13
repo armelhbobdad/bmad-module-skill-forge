@@ -13,6 +13,13 @@ relabelRuleData: 'references/relabel-rule.md'
 renderMetadataStatsProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-render-metadata-stats.py'
   - '{project-root}/src/shared/scripts/skf-render-metadata-stats.py'
+# Resolve `{descriptionGuardHelper}` by probing `{descriptionGuardProbeOrder}`
+# in order (installed SKF module path first, src/ dev-checkout fallback); first
+# existing path wins. HALT (exit code 3, helper-missing) if neither resolves:
+# §2a's angle-bracket substitution and its count are the helper's `sanitize`.
+descriptionGuardProbeOrder:
+  - '{project-root}/_bmad/skf/shared/scripts/skf-description-guard.py'
+  - '{project-root}/src/shared/scripts/skf-description-guard.py'
 # Resolve `{verifyProvenanceCompletenessHelper}` to the first existing path.
 # Advisory: if neither resolves, §4's relabel looks up no node kind with
 # `kind-at` and leaves each one it needs as a WARN.
@@ -154,13 +161,20 @@ Assemble each section in order using the assembly rules data file (`{assemblyRul
 
 ### 2a. Description Sanitization Pass
 
-**Before writing SKILL.md frontmatter to disk**, sanitize the assembled `description` string by replacing every `<` with `{` and every `>` with `}`. Apply this pass unconditionally to the final assembled description in context, then write the result to `SKILL.md`.
+Write SKILL.md to `<staging-skill-dir>/SKILL.md` with the assembled `description`, then have the guard helper replace every `<` with `{` and every `>` with `}` in that `description`, unconditionally. Resolve `{descriptionGuardHelper}` from `{descriptionGuardProbeOrder}`; first existing path wins. If neither path resolves, **HARD HALT** (exit code 3, `helper-missing`, phase `compile`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "Cannot sanitize the skill description: skf-description-guard.py is missing. Re-install SKF, then re-run create-skill." From `{project-root}`, run:
+
+```bash
+uv run {descriptionGuardHelper} sanitize "<staging-skill-dir>/SKILL.md"
+```
+
+It rewrites only the `description` field and takes no description on the command line, so backticks and `$` in it are safe. Bind `{sanitized_description}` ← `description` (the value now on disk) and `description_sanitizations` ← `substitutions`, for the evidence report.
+
+- **Exit 1** (the frontmatter cannot be read): fix the staged SKILL.md's frontmatter as its `error:` line says and run the command once more; when it fails again, halt as for exit 2, with the message "Cannot read the frontmatter of the staged SKILL.md: {its `error:` line}. Re-run create-skill."
+- **Exit 2** (the rewrite failed): **HARD HALT** (exit code 4, `write-failed`, phase `compile`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`), with `"path"` the staged `SKILL.md`: "Cannot write the sanitized description into the staged SKILL.md. Check permissions and disk space, then re-run create-skill."
 
 **Why unconditional?** The Claude platform does not accept a skill whose `description` contains XML tags, and the description is read as a raw string before any markdown parsing, so a backticked TypeScript generic like `` `Meta<typeof X>` `` still carries raw `<` and `>`. None of the validators SKF runs checks for this — skill-check has no such rule and Tessl Review accepts angle brackets — so SKF enforces it itself: replacing every `<` and `>` is simpler and safer than deciding which ones form a tag, and step 6 §6 checks the staged description with SKF's frontmatter validator.
 
 **Scope:** This rule applies **only** to the frontmatter `description` field. Body content, code examples, reference files, and assembly-rule documents retain their original angle brackets — they are parsed through the markdown AST where backticks do protect content.
-
-Record the count of substitutions in context as `description_sanitizations: {count}` for the evidence report.
 
 If a later tool rewrites the description, step 6 §0's Description Guard restores this sanitized value, and step 6 §6 checks the final description and applies this substitution again before anything is promoted.
 

@@ -450,7 +450,9 @@ def test_create_skill_carries_the_hand_written_content_forward():
     schema = json.loads((REPO / "src" / "shared" / "scripts" / "schemas"
                          / "skf-create-skill-result-envelope.v1.json").read_text(encoding="utf-8"))
     item = schema["properties"]["headless_decisions"]["items"]
-    assert set(item["required"]) <= set(decision) <= set(item["properties"])
+    # `record` stamps the decision's timestamp (#1145), so the template types none.
+    assert set(item["required"]) - {"timestamp"} <= set(decision) <= set(item["properties"])
+    assert "timestamp" not in decision
     assert decision["gate"] == "manual-carry-forward" and "manual-carry-forward" in item["properties"]["gate"]["description"]
 
     step7 = _create_skill("references/generate-artifacts.md")

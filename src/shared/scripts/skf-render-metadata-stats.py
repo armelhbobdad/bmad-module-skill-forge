@@ -70,6 +70,25 @@ they are not: the distribution is binned from the mislabeled
 `signature_source`, so the caller relabels the provenance-map, re-runs the
 helper, and writes the re-run's values.
 
+`--check <metadata.json> --fix`: also writes the `expected` value of each
+`stats.*` violation into that metadata.json, and of each
+`confidence_distribution.*` violation unless a
+`provenance.entries[<i>].signature_source` or `.extraction_method` violation
+is present (the distribution is binned from that label, so the relabel and
+re-run write it), and prints `fixed`: the fields written, `[]` when none. An
+`ast_node_type` or `confidence` violation holds back no fix. Every other key
+keeps its place and value.
+
+`--check <metadata.json> --validation-status manual-only|schema-unavailable`:
+also writes `validation_status` into that metadata.json, whatever the
+violations, in the same write as `--fix`.
+
+A write goes through a temporary file and one rename, in the format the
+extraction inventory writes metadata.json (2-space indent, UTF-8 kept,
+trailing newline). A write that fails exits 2 and leaves the file as it was;
+otherwise the exit code is the one the check gives. `--fix` and
+`--validation-status` need `--check`.
+
 Judgment payload (stdin JSON, compute mode)::
 
     {
@@ -97,8 +116,14 @@ Output JSON (both modes)::
         "assets_count":        0
       },
       "confidence_distribution": {"t1": 40, "t1_low": 5, "t2": 10, "t3": 4},
-      "coherence": {"ok": true, "violations": []}
+      "primary_confidence": "T1",         # the largest bin's label, see below
+      "coherence": {"ok": true, "violations": []},
+      "fixed": ["stats.exports_total"]    # --fix only
     }
+
+`primary_confidence` is the label (T1, T1-low, T2, T3) of the largest bin
+of `confidence_distribution`; a tie goes to the later, weaker label, and it
+is null when every bin is 0.
 
 Pattern Surface count (`--skill-md PATH`, compute mode, `--shape
 reference-app` only)
@@ -163,6 +188,8 @@ from __future__ import annotations
 import argparse
 import importlib.util
 import json
+import os
+import re
 import sys
 from pathlib import Path
 
@@ -172,6 +199,17 @@ from pathlib import Path
 _SIG_MAP = {"T1": "t1", "T1-LOW": "t1_low", "T2": "t2", "T3": "t3"}
 _VALID_SHAPES = ("library", "stack", "reference-app")
 _DIST_KEYS = ("t1", "t1_low", "t2", "t3")
+# Each distribution bin's label, in the order a tie is broken (the later wins).
+_DIST_LABELS = {"t1": "T1", "t1_low": "T1-low", "t2": "T2", "t3": "T3"}
+# The validation_status values --validation-status writes.
+_VALIDATION_STATUSES = ("manual-only", "schema-unavailable")
+# The violation fields --fix writes into metadata.json.
+_FIXABLE_PREFIXES = ("stats.", "confidence_distribution.")
+# The distribution fields --fix holds back while an entry's signature_source or
+# extraction_method label disagrees: binning reads signature_source, and the
+# relabel settles both before the re-run writes the distribution.
+_DIST_PREFIX = "confidence_distribution."
+_BINNING_LABEL_FIELD = re.compile(r"^provenance\.entries\[\d+\]\.(?:signature_source|extraction_method)$")
 
 # extraction_method values a T1 or T1-low entry may carry, and the labels
 # each one implies. ast-grep / source-read are what create-skill and
@@ -568,6 +606,58 @@ def check_stats(derived: dict, metadata: dict, prov: dict) -> dict:
     return {"ok": not violations, "violations": violations}
 
 
+def primary_confidence(dist: dict) -> str | None:
+    """The label of the largest bin; a tie goes to the later (weaker) label, None when every bin is 0."""
+    best, best_count = None, 0
+    for key in _DIST_KEYS:
+        count = _int(dist.get(key), 0)
+        if count > 0 and count >= best_count:
+            best, best_count = _DIST_LABELS[key], count
+    return best
+
+
+def fix_metadata(metadata: dict, violations: list) -> tuple[dict, list[str]]:
+    """(metadata with each stats.* and confidence_distribution.* violation's expected value, fields written).
+
+    The stats.* fixes are written whatever the labels. The
+    confidence_distribution.* fixes are held back while a
+    provenance.entries[<i>].signature_source or .extraction_method violation is
+    present, since the distribution was binned from that label; an
+    ast_node_type or confidence violation holds back nothing.
+    """
+    hold_dist = any(_BINNING_LABEL_FIELD.match(str(v.get("field", ""))) for v in violations)
+    fixed: list[str] = []
+    out = dict(metadata)
+    for violation in violations:
+        field = str(violation.get("field", ""))
+        if not field.startswith(_FIXABLE_PREFIXES):
+            continue
+        if hold_dist and field.startswith(_DIST_PREFIX):
+            continue
+        block, key = field.split(".", 1)
+        current = out.get(block)
+        out[block] = {**(current if isinstance(current, dict) else {}), key: violation.get("expected")}
+        if field not in fixed:
+            fixed.append(field)
+    return out, fixed
+
+
+def write_metadata(path: Path, data: dict) -> None:
+    """Write metadata.json as the extraction inventory does: a temporary file, then one rename."""
+    tmp = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        with open(tmp, "w", encoding="utf-8", newline="\n") as fh:
+            json.dump(data, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        os.replace(tmp, path)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        raise
+
+
 def detect_shape(metadata: dict) -> str:
     """Infer the shape from an on-disk metadata.json (used by --check when
     --shape is not supplied)."""
@@ -630,13 +720,27 @@ def build_parser() -> argparse.ArgumentParser:
         help="compute mode with --shape reference-app only: count pattern_surfaces_documented as the data "
              "rows of the SKILL.md's Pattern Surface tables; a payload count that differs exits 2",
     )
+    parser.add_argument(
+        "--fix", action="store_true",
+        help="with --check: write the expected value of each stats.* violation "
+             "into the metadata.json, and of each confidence_distribution.* one "
+             "unless a provenance.entries signature_source or extraction_method "
+             "violation is present",
+    )
+    parser.add_argument(
+        "--validation-status", choices=_VALIDATION_STATUSES, default=None,
+        help="with --check: write this validation_status into the metadata.json",
+    )
     parser.add_argument("-o", "--output", dest="output", help="write JSON here (default: stdout)")
     parser.add_argument("--verbose", action="store_true", help="diagnostics to stderr")
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not args.check and (args.fix or args.validation_status):
+        parser.error("--fix and --validation-status need --check")
 
     prov_path = Path(args.provenance_map)
     if not prov_path.is_file():
@@ -717,8 +821,21 @@ def main(argv: list[str] | None = None) -> int:
     result = {
         "stats": derived["stats"],
         "confidence_distribution": derived["confidence_distribution"],
+        "primary_confidence": primary_confidence(derived["confidence_distribution"]),
         "coherence": coherence,
     }
+    if args.check and (args.fix or args.validation_status):
+        updated, fixed = fix_metadata(metadata, coherence["violations"]) if args.fix else (metadata, [])
+        if args.validation_status:
+            updated = {**updated, "validation_status": args.validation_status}
+        if updated != metadata or args.validation_status:
+            try:
+                write_metadata(meta_path, updated)
+            except OSError as exc:
+                sys.stderr.write(f"error: cannot write {meta_path}: {exc}\n")
+                return 2
+        if args.fix:
+            result["fixed"] = fixed
     _emit(result, args.output)
     return 0 if coherence["ok"] else 1
 

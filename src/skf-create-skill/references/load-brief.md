@@ -67,8 +67,8 @@ Extract and report:
 
 **Record the decision** in the run sink per the Workflow Rules, in every mode, on the valid-override path and on the rejected-override path alike: stage the object as `{run_dir}/decision.json` and run `uv run {emitEnvelopeHelper} record --workflow skf-create-skill --run-dir "{run_dir}" --decision < "{run_dir}/decision.json"`.
 
-- Valid override applied: `{"step": "load-brief", "gate": "tier-override", "decision": "apply", "value": "{tier_override}", "rationale": "explicit preferences.yaml tier_override", "timestamp": "{ISO}"}`
-- Invalid override rejected: `{"step": "load-brief", "gate": "tier-override", "decision": "reject-invalid", "value": "{tier_override}", "fallback": "{detected_tier}", "rationale": "tier_override not in Quick, Forge, Forge+, Deep", "timestamp": "{ISO}"}`
+- Valid override applied: `{"step": "load-brief", "gate": "tier-override", "decision": "apply", "value": "{tier_override}", "rationale": "explicit preferences.yaml tier_override"}`
+- Invalid override rejected: `{"step": "load-brief", "gate": "tier-override", "decision": "reject-invalid", "value": "{tier_override}", "fallback": "{detected_tier}", "rationale": "tier_override not in Quick, Forge, Forge+, Deep"}`
 
 Step 5 §7 renders the sink into the evidence report's `## Auto-Decisions` table, so reviewers can audit every silent choice.
 
@@ -82,7 +82,7 @@ Step 5 §7 renders the sink into the evidence report's `## Auto-Decisions` table
 **Under `--batch`:** `references/batch-mode.md` §2 handed out this brief as `{brief_path}`, after the validator checked every brief of the batch: load it.
 
 **If no brief path, skill name or `--batch` was given:** list the files that match `{forge_data_folder}/*/skill-brief.yaml`, the brief in each skill's forge folder.
-- **One brief:** load it, and record the pick in the run sink per the Workflow Rules, in every mode: `{"step": "load-brief", "gate": "brief-selection", "decision": "only-brief", "value": "<its path>", "rationale": "no brief named; the only brief in forge_data_folder", "timestamp": "{ISO}"}`. §5's banner names it.
+- **One brief:** load it, and record the pick in the run sink per the Workflow Rules, in every mode: `{"step": "load-brief", "gate": "brief-selection", "decision": "only-brief", "value": "<its path>", "rationale": "no brief named; the only brief in forge_data_folder"}`. §5's banner names it.
 - **Several briefs:** interactive, list each one by its skill name (its folder's name) and ask "Which brief should I compile?", then load the one the user names. **GATE [default: HALT]**: headless, ask nothing: **HARD HALT** (exit code 2, `brief-missing`, phase `load-brief`; stage `{run_dir}/halt.json` per the Workflow Rules and run `uv run {emitEnvelopeHelper} emit-halt --workflow skf-create-skill --run-dir "{run_dir}" --target stderr < "{run_dir}/halt.json"`): "No brief named, and {N} briefs are in `{forge_data_folder}`: {their skill names}. Pass the brief's path or skill name, or `--batch` to compile them all."
 - **None:** the halt below.
 

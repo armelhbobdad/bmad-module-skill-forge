@@ -765,6 +765,61 @@ class TestSanitize:
 
 
 # --------------------------------------------------------------------------
+# create-skill compile §2a (#1145): the guard's sanitize swaps and counts the
+# description's angle brackets, never the model
+# --------------------------------------------------------------------------
+
+CS_COMPILE = REPO_ROOT / "src" / "skf-create-skill" / "references" / "compile.md"
+CS_SANITIZE_CALL = 'uv run {descriptionGuardHelper} sanitize "<staging-skill-dir>/SKILL.md"'
+
+
+def _compile_2a() -> str:
+    return _slice(_read(CS_COMPILE), "### 2a. Description Sanitization Pass", "### 3.")
+
+
+def test_compile_2a_runs_the_guard_sanitize() -> None:
+    section = _compile_2a()
+    [fence] = re.findall(r"```bash\n(.*?)```", section, re.DOTALL)
+    assert fence.strip() == CS_SANITIZE_CALL
+    assert section.index("Write SKILL.md to `<staging-skill-dir>/SKILL.md` with the assembled `description`") < (
+        section.index(CS_SANITIZE_CALL))
+    assert ("Bind `{sanitized_description}` ← `description` (the value now on disk) and "
+            "`description_sanitizations` ← `substitutions`") in section
+    frontmatter = yaml.safe_load(_step_frontmatter(_read(CS_COMPILE)))
+    assert frontmatter["descriptionGuardProbeOrder"] == GUARD_PROBE_ORDER
+    assert ("If neither path resolves, **HARD HALT** (exit code 3, `helper-missing`, phase `compile`;") in section
+    exit2 = _slice(section, "- **Exit 2** (the rewrite failed):", "\n")
+    assert "**HARD HALT** (exit code 4, `write-failed`, phase `compile`;" in exit2
+    assert 'with `"path"` the staged `SKILL.md`' in exit2
+    exit1 = _slice(section, "- **Exit 1** (the frontmatter cannot be read):", "\n")
+    assert "run the command once more; when it fails again, halt as for exit 2" in exit1
+    assert 'with the message "Cannot read the frontmatter of the staged SKILL.md: {its `error:` line}.' in exit1
+    # No count or swap is left to the model.
+    for by_hand in ("sanitize the assembled `description` string by replacing",
+                    "Record the count of substitutions in context", "in context, then write the result"):
+        assert by_hand not in _read(CS_COMPILE), by_hand
+    # The Why and Scope paragraphs stay.
+    assert "**Why unconditional?** The Claude platform does not accept" in section
+    assert "step 6 §6 checks the staged description" in section and "**Scope:**" in section
+
+
+def test_compile_2a_call_sanitizes_the_staged_description(tmp_path: Path) -> None:
+    staged = tmp_path / "_bmad-output" / ".skf-stage" / "my-skill"
+    staged.mkdir(parents=True)
+    skill = staged / "SKILL.md"
+    skill.write_bytes(b'---\nname: my-skill\ndescription: "Maps `Meta<typeof X>` values."\n---\n\n# Body <T>\n')
+    [fence] = re.findall(r"```bash\n(.*?)```", _compile_2a(), re.DOTALL)
+    argv = shlex.split(fence.strip().replace("uv run {descriptionGuardHelper} ", "", 1)
+                       .replace("<staging-skill-dir>", staged.as_posix()))
+    result = _run_cli(*argv)
+    assert result.returncode == 0, result.stderr
+    payload = json.loads(result.stdout)
+    assert payload == {"substitutions": 2, "sanitized": True, "description": "Maps `Meta{typeof X}` values."}
+    assert _parse_frontmatter(skill.read_text(encoding="utf-8"))["description"] == payload["description"]
+    assert skill.read_text(encoding="utf-8").endswith("# Body <T>\n")
+
+
+# --------------------------------------------------------------------------
 # Quick Skill (#609): step 5 §4 runs `skill-check --fix` inside the guard
 # --------------------------------------------------------------------------
 

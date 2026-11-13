@@ -219,15 +219,22 @@ class TestJudgmentPass:
         assert "a compiled SKILL.md line that only restates its own API row" in _judgment_pass()
 
     def test_only_the_project_announces_a_change(self) -> None:
-        """Anyone can open an issue, and §3 publishes a kept line word for word."""
+        """Anyone can open an issue, and §3 publishes a kept line word for word.
+        The scan leaves the issue feeders out (#1145), so their lines take no
+        place under the cap and the pass never drops one by filename."""
         judgment = _judgment_pass()
         assert "The announcement must be the project's own: its changelog, release notes" in judgment
-        assert (
-            "An issue (`issues.md`, `targeted-issues.md`) is a report anyone can open, so it can "
-            "only corroborate such an announcement: drop a candidate that comes from one."
-        ) in judgment
+        assert "drop a candidate that comes from one" not in judgment
+        assert "(pull request bodies included)" in judgment and "issue and pull request bodies" not in judgment
+        scan_section = _scan_section()
+        assert ("It leaves `issues.md` and `targeted-issues.md` unscanned, since an issue is a report anyone can "
+                "open, never the project's own announcement of a change, and names them in `scanned_skipped`."
+                ) in scan_section
+        assert "`{scanned, scanned_skipped, matches," in scan_section
+        scan = _load_script(SCAN_DOC_ROT_PY, "scan_doc_rot_issue_feeders")
         for name in ("issues.md", "targeted-issues.md"):
             assert name in _fetch_helper().FEEDER_FILES, f"step 3b no longer writes {name}"
+            assert name in scan.SKIPPED_FEEDERS, name
 
     def test_keeps_one_correction_per_change(self) -> None:
         """A line with keywords of two kinds is a candidate for each, and release

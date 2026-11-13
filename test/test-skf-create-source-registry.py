@@ -47,6 +47,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -523,26 +524,45 @@ def test_registered_entries_are_json_the_helper_accepts_and_rolls_back(path, tmp
         result = _rw(target, subcommand, stdin=json.dumps(entry))
         assert result["action"] == "appended", result
         data = _rw(target, "read")["data"]
+        # The helper stamps the time (#1145): no stage file types one.
+        stamp = "created_at" if subcommand == "register-qmd-collection" else "indexed_at"
+        assert stamp not in entry and "{current ISO date}" not in body, body
+        registry = data["qmd_collections" if subcommand == "register-qmd-collection" else "ccc_index_registry"]
+        [stored] = [e for e in registry if {k: v for k, v in e.items() if k != stamp} == entry]
+        when = datetime.fromisoformat(stored[stamp])
+        assert when.utcoffset() == timedelta(0) and abs(datetime.now(timezone.utc) - when) < timedelta(minutes=5)
         if subcommand == "register-qmd-collection":
-            assert entry in data["qmd_collections"]
             rollback = f'remove-qmd-collection --target "{{forgeTierConfig}}" --name {json.loads(body)["name"]}'
             assert rollback in text, rollback
             removed = _rw(target, "remove-qmd-collection", "--name", entry["name"])
             assert removed["action"] == "removed"
         else:
             assert subcommand == "register-ccc-index"
-            assert entry in data["ccc_index_registry"] and entry["path"] == ccc_root
+            assert entry["path"] == ccc_root
 
 
-def test_cache_and_embed_checks_read_the_registry_json():
+def test_cache_and_embed_checks_read_the_helper_freshness():
+    """#1145: the helper judges a collection's age against the clock; no stage compares times by hand."""
     cache = _slice(_read(FETCH_TEMPORAL), "### 2. Check Cache", "### 3.")
-    assert 'uv run {forgeTierRwHelper} read --target "{forgeTierConfig}"' in cache
-    assert "Bind `{registry_collections}` ← its `data.qmd_collections`" in cache
+    assert ('uv run {forgeTierRwHelper} read --target "{forgeTierConfig}" --fresh-within-hours 168 '
+            '--name "{skill-name}-temporal"') in cache
+    assert ("Bind `{temporal_fresh}` ← its `fresh` and `{temporal_age_hours}` ← its `age_hours`: false and null "
+            "when the command fails or no candidate resolves.") in cache
+    assert "fresh ({temporal_age_hours} hours old)" in cache
     assert "Read `forge-tier.yaml` from the sidecar path." not in cache
     embed = _slice(_read(FETCH_TEMPORAL), "**Scope the embed:**", "\n")
-    assert "`{registry_collections}`" in embed
-    for path, section in ((FETCH_DOCS, ("### 5b.", "### 6.")), (GENERATE, ("### 6. ", "### 6b."))):
-        assert 'uv run {forgeTierRwHelper} read --target "{forgeTierConfig}"' in _slice(_read(path), *section)
+    assert '--fresh-within-hours 24 --name "{skill-name}-temporal"`, and when its `fresh` is true skip' in embed
+    gates = ((FETCH_DOCS, ("### 5b.", "### 6."), '--fresh-within-hours 24 --name "{skill-name}-docs"'),
+             (GENERATE, ("### 6. ", "### 6b."), "--fresh-within-hours 24 --name {name}-extraction"))
+    for path, section, call in gates:
+        text = _slice(_read(path), *section)
+        assert f'uv run {{forgeTierRwHelper}} read --target "{{forgeTierConfig}}" {call}' in text, path.name
+        assert "when its `fresh` is true" in text, path.name
+    for path in REGISTRY_FILES:
+        text = _read(path)
+        for by_hand in ("{registry_collections}", "{current ISO date}", "within the last", "7 days", "24 hours",
+                        "older than", "{days} days old"):
+            assert by_hand not in text, (path.name, by_hand)
 
 
 def test_a_failed_add_rolls_the_registry_back_and_registers_nothing():
