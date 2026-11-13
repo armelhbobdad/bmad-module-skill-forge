@@ -5,3 +5,4 @@ summary: |
 migration: |
   Reinstall SKF (`npx bmad-module-skill-forge install`) so the installed `skf-forge-tier-rw.py` and `skf-load-provenance.py` are the current ones: an older copy stops Audit Skill with `helper-missing` before it audits. If a run now stops naming `sidecar_path`, set `sidecar_path: _bmad/_memory/forger-sidecar` in `_bmad/skf/config.yaml`; if it stops on a damaged `forge-tier.yaml`, re-run Setup Forge to rewrite it. A pipeline that branches on `error.phase` looks for `on-activation:config` for a missing sidecar folder (was `init:forge-tier`) or a missing `uv` (was `on-activation:helpers`), and `init:baseline` for an unreadable provenance map (was `init:provenance`), and passes `--headless` (or `-H`) so a stop when Audit Skill starts still prints its line.
 issues: [1132]
+prs: [1210]

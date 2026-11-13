@@ -3,3 +3,4 @@ scope: skf-audit-skill
 summary: |
   An Audit Skill run on a skill updated since its last export, where the export manifest still names the older version and the `active` link names the new one, now audits the link's version and goes on with one Info note, as Test Skill and Export Skill do. The note names both versions, `[EX] Export Skill` to reconcile the manifest, and the `skill_path` that audits the manifest's version instead. The run no longer stops on the manifest-vs-symlink question there, and a headless run records no `init.manifest-lags-link` decision. The question, with its `[N]`, `[M]` and `[X]` choices and its decision record, now comes only when the link's version has no provenance map and the manifest's version has one.
 issues: [1132]
+prs: [1210]

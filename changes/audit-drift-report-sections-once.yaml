@@ -5,3 +5,4 @@ summary: |
 migration: |
   If `drift_report_template_path` names a copy of the template, add `scope_type: ''`, `is_stack_skill: ''`, `legacy_stack_provenance: ''` and `compose_mode_stack: ''` to its frontmatter after `docs_only_skill`, and delete every heading after the Audit Summary's table, with its comment, so the copy ends with the `| **Total** |` row. `lastStep` and `previousWorkflow` can go too.
 issues: [1129]
+prs: [1210]

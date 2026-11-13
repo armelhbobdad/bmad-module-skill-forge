@@ -3,3 +3,4 @@ scope: skf-audit-skill
 summary: |
   A CLEAN drift report now says in its Workflow Recommendation that the skill is ready for `[EX] Export Skill` unless upstream has moved, and the summary Audit Skill shows at the end of a run closes with each recommendation the report wrote, instead of working one out again from the drift score.
 issues: [1133]
+prs: [1210]
