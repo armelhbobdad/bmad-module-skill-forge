@@ -6,7 +6,8 @@ report section).
 Covers Covered/Missing/Replaced counting, the Replaced-excluded denominator,
 half-up percentage rounding, validation (bad tokens, duplicates), the
 integrations tally (pair rows by verdict, each cycle the --cycles file lists
-counted as one more Risky row, the pair checks), the requirements tally, the
+counted as one more Risky row, the pair checks, --pairs refusing rows that
+miss a staged pair), the requirements tally, the
 --render mode (the coverage rows with their section and skill, the canonical
 verdict rows with their rationale and one row per cycle, each cell on one line
 with its pipes escaped, the same checks as the counts), the subprocess CLI
@@ -342,6 +343,108 @@ def test_cli_cycles_only_with_integrations(tmp_path):
     assert proc.stdout == ""
 
 
+# --- --pairs: one row per staged pair (#1197) ----------------------------------------
+
+
+def _staged(*pairs):
+    return {"pairs": [list(pair) for pair in pairs]}
+
+
+def test_pairs_refuses_rows_that_miss_a_staged_pair():
+    rows = _verdicts(("zod", "react-query", "Verified", "x"))
+    out = mod.tally_integrations(rows, None, _staged(("react-query", "zod"), ("next", "zod"), ("prisma", "next")))
+    assert out["code"] == "INVALID_INPUT", out
+    assert "the rows hold 1 pair row but --pairs stages 3 pairs" in out["error"]
+    # Each staged pair no row names, and not the one a row names in the other order.
+    assert "no row names next / zod, prisma / next by its two skills" in out["error"]
+    assert "react-query / zod" not in out["error"]
+
+
+def test_pairs_refuses_rows_that_add_a_pair():
+    rows = _verdicts(("a", "b", "Verified", "x"), ("c", "d", "Risky", "y"))
+    out = mod.tally_integrations(rows, None, _staged(("a", "b")))
+    assert out["code"] == "INVALID_INPUT", out
+    assert out["error"] == "the rows hold 2 pair rows but --pairs stages 1 pair: give each staged pair one row"
+
+
+def test_pairs_accepts_equal_counts_with_alias_names():
+    # A row may name a pair by a technology or an alias, so only the counts must match.
+    rows = _verdicts(("React", "Zod", "Verified", "x"), ("Prisma ORM", "postgres", "Plausible", "y"))
+    out = mod.tally_integrations(rows, {"cycles": []}, _staged(("react", "zod"), ("prisma", "pg")))
+    assert "error" not in out, out
+    assert (out["pair_count"], out["pairs_verified"], out["pairs_plausible"]) == (2, 1, 1)
+
+
+def test_pairs_compares_names_case_insensitively_in_either_order():
+    rows = _verdicts(("Zod", "React-Query", "Verified", "x"))
+    out = mod.tally_integrations(rows, None, _staged(("react-query", "zod"), ("ZOD", "react-query"), ("a", "b")))
+    # The staged pair listed twice counts once; only a / b has no row.
+    assert out["code"] == "INVALID_INPUT" and "stages 2 pairs" in out["error"]
+    assert out["error"].endswith("no row names a / b by its two skills: give each staged pair one row"), out
+
+
+def test_pairs_accepts_zero_staged_pairs_with_zero_rows(tmp_path):
+    # An architecture with no integration claim stages {"pairs": []} and writes no row.
+    out = mod.tally_integrations({"rows": []}, {"cycles": []}, _staged())
+    assert "error" not in out, out
+    assert (out["pair_count"], out["row_count"]) == (0, 0)
+    pairs = tmp_path / "integration-pairs.json"
+    pairs.write_bytes(json.dumps(_staged()).encode("utf-8"))
+    proc = _run(["--kind", "integrations", "--pairs", str(pairs), "--stdin"], stdin='{"rows": []}')
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["pair_count"] == 0
+
+
+@pytest.mark.parametrize("pairs, needle", [
+    pytest.param([["a", "b"]], "`pairs` list", id="bare-list"),
+    pytest.param({"edges": []}, "`pairs` list", id="no-pairs-key"),
+    pytest.param({"pairs": [["a"]]}, "two skill names", id="one-name"),
+    pytest.param({"pairs": [["a", ""]]}, "two skill names", id="empty-name"),
+    pytest.param({"pairs": [["A", "a"]]}, "with itself", id="self-pair"),
+])
+def test_pairs_rejects_a_malformed_pairs_file(pairs, needle):
+    out = mod.tally_integrations(_pairs("Verified"), None, pairs)
+    assert out["code"] == "INVALID_INPUT" and "--pairs" in out["error"] and needle in out["error"], out
+
+
+def test_render_checks_the_pairs_too():
+    out = mod.render_integrations(_verdicts(("a", "b", "Verified", "x")), None, _staged(("a", "b"), ("c", "d")))
+    assert out["code"] == "INVALID_INPUT" and "c / d" in out["error"]
+
+
+def test_cli_pairs_refuses_a_missing_row_with_exit_2(tmp_path):
+    pairs = tmp_path / "integration-pairs.json"
+    pairs.write_bytes(json.dumps(_staged(("a0", "b0"), ("a1", "b1"))).encode("utf-8"))
+    proc = _run(["--kind", "integrations", "--pairs", str(pairs), "--stdin"], stdin=json.dumps(_pairs("Verified")))
+    assert proc.returncode == 2, proc.stdout + proc.stderr
+    out = json.loads(proc.stdout)
+    assert out["code"] == "INVALID_INPUT" and "a1 / b1" in out["error"]
+    # With the row added, the same call counts the rows.
+    proc = _run(["--kind", "integrations", "--pairs", str(pairs), "--stdin"],
+                stdin=json.dumps(_pairs("Verified", "Risky")))
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert json.loads(proc.stdout)["pairs_risky"] == 1
+
+
+def test_cli_a_pairs_file_that_cannot_be_read_exits_1(tmp_path):
+    proc = _run(["--kind", "integrations", "--pairs", str(tmp_path / "missing.json"), "--stdin"],
+                stdin=json.dumps(_pairs("Verified")))
+    assert proc.returncode == 1
+    out = json.loads(proc.stdout)
+    assert out["code"] == "INVALID_INPUT" and "--pairs" in out["error"]
+    bad = tmp_path / "bad.json"
+    bad.write_bytes(b"{not json")
+    proc = _run(["--kind", "integrations", "--pairs", str(bad), "--stdin"], stdin=json.dumps(_pairs("Verified")))
+    assert proc.returncode == 1 and "--pairs" in json.loads(proc.stdout)["error"]
+
+
+def test_cli_pairs_only_with_integrations(tmp_path):
+    for kind in ("requirements", "coverage"):
+        proc = _run(["--kind", kind, "--pairs", str(tmp_path / "p.json"), '{"rows": []}'])
+        assert proc.returncode == 2, kind
+        assert proc.stdout == "" and "--pairs applies only with --kind integrations" in proc.stderr
+
+
 def test_cli_reads_a_utf8_row_file_under_a_cp1252_console():
     # The stages redirect UTF-8 row files into --stdin, which a Windows
     # console decodes as cp1252: the second byte of `\u00c1` is undefined there.
@@ -501,7 +604,8 @@ def test_integrations_shows_and_persists_the_pair_counts_from_the_tally():
     path = SKILL / "references" / "integrations.md"
     # The tally runs once every pair and cycle row exists, before anything shows a count.
     rate = _between(path, "### 4. Cross-Reference Each Integration Pair", "### 5.")
-    call = 'uv run {coverageTallyScript} --kind integrations --cycles "{run_dir}/cycles.json" --stdin'
+    call = ('uv run {coverageTallyScript} --kind integrations --cycles "{run_dir}/cycles.json" '
+            '--pairs "{run_dir}/integration-pairs.json" --stdin')
     assert call in rate
     assert rate.index("**For each cycle**") < rate.index(call)
     display = _between(path, "### 5. Display Integration Results", "### 6.")
@@ -555,6 +659,7 @@ def test_the_stage_calls_fit_the_parser():
     parser = mod._build_parser()
     for words in (
         ["--kind", "integrations", "--cycles", "c.json", "--stdin"],
+        ["--kind", "integrations", "--cycles", "c.json", "--pairs", "p.json", "--stdin"],
         ["--kind", "integrations", "--render", "--cycles", "c.json", "--stdin"],
         ["--kind", "requirements", "--stdin"],
         ["--render", "--stdin"],

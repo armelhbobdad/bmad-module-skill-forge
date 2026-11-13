@@ -11,8 +11,9 @@ outputFile: '{outputFolderPath}/feasibility-report-{project_slug}-{timestamp}.md
 emitEnvelopeProbeOrder:
   - '{project-root}/_bmad/skf/shared/scripts/skf-emit-result-envelope.py'
   - '{project-root}/src/shared/scripts/skf-emit-result-envelope.py'
-# The skill summaries integrations.md §3 wrote: one per skill matched to a
-# Covered technology, with its exports and capabilities.
+# The skill summaries integrations.md §3 merged: `summaries`, one per skill
+# matched to a Covered technology that it could read, with its exports and
+# capabilities, and `unread`, the skills it could not read.
 skillSummariesFile: '{run_dir}/skill-summaries.json'
 ---
 
@@ -79,7 +80,7 @@ Parse the PRD/vision document for capability requirements.
 
 ### 3. Assess Stack Coverage
 
-For each requirement, evaluate whether the combined capabilities of the generated skills address it. Work from the summaries step 3 wrote to `{skillSummariesFile}`, one per skill matched to a Covered technology (its `exports`, `capabilities`, `protocols_inferred` and `data_formats_inferred`), never from a SKILL.md read in this context: step 3 already read each one in a subagent.
+For each requirement, evaluate whether the combined capabilities of the generated skills address it. Work from the `summaries` step 3 wrote to `{skillSummariesFile}`, one per skill matched to a Covered technology that it could read (its `exports`, `capabilities`, `protocols_inferred` and `data_formats_inferred`), never from a SKILL.md read in this context: step 3 already read each one. A skill its `unread` list names counts toward no verdict.
 
 **Assessment method:**
 - Match each requirement against the skills' `capabilities` and `exports`
@@ -116,6 +117,9 @@ It returns `requirements_fulfilled`, `requirements_partial`, `requirements_not_a
 
 **Coverage: {requirements_fulfilled} Fulfilled, {requirements_partial} Partially Fulfilled, {requirements_not_addressed} Not Addressed**
 
+{IF the `unread` list of `{skillSummariesFile}` names a skill, one line for each:}
+**Not read:** `{skill}`: its API surface could not be read, so no requirement was checked against it: re-run **[VS]**.
+
 {IF any Not Addressed:}
 **Unaddressed Requirements — Recommendations:**
 {For each not addressed requirement:}
@@ -129,7 +133,7 @@ It returns `requirements_fulfilled`, `requirements_partial`, `requirements_not_a
 ### 5. Append to Report
 
 Write the Requirements Coverage content under the `## Recommendations` section (or as a clearly-titled subsection preceding Recommendations — the shared schema's fixed top-level headings are Executive Summary, Coverage Analysis, Integration Verdicts, Recommendations, Evidence Sources; requirements detail lives under Recommendations):
-- Include the full requirements coverage table
+- Include the full requirements coverage table, with its **Not read:** lines
 - Include recommendations for Not Addressed and Partially Fulfilled items
 - Update frontmatter: append `'requirements'` to `stepsCompleted`
 - Set `requirementsPass: "completed"`

@@ -347,7 +347,7 @@ def test_each_documented_warning_is_a_fixed_code():
     warnings = _documented_warnings()
     assert [w.split(":", 1)[0] for w in warnings] == [
         "no_technology_referenced", "no_live_technology", "zero_coverage",
-        "skill_modified_mid_run", "all_pairs_blocked", "result_file_write_failed"]
+        "skill_summary_unreadable", "skill_modified_mid_run", "all_pairs_blocked", "result_file_write_failed"]
     for warning in warnings:
         # Single-quoted on the command line: no quote, backtick or backslash inside.
         assert not set("'`\\\"") & set(warning), warning
@@ -940,15 +940,21 @@ def test_the_api_surface_reads_have_a_sequential_fallback():
     surfaces = _section(_read(REFERENCES / "integrations.md"), "### 3. Load Skill API Surfaces", "### 4.")
     [fallback] = [p for p in surfaces.split("\n\n") if p.startswith("**When subagents are unavailable**")]
     for needle in ("one at a time", "compact JSON by the rules above",
-                   "append it to `{run_dir}/skill-summaries.json` at once, then go on to the next",
-                   "The 20% budget below counts subagent replies only."):
+                   "to `{run_dir}/summaries/<skill>.json` at once, then go on to the next",
+                   "Each summary is on disk as its read ends, so a context compaction loses none."):
         assert needle in fallback, needle
-    assert "keep only that JSON" not in fallback
-    [collect] = [p for p in surfaces.split("\n\n") if p.startswith("**Parent collects all JSON summaries.**")]
-    assert "Append the accepted summaries of each batch to `{run_dir}/skill-summaries.json`" in collect
-    assert surfaces.index("**When subagents are unavailable**") < surfaces.index("**Schema validation (parent):**")
+    assert "keep only that JSON" not in fallback and "append it to" not in fallback
+    # #1197: each read writes its own file and the merge helper checks them, so
+    # no paragraph collects replies or checks their keys by hand.
+    assert "**Parent collects all JSON summaries.**" not in surfaces
+    assert "**Schema validation (parent):**" not in surfaces
+    assert surfaces.index("**When subagents are unavailable**") < surfaces.index("**Merge the summaries.**")
+    [budget] = [p for p in surfaces.split("\n\n") if p.startswith("**If `over_budget` is true**")]
+    assert "so the fallback never halts here" in budget
     assert "Do not load full SKILL.md content into parent context" not in surfaces
     assert "never load a full SKILL.md into the parent context" in surfaces
+    [reread] = [p for p in surfaces.split("\n\n") if p.startswith("**Re-read each rejected skill once.**")]
+    assert "Apart from the fallback's reads and these re-reads, never load a full SKILL.md" in reread
 
 
 def test_a_blocked_recommendation_follows_the_named_candidate_requirement():

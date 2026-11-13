@@ -79,6 +79,7 @@ For each non-verified finding across all passes, generate one actionable next st
 - If type incompatibility → "Add a serialization/conversion layer between `{lib_a}` and `{lib_b}` to resolve the type mismatch identified in their API surfaces."
 - If circular dependency (a step 3 cycle row: `cycle` in its `lib_a`, the chain in its `lib_b`) → "`{A → B → C → A}` form a circular integration dependency: each skill's SKILL.md cites the next. Check that the architecture gives the calls between them one direction, or place an adapter between them, before you build on it."
 - If a skill changed mid-run (the rationale "skill modified mid-run") → "`{skill}` changed while this run read it, so `{lib_a}` ↔ `{lib_b}` was not rated: re-run **[VS]**."
+- If a skill's API surface could not be read (the rationale "API surface unreadable") → "`{skill}`'s SKILL.md could not be read into an API summary, even on a second read, so `{lib_a}` ↔ `{lib_b}` was not rated: re-run **[VS]**."
 
 **Plausible integration (from Step 03; neither skill cites the other):**
 - "Neither `{lib_a}`'s nor `{lib_b}`'s SKILL.md names the other, so the pair stays `Plausible` until one of them does. When a page documents how the two work together (a `{lib_a}` guide that uses `{lib_b}`, say), add it to that skill's brief as a `doc_urls` entry with **[BS] Brief Skill**, re-create the skill with **[CS] Create Skill**, then re-run **[VS]**. Until then, prototype the integration before you rely on it."

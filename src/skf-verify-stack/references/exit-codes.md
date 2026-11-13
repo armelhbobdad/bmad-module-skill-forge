@@ -10,7 +10,7 @@ Every hard halt in this workflow exits with a stable code so headless automators
 | 4    | write-failure        | step 1 pre-flight (the run folder or the write probe); steps 1 to 5 (a write of `{outputFile}`); step 6 §1 (the `-latest` copy); step 6 §4b (the emitter refuses the result payload twice) → `write-failed` |
 | 5    | state-conflict       | step 1 §3 (fewer than 2 valid skills found: a stack requires ≥2 → `insufficient-skills`); step 1 §1 (in headless, `--previous-report` is `{outputFile}` or `{outputFileLatest}`, a file this run writes → `previous-report-collision`; an interactive run asks for another path); step 1 §4 (the report created from the template fails the feasibility-report check, phase `init:report-template`) → `schema-violation`; step 5 §1 (the report frontmatter lacks, or holds disagreeing, counts the verdict rollup reads → `schema-violation`); step 6 §1 (the report fails the feasibility-report check → `schema-violation`) |
 | 6    | user-cancelled       | step 1 §1 prompt cancelled; any prompt that accepted `cancel`/`exit`/`:q` |
-| 7    | inventory-unreliable | step 1 §2 (enumerate-stack-skills warnings exceed its failure budget); step 3 §3 (>20% API-surface subagents return malformed JSON); skills SKF did not generate are not counted |
+| 7    | inventory-unreliable | step 1 §2 (enumerate-stack-skills warnings exceed its failure budget); step 3 §3 (API-surface reads failed for more than 20% of the skills a subagent read, each re-read once first; the skills themselves may be fine); skills SKF did not generate are not counted |
 
 ## Result Envelope
 

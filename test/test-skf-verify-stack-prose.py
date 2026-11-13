@@ -213,7 +213,12 @@ def test_the_report_fills_the_templates_one_verdict_table():
 def test_integrations_reads_the_inventory_not_metadata():
     integrations = _read(REFERENCES / "integrations.md")
     surfaces = _section(integrations, "### 3. Load Skill API Surfaces", "### 4.")
-    assert "**From `skill_inventory` (step 1 §2), also take**" in surfaces
+    # #1197: the merge helper joins the inventory's fields to each summary.
+    assert 'merge --dir "{run_dir}/summaries" --inventory "{inventoryFile}"' in surfaces
+    assert "**From `skill_inventory` (step 1 §2), also take**" not in surfaces
+    for field in ("`language`", "`exports_documented`", "`inventory_exports`"):
+        assert field in surfaces, field
+    assert "so the parent never opens it" in surfaces
     assert "From metadata.json (read in parent" not in surfaces
     assert "`confidence_tier`" not in surfaces
     pairs = _section(integrations, "### 4. Cross-Reference Each Integration Pair", "**Cycle detection")

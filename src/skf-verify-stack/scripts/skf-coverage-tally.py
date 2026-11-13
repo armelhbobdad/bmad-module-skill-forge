@@ -30,6 +30,12 @@ integrations (integrations.md §4, persisted in §6)
   ({"cycles": [[...], ...], ...}); each cycle is one more Risky row, so it
   counts toward `pairs_risky` and the frontmatter's `pairsRisky` matches the
   table. Pass the pair rows only: a cycle row in `rows` is counted twice.
+  --pairs names the pairs integrations.md §2 staged ({"pairs": [["<a>",
+  "<b>"], ...]}): the rows must hold one row per staged pair, so a pair whose
+  row was left out is refused, with each staged pair that no row names by its
+  two skills (compared case-insensitively, in either order). Only the counts
+  must match, since a row may name a pair by a technology or an alias instead
+  of its skills.
 
 requirements (requirements.md §3, persisted in §5)
   Counts Fulfilled, Partially Fulfilled and Not Addressed.
@@ -55,6 +61,7 @@ CLI usage:
   uv run skf-coverage-tally.py --json-input '<JSON>'     # explicit flag form
   cat input.json | uv run skf-coverage-tally.py --stdin  # piped input
   uv run skf-coverage-tally.py --kind integrations --cycles cycles.json --stdin < rows.json
+  uv run skf-coverage-tally.py --kind integrations --cycles cycles.json --pairs pairs.json --stdin < rows.json
   uv run skf-coverage-tally.py --kind requirements --stdin < rows.json
   uv run skf-coverage-tally.py --render --stdin < coverage-rows.json
   uv run skf-coverage-tally.py --kind integrations --render --cycles cycles.json --stdin < rows.json
@@ -115,12 +122,13 @@ Errors (stdout, one object): {"error": "<why>", "code": "INVALID_INPUT"}.
 
 Exit codes:
   0  tally (or, with --render, the rows) emitted successfully
-  1  no input, input that is not JSON, or a --cycles file that cannot be read
-     or is not JSON
+  1  no input, input that is not JSON, or a --cycles or --pairs file that
+     cannot be read or is not JSON
   2  input parsed but its schema or semantics are invalid (error object
-     emitted as JSON); argparse usage errors, such as --cycles with another
-     kind or --render with requirements, exit 2 too, with usage on stderr and
-     no JSON
+     emitted as JSON), including a rows file with more or fewer pair rows
+     than --pairs stages; argparse usage errors, such as --cycles or --pairs
+     with another kind or --render with requirements, exit 2 too, with usage
+     on stderr and no JSON
 """
 
 from __future__ import annotations
@@ -277,8 +285,43 @@ def _cycle_count(cycles):
     return len(cycles["cycles"]), None
 
 
-def tally_integrations(inp, cycles=None):
-    """Count the canonical verdict table's rows: the pair rows, and one Risky row per cycle."""
+def _counted(count, noun):
+    """`1 pair`, `2 pairs`."""
+    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+
+
+def _staged_pairs(pairs):
+    """The unique pairs of an integration-pairs.json, as [(a, b), ...], or an error message.
+
+    Each pair is two non-empty names, never one name twice; a pair listed
+    again, in either order, counts once.
+    """
+    if not isinstance(pairs, dict) or not isinstance(pairs.get("pairs"), list):
+        return None, "--pairs must hold the staged pairs, an object with a `pairs` list"
+    staged, seen = [], set()
+    for i, pair in enumerate(pairs["pairs"]):
+        if (
+            not isinstance(pair, list)
+            or len(pair) != 2
+            or not all(isinstance(name, str) and name.strip() for name in pair)
+        ):
+            return None, f"--pairs pairs[{i}] is not two skill names such as [\"a\", \"b\"]: {pair!r}"
+        a, b = (name.strip() for name in pair)
+        key = frozenset((a.lower(), b.lower()))
+        if len(key) == 1:
+            return None, f"--pairs pairs[{i}] pairs {a!r} with itself"
+        if key not in seen:
+            seen.add(key)
+            staged.append((a, b))
+    return staged, None
+
+
+def tally_integrations(inp, cycles=None, pairs=None):
+    """Count the canonical verdict table's rows: the pair rows, and one Risky row per cycle.
+
+    With `pairs` (the staged integration-pairs.json), the rows must hold one
+    row per staged pair.
+    """
     rows, err = _rows(inp)
     if err:
         return make_error(err)
@@ -301,6 +344,18 @@ def tally_integrations(inp, cycles=None):
             return make_error(f"duplicate pair {lib_a!r} / {lib_b!r}: list each integration pair once")
         seen.add(pair)
         counts[row["verdict"]] += 1
+
+    if pairs is not None:
+        staged, err = _staged_pairs(pairs)
+        if err:
+            return make_error(err)
+        if len(staged) != len(rows):
+            unrowed = [f"{a} / {b}" for a, b in staged if frozenset((a.lower(), b.lower())) not in seen]
+            message = (f"the rows hold {_counted(len(rows), 'pair row')} but --pairs stages "
+                       f"{_counted(len(staged), 'pair')}")
+            if unrowed:
+                message += f"; no row names {', '.join(unrowed)} by its two skills"
+            return make_error(message + ": give each staged pair one row")
 
     cycle_count = 0
     if cycles is not None:
@@ -368,13 +423,13 @@ def render_coverage(inp):
     return lines
 
 
-def render_integrations(inp, cycles=None):
+def render_integrations(inp, cycles=None, pairs=None):
     """The canonical verdict table's rows (lib_a, lib_b, verdict, rationale), then one per cycle.
 
-    The rows and --cycles are checked as tally_integrations() checks them;
-    an error object comes back on the first problem.
+    The rows, --cycles and --pairs are checked as tally_integrations() checks
+    them; an error object comes back on the first problem.
     """
-    counted = tally_integrations(inp, cycles)
+    counted = tally_integrations(inp, cycles, pairs)
     if "error" in counted:
         return counted
     lines = []
@@ -401,7 +456,8 @@ def _build_parser():
             "and computes coveragePercentage with Replaced excluded from the "
             "denominator and half-up rounding. --kind integrations (integrations.md "
             "§4, persisted in §6) counts the verdict table's pair rows, plus one "
-            "Risky row per cycle the --cycles file lists. --kind requirements "
+            "Risky row per cycle the --cycles file lists, and with --pairs refuses "
+            "rows that miss a staged pair. --kind requirements "
             "(requirements.md §3, persisted in §5) counts Fulfilled/Partially "
             "Fulfilled/Not Addressed. --render prints the coverage or integration "
             "report rows instead of the counts."
@@ -448,6 +504,15 @@ def _build_parser():
         ),
     )
     parser.add_argument(
+        "--pairs",
+        metavar="FILE",
+        help=(
+            "With --kind integrations: the integration-pairs.json the stage "
+            "staged; the rows must hold one row per staged pair (exit 2 names "
+            "each staged pair no row names)."
+        ),
+    )
+    parser.add_argument(
         "--render",
         action="store_true",
         help=(
@@ -468,14 +533,14 @@ def _resolve_input(args):
     return ""
 
 
-def _read_cycles(path):
-    """The parsed --cycles file, or (None, error) when it cannot be read or is not JSON."""
+def _read_json_file(path, flag):
+    """The parsed --cycles or --pairs file, or (None, error) when it cannot be read or is not JSON."""
     try:
         return json.loads(Path(path).read_text(encoding="utf-8")), None
     except (OSError, UnicodeDecodeError) as exc:
-        return None, f"cannot read the --cycles file {path}: {exc}"
+        return None, f"cannot read the {flag} file {path}: {exc}"
     except json.JSONDecodeError as exc:
-        return None, f"the --cycles file {path} is not JSON: {exc.msg}"
+        return None, f"the {flag} file {path} is not JSON: {exc.msg}"
 
 
 def main(argv=None):
@@ -483,6 +548,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     if args.cycles is not None and args.kind != "integrations":
         parser.error("--cycles applies only with --kind integrations")
+    if args.pairs is not None and args.kind != "integrations":
+        parser.error("--pairs applies only with --kind integrations")
     if args.render and args.kind not in RENDER_KINDS:
         parser.error("--render applies only with --kind coverage or integrations")
     raw = _resolve_input(args)
@@ -501,13 +568,15 @@ def main(argv=None):
         return 1
 
     if args.kind == "integrations":
-        cycles = None
-        if args.cycles is not None:
-            cycles, err = _read_cycles(args.cycles)
-            if err:
-                print(json.dumps(make_error(err), indent=2))
-                return 1
-        result = (render_integrations if args.render else tally_integrations)(data, cycles)
+        files = {}
+        for flag, path in (("--cycles", args.cycles), ("--pairs", args.pairs)):
+            if path is not None:
+                files[flag], err = _read_json_file(path, flag)
+                if err:
+                    print(json.dumps(make_error(err), indent=2))
+                    return 1
+        result = (render_integrations if args.render else tally_integrations)(
+            data, files.get("--cycles"), files.get("--pairs"))
     elif args.kind == "requirements":
         result = tally_requirements(data)
     else:
